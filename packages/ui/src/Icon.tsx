@@ -58,6 +58,10 @@ import {
   WebDesign01Icon,
   // The media viewer's zoom out, beside `add` for zoom in (components/viewer/ViewerStage.tsx).
   MinusSignIcon,
+  // Teams: the team, its records, a message draft, a run's clock, a report, the social accounts a
+  // record names (TeamPages.tsx, ReviewPane.tsx).
+  UserGroupIcon, UserAccountIcon, Mail01Icon, Timer01Icon, AlarmClockIcon, Note01Icon, Analytics01Icon,
+  TiktokIcon, InstagramIcon, YoutubeIcon,
   // Code review: a request's state, a fold of unchanged lines, a link to copy, a check still running.
   GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, UnfoldMoreIcon, Link01Icon, Comment01Icon, ViewOffIcon, DashedLineCircleIcon,
   // A turn saved from the scroll track's card (ScrollTrack.tsx), and the Library's list of them: the
@@ -231,6 +235,12 @@ export const icons = {
   /* The plain ribbon, outlined until the turn is saved and filled once it is (the model picker's star
      does the same). Bookmark01's band across the top would read as a second, ruled-off control. */
   saved: Bookmark02Icon,
+  /* Teams. Review is the tray work arrives in for a yes — the import tray, since that is what it is;
+     a team is its people, and its records are each a person's card. A role itself never wears a glyph:
+     it is its Realmite. */
+  review: InboxDownloadIcon, team: UserGroupIcon, records: UserAccountIcon, mail: Mail01Icon, timer: Timer01Icon,
+  alarm: AlarmClockIcon, note: Note01Icon, report: Analytics01Icon,
+  tiktok: TiktokIcon, instagram: InstagramIcon, youtube: YoutubeIcon,
 } as const;
 /** Hugeicons names plus the vendored provider marks — one namespace, so callers (and `AGENT_META`)
  *  never have to know which pack a glyph came from. */

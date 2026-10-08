@@ -2,7 +2,8 @@ import { Icon } from "@realm/ui";
 import { useMemo, useRef, useState } from "react";
 import { useApp } from "../../state/store";
 import { AnswerHere } from "../../panes/session/AnswerHere";
-import { NEEDS_YOU_LABEL, needsYou, type NeedsYouRow } from "./model";
+import { NEEDS_YOU_LABEL, needsYou, reviewsNeedingYou, type NeedsYouRow, type ReviewNeedsRow } from "./model";
+import { REVIEW_GLYPH } from "./TeamRows";
 import { useSidebarState } from "./use-sidebar-model";
 
 /**
@@ -22,12 +23,19 @@ import { useSidebarState } from "./use-sidebar-model";
 export function NeedsYou() {
   const state = useSidebarState();
   const rows = useMemo(() => needsYou(state), [state]);
-  if (rows.length === 0) return null;
+  const reviews = useMemo(() => reviewsNeedingYou(state), [state]);
+  if (rows.length === 0 && reviews.length === 0) return null;
+  // A session's question first — an agent is stopped on it — then the batches waiting in Review,
+  // then what failed.
+  const asking = rows.filter((r) => r.status === "waiting_permission");
+  const failed = rows.filter((r) => r.status !== "waiting_permission");
   return (
     <section className="sb-needs" aria-label="Needs you">
       <div className="group-label">Needs you</div>
       <div className="item-list">
-        {rows.map((r) => <NeedsYouItem key={r.session.id} row={r} />)}
+        {asking.map((r) => <NeedsYouItem key={r.session.id} row={r} />)}
+        {reviews.map((r) => <ReviewNeedsItem key={r.review.id} row={r} />)}
+        {failed.map((r) => <NeedsYouItem key={r.session.id} row={r} />)}
       </div>
     </section>
   );
@@ -73,5 +81,29 @@ function NeedsYouItem({ row }: { row: NeedsYouRow }) {
         <AnswerHere id={answerId} session={row.session} onLeave={() => { setAnswering(false); disclose.current?.focus(); }} />
       )}
     </>
+  );
+}
+
+/** A batch waiting in a team's Review: opens the space's Review pane on it. */
+function ReviewNeedsItem({ row }: { row: ReviewNeedsRow }) {
+  const spaces = useApp((s) => s.spaces);
+  const profiles = useApp((s) => s.profiles);
+  const activeProfileId = useApp((s) => s.activeProfileId);
+  const openTeamReview = useApp((s) => s.openTeamReview);
+  const run = useApp((s) => s.run);
+  const space = spaces.find((sp) => sp.id === row.spaceId);
+  const profile = space && space.profileId !== activeProfileId ? profiles.find((p) => p.id === space.profileId) : undefined;
+  const where = [space?.name, profile?.name].filter(Boolean).join(" · ");
+  const by = row.review.roleName ? `, from ${row.review.roleName}` : "";
+  return (
+    <div className="item" data-actions="0">
+      <button type="button" className="item-row" aria-label={`${row.review.title}${where ? ` in ${where}` : ""}${by} — waiting for your review`}
+        title={`${row.review.title}${where ? ` — ${where}` : ""}`} onClick={() => run(() => openTeamReview(row.spaceId, row.review.id))}>
+        <Icon name={REVIEW_GLYPH[row.review.kind]} size={16} />
+        <span className="item-title">{row.review.title}</span>
+        {where && <span className="item-where">{where}</span>}
+        <span className="item-trail"><span className="status-dot item-status" data-status="waiting_permission" title="Waiting for your review" /></span>
+      </button>
+    </div>
   );
 }

@@ -19,8 +19,9 @@ export function useSidebarState(): SidebarState {
   const sessionSpace = useApp((s) => s.sessionSpace);
   const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
   const quickChatId = useApp((s) => s.quickChat?.sessionId ?? null);
-  return useMemo(() => ({ spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId }),
-    [spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId]);
+  const teams = useApp((s) => s.teams);
+  return useMemo(() => ({ spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId, teams }),
+    [spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId, teams]);
 }
 
 /** The active profile's spaces, in section order. */

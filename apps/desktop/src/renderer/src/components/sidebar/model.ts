@@ -1,4 +1,4 @@
-import type { Item, Profile, Session, SessionStatus, Space } from "@realm/contracts";
+import type { Item, Profile, Session, SessionStatus, Space, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
 import { isUnread, STATUS_LABEL } from "../../state/attention";
 import { spaceActivity } from "../../state/store";
 import { CHILD_ORIGINS } from "../../panes/session-labels";
@@ -32,6 +32,8 @@ export type SidebarState = {
   sessionUpdatedAt: Readonly<Record<string, number>>;
   /** The quick chat's session, which belongs to no list. */
   quickChatId: string | null;
+  /** Every team space's snapshot (`team.overview`), by space id. Absent for a space with no team. */
+  teams: Readonly<Record<string, TeamSpace>>;
 };
 
 /** How many rows a section shows before "Show more". */
@@ -240,7 +242,58 @@ export function liveItems(s: SidebarState): Item[] {
  * row's, because a rename in the sidebar changes the item and not the session.
  */
 export function listedSessions(s: SidebarState): SessionRow[] {
-  return nestChildren(sessionRows(s)).map((n) => n.row).filter((r) => !r.item.archived);
+  const roles = roleSessionIds(s.teams);
+  return nestChildren(sessionRows(s)).map((n) => n.row).filter((r) => !r.item.archived && !roles.has(r.id));
+}
+
+/* ── Teams ─────────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The sessions a team's roles ran. Work a clock or a role starts is not work the person started
+ * (design.md), so these are not rows of their own: a role's row carries their state, and its page
+ * lists them. Waiting on a permission, one is still in Needs you — a question is never left with
+ * nowhere to be seen.
+ */
+export function roleSessionIds(teams: Readonly<Record<string, TeamSpace>>): Set<string> {
+  const out = new Set<string>();
+  for (const t of Object.values(teams)) for (const id of t.runSessionIds) out.add(id);
+  return out;
+}
+
+/** A team's reviews waiting on a person, oldest first. */
+export function waitingReviews(team: TeamSpace | undefined): TeamReviewSummary[] {
+  return (team?.reviews ?? []).filter((r) => r.state === "waiting").sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** The one mark a role's row wears at its far end — a session row's vocabulary: working, waiting on
+ *  you, or the unread ring when its last run finished unseen. Idle, queued and paused say nothing
+ *  there (the tooltip does). */
+export function roleMark(role: TeamRole): { mark: "running" | "waiting_permission" | "unseen"; label: string } | null {
+  if (role.state === "waiting") return { mark: "waiting_permission", label: "waiting on you" };
+  if (role.state === "working") return { mark: "running", label: "working" };
+  return role.unread ? { mark: "unseen", label: "finished a run you have not read" } : null;
+}
+
+/** The Team row's tally: its roles, counted the way a section counts its sessions. */
+export function teamTally(team: TeamSpace): Tally {
+  const t: Tally = { waiting: 0, running: 0, failed: 0, unread: 0 };
+  for (const r of team.roles) {
+    if (r.state === "waiting") t.waiting++;
+    else if (r.state === "working") t.running++;
+    else if (r.unread) t.unread++;
+  }
+  return t;
+}
+
+/** A review waiting on a person, as a Needs you row. */
+export type ReviewNeedsRow = { review: TeamReviewSummary; spaceId: string; since: number };
+
+/** Every review waiting on a person, in every space this window knows, oldest first. */
+export function reviewsNeedingYou(s: SidebarState): ReviewNeedsRow[] {
+  const known = new Set(s.spaces.map((sp) => sp.id));
+  return Object.values(s.teams).filter((t) => known.has(t.spaceId))
+    .flatMap((t) => waitingReviews(t).map((review) => ({ review, spaceId: t.spaceId, since: review.createdAt })))
+    .sort((a, b) => a.since - b.since);
 }
 
 /** A session item as a row, with the live facts laid over it. `waiting` is `agentsWaiting`'s answer,
@@ -315,6 +368,8 @@ export function spaceTally(s: SidebarState, spaceId: string, rows: readonly Sess
   for (const r of rows) {
     if (r.spaceId === spaceId && r.status !== "waiting_permission" && r.status !== "running" && r.status !== "error" && r.unread) t.unread++;
   }
+  // A batch in Review is waiting on you as surely as a session's question is.
+  t.waiting += waitingReviews(s.teams[spaceId]).length;
   return t;
 }
 

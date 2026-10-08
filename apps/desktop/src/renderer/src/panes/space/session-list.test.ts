@@ -36,7 +36,7 @@ function seed(rows: Seed[]): SidebarState {
   return {
     spaces: [space("v", "p1", "Versed"), space("o", "p1", "Other")], profiles: [profile("p1", "Work")],
     activeProfileId: "p1", activeSpaceId: "v", items, allItems: items.filter((i) => !i.archived),
-    sessions: {}, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId: null,
+    sessions: {}, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId: null, teams: {},
   };
 }
 

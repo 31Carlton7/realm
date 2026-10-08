@@ -563,6 +563,14 @@ export function App() {
     // A schedule was created, edited, deleted or fired. Held-only like ships: the payload carries no
     // row (a schedule changes rarely, and a deletion has no row to carry), so a page already showing
     // this space re-lists and everyone else does nothing.
+    // A team moved: a role woke or settled, work arrived in Review, a decision was made. The space's
+    // snapshot is re-read (the sidebar's Review row and Team fold read it) along with whatever of its
+    // detail is on screen. Read once at start too, for every team space.
+    const offTeam = rpc().on("team.changed", ({ spaceId }) => {
+      const st = store.getState();
+      st.run(() => st.refreshTeam(spaceId));
+    });
+    { const st = store.getState(); st.run(() => Promise.all([st.refreshTeams(), st.hydrateTeamFolds()])); }
     const offSched = rpc().on("schedules.changed", ({ spaceId }) => {
       const st = store.getState();
       if (st.schedules[spaceId]) st.run(() => st.refreshSchedules(spaceId));
@@ -730,7 +738,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);
