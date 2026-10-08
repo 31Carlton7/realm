@@ -364,7 +364,9 @@ export class DelegationEngine {
       if (lastStatus === "idle" && finalText !== null) return { outcome: "done", finalText, lastStatus };
       if (lastStatus === "error" || lastStatus === "ended") return { outcome: "failed", finalText, lastStatus };
       if (lastStatus === "waiting_permission") pausedSince ??= Date.now();
-      else if (pausedSince !== null) { deadline += Date.now() - pausedSince; pausedSince = null; }
+      else if (pausedSince !== null) { const span = Date.now() - pausedSince; deadline += span; run.pausedMs = (run.pausedMs ?? 0) + span; pausedSince = null; }
+      // Kept on the run as well, so the lead's Agents tab can say how much of the budget is spent.
+      run.pausedSince = pausedSince;
       if (pausedSince === null && Date.now() >= deadline) {
         void this.d.sessions.interrupt(childId).catch(() => { /* best effort — it may have just ended */ });
         return { outcome: "timeout", finalText, lastStatus };
@@ -399,6 +401,10 @@ export type ActiveRun = {
   startedAt: number;
   interruptOnCancel: boolean;
   detached: boolean;
+  /** The time the child has spent waiting on the user and is not charged for, as `drain` has seen
+   *  it: the closed spans, and the open one's start while it is still waiting. */
+  pausedMs?: number;
+  pausedSince?: number | null;
   settled: Promise<SettledRun> | null;
   done: SettledRun | null;
 };
@@ -413,5 +419,12 @@ export type SettledAsk = {
   outcome: "answered" | "replied" | "cancelled" | "timeout" | "failed" | "gone";
   answer: string | null; lastStatus: string | null;
 };
+
+/** How much of its budget a run has spent by `now`: the time since it began, less the time it spent
+ *  waiting on the user. */
+export function workingMs(run: ActiveRun, now: number): number {
+  const open = run.pausedSince != null ? now - run.pausedSince : 0;
+  return Math.max(0, now - run.startedAt - (run.pausedMs ?? 0) - open);
+}
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

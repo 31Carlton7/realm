@@ -193,6 +193,19 @@ describe("store — the desktop (OS) hop", () => {
     expect(navEntry(store.getState().paneHistory, store.getState().focusedLeafId!)).toEqual({ itemId: pane.id, view: null });
   });
 
+  it("a sub-agent's permission toast lands on its lead, in the Agents tab, on that sub-agent's card", async () => {
+    // THE MUTANT: land on the child's own pane — the request is answered from its lead's Agents tab,
+    // the same place the lead's row in the sidebar sends you.
+    const { store } = await boot({
+      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "Lead" })], s2: [] },
+      sessions: [session("se1", "s1"), session("se3", "s1", { status: "waiting_permission", dispatchedBy: { kind: "agent_run", sessionId: "se1" } })],
+      notifications: [notification("p1", { category: "permission", sessionId: "se3", spaceId: "s1", refId: "req1", actedAt: null })],
+    });
+    await store.getState().refreshAllSessions();
+    await store.getState().activateDesktopNotification("p1");
+    expect(store.getState().agentsAsk["se1"]).toMatchObject({ childId: "se3" });
+  });
+
   it("a row with no session lands on the page that owns it — an MCP server on Connections", async () => {
     const { api, store } = await boot({
       notifications: [notification("h1", { category: "mcp_health", sessionId: null, refId: "srv1", title: "srv1 stopped answering", actedAt: null })],

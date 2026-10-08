@@ -43,7 +43,8 @@
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
-.edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where {
+.edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
+.subagent-where[data-branch] {
   letter-spacing: normal;
 }
 
@@ -3929,27 +3930,57 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Each sub-agent is several lines — model, task, what it is doing or what it said — so the list is
    one of cards with air between them, not rows under a rule (design.md). */
 .subagents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.subagent-card { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; padding: 10px 12px 11px; text-align: left;
+/* A card is the sub-agent; its summary is the disclosure, and what opens under it — the request to
+   answer, the brief, what can be done — is part of the same card rather than a panel of its own. */
+.subagent-card { display: flex; flex-direction: column; min-width: 0;
   border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); color: var(--ink);
-  transition: background-color var(--dur-hover) ease, box-shadow var(--dur-slow) ease; }
-/* The fill arrives at once and only its release fades — design.md's hover rule. */
-.subagent-card:hover { background: var(--rl-hover); transition: box-shadow var(--dur-slow) ease; }
-.subagent-card:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
+  transition: box-shadow var(--dur-slow) ease; }
+.subagent-summary { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; padding: 10px 12px 11px; text-align: left;
+  border: none; border-radius: var(--r-panel); background: transparent; color: inherit; font: inherit; }
+.subagent-summary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
 /* Asked for from a transcript line: lit long enough to be found, then let go. */
-.subagent[data-flash] .subagent-card { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 60%, transparent); }
-.subagent-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.subagent[data-flash] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 60%, transparent); }
+.subagent-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.subagent-caret { flex: none; display: inline-flex; margin-left: -2px; color: var(--ink-3); transition: transform var(--dur-hover) ease; }
+.subagent-caret[data-open] { transform: rotate(90deg); }
 .subagent-mark { flex: none; }
-.subagent-model { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-label); }
-.subagent-harness { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-3); }
+/* The title is the unbounded item and gives way first; the state and its time keep their width. */
+.subagent-task { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 18px; font-weight: var(--fw-label); color: var(--ink); }
 .subagent-state { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
 .subagent-state > svg { color: var(--ink-3); }
 .subagent[data-state="failed"] .subagent-state > svg, .subagent[data-state="timeout"] .subagent-state > svg { color: var(--rl-danger); }
+.subagent[data-state="waiting"] .subagent-state { color: var(--ink); }
 .subagent-time { color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.subagent-task { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 13px; line-height: 18px; color: var(--ink); }
-.subagent-doing { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-3); }
+/* What it runs on, where and how: one line of facts under the title, each giving way to the next. */
+.subagent-facts { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 16px; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.subagent-model { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-harness, .subagent-where, .subagent-mode, .subagent-budget { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
+.subagent-where[data-branch] { font-family: var(--font-mono); }
+.subagent-mode { display: inline-flex; align-items: center; gap: 4px; }
+/* The facts are separate things, so they read as a list rather than one run-on phrase. */
+.subagent-facts > .subagent-model ~ span:not(.subagent-budget)::before { content: "·"; margin-right: 6px; color: var(--ink-3); }
+.subagent-mode > svg { flex: none; }
+.subagent-budget { flex-shrink: 1; margin-left: auto; font-variant-numeric: tabular-nums; }
+.subagent-doing { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 16px; font-size: 12px; line-height: 16px; color: var(--ink-3); }
 .subagent-doing > svg { flex: none; }
 .subagent-doing-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.subagent-report { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+.subagent-report, .subagent-note { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; padding-left: 16px; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+/* The agents a child runs inside its own harness, under it. */
+.subagent-inner { list-style: none; margin: -4px 0 0; padding: 0 12px 8px 28px; display: flex; flex-direction: column; gap: 2px; }
+.subagent-inner-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 26px; padding: 0 6px; border: none; border-radius: var(--r-ctl);
+  background: transparent; color: var(--ink-2); font: inherit; font-size: 12px; text-align: left; transition: background-color var(--dur-hover) ease; }
+.subagent-inner-row:hover { background: var(--rl-hover); transition: none; }
+.subagent-inner-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-inner-where { flex: none; color: var(--ink-3); }
+.subagent-nested { padding: 0 8px 8px 20px; }
+.subagent-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 10px 28px; }
+.subagent-goal { margin: 0; max-height: 160px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; font-size: 13px; line-height: 18px; color: var(--ink-2); --fade-h: 16px; --fade-top-h: 16px; }
+.subagent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: -7px; }
+.subagent-message { display: flex; align-items: center; gap: 6px; }
+.subagent-message input { flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 9px; border: none; border-radius: var(--r-ctl); background: var(--field); color: var(--ink); font: inherit; font-size: 13px; outline: none; }
+.subagent-message input:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.subagent-message input::placeholder { color: var(--ink-3); }
+.subagents-since { margin-left: auto; font-weight: var(--fw-medium); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
 .subagents-build { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 8px 16px 16px; }
 .subagents-build-head { display: flex; flex-direction: column; gap: 8px; }
@@ -5345,6 +5376,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
   transition: background-color var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .agents-chip > svg { flex: none; color: var(--rl-accent); }
+.agents-chip-needs { display: inline-flex; align-items: center; gap: 6px; }
+.agents-chip-sep { color: var(--rl-text-faint); }
 .agents-chip:hover, .agents-chip[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 .agents-pop { width: 340px; max-width: calc(100vw - 24px); }
 .agents-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 4px;
@@ -6195,8 +6228,8 @@ select { appearance: none; padding-right: 22px;
   .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
   .subagent-body, .subagent-prose-scroll,
-  /* a session's Agents tab: its list of sub-agents, and the composer's model chooser */
-  .subagents-scroll, .subagents-chooser-list,
+  /* a session's Agents tab: its list of sub-agents, a card's brief, and the composer's model chooser */
+  .subagents-scroll, .subagent-goal, .subagents-chooser-list,
   /* the Google Fonts browser's result list */
   .font-results,
   /* a blank browser tab's tools, in a pane short enough to need it, and the page a failed load leaves */

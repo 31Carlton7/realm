@@ -322,6 +322,13 @@ const MODE_LABEL: Record<SessionMode, string> = { build: "Build", plan: "Plan", 
 /** `search` for Ask, not the session bubble: the mode is reading and searching, and the bubble is
  *  already what a session row is. */
 const MODE_ICON: Record<SessionMode, IconName> = { build: "tool", plan: "plan", ask: "search" };
+/** A session's mode as the prompter's control draws it: the mode's name and mark for Plan and Ask,
+ *  the permission's for Build — so a Full access sub-agent reads the same in its lead's Agents tab
+ *  as in its own prompter. */
+export function permissionMark(permissionMode: string): { icon: IconName; label: string } {
+  const mode = sessionModeOf(permissionMode);
+  return mode === "build" ? { icon: permissionIcon(permissionMode), label: permissionLabel(permissionMode) } : { icon: MODE_ICON[mode], label: MODE_LABEL[mode] };
+}
 /** A mode's glyph in the "+" menu, in the tone the card wears for it — Plan's and Ask's tints are the
  *  mode's ambient signal, and the row naming the mode is the one place it should match them. */
 const ModeMark = ({ mode }: { mode: SessionMode }) => <span className="mode-mark" data-mode={mode}><Icon name={MODE_ICON[mode]} size={16} /></span>;

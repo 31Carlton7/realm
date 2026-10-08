@@ -119,7 +119,20 @@ export type DelegatedRun = z.infer<typeof DelegatedRunSchema>;
  * something true to say about a child that finished yesterday. While the tab is up, the live event
  * stream every window already receives keeps both current.
  */
-export const DelegatedChildSchema = z.object({
+export type DelegatedChild = {
+  session: z.infer<typeof SessionSchema>;
+  goal: string | null;
+  startedAt: number;
+  settledAt: number | null;
+  outcome: DelegationOutcome | null;
+  report: string | null;
+  activity: z.infer<typeof SessionEventSchema> | null;
+  note?: string;
+  budgetMs?: number | null;
+  working?: { ms: number; at: number } | null;
+  children?: DelegatedChild[];
+};
+export const DelegatedChildSchema: z.ZodType<DelegatedChild, z.ZodTypeDef, unknown> = z.lazy(() => z.object({
   session: SessionSchema,
   goal: z.string().nullable(),
   startedAt: z.number().int(),
@@ -127,8 +140,18 @@ export const DelegatedChildSchema = z.object({
   outcome: DelegationOutcomeSchema.nullable(),
   report: z.string().nullable(),
   activity: SessionEventSchema.nullable(),
-});
-export type DelegatedChild = z.infer<typeof DelegatedChildSchema>;
+  /** Why Realm stopped this child itself — "Stopped when the session that started it went to Plan…".
+   *  Absent when nobody but the user stopped it. */
+  note: z.string().optional(),
+  /** The budget of working time it was given; null on a record from before budgets were kept, and
+   *  for a child whose tool keeps no ledger. */
+  budgetMs: z.number().nullable().optional(),
+  /** How much of that budget it has spent, as of `at` — the time waiting on the user is not charged.
+   *  Settled, it is the final figure. */
+  working: z.object({ ms: z.number(), at: z.number() }).nullable().optional(),
+  /** Sub-agents of this one — only on records from before a sub-agent could no longer start its own. */
+  children: z.array(DelegatedChildSchema).optional(),
+}));
 
 /**
  * A model the Agents tab's composer offers: one per MODEL, with the harness a delegation to it would

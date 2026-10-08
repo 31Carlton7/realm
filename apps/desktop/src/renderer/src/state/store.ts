@@ -31,6 +31,7 @@ import { closeIntent } from "./close-intent";
 import { panelPlace, splitRefusal } from "./view-room";
 import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
+import { CHILD_ORIGINS } from "../panes/session-labels";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
   isOverridden, parseFontPref, type FontPref,
@@ -7477,6 +7478,12 @@ await get().refreshCustomThemes().catch(() => {});
         if (n.readAt === null) await get().markNotificationsRead([n.id]);
         // A row that names a session is about that session's pane; `permission` goes through
         // jumpToPermission because putting the pane in the focused leaf is what pops its card open.
+        // A sub-agent's request is answered on its card in its lead's Agents tab, where the sidebar's
+        // count on the lead's row also goes. A lead this window does not hold leaves the child's own pane.
+        const child = n.category === "permission" && n.sessionId !== null ? get().sessions[n.sessionId] ?? get().allSessions[n.sessionId] : undefined;
+        const leadId = child?.dispatchedBy && CHILD_ORIGINS.has(child.dispatchedBy.kind) ? child.dispatchedBy.sessionId : null;
+        const lead = leadId ? get().sessions[leadId] ?? get().allSessions[leadId] : undefined;
+        if (lead && await get().revealSession(lead.id, lead.spaceId)) { await get().openAgentsTab(lead.id, { childId: child!.id }); return; }
         const landed = n.sessionId !== null && (n.category === "permission"
           ? await get().jumpToPermission(n.sessionId)
           : await get().revealSession(n.sessionId, n.spaceId));

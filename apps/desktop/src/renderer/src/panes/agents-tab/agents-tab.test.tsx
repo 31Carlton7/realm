@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { findSidePane, sessionEvent, type DelegatedChild } from "@realm/contracts";
+import { findSidePane, sessionEvent, type DelegatedChild, type SessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore, type DelegableModels } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { reduceAll } from "../session/transcript-model";
@@ -31,12 +31,15 @@ const CATALOG: DelegableModels = { own: { kind: "claude", label: "Claude Opus 5.
   { key: "5.4-gpt-nano-openai", label: "openai/gpt-5.4-nano", kind: "acp:fx", id: "openai/gpt-5.4-nano", ready: true },
 ] };
 
-async function mount(over: { lead?: typeof LEAD; children?: DelegatedChild[]; status?: Record<string, "idle" | "running" | "waiting_permission">; idle?: boolean } = {}) {
+async function mount(over: { lead?: typeof LEAD; children?: DelegatedChild[]; status?: Record<string, "idle" | "running" | "waiting_permission">; idle?: boolean;
+  runs?: string[]; transcripts?: Record<string, SessionEvent[]> } = {}) {
   const lead = over.lead ?? LEAD;
-  const api = fakeApi({ items: ITEMS, sessions: [lead, LUNA, FABLE], delegatedChildren: { se1: over.children ?? CHILDREN }, delegableModels: CATALOG,
-    delegatedRuns: over.idle ? {} : { se1: [{ sessionId: "se2", startedAt: 0, detached: true, owned: true }] } });
+  const api = fakeApi({ items: ITEMS, sessions: [lead, LUNA, FABLE, ...(over.children ?? []).map((c) => c.session).filter((x) => ![lead.id, "se2", "se3"].includes(x.id))],
+    delegatedChildren: { se1: over.children ?? CHILDREN }, delegableModels: CATALOG,
+    delegatedRuns: over.idle ? {} : { se1: (over.runs ?? ["se2"]).map((id) => ({ sessionId: id, startedAt: 0, detached: true, owned: true })) } });
   const store = createAppStore(api); await store.getState().boot();
   store.setState({
+    transcripts: Object.fromEntries(Object.entries(over.transcripts ?? {}).map(([id, evs]) => [id, { lastSeq: evs.length, t: reduceAll(evs) }])),
     sessionStatus: { se2: "running", se3: "idle", ...over.status },
     agentProbe: [{ kind: "codex", available: true, version: "x", loggedIn: true, reason: null, models: [{ id: "gpt-6-luna", label: "GPT-6 Luna" }] }],
   });
@@ -67,6 +70,7 @@ describe("the list of a session's sub-agents", () => {
   it("opens a sub-agent's transcript as a tab of its lead's side pane", async () => {
     const { store } = await mount();
     fireEvent.click(await card(/^Write the tests\./));
+    fireEvent.click(screen.getByRole("button", { name: "Open transcript" }));
     // The same route as the running-agents control's preview: beside the lead, never instead of it.
     await waitFor(() => expect(findSidePane(store.getState().layout!, "i9")?.tabs).toContain("i8"));
   });
@@ -223,5 +227,121 @@ describe("Build with", () => {
     expect(leave).toBeGreaterThan(deny);
     expect(brief).toBeGreaterThan(leave);
     expect(store.getState().sessions["se1"]!.permissionMode).toBe("default");
+  });
+});
+
+/** A sub-agent waiting on a Bash permission, as its own transcript holds it. */
+const ASKING = session("se4", "s1", { title: "Dark-mode toggle", agentKind: "codex", model: "gpt-6-luna", status: "waiting_permission", permissionMode: "bypassPermissions",
+  dispatchedBy: { sessionId: "se1", kind: "agent_run" } });
+const ASK_EVENTS: SessionEvent[] = [sessionEvent("permission_request", { requestId: "r9", toolName: "Bash", input: { command: "pnpm vitest run settings" }, title: "Allow Bash?", suggestions: [] })];
+const asking = (over: Partial<DelegatedChild> = {}): DelegatedChild => ({ session: ASKING, goal: "You are a builder.\nAdd the dark-mode toggle.", startedAt: NOW - 30_000,
+  settledAt: null, outcome: null, report: null, activity: null, ...over });
+
+describe("the orchestrator", () => {
+  it("a waiting card is open, says who asks, and Allow answers the CHILD's request", async () => {
+    // THE MUTANT: answer with the lead's id — the request sits on the child's session, not the lead's.
+    const { api } = await mount({ children: [...CHILDREN, asking()], runs: ["se2", "se4"], status: { se4: "waiting_permission" }, transcripts: { se4: ASK_EVENTS } });
+    const head = await card(/^Dark-mode toggle\./);
+    expect(head).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("group", { name: "Waiting in Dark-mode toggle" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    await waitFor(() => expect(api.calls).toContain("respondPermission:se4:r9:allow"));
+  });
+
+  it("Escape folds the card and answers nothing", async () => {
+    // THE MUTANT: let the card take Escape as Deny, as it does in the transcript.
+    const { api } = await mount({ children: [asking()], runs: ["se4"], status: { se4: "waiting_permission" }, transcripts: { se4: ASK_EVENTS } });
+    const head = await card(/^Dark-mode toggle\./);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Allow" }), { key: "Escape" });
+    await waitFor(() => expect(head).toHaveAttribute("aria-expanded", "false"));
+    expect(api.calls.some((c) => c.startsWith("respondPermission:"))).toBe(false);
+  });
+
+  it("orders what needs you first, then what is working, then what has ended", async () => {
+    // THE MUTANT: start order only — the waiting card, started last, sits at the bottom.
+    await mount({ children: [...CHILDREN, asking()], runs: ["se2", "se4"], status: { se4: "waiting_permission" }, transcripts: { se4: ASK_EVENTS } });
+    await card(/^Dark-mode toggle\./);
+    const order = [...document.querySelectorAll(".subagents-list > li.subagent .subagent-task")].map((n) => n.textContent);
+    expect(order).toEqual(["Dark-mode toggle", "Write the tests", "Write the migration"]);
+    expect(screen.getByRole("heading", { name: /Sub-agents/ })).toHaveTextContent("1 needs you · 1 working · 1 done");
+  });
+
+  it("Stop interrupts the child, and is not offered once it has ended", async () => {
+    // THE MUTANT: offer Stop on a settled child — a button whose only effect is nothing.
+    const { api } = await mount();
+    fireEvent.click(await card(/^Write the tests\./));
+    fireEvent.click(screen.getByRole("button", { name: "Stop Write the tests" }));
+    await waitFor(() => expect(api.calls).toContain("interrupt:se2"));
+    fireEvent.click(await card(/^Write the migration\./));
+    expect(screen.queryByRole("button", { name: "Stop Write the migration" })).toBeNull();
+  });
+
+  it("Message goes to the child; the placeholder warns that the lead may not see it only once the run has ended", async () => {
+    // THE MUTANTS: send to the lead; say the warning always, or never.
+    const { api } = await mount();
+    fireEvent.click(await card(/^Write the tests\./));
+    fireEvent.click(screen.getByRole("button", { name: "Message" }));
+    const field = screen.getByRole("textbox", { name: "Message Write the tests" });
+    expect(field.getAttribute("placeholder")).toBe("Goes to this agent only.");
+    fireEvent.change(field, { target: { value: "Use the existing toggle." } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(api.sent).toContainEqual(expect.objectContaining({ id: "se2", text: "Use the existing toggle." })));
+    fireEvent.click(await card(/^Write the migration\./));
+    fireEvent.click(within(document.getElementById("subagent-detail-se3")!).getByRole("button", { name: "Message" }));
+    expect(screen.getByRole("textbox", { name: "Message Write the migration" }).getAttribute("placeholder"))
+      .toBe("Goes to this agent only. If its run was already collected, Parent will not see the reply.");
+  });
+
+  it("says the budget as working time spent of the whole, only where there is a budget", async () => {
+    // THE MUTANT: "of —" on a child whose record kept no budget.
+    const { container } = await mount({ children: [
+      { ...CHILDREN[0]!, budgetMs: 660_000, working: { ms: 161_000, at: Date.now() } },
+      CHILDREN[1]!,
+    ] });
+    await card(/^Write the tests\./);
+    const budgets = [...container.querySelectorAll(".subagent-budget")].map((n) => n.textContent);
+    expect(budgets).toHaveLength(1);
+    expect(budgets[0]).toMatch(/^2m 4\ds of 11m 0s$/);
+  });
+
+  it("says where each child works and in which mode — an inherited Full access is visible", async () => {
+    const { store, container } = await mount({ children: [asking()], runs: ["se4"], status: { se4: "waiting_permission" }, transcripts: { se4: ASK_EVENTS } });
+    store.setState({ environments: { "01ARZ3NDEKTSV4RRFFQ69G5FAV": { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId: "s1", path: "/r/wt/dark", branch: "realm/dark-mode-toggle",
+      kind: "worktree", portBlockStart: null, createdAt: 0, updatedAt: 0 } } });
+    await card(/^Dark-mode toggle\./);
+    await waitFor(() => expect(container.querySelector(".subagent-where")).toHaveTextContent("realm/dark-mode-toggle"));
+    expect(container.querySelector(".subagent-mode")).toHaveTextContent("Full access");
+  });
+
+  it("nests the agents a child runs inside its harness under that child, not beside it", async () => {
+    // THE MUTANT: list them at the top level, as if the lead had started them.
+    const task = sessionEvent("tool_call", { toolUseId: "tk1", name: "Task", input: { description: "Survey fixtures" }, parentToolUseId: null });
+    const { container } = await mount({ transcripts: { se2: [task] } });
+    await card(/^Write the tests\./);
+    const nested = await screen.findByRole("button", { name: "Watch Survey fixtures, in the agent" });
+    expect(nested.closest("li.subagent")).toHaveAttribute("data-state", "working");
+    expect(within(nested.closest("li.subagent") as HTMLElement).getByText("Write the tests")).toBeInTheDocument();
+    expect(container.querySelectorAll(".subagents-list > li.subagent")).toHaveLength(2);
+  });
+
+  it("nests a sub-agent's own sub-agents, from before a sub-agent could no longer start any", async () => {
+    const grand = session("se5", "s1", { title: "Agent: Check the copy", dispatchedBy: { sessionId: "se3", kind: "agent_run" } });
+    await mount({ children: [CHILDREN[0]!, { ...CHILDREN[1]!, children: [{ session: grand, goal: "Check the copy", startedAt: NOW - 200_000, settledAt: NOW - 150_000,
+      outcome: "done", report: "Fine.", activity: null }] }] });
+    const g = await card(/^Check the copy\./);
+    expect(g.closest("li.subagent")).toHaveAttribute("data-nested");
+    expect(g.closest("li.subagent")!.parentElement!.closest("li.subagent")).toHaveTextContent("Write the migration");
+  });
+
+  it("titles a card by the child's session title, and not by an old 'Agent: …' clip of its goal", async () => {
+    await mount({ children: [asking()], runs: ["se4"], status: { se4: "waiting_permission" }, transcripts: { se4: ASK_EVENTS } });
+    // The goal opens with boilerplate; the session's own title is the task's name.
+    expect(await card(/^Dark-mode toggle\./)).toBeInTheDocument();
+  });
+
+  it("says why Realm stopped a child itself", async () => {
+    await mount({ children: [{ ...CHILDREN[1]!, outcome: "stopped", report: null,
+      note: "Stopped when the session that started it went to Plan: Realm cannot hold Cursor to a read-only mode." }] });
+    expect(await card(/^Write the migration\. .*Stopped/)).toHaveTextContent("Realm cannot hold Cursor to a read-only mode.");
   });
 });

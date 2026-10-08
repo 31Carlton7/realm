@@ -54,6 +54,7 @@ export function SessionRowView({ row, where, nested = false, onChanged }: { row:
   const layout = useApp((s) => s.layout);
   const focused = useApp((s) => (s.layout ? itemIdOfLeaf(s.layout, s.focusedLeafId) === row.item.id : false));
   const revealSession = useApp((s) => s.revealSession);
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
   const openItemBeside = useApp((s) => s.openItemBeside);
   const run = useApp((s) => s.run);
   const archive = useArchiveAnywhere(onChanged);
@@ -61,7 +62,14 @@ export function SessionRowView({ row, where, nested = false, onChanged }: { row:
   const [dragging, setDragging] = useState(false);
   const { onContextMenu, element } = useItemContextMenu(() => setRenaming(true), { onChanged });
   const mark = sessionMark(row.status, row.unread);
-  const named = `${row.title}${row.scheduled ? ", from a schedule" : ""}${where ? ` in ${where}` : ""}`;
+  const agents = row.agentsWaiting > 0 ? `${row.agentsWaiting} sub-agent${row.agentsWaiting === 1 ? " needs" : "s need"} you` : "";
+  const named = `${row.title}${row.scheduled ? ", from a schedule" : ""}${where ? ` in ${where}` : ""}${agents ? `, ${agents}` : ""}`;
+  // A lead with sub-agents waiting opens on the one that has waited longest, in its Agents tab, where
+  // the request is answered.
+  const open = async () => {
+    await revealSession(row.id, row.spaceId);
+    if (row.firstWaiting) await openAgentsTab(row.id, { childId: row.firstWaiting });
+  };
   return (
     // Every space of the profile is loaded, so any row can be dragged into the view or lit as its focus.
     <div className="item sb-row" data-nested={nested || undefined} data-active={focused || undefined} data-unread={mark?.mark === "unseen" || undefined} data-actions="1"
@@ -71,13 +79,16 @@ export function SessionRowView({ row, where, nested = false, onChanged }: { row:
       {renaming ? <RenameInput item={row.item} onDone={() => { setRenaming(false); onChanged(); }} /> : (
         <>
           <button type="button" className="item-row" aria-label={mark ? `${named} — ${mark.label}` : named}
-            onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : revealSession(row.id, row.spaceId)))}>
+            onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : open()))}>
             {nested
               ? <span className="sb-gutter" title={row.scheduled ? "Started by a schedule" : undefined}>{row.scheduled && <Icon name="clock" size={12} />}</span>
               : <Icon name={row.scheduled ? "clock" : "session"} size={16} />}
             <span className="item-title">{row.title}</span>
             {where && <span className="item-where">{where}</span>}
             <span className="item-trail">
+              {row.agentsWaiting > 0 && (
+                <span className="item-tally" title={agents}><span className="item-count">{row.agentsWaiting}</span><span className="status-dot item-status" data-status="waiting_permission" /></span>
+              )}
               {mark && <span className="status-dot item-status" data-status={mark.mark} title={mark.mark === "unseen" ? "New since you were here" : mark.label} />}
               {/* The pane glyph W1 draws, for a session on screen in a split: which side it is. */}
               {layout && <ItemGlyph layout={layout} itemId={row.item.id} />}
