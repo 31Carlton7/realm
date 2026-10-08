@@ -344,8 +344,8 @@ export function defaultAdapters(): AdapterRegistry {
     // hands over a plan also says "plan", and the first entry to match is the one that plays.
     on: "Build this with", emit: [
       { kind: "text", paceMs: 40, text: "I'll split this: the toggle and its tests go to GPT-6 Luna, and the migration to Fable." },
-      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Build the dark-mode toggle in Settings ▸ App, with its tests", constraints: { model: "GPT-6 Luna" } } },
-      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Write the migration that stores the theme choice", constraints: { model: "Fable" } } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { title: "Dark-mode toggle", goal: "Build the dark-mode toggle in Settings ▸ App, with its tests", constraints: { model: "GPT-6 Luna" } } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { title: "Theme migration", goal: "Write the migration that stores the theme choice", constraints: { model: "Fable" } } },
       { kind: "call", tool: "realm-agent__agent_wait", input: {} },
       { kind: "text", paceMs: 30, text: "Both sub-agents are done. GPT-6 Luna added the toggle and four tests for it; Fable wrote the migration and tested it against the previous schema. Everything passes." },
     ],
@@ -413,6 +413,16 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "tool", name: "Edit", input: { file_path: "apps/desktop/src/renderer/src/panes/settings/AppSettings.tsx", old_string: "Colour scheme", new_string: "Theme" }, result: "Edited" },
       { kind: "text", text: "Renamed the row to Theme and shortened its note." },
     ],
+  }, {
+    // A lead that names nothing, opening its goal with a role the way leads do: the child is named
+    // by its task read out of the goal (`taskName`), never by the role.
+    on: "Hand it over unnamed", emit: [
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "You are implementing a feature in the settings page. Add the font-size picker; keep it beside the theme in Settings ▸ App." } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", text: "The font-size picker is in." },
+    ],
+  }, {
+    on: "Add the font-size picker", emit: [{ kind: "text", paceMs: 40, text: "Added the font-size picker beside the theme." }],
   }, {
     // An app mention gives the session computer use for that app alone. The scripted agent reaches
     // for it as a real one would — a real call through its gateway, so the scoped grant is the
@@ -1157,6 +1167,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // A model named by a delegating agent resolves against the same probe rows the model picker
     // draws, so "GPT-6 Luna" in a tool call and "GPT-6 Luna" in the picker are the same model.
     models: { known: () => sessions.probeCached(), refresh: () => sessions.probe(), kinds: Object.keys(adapterRegistry) as AgentKind[] } });
+  // Children named before they were named by their task wear "Agent: <first line>"; renamed once,
+  // here, wherever that string is still exactly what both rows say.
+  agentRuns.retitleLegacyChildren();
+  browserAgents.retitleLegacyChildren();
   // The reviewer recipe (W3): same engine, read-only cap, review-origin children. `otherDelegation`
   // fans across BOTH sibling registries — no delegated child of any kind may mint a reviewer.
   const agentRunsFinal = agentRuns, browserAgentsFinal = browserAgents;

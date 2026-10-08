@@ -61,19 +61,22 @@ export function modelLabel(kind: AgentKind, id: string | null, probe: readonly {
   return named?.label.replace(/\[[^\]]*\]\s*$/, "") ?? id;
 }
 
-/** The task's first line — what the row is titled with. The rest of the brief is a click away. */
-export function taskTitle(goal: string | null, fallback: string): string {
+/** What a sub-agent's row is titled with: its own title — the name its lead gave the task, or the
+ *  one Realm read out of the goal — and the goal's first line only for a child with none. The rest
+ *  of the brief is a click away. */
+export function taskTitle(title: string | null | undefined, goal: string | null, fallback: string): string {
+  if (title && title.trim() !== "") return title.trim();
   const line = (goal ?? "").split("\n").map((l) => l.trim()).find((l) => l !== "");
   return line ?? fallback;
 }
 
-/** What a sub-agent's card is titled: its session's title — the name it was given, or one a person
- *  renamed it to — unless that is still the "Agent: <first line of the goal>" an older build wrote,
- *  which is boilerplate cut at forty characters; the goal's first line says the same thing whole. */
+/** What a sub-agent's card is titled: `taskTitle` over its session's title — unless that is still the
+ *  "Agent: <first line of the goal>" an older build wrote and the boot repair could not claim (a row
+ *  renamed in one place but not the other), which is boilerplate cut at forty characters; the goal's
+ *  first line says the same thing whole. */
 export function childTitle(child: Pick<DelegatedChild, "goal" | "session">): string {
-  const title = child.session.title.trim();
-  if (title && !/^(Agent|Browser agent): /.test(title)) return title;
-  return taskTitle(child.goal, title || "Sub-agent");
+  const title = child.session.title;
+  return taskTitle(/^(Agent|Browser agent): /.test(title.trim()) ? null : title, child.goal, "Sub-agent");
 }
 
 /** Where a state sorts in the Agents tab: what waits on you, then what is working, then what has

@@ -4,13 +4,14 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { DelegationEngine } from "../delegation/engine";
 import { childPermissionMode } from "../delegation/dispatch";
 import type { AgentRunService } from "../delegation/agent-run";
-import { AGENT_RUN_FAMILY, AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL, AGENT_WAIT_TOOL_NAME } from "../delegation/agent-run";
+import { taskName } from "../delegation/dispatch";
+import { AGENT_RUN_FAMILY, AGENT_RUN_TOOL_NAME, TITLE_DESCRIPTION, legacyTitle, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL, AGENT_WAIT_TOOL_NAME } from "../delegation/agent-run";
 import type { ReviewService } from "../delegation/review";
 import { AGENT_REVIEW_TOOL, AGENT_REVIEW_TOOL_NAME } from "../delegation/review";
 import type { AskService } from "../delegation/ask";
 import { AGENT_ANSWER_TOOL, AGENT_ANSWER_TOOL_NAME, AGENT_ASK_TOOL, AGENT_ASK_TOOL_NAME, AGENT_PEERS_TOOL, AGENT_PEERS_TOOL_NAME } from "../delegation/ask";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
-import { clip, err, ok } from "../mcp/tool-result";
+import { err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
 import { BROWSER_PROVIDER_NAME } from "./agent-tools";
@@ -40,6 +41,7 @@ export type ChildRecord = {
 
 const RunArgs = z.object({
   goal: z.string().min(1).max(4000),
+  title: z.string().trim().min(1).max(40).optional(),
   constraints: BrowserAgentConstraintsSchema.optional(),
 });
 
@@ -77,7 +79,7 @@ export class BrowserAgentService {
 
   constructor(private readonly d: {
     settings: SettingsLike;
-    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt">;
+    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt" | "listAll" | "suggestTitle" | "retitleIf">;
     rpc: Pick<RpcServer, "broadcast">;
     /** The shared settle/drain + run registry (Plan 13 W1) — ONE engine instance for this service and
      *  `AgentRunService`, so one-run-per-parent and parent-interrupt-cancels span both tools. */
@@ -190,6 +192,19 @@ export class BrowserAgentService {
     if (this.childRecord(sessionId)) this.d.settings.set(childKey(sessionId), null);
   }
 
+  /** `AgentRunService.retitleLegacyChildren`, for browser-agent children — once per boot, renaming
+   *  only a child whose session and item both still read the old generated title exactly. */
+  retitleLegacyChildren(): number {
+    let renamed = 0;
+    for (const s of this.d.sessions.listAll()) {
+      if (s.dispatchedBy?.kind !== "browser_agent_run") continue;
+      const goal = this.childRecord(s.id)?.goal;
+      if (goal === undefined) continue;
+      if (this.d.sessions.retitleIf(s.id, legacyTitle("Browser agent: ", goal), taskName(goal))) renamed += 1;
+    }
+    return renamed;
+  }
+
   /* ------------------------------------- the tool itself ------------------------------------- */
 
   async run(ctx: ProviderCallContext, rawArgs: unknown): Promise<CallToolResult> {
@@ -219,7 +234,8 @@ export class BrowserAgentService {
     try {
       created = this.d.sessions.create({
         spaceId: ctx.spaceId, agentKind, projectId: null, model: null, effort: null, permissionMode,
-        title: clip(`Browser agent: ${goal.split("\n")[0]}`, 40),
+        // The task's name, as agent_run's children are named — see `taskName`.
+        title: parsed.data.title ?? taskName(goal),
         // The dispatch origin (Plan 13 W1) — the seam W2's Tasks lens reads.
         dispatchedBy: { sessionId: ctx.sessionId, kind: "browser_agent_run" },
       });
@@ -227,6 +243,7 @@ export class BrowserAgentService {
       return err(`could not create the browser-agent session: ${e instanceof Error ? e.message : String(e)}`);
     }
     const childId = created.session.id;
+    if (parsed.data.title === undefined) this.d.sessions.suggestTitle(childId, created.session.title, goal);
     // Persisted BEFORE the first send: `ensureLive` reads the toolset restriction and the policy
     // preamble off this record when it starts the adapter, so the record must exist first.
     const record: ChildRecord = { parentSessionId: ctx.sessionId, goal, allowedOrigins, maxActs };
@@ -365,6 +382,7 @@ const RUN_TOOL: Tool = {
     type: "object",
     properties: {
       goal: { type: "string", description: "The browsing goal, self-contained (the agent sees only this plus its policy)." },
+      title: { type: "string", description: TITLE_DESCRIPTION },
       constraints: {
         type: "object",
         properties: {

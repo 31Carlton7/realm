@@ -67,9 +67,12 @@ describe("modelLabel", () => {
 });
 
 describe("the row's words", () => {
-  it("titles a task by its first line", () => {
-    expect(taskTitle("\n  Write the tests\nmore", "x")).toBe("Write the tests");
-    expect(taskTitle(null, "Agent: go")).toBe("Agent: go");
+  it("titles a task by the sub-agent's own title, and by the goal's first line only without one", () => {
+    // THE MUTANT: the goal's first line first — every row reads "You are implementing a feature…"
+    // when the lead opened its goal with a role, whatever the child was named.
+    expect(taskTitle("Dark-mode toggle", "You are implementing a feature in Settings.\nAdd the toggle.", "x")).toBe("Dark-mode toggle");
+    expect(taskTitle(null, "\n  Write the tests\nmore", "x")).toBe("Write the tests");
+    expect(taskTitle("  ", null, "Sub-agent")).toBe("Sub-agent");
   });
 
   it("reads a markdown report as plain prose", () => {

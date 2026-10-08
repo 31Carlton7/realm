@@ -52,7 +52,8 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
   const named = (block.input.constraints as { model?: unknown } | undefined)?.model;
   const model = child ? modelLabel(child.session.agentKind, child.session.model, probe) : typeof named === "string" ? named : null;
   const kind = child?.session.agentKind ?? null;
-  const task = taskTitle(goal, "Sub-agent");
+  // The child's own title once it exists; before that, the name the call gave it.
+  const task = taskTitle(child?.session.title ?? (typeof block.input.title === "string" ? block.input.title : null), goal, "Sub-agent");
   return (
     <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={state} data-enter={enter || undefined}>
       <button type="button" className="tool-row" disabled={!lead || !id}

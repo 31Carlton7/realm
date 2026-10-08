@@ -2,11 +2,11 @@ import { z } from "zod";
 import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Environment, type Session } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "@realm/contracts";
-import { childPermissionMode, cleanupWorktree, errorMessage, modeLabel, rank, resolveAgentKind, resolveEnvironment, resolveSkillSubset, type ChildMode, type EnvironmentDeps } from "./dispatch";
+import { childPermissionMode, cleanupWorktree, errorMessage, modeLabel, rank, resolveAgentKind, resolveEnvironment, resolveSkillSubset, taskName, type ChildMode, type EnvironmentDeps } from "./dispatch";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
-import { titleFromMessage, type SessionService } from "../sessions/service";
+import type { SessionService } from "../sessions/service";
 import type { SkillsService } from "../skills/service";
 import { MAX_RUNS_PER_PARENT, workingMs, type ActiveRun, type DelegationEngine, type SettledRun } from "./engine";
 import { delegableModels, modelMenu, resolveModelName, type ModelResolution, type ProbedAgent } from "./models";
@@ -73,6 +73,8 @@ export type AgentChildRecord = {
 
 const RunArgs = z.object({
   goal: z.string().min(1).max(8000),
+  /** The caller's short name for the task — the child's title and its worktree's branch. */
+  title: z.string().trim().min(1).max(40).optional(),
   constraints: AgentRunConstraintsSchema.optional(),
 });
 
@@ -123,7 +125,7 @@ type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown
 export class AgentRunService {
   constructor(private readonly d: {
     settings: SettingsLike;
-    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt" | "setOptions">;
+    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt" | "setOptions" | "listAll" | "suggestTitle" | "retitleIf">;
     rpc: Pick<RpcServer, "broadcast">;
     /** The shared settle/drain + run registry — the SAME instance `BrowserAgentService` uses. */
     engine: DelegationEngine;
@@ -373,6 +375,24 @@ export class AgentRunService {
     await this.d.sessions.interrupt(child.id).catch(() => { /* deleted under us; nothing left to stop */ });
   }
 
+  /**
+   * Children made before they were named by their task are titled "Agent: <the goal's first line>",
+   * clipped to forty — which for most leads' goals is the boilerplate they open with. Once per boot,
+   * each child still wearing exactly that string on both its session and its sidebar item is renamed
+   * with `taskName`. A renamed child no longer matches and a hand-renamed one never did (a rename
+   * touches the item), so a second boot changes nothing. Returns how many it renamed.
+   */
+  retitleLegacyChildren(): number {
+    let renamed = 0;
+    for (const s of this.d.sessions.listAll()) {
+      if (s.dispatchedBy?.kind !== "agent_run") continue;
+      const goal = this.childRecord(s.id)?.goal;
+      if (goal === undefined) continue;
+      if (this.d.sessions.retitleIf(s.id, legacyTitle("Agent: ", goal), taskName(goal))) renamed += 1;
+    }
+    return renamed;
+  }
+
   /* ------------------------------------- the tool itself ------------------------------------- */
 
   /**
@@ -387,6 +407,9 @@ export class AgentRunService {
     const parsed = RunArgs.safeParse(rawArgs ?? {});
     if (!parsed.success) return err(`invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
     const { goal, constraints } = parsed.data;
+    // What the child is called — in the sidebar, the Agents tab, and its worktree's branch. The
+    // caller's own name when it gave one; otherwise the task read out of the goal (`taskName`).
+    const title = parsed.data.title ?? taskName(goal);
     // Recursion guard, innermost of three (gateway toolset shape, provider child check, here): even a
     // child that somehow names this tool is checked server-side. A browser-agent or reviewer child is
     // refused outright — those two shapes stay depth-1 — while an agent_run child is refused only
@@ -430,7 +453,7 @@ export class AgentRunService {
     // one invariant), a fresh Plan 7 worktree, or (neither) the space's primary.
     const env = await resolveEnvironment(
       ctx.spaceId,
-      { environmentId: constraints?.environmentId, newWorktree: constraints?.newWorktree, worktreeTitle: titleFromMessage(goal) || null },
+      { environmentId: constraints?.environmentId, newWorktree: constraints?.newWorktree, worktreeTitle: title },
       this.d.environments,
       { what: "the delegated agent", ownership: "a delegated agent runs only in its caller's own space" },
     );
@@ -441,7 +464,7 @@ export class AgentRunService {
     try {
       created = this.d.sessions.create({
         spaceId: ctx.spaceId, agentKind, projectId: null, environmentId, model, effort: null, permissionMode,
-        title: clip(`Agent: ${goal.split("\n")[0]}`, 40),
+        title,
         dispatchedBy: { sessionId: ctx.sessionId, kind: "agent_run" },
       });
     } catch (e) {
@@ -452,6 +475,9 @@ export class AgentRunService {
     const t = this.d.timeouts ?? DEFAULT_TIMEOUTS;
     const maxTurns = constraints?.maxTurns ?? DEFAULT_MAX_TURNS;
     const budgetMs = constraints?.timeoutMs ?? (t.baseMs + maxTurns * t.perTurnMs);
+    // A name read out of the goal is a guess; a title generator, where one is wired, gets to improve
+    // on it the way it improves a session's first-message title. A caller's own title is kept.
+    if (parsed.data.title === undefined) this.d.sessions.suggestTitle(childId, title, goal);
     // Persisted BEFORE the first send: `ensureLive` reads the skill narrowing and the preamble off
     // this record when it starts the adapter, and the gateway reads the exclusion off it on the
     // child's first tools/list — the record must exist first.
@@ -735,6 +761,9 @@ const SAME_MODE =
   "The sub-agent runs in your permission mode — Full access included — unless you ask for less with constraints.permissionMode; when it needs permission, the user answers it from your Agents tab.";
 /** Only the main session orchestrates — the depth rule, as both spawn tools say it. */
 const NO_NESTING = "A sub-agent cannot start sub-agents of its own; you stay the one who coordinates.";
+/** The `title` argument, as every spawn tool describes it. */
+export const TITLE_DESCRIPTION =
+  "A short name for the task, 2–5 words, as you would name a branch: 'Meta ads: Hallow', 'Theme migration'. Shown to the user in the Agents tab and the sidebar, and names the sub-agent's worktree. Always pass one.";
 
 /** The models line a description ends on, when there is a catalog to list — ready harnesses only,
  *  because naming a model the caller would then be refused is worse than naming nothing. */
@@ -745,7 +774,7 @@ export function agentRunTool(menu: readonly string[] = []): Tool {
   return {
     name: AGENT_RUN_TOOL_NAME,
     description:
-      `Hand ONE self-contained task to a sub-agent and BLOCK until it reports back: a real, visible Realm session in this space with the space's normal toolset (its MCP servers and skills), running in a named environment, a fresh worktree, or the space's primary checkout. ${MODELS_BY_NAME} Returns the sub-agent's fenced final report plus the child session's identity (that session's pane holds the full trace). ${SAME_MODE} ${NO_NESTING} Use ${AGENT_START_TOOL_NAME} instead when you have SEVERAL independent tasks — running them one blocking call at a time wastes the parallelism.${availableNow(menu)}`,
+      `Hand ONE self-contained task to a sub-agent and BLOCK until it reports back: a real, visible Realm session in this space with the space's normal toolset (its MCP servers and skills), running in a named environment, a fresh worktree, or the space's primary checkout. ${MODELS_BY_NAME} Returns the sub-agent's fenced final report plus the child session's identity (that session's pane holds the full trace). ${SAME_MODE} ${NO_NESTING} Pass a short \`title\` naming the task. Use ${AGENT_START_TOOL_NAME} instead when you have SEVERAL independent tasks — running them one blocking call at a time wastes the parallelism.${availableNow(menu)}`,
     inputSchema: spawnInputSchema(menu),
   };
 }
@@ -758,6 +787,7 @@ function spawnInputSchema(menu: readonly string[]): Tool["inputSchema"] {
     type: "object",
     properties: {
       goal: { type: "string", description: "The task, self-contained (the agent sees only this plus its space's normal context)." },
+      title: { type: "string", description: TITLE_DESCRIPTION },
       constraints: {
         type: "object",
         properties: {
@@ -782,7 +812,7 @@ export function agentStartTool(menu: readonly string[] = []): Tool {
   return {
     name: AGENT_START_TOOL_NAME,
     description:
-      `Use this whenever the work splits into two or more independent parts — areas to survey, files or features to change separately, a review beside the next step. Start a sub-agent WITHOUT waiting for it, and get back a handle (the child's session id). Same arguments and same rules as ${AGENT_RUN_TOOL_NAME} — the only difference is that this returns immediately, so you can start up to ${MAX_RUNS_PER_PARENT} independent tasks and have them run at the same time. ${MODELS_BY_NAME} Splitting a plan across models is this tool: one ${AGENT_START_TOOL_NAME} per model with its share of the plan, then one ${AGENT_WAIT_TOOL_NAME}. Collect the reports with ${AGENT_WAIT_TOOL_NAME}; ${AGENT_STATUS_TOOL_NAME} lists what is outstanding. Start every agent you need BEFORE you wait on any of them — starting one and immediately waiting is just ${AGENT_RUN_TOOL_NAME} with extra steps. Each child gets its own budget of working time, enforced whether or not you ever wait. Give parallel agents separate worktrees (constraints.newWorktree) unless they genuinely need the same checkout. ${SAME_MODE} ${NO_NESTING}${availableNow(menu)}`,
+      `Use this whenever the work splits into two or more independent parts — areas to survey, files or features to change separately, a review beside the next step. Start a sub-agent WITHOUT waiting for it, and get back a handle (the child's session id). Same arguments and same rules as ${AGENT_RUN_TOOL_NAME} — the only difference is that this returns immediately, so you can start up to ${MAX_RUNS_PER_PARENT} independent tasks and have them run at the same time. ${MODELS_BY_NAME} Splitting a plan across models is this tool: one ${AGENT_START_TOOL_NAME} per model with its share of the plan, then one ${AGENT_WAIT_TOOL_NAME}. Collect the reports with ${AGENT_WAIT_TOOL_NAME}; ${AGENT_STATUS_TOOL_NAME} lists what is outstanding. Start every agent you need BEFORE you wait on any of them — starting one and immediately waiting is just ${AGENT_RUN_TOOL_NAME} with extra steps. Each child gets its own budget of working time, enforced whether or not you ever wait. Give parallel agents separate worktrees (constraints.newWorktree) unless they genuinely need the same checkout. ${SAME_MODE} ${NO_NESTING} Give every one a short \`title\` naming its part — it is what the user reads in the Agents tab, and what its branch is called.${availableNow(menu)}`,
     inputSchema: spawnInputSchema(menu),
   };
 }
@@ -815,4 +845,11 @@ const message = errorMessage;
 function clock(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** The title a delegated child was given before children were named by their task — kept only so the
+ *  boot repair can recognise one exactly. `prefix` is "Agent: " here, "Browser agent: " for the
+ *  browser agent's. */
+export function legacyTitle(prefix: string, goal: string): string {
+  return clip(`${prefix}${goal.split("\n")[0]}`, 40);
 }

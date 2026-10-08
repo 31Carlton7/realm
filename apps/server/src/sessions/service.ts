@@ -1169,6 +1169,25 @@ export class SessionService {
     if (this.d.titleGenerator) void this.upgradeTitle(id, title, text);
   }
 
+  /** A title a delegation tool gave a session it created — `heuristic`, cut from `text` — upgraded to
+   *  a model-written one exactly as a session's first message is: billed and gated the same (no
+   *  generator, no call), and never over a title anything has moved on since. */
+  suggestTitle(id: string, heuristic: string, text: string): void {
+    if (this.d.titleGenerator) void this.upgradeTitle(id, heuristic, text);
+  }
+
+  /** Rename a session and its sidebar item to `title`, but only while BOTH still read `expected`. A
+   *  hand rename touches the item alone, so the pair is what tells a title Realm wrote from one the
+   *  person chose. Returns whether it renamed. */
+  retitleIf(id: string, expected: string, title: string): boolean {
+    const s = this.d.sessions.get(id); if (!s || s.title !== expected) return false;
+    const item = this.d.items.findByRefId(id);
+    if (item && item.title !== expected) return false;
+    this.d.sessions.update({ id, title });
+    if (item) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
+    return true;
+  }
+
   /** Replaces the heuristic title with a short model-written summary, once the model answers —
    *  but only if nothing has moved the title on since (a second message renamed it, or the user
    *  renamed it by hand): this must never clobber a title that is no longer the one it was asked
