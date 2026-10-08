@@ -19,7 +19,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemoryRepoCommit, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -597,6 +597,18 @@ export type Api = {
   /** `memory.setProfileDocEnabled` — THIS space's inheritance override for the profile doc, never a
    *  write to the doc itself. */
   setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<MemoryState>;
+  /** `memory.repo.get` — a profile's memory repo, or the ones a space's sessions use (with `inheritedHere`). */
+  getMemoryRepos(scope: { profileId: string } | { spaceId: string }): Promise<MemoryRepoState[]>;
+  /** `memory.repo.create` — under Realm's home unless a path is given; reuses a memory repo already there. */
+  createMemoryRepo(profileId: string, path?: string): Promise<MemoryRepoState>;
+  /** `memory.repo.attach` — use an existing memory repo; refused for anything else, and writes nothing. */
+  attachMemoryRepo(profileId: string, path: string): Promise<MemoryRepoState>;
+  /** `memory.repo.detach` — the folder and its history stay where they are. */
+  detachMemoryRepo(profileId: string): Promise<void>;
+  /** `memory.repo.setInherited` — THIS space's opt-out of its profile's repo. */
+  setMemoryRepoInherited(spaceId: string, enabled: boolean): Promise<MemoryRepoState[]>;
+  /** `memory.repo.log` — the latest commits, newest first. */
+  memoryRepoLog(profileId: string, limit: number): Promise<MemoryRepoCommit[]>;
   /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
    *  the list is still a renderable result. */
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
@@ -1611,6 +1623,12 @@ export type AppState = {
   /** Profile memory docs at their defining scope, by profile id (W4: the Library page's
    *  "Edit in profile" editor). Absent = never fetched. */
   profileMemory: Record<string, ProfileMemoryDoc>;
+  /** The profile's memory repo by profile id: null = none attached, absent = never fetched. */
+  profileMemoryRepo: Record<string, MemoryRepoState | null>;
+  /** The memory repos a space's sessions use, by space id (each with `inheritedHere`). */
+  spaceMemoryRepos: Record<string, MemoryRepoState[]>;
+  /** A profile repo's latest commits, by profile id — the row's "Recent memories". */
+  memoryRepoLog: Record<string, MemoryRepoCommit[]>;
   /** Which space's Connections panel (McpSection) is mounted right now, null when none is. Set
    *  synchronously by `clearMcpServers` on mount/unmount; it is the guard that keeps a slow
    *  `mcp.list` response — or an `mcp.changed` refetch — from clobbering another space's list
@@ -2773,6 +2791,20 @@ export type AppState = {
   saveProfileMemoryDoc(profileId: string, doc: string): Promise<void>;
   /** THIS space's inheritance override for the profile doc — never a write to the doc itself. */
   setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<void>;
+  /** Fetch a profile's memory repo into `profileMemoryRepo`. */
+  refreshProfileMemoryRepo(profileId: string): Promise<void>;
+  /** Fetch the memory repos a space's sessions use into `spaceMemoryRepos`. */
+  refreshSpaceMemoryRepos(spaceId: string): Promise<void>;
+  /** Make the profile's memory repo in its default place under Realm's home. */
+  createMemoryRepo(profileId: string): Promise<void>;
+  /** Ask for a folder and use the memory repo in it. Nothing happens when the picker is cancelled. */
+  attachMemoryRepo(profileId: string): Promise<void>;
+  /** Stop using the profile's repo; the folder stays. */
+  detachMemoryRepo(profileId: string): Promise<void>;
+  /** THIS space's opt-out of its profile's memory repo — never a change to the repo or the profile. */
+  setMemoryRepoInherited(spaceId: string, enabled: boolean): Promise<void>;
+  /** Fetch the profile repo's latest commits into `memoryRepoLog`. */
+  refreshMemoryRepoLog(profileId: string): Promise<void>;
   /** Narrow (or, with `null`, reset) this space's allowlist for one server. */
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
   /** Refresh one server's cached tools. Never throws for a connect failure — that lands in
@@ -4073,7 +4105,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
-      profileMemory: {},
+      profileMemory: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
       notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
 
@@ -6402,6 +6434,38 @@ await get().refreshCustomThemes().catch(() => {});
         // row's toggle writing the defining scope's state).
         const state = await api.setProfileDocEnabled(spaceId, enabled);
         set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async refreshProfileMemoryRepo(profileId) {
+        const [repo] = await api.getMemoryRepos({ profileId });
+        set({ profileMemoryRepo: { ...get().profileMemoryRepo, [profileId]: repo ?? null } });
+      },
+      async refreshSpaceMemoryRepos(spaceId) {
+        const repos = await api.getMemoryRepos({ spaceId });
+        set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [spaceId]: repos } });
+      },
+      async createMemoryRepo(profileId) {
+        const repo = await api.createMemoryRepo(profileId);
+        set({ profileMemoryRepo: { ...get().profileMemoryRepo, [profileId]: repo } });
+        await get().refreshMemoryRepoLog(profileId);
+      },
+      async attachMemoryRepo(profileId) {
+        const path = await api.pickFolder();
+        if (!path) return;
+        const repo = await api.attachMemoryRepo(profileId, path);
+        set({ profileMemoryRepo: { ...get().profileMemoryRepo, [profileId]: repo } });
+        await get().refreshMemoryRepoLog(profileId);
+      },
+      async detachMemoryRepo(profileId) {
+        await api.detachMemoryRepo(profileId);
+        set({ profileMemoryRepo: { ...get().profileMemoryRepo, [profileId]: null }, memoryRepoLog: { ...get().memoryRepoLog, [profileId]: [] } });
+      },
+      async setMemoryRepoInherited(spaceId, enabled) {
+        const repos = await api.setMemoryRepoInherited(spaceId, enabled);
+        set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [spaceId]: repos } });
+      },
+      async refreshMemoryRepoLog(profileId) {
+        const commits = await api.memoryRepoLog(profileId, 8);
+        set({ memoryRepoLog: { ...get().memoryRepoLog, [profileId]: commits } });
       },
       async refreshMemorySources(sessionId) {
         const sources = await api.memorySources(sessionId);

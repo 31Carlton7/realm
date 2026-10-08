@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -319,6 +319,15 @@ export type FakeData = {
   /** Per-space disable override for the inherited profile doc — mirrors the server's polarity
    *  (absent = inherited ON). */
   profileDocDisabled?: Record<string, boolean>;
+  /** Each profile's memory repo, by profile id (absent = none attached). */
+  memoryRepos?: Record<string, MemoryRepoState>;
+  /** Per-space opt-out of the profile's repo — the server's polarity (absent = inherited). */
+  memoryRepoInheritDisabled?: Record<string, boolean>;
+  /** `memory.repo.log` by profile id. */
+  memoryRepoLogs?: Record<string, MemoryRepoCommit[]>;
+  /** When set, `memory.repo.attach` refuses with this message, as the server refuses a folder that is
+   *  not a memory repo. */
+  memoryRepoAttachError?: string;
   /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
    *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
   notifications?: Notification[];
@@ -533,6 +542,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpProvidersBySpace: overrides.mcpProvidersBySpace ?? {},
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
+    memoryRepos: overrides.memoryRepos ?? {},
+    memoryRepoInheritDisabled: overrides.memoryRepoInheritDisabled ?? {},
+    memoryRepoLogs: overrides.memoryRepoLogs ?? {},
+    memoryRepoAttachError: overrides.memoryRepoAttachError ?? "",
     documentWorkspaces: overrides.documentWorkspaces ?? {},
     documentFiles: overrides.documentFiles ?? {},
     notifications: overrides.notifications ?? [],
@@ -580,6 +593,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         doc: data.profileMemoryDocs[profileId] ?? "", enabledHere: !data.profileDocDisabled[spaceId],
       },
     };
+  };
+  const reposOfSpace = (spaceId: string): MemoryRepoState[] => {
+    const profileId = data.spaces.find((x) => x.id === spaceId)?.profileId;
+    const r = profileId ? data.memoryRepos[profileId] : undefined;
+    return r ? [{ ...r, inheritedHere: !data.memoryRepoInheritDisabled[spaceId] }] : [];
   };
   const updateWatchers = new Set<(status: UpdateStatus) => void>();
   const api: FakeApi = {
@@ -1177,6 +1195,41 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`setProfileDocEnabled:${spaceId}=${enabled}`);
       data.profileDocDisabled[spaceId] = !enabled;
       return memState(spaceId);
+    },
+    getMemoryRepos: async (scope) => {
+      if ("profileId" in scope) {
+        calls.push(`getMemoryRepos:profile:${scope.profileId}`);
+        const r = data.memoryRepos[scope.profileId];
+        return r ? [{ ...r, inheritedHere: null }] : [];
+      }
+      calls.push(`getMemoryRepos:space:${scope.spaceId}`);
+      return reposOfSpace(scope.spaceId);
+    },
+    createMemoryRepo: async (profileId) => {
+      calls.push(`createMemoryRepo:${profileId}`);
+      const r = data.memoryRepos[profileId] ?? fakeMemoryRepo({ ownerId: profileId, path: `/realm-home/memory/repos/profile-${profileId}` });
+      data.memoryRepos[profileId] = r;
+      return r;
+    },
+    attachMemoryRepo: async (profileId, path) => {
+      calls.push(`attachMemoryRepo:${profileId}:${path}`);
+      if (data.memoryRepoAttachError) throw new Error(data.memoryRepoAttachError);
+      const r = fakeMemoryRepo({ ownerId: profileId, path });
+      data.memoryRepos[profileId] = r;
+      return r;
+    },
+    detachMemoryRepo: async (profileId) => {
+      calls.push(`detachMemoryRepo:${profileId}`);
+      delete data.memoryRepos[profileId];
+    },
+    setMemoryRepoInherited: async (spaceId, enabled) => {
+      calls.push(`setMemoryRepoInherited:${spaceId}=${enabled}`);
+      data.memoryRepoInheritDisabled[spaceId] = !enabled;
+      return reposOfSpace(spaceId);
+    },
+    memoryRepoLog: async (profileId, limit) => {
+      calls.push(`memoryRepoLog:${profileId}`);
+      return (data.memoryRepoLogs[profileId] ?? []).slice(0, limit);
     },
     memorySources: async (sessionId) => {
       calls.push(`memorySources:${sessionId}`);
@@ -1830,4 +1883,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;
+}
+
+/** A memory repo as `memory.repo.get` reports a clean, valid one; tests override what they are about. */
+export function fakeMemoryRepo(o: Partial<MemoryRepoState> = {}): MemoryRepoState {
+  return {
+    path: "/realm-home/memory/repos/profile-p1", scope: "profile", ownerId: "p1", exists: true, valid: true, clean: true, uncommitted: [],
+    head: "a1b2c3d", lastCommitAt: Date.parse("2026-10-08T09:30:00Z"), lastCommitSubject: "Create memory repo", remote: null, pushEnabled: false,
+    indexChars: 19, inheritedHere: null, reason: null, ...o,
+  };
 }

@@ -3,7 +3,7 @@ import { render, screen, act, fireEvent, waitFor, within } from "@testing-librar
 import { PAGE_REF_IDS } from "@realm/contracts";
 import { ProfilePage } from "./ProfilePage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, mcpServer, profile, session, skillRow, space, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, fakeMemoryRepo, item, mcpServer, profile, session, skillRow, space, type FakeData } from "../../state/store.test-fakes";
 
 /** The page pane as PaneHost mounts it: a destination item whose refId is the kind's sentinel
  *  (Plan 14 W2) — the PROFILE is derived live from the item's space, never stored. */
@@ -173,6 +173,58 @@ describe("ProfilePage · Memory", () => {
     fireEvent.blur(doc);
     await waitFor(() => expect(api.data.profileMemoryDocs.p1).toBe("new profile-wide rule"));
     expect(api.data.profileMemoryDocs.p2).toBe("other profile's doc");
+  });
+});
+
+describe("ProfilePage · Memory repo", () => {
+  const openMemory = () => fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+
+  it("offers Create and Attach when the profile has none, and Create makes this profile's", async () => {
+    const { api } = await mount({ memoryRepoLogs: { p1: [{ sha: "a1b2c3d4", subject: "Create memory repo", at: Date.now() - 60_000 }] } });
+    openMemory();
+    expect(await screen.findByText("No memory repo")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Attach existing…" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    // THE MUTANT: create for the vantage space's id, or for another profile — the repo lands on the wrong owner.
+    await waitFor(() => expect(api.calls).toContain("createMemoryRepo:p1"));
+    expect(await screen.findByText("/realm-home/memory/repos/profile-p1")).toBeInTheDocument();
+    expect(screen.getByText(/^Last saved .*: Create memory repo$/)).toBeInTheDocument();
+    expect(screen.getByText("Nowhere. It stays on this Mac.")).toBeInTheDocument();
+    expect(screen.getByText("Recent memories")).toBeInTheDocument();
+  });
+
+  it("attaches the picked folder, and says the server's refusal when it is not a memory repo", async () => {
+    const refusal = "/tmp/picked-repo is not a memory repo: it has no MEMORY.md at its top";
+    const { api, store } = await mount({ memoryRepoAttachError: refusal });
+    openMemory();
+    fireEvent.click(await screen.findByRole("button", { name: "Attach existing…" }));
+    await waitFor(() => expect(store.getState().toasts.map((t) => t.text)).toContain(refusal));
+    expect(api.calls).toContain("attachMemoryRepo:p1:/tmp/picked-repo");
+    expect(screen.getByText("No memory repo")).toBeInTheDocument();
+    api.data.memoryRepoAttachError = "";
+    fireEvent.click(screen.getByRole("button", { name: "Attach existing…" }));
+    expect(await screen.findByText("/tmp/picked-repo")).toBeInTheDocument();
+  });
+
+  it("says in words why agents cannot save, toned by how bad it is", async () => {
+    const dirty = fakeMemoryRepo({ clean: false, uncommitted: ["draft.md"], reason: "1 uncommitted change — agents save again once the repo is clean" });
+    const { store } = await mount({ memoryRepos: { p1: dirty } });
+    openMemory();
+    const line = await screen.findByText("1 uncommitted change — agents save again once the repo is clean.");
+    // THE MUTANT: the status line ignores `clean` — it reads "Last saved…" while every save is refused.
+    expect(line).toHaveAttribute("data-tone", "warning");
+    act(() => store.setState({ profileMemoryRepo: { p1: fakeMemoryRepo({ valid: false, reason: "the folder is gone" }) } }));
+    expect(screen.getByText("Not a memory repo: the folder is gone.")).toHaveAttribute("data-tone", "danger");
+  });
+
+  it("detaches this profile's repo and leaves the folder to the user", async () => {
+    const { api } = await mount({ memoryRepos: { p1: fakeMemoryRepo() } });
+    openMemory();
+    const detach = await screen.findByRole("button", { name: "Detach" });
+    expect(detach).toHaveAttribute("title", expect.stringContaining("The folder and its history stay where they are"));
+    fireEvent.click(detach);
+    await waitFor(() => expect(api.calls).toContain("detachMemoryRepo:p1"));
+    expect(await screen.findByText("No memory repo")).toBeInTheDocument();
   });
 });
 

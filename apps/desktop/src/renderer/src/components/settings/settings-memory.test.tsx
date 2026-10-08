@@ -4,7 +4,7 @@ import { MEMORY_DOC_MAX, memorySupportNote, type MemorySources } from "@realm/co
 import { MemoryPanel } from "./MemoryPanel";
 import { MEMORY_SAVE_AFTER_MS } from "./MemoryDoc";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, agentsFileState, session, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, fakeMemoryRepo, agentsFileState, session, type FakeData } from "../../state/store.test-fakes";
 
 async function mount(overrides: FakeData = {}) {
   const api = fakeApi({ memoryDocs: { s1: "remember the port map" }, ...overrides });
@@ -167,5 +167,30 @@ describe("what each agent actually loads", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Session" }), { target: { value: "se2" } });
     await waitFor(() => expect(api.calls).toContain("memorySources:se2"));
     expect(await screen.findByText(/Cursor takes no per-session context/)).toBeInTheDocument();
+  });
+});
+
+describe("the inherited memory repo", () => {
+  it("shows nothing for a profile with no repo — no switch for a repo that does not exist", async () => {
+    const { api } = await mount();
+    await waitFor(() => expect(api.calls).toContain("getMemoryRepos:space:s1"));
+    expect(screen.queryByRole("switch", { name: /memory repo/ })).toBeNull();
+    expect(screen.queryByText(/reach the memory repo through/)).toBeNull();
+  });
+
+  it("turns the profile's repo off for THIS space only, and never touches the repo", async () => {
+    const repo = fakeMemoryRepo();
+    const { api } = await mount({ memoryRepos: { p1: repo } });
+    const sw = await screen.findByRole("switch", { name: "Use Work's memory repo in this space" });
+    expect(sw).toBeChecked();
+    // Cursor and the rest take no context, and the reach line says how memory gets to them anyway.
+    expect(screen.getByText(/reach the memory repo through Realm's memory tools/)).toBeInTheDocument();
+    fireEvent.click(sw);
+    // THE MUTANT: the switch detaches the profile's repo — every space of the profile loses it.
+    await waitFor(() => expect(api.calls).toContain("setMemoryRepoInherited:s1=false"));
+    expect(api.calls.some((c) => c.startsWith("detachMemoryRepo"))).toBe(false);
+    expect(api.data.memoryRepos.p1).toEqual(repo);
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Use Work's memory repo in this space" })).not.toBeChecked());
+    expect(screen.getByText("Off in this space: its sessions neither read it nor save to it.")).toBeInTheDocument();
   });
 });

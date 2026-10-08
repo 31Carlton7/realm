@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useState, type RefObject } from "react";
 import { useApp } from "../../state/store";
 import { MemoryDoc } from "./MemoryDoc";
+import { InheritedMemoryRepoRow } from "./MemoryRepoRow";
 
 /** The agents a space's memory reaches, and the ones it cannot: the channel table decides, never a
  *  list kept here. */
@@ -64,6 +65,8 @@ export function SpaceMemoryDoc({ spaceId, editorRef }: { spaceId: string; editor
 export function MemoryReach({ spaceId }: { spaceId: string }) {
   const memory = useApp((s) => s.spaceMemory[spaceId]);
   const setAgentsFile = useApp((s) => s.setAgentsFile);
+  const profileName = useApp((s) => s.profiles.find((p) => p.id === s.spaces.find((x) => x.id === spaceId)?.profileId)?.name ?? "The profile");
+  const repoHere = useApp((s) => (s.spaceMemoryRepos[spaceId] ?? []).some((r) => r.inheritedHere === true));
   const run = useApp((s) => s.run);
   if (!memory) return null;
   const af = memory.agentsFile;
@@ -75,7 +78,10 @@ export function MemoryReach({ spaceId }: { spaceId: string }) {
         <div className="settings-row" title={`${names(MEMORY_NON_READERS)} take no per-session context, so nothing Realm manages reaches them.`}>
           <div className="settings-row-main">
             <span className="settings-row-name">Read by</span>
-            <span className="settings-row-desc">Every new session of these agents, never written into their own config. Other agents take no per-session context.</span>
+            <span className="settings-row-desc">
+              Every new session of these agents, never written into their own config. Other agents take no per-session context
+              {repoHere ? "; they reach the memory repo through Realm's memory tools." : "."}
+            </span>
           </div>
           <span className="memory-readers">
             {MEMORY_READERS.map((k) => (
@@ -83,6 +89,7 @@ export function MemoryReach({ spaceId }: { spaceId: string }) {
             ))}
           </span>
         </div>
+        <InheritedMemoryRepoRow spaceId={spaceId} profileName={profileName} />
         {af.writable || af.enabled ? (
           <label className="settings-row">
             <div className="settings-row-main">
