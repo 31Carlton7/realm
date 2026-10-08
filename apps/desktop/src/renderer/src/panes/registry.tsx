@@ -5,6 +5,7 @@ import { PlaceholderPane } from "./PlaceholderPane";
 import { SessionMeta, SessionPanelActions, useSessionMenuItems } from "./session/SessionPane";
 import { MachineMeta, MachinePanelActions, useMachineMenuItems } from "./machine/MachineBar";
 import { TerminalMeta } from "./TerminalMeta";
+import { useDocumentsMenuItems } from "./documents/shown-file";
 
 /** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
 export type PaneProps = { item: Item; visible: boolean; focused?: boolean };
@@ -52,11 +53,13 @@ export const paneActions: Partial<Record<Item["kind"], (p: { item: Item; keep: n
  * and a machine-shaped `if` in it would be the start of the opposite.
  */
 export function usePaneMenuItems(item: Item, keep: number): MenuItem[] {
-  /* Both hooks, every time, in a fixed order — see the note above. `keep` reaches them because the
+  /* Every kind's hook, every time, in a fixed order — see the note above. `keep` reaches them because the
      rows an action contributes depend on whether its BUTTON is still in the bar: the overflow is
      the same cluster, continued, not a second copy of it. */
   const session = useSessionMenuItems(item, keep);
   const machine = useMachineMenuItems(item, keep);
+  const documents = useDocumentsMenuItems(item);
   if (item.kind === "session") return session;
+  if (item.kind === "documents") return documents;
   return item.kind === "machine" ? machine : [];
 }

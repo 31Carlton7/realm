@@ -1128,6 +1128,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
       // track and the knob are one box and cannot drift out of register.
       "--media-progress",
+      // A PDF page's scale (PdfView.tsx), set inline per page: pdf.js's text layer sizes every run of
+      // text from it, so the selectable text stays over the drawn glyphs at any zoom.
+      "--total-scale-factor",
       // The rubber-band's offset (rubber-band.ts): written on the scroller per wheel event and per
       // spring frame, and only while the content is past an end.
       "--rubber",
@@ -2994,6 +2997,10 @@ describe("light mode", () => {
     ["img.avatar", "paired with a light override"],
     // The picture in the media viewer, on the viewer's own ground — paired the same way.
     [".media-viewer-img", "paired with a light override"],
+    // A page of a PDF, on the pane's own ground — its outline paired the same way…
+    [".pdf-page", "paired with a light override"],
+    // …and the paper itself, white in both modes: the file is the file, never inverted for dark.
+    [".pdf-page[data-painted]", "a page of the file is white paper on both faces"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -3008,7 +3015,7 @@ describe("light mode", () => {
   });
 
   it("every literal that is half a pair really does have its other half", () => {
-    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img"]) {
+    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img", ".pdf-page"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
       expect(bodiesFor(`:root[data-mode="light"] ${sel}`).join(" "), sel).toContain("outline-color: rgba(0, 0, 0, 0.1)");
     }
