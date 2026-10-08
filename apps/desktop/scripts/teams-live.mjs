@@ -317,6 +317,9 @@ async function main() {
     checked: __live.qa('.tp-pick input:checked').length,
     disabled: [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Make Versed a team')?.disabled,
   })`);
+  const reach = await evalIn(c, `(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Make Versed a team'); const r = b.getBoundingClientRect();
+    return { bottom: Math.round(r.bottom), height: innerHeight, inFoot: !!b.closest('.page-foot'), inColumn: !!b.closest('.page-content') }; })()`);
+  check("S7 the button is on screen without scrolling, in the bar under the column", reach.inFoot && !reach.inColumn && reach.bottom <= reach.height, reach);
   check("S7 seven starters on two shelves, none picked for you", gallery.any.length === 5 && gallery.creators.join() === "Creator Manager,Content Producer" && gallery.checked === 0 && gallery.disabled === true, gallery);
   await shot(c, "00-make-team-dark");
   for (const id of ["creator-manager", "content-producer"]) await evalIn(c, `__live.click(__live.q('[data-template="${id}"] input'))`);
@@ -541,6 +544,21 @@ async function main() {
   await evalIn(c, `__live.click(__live.tab('Activity'))`);
   await until(() => evalIn(c, `__live.qa('.tp-feed li').length > 5`), 8_000, "activity light");
   await shot(c, "07-activity-light");
+  // The picker on a space that is not a team yet, in light.
+  const pl = (await api.call("profiles.list", {}))[0];
+  await api.call("spaces.create", { profileId: pl.id, name: "Studio", icon: "folder" });
+  await evalIn(c, `__live.click(__live.q('.sb-page-back'))`).catch(() => {});
+  await until(() => evalIn(c, `!!__live.named('^More for Studio$')`), 10_000, "studio row");
+  await evalIn(c, `__live.click(__live.named('^More for Studio$'))`);
+  await until(() => evalIn(c, `!!__live.button('Make this a team…')`), 5_000, "studio menu");
+  await evalIn(c, `__live.click(__live.button('Make this a team…'))`);
+  await until(() => evalIn(c, `!!__live.q('[data-template="researcher"]')`), 8_000, "studio gallery");
+  await evalIn(c, `__live.click(__live.q('[data-template="researcher"] input'))`);
+  await evalIn(c, `__live.click(__live.q('[data-template="editor"] input'))`);
+  await shot(c, "00-make-team-light");
+  await evalIn(c, `__live.click(__live.q('.sb-page-back'))`);
+  await until(() => evalIn(c, `!!__live.named('^More for Versed$')`), 10_000, "spaces again");
+  await openTeamPage(c, "Team");
   await evalIn(c, `__live.click(__live.tab('Overview'))`);
   await until(() => evalIn(c, `!!__live.button('Add teammate')`), 5_000, "overview light");
   await evalIn(c, `__live.click(__live.button('Add teammate'))`);
