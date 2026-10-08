@@ -20,6 +20,7 @@ const caffeinate: HoldAwake = () => spawn("/usr/bin/caffeinate", ["-i", "-w", St
  */
 export class HeadlessKeepAwake {
   private holder: AwakeHolder | null = null;
+  private closed = false;
 
   constructor(private readonly o: {
     /** Whether the Realm app is attached. While it is, it holds the Mac awake itself. */
@@ -35,14 +36,19 @@ export class HeadlessKeepAwake {
 
   get holding(): boolean { return this.holder !== null; }
 
-  /** Re-reads every input, then holds or lets go. Held at most once. */
+  /** Re-reads every input, then holds or lets go. Held at most once, and never once closed: the app's
+   *  sockets close after its database, and their last events must not read it. */
   refresh(): void {
+    if (this.closed) return;
     const hold = !this.o.attached() && this.o.wanted() && this.needed();
     if (hold && !this.holder) this.start();
     else if (!hold && this.holder) this.release();
   }
 
-  close(): void { this.release(); }
+  close(): void {
+    this.closed = true;
+    this.release();
+  }
 
   private needed(): boolean {
     const { working, needsYou } = this.o.counts();

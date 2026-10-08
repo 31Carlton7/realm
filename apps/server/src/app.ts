@@ -1353,8 +1353,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     phones: () => remote.status().phones.length,
     hold: opts.remote?.holdAwake,
   });
-  rpc.onBroadcast((event) => { if (event === "session.status" || event === "remote.changed") keepAwake.refresh(); });
-  browserBridge.onHostChange(() => keepAwake.refresh());
+  const offKeepAwake = [
+    rpc.onBroadcast((event) => { if (event === "session.status" || event === "remote.changed") keepAwake.refresh(); }),
+    browserBridge.onHostChange(() => keepAwake.refresh()),
+  ];
   keepAwake.refresh();
   /**
    * Shut this app down.
@@ -1393,6 +1395,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Before the socket closes and the database with it: a held push must not fire into either, and
     // the relay is told goodbye rather than left to notice a silence.
     phonePushes?.close();
+    for (const off of offKeepAwake) off();
     keepAwake.close();
     remote.close();
     await rpc.close();

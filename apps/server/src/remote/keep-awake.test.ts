@@ -91,11 +91,17 @@ describe("HeadlessKeepAwake", () => {
     expect(live()).toBe(2); // the first was never killed by us: it died
   });
 
-  it("lets go on close", () => {
-    const { g, live } = guard();
+  it("lets go on close, and reads nothing after it", () => {
+    const h = holders();
+    let open = true;
+    const read = <T>(v: T) => () => { if (!open) throw new Error("database is not open"); return v; };
+    const g = new HeadlessKeepAwake({ attached: read(false), wanted: read(true), counts: read({ working: 1, needsYou: 0 }), phones: read(0), hold: h.hold });
     g.refresh();
     g.close();
-    expect(live()).toBe(0);
+    expect(h.live()).toBe(0);
+    open = false;
+    expect(() => g.refresh()).not.toThrow();
+    expect(h.made).toHaveLength(1);
   });
 
   it("holds nothing where there is no caffeinate", () => {
@@ -157,6 +163,27 @@ describe("the server's own keep-awake, in the app", () => {
     await waitFor(async () => (await status()) === "idle", { timeout: 10_000 });
     expect(made).toHaveLength(0);
     c.close();
+  });
+
+  it("closes with the app attached without touching the closed database", async () => {
+    const { hold } = holders();
+    const { c } = await appWithSession(hold, 0);
+    const main = await client(app!.port);
+    await main.call("browserHost.register", { hasWindow: true });
+    const uncaught: unknown[] = [];
+    const record = (e: unknown) => uncaught.push(e);
+    process.on("uncaughtException", record);
+    try {
+      await app!.close();
+      app = undefined;
+      // The app's sockets close after its database; give their close events time to land.
+      await new Promise((r) => setTimeout(r, 200));
+      expect(uncaught).toEqual([]);
+    } finally {
+      process.off("uncaughtException", record);
+      main.close();
+      c.close();
+    }
   });
 
   it("lets go when the app closes mid-turn", async () => {
