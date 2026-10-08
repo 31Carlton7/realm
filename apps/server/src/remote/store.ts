@@ -2,14 +2,6 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { join } from "node:path";
 import { b64u, deviceId, fromB64u, generateDeviceKeys, type DeviceKeys } from "@realm/remote";
 
-/**
- * The Mac's identity and its paired phones, on disk under `<home>/remote/`.
- *
- * Phase 1 only: the private keys sit in a 0600 file. Phase 2 seals them under the `remote` secret-box
- * domain that Electron main hands over (Plan 28, "The Mac side"), and the device list becomes a table
- * behind a migration. Neither is worth building before the spike has measured the pipe.
- */
-
 export type PairedPhone = {
   phoneId: string;
   name: string;
@@ -22,6 +14,20 @@ export type PairedPhone = {
   lastSeen: number | null;
 };
 
+/** Where the gateway keeps the phones it has paired: the `remote_devices` table inside realm-server
+ *  (`store/remote-devices.ts`), a scratch file in the live scripts (`FileRemoteStore`). */
+export interface PhoneStore {
+  list(): PairedPhone[];
+  get(phoneId: string): PairedPhone | undefined;
+  /** Pairing again replaces the old keys for that phone. */
+  add(p: PairedPhone): void;
+  remove(phoneId: string): boolean;
+  touch(phoneId: string, at: number): void;
+}
+
+/** This Mac's identity at the relay and in every handshake. */
+export type MacIdentity = { keys: DeviceKeys; macId: string };
+
 const writeSecret = (path: string, text: string): void => {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, text, { mode: 0o600 });
@@ -29,7 +35,13 @@ const writeSecret = (path: string, text: string): void => {
   renameSync(tmp, path);
 };
 
-export class RemoteStore {
+/**
+ * Phase 1's store, kept for the live scripts only: a gateway they run beside a built server, on a
+ * scratch home, with its identity and phones in 0600 files under `<home>/remote/`. realm-server itself
+ * keeps phones in `remote_devices` and its identity sealed under the `remote` secret domain
+ * (`remote/keys.ts`); nothing it builds reads these files.
+ */
+export class FileRemoteStore implements PhoneStore {
   readonly dir: string;
   private phones: PairedPhone[] = [];
 
@@ -44,7 +56,7 @@ export class RemoteStore {
   }
 
   /** This Mac's keys, made on first use. */
-  identity(): { keys: DeviceKeys; macId: string } {
+  identity(): MacIdentity {
     const path = join(this.dir, "identity.json");
     if (!existsSync(path)) {
       const k = generateDeviceKeys();
@@ -62,7 +74,6 @@ export class RemoteStore {
 
   get(phoneId: string): PairedPhone | undefined { return this.phones.find((p) => p.phoneId === phoneId); }
 
-  /** Pairing again replaces the old keys for that phone. */
   add(p: PairedPhone): void {
     this.phones = [...this.phones.filter((x) => x.phoneId !== p.phoneId), p];
     this.save();

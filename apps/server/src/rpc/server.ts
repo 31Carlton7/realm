@@ -5,7 +5,23 @@ import type { ZodTypeAny, z } from "zod";
 import { parseWireMessage, type EventName, type EventPayload, type RpcResponse } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 
-type Handler<S extends ZodTypeAny> = (params: z.infer<S>, ctx: { client: WebSocket }) => Promise<unknown>;
+/**
+ * Who a call is from. `local` is everything on this Mac: every socket (the renderer, main's bridge,
+ * the CLI) and every in-process call made on the Mac's own behalf. `phone:<id>` is a paired phone,
+ * which reaches handlers only through the mobile API (`remote/api.ts`) — an allowlist by construction,
+ * so a handler checking the principal is a second lock, never the first.
+ */
+export type Principal = "local" | `phone:${string}`;
+
+/** What a handler knows about its caller. `client` is null for an in-process `call()`, so a handler
+ *  that needs a socket to answer later (`browserHost.register`) must refuse a null, never adopt it. */
+export type CallContext = { client: WebSocket | null; principal: Principal };
+
+type Handler<S extends ZodTypeAny> = (params: z.infer<S>, ctx: CallContext) => Promise<unknown>;
+
+type BroadcastListener = <E extends EventName>(event: E, payload: EventPayload<E>) => void;
+
+const IN_PROCESS: CallContext = { client: null, principal: "local" };
 
 /**
  * Who is allowed onto the socket.
@@ -58,6 +74,7 @@ export class RpcServer {
   private wss: WebSocketServer | null = null;
   private methods = new Map<string, { schema: ZodTypeAny; handler: Handler<ZodTypeAny> }>();
   private clients = new Set<WebSocket>();
+  private listeners = new Set<BroadcastListener>();
 
   register<S extends ZodTypeAny>(name: string, schema: S, handler: Handler<S>): void {
     this.methods.set(name, { schema, handler: handler as Handler<ZodTypeAny> });
@@ -97,6 +114,34 @@ export class RpcServer {
   broadcast<E extends EventName>(event: E, payload: EventPayload<E>): void {
     const msg = JSON.stringify({ event, payload });
     for (const c of this.clients) if (c.readyState === WebSocket.OPEN) c.send(msg);
+    // A listener runs inside whichever service broadcast, so its failure is caught here: the phone's
+    // gateway tripping over one event must not throw into the session pump that raised it.
+    for (const l of this.listeners) {
+      try { l(event, payload); } catch (e) { process.stderr.write(`[realm-server] broadcast listener failed on ${event}: ${e instanceof Error ? e.message : String(e)}\n`); }
+    }
+  }
+
+  /** Every broadcast, in process, as the sockets get it. The listener decides what reaches anyone
+   *  else: the phone's gateway projects a few events into rows and drops the rest. */
+  onBroadcast(listener: BroadcastListener): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  /**
+   * One call in process, down exactly the socket's path: the method's schema parses the params, the
+   * handler runs, and its result comes back — with no socket, so the handler sees `client: null`.
+   * Failures reject with the RpcError a socket would have been sent: the handler's own code kept,
+   * METHOD_NOT_FOUND and INVALID_PARAMS as the socket words them, anything else INTERNAL.
+   */
+  async call(method: string, params: unknown, ctx: CallContext = IN_PROCESS): Promise<unknown> {
+    try {
+      return await this.dispatch(method, params, ctx);
+    } catch (e) {
+      if (e instanceof RpcError) throw e;
+      const { code, message } = toRpcError(e);
+      throw new RpcError(code, message);
+    }
   }
 
   /** Send one event to ONE client (the `ctx.client` a handler captured) — the browser host bridge's op
@@ -122,15 +167,21 @@ export class RpcServer {
       const wire = parseWireMessage(raw);
       if (wire.kind !== "request") return;
       id = wire.msg.id;
-      const m = this.methods.get(wire.msg.method);
-      if (!m) return send({ id, ok: false, error: { code: "METHOD_NOT_FOUND", message: wire.msg.method } });
-      const parsed = m.schema.safeParse(wire.msg.params);
-      if (!parsed.success) return send({ id, ok: false, error: { code: "INVALID_PARAMS", message: parsed.error.message } });
-      const result = await m.handler(parsed.data, { client: ws });
+      const result = await this.dispatch(wire.msg.method, wire.msg.params, { client: ws, principal: "local" });
       send({ id, ok: true, result });
     } catch (e) {
       send({ id, ok: false, error: toRpcError(e) });
     }
+  }
+
+  /** The one path from a method name to its result, shared by the socket and `call()` so the two
+   *  cannot drift: the same lookup, the same parse, the same handler. */
+  private async dispatch(method: string, params: unknown, ctx: CallContext): Promise<unknown> {
+    const m = this.methods.get(method);
+    if (!m) throw new RpcError("METHOD_NOT_FOUND", method);
+    const parsed = m.schema.safeParse(params);
+    if (!parsed.success) throw new RpcError("INVALID_PARAMS", parsed.error.message);
+    return m.handler(parsed.data, ctx);
   }
 }
 

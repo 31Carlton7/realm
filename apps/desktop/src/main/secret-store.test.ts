@@ -404,6 +404,7 @@ describe("SecretStore — the key handoff and the audit log", () => {
     expect(store.exportOauthKey()).toBeNull();
     expect(store.exportMachineKey()).toBeNull();
     expect(store.exportEggsKey()).toBeNull();
+    expect(store.exportRemoteKey()).toBeNull();
   });
 
   it("exports the machine key too, and it is a DIFFERENT key from oauth's", () => {
@@ -419,9 +420,49 @@ describe("SecretStore — the key handoff and the audit log", () => {
        unlocks a friend pack) joined it on purpose, and the one that must never appear is a
        credential key — one bridge op away from a server that can open somebody's saved sign-ins. */
     expect(Object.getOwnPropertyNames(SecretStore.prototype).filter((m) => m.startsWith("export")).sort())
-      .toEqual(["exportEggsKey", "exportMachineKey", "exportOauthKey"]);
+      .toEqual(["exportEggsKey", "exportMachineKey", "exportOauthKey", "exportRemoteKey"]);
     expect(store.exportEggsKey()).not.toBe(machine);
     expect(store.exportEggsKey()).not.toBe(store.exportOauthKey());
+  });
+
+  it("exports the remote key (Plan 28), a key of its own and the same one on every ask", () => {
+    const { store, disk, deps } = makeStore();
+    const remote = store.exportRemoteKey();
+    expect(Buffer.from(remote!, "base64")).toHaveLength(32);
+    // Its own: a phone identity sealed under a key another domain shares would be one bridge op away
+    // from a box that was never meant to open it.
+    expect(new Set([remote, store.exportOauthKey(), store.exportMachineKey(), store.exportEggsKey()]).size).toBe(4);
+    // Stable across a relaunch: the identity it seals is what every paired phone pinned, so a fresh
+    // key on each launch would cut every phone off at the next restart.
+    const again = new SecretStore({ ...deps, readFile: () => disk.file, writeFile: (t) => { disk.file = t; } });
+    expect(again.exportRemoteKey()).toBe(remote);
+  });
+
+  /* The same upgrade as the machine domain's below, for the domain Plan 28 added: an install whose
+     keyring predates `remote` must gain the key without losing a sign-in or re-keying another domain. */
+  it("adopts a keyring written before the remote domain existed, keeping every other key and sign-in", async () => {
+    const { store, disk, deps } = makeStore();
+    store.addCredential(P, input());
+    const before = { oauth: store.exportOauthKey(), machine: store.exportMachineKey(), eggs: store.exportEggsKey() };
+
+    const file = JSON.parse(disk.file!) as { keyring: string };
+    const json = JSON.parse(deps.safeStorage.decryptString(Buffer.from(file.keyring, "base64"))) as Record<string, string>;
+    delete json.remote;
+    file.keyring = deps.safeStorage.encryptString(JSON.stringify(json)).toString("base64");
+    disk.file = JSON.stringify(file);
+
+    const upgraded = new SecretStore({ ...deps, readFile: () => disk.file, writeFile: (t) => { disk.file = t; } });
+    expect(upgraded.listCredentials(P), "the enrolled sign-in survived the upgrade").toHaveLength(1);
+    let seen: string | null = null;
+    await upgraded.withCredentialValue(P, upgraded.listCredentials(P)[0]!.id, async (v) => { seen = v; });
+    expect(seen).toBe(SECRET);
+    expect({ oauth: upgraded.exportOauthKey(), machine: upgraded.exportMachineKey(), eggs: upgraded.exportEggsKey() }).toEqual(before);
+    const remote = upgraded.exportRemoteKey();
+    expect(Buffer.from(remote!, "base64")).toHaveLength(32);
+    expect(Object.values(before)).not.toContain(remote);
+    // Written back, so the next launch reads the same key rather than minting another.
+    const next = new SecretStore({ ...deps, readFile: () => disk.file, writeFile: (t) => { disk.file = t; } });
+    expect(next.exportRemoteKey()).toBe(remote);
   });
 
   /* The upgrade that would otherwise have been silent data loss. `machine` is a domain added after

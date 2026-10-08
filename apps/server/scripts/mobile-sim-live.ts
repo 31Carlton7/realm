@@ -15,8 +15,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { finish, ok } from "./harness";
-import { bootServer, removeHome, repoRoot, wranglerDev, type Relay } from "./lib/mobile-rig";
-import { RemoteGateway } from "../src/remote/gateway";
+import { bootServer, removeHome, repoRoot, scratchGateway, wranglerDev, type Relay } from "./lib/mobile-rig";
 import { loopbackRpc } from "../src/remote/rpc-port";
 
 const arg = (name: string): string | undefined => { const i = process.argv.indexOf(`--${name}`); return i >= 0 ? process.argv[i + 1] : undefined; };
@@ -39,7 +38,7 @@ let relay: Relay | null = null;
 try {
   relay = arg("relay") ? { url: arg("relay")!, stop: () => {} } : await wranglerDev();
   const rpc = await loopbackRpc({ port: server.port, token: server.token });
-  const gw = new RemoteGateway({ home: server.home, relay: relay.url, rpc, macName: "Sim Mac", version: "phase-1", confirm: async () => true, dev: true });
+  const gw = scratchGateway({ home: server.home, relay: relay.url, rpc, macName: "Sim Mac", version: "phase-1", confirm: async () => true, dev: true });
   gw.start();
   const [profile] = await rpc.call("profiles.list", {});
   const space = await rpc.call("spaces.create", { profileId: profile!.id, name: "Spike" });

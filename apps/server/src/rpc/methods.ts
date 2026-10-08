@@ -1,6 +1,6 @@
 import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@realm/contracts";
 import type { z } from "zod";
-import type { RpcServer } from "./server";
+import type { CallContext, RpcServer } from "./server";
 import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
 
@@ -79,6 +79,9 @@ import type { PortAllocator } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import type { LayaService } from "../laya/service";
 import type { AppViewService } from "../apps/service";
+import type { RemoteService } from "../remote/service";
+import type { Presence } from "../remote/presence";
+import { remoteSecretBox } from "../remote/secret";
 import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -107,6 +110,9 @@ export type Deps = {
   savedTurns: SavedTurnsStore;
   /** The files a person added to the Library themselves, copied in under the profile. */
   libraryFiles: LibraryFilesStore;
+  /** Realm Mobile (Plan 28): Settings ▸ Devices, and whether the owner is at this Mac. */
+  remote: RemoteService;
+  presence: Presence;
 };
 
 export function registerMethods(d: Deps): void {
@@ -123,8 +129,8 @@ export function registerMethods(d: Deps): void {
     if (draining) throw new RpcError("DAEMON_DRAINING", `Realm is finishing an update — you can ${what} again in a moment`);
   };
   const { rpc } = d;
-  const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
-    rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
+  const reg = <M extends MethodName>(name: M, fn: (p: Params<M>, ctx: CallContext) => Result<M>) =>
+    rpc.register(name, Methods[name].params, async (p, ctx) => fn(p as Params<M>, ctx));
 
   reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince }));
 
@@ -834,6 +840,9 @@ export function registerMethods(d: Deps): void {
   // because it is the one method that needs its caller's socket — the bridge sends that exact client
   // its `browserHost.op` events from then on.
   rpc.register("browserHost.register", Methods["browserHost.register"].params, async (p, ctx) => {
+    // The executor IS a socket: everything after this line answers it by `sendTo`. An in-process call
+    // has none to adopt, and a phone is never the Mac's own Electron.
+    if (!ctx.client || ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only Realm's own app can register as the browser host");
     d.browserBridge.register(ctx.client, { hasWindow: p.hasWindow });
     // Adopt the `oauth` domain key from main's Keychain-anchored keyring, so `oauthJson` stops being
     // plaintext in realm.db. Fire-and-forget on purpose: registration must not block on it, and a
@@ -864,6 +873,12 @@ export function registerMethods(d: Deps): void {
     void d.browserBridge.call("eggsKey", {})
       .then((r) => { eggSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
       .catch(() => {});
+    /* …and the `remote` key (Plan 28), which opens this Mac's Realm Mobile identity. Machine's failure
+       mode, not oauth's: no key, no identity written in the clear, and the service reports itself
+       locked until one arrives. Once it does, a Mac with a phone paired dials the relay. */
+    void d.browserBridge.call("remoteKey", {})
+      .then((r) => { remoteSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); d.remote.keyChanged(); })
+      .catch(() => { /* no key: Realm Mobile stays locked, and Settings says so */ });
     return { ok: true as const };
   });
   reg("browserHost.result", (p) => { d.browserBridge.handleResult(p); return { ok: true as const }; });
@@ -896,6 +911,20 @@ export function registerMethods(d: Deps): void {
 
   reg("notifications.list", (p) => d.notifications.list(p));
   reg("notifications.markRead", (p) => d.notifications.markRead(p));
+
+  /* Realm Mobile (Plan 28): Settings ▸ Devices, and Electron main's report of whether the owner is at
+     this Mac. The mobile API has no path to any of these, and each refuses a phone's principal all the
+     same: a phone must never open a pairing window, answer one, remove a phone, or vouch for the
+     owner being at the Mac — which would hold its own pushes back. */
+  const fromTheMac = (ctx: CallContext): void => {
+    if (ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only this Mac can do that");
+  };
+  reg("remote.status", (_p, ctx) => { fromTheMac(ctx); return d.remote.status(); });
+  reg("remote.pair.start", (_p, ctx) => { fromTheMac(ctx); return d.remote.pairStart(); });
+  reg("remote.pair.cancel", (_p, ctx) => { fromTheMac(ctx); d.remote.pairCancel(); return { ok: true as const }; });
+  reg("remote.pair.answer", (p, ctx) => { fromTheMac(ctx); d.remote.pairAnswer(p.requestId, p.accept); return { ok: true as const }; });
+  reg("remote.phones.remove", (p, ctx) => { fromTheMac(ctx); d.remote.removePhone(p.phoneId); return { ok: true as const }; });
+  reg("presence.set", (p, ctx) => { fromTheMac(ctx); d.presence.set(p.away); return { ok: true as const }; });
 
   // The reviewer recipe (Plan 13 W3). `request` returns the moment the reviewer session exists; the
   // verdict arrives later as `review.changed` + a `review_done` notification. Reads and dismissal go

@@ -23,6 +23,31 @@ export type RelayTransport = {
   slack: (url: string, text: string) => Promise<void>;
 };
 
+/** A surfaced feed row on its way off the Mac. The text transports read the first four fields; a
+ *  phone's push also needs which row it was and what it is about. */
+export type RelayedNotification = {
+  category: NotificationCategory;
+  title: string;
+  body: string | null;
+  spaceName?: string | null;
+  id: string;
+  refId: string | null;
+  sessionId: string | null;
+  /** What only the event knew: a request that is a question (and the question it asks), or a settle
+   *  that was a failure. The row alone says neither. */
+  hint?: { kind: "question" | "failed"; line?: string };
+};
+
+/**
+ * The third destination (Plan 28): sealed pushes to the phones paired with this Mac, sent only while
+ * the owner is away from it (`remote/push.ts`). Whether one is on and whether a phone is paired are its
+ * own to answer, read at send time like the other two.
+ */
+export type PhoneTransport = {
+  wants(): boolean;
+  send(n: RelayedNotification): void;
+};
+
 /**
  * Does the iMessage half still work once realm-server is a daemon that outlived Realm.app?
  *
@@ -61,7 +86,7 @@ export const realTransport: RelayTransport = {
  * raised the event is not going to wait on a phone.
  */
 export class NotificationRelay {
-  constructor(private d: { settings: SettingsStore; transport: RelayTransport; log?: (line: string) => void }) {}
+  constructor(private d: { settings: SettingsStore; transport: RelayTransport; phone?: PhoneTransport; log?: (line: string) => void }) {}
 
   /** The configured destinations, as strings; empty when unset or not a string. */
   targets(): { imessage: string; slack: string } {
@@ -73,15 +98,17 @@ export class NotificationRelay {
   relays(category: NotificationCategory): boolean {
     if (!RELAYED_CATEGORIES.includes(category)) return false;
     const t = this.targets();
-    return t.imessage !== "" || t.slack !== "";
+    return t.imessage !== "" || t.slack !== "" || this.d.phone?.wants() === true;
   }
 
-  send(n: { category: NotificationCategory; title: string; body: string | null; spaceName?: string | null }): void {
+  send(n: RelayedNotification): void {
     if (!RELAYED_CATEGORIES.includes(n.category)) return;
     const t = this.targets();
     const text = relayText(n);
     const note = (where: string) => (e: unknown) => this.d.log?.(`[notifications] ${where} relay failed: ${e instanceof Error ? e.message : String(e)}`);
     if (t.imessage) this.d.transport.imessage(t.imessage, text).catch(note("iMessage"));
     if (t.slack) this.d.transport.slack(t.slack, text).catch(note("Slack"));
+    // Its own try: a phone transport that throws must not cost the two above, which already went.
+    try { if (this.d.phone?.wants()) this.d.phone.send(n); } catch (e) { note("iPhone")(e); }
   }
 }

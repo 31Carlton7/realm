@@ -651,6 +651,17 @@ export class SecretStore {
     try { return this.key("eggs").toString("base64"); } catch { return null; }
   }
 
+  /** The `remote` key (Plan 28): what seals this Mac's Realm Mobile identity, the private keys every
+   *  paired phone has pinned. realm-server dials the relay and runs each phone's handshake, so it is
+   *  what has to open them.
+   *
+   *  Null degrades the way machine's does: with no key the server writes no identity at all and
+   *  reports Realm Mobile locked until a Realm that can unlock the keyring attaches. */
+  exportRemoteKey(): string | null {
+    if (!this.available) return null;
+    try { return this.key("remote").toString("base64"); } catch { return null; }
+  }
+
   /* ------------------------------------ file ------------------------------------ */
 
   private key(domain: SecretDomain): Buffer {
@@ -733,11 +744,11 @@ export class SecretStore {
              launch after an update, because a feature nobody had used yet wanted a third key.
              Minted and folded in beside the other two instead — the existing keys are untouched, so
              nothing sealed under them stops opening. */
-          /* `machine`, `eggs` and `passkey` were each added after this keyring's shape was settled,
-             and all three are folded in the same way and for the reason above: a missing domain is a
-             key to mint, never a corrupt keyring to discard. */
+          /* `machine`, `eggs`, `passkey` and `remote` were each added after this keyring's shape was
+             settled, and all four are folded in the same way and for the reason above: a missing
+             domain is a key to mint, never a corrupt keyring to discard. */
           const added: Record<string, string> = {};
-          const fold = (name: "machine" | "eggs" | "passkey"): Buffer => {
+          const fold = (name: "machine" | "eggs" | "passkey" | "remote"): Buffer => {
             const existing = Buffer.from(String(json[name] ?? ""), "base64");
             if (existing.length === SECRET_KEY_BYTES) return existing;
             const minted = newSecretKey();
@@ -747,12 +758,13 @@ export class SecretStore {
           const machine = fold("machine");
           const eggs = fold("eggs");
           const passkey = fold("passkey");
+          const remote = fold("remote");
           if (Object.keys(added).length > 0) {
             file.keyring = this.d.safeStorage.encryptString(JSON.stringify({ ...json, ...added })).toString("base64");
             this.file = file;
             this.save();
           }
-          return { oauth, credential, machine, eggs, passkey };
+          return { oauth, credential, machine, eggs, passkey, remote };
         }
       } catch { /* falls through to a fresh keyring */ }
       file.credentials = [];
@@ -763,7 +775,7 @@ export class SecretStore {
     }
     const keys = {
       oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey(),
-      eggs: newSecretKey(), passkey: newSecretKey(),
+      eggs: newSecretKey(), passkey: newSecretKey(), remote: newSecretKey(),
     };
     file.keyring = this.d.safeStorage
       .encryptString(JSON.stringify({
@@ -772,6 +784,7 @@ export class SecretStore {
         machine: keys.machine.toString("base64"),
         eggs: keys.eggs.toString("base64"),
         passkey: keys.passkey.toString("base64"),
+        remote: keys.remote.toString("base64"),
       }))
       .toString("base64");
     this.file = file;

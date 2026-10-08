@@ -99,6 +99,10 @@ import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
 import { NotificationRelay, realTransport } from "./notifications/relay";
+import { RemoteService } from "./remote/service";
+import { Presence } from "./remote/presence";
+import { PhonePushes } from "./remote/push";
+import { RemoteDevicesStore } from "./store/remote-devices";
 import { RunsStore } from "./store/runs";
 import { RunService } from "./runs/service";
 import { ScheduleService } from "./schedules/service";
@@ -138,7 +142,7 @@ import { userFirstName } from "./user-name";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; rpc: RpcServer; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -640,6 +644,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** The Mac's memory pressure and free disk as a training run reads them (`machineState`); left
    *  out, the real ones. A test hands in a Mac short of memory. */
   layaMachine?: () => Promise<import("./laya/training").MachineState>;
+  /** Realm Mobile (Plan 28). `defaultRelay` is the relay dialled when the `remote.relay` setting names
+   *  none; only `main.ts` passes the real one, so no app a test builds reaches a relay it did not name.
+   *  The rest are test knobs: development builds' `debug.report`, the pairing link's scheme, the
+   *  pairing window's life, and the push hold-back. */
+  remote?: { defaultRelay?: string; dev?: boolean; linkBase?: string; pairTtlMs?: number; pushHoldMs?: number };
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -670,11 +679,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // have exactly one home.
   // The relay reads its destinations from settings at send time; wired with the real transport
   // here and nowhere else, so every test and live-check script sends nothing off the machine.
-  const notifications = new NotificationsService({ store: new NotificationsStore(db), settings, rpc,
+  const notificationsStore = new NotificationsStore(db);
+  // Realm Mobile's pushes are the relay's third destination (Plan 28). Late-bound like `sessionService`
+  // below: what seals them needs the bridge and the sessions, which are built further down.
+  let phonePushes: PhonePushes | null = null;
+  const notifications = new NotificationsService({ store: notificationsStore, settings, rpc,
     // Space names for the relay line: with no window anywhere, that line is all a person gets, and a
     // session title alone does not say which space to open.
     spaces: { get: (id: string) => spaces.get(id) },
-    relay: new NotificationRelay({ settings, transport: realTransport, log: (line) => console.error(line) }) });
+    relay: new NotificationRelay({ settings, transport: realTransport, log: (line) => console.error(line),
+      phone: { wants: () => phonePushes?.wants() ?? false, send: (n) => phonePushes?.send(n) } }) });
   // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
   // services genuinely need each other: SessionService checkpoints every turn, and CheckpointService
   // must refuse to restore under a live agent. One direction is the dependency; the other is this.
@@ -1253,6 +1267,17 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   } });
   // Two shell-outs for two labels: asked for together so boot waits once, not twice.
   const [machine, user] = await Promise.all([machineName(), userFirstName()]);
+  // Realm Mobile (Plan 28): the paired phones, the link to the relay, and the pushes held back while
+  // the owner is at this Mac. Nothing dials until a phone is paired or a pairing window opens.
+  const presence = new Presence({ attached: () => browserBridge.connected });
+  const remote = new RemoteService({ rpc, settings, phones: new RemoteDevicesStore(db), macName: machine, version: SERVER_VERSION,
+    reportsDir: join(opts.home, "remote", "reports"), defaultRelay: opts.remote?.defaultRelay, dev: opts.remote?.dev,
+    linkBase: opts.remote?.linkBase, pairTtlMs: opts.remote?.pairTtlMs, log: (line) => console.error(line) });
+  phonePushes = new PhonePushes({ remote, presence, settings, holdMs: opts.remote?.pushHoldMs,
+    notification: (id) => notificationsStore.get(id),
+    needsYou: () => sessions.statusCounts().needsYou,
+    titleOf: (id) => items.findByRefId(id)?.title ?? sessionsStore.get(id)?.title ?? null,
+    log: (line) => console.error(line) });
   // One searcher for ⌘P and the `@` list's Files, so the two read a checkout the same way.
   const projectSearch = new ProjectSearchService();
   registerMethods({
@@ -1260,7 +1285,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
-    libraryFiles,
+    libraryFiles, remote, presence,
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
@@ -1316,6 +1341,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
        Origin at all. */
     allowedOrigins: ["file://", ...(devRendererOrigin() ? [devRendererOrigin()!] : [])],
   });
+  // After the socket is up, so the first `remote.changed` has somebody to reach.
+  remote.start();
   /**
    * Shut this app down.
    *
@@ -1350,12 +1377,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     await appViewServer.close();
     await mcpGateway.close();
     await mcpHub.close();
+    // Before the socket closes and the database with it: a held push must not fire into either, and
+    // the relay is told goodbye rather than left to notice a silence.
+    phonePushes?.close();
+    remote.close();
     await rpc.close();
     db.close();
   };
 
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, codeReview, gateway: mcpGateway,
+    port, db, rpc, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }

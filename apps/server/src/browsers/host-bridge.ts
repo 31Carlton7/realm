@@ -28,6 +28,9 @@ export const BROWSER_HOST_OPS = [
    *  than asking for it at every launch. Its own domain, so a blob sealed here cannot be opened as
    *  a machine password — `secret-box` mixes the domain in as AAD. */
   "eggsKey",
+  /** The `remote` domain key (Plan 28), which seals this Mac's Realm Mobile identity: realm-server
+   *  dials the relay and runs every phone's handshake, so it is what has to open the private keys. */
+  "remoteKey",
   /** Arm a one-shot download grant, click the ref, and await the file. The DIRECTORY is decided
    *  server-side (from the space's project) and travels with the op — main never picks a path, and
    *  the page never influences one. */

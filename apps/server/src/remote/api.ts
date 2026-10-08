@@ -15,9 +15,11 @@ export class MobileError extends Error {
   constructor(readonly code: MobileErrorCode, message: string) { super(message); }
 }
 
-/** A phone's open sessions, each with its own projector so rows are folded once per phone. */
+/** A phone's channel: the port its calls go through, as that phone, and its open sessions — each with
+ *  its own projector so rows are folded once per phone. */
 export type ChannelContext = {
   phoneId: string;
+  rpc: RpcPort;
   sessions: Map<string, { projector: SessionProjector; buffer: StoredSessionEvent[] | null }>;
 };
 
@@ -30,7 +32,7 @@ const mobileStatus = (s: Session["status"]): SessionRow["status"] => (s === "wai
 const isUnread = (s: Session): boolean => s.seenSeq > 0 && s.lastEventSeq > s.seenSeq;
 
 export class MobileApi {
-  constructor(private readonly o: { rpc: RpcPort; macName: () => string; reportsDir: string; dev: boolean }) {}
+  constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean }) {}
 
   async handle(ctx: ChannelContext, method: string, params: unknown): Promise<unknown> {
     if (!Object.hasOwn(MobileCalls, method)) throw new MobileError("METHOD_NOT_FOUND", `no mobile.v1 call ${method}`);
@@ -38,28 +40,29 @@ export class MobileApi {
     const parsed = MobileCalls[m].params.safeParse(params ?? {});
     if (!parsed.success) throw new MobileError("INVALID_PARAMS", parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
     const p = parsed.data as Record<string, unknown>;
+    const rpc = ctx.rpc;
     try {
       switch (m) {
         case "ping": return { at: Date.now() };
-        case "home.get": return await this.home();
+        case "home.get": return await this.home(rpc);
         case "session.open": return await this.open(ctx, p.id as string, p.limit as number);
         case "session.close": ctx.sessions.delete(p.id as string); return { ok: true };
         case "session.send":
-          await this.o.rpc.call("sessions.send", { id: p.id as string, text: p.text as string, delivery: p.delivery as "auto" | "queue" | "steer" });
+          await rpc.call("sessions.send", { id: p.id as string, text: p.text as string, delivery: p.delivery as "auto" | "queue" | "steer" });
           return { ok: true };
         case "session.answer":
-          await this.o.rpc.call("sessions.respondPermission", {
+          await rpc.call("sessions.respondPermission", {
             id: p.id as string, requestId: p.requestId as string, decision: p.decision as "allow" | "allow_always" | "deny",
             ...(p.answers ? { answers: p.answers as Record<string, string> } : {}),
           });
           return { ok: true };
-        case "session.stop": await this.o.rpc.call("sessions.interrupt", { id: p.id as string }); return { ok: true };
-        case "session.seen": await this.o.rpc.call("sessions.markSeen", { id: p.id as string, seq: p.seq as number }); return { ok: true };
+        case "session.stop": await rpc.call("sessions.interrupt", { id: p.id as string }); return { ok: true };
+        case "session.seen": await rpc.call("sessions.markSeen", { id: p.id as string, seq: p.seq as number }); return { ok: true };
         case "session.create": {
           const agent = AgentKindSchema.safeParse(p.agent);
           if (!agent.success) throw new MobileError("INVALID_PARAMS", `unknown agent ${String(p.agent)}`);
-          const { session } = await this.o.rpc.call("sessions.create", { spaceId: p.spaceId as string, agentKind: agent.data });
-          await this.o.rpc.call("sessions.send", { id: session.id, text: p.text as string });
+          const { session } = await rpc.call("sessions.create", { spaceId: p.spaceId as string, agentKind: agent.data });
+          await rpc.call("sessions.send", { id: session.id, text: p.text as string });
           return { id: session.id };
         }
         case "debug.report": {
@@ -79,11 +82,11 @@ export class MobileApi {
     }
   }
 
-  private async lists(): Promise<{ spaces: Space[]; sessions: Session[]; items: Item[] }> {
+  private async lists(rpc: RpcPort): Promise<{ spaces: Space[]; sessions: Session[]; items: Item[] }> {
     const [spaces, sessions, items] = await Promise.all([
-      this.o.rpc.call("spaces.list", {}),
-      this.o.rpc.call("sessions.listAll", { profileId: null }),
-      this.o.rpc.call("items.listAll", {}),
+      rpc.call("spaces.list", {}),
+      rpc.call("sessions.listAll", { profileId: null }),
+      rpc.call("items.listAll", {}),
     ]);
     return { spaces, sessions, items };
   }
@@ -98,8 +101,8 @@ export class MobileApi {
 
   /** Needs you is the sidebar's rule (Plan 27): everything waiting on a permission or a question, then
    *  failures not yet read that the person owns. Phase 2 imports the sidebar's own `needsYou()`. */
-  async home(): Promise<unknown> {
-    const { spaces, sessions, items } = await this.lists();
+  async home(rpc: RpcPort): Promise<unknown> {
+    const { spaces, sessions, items } = await this.lists(rpc);
     const spaceById = new Map(spaces.map((s) => [s.id, s]));
     const titles = new Map<string, string>();
     for (const it of items) if (it.kind === "session") titles.set(it.refId, it.title);
@@ -124,12 +127,13 @@ export class MobileApi {
   private async open(ctx: ChannelContext, id: string, limit: number): Promise<{ session: SessionRow; rows: Row[]; hasMore: boolean }> {
     const entry = { projector: new SessionProjector(), buffer: [] as StoredSessionEvent[] | null };
     ctx.sessions.set(id, entry);
+    const rpc = ctx.rpc;
     try {
-      const session = await this.o.rpc.call("sessions.get", { id });
+      const session = await rpc.call("sessions.get", { id });
       let after = 0;
       let total = 0;
       for (;;) {
-        const page = await this.o.rpc.call("sessions.events", { id, afterSeq: after, limit: HISTORY_PAGE });
+        const page = await rpc.call("sessions.events", { id, afterSeq: after, limit: HISTORY_PAGE });
         for (const ev of page) entry.projector.apply(ev);
         total += page.length;
         if (page.length < HISTORY_PAGE || total >= HISTORY_LIMIT) break;
@@ -137,7 +141,7 @@ export class MobileApi {
       }
       for (const ev of entry.buffer ?? []) entry.projector.apply(ev);
       entry.buffer = null;
-      const [items, spaces] = await Promise.all([this.o.rpc.call("items.listAll", {}), this.o.rpc.call("spaces.list", {})]);
+      const [items, spaces] = await Promise.all([rpc.call("items.listAll", {}), rpc.call("spaces.list", {})]);
       const title = items.find((it) => it.kind === "session" && it.refId === id)?.title ?? "";
       const all = entry.projector.all();
       return { session: this.row(session, title, spaces.find((s) => s.id === session.spaceId)), rows: all.slice(-limit), hasMore: all.length > limit };

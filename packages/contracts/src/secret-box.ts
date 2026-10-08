@@ -41,13 +41,19 @@
  * goes into a pane's virtual authenticator over in-process CDP and is cleared out again when the
  * request the user approved has settled. There is no `exportPasskeyKey`, and there is no shape in
  * `@realm/contracts` with a field a private key could be serialized into.
+ *
+ * `remote` (Plan 28) seals the Mac's own identity for Realm Mobile: the X25519 and Ed25519 private
+ * keys every paired phone has pinned. The server holds this key, like `machine`, because the server
+ * is what dials the relay and runs each phone's Noise handshake. Like `machine`, no key means no
+ * seal at all — never a private key written in the clear — and the server reports itself locked
+ * until Electron main hands the key over.
  */
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
 
 /** Domain → the byte written into the header and mixed in as AAD. Codes are permanent: changing one
  *  makes every existing blob of that domain unopenable, which for credentials means silent data
  *  loss the user only discovers at a sign-in prompt. Add, never renumber. */
-export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5 } as const;
+export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, remote: 6 } as const;
 export type SecretDomain = keyof typeof SECRET_DOMAINS;
 
 const VERSION = 1;

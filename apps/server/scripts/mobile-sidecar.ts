@@ -16,8 +16,8 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { bootServer, repoRoot, wranglerDev, type Relay } from "./lib/mobile-rig";
-import { RemoteGateway, type PushPayload } from "../src/remote/gateway";
+import { bootServer, repoRoot, scratchGateway, wranglerDev, type Relay } from "./lib/mobile-rig";
+import type { PushPayload } from "../src/remote/gateway";
 import { loopbackRpc } from "../src/remote/rpc-port";
 
 const arg = (name: string): string | undefined => { const i = process.argv.indexOf(`--${name}`); return i >= 0 ? process.argv[i + 1] : undefined; };
@@ -30,7 +30,7 @@ const rpc = await loopbackRpc({ port: server.port, token: server.token });
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q: string): Promise<string> => new Promise((r) => rl.question(q, r));
 
-const gw = new RemoteGateway({
+const gw = scratchGateway({
   home, relay: relay.url, rpc, macName: "Spike Mac", version: "phase-1", dev: true, log: (l) => console.log(l),
   confirm: async ({ name, model }) => process.argv.includes("--yes") || /^y/i.test(await ask(`\nPair "${name}" (${model})? [y/N] `)),
 });

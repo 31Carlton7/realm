@@ -132,6 +132,30 @@ export class TestPhone {
     }
   }
 
+  /** Proves the code on a pairing channel and then, before the owner has answered, makes one call on
+   *  that channel — what a phone that has photographed a QR code could try. Returns the Mac's reply. */
+  async callWhilePairing(url: string, method: string, params: unknown = {}): Promise<{ ok: boolean; result?: unknown; error?: { code: string; message: string } }> {
+    const link = parseLink(url);
+    const s = await Socket.open(`${link.relay}/v1/pair/${link.macId}/${link.windowId}`);
+    try {
+      await s.next(control("ready"));
+      const hs = new HandshakeState({ pattern: "IKpsk1", initiator: true, prologue: PROLOGUE.pair(link.macId, link.windowId), s: this.keys.dh, rs: link.macKey, psk: link.secret });
+      s.ws.send(hs.writeMessage(json({ v: 1, name: "Test iPhone", model: "iPhone18,1", sign: b64u(this.keys.sign.pub) })));
+      hs.readMessage(await s.next(binary));
+      for (const frame of sealMessage(hs.transport!.send, JSON.stringify({ id: 1, method, params }))) s.ws.send(frame);
+      const reader = new FrameReader(hs.transport!.receive);
+      return await s.next((m) => {
+        if (!m.binary) return undefined;
+        const text = reader.push(m.data);
+        if (text === null) return undefined;
+        const r = JSON.parse(text) as { id?: number; ok?: boolean; result?: unknown; error?: { code: string; message: string } };
+        return r.id === 1 ? { ok: r.ok === true, result: r.result, error: r.error } : undefined;
+      });
+    } finally {
+      s.ws.close();
+    }
+  }
+
   /** Connects as itself and runs IK (§4.2). The handshake is pipelined behind the auth message, as the
    *  spec allows, so a reconnect costs one round trip to the Mac after the relay's challenge. */
   async connect(): Promise<{ handshakeMs: number; macOnline: boolean; mac: string }> {
@@ -176,6 +200,14 @@ export class TestPhone {
     });
   }
 
+  /** Registers an APNs device token with the relay (PROTOCOL.md §3.2), as the app does once connected. */
+  apns(token: string, env: "sandbox" | "production" = "sandbox"): void {
+    const ws = this.socket?.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error("not connected");
+    ws.send(JSON.stringify({ t: "apns", token, env }));
+  }
+
+  /** Listens for one event, or for every message the Mac sends with `"*"` (handed `{event, payload}`). */
   on(event: string, fn: (payload: unknown, at: number) => void): () => void {
     const set = this.listeners.get(event) ?? new Set();
     set.add(fn);
@@ -224,5 +256,6 @@ export class TestPhone {
 
   private emit(event: string, payload: unknown, at: number): void {
     for (const fn of this.listeners.get(event) ?? []) fn(payload, at);
+    for (const fn of this.listeners.get("*") ?? []) fn({ event, payload }, at);
   }
 }

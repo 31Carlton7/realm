@@ -5,6 +5,8 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
+import { RemoteGateway, type GatewayOptions } from "../../src/remote/gateway";
+import { FileRemoteStore } from "../../src/remote/store";
 
 /**
  * The pieces Plan 28's Phase 1 scripts stand up: the BUILT server on a scratch home with the fake
@@ -22,6 +24,16 @@ export const freePort = (): Promise<number> => new Promise((ok, bad) => {
 
 export function refuseRealHome(home: string): void {
   if (resolve(home) === resolve(homedir(), "Realm")) throw new Error("refusing to run against ~/Realm — Phase 1 is scratch homes only");
+}
+
+/** A gateway beside a built server, as Phase 1 ran it: its identity and phones in 0600 files under the
+ *  scratch home's `remote/`, its calls dialled over loopback. The server's own Realm Mobile stays off
+ *  beside it — it has no phones of its own, and no Electron to hand it a key. */
+export function scratchGateway(o: Omit<GatewayOptions, "identity" | "phones" | "reportsDir"> & { home: string }): RemoteGateway {
+  const { home, ...rest } = o;
+  refuseRealHome(home);
+  const store = new FileRemoteStore(home);
+  return new RemoteGateway({ ...rest, identity: store.identity(), phones: store, reportsDir: join(store.dir, "reports") });
 }
 
 export type Server = { home: string; port: number; token: string; stop(): void };

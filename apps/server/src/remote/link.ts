@@ -23,7 +23,6 @@ export type LinkEvents = {
 
 export class RelayLink {
   private ws: WebSocket | null = null;
-  private heartbeat: NodeJS.Timeout | null = null;
   private retry: NodeJS.Timeout | null = null;
   private attempt = 0;
   private stopped = false;
@@ -104,13 +103,16 @@ export class RelayLink {
           this.o.on.control(m);
       }
     });
+    // One heartbeat per socket, not per link: a link stopped and started again has its old socket's
+    // close arrive after the new one opened, and a shared timer would be cleared out from under it.
+    let heartbeat: NodeJS.Timeout | null = null;
     ws.on("open", () => {
-      this.heartbeat = setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.send(PING); }, HEARTBEAT_MS);
+      heartbeat = setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.send(PING); }, HEARTBEAT_MS);
     });
     ws.on("error", (e) => this.o.log?.(`[remote] relay socket error: ${e.message}`));
     ws.on("close", (code, reason) => {
-      if (this.heartbeat) clearInterval(this.heartbeat);
-      this.heartbeat = null;
+      if (heartbeat) clearInterval(heartbeat);
+      heartbeat = null;
       if (this.ws !== ws) return;
       this.ws = null;
       this.setState("offline");
