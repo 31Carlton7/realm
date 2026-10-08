@@ -24,12 +24,13 @@ import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
 import { FailoverPanel } from "./FailoverPanel";
 import { LayaSection } from "./LayaSection";
+import { DevicesPanel } from "./DevicesPanel";
 import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
 import { PageRail } from "../../components/page-nav";
-import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, settingsTabLabel, type SettingEntry, type SettingsTab } from "./settings-index";
+import { CATEGORY_COPY, SETTINGS_GROUPS, SETTINGS_INDEX, searchSettings, settingPlace, settingsTabLabel, type SettingEntry, type SettingsTab } from "./settings-index";
 
 /**
  * The Settings page (Plan 12 W6, Universe screenshot 5) — a `settings-page` destination on W4's
@@ -63,13 +64,19 @@ export function SettingsPage(_props: PaneProps) {
   useDissolve(lists);
   useDissolve(lists, "x");
   const ids = useId();
-  const results = query.trim() === "" ? null : searchSettings(query);
+  // Read once for the whole page: Devices draws it, Notifications draws a row only with a phone paired,
+  // and the search finds that row only then. `remote.changed` keeps it current from here.
+  const refreshRemote = useApp((s) => s.refreshRemote);
+  useEffect(() => { void refreshRemote(); }, [refreshRemote]);
+  const phonesPaired = useApp((s) => (s.remote?.phones.length ?? 0) > 0);
+  const results = query.trim() === "" ? null : searchSettings(query, { phonesPaired });
 
   const open = (next: SettingsTab) => { setQuery(""); setTab(next); };
   const jump = (entry: SettingEntry) => {
     open(entry.tab);
     setLanding(entry.page ? null : entry.id);
   };
+  const openSetting = (id: string) => { const entry = SETTINGS_INDEX.find((e) => e.id === id); if (entry) jump(entry); };
   useLanding(page, landing, setLanding);
 
   return (
@@ -128,6 +135,7 @@ export function SettingsPage(_props: PaneProps) {
               {tab === "appearance" && <AppearanceTab />}
               {tab === "keys" && <KeybindingsPanel />}
               {tab === "notifications" && <NotificationsTab />}
+              {tab === "devices" && <DevicesPanel onOpenSetting={openSetting} />}
               {tab === "engines" && <EnginesTab />}
               {tab === "usage" && <UsagePanel />}
               {tab === "signins" && <SignInsTab />}
@@ -1428,6 +1436,9 @@ function NotificationsTab() {
   const setSoundVolume = useApp((s) => s.setSoundVolume);
   const relay = useApp((s) => s.notificationRelay);
   const setNotificationRelay = useApp((s) => s.setNotificationRelay);
+  const phonesPaired = useApp((s) => (s.remote?.phones.length ?? 0) > 0);
+  const iphoneNotifications = useApp((s) => s.iphoneNotifications);
+  const setIphoneNotifications = useApp((s) => s.setIphoneNotifications);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
 
@@ -1485,9 +1496,27 @@ function NotificationsTab() {
             value={relay.slackWebhook} spellCheck={false}
             onChange={(e) => run(() => setNotificationRelay({ slackWebhook: e.target.value }))} />
         </li>
+        {/* Drawn only once a phone is paired: before that there is nowhere for a push to go, and a
+            switch for it would be a control for something nobody has set up. Its line says the one way
+            it differs from the two above — it waits while you are at this Mac. */}
+        {phonesPaired && (
+          <li className="settings-row" data-setting="relay-iphone" title="A push to Realm on your iPhone, for the same moments: a permission or question waiting, a session that finished or failed, a run that needs you. Sealed on this Mac, so the relay and Apple carry nothing they can read.">
+            <div className="settings-row-main">
+              <span className="settings-row-name">Notify my iPhone</span>
+              <span className="settings-row-desc">Held while you're at this Mac, and sent if it's still waiting two minutes later.</span>
+            </div>
+            <input type="checkbox" role="switch" className="switch" aria-label="Notify my iPhone"
+              checked={iphoneNotifications}
+              onChange={(e) => run(() => setIphoneNotifications(e.target.checked))} />
+          </li>
+        )}
       </ul>
-      {/* The one thing the rows above do not say: none of it happens while you are looking at Realm. */}
-      <p className="settings-hint" title="Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app.">Only when Realm is not the app you are in.</p>
+      {/* The one thing the rows above do not say: none of it happens while you are looking at Realm.
+          The iPhone's own line says how it differs, so with that row drawn this names the two it is
+          about rather than claiming all of them. */}
+      <p className="settings-hint" title="Clicking one opens the session it came from. The categories below decide what counts; this decides whether it leaves the app.">
+        {phonesPaired ? "Texts and posts go only when Realm is not the app you are in." : "Only when Realm is not the app you are in."}
+      </p>
 
       <h3 className="settings-head">Notify me about</h3>
       {prefs === null ? <p className="env-empty">Loading preferences…</p> : (

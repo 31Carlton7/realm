@@ -642,6 +642,10 @@ export function App() {
     // The feed (Plan 12 W5): every change carries the server's unread count for the sidebar pill, and
     // a surfaced row for the focused-pane auto-read — see applyNotificationsChanged.
     const offN = rpc().on("notifications.changed", (p) => store.getState().applyNotificationsChanged(p));
+    // Realm Mobile: the whole status on every change, and a phone waiting on the owner's yes. Applied
+    // in every window — the request is held until it is answered, whichever window answers it.
+    const offRm = rpc().on("remote.changed", (status) => store.getState().applyRemoteChanged(status));
+    const offPr = rpc().on("remote.pairRequest", (request) => store.getState().applyPairRequest(request));
     // A clicked OS toast, arriving from main as a bare row id (main/notify.ts). Optional-chained like
     // onScrollPhase: a renderer running outside the Electron preload (tests, a browser) simply never
     // hears one. Main has already raised the window; the store owns landing on the row.
@@ -705,7 +709,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offRm(); offPr(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);
