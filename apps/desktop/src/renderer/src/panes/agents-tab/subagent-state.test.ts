@@ -57,11 +57,13 @@ describe("modelLabel", () => {
     { kind: "acp:cursor" as const, models: [{ id: "gpt-5.3-codex[reasoning=medium]", label: "gpt-5.3-codex[reasoning=medium]" }] }];
   it("names a model from the probe's catalog, then the curated list, then gives up to the id", () => {
     expect(modelLabel("codex", "gpt-6-luna", probe)).toBe("GPT-6 Luna");
-    expect(modelLabel("claude", "claude-opus-5-5", probe)).toBe("Claude Opus 5.5");
+    expect(modelLabel("claude", "claude-opus-5-5", probe)).toBe("Opus 5.5");
     expect(modelLabel("codex", "gpt-9", probe)).toBe("gpt-9");
   });
   it("says what the harness runs when nothing is pinned, and drops an ACP setting suffix", () => {
     expect(modelLabel("claude", null, probe)).toBe("Fable 5.1");
+    // A pinned Fable and the default Fable are one model, named one way beside Claude's mark.
+    expect(modelLabel("claude", "claude-fable-5-1", probe)).toBe(modelLabel("claude", null, probe));
     expect(modelLabel("acp:cursor", "gpt-5.3-codex[reasoning=medium]", probe)).toBe("gpt-5.3-codex");
   });
 });

@@ -63,7 +63,7 @@ describe("the list of a session's sub-agents", () => {
 
   it("a finished one says how it ended and what it reported, in plain prose", async () => {
     await mount();
-    const fable = await card(/^Write the migration\. Claude Fable 5\.1 on Claude\. Done, 3m 0s\.$/);
+    const fable = await card(/^Write the migration\. Fable 5\.1 on Claude\. Done, 3m 0s\.$/);
     expect(fable).toHaveTextContent("Done Added the column. All 12 pass.");
   });
 
