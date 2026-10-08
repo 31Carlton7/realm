@@ -31,4 +31,18 @@ describe("the team activity log", () => {
     expect(store.activity("s1", 10, 102).map((a) => a.object)).toEqual(["a"]);
     db.close();
   });
+
+  it("keeps lines written in the same millisecond in the order they were written", () => {
+    const db = openDatabase(join(tempDir("realm-team-store-"), "realm.db"));
+    db.prepare("INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at) VALUES ('p', 'P', 'x', '#000', 0, 1, 1)").run();
+    db.prepare("INSERT INTO spaces (id, profile_id, name, icon, sort_order, folder_path, created_at, updated_at) VALUES ('s1', 'p', 's1', 'f', 0, '/tmp', 1, 1)").run();
+    const store = new TeamStore(db, () => 500);
+    // Making a team writes its roles and then "made this space a team", all in one millisecond.
+    const objects = ["Creator Manager", "Content Producer", "Podcast Booker", "Editor", "Ops", "Researcher", "the team"];
+    for (const o of objects) store.appendActivity({ spaceId: "s1", actor: "user", verb: "made_role", object: o, runId: "r1" });
+    // THE MUTANT: tie-break on the id — a ULID's random tail shuffles lines that share a millisecond.
+    expect(store.activity("s1", 20).map((a) => a.object)).toEqual([...objects].reverse());
+    expect(store.activityForRun("r1").map((a) => a.object)).toEqual(objects);
+    db.close();
+  });
 });

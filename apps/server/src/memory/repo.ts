@@ -89,6 +89,10 @@ export type MemoryRepoDeps = {
   /** Folders a memory repo may never be inside: every space's checkouts, the agents' own config
    *  folders, Realm's install. The spec's first rule is that memory lives apart from the project. */
   forbiddenRoots?: () => string[];
+  /** Where a repo goes when Realm's own folder is inside one of those roots — a home kept inside a
+   *  project folder that is also a space. Unset, there is no second place and the guard's refusal
+   *  stands. */
+  fallbackRoot?: string;
   /** Whether the space has the memory tools. Off, the repo neither travels into a session nor takes
    *  writes there — one predicate, so the injected index can never mention tools that are not there. */
   toolsEnabled?: (spaceId: string) => boolean;
@@ -141,6 +145,20 @@ export class MemoryRepoService {
   /** Where a repo is made when no path is given: under Realm's home, never in a project. */
   defaultPath(owner: RepoOwner): string { return join(this.d.home, "memory", "repos", `${owner.scope}-${owner.id}`); }
 
+  /**
+   * Where a repo made without a path goes: under Realm's home, or — when that home sits inside a
+   * folder a memory repo may not live in (a space's folder holds it) — the fallback root, so making a
+   * repo never dead-ends on where Realm happens to be installed. An existing repo at the default stays
+   * where it is. Null when neither place is allowed: the person has to choose a folder.
+   */
+  placeFor(owner: RepoOwner): { path: string; moved: boolean } | null {
+    const first = this.resolvePath(this.defaultPath(owner));
+    if (this.forbiddenBy(first) === null) return { path: first, moved: false };
+    if (!this.d.fallbackRoot) return null;
+    const second = this.resolvePath(join(this.d.fallbackRoot, `${owner.scope}-${owner.id}`));
+    return this.forbiddenBy(second) === null ? { path: second, moved: true } : null;
+  }
+
   config(owner: RepoOwner): RepoConfig | null {
     const v = this.d.settings.get(repoKey(owner)) as Partial<RepoConfig> | null | undefined;
     if (!v || typeof v.path !== "string") return null;
@@ -190,7 +208,12 @@ export class MemoryRepoService {
   /** Idempotent: a missing or empty folder becomes a repo with the spec's seed `MEMORY.md`; a valid
    *  memory repo is reused as it is; anything else is refused and left untouched. */
   async create(owner: RepoOwner, path?: string): Promise<MemoryRepoState> {
-    const p = this.resolvePath(path ?? this.defaultPath(owner));
+    if (path === undefined && !this.placeFor(owner)) {
+      const root = this.forbiddenBy(this.resolvePath(this.defaultPath(owner)))!;
+      const second = this.d.fallbackRoot ? ` Its second place, ${this.d.fallbackRoot}, is inside one of them too.` : "";
+      throw new RpcError("MEMORY_REPO_FORBIDDEN", `Realm keeps memory repos in its own folder, ${this.d.home}, but that folder is inside ${root}, which one of your spaces works in, and a memory repo has to stay apart from your projects.${second} Choose a folder outside your projects to keep it in.`);
+    }
+    const p = path === undefined ? this.placeFor(owner)!.path : this.resolvePath(path);
     this.guard(p);
     const empty = !existsSync(p) || (statSync(p).isDirectory() && readdirSync(p).length === 0);
     if (empty) {
@@ -631,10 +654,15 @@ export class MemoryRepoService {
 
   /** The spec's rule that memory is never inside a project, plus the folders Realm never writes. */
   private guard(p: string): void {
+    const root = this.forbiddenBy(p);
+    if (root !== null) throw new RpcError("MEMORY_REPO_FORBIDDEN", `A memory repo cannot live inside ${root}: it is one of your projects or an agent's own folder, and memory stays apart from both. Choose a folder outside it.`);
+  }
+
+  /** The forbidden folder `p` is inside, or null. */
+  private forbiddenBy(p: string): string | null {
     const real = realish(p);
-    for (const root of this.d.forbiddenRoots?.() ?? []) {
-      if (within(real, realish(root))) throw new RpcError("MEMORY_REPO_FORBIDDEN", `a memory repo cannot live inside ${root} — keep it apart from projects and from the agents' own folders`);
-    }
+    for (const root of this.d.forbiddenRoots?.() ?? []) if (within(real, realish(root))) return root;
+    return null;
   }
 
   /** Why `p` is not a memory repo, or null: the spec's own test — its top level is `p` itself, and

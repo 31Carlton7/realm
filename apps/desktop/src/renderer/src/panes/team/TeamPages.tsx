@@ -1,16 +1,18 @@
-import { Icon, Realmite, parseRealmiteSpec, realmiteFromSeed, randomSeed, type IconName, type RealmiteSpec } from "@realm/ui";
+import { Icon, Realmite, parseRealmiteSpec, type IconName } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ROLE_TEMPLATES, mediaUrl, parseAccount, parseRecord, type ParsedRecord, type RecordLine, type RoleTemplate, type TeamActivity,
+  ROLE_TEMPLATES, mediaUrl, parseAccount, parseRecord, type ParsedRecord, type RecordLine, type TeamActivity,
   type TeamRecord, type TeamRole, type TeamSpace,
 } from "@realm/contracts";
-import { RealmiteMaker } from "../../components/RealmiteMaker";
+import { Menu } from "../../components/Menu";
 import { Sheet } from "../../components/Sheet";
+import { MODES, RoleSheet, modelLabel } from "./RoleSheet";
+import { MakeTeam } from "./TeamPicker";
 import { REVIEW_GLYPH, realmiteState } from "../../components/sidebar/TeamRows";
 import { shortWhen } from "../schedules/schedule-model";
 import { useApp, type SpacePageTab } from "../../state/store";
 import {
-  activitySentence, agoPhrase, duration, feedTime, meter, money, roleStateLine, runChip, spendLine, wakeSentence, wokeLine,
+  activitySentence, agoPhrase, duration, feedTime, meter, money, roleStateLine, runChip, sharesNote, spendLine, wakeSentence, wokeLine,
 } from "./team-format";
 
 /* ═══════════════════════════════ the column ═══════════════════════════════ */
@@ -80,64 +82,6 @@ export function TeamPage({ spaceId, tab }: { spaceId: string; tab: SpacePageTab 
   return <Overview spaceId={spaceId} team={team} />;
 }
 
-/* ═══════════════════════════════ making a team ═══════════════════════════════ */
-
-/**
- * A space that is not a team yet: what a team is in two sentences, the two starter roles as their
- * Realmites, and one primary that makes it — landing on the Overview with them in it.
- */
-function MakeTeam({ spaceId }: { spaceId: string }) {
-  const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
-  const makeTeam = useApp((s) => s.makeTeam);
-  const setSpacePageTab = useApp((s) => s.setSpacePageTab);
-  const run = useApp((s) => s.run);
-  const [picked, setPicked] = useState<string[]>(ROLE_TEMPLATES.map((t) => t.id));
-  const [busy, setBusy] = useState(false);
-  const make = () => {
-    setBusy(true);
-    run(async () => { try { await makeTeam(spaceId, picked); setSpacePageTab(spaceId, "team"); } finally { setBusy(false); } });
-  };
-  return (
-    <>
-      <header className="page-head">
-        <div className="page-title"><h1>Team</h1></div>
-        <span className="page-vantage">{space?.name}</span>
-      </header>
-      <div className="form">
-        <p className="tp-lede">
-          A team is this space with standing roles: agents with a brief, a model, a clock and a budget, whose work comes to
-          Review for your yes before anything leaves Realm. What they learn about the people you work with is kept as records
-          in the space's memory.
-        </p>
-        <h3 className="settings-head">Start with</h3>
-        <div className="tp-cards">
-          {ROLE_TEMPLATES.map((t) => {
-            const on = picked.includes(t.id);
-            return (
-              <label key={t.id} className="tp-card tp-pick" data-on={on || undefined}>
-                <span className="tp-card-head">
-                  <span className="tp-mark"><Realmite spec={realmiteFromSeed(t.realmiteSeed)} size={32} /></span>
-                  <span className="tp-card-name">{t.name}</span>
-                  <input type="checkbox" className="checkbox tp-pick-box" checked={on}
-                    onChange={(e) => setPicked((p) => (e.target.checked ? [...p, t.id] : p.filter((x) => x !== t.id)))} />
-                </span>
-                <span className="tp-card-line">{t.blurb}</span>
-                <span className="tp-card-foot">{templateFoot(t)}</span>
-              </label>
-            );
-          })}
-        </div>
-        <div className="form-actions tp-make">
-          <span className="tp-make-note">Runs on Sonnet, stops at $3 or 20 minutes a run, and the team spends at most $60 a week.</span>
-          <button type="button" className="btn primary" disabled={busy} onClick={make}>Make {space?.name ?? "this space"} a team</button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-const templateFoot = (t: RoleTemplate) => `${wakeSentence(t.cron)} · ${money(t.weekBudgetUsd)} a week`;
-
 /* ═══════════════════════════════ overview ═══════════════════════════════ */
 
 function Overview({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
@@ -146,8 +90,9 @@ function Overview({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
   const activity = useApp((s) => s.teamActivity[spaceId]);
   const loadTeamActivity = useApp((s) => s.loadTeamActivity);
   const setSpacePageTab = useApp((s) => s.setSpacePageTab);
+  const openSheet = useApp((s) => s.openSheet);
   const run = useApp((s) => s.run);
-  const [making, setMaking] = useState(false);
+  const addTeammate = () => openSheet({ kind: "add-teammates", spaceId });
   useEffect(() => { run(() => loadTeamActivity(spaceId)); }, [spaceId, loadTeamActivity, run]);
   const waiting = team.reviews.filter((r) => r.state === "waiting");
   const today = (activity ?? []).filter((a) => a.ts > Date.now() - 2 * 86_400_000).slice(0, 8);
@@ -161,7 +106,7 @@ function Overview({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
       <header className="page-head">
         <div className="page-title"><h1>{space?.name} team</h1></div>
         <span className="page-vantage" title="Dollars are what the runs would cost on the API. On a subscription they measure how heavy the work was, not a bill.">{vantage}</span>
-        <button type="button" className="btn" onClick={() => setMaking(true)}><Icon name="add" size={16} />New role</button>
+        <button type="button" className="btn" onClick={addTeammate}><Icon name="add" size={16} />Add teammate</button>
       </header>
       <div className="form">
         {waiting.length > 0 && (
@@ -186,8 +131,9 @@ function Overview({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
         <div className="tp-cards">
           {team.roles.map((r) => <RoleCard key={r.id} role={r} onOpen={() => setSpacePageTab(spaceId, `role:${r.id}`)} />)}
           <div className="tp-card tp-card-note">
-            <span className="tp-card-line">Roles wake on a schedule, when you answer one of their reviews, or when you run them.</span>
-            <button type="button" className="btn-quiet tp-card-new" onClick={() => setMaking(true)}>New role…</button>
+            <span className="tp-card-line">Teammates wake on a schedule, when you answer one of their reviews, or when you run them.</span>
+            <span className="tp-card-line t-num">{sharesNote(team.sharesUsd, team.weekBudgetUsd).text}.</span>
+            <button type="button" className="btn-quiet tp-card-new" onClick={addTeammate}>Add teammate…</button>
           </div>
         </div>
         {today.length > 0 && (
@@ -197,7 +143,6 @@ function Overview({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
           </>
         )}
       </div>
-      {making && <RoleSheet spaceId={spaceId} onClose={() => setMaking(false)} />}
     </>
   );
 }
@@ -233,7 +178,9 @@ function Feed({ rows, team }: { rows: readonly TeamActivity[]; team: TeamSpace }
   return (
     <ul className="tp-feed">
       {rows.map((a) => {
-        const role = a.actor.startsWith("role:") ? team.roles.find((r) => r.id === a.actor.slice(5)) : undefined;
+        const id = a.actor.startsWith("role:") ? a.actor.slice(5) : null;
+        // A removed role's lines keep its name and its Realmite: its history stays its own.
+        const role = id ? team.roles.find((r) => r.id === id) ?? team.formerRoles.find((r) => r.id === id) : undefined;
         const s = activitySentence(a, role?.name ?? (a.actor === "user" ? "You" : "Realm"));
         return (
           <li key={a.id}>
@@ -252,34 +199,24 @@ function Feed({ rows, team }: { rows: readonly TeamActivity[]; team: TeamSpace }
 /** Every role as its card, and the way to make another. */
 function RolesPage({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
   const setSpacePageTab = useApp((s) => s.setSpacePageTab);
-  const [making, setMaking] = useState(false);
+  const openSheet = useApp((s) => s.openSheet);
   return (
     <>
       <header className="page-head">
         <div className="page-title"><h1>Roles</h1></div>
-        <span className="page-vantage">{team.roles.length} on this team</span>
-        <button type="button" className="btn" onClick={() => setMaking(true)}><Icon name="add" size={16} />New role</button>
+        <span className="page-vantage t-num">{team.roles.length} on this team · {money(team.sharesUsd)} of {money(team.weekBudgetUsd)} a week in shares</span>
+        <button type="button" className="btn" onClick={() => openSheet({ kind: "add-teammates", spaceId })}><Icon name="add" size={16} />Add teammate</button>
       </header>
       <div className="form">
         <div className="tp-cards">
           {team.roles.map((r) => <RoleCard key={r.id} role={r} onOpen={() => setSpacePageTab(spaceId, `role:${r.id}`)} />)}
         </div>
       </div>
-      {making && <RoleSheet spaceId={spaceId} onClose={() => setMaking(false)} />}
     </>
   );
 }
 
 /* ═══════════════════════════════ a role ═══════════════════════════════ */
-
-const MODELS: { id: string; label: string }[] = [
-  { id: "sonnet", label: "Sonnet" }, { id: "opus", label: "Opus" }, { id: "haiku", label: "Haiku" },
-];
-const modelLabel = (m: string | null) => MODELS.find((x) => x.id === m)?.label ?? m ?? "The agent's default";
-
-// Each named as the role's card names it, so the option picked reads the same once it is the setting.
-const CADENCES: { cron: string | null; label: string }[] = ["0 9 * * 1-5", "0 9 * * 1,4", "0 9 * * *", "0 8 * * 1", null]
-  .map((cron) => ({ cron, label: wakeSentence(cron) }));
 
 function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
   const runs = useApp((s) => s.teamRoleRuns[role.id]);
@@ -293,7 +230,9 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
   const run = useApp((s) => s.run);
   const [messaging, setMessaging] = useState(false);
   const [message, setMessage] = useState("");
-  const [editing, setEditing] = useState(false);
+  const [sheet, setSheet] = useState<"edit" | "duplicate" | "remove" | null>(null);
+  const [menu, setMenu] = useState(false);
+  const more = useRef<HTMLButtonElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { run(() => loadRoleRuns(role.id)); }, [role.id, loadRoleRuns, run]);
   useEffect(() => { if (messaging) field.current?.focus(); }, [messaging]);
@@ -312,6 +251,16 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
         <button type="button" className="btn" onClick={() => setMessaging((v) => !v)} aria-expanded={messaging}>Message</button>
         <button type="button" className="btn" onClick={() => run(() => runRole(role.id, null).then(() => undefined))}
           title={`Start a run of ${role.name} now, on its brief`}>Run now</button>
+        <button type="button" ref={more} className="icon-btn" aria-label={`More for ${role.name}`} title={`More for ${role.name}`} aria-haspopup="menu" aria-expanded={menu}
+          onClick={() => setMenu((v) => !v)}><Icon name="more" size={16} /></button>
+        {menu && (
+          <Menu anchorRef={more} align="right" label={`More for ${role.name}`} onClose={() => setMenu(false)} items={[
+            { label: "Edit…", onSelect: () => setSheet("edit") },
+            { label: "Duplicate…", onSelect: () => setSheet("duplicate"), detail: "A new teammate with this one's brief, model and clock" },
+            { kind: "separator" },
+            { label: `Remove ${role.name} from the team…`, danger: true, onSelect: () => setSheet("remove") },
+          ]} />
+        )}
       </header>
       <div className="form">
         {messaging && (
@@ -394,20 +343,49 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
           <li className="settings-row">
             <div className="settings-row-main">
               <span className="settings-row-name">Can use</span>
-              <span className="settings-row-detail">{["Records and Review", ...role.skills.map((s) => `the ${s} skill`)].join(", ")} · mode {role.permissionMode === "acceptEdits" ? "accepts edits" : role.permissionMode === "plan" ? "plans only" : "asks first"}</span>
+              <span className="settings-row-detail">{["Records and Review", ...role.skills.map((s) => `the ${s} skill`)].join(", ")} · {MODES.find((m) => m.id === role.permissionMode)?.label ?? role.permissionMode}</span>
             </div>
-            <button type="button" className="btn-quiet" onClick={() => setEditing(true)}>Edit</button>
+            <button type="button" className="btn-quiet" onClick={() => setSheet("edit")}>Edit</button>
           </li>
         </ul>
         <div className="tp-danger">
-          <button type="button" className="btn-quiet danger" onClick={() => run(async () => { await archiveRole(role.id, role.spaceId); setSpacePageTab(role.spaceId, "team"); })}>
-            Archive {role.name}
-          </button>
-          <span className="tp-make-note">Its runs and what it made stay; it stops waking.</span>
+          <button type="button" className="btn-quiet danger" onClick={() => setSheet("remove")}>Remove {role.name} from the team…</button>
         </div>
       </div>
-      {editing && <RoleSheet spaceId={role.spaceId} role={role} team={team} onClose={() => setEditing(false)} />}
+      {sheet === "edit" && <RoleSheet spaceId={role.spaceId} role={role} team={team} onClose={() => setSheet(null)} />}
+      {sheet === "duplicate" && <RoleSheet spaceId={role.spaceId} copyOf={role} team={team} onClose={() => setSheet(null)} onMade={(made) => setSpacePageTab(role.spaceId, `role:${made.id}`)} />}
+      {sheet === "remove" && (
+        <RemoveRoleSheet role={role} onClose={() => setSheet(null)}
+          onRemove={() => run(async () => { await archiveRole(role.id, role.spaceId); setSheet(null); setSpacePageTab(role.spaceId, "team"); })} />
+      )}
     </>
+  );
+}
+
+/**
+ * Removing a teammate asks first, because a role is an object a stray click would cost: its clock,
+ * its brief and its Realmite. It names exactly what goes and what stays — the role stops waking and
+ * leaves the team; its runs, its reviews and its lines in Activity stay under its name.
+ */
+function RemoveRoleSheet({ role, onClose, onRemove }: { role: TeamRole; onClose: () => void; onRemove: () => void }) {
+  const live = role.state === "working" || role.state === "waiting" || role.state === "queued";
+  return (
+    <Sheet title={`Remove ${role.name} from the team?`} onClose={onClose} width={460}>
+      <div className="form">
+        <div className="tp-remove-who">
+          <Realmite spec={parseRealmiteSpec(role.realmite, role.id)} size={32} />
+          <span className="tp-card-name">{role.name}</span>
+        </div>
+        <p className="tp-lede">
+          {role.name} stops waking{role.cron ? " and its schedule is deleted" : ""}. Its runs, what it sent to Review and its lines in
+          Activity stay, under its name.{live ? " A run already going finishes first." : ""}
+        </p>
+        <div className="sheet-actions">
+          <button type="button" className="btn" onClick={onClose}>Keep {role.name}</button>
+          <button type="button" className="btn destructive" onClick={onRemove}>Remove {role.name}</button>
+        </div>
+      </div>
+    </Sheet>
   );
 }
 
@@ -438,88 +416,6 @@ function BriefEditor({ role }: { role: TeamRole }) {
         onBlur={() => save(text)} />
       <span className="tp-brief-state" aria-live="polite">{state === "saving" ? "Saving…" : state === "edited" ? "Edited" : "Saved"}</span>
     </div>
-  );
-}
-
-/**
- * Making a role, or changing what it runs on: its name and Realmite (shuffle and customise), its
- * brief, its model, its clock and its week. A new role lands on its page, the brief ready.
- */
-function RoleSheet({ spaceId, role, onClose }: { spaceId: string; role?: TeamRole; team?: TeamSpace; onClose: () => void }) {
-  const createRole = useApp((s) => s.createRole);
-  const updateRole = useApp((s) => s.updateRole);
-  const setSpacePageTab = useApp((s) => s.setSpacePageTab);
-  const run = useApp((s) => s.run);
-  const [name, setName] = useState(role?.name ?? "");
-  const [brief, setBrief] = useState(role?.brief ?? "");
-  const [spec, setSpec] = useState<RealmiteSpec>(() => (role ? parseRealmiteSpec(role.realmite, role.id) : realmiteFromSeed(randomSeed())));
-  const [model, setModel] = useState(role?.model ?? "sonnet");
-  const [cron, setCron] = useState<string | null>(role ? role.cron : "0 9 * * 1-5");
-  const [budget, setBudget] = useState(role?.weekBudgetUsd != null ? String(role.weekBudgetUsd) : "20");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const cadences = useMemo(() => (cron && !CADENCES.some((c) => c.cron === cron) ? [...CADENCES, { cron, label: wakeSentence(cron) }] : CADENCES), [cron]);
-  const fromTemplate = (t: RoleTemplate) => { setName(t.name); setBrief(t.brief); setModel(t.model); setCron(t.cron); setBudget(String(t.weekBudgetUsd)); setSpec(realmiteFromSeed(t.realmiteSeed)); };
-  const valid = name.trim().length > 0 && brief.trim().length > 0 && (budget === "" || Number(budget) > 0);
-  const submit = () => {
-    if (!valid) return;
-    setBusy(true); setError(null);
-    const weekBudgetUsd = budget === "" ? null : Number(budget);
-    run(async () => {
-      try {
-        if (role) {
-          await updateRole({ id: role.id, name: name.trim(), brief, realmite: spec as unknown as Record<string, unknown>, model, cron, weekBudgetUsd });
-          onClose();
-        } else {
-          const made = await createRole({ spaceId, name: name.trim(), brief, realmite: spec as unknown as Record<string, unknown>, model, cron, weekBudgetUsd });
-          onClose();
-          setSpacePageTab(spaceId, `role:${made.id}`);
-        }
-      } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
-    });
-  };
-  return (
-    <Sheet title={role ? `Edit ${role.name}` : "New role"} onClose={onClose} width={720}
-      footer={<>
-        {error && <span className="tp-sheet-error" role="alert">{error}</span>}
-        <button type="button" className="btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn primary" disabled={!valid || busy} onClick={submit}>{role ? "Save" : "Make role"}</button>
-      </>}>
-      <form className="form tp-role-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-        {!role && (
-          <div className="tp-starters" role="group" aria-label="Start from a role">
-            <span className="tp-starters-label">Start from</span>
-            {ROLE_TEMPLATES.map((t) => (
-              <button key={t.id} type="button" className="ghost-chip tp-starter" onClick={() => fromTemplate(t)}>
-                <Realmite spec={realmiteFromSeed(t.realmiteSeed)} size={16} />{t.name}
-              </button>
-            ))}
-          </div>
-        )}
-        <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Creator Manager" maxLength={60} autoFocus={!role} /></label>
-        <div className="field"><span>Realmite</span><RealmiteMaker spec={spec} onChange={setSpec} name={name.trim() || undefined} /></div>
-        <label className="field"><span>Brief</span>
-          <textarea rows={6} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="What this role does, for whom, and what it must never do. It delivers to Review; it never sends or posts." />
-        </label>
-        <div className="tp-form-row">
-          <label className="field"><span>Model</span>
-            <select value={model ?? ""} onChange={(e) => setModel(e.target.value)}>
-              {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              {role?.model && !MODELS.some((m) => m.id === role.model) && <option value={role.model}>{role.model}</option>}
-            </select>
-          </label>
-          <label className="field"><span>Wakes</span>
-            <select value={cron ?? ""} onChange={(e) => setCron(e.target.value || null)}>
-              {cadences.map((c) => <option key={c.cron ?? "none"} value={c.cron ?? ""}>{c.label}</option>)}
-            </select>
-          </label>
-          <label className="field"><span>A week, at most ($)</span>
-            <input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value.replace(/[^\d.]/g, ""))} aria-describedby="tp-budget-note" />
-          </label>
-        </div>
-        <p className="tp-make-note" id="tp-budget-note">Each run stops at $3 or 20 minutes. The team as a whole stops its clocks at $60 a week.</p>
-      </form>
-    </Sheet>
   );
 }
 

@@ -1,12 +1,16 @@
 import type {
-  CreateRoleInput, RoleRun, Run, TeamActivity, TeamRecord, TeamRecordSummary, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace, UpdateRoleInput,
+  CreateRoleInput, CustomRoleInput, RoleRun, Run, TeamActivity, TeamRecord, TeamRecordSummary, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace, UpdateRoleInput,
 } from "@realm/contracts";
+
+/** What making a team, or adding to one, can carry besides the starters: the person's own teammates,
+ *  the folder they chose for its memory, and the team's week raised to fit. */
+export type TeamMakeOptions = { roles?: CustomRoleInput[]; repoPath?: string; weekBudgetUsd?: number };
 
 /** The team calls the renderer makes (`team.*`, contracts/rpc.ts). */
 export type TeamApi = {
   teamOverview(): Promise<TeamSpace[]>;
   teamSpace(spaceId: string): Promise<TeamSpace>;
-  teamMake(spaceId: string, templates: string[]): Promise<TeamSpace>;
+  teamMake(spaceId: string, templates: string[], o?: TeamMakeOptions): Promise<TeamSpace>;
   teamRoleCreate(input: CreateRoleInput): Promise<TeamRole>;
   teamRoleUpdate(input: UpdateRoleInput): Promise<TeamRole>;
   teamRoleArchive(id: string): Promise<void>;
@@ -42,7 +46,10 @@ export type TeamSlice = {
   refreshTeams(): Promise<void>;
   /** One space's team again, and whatever detail of it the window is holding. */
   refreshTeam(spaceId: string): Promise<void>;
-  makeTeam(spaceId: string, templates: string[]): Promise<TeamSpace>;
+  makeTeam(spaceId: string, templates: string[], o?: TeamMakeOptions): Promise<TeamSpace>;
+  /** A space's team as the server sees it, team or not, held nowhere — what making a team reads to
+   *  learn whether the space already keeps creator records. */
+  peekTeam(spaceId: string): Promise<TeamSpace>;
   createRole(input: CreateRoleInput): Promise<TeamRole>;
   updateRole(input: UpdateRoleInput): Promise<TeamRole>;
   archiveRole(id: string, spaceId: string): Promise<void>;
@@ -101,11 +108,12 @@ export function teamSlice<S extends Host & TeamSlice>(
       ];
       await Promise.all(held.map((p) => p.catch(() => undefined)));
     },
-    async makeTeam(spaceId, templates) {
-      const team = await api.teamMake(spaceId, templates);
+    async makeTeam(spaceId, templates, o) {
+      const team = await api.teamMake(spaceId, templates, o);
       put("teams", spaceId, team);
       return team;
     },
+    peekTeam: (spaceId) => api.teamSpace(spaceId),
     async createRole(input) {
       const role = await api.teamRoleCreate(input);
       await get().refreshTeam(input.spaceId);

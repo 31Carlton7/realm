@@ -96,11 +96,26 @@ function TeamFold({ team }: { team: TeamSpace }) {
           <div className="sb-section-clip" inert={folded || undefined} aria-hidden={folded || undefined}>
             <div className="item-list sb-team-roles" id={listId}>
               {team.roles.map((r) => <RoleRow key={r.id} role={r} />)}
+              <AddTeammateRow spaceId={team.spaceId} />
             </div>
           </div>
         </div>
       )}
     </>
+  );
+}
+
+/** The fold's last row: who else joins, by the same picker the team's page opens. Quieter than a role,
+ *  because it is a way to add one, not one of them. */
+function AddTeammateRow({ spaceId }: { spaceId: string }) {
+  const openSheet = useApp((s) => s.openSheet);
+  return (
+    <div className="item sb-row sb-team-add" data-nested="" data-actions="0">
+      <button type="button" className="item-row" title="Add a teammate to this team" onClick={() => openSheet({ kind: "add-teammates", spaceId })}>
+        <span className="sb-gutter"><Icon name="add" size={12} /></span>
+        <span className="item-title">Add teammate</span>
+      </button>
+    </div>
   );
 }
 

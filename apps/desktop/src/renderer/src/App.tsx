@@ -15,6 +15,7 @@ import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
+import { AddTeammatesSheet } from "./panes/team/TeamPicker";
 import { CommandPalette } from "./components/CommandPalette";
 import { Toasts } from "./components/Toasts";
 import { AppPickerBridge } from "./app-pick/AppPicker";
@@ -371,6 +372,7 @@ function SheetHost() {
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;
+  if (sheet.kind === "add-teammates") return <AddTeammatesSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "new-lecture") return <NewLectureSheet />;
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;

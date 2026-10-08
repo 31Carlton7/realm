@@ -99,7 +99,7 @@ describe("a team in its space's section", () => {
     await mount(home());
     // "Creator Manager" is the role's row, once — not also its run's session row.
     expect(titles("Versed").filter((t) => t === "Creator Manager")).toHaveLength(1);
-    expect(titles("Versed")).toEqual(["Team", "Creator Manager", "Content Producer", "Paywall redesign"]);
+    expect(titles("Versed")).toEqual(["Team", "Creator Manager", "Content Producer", "Add teammate", "Paywall redesign"]);
   });
 });
 

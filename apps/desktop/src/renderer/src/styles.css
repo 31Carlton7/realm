@@ -7504,6 +7504,11 @@ select { appearance: none; padding-right: 22px;
 /* The Tasks lens is the one tab that is a LIST BESIDE A PANEL rather than a single column of form,
    so it opts out of the 720px measure the other tabs are set in. Nothing else does. */
 .page-content[data-wide] { max-width: none; }
+/* A page that ends in a decision keeps it in a bar under the column, outside the scroller, so the
+   decision is on screen from the first frame and never in the dissolve (design.md). */
+.page-scroll[data-foot] { flex-direction: column; }
+.page-foot { flex: none; width: 100%; max-width: 720px; padding: 12px 0 16px; }
+.page-foot.tp-page { max-width: 860px; }
 /* ── Narrow pane (Plan 12 W3, responsive pass) ────────────────────────────
    A 180px rail beside a 60px reading column is two unusable columns, so under ~640px of PANE the
    page stands its parts up: the rail becomes a scrolling tab strip above the content, the head lets
@@ -10119,4 +10124,42 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-starter { display: inline-flex; align-items: center; gap: 6px; }
 .tp-form-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .tp-sheet-error { margin-right: auto; font-size: 12px; color: var(--rl-danger); }
+
+/* Choosing who is on a team: shelves of starter cards, the person's own, and the week they share. */
+.tp-shelf { display: flex; flex-direction: column; gap: 10px; }
+.tp-shelf .settings-head { margin-bottom: 0; }
+.tp-shelf-note { margin-top: -4px; }
+.tp-pick[data-there] .tp-pick-box { color: var(--rl-text-dim); }
+.tp-pick-acts { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.tp-card-custom { border-style: dashed; background: transparent; }
+.tp-card-custom:hover { background: var(--rl-card); }
+.tp-mark-add { background: var(--rl-hover); color: var(--rl-text-dim); }
+.tp-picker { gap: 22px; }
+.tp-said { display: flex; flex-direction: column; gap: 12px; }
+/* A field's own problem, said under it in words. */
+.tp-field-error { font-size: 12px; line-height: 16px; color: var(--rl-danger); }
+.tp-picker-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
+.tp-picker-foot > .btn { flex: none; }
+.tp-shares-line { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 auto 0 0; min-width: 0; flex: 1 1 auto; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tp-shares-line[data-over] { color: var(--rl-warning); }
+/* Over, the words say it and the offer to raise takes the meter's place. */
+.tp-shares-line[data-over] .tp-meter { display: none; }
+.tp-shares-line .btn-quiet { margin-left: -7px; }
+.tp-shares-line .tp-meter-wide { width: 120px; }
+.tp-refusal { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px;
+  border-radius: var(--r-panel); background: var(--orange-tint); color: var(--rl-text-bright); }
+.tp-refusal > svg { color: var(--orange); }
+.tp-refusal-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tp-refusal-text .settings-row-name { color: var(--rl-text-bright); }
+.tp-refusal-text .settings-row-detail { color: var(--rl-text-dim); }
+.tp-form-row.tp-form-row-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
+.tp-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 30px; }
+.tp-skill { padding-right: 2px; }
+.tp-skill-x { display: grid; place-items: center; width: 18px; height: 18px; border-radius: var(--r-sm); color: var(--rl-text-dim); background: none; }
+.tp-skill-x:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tp-skill-add { width: auto; min-width: 0; flex: 1 1 140px; }
+.tp-remove-who { display: flex; align-items: center; gap: 10px; }
+
+/* The Team fold's way to add one: a row like the roles above it, in the quieter ink. */
+.sb-team-add .item-title, .sb-team-add .sb-gutter { color: var(--rl-text-dim); }
 
