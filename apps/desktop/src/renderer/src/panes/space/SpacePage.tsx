@@ -623,7 +623,7 @@ export function SpacePage({ item }: PaneProps) {
           </fieldset>
         )}
         </PageRail>
-        <PageScroll wide={tab === "tasks" || tab === "sessions" || teamTab} className={teamTab ? "tp-page" : undefined}>
+        <PageScroll wide={tab === "tasks" || tab === "sessions"} className={teamTab ? "tp-page" : undefined}>
           {teamTab ? <TeamPage spaceId={spaceId} tab={tab} /> : <>
           {/* The head names what the page SHOWS — the section — and the space it is seen from beside
               it, as Settings and the Library do (design.md). Plain text: the space's colour is carried

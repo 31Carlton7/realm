@@ -9999,7 +9999,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-ask-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 
 /* The team's pages, in the space page's column. */
-.tp-page { max-width: 860px; }
+.page-content.tp-page { max-width: 860px; }
 .tp-lede { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-dim); max-width: 64ch; }
 .tp-empty { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .tp-make-note { margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }

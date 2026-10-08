@@ -127,7 +127,7 @@ void 0`;
 
 async function evalIn(c, expr) {
   const r = await c.send("Runtime.evaluate", { expression: HELPERS + ";\n" + expr, awaitPromise: true, returnByValue: true });
-  if (r.exceptionDetails) throw new Error(`page exception: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
+  if (r.exceptionDetails) throw new Error(`page exception in ${expr.slice(0, 120)}: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
   return r.result.value;
 }
 
@@ -402,7 +402,7 @@ async function main() {
   await evalIn(c, `__live.click(__live.button('New role'))`);
   await until(() => evalIn(c, `!!__live.q('.rmt-maker')`), 5_000, "role sheet");
   await shot(c, "04-new-role-dark");
-  await evalIn(c, `__live.click(__live.button('Cancel', __live.q('[role=dialog]')))`);
+  await evalIn(c, `__live.click(__live.button('Cancel', __live.q('[aria-modal=true]')))`);
 
   /* ── S6: light ─────────────────────────────────────────────────────────────────────────────── */
   await api.call("settings.set", { key: "ui.theme", value: "light" });
