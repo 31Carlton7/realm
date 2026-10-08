@@ -7446,6 +7446,13 @@ select { appearance: none; padding-right: 22px;
 .space-sessions-agents:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .space-sessions-time { flex: none; width: 64px; text-align: right; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .space-sessions-dot { flex: none; width: 12px; display: grid; place-items: center; }
+/* A row's own controls, under the pointer or the keyboard (or while a delete waits on its second
+   ask): they take the mark's place at the far end, and the time stays. The state words give way. */
+.space-sessions-actions { position: relative; z-index: 1; flex: none; display: none; align-items: center; gap: 2px; margin-right: -4px; }
+.space-sessions-actions .btn { --btn-h: 28px; padding: 0 10px; }
+.space-sessions-row:is(:hover, :has(:focus-visible), [data-armed]) .space-sessions-actions { display: flex; }
+.space-sessions-row:is(:hover, :has(:focus-visible), [data-armed]):has(.space-sessions-actions) .space-sessions-dot { display: none; }
+.space-sessions-row .rename { flex: 1; min-width: 0; }
 .space-sessions-none { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .space-sessions-start { margin-top: 12px; }
 /* A narrow pane: the state words give way first, then the count's noun — the number stays. The

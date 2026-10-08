@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { SpacePage } from "./SpacePage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
@@ -98,5 +98,110 @@ describe("the Sessions page", () => {
     expect(screen.getByText("No sessions match “zebra”.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
     expect(screen.getByText("send email")).toBeInTheDocument();
+  });
+});
+
+/** The store's actions the keys reach, swapped for spies so each test can say exactly what was asked. */
+function spy(store: Awaited<ReturnType<typeof mount>>["store"]) {
+  const fns = {
+    openItem: vi.fn(async () => {}), openItemBeside: vi.fn(async () => {}), peekSession: vi.fn(async () => true),
+    archiveItem: vi.fn(async () => {}), deleteItem: vi.fn(async () => {}),
+  };
+  act(() => store.setState(fns));
+  return fns;
+}
+const key = (k: string, extra: Record<string, unknown> = {}) => fireEvent.keyDown(document.activeElement!, { key: k, ...extra });
+const focused = () => document.activeElement?.getAttribute("aria-label");
+
+describe("the Sessions page from the keyboard", () => {
+  // Newest first: Alpha, then Beta, then Gamma.
+  const three = () => data([
+    both("a", "Alpha", { updatedAt: T }), both("b", "Beta", { updatedAt: T - 60_000 }), both("c", "Gamma", { updatedAt: T - 120_000 }),
+  ]);
+
+  it("↓ from the search walks the rows; ↩ opens the one the keyboard is on, ⌘↩ opens it beside", async () => {
+    // Mutant: Enter unbound, or acting on another row than the focused one.
+    const { store } = await mount(three());
+    const fns = spy(store);
+    screen.getByRole("searchbox", { name: "Search sessions" }).focus();
+    key("ArrowDown");
+    expect(focused()).toBe("Alpha");
+    key("ArrowDown");
+    expect(focused()).toBe("Beta");
+    key("Enter");
+    expect(fns.openItem).toHaveBeenCalledWith("it-b");
+    key("Enter", { metaKey: true });
+    expect(fns.openItemBeside).toHaveBeenCalledWith("it-b");
+    // One tab stop: only the row the keyboard is on takes Tab.
+    expect([...document.querySelectorAll(".space-sessions-open")].filter((b) => b.getAttribute("tabindex") === "0")).toHaveLength(1);
+  });
+
+  it("⌘⌫ archives in Active, and the keyboard lands on the next row", async () => {
+    // Mutant: ⌘⌫ deletes the live session.
+    const { store } = await mount(three());
+    const fns = spy(store);
+    screen.getByRole("button", { name: "Beta" }).focus();
+    key("Backspace", { metaKey: true });
+    expect(fns.archiveItem).toHaveBeenCalledWith("it-b", true);
+    expect(fns.deleteItem).not.toHaveBeenCalled();
+    await waitFor(() => expect(focused()).toBe("Gamma"));
+  });
+
+  it("⌘⌫ among the archived asks once, deletes on the second, and any other key takes the ask back", async () => {
+    // Mutant: deleted on the first press.
+    const { store } = await mount(data([both("a", "Old one", {}, true), both("b", "Older", { updatedAt: T - 60_000 }, true)]));
+    act(() => store.getState().setSpaceSessionsView("s1", "archived"));
+    const fns = spy(store);
+    screen.getByRole("button", { name: "Old one" }).focus();
+    key("Backspace", { metaKey: true });
+    expect(fns.deleteItem).not.toHaveBeenCalled();
+    expect(row("Old one")).toHaveTextContent("Press ⌘⌫ again to delete it and its transcript");
+    key("ArrowDown");
+    expect(row("Old one")).not.toHaveTextContent("Press ⌘⌫ again");
+    key("ArrowUp");
+    key("Backspace", { metaKey: true });
+    key("Backspace", { metaKey: true });
+    expect(fns.deleteItem).toHaveBeenCalledWith("it-a");
+    // Restore is the row's other way out.
+    fireEvent.click(screen.getByRole("button", { name: "Restore Older" }));
+    expect(fns.archiveItem).toHaveBeenCalledWith("it-b", false);
+  });
+
+  it("→ unfolds a lead so ↓ reaches its agents; ← goes back; ↩ on an agent looks at it beside its lead", async () => {
+    // Mutant: an agent opened as a pane of its own.
+    const lead = both("L", "bible app quiz");
+    const kid = both("k", "Agent: research leaderboards", { dispatchedBy: { sessionId: "L", kind: "agent_run" } });
+    const { store } = await mount(data([lead, kid, both("x", "send email", { updatedAt: T - 60_000 })]));
+    const fns = spy(store);
+    screen.getByRole("button", { name: /^bible app quiz/ }).focus();
+    key("ArrowDown");
+    expect(focused()).toBe("send email"); // folded: the agent is not a stop
+    key("ArrowUp");
+    key("ArrowRight");
+    key("ArrowDown");
+    expect(focused()).toBe("research leaderboards, agent");
+    key("Enter");
+    expect(fns.peekSession).toHaveBeenCalledWith("k", "s1");
+    expect(fns.openItem).not.toHaveBeenCalled();
+    key("ArrowLeft");
+    expect(focused()).toMatch(/^bible app quiz/);
+    key("ArrowLeft");
+    expect(screen.queryByText("research leaderboards")).toBeNull();
+  });
+
+  it("names every hover action after the session it acts on", async () => {
+    // Mutant: icon-only buttons with no accessible name.
+    const { store } = await mount(data([both("a", "Alpha"), both("e", "Fresh", { lastEventSeq: 0, seenSeq: 0 })]));
+    const fns = spy(store);
+    fireEvent.click(screen.getByRole("button", { name: "Open Alpha beside" }));
+    expect(fns.openItemBeside).toHaveBeenCalledWith("it-a");
+    fireEvent.click(screen.getByRole("button", { name: "Archive Alpha" }));
+    expect(fns.archiveItem).toHaveBeenCalledWith("it-a", true);
+    expect(screen.getByRole("button", { name: "More for Alpha" })).toBeInTheDocument();
+    // Only a session nothing was sent in carries Delete on its row.
+    expect(screen.queryByRole("button", { name: "Delete Alpha" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Fresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Fresh and its transcript" }));
+    expect(fns.deleteItem).toHaveBeenCalledWith("it-e");
   });
 });
