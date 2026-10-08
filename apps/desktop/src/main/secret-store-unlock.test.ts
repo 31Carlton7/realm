@@ -33,7 +33,7 @@ function fakeSafeStorage() {
 
 type Disk = { file: string | null; audit: string[] };
 
-function makeStore(opts: { disk?: Disk; machine?: string | null; canOwner?: boolean; clock?: { now: number } } = {}) {
+function makeStore(opts: { disk?: Disk; machine?: string | null; canOwner?: boolean; canTouchId?: boolean; clock?: { now: number } } = {}) {
   const disk: Disk = opts.disk ?? { file: null, audit: [] };
   const clock = opts.clock ?? { now: 1_000_000 };
   /** Every prompt raised, as `touch:<reason>` or `owner:<reason>`; `grant` answers both. */
@@ -47,7 +47,7 @@ function makeStore(opts: { disk?: Disk; machine?: string | null; canOwner?: bool
     promptPresence: async (reason) => { prompts.asked.push(`touch:${reason}`); return prompts.grant; },
     promptDeviceOwner: async (reason) => { prompts.asked.push(`owner:${reason}`); return prompts.grant; },
     canPromptDeviceOwner: () => opts.canOwner ?? true,
-    canPromptTouchID: () => true,
+    canPromptTouchID: () => opts.canTouchId ?? true,
     machineId: () => (opts.machine === undefined ? MAC : opts.machine),
     now: () => clock.now,
     newId: () => `id-${++n}`,
@@ -168,6 +168,18 @@ describe("unlock policy — session", () => {
     expect(prompts.asked).toEqual(["touch:fill your saved sign-in for nathan on https://www.tiktok.com"]);
   });
 
+  it("an open session in one profile does not unlock another profile's session", async () => {
+    const { store, prompts } = makeStore();
+    const labRow = store.addCredential(LAB, signIn);
+    const mine = store.addCredential(PERSONAL, signIn);
+    await store.setUnlockPolicy(lab, { kind: "session", hours: 8 });
+    await store.setUnlockPolicy({ kind: "profile", id: PERSONAL }, { kind: "session", hours: 8 });
+    await fill(store, LAB, labRow.id);
+    prompts.asked.length = 0;
+    await fill(store, PERSONAL, mine.id);
+    expect(prompts.asked).toHaveLength(1);
+  });
+
   it("does not survive a restart — the policy does, the open session does not", async () => {
     const first = makeStore();
     const row = first.store.addCredential(LAB, signIn);
@@ -218,9 +230,13 @@ describe("unlock policy — unattended", () => {
     expect(prompts.asked).toEqual(["touch:fill your saved sign-in for nathan on https://www.tiktok.com"]);
   });
 
-  it("can always be unlocked, even on a Mac with no Touch ID and no password check", () => {
-    const { store } = makeStore({ canOwner: false });
-    expect(store.canUnlock(LAB)).toBe(true);
+  it("can always be unlocked, even on a Mac with no Touch ID and no password check", async () => {
+    // Turned on while this Mac could still confirm the user — a Touch ID keyboard since unplugged.
+    const before = makeStore();
+    await before.store.setUnlockPolicy(lab, { kind: "unattended" });
+    const after = makeStore({ disk: before.disk, canOwner: false, canTouchId: false });
+    expect(after.store.canUnlock(LAB)).toBe(true);
+    expect(after.store.canUnlock(PERSONAL)).toBe(false);
   });
 });
 
