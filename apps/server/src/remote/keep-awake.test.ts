@@ -137,7 +137,40 @@ async function client(port: number) {
   return { call, close: () => ws.close() };
 }
 
+/** An app with one session whose turns run for `ms`, and the client that made it. */
+async function appWithSession(hold: HoldAwake, ms: number) {
+  app = await createApp({ home: tempDir("realm-"), port: 0, adapters: { fake: new FakeAdapter({ script: [], delayMs: ms }) }, remote: { holdAwake: hold } });
+  const c = await client(app.port);
+  const profile = await c.call("profiles.create", { name: "W" });
+  const space = await c.call("spaces.create", { profileId: profile.id, name: "S" });
+  const { session } = await c.call("sessions.create", { spaceId: space.id, agentKind: "fake" });
+  const status = async () => (await c.call("sessions.get", { id: session.id })).status as string;
+  return { c, session, status };
+}
+
 describe("the server's own keep-awake, in the app", () => {
+  it("holds nothing while the preference is off, however long a turn runs", async () => {
+    const { hold, made } = holders();
+    const { c, session, status } = await appWithSession(hold, 1_000);
+    await c.call("sessions.send", { id: session.id, text: "work" });
+    await waitFor(async () => (await status()) === "running");
+    await waitFor(async () => (await status()) === "idle", { timeout: 10_000 });
+    expect(made).toHaveLength(0);
+    c.close();
+  });
+
+  it("lets go when the app closes mid-turn", async () => {
+    const { hold, live } = holders();
+    const { c, session } = await appWithSession(hold, 3_000);
+    await c.call("settings.set", { key: POWER_PREVENT_SLEEP_KEY, value: true });
+    await c.call("sessions.send", { id: session.id, text: "work" });
+    await waitFor(() => live() === 1);
+    c.close();
+    await app!.close();
+    app = undefined;
+    expect(live()).toBe(0);
+  });
+
   it("holds while a turn runs with no app attached, lets go while one attaches, and when the turn ends", async () => {
     const { hold, live } = holders();
     app = await createApp({ home: tempDir("realm-"), port: 0, adapters: { fake: new FakeAdapter({ script: [], delayMs: 3_000 }) }, remote: { holdAwake: hold } });
