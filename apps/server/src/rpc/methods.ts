@@ -38,6 +38,7 @@ import { oauthSecretBox, type McpOauth } from "../mcp/oauth";
 import { spaceDownloadDir, spaceScreenshotDir } from "../browsers/agent-tools";
 import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
+import type { MemoryRepoService } from "../memory/repo";
 import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
 import type { MachineService } from "../machines/service";
@@ -90,7 +91,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -592,6 +593,52 @@ export function registerMethods(d: Deps): void {
   // Per-session on purpose: the SessionService joins the session row (agent kind, space, cwd) to the
   // ground truth that belongs to that session and no other.
   reg("memory.sources", (p) => d.sessions.memorySources(p.sessionId));
+
+  // The memory repo (Agent Memory Repo): one per profile, inherited by its spaces. Every change is
+  // told to every space of the profile, the profile doc's rule, because each of their pages shows it.
+  const repoProfile = (profileId: string): void => { if (!d.profiles.get(profileId)) throw new NotFoundError("profile", profileId); };
+  const repoChanged = (profileId: string): void => { for (const sp of d.spaces.list(profileId)) rpc.broadcast("memory.changed", { spaceId: sp.id }); };
+  const reposOfSpace = async (spaceId: string) => {
+    const sp = d.spaces.get(spaceId);
+    if (!sp) throw new NotFoundError("space", spaceId);
+    const st = await d.memoryRepos.state(sp.profileId, spaceId);
+    return { repos: st ? [st] : [] };
+  };
+  reg("memory.repo.get", async (p) => {
+    if ((p.profileId === undefined) === (p.spaceId === undefined)) throw new RpcError("BAD_PARAMS", "give exactly one of profileId or spaceId");
+    if (p.spaceId !== undefined) return reposOfSpace(p.spaceId);
+    repoProfile(p.profileId!);
+    const st = await d.memoryRepos.state(p.profileId!);
+    return { repos: st ? [st] : [] };
+  });
+  reg("memory.repo.create", async (p) => {
+    repoProfile(p.profileId);
+    const r = await d.memoryRepos.create(p.profileId, p.path);
+    repoChanged(p.profileId);
+    return r;
+  });
+  reg("memory.repo.attach", async (p) => {
+    repoProfile(p.profileId);
+    const r = await d.memoryRepos.attach(p.profileId, p.path);
+    repoChanged(p.profileId);
+    return r;
+  });
+  reg("memory.repo.detach", (p) => {
+    repoProfile(p.profileId);
+    d.memoryRepos.detach(p.profileId);
+    repoChanged(p.profileId);
+    return { ok: true as const };
+  });
+  reg("memory.repo.setInherited", async (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.memoryRepos.setInherited(p.spaceId, p.enabled);
+    rpc.broadcast("memory.changed", { spaceId: p.spaceId });
+    return reposOfSpace(p.spaceId);
+  });
+  reg("memory.repo.log", async (p) => {
+    repoProfile(p.profileId);
+    return { commits: await d.memoryRepos.log(p.profileId, p.limit) };
+  });
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });

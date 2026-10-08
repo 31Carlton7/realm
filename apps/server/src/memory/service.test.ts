@@ -6,7 +6,7 @@ import type { Environment, EnvironmentKind } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
 import { RpcError } from "../store/rows";
-import { MEMORY_COMBINED_MAX, MEMORY_DOC_MAX } from "@realm/contracts";
+import { MEMORY_COMBINED_MAX, MEMORY_DOC_MAX, MEMORY_REPO_INDEX_MAX } from "@realm/contracts";
 import { AGENTS_FILE_MARKER, MemoryService } from "./service";
 
 const SPACE_A = "01ARZ3NDEKTSV4RRFFQ69G5FAA";
@@ -321,4 +321,27 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     expect(src(SPACE_A).realmMemoryInjected).toBe(false);
   });
 
+  it("fits the memory repo's index inside the combined cap: space doc and index whole, profile doc gives way", () => {
+    const h = harness();
+    const index = "i".repeat(MEMORY_REPO_INDEX_MAX);
+    const memory = new MemoryService({
+      home: h.home, settings: h.settings, claudeDir: h.claudeDir, scopes: seam({ [SPACE_A]: "PA" }),
+      environments: envs({ [SPACE_A]: { path: h.folderOf(SPACE_A), kind: "primary" } }),
+      repos: { indexFor: (sid) => (sid === SPACE_A ? { path: "/mem", index, truncated: true } : null) },
+    });
+    memory.setProfile("PA", "p".repeat(MEMORY_DOC_MAX));
+    memory.set(SPACE_A, "s".repeat(MEMORY_DOC_MAX));
+    const a = ctx(memory, SPACE_A)!;
+    const kept = MEMORY_COMBINED_MAX - MEMORY_DOC_MAX - MEMORY_REPO_INDEX_MAX;
+    expect(a).toContain("s".repeat(MEMORY_DOC_MAX));
+    expect(a).toContain(index);
+    // THE MUTANT: leave the index out of the arithmetic — the profile doc keeps 50k and the three
+    // together run 20k past the cap every engine was promised.
+    expect(a).toContain("p".repeat(kept));
+    expect(a).not.toContain("p".repeat(kept + 1));
+    expect(a).toContain("`memory_read` MEMORY for the rest");
+    expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(true);
+    // An agent with no channel is never told the index travelled — it did not.
+    expect(memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(false);
+  });
 });
