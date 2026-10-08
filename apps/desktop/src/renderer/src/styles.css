@@ -10016,8 +10016,10 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-card-name { font-size: 15px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-card-line { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .tp-card-foot { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
-.tp-mark { width: 28px; height: 28px; border-radius: var(--r-ctl); display: grid; place-items: center; flex: none; color: var(--rl-text-bright); }
-.tp-mark-lg { width: 40px; height: 40px; align-self: center; }
+.tp-mark { width: 32px; height: 32px; border-radius: var(--r-ctl); display: grid; place-items: center; flex: none; color: var(--rl-text-bright); }
+/* A role page's hero: the creature large beside its name, as the maker shows it. */
+.tp-hero { flex: none; display: grid; place-items: center; width: 168px; height: 168px; margin: -8px 4px -8px -8px; align-self: center; }
+.tp-role-head { padding-bottom: 26px; }
 .tp-pick[data-on] { border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-card-rim)); }
 .tp-pick-box { margin-left: auto; }
 .tp-meter { position: relative; flex: 1; height: 4px; border-radius: var(--r-sm); background: var(--mark); overflow: hidden; max-width: 120px; }
@@ -10090,6 +10092,8 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 
 /* The column's sections: a member of Creators or Roles sits under its group, lit when open. */
 .settings-tab.page-rail-tab.tp-sub { padding-left: 34px; }
+.settings-tab.page-rail-tab.tp-sub-role { padding-left: 34px; }
+.tp-rail-realmite { display: grid; place-items: center; width: 16px; height: 16px; }
 .tp-rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-rail-count { flex: none; }
 

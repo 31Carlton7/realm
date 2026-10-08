@@ -39,10 +39,12 @@ export function TeamRailList({ spaceId, team, tab, pick }: { spaceId: string; te
   const run = useApp((s) => s.run);
   useEffect(() => { if (tab.startsWith("record:") && !records) run(() => loadTeamRecords(spaceId)); }, [tab, records, spaceId, loadTeamRecords, run]);
   const name = `space-page-tab-${spaceId}`;
-  const row = (id: SpacePageTab, label: string, glyph: IconName | null, count?: number, sub = false) => (
-    <label key={id} className={`settings-tab page-rail-tab${sub ? " tp-sub" : ""}`} data-selected={tab === id || undefined}>
+  const row = (id: SpacePageTab, label: string, glyph: IconName | TeamRole | null, count?: number, sub = false) => (
+    <label key={id} className={`settings-tab page-rail-tab${sub ? " tp-sub" : ""}${glyph && typeof glyph === "object" ? " tp-sub-role" : ""}`} data-selected={tab === id || undefined}>
       <input type="radio" name={name} value={id} checked={tab === id} onChange={() => pick(id)} />
-      {glyph && <Icon name={glyph} size={16} className="page-rail-glyph" />}
+      {glyph && (typeof glyph === "object"
+        ? <span className="page-rail-glyph tp-rail-realmite"><Realmite spec={parseRealmiteSpec(glyph.realmite, glyph.id)} size={16} state={realmiteState(glyph)} /></span>
+        : <Icon name={glyph} size={16} className="page-rail-glyph" />)}
       <span className="tp-rail-label">{label}</span>
       {count !== undefined && <span className="item-count tp-rail-count">{count}</span>}
     </label>
@@ -57,7 +59,7 @@ export function TeamRailList({ spaceId, team, tab, pick }: { spaceId: string; te
       {row("records", "Creators", "records", inRecords && records?.length ? undefined : team.recordCount)}
       {inRecords && records?.map((r) => row(`record:${r.path}`, r.name, null, undefined, true))}
       {row("roles", "Roles", "user", inRoles ? undefined : team.roles.length)}
-      {inRoles && team.roles.map((r) => row(`role:${r.id}`, r.name, null, undefined, true))}
+      {inRoles && team.roles.map((r) => row(`role:${r.id}`, r.name, r, undefined, true))}
       {row("activity", "Activity", "activity")}
     </fieldset>
   );
@@ -114,7 +116,7 @@ function MakeTeam({ spaceId }: { spaceId: string }) {
             return (
               <label key={t.id} className="tp-card tp-pick" data-on={on || undefined}>
                 <span className="tp-card-head">
-                  <span className="tp-mark"><Realmite spec={realmiteFromSeed(t.realmiteSeed)} size={28} /></span>
+                  <span className="tp-mark"><Realmite spec={realmiteFromSeed(t.realmiteSeed)} size={32} /></span>
                   <span className="tp-card-name">{t.name}</span>
                   <input type="checkbox" className="checkbox tp-pick-box" checked={on}
                     onChange={(e) => setPicked((p) => (e.target.checked ? [...p, t.id] : p.filter((x) => x !== t.id)))} />
@@ -207,7 +209,7 @@ function RoleCard({ role, onOpen }: { role: TeamRole; onOpen: () => void }) {
   return (
     <button type="button" className="tp-card tp-role-card" onClick={onOpen} aria-label={`${role.name} — ${roleStateLine(role)}. Open its page`}>
       <span className="tp-card-head">
-        <span className="tp-mark"><Realmite spec={parseRealmiteSpec(role.realmite, role.id)} size={28} state={realmiteState(role)} /></span>
+        <span className="tp-mark"><Realmite spec={parseRealmiteSpec(role.realmite, role.id)} size={32} state={realmiteState(role)} /></span>
         <span className="tp-card-name">{role.name}</span>
         <span className="tp-state"><span className="t-dot" data-s={dot} />{roleStateLine(role)}</span>
       </span>
@@ -308,7 +310,7 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
   return (
     <>
       <header className="page-head tp-role-head">
-        <span className="tp-mark tp-mark-lg"><Realmite spec={parseRealmiteSpec(role.realmite, role.id)} size={36} state={realmiteState(role)} /></span>
+        <span className="tp-hero"><Realmite spec={parseRealmiteSpec(role.realmite, role.id)} size={160} state={realmiteState(role)} title={`${role.name}'s Realmite`} /></span>
         <div className="page-title"><h1>{role.name}</h1></div>
         <span className="page-vantage">{roleStateLine(role)}</span>
         <button type="button" className="btn" onClick={() => setMessaging((v) => !v)} aria-expanded={messaging}>Message</button>
