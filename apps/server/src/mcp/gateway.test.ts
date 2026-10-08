@@ -1106,6 +1106,28 @@ describe("a long call is kept alive", () => {
     await client.close();
   });
 
+  it("puts the notices on the call's own response stream, for a client that never opened another", async () => {
+    // A bare POST client, as an agent's CLI may be: it reads the call's own event stream and nothing
+    // else. THE MUTANT: notices sent unattached to the request, which go to the standalone stream
+    // this client never opened — the SDK client above would still hear them, this one cannot.
+    const app = await setupApp({ heartbeatMs: 30 });
+    app.gateway.registerProvider(slowProvider(240));
+    const { url, headers } = asHttp(app.gateway.register(app.sessionId, app.spaceId));
+    let mcpSession: string | null = null;
+    const post = async (body: Record<string, unknown>): Promise<string> => {
+      const res = await fetch(url, { method: "POST", body: JSON.stringify(body), headers: { ...headers, "content-type": "application/json", accept: "application/json, text/event-stream",
+        ...(mcpSession ? { "mcp-session-id": mcpSession, "mcp-protocol-version": "2025-03-26" } : {}) } });
+      mcpSession = res.headers.get("mcp-session-id") ?? mcpSession;
+      return res.text();
+    };
+    await post({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "bare", version: "1" } } });
+    await post({ jsonrpc: "2.0", method: "notifications/initialized" });
+    const raw = await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "realm-agent__agent_wait", arguments: {} } });
+    const messages = raw.split("\n").filter((l) => l.startsWith("data:")).map((l) => JSON.parse(l.slice(5)) as { id?: number; method?: string });
+    expect(messages.filter((m) => m.method === "notifications/message").length).toBeGreaterThanOrEqual(3);
+    expect(messages.at(-1)?.id).toBe(2);
+  });
+
   it("keeps a call alive with notifications/message when the client asked for no progress", async () => {
     // THE MUTANT: send nothing without a progress token — the case Claude's idle timer may be in.
     const app = await setupApp({ heartbeatMs: 30 });
