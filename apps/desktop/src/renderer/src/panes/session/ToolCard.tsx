@@ -5,7 +5,7 @@ import { Spinner } from "../../components/Spinner";
 import { useDissolve } from "../../components/ScrollFades";
 import { fileIconFor } from "../../components/file-icon";
 import { clip, editStat, editTarget, failureReason, mcpParts, prettyJson, readTarget, resultEditStat, statedExit, toolGlyph, toolSummary, toolVerb } from "./tool-summary";
-import { flattenRun, formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
+import { flattenRun, formatDuration, formatToolRun, runWork, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
 import { ErrorPanel, ToolInputBody, ToolPanelBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolPanel, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
@@ -333,16 +333,22 @@ function useWorkedFor(working: boolean, firstTs: number, settledMs: number): str
   return formatDuration(working ? elapsed : settledMs);
 }
 
-/** §2.8/§5: a run of consecutive tool calls, folded behind one ledger line with a dashed connector.
+/** §2.8/§5: a run of consecutive tool calls, folded behind one ledger line with a rail under it.
  *  It opens itself while the agent is still working through the run — collapsing live activity out
  *  of sight is the one thing this treatment must not do — and a manual toggle then wins for good.
- *  The collapsed row reads `Worked for <duration> ›` (Ara refresh §4); the counts line the ledger
- *  still computes ("3 tools · 1 file · 2 commands") survives as the row's tooltip. */
-export function ToolGroup({ steps, sessionStatus, subagent = false }: {
+ *
+ *  The head names the WORK, not only its length: "Worked for 2m 4s · 6 reads · 2 edits +31 −4 ·
+ *  3 commands", and while the run is live, the call in flight instead ("· Run pnpm test"). A failure
+ *  inside it is on the head too, last and reserved, so the one fact worth surfacing from a folded run
+ *  can never be the part an ellipsis takes. The counts line stays the tooltip. */
+export function ToolGroup({ steps, sessionStatus, subagent = false, endsTurn = false }: {
   steps: readonly ToolStep[]; sessionStatus: SessionStatus;
   /** These steps are a sub-agent's, not a run of the agent's own calls. Sitting directly under a
    *  Task row, an unqualified "Worked for 42s" would read as that Task's own elapsed time. */
   subagent?: boolean;
+  /** Nothing the agent said or did came after this run in its turn. A run that ENDS a turn on a
+   *  failure opens itself, as it does while live: the agent stopped there, and the failure is why. */
+  endsTurn?: boolean;
 }) {
   const [manual, setManual] = useState<boolean | null>(null);
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
@@ -352,19 +358,35 @@ export function ToolGroup({ steps, sessionStatus, subagent = false }: {
   // settle, having just spent five minutes ticking upward.
   const blocks = flattenRun(steps);
   const working = live && blocks.some((b) => !b.result);
-  const open = manual ?? working;
+  const last = steps[steps.length - 1]!.block;
+  const stoppedOnFailure = endsTurn && !live && last.result?.isError === true;
+  const open = manual ?? (working || stoppedOnFailure);
   const summary = summarizeToolRun(blocks);
+  const work = runWork(summary);
   // The run's first call really is its earliest: blocks arrive in order, and a sub-agent's calls
   // postdate the one that spawned them. Only the END of the span needs looking for (summarizeToolRun).
   const workedFor = useWorkedFor(working, blocks[0]!.ts, summary.durationMs);
   return (
     <div className="tool-group" data-subagent={subagent || undefined} data-open={open || undefined} data-working={working || undefined}>
-      {/* Plan 9 W2: the row wears ThinkingState's header treatment — while the run is live the label
-          shimmers (BUI's working treatment); the label itself stays the kept Ara decision,
-          `Worked for <duration>`, ticking live and freezing on settle. */}
       <button className="tool-group-row" aria-expanded={open} aria-label={`${blocks.length} ${subagent ? "sub-agent " : ""}tool calls`}
         title={formatToolRun(summary)} onClick={() => setManual(!open)}>
         <span className="tool-group-summary">{subagent ? "Sub-agent worked for" : "Worked for"} {workedFor}</span>
+        {/* Parts in reading order, yielding from the right as the pane narrows. */}
+        <span className="tool-group-work">
+          {(working && summary.liveStep ? [summary.liveStep] : [
+            work.reads,
+            work.edits && <>{work.edits}
+              {summary.add > 0 && <span className="tool-stat-add"> +{summary.add}</span>}
+              {summary.del > 0 && <span className="tool-stat-del"> −{summary.del}</span>}</>,
+            work.searches,
+            work.commands,
+          ]).filter(Boolean).map((part, i) => <span key={i}> · {part}</span>)}
+        </span>
+        {summary.failed > 0 && (
+          <span className="tool-group-failed">
+            <span className="tool-group-failed-dot">·</span><Icon name="errorCircle" size={12} />{summary.failed} failed
+          </span>
+        )}
         <Icon name="chevronRight" size={12} className="tool-chevron" />
       </button>
       {open && (

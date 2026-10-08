@@ -39,7 +39,7 @@
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
-.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
+.theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
@@ -4184,7 +4184,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    three parts, a command in mono, a query or a description as prose — and is the one item of
    unbounded length, so it gives way first; the meta is reserved and says the state in a word. */
 .tool-card { border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; }
-.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
+.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px 4px var(--tool-pad, 8px); border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
 /* Open, the card is not a box: the row keeps its hover fill to say which call the body under it
    belongs to, and the body hangs under the verb column on the transcript's own ground. */
@@ -4227,21 +4227,29 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-body-clip, .sb-section-clip, .sched-runs-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
-/* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
-   `Worked for <duration> ›` at 13/500 — shimmering (BUI's working treatment) while the run is live,
-   settled ink-2 once every step has its result — and the opened trace hangs off ThinkingState's solid
-   1px rail (the dashed connector is gone: BUI truth). */
+/* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the head is
+   `Worked for <duration>` at 13/500 — shimmering while the run is live — then the run's work in quiet
+   ink ("6 reads · 2 edits +31 −4"), or the call in flight while live, and any failures last, reserved
+   so no width can cut them. The opened trace hangs off a solid 1px rail. */
 .tool-group { border-radius: var(--r-ctl); font-size: 12px; }
 .tool-group-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.tool-group-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tool-group-summary { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tool-group-work { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: var(--fw-label); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del { font: 11px var(--font-mono); }
+.tool-group-failed { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: var(--fw-label); color: var(--rl-danger); }
+.tool-group-failed-dot { color: var(--ink-3); }
 /* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
    Driven by data-working — the group's own unsettled steps — never by a demo clock. */
 .shimmer-text, .tool-group[data-working] .tool-group-summary, .composer-thinking span {
   background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
   background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: shimmer-text 1.4s linear infinite; }
-.tool-group-steps { margin-left: 15px; padding-left: 12px; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+/* The rail sits 4px left of the steps' lead glyphs, and the glyphs on the same column as every other
+   row's: the rail is at 3, a step's row starts its glyph 4 past it, and 3 + 1 + 4 is a free row's 8. */
+.tool-group-steps { margin-left: 3px; padding-left: 0; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+.tool-group-steps > .tool-card { --tool-pad: 4px; }
 /* A sub-agent's ledger hangs off the Task call that spawned it. 24px sets its label under the tool
    NAME rather than under the status glyph, so the rail reads as belonging to that row. */
 .tool-group[data-subagent] { margin-left: 24px; }
@@ -4263,11 +4271,11 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-meta[data-tone="warning"] { color: var(--rl-warning); }
 .tool-meta[data-tone="danger"] { color: var(--rl-danger); }
 /* Why a call failed, under its row and outside the expander, set from the verb column. */
-.tool-reason { padding: 0 8px 4px 32px; font-size: 12px; line-height: 16px; color: var(--ink-2);
+.tool-reason { padding: 0 8px 4px calc(var(--tool-pad, 8px) + 24px); font-size: 12px; line-height: 16px; color: var(--ink-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
 /* Under the verb column (row padding 8 + lead 16 + gap 8), with no rule and no fill of its own: the
    panels inside are the surfaces. */
-.tool-body { padding: 6px 0 10px 32px; display: flex; flex-direction: column; gap: 8px;
+.tool-body { padding: 6px 0 10px calc(var(--tool-pad, 8px) + 24px); display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity var(--dur-press) ease; }
 /* One panel per call: the panel a fenced block is — the signature curve on the card rung, a fill and
    no ring, a head of what it shows and how to copy it, unruled from the body. */

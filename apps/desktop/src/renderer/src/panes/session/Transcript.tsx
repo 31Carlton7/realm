@@ -596,12 +596,17 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         {start > 0 && (
           <button ref={earlierRef} type="button" className="btn-quiet transcript-earlier" onClick={showEarlier}>Show earlier messages</button>
         )}
-        {groupTranscript(shown, start).map((it) => {
-          if (it.kind === "group")
+        {groupTranscript(shown, start).map((it, i, items) => {
+          if (it.kind === "group") {
+            /* The turn ended on this run when nothing but its closing line (or the error that ended
+               it) follows — no word from the agent, no further call. */
+            const next = items[i + 1];
+            const endsTurn = !next || (next.kind === "block" && (next.block.kind === "run" || next.block.kind === "error"));
             // The group container itself never animates in: when a run crosses the grouping
             // threshold the cards it swallows are already on screen, and wrapping them in a fresh
             // entrance would replay motion for items the reader has been watching.
-            return <ToolGroup key={it.key} sessionStatus={sessionStatus} steps={withEnter(it.steps, isEntering)} />;
+            return <ToolGroup key={it.key} sessionStatus={sessionStatus} steps={withEnter(it.steps, isEntering)} endsTurn={endsTurn} />;
+          }
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
             case "user": return (

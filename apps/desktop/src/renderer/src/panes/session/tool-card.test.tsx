@@ -261,7 +261,7 @@ describe("tool-run summary line", () => {
       tool("t2", "Read", { file_path: "/a" }, 2_000),
       tool("t3", "exec_command", { command: "pwd" }, 373_000),
     ]);
-    expect(s).toEqual({ tools: 3, files: 1, commands: 2, durationMs: 372_000 });
+    expect(s).toMatchObject({ tools: 3, files: 1, commands: 2, reads: 1, durationMs: 372_000 });
   });
 
   it("renders the ledger line, dropping the parts that are zero", () => {
@@ -724,5 +724,90 @@ describe("a call blocked on the person says Waiting for you", () => {
     expect(within(a!).getByRole("img", { name: "waiting for you" })).toBeInTheDocument();
     expect(a!.querySelector(".spinner")).toBeNull();
     expect(b).toHaveAttribute("data-state", "running");
+  });
+});
+
+describe("a run's head names the work, not only how long it took", () => {
+  const edit = (id: string, add: number, del: number, ts = 0): ToolBlock => tool(id, "Edit", {
+    file_path: `/w/${id}.ts`,
+    old_string: Array.from({ length: del }, (_, i) => `old${i}`).join("\n"),
+    new_string: Array.from({ length: add }, (_, i) => `new${i}`).join("\n"),
+  }, ts);
+  const fail = (id: string, name: string, input: Record<string, unknown>, ts = 0): ToolBlock =>
+    ({ kind: "tool", toolUseId: id, name, input, result: { content: "Exit code 1\nboom", isError: true }, ts });
+  const run = (): ToolBlock[] => [
+    tool("r1", "Read", { file_path: "/w/a.ts" }), tool("r2", "Read", { file_path: "/w/b.ts" }),
+    edit("e1", 3, 1), edit("e2", 2, 1),
+    tool("c1", "Bash", { command: "pnpm test" }), fail("c2", "Bash", { command: "pnpm typecheck" }),
+    tool("g1", "Grep", { pattern: "x" }),
+  ];
+
+  it("counts reads, edits with their summed lines, searches and commands, and says what failed", () => {
+    const s = summarizeToolRun(run());
+    expect(s).toMatchObject({ reads: 2, edits: 2, add: 5, del: 2, searches: 1, commands: 2, failed: 1, liveStep: null });
+    render(<ToolGroup steps={steps(run())} sessionStatus="idle" />);
+    const row = screen.getByRole("button", { name: "7 tool calls" });
+    expect(row.querySelector(".tool-group-work")).toHaveTextContent("· 2 reads · 2 edits +5 −2 · 1 search · 2 commands");
+    expect(row.querySelector(".tool-group-failed")).toHaveTextContent("1 failed");
+    // The tooltip keeps the old counts line.
+    expect(row).toHaveAttribute("title", "7 tools · 4 files · 2 commands");
+  });
+
+  it("keeps the failure out of the part that yields, so no width can cut it", () => {
+    render(<ToolGroup steps={steps(run())} sessionStatus="idle" />);
+    const failed = document.querySelector(".tool-group-failed")!;
+    // A sibling of the ellipsized work, after it — never inside it.
+    expect(failed.closest(".tool-group-work")).toBeNull();
+    expect(failed.previousElementSibling).toHaveClass("tool-group-work");
+    expect(failed.querySelector("svg")).not.toBeNull(); // a glyph, so it is not colour alone
+  });
+
+  it("drops the parts that are zero, and says nothing of failures where there were none", () => {
+    render(<ToolGroup steps={steps([tool("r1", "Read", { file_path: "/a" }), tool("r2", "Read", { file_path: "/b" })])} sessionStatus="idle" />);
+    expect(document.querySelector(".tool-group-work")).toHaveTextContent(/^· 2 reads$/);
+    expect(document.querySelector(".tool-group-failed")).toBeNull();
+  });
+
+  it("while live, says the call in flight rather than the counts so far", () => {
+    const live = [tool("r1", "Read", { file_path: "/w/a.ts" }), { ...tool("c1", "Bash", { command: "pnpm test" }), result: null }];
+    render(<ToolGroup steps={steps(live)} sessionStatus="running" />);
+    expect(document.querySelector(".tool-group-work")).toHaveTextContent(/^· Run pnpm test$/);
+  });
+
+  it("a run the turn ended on with a failure opens itself; one that recovered, or ended well, stays folded", () => {
+    const failedLast = [tool("r1", "Read", { file_path: "/a" }), fail("c1", "Bash", { command: "pnpm build" })];
+    const { unmount } = render(<ToolGroup steps={steps(failedLast)} sessionStatus="idle" endsTurn />);
+    expect(cards()).toHaveLength(2);
+    // And a manual collapse still wins.
+    fireEvent.click(screen.getByRole("button", { name: "2 tool calls" }));
+    expect(cards()).toHaveLength(0);
+    unmount();
+    // The agent went on after it: the failure is on the head, the run stays folded.
+    const { unmount: u2 } = render(<ToolGroup steps={steps(failedLast)} sessionStatus="idle" />);
+    expect(cards()).toHaveLength(0);
+    u2();
+    // A failure in the middle that the run recovered from does not open it either.
+    render(<ToolGroup steps={steps([fail("c1", "Bash", { command: "pnpm build" }), tool("r1", "Read", { file_path: "/a" })])} sessionStatus="idle" endsTurn />);
+    expect(cards()).toHaveLength(0);
+  });
+
+  it("in a transcript, a run the turn closed on is one that ends it; one the agent talked after is not", () => {
+    const model = (blocks: Block[]): TranscriptModel =>
+      ({ blocks, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null });
+    const failedRun: Block[] = [tool("r1", "Read", { file_path: "/a" }), fail("c1", "Bash", { command: "pnpm build" })];
+    const { unmount } = render(<Transcript transcript={model([...failedRun, { kind: "run", ms: 4_000, startedAt: 0, ts: 4_000 }])} sessionStatus="idle" onDecide={() => {}} />);
+    expect(cards()).toHaveLength(2);
+    unmount();
+    render(<Transcript transcript={model([...failedRun, say("I fixed it another way.")])} sessionStatus="idle" onDecide={() => {}} />);
+    expect(cards()).toHaveLength(0);
+  });
+});
+
+describe("a step in a run stands on the same lead column as every other row", () => {
+  it("the rail sits 4px left of the steps' glyphs, and a step's row is inset by exactly the rail's offset", () => {
+    render(<ToolGroup steps={steps([tool("r1", "Read", { file_path: "/a" }), { ...tool("c1", "Bash", { command: "x" }), result: null }])} sessionStatus="running" />);
+    // jsdom has no layout; the arithmetic is the stylesheet's and is held in styles.test. Here: the
+    // step cards are the ones the inset applies to.
+    for (const c of cards()) expect(c.parentElement).toHaveClass("tool-group-steps");
   });
 });

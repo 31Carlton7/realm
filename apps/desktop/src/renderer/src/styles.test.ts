@@ -1619,12 +1619,31 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");
   });
 
+  it("a run's head reserves its failures and yields its work; its steps' glyphs share the free rows' column", () => {
+    expect(bodiesFor(".tool-group-summary").join(" ")).toContain("flex: none");
+    const work = bodiesFor(".tool-group-work").join(" ");
+    expect(work).toMatch(/flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis/);
+    expect(work).toContain("color: var(--ink-3)");
+    const failed = bodiesFor(".tool-group-failed").join(" ");
+    expect(failed).toContain("flex: none");
+    expect(failed).toContain("color: var(--rl-danger)");
+    // A free row's glyph is at its 8px padding. A step's rail is at 3, 1 wide, and its row pads 4:
+    // 3 + 1 + 4 = 8, the same column — and the rail 4px left of the glyphs.
+    const px = (body: string, prop: string) => Number(new RegExp(`${prop}: (\\d+)px`).exec(body)?.[1]);
+    const steps = bodiesFor(".tool-group-steps").join(" ");
+    expect(px(steps, "margin-left") + 1 + px(bodiesFor(".tool-group-steps > .tool-card").join(" "), "--tool-pad")).toBe(8);
+    expect(bodiesFor(".tool-row").join(" ")).toContain("padding: 4px 8px 4px var(--tool-pad, 8px)");
+    // The body and the reason line hang under the verb column wherever the row's glyph is.
+    expect(bodiesFor(".tool-body").join(" ")).toContain("calc(var(--tool-pad, 8px) + 24px)");
+    expect(bodiesFor(".tool-reason").join(" ")).toContain("calc(var(--tool-pad, 8px) + 24px)");
+  });
+
   it("an open card is no box: the row keeps its fill and the body hangs under the verb column on the ground", () => {
     // No panel fill and no ring round the open card — the panels inside it are the surfaces.
     expect(RULES.filter((r) => partsOf(r).includes(".tool-card[data-open]"))).toEqual([]);
     expect(bodiesFor(".tool-card[data-open] > .tool-row").join(" ")).toContain("background: var(--rl-hover)");
     const body = bodiesFor(".tool-body").join(" ");
-    expect(body).toContain("padding: 6px 0 10px 32px"); // row padding 8 + lead 16 + gap 8
+    expect(body).toContain("padding: 6px 0 10px calc(var(--tool-pad, 8px) + 24px)"); // row padding 8 + lead 16 + gap 8
     expect(body).not.toContain("border-top");
     // A call's panel is a fenced block's: the card-rung curve, a fill, no ring — and painted.
     const panel = bodiesFor(".tool-panel").join(" ");
