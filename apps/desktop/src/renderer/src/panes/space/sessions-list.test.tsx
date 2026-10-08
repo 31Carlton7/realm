@@ -38,6 +38,15 @@ describe("the Sessions page", () => {
     expect(within(row(/^Busy one/)).getByText("Working…")).toBeInTheDocument();
   });
 
+  it("marks a lead's agents only for what is live, not for their unread news", async () => {
+    // Mutant: the sidebar's tally as is — an unseen dot on an idle, read lead whose agents have news.
+    const lead = both("L", "Quiet lead");
+    const kid = both("k", "Done kid", { dispatchedBy: { sessionId: "L", kind: "agent_run" }, lastEventSeq: 9, seenSeq: 2 });
+    await mount(data([lead, kid]));
+    expect(row(/^Quiet lead/).querySelector(".status-dot")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Quiet lead, 1 agent, 1 unread/ })).toBeInTheDocument();
+  });
+
   it("carries no Archived chip; the Archived filter lists only archived sessions, with their counts", async () => {
     // Mutant: the chip is back on the row, or the filter is ignored.
     const { container } = await mount(data([both("a", "Live work"), both("b", "Put away", {}, true), both("c", "Also away", {}, true)]));

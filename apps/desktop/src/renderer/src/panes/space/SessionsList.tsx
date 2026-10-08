@@ -310,7 +310,10 @@ function PageRowView({ r, now, view, reply, open, current, armed, onToggle, onFo
           <button type="button" className="space-sessions-agents" aria-expanded={open} tabIndex={-1} onClick={onToggle}
             aria-label={`${open ? "Hide" : "Show"} ${children.length} ${noun} of ${title}`}>
             {children.length}<span className="space-sessions-noun">{noun}</span>
-            <TallyMarks tally={tally} />
+            {/* Live marks only: the sidebar's tally also marks unread on a folded head, but here the lead
+                row is the head, and its children's news is said in its name ("6 unread") and on each
+                child once unfolded — an idle, read lead wears no mark. */}
+            <TallyMarks tally={{ ...tally, unread: 0 }} />
           </button>
         )}
         <span className="space-sessions-time">{relativeTime(r.at, now)}</span>
