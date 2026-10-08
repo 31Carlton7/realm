@@ -304,6 +304,9 @@ const IDENT = /^[\w.:/@#~+-]+$/;
 /** An MCP call's arguments as a list of key and value, in the order the agent wrote them. */
 export function toolArgs(input: Record<string, unknown>): ToolArg[] {
   return Object.entries(input).map(([key, v]) => {
+    // A short list of plain values reads as the list it is; anything deeper falls back to JSON.
+    if (Array.isArray(v) && v.every((x) => typeof x === "string" || typeof x === "number" || typeof x === "boolean"))
+      return { key, value: v.join(", "), form: "prose" };
     if (v !== null && typeof v === "object") return { key, value: JSON.stringify(v, null, 2), form: "json" };
     const value = String(v);
     return { key, value, form: typeof v === "string" && !IDENT.test(v) ? "prose" : "code" };

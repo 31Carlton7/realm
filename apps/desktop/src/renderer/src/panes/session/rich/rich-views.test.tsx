@@ -283,6 +283,14 @@ describe("ToolCard with a drawn payload", () => {
     expect(document.querySelector(".code-gutter")).toHaveTextContent("40 41");
   });
 
+  it("names an MCP call by the field that says what it is about, and lists a short list as a list", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("mcp__linear__save_issue", { team: "REA", title: "Tool card redesign", labels: ["design", "transcript"] }, "{}")} />);
+    // The row's object is the issue's title, not the team key that happened to come first.
+    expect(document.querySelector(".tool-row .tool-summary")).toHaveTextContent("Tool card redesign");
+    open();
+    expect(text(".tool-arg dd")[2]).toBe("design, transcript");
+  });
+
   it("a tool Realm has no panel for keeps both wells, named Arguments and Result", () => {
     render(<ToolCard sessionStatus="idle" block={tool("frobnicate", { anything: 1 }, "some result")} />);
     open();

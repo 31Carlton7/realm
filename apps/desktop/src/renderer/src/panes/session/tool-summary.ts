@@ -8,7 +8,11 @@ import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff } from "./rich/diff";
  */
 const SIMULATOR_INPUT = new Set(["simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press"]);
 
-/** One-line summary of a tool call's input, per well-known tool; else the first string field. */
+/** The keys an unknown tool's input most often names its subject under, most telling first. */
+const NAMING_KEYS = ["title", "name", "query", "url", "path", "file_path", "intent", "description", "prompt"];
+
+/** One-line summary of a tool call's input, per well-known tool; else its naming field or its first
+ *  string field. */
 export function toolSummary(name: string, input: Record<string, unknown>): string {
   const str = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : null);
   const at = name.lastIndexOf("__");
@@ -28,7 +32,13 @@ export function toolSummary(name: string, input: Record<string, unknown>): strin
       const path = first && typeof first === "object" ? (first as Record<string, unknown>)["path"] : null;
       return typeof path === "string" ? path : "";
     }
-    default: { for (const v of Object.values(input)) if (typeof v === "string" && v.trim()) return v; return ""; }
+    default: {
+      // The field that names what the call is about, where the tool has one, before whichever string
+      // happens to come first: an issue's title says more than its team's key.
+      for (const k of NAMING_KEYS) { const v = str(k); if (v?.trim()) return v; }
+      for (const v of Object.values(input)) if (typeof v === "string" && v.trim()) return v;
+      return "";
+    }
   }
 }
 
