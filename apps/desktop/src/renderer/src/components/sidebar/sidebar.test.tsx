@@ -150,9 +150,12 @@ describe("a space's section", () => {
     await waitFor(() => expect(rowsIn("Homework")).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2"]));
     const more = within(section("Homework")).getByRole("button", { name: /Show more/ });
     expect(more).toHaveTextContent("Show more 2");
+    // The page last showed the archived ones; "Show more 2" counts live ones, so it lands on those.
+    act(() => store.getState().setSpaceSessionsView("s2", "archived"));
     fireEvent.click(more);
     await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s2" }));
     expect(store.getState().spacePageTab.s2).toBe("sessions");
+    expect(store.getState().spaceSessionsView.s2).toBe("active");
   });
 
   it("offers a new session in an empty space as its one row", async () => {
@@ -184,6 +187,8 @@ describe("a space's section", () => {
       await exited();
       fireEvent.click((await open()).getByRole("menuitem", { name }));
       await waitFor(() => expect(store.getState().spacePageTab.s2).toBe(tab));
+      // "Archived sessions" lands on the page's Archived filter, not on the live list.
+      if (name === "Archived sessions") expect(store.getState().spaceSessionsView.s2).toBe("archived");
     }
     // Show in Finder is offered only where the desktop bridge can reveal a folder.
     await exited();

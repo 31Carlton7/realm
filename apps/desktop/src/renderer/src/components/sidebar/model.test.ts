@@ -64,6 +64,16 @@ describe("listedSessions — what the sidebar lists as a row", () => {
     expect(ids(listedSessions(s))).toEqual(["lead"]);
   });
 
+  it("keeps a sub-agent under an archived lead put away with it, and lists one whose lead is gone", () => {
+    // The space's Sessions page nests the same way (`nestChildren`), so its Active count is this list's.
+    const s = seed([
+      { id: "shelved", space: "hw", item: { archived: true } },
+      { id: "kid", space: "hw", session: { dispatchedBy: { kind: "agent_run", sessionId: "shelved" } } },
+      { id: "orphan", space: "hw", session: { dispatchedBy: { kind: "agent_run", sessionId: "deleted" } } },
+    ]);
+    expect(ids(listedSessions(s))).toEqual(["orphan"]);
+  });
+
   it("keeps a fork and an import — sessions the user owns, whatever started them", () => {
     const s = seed([{ id: "f", space: "hw", session: { dispatchedBy: { kind: "fork", sessionId: "x" } } }]);
     expect(ids(listedSessions(s))).toEqual(["f"]);

@@ -1824,6 +1824,9 @@ export const Methods = {
   /** Every session Realm holds, or every session in ONE profile. Scoped by the server's space→profile
    *  join when `profileId` is given — the same rule `search.query` states, for the same reason: a
    *  client-side filter is not trusted to keep one profile's work out of another's surfaces. */
+  /** Where each of a space's sessions left off: its newest reply's first line, or null where it has
+   *  not replied — for the space's Sessions page to say without opening any. */
+  "sessions.digest": { params: z.object({ spaceId: IdSchema }), result: z.array(z.object({ sessionId: IdSchema, lastReply: z.string().nullable() })) },
   "sessions.listAll": { params: z.object({ profileId: IdSchema.nullable().default(null) }), result: z.array(SessionSchema) },
   /**
    * Record how far this user has read a session's transcript.

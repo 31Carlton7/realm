@@ -982,6 +982,10 @@ export function registerMethods(d: Deps): void {
   });
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
   reg("sessions.listAll", (p) => d.sessions.listAll(p.profileId));
+  reg("sessions.digest", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.sessions.lastReplies(p.spaceId);
+  });
   reg("sessions.markSeen", (p) => { d.sessions.markSeen(p.id, p.seq); return { ok: true as const }; });
   reg("sessions.get", (p) => d.sessions.get(p.id));
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are

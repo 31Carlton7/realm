@@ -268,6 +268,8 @@ export class SessionService {
   list(spaceId: string): Session[] { return this.d.sessions.list(spaceId); }
   /** `null` = every profile. See `SessionsStore.listAll` for why the scoping is a join and not a filter. */
   listAll(profileId: string | null = null): Session[] { return this.d.sessions.listAll(profileId); }
+  /** Each of a space's sessions' newest reply, as one line (`SessionEventsStore.lastReplies`). */
+  lastReplies(spaceId: string): { sessionId: string; lastReply: string | null }[] { return this.d.events.lastReplies(spaceId); }
   /** How far the user has read this session. See `sessions.markSeen` in the contract. */
   markSeen(id: string, seq: number): void { this.d.sessions.markSeen(id, seq); }
   /** Going quiet for a handoff: finish what is running, start nothing new. */

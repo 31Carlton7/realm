@@ -344,6 +344,8 @@ export type FakeData = {
   libraryAdd?: ((input: LibraryAddInput) => LibraryAddResult) | null;
   /** The paths `library.add` should treat as folders, with what each holds. */
   addFolders?: Record<string, { files: string[]; bytes: number; subfolders: number }>;
+  /** What `sessions.digest` answers per session id: where each left off. Absent = no replies. */
+  lastReplies?: Record<string, string>;
   /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. */
   iconAssets?: Record<string, IconAsset[]>;
   /** What `pickIconImage()` answers with. Defaults to null (cancelled) — a test opts in by setting
@@ -546,6 +548,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     libraryAdd: overrides.libraryAdd ?? null,
     addFolders: overrides.addFolders ?? {},
     iconAssets: overrides.iconAssets ?? {},
+    lastReplies: overrides.lastReplies ?? {},
     pickIconImage: overrides.pickIconImage ?? null,
   };
   let n = 100;
@@ -962,6 +965,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     disposeTerminal: (id) => { disposed.push(id); },
     destroyBrowserView: (id) => { destroyedBrowserViews.push(id); },
     listSessions: async (sid) => { calls.push(`listSessions:${sid}`); return data.sessions.filter((s) => s.spaceId === sid); },
+    sessionsDigest: async (spaceId) => {
+      calls.push(`sessionsDigest:${spaceId}`);
+      return data.sessions.filter((s) => s.spaceId === spaceId).map((s) => ({ sessionId: s.id, lastReply: data.lastReplies[s.id] ?? null }));
+    },
     listAllSessions: async (profileId = null) => {
       calls.push(`listAllSessions:${profileId ?? "all"}`);
       await wait("listAllSessions");

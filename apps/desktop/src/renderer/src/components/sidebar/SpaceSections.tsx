@@ -64,6 +64,9 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
   const setSpaceSectionCollapsed = useApp((s) => s.setSpaceSectionCollapsed);
   const run = useApp((s) => s.run);
   const openSpacePage = useOpenSpacePage();
+  const setSpaceSessionsView = useApp((s) => s.setSpaceSessionsView);
+  // The space's Sessions page, on the filter the opener names: "Show more" counts the live ones.
+  const openSessions = (view: "active" | "archived") => { setSpaceSessionsView(space.id, view); openSpacePage(space.id, "sessions"); };
   const newSessionIn = useNewSessionIn();
   // A plain folder has no worktrees, so its ⋯ offers no session in one (store.ts).
   const plainFolder = useApp((s) => spaceIsPlainFolder(s, space.id));
@@ -88,7 +91,7 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
     ...(reveal ? [{ label: "Show in Finder", icon: <Icon name="folder" size={16} />, onSelect: () => { void reveal(space.folderPath); } }] : []),
     { label: "Connections", icon: <Icon name="connections-page" size={16} />, onSelect: () => openSpacePage(space.id, "connections") },
     { label: "Memory", icon: <Icon name="context" size={16} />, onSelect: () => openSpacePage(space.id, "memory") },
-    { label: "Archived sessions", icon: <Icon name="archive" size={16} />, onSelect: () => openSpacePage(space.id, "sessions") },
+    { label: "Archived sessions", icon: <Icon name="archive" size={16} />, onSelect: () => openSessions("archived") },
     { label: "Space settings", icon: <Icon name="settings" size={16} />, onSelect: () => openSpacePage(space.id, "general") },
   ];
   return (
@@ -126,7 +129,7 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
               ) : shown.map((r) => <ListRowView key={r.id} row={r} nested onChanged={onChanged} />)}
               {hidden > 0 && (
                 <button type="button" className="agents-more sb-more" title={`Every session in ${space.name}, on its page`}
-                  onClick={() => openSpacePage(space.id, "sessions")}>Show more <span className="item-count">{hidden}</span></button>
+                  onClick={() => openSessions("active")}>Show more <span className="item-count">{hidden}</span></button>
               )}
             </div>
           </div>

@@ -197,6 +197,29 @@ export class SessionsStore {
   }
 }
 
+/** The longest a reply's line is kept: a row has one line to give it, and past this it is ellipsized
+ *  on screen anyway. */
+export const REPLY_LINE_MAX = 140;
+
+/**
+ * A reply's first line of prose, as a row can show it: the first line with words on it, its markdown
+ * marks taken off (a heading's #, a list's bullet, emphasis, code ticks), its spacing collapsed, and
+ * cut at `REPLY_LINE_MAX` with an ellipsis. A reply that opens with a code fence starts at the line
+ * after it. Null when there are no words at all.
+ */
+export function replyLine(text: string): string | null {
+  let fenced = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("```")) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    const words = line.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+    if (!words) continue;
+    return words.length > REPLY_LINE_MAX ? `${words.slice(0, REPLY_LINE_MAX - 1).trimEnd()}…` : words;
+  }
+  return null;
+}
+
 type EventRow = { seq: number; session_id: string; ts: number; type: string; payload_json: string };
 
 export class SessionEventsStore {
@@ -296,6 +319,21 @@ export class SessionEventsStore {
       if (p.success) return p.data;
     }
     return null;
+  }
+  /**
+   * Where each of a space's sessions left off: the first line of its newest reply, for a list of them
+   * to say without opening any (`replyLine`). Null for a session that has not replied. One indexed
+   * look per session (`session_events_session`), never a read of a transcript.
+   */
+  lastReplies(spaceId: string): { sessionId: string; lastReply: string | null }[] {
+    const rows = this.db.prepare(`SELECT s.id AS session_id,
+        (SELECT ev.payload_json FROM session_events ev WHERE ev.session_id = s.id AND ev.type = 'assistant_text' ORDER BY ev.seq DESC LIMIT 1) AS payload
+      FROM sessions s WHERE s.space_id = ?`).all(spaceId) as { session_id: string; payload: string | null }[];
+    return rows.map((r) => {
+      let text: unknown = null;
+      if (r.payload) { try { text = (JSON.parse(r.payload) as { text?: unknown }).text; } catch { /* unreadable: no line */ } }
+      return { sessionId: r.session_id, lastReply: typeof text === "string" ? replyLine(text) : null };
+    });
   }
   /** The newest persisted event of one type, or null. Skips rows that fail schema validation. */
   lastOfType(sessionId: string, type: SessionEvent["type"]): SessionEvent | null {
