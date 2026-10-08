@@ -63,6 +63,15 @@ describe("the Review pane", () => {
     expect(line.textContent).not.toContain("”.");
   });
 
+  it("says a message is sent, not posted", async () => {
+    // THE MUTANT: "Before it can post" over an email draft.
+    await mount();
+    fireEvent.click(document.querySelector('[data-review="v2"]')!);
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Weekly check-in"));
+    expect(screen.getByRole("heading", { name: "Before it can send" })).toBeInTheDocument();
+    expect(screen.getByText("Nothing sends until you approve.")).toBeInTheDocument();
+  });
+
   it("keeps the decision outside the scroller, so it never dissolves with the slides", async () => {
     // THE MUTANT: the bar moved inside `.rv-detail-scroll`, where the mask takes it.
     await mount();

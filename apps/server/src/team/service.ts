@@ -581,14 +581,14 @@ export class TeamService {
       runCapUsd: role?.runCapUsd ?? null,
       model: run?.constraints?.model ?? role?.model ?? null,
       recordName: record?.title ?? null,
-      checks: this.checks(items, record),
+      checks: this.checks(items, record, fresh.kind),
       ledger: this.ledger(fresh, run),
       root,
     };
   }
 
   /** What Realm itself can say about a batch before anyone posts it — facts it checked, not claims. */
-  private checks(items: TeamReviewItem[], record: ReturnType<typeof parseRecord>): ReviewCheck[] {
+  private checks(items: TeamReviewItem[], record: ReturnType<typeof parseRecord>, kind: ReviewKind): ReviewCheck[] {
     const out: ReviewCheck[] = [];
     const target = items.find((i) => i.target?.account)?.target ?? null;
     if (target?.account) {
@@ -604,7 +604,10 @@ export class TeamService {
         ? { ok: true, title: "Disclosed as paid partnership", detail: "Every caption says so" }
         : { ok: false, title: "No paid-partnership disclosure in the caption", detail: "Turn on the platform's paid-partnership label when you post, or add #ad" });
     }
-    out.push({ ok: null, title: "Realm does not post yet", detail: "Approving marks it ready. Post it by hand from the space folder." });
+    // A message is sent, not posted: an email draft told to "post it from the space folder" was told nonsense.
+    out.push(kind === "message"
+      ? { ok: null, title: "Realm does not send yet", detail: "Approving marks it ready. Send it yourself, from your own account." }
+      : { ok: null, title: "Realm does not post yet", detail: "Approving marks it ready. Post it by hand from the space folder." });
     return out;
   }
 

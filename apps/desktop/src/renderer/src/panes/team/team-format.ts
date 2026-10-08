@@ -114,7 +114,7 @@ export function runChip(run: RoleRun): { tone: "ok" | "warn" | "bad" | null; wor
 export function reviewStateLine(r: TeamReviewSummary): { text: string; dot: "waiting" | null } {
   if (r.state === "waiting") {
     if (r.changedSinceApproval) return { text: "A file changed after you approved it", dot: "waiting" };
-    if (r.version > 1) return { text: `Version ${r.version} · approve before anything posts`, dot: "waiting" };
+    if (r.version > 1) return { text: `Version ${r.version} · approve before anything ${r.kind === "message" ? "sends" : "posts"}`, dot: "waiting" };
     return { text: r.kind === "message" && r.account ? `Sends from ${r.account}` : "Approve before anything posts", dot: "waiting" };
   }
   if (r.state === "changes") return { text: "Changes asked · the role is on it", dot: null };

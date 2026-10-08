@@ -168,7 +168,7 @@ function ReviewDetail({ summary }: { summary: TeamReviewSummary }) {
             </section>
           )}
           <section className="rv-section">
-            <h3>Before it can post</h3>
+            <h3>{detail.kind === "message" ? "Before it can send" : "Before it can post"}</h3>
             <ul className="rv-checks">
               {detail.checks.map((c) => (
                 <li key={c.title}>
@@ -267,8 +267,8 @@ function DecisionBar({ detail }: { detail: TeamReviewDetail }) {
   const send = () => { const text = note.trim(); if (!text) return; act(async () => { await requestChanges(detail.id, text); setAsking(false); setNote(""); }); };
   const pending = detail.state === "waiting" || detail.state === "changes";
   const sentence = detail.state === "changes" ? `You asked for changes${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}. ${detail.roleName ?? "The role"} is on it.`
-    : detail.state === "approved" ? `Approved by you${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}. Realm doesn't post yet — post it by hand.`
-    : detail.state === "done" ? "Done." : detail.note && detail.changedSinceApproval ? detail.note : "Nothing posts until you approve.";
+    : detail.state === "approved" ? `Approved by you${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}. ${detail.kind === "message" ? "Realm doesn't send yet — send it yourself." : "Realm doesn't post yet — post it by hand."}`
+    : detail.state === "done" ? "Done." : detail.note && detail.changedSinceApproval ? detail.note : detail.kind === "message" ? "Nothing sends until you approve." : "Nothing posts until you approve.";
   return (
     <div className="rv-decide-wrap">
       {asking && (
