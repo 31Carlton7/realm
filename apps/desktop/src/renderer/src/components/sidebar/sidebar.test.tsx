@@ -598,6 +598,7 @@ describe("Pinned", () => {
   it("drags into a pane like any row, carrying its item", async () => {
     await mount(home({ items: { s1: [item("i-gh", "s1", { kind: "browser", refId: "br1", title: "GitHub", pinned: true })], s2: [] } }));
     const row = within(await pinnedRegion()).getByRole("button", { name: /^GitHub/ }).closest(".item")!;
+    expect(row).toHaveAttribute("draggable", "true");
     const data: Record<string, string> = {};
     fireEvent.dragStart(row, { dataTransfer: { setData: (k: string, v: string) => { data[k] = v; }, effectAllowed: "" } });
     expect(data["application/x-realm-item"]).toBe("i-gh");
