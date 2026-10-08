@@ -54,6 +54,7 @@ export class MobileApi {
           });
           return { ok: true };
         case "session.stop": await this.o.rpc.call("sessions.interrupt", { id: p.id as string }); return { ok: true };
+        case "session.seen": await this.o.rpc.call("sessions.markSeen", { id: p.id as string, seq: p.seq as number }); return { ok: true };
         case "session.create": {
           const agent = AgentKindSchema.safeParse(p.agent);
           if (!agent.success) throw new MobileError("INVALID_PARAMS", `unknown agent ${String(p.agent)}`);

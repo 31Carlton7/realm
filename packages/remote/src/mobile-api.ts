@@ -79,6 +79,8 @@ export const MobileCalls = {
     result: Ok,
   },
   "session.stop": { params: z.object({ id: Id }), result: Ok },
+  /** Marks the session read up to a row's seq, as opening it on the Mac does; never moves backwards. */
+  "session.seen": { params: z.object({ id: Id, seq: z.number().int().min(0) }), result: Ok },
   "session.create": { params: z.object({ spaceId: Id, agent: z.string().min(1), text: z.string().min(1).max(100_000) }), result: z.object({ id: Id }) },
   "debug.report": { params: z.object({ name: z.string().regex(/^[\w.-]{1,80}$/), data: z.unknown() }), result: Ok },
 } as const;

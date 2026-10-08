@@ -160,6 +160,14 @@ When a Mac becomes connected (its socket is authenticated):
 
 When the Mac's socket closes, every phone is sent `{"t":"mac","online":false,"lastSeen":<ms>}`.
 
+**A quiet Mac is announced too.** A sleeping Mac, or one whose network was pulled, sends no close; its
+socket just stops. While any phone is connected:
+- once the Mac's last message or heartbeat is more than 60 s old, every phone is sent
+  `{"t":"mac","online":false,"lastSeen":<ms>}`, once;
+- the Mac's next message of any kind sends every phone `{"t":"mac","online":true,"lastSeen":<ms>}`.
+
+Phase 1 measured the gap this closes: a frozen Mac was never reported, not within 180 s.
+
 Control messages from the Mac to the relay:
 
 ```
@@ -361,6 +369,7 @@ then the fields its kind adds:
 | `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer"}` | `{ok: true}` |
 | `session.answer` | `{id, requestId, decision: "allow"\|"allow_always"\|"deny", answers?: {<question>: <label>}}` | `{ok: true}` |
 | `session.stop` | `{id}` | `{ok: true}` |
+| `session.seen` | `{id, seq}` | `{ok: true}`. It marks the session read up to `seq`, and never moves backwards. |
 | `session.create` | `{spaceId, agent, text}` | `{id}` |
 | `debug.report` | `{name, data}` | `{ok: true}` |
 
