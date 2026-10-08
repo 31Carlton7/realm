@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { viewSettingKey, type Session } from "@realm/contracts";
-import { createSessionOpenTools, capMode, type SessionOpenDeps } from "./session-open";
+import { createSessionOpenTools, capMode, SESSION_OPEN_PER_TURN, type SessionOpenDeps } from "./session-open";
 import type { SendMessage } from "../sessions/service";
 
 /**
@@ -22,6 +22,7 @@ type Opts = { caller?: Partial<Session>; allow?: boolean; userDefault?: string; 
 
 function setup(o: Opts = {}) {
   const caller = session(o.caller);
+  const turn = { n: 1 };
   const calls = {
     gates: [] as { toolKey: string; title: string; input: Record<string, unknown> }[],
     created: [] as Parameters<SessionOpenDeps["sessions"]["create"]>[0][],
@@ -55,10 +56,11 @@ function setup(o: Opts = {}) {
         : { ok: true, choice: { kind: "codex", model: "gpt-6", label: "GPT-6" } };
     },
     delegated: { isChild: () => o.child ?? false },
+    turnOf: () => turn.n,
   };
   const group = createSessionOpenTools(deps);
   const call = (args: unknown = {}) => group.handlers.session_open!({ sessionId: ME, spaceId: SPACE }, args);
-  return { group, call, calls };
+  return { group, call, calls, turn };
 }
 
 const text = (r: CallToolResult) => r.content.map((c) => (c as { text: string }).text).join("\n");
@@ -133,5 +135,26 @@ describe("session_open", () => {
     const r = await s.call({ prompt: "x", environmentId: "e" });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("invalid arguments");
+  });
+
+  it("opens at most four sessions a turn, in Full access too, and counts afresh on the next turn", async () => {
+    // THE MUTANT: no cap. Full access skips the card, and a looping agent would fill the window.
+    const s = setup({ caller: { permissionMode: "bypassPermissions" } });
+    for (let i = 0; i < SESSION_OPEN_PER_TURN; i++) expect((await s.call({})).isError).toBe(false);
+    const fifth = await s.call({ prompt: "one more" });
+    expect(fifth.isError).toBe(true);
+    expect(text(fifth)).toContain("this turn has already opened 4 sessions");
+    expect(text(fifth)).toContain("Ask the user");
+    expect(s.calls.created).toHaveLength(4);
+    expect(s.calls.gates).toHaveLength(4);
+    s.turn.n = 2;
+    expect((await s.call({})).isError).toBe(false);
+    expect(s.calls.created).toHaveLength(5);
+  });
+
+  it("counts only sessions it opened: a refused card does not use one up", async () => {
+    const s = setup({ allow: false });
+    for (let i = 0; i < SESSION_OPEN_PER_TURN + 1; i++) await s.call({});
+    expect(s.calls.gates).toHaveLength(SESSION_OPEN_PER_TURN + 1);
   });
 });

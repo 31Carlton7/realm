@@ -45,7 +45,14 @@ export type SessionOpenDeps = {
   placeModel(caller: Session, model: string | undefined): Promise<ModelResolution>;
   /** A delegated child: it reports to its lead, and opening sessions the user must look after is not its call. */
   delegated: { isChild(sessionId: string): boolean };
+  /** Which turn the caller is in — the seq of the message that started it. A new turn, a new count. */
+  turnOf(sessionId: string): number | null;
 };
+
+/** How many sessions one turn of one caller may open, in every mode. Full access skips the card, not
+ *  the count: each session is an agent the user now has to look after, and a loop that opens them
+ *  should stop at a handful rather than fill the window. */
+export const SESSION_OPEN_PER_TURN = 4;
 
 const PROMPT_MAX = 20_000;
 const SessionOpenArgs = z.object({
@@ -75,14 +82,21 @@ const TOOL: Tool = {
 };
 
 export function createSessionOpenTools(d: SessionOpenDeps): WorkspaceToolGroup {
-  return { tools: [TOOL], handlers: { session_open: (ctx, raw) => open(d, ctx, raw) } };
+  /** Per caller: the turn it is counting, and how many sessions that turn has opened. */
+  const opened = new Map<string, { turn: number | null; count: number }>();
+  return { tools: [TOOL], handlers: { session_open: (ctx, raw) => open(d, ctx, raw, opened) } };
 }
 
-async function open(d: SessionOpenDeps, ctx: ProviderCallContext, raw: unknown): Promise<CallToolResult> {
+async function open(d: SessionOpenDeps, ctx: ProviderCallContext, raw: unknown, opened: Map<string, { turn: number | null; count: number }>): Promise<CallToolResult> {
   const args = parseArgs(SessionOpenArgs, raw); if ("error" in args) return args.error;
   const { prompt, beside, model } = args.value;
   if (d.delegated.isChild(ctx.sessionId))
     return err("refused: a delegated agent may not open sessions — report back to the session that delegated to you, and it can open one.");
+  const turn = d.turnOf(ctx.sessionId);
+  const tally = opened.get(ctx.sessionId);
+  const used = tally && tally.turn === turn ? tally.count : 0;
+  if (used >= SESSION_OPEN_PER_TURN)
+    return err(`refused: this turn has already opened ${SESSION_OPEN_PER_TURN} sessions, the most one turn may open. Ask the user whether they want more, or open the next one in a later turn.`);
   const caller = d.sessions.get(ctx.sessionId);
 
   const placed = await d.placeModel(caller, model);
@@ -106,6 +120,7 @@ async function open(d: SessionOpenDeps, ctx: ProviderCallContext, raw: unknown):
     return err(`could not open the session: ${e instanceof Error ? e.message : String(e)}`);
   }
   const { session, itemId } = created;
+  opened.set(ctx.sessionId, { turn, count: used + 1 });
   d.rpc.broadcast("session.openRequested", { spaceId: ctx.spaceId, sessionId: session.id, itemId, openedBy: ctx.sessionId, edge });
 
   if (prompt) {

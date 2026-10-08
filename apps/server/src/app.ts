@@ -1197,6 +1197,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
       placeModel: (caller, model) => agentRunsFinal.placeModel(caller, model),
       delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id) },
+      turnOf: (id) => sessionEvents.listOfTypes(id, ["user_message"], { limit: 1 })[0]?.seq ?? null,
     }),
     createSpacesTools({ spaces, settings, broker: browserBroker, rpc }),
     createSettingsTools({ settings, broker: browserBroker, rpc }),
