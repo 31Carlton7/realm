@@ -143,11 +143,38 @@ describe("agent_start with a model by name", () => {
     expect(counts.probes).toBe(after);
   });
 
-  it("a named model does not loosen the permission cap — bypass still degrades to default", async () => {
+  it("a child on another harness takes the lead's mode the same way — Full access under a Full access lead", async () => {
     const { ctx } = await boot({ parentMode: "bypassPermissions" });
+    await app.sessions.probe();
+    await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-6 Luna" } });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", permissionMode: "bypassPermissions" });
+  });
+
+  it("a named model does not loosen the cap — a request above the lead is held to the lead's mode", async () => {
+    const { ctx } = await boot({ parentMode: "default" });
     await app.sessions.probe();
     await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-6 Luna", permissionMode: "bypassPermissions" } });
     expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", permissionMode: "default" });
+  });
+
+  it("refuses a read-only lead's child on Cursor, which Realm cannot hold to read-only — and creates nothing", async () => {
+    // The bug this kills: a plan lead naming a Cursor model minted a child whose row said plan while
+    // nothing restrained it.
+    const { ctx } = await boot({ parentMode: "plan" });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { agentKind: "acp:cursor" } });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("cannot hold Cursor to a read-only mode");
+    expect(children(ctx)).toEqual([]);
+  });
+
+  it("writes default for a Cursor child of a Full access lead, and says why", async () => {
+    const { ctx } = await boot({ parentMode: "bypassPermissions" });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { agentKind: "acp:cursor" } });
+    expect(r.isError).toBe(false);
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "acp:cursor", permissionMode: "default" });
+    expect(text(r)).toContain("Realm cannot set a permission mode on Cursor");
   });
 });
 

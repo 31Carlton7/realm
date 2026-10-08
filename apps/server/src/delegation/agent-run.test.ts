@@ -145,14 +145,14 @@ describe("agent_run — the delegated session", () => {
   });
 
   it("broadcasts session.agentOpened with the child's id and item, and stages the delegation preamble", async () => {
-    const { fake, spaceId, parentId } = await boot({ parentKind: "claude" });
+    const { fake, spaceId, parentId } = await boot({ parentKind: "claude", maxDepth: 2 });
     await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "Refactor the parser" });
     expect(fake.seen).toHaveLength(1); // only the CHILD started
     const started = fake.seen[0]!;
     expect(started.systemContext).toContain("Delegated agent (Realm)");
     expect(started.systemContext).toContain("Refactor the parser");
-    // The preamble states the REMAINING budget, not a flat prohibition. A depth-1 child under the
-    // default max of 2 has one level left, and telling it otherwise would cost the whole budget.
+    // The preamble states the REMAINING budget, not a flat prohibition. A depth-1 child under a
+    // max of 2 has one level left, and telling it otherwise would cost the whole budget.
     expect(started.systemContext).toContain("only 1 level deeper");
     expect(started.systemContext).toContain("depth 1 of 2");
   });
@@ -166,28 +166,40 @@ describe("agent_run — the delegated session", () => {
     expect(fake.seen[0]!.systemContext).not.toContain("This session runs in Realm");
   });
 
-  it("tells a child that has SPENT the budget it cannot delegate — the preamble tracks depth", async () => {
-    const { fake, spaceId, parentId } = await boot({ parentKind: "claude", maxDepth: 1 });
+  it("tells a child at the production depth it cannot delegate, and that it shares the lead's mode", async () => {
+    const { fake, spaceId, parentId } = await boot({ parentKind: "claude" });
     await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "Refactor the parser" });
-    // THE MUTANT: hard-code the "you may delegate" branch and a depth-1 child under maxDepth 1 is
-    // told it may spawn agents that every server-side guard will then refuse.
-    expect(fake.seen[0]!.systemContext).toContain("cannot delegate further");
+    // THE MUTANT: hard-code the "you may delegate" branch and a depth-1 child is told it may spawn
+    // agents that every server-side guard will then refuse.
+    expect(fake.seen[0]!.systemContext).toContain("You cannot delegate: do the work yourself.");
     expect(fake.seen[0]!.systemContext).not.toContain("levels deeper");
+    expect(fake.seen[0]!.systemContext).toContain("same permission mode as the session that started you");
   });
 });
 
-describe("permission cap — min(parent, requested), bypass never granted", () => {
-  it("NEVER inherits bypassPermissions — a bypass parent's child runs default (the safety line)", async () => {
+describe("the child's mode — min(parent, requested), Full access included", () => {
+  it("a Full access lead's child is born in Full access, and the result says so", async () => {
+    // THE MUTANT: the old cap — a bypass parent's child turned into default, and every prompt it
+    // raised piled up on the user (17 of 17 children of Full access leads in the user's own data).
     const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions" });
-    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
-    expect(childOf(spaceId, parentId).permissionMode).toBe("default");
+    const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    expect(childOf(spaceId, parentId).permissionMode).toBe("bypassPermissions");
+    expect(text(result)).toContain("It runs in Full access, the same as you.");
   });
 
-  it("NEVER grants a requested bypass — it degrades to default and the result says so", async () => {
-    const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions" });
-    const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go", constraints: { permissionMode: "bypassPermissions" } });
+  it("holds a requested Full access to the lead's mode, and says it was capped", async () => {
+    const { spaceId, parentId } = await boot({ parentMode: "default" });
+    const result = await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "go", constraints: { permissionMode: "bypassPermissions" } });
     expect(childOf(spaceId, parentId).permissionMode).toBe("default");
-    expect(text(result)).toContain("bypassPermissions was requested but is never granted");
+    expect(text(result)).toContain("Full access was requested; capped at your mode, Ask each time.");
+    await app.agentRuns.wait({ sessionId: parentId, spaceId }, {});
+  });
+
+  it("writes how the mode came to be on the child's record", async () => {
+    // THE MUTANT: no audit trail — nothing says why an agent is in Full access.
+    const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions" });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go", constraints: { permissionMode: "acceptEdits" } });
+    expect(app.agentRuns.record(childOf(spaceId, parentId).id)?.mode).toEqual({ requested: "acceptEdits", granted: "acceptEdits", inherited: false });
   });
 
   it("caps a requested mode at the parent's — a default parent cannot mint an acceptEdits child", async () => {
@@ -226,6 +238,19 @@ describe("permission cap — min(parent, requested), bypass never granted", () =
 });
 
 describe("the depth budget — a wall replaced by a countdown, enforced server-side", () => {
+  it("at the production depth, a child cannot start sub-agents — only the main session orchestrates", async () => {
+    // THE MUTANT: MAX_DELEGATION_DEPTH back at 2 — every child keeps the agent_run family.
+    const { spaceId, parentId } = await boot();
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const child = childOf(spaceId, parentId);
+    expect(app.agentRuns.canDelegate(child.id)).toBe(false);
+    const provider = createRealmAgentProvider(app.browserAgents, { providerEnabled: () => true }, app.agentRuns);
+    expect(await provider.tools({ sessionId: child.id, spaceId })).toEqual([]);
+    const refused = await app.agentRuns.start({ sessionId: child.id, spaceId }, { goal: "a grandchild" });
+    expect(refused.isError).toBe(true);
+    expect(app.sessions.list(spaceId)).toHaveLength(2);
+  });
+
   it("a SPENT child lists no realm-agent tools and is refused by all three layers", async () => {
     // maxDepth 1 makes the first child a spent one, which is exactly the old depth-1 rule — so this
     // is the original recursion-guard test, re-pinned at the budget's edge instead of at depth 1.
@@ -883,4 +908,58 @@ describe("long delegation calls report progress and honour cancellation", () => 
     const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, {});
     expect(text(collected)).toContain("All 1 delegated agent finished");
   });
+});
+
+describe("the lead's mode reaches its running children", () => {
+  const script: FakeScript = [
+    { on: "quick job", emit: [{ kind: "text", text: "FINAL: quick" }] },
+    ...longScript(60),
+  ];
+
+  it("lowering the lead lowers a running child above the new mode, and nothing else", async () => {
+    // THE MUTANTS: no cascade; cascading a settled child; cascading upward (raising the lead raises
+    // a child it had lowered).
+    const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions", script, delayMs: 50 });
+    const ctx = { sessionId: parentId, spaceId };
+    // Settled but not yet collected: still in the registry, holding a report rather than a process.
+    await app.agentRuns.start(ctx, { goal: "quick job" });
+    const settled = childOf(spaceId, parentId);
+    await waitFor(() => text(app.agentRuns.status(ctx)).includes("finished (done)"));
+    await app.agentRuns.start(ctx, { goal: "long work" });
+    await app.agentRuns.start(ctx, { goal: "long read-only look", constraints: { permissionMode: "plan" } });
+    const kids = () => app.sessions.list(spaceId).filter((x) => x.id !== parentId && x.id !== settled.id);
+    const [working, planning] = [kids().find((k) => k.permissionMode === "bypassPermissions")!, kids().find((k) => k.permissionMode === "plan")!];
+
+    await app.sessions.setOptions(parentId, { permissionMode: "default" });
+    expect(app.sessions.get(working.id).permissionMode).toBe("default");
+    expect(app.sessions.get(planning.id).permissionMode).toBe("plan");
+    expect(app.sessions.get(settled.id).permissionMode).toBe("bypassPermissions");
+
+    await app.sessions.setOptions(parentId, { permissionMode: "bypassPermissions" });
+    expect(app.sessions.get(working.id).permissionMode).toBe("default");
+    await app.sessions.interrupt(parentId);
+  }, 20_000);
+});
+
+describe("the budget is working time", () => {
+  it("a child held on the user's permission past its whole budget still finishes, not times out", async () => {
+    // THE MUTANT: a fixed deadline — the child is interrupted for a wait the user caused.
+    const { spaceId, parentId } = await boot({
+      timeouts: { baseMs: 400, perTurnMs: 0, pollMs: 20 },
+      script: [{ on: "You are a delegated agent.", emit: [
+        { kind: "tool", name: "Bash", input: { command: "pnpm test" }, needsPermission: true, result: "ok" },
+        { kind: "text", text: "FINAL: tests pass" },
+      ] }],
+    });
+    const ctx = { sessionId: parentId, spaceId };
+    await app.agentRuns.start(ctx, { goal: "run the tests" });
+    const child = childOf(spaceId, parentId);
+    await waitFor(() => app.sessions.get(child.id).status === "waiting_permission");
+    await new Promise((r) => setTimeout(r, 1000));
+    const ask = app.sessions.events(child.id, 0, 500).map((e) => e.event).find((e) => e.type === "permission_request");
+    await app.sessions.respondPermission(child.id, ask!.type === "permission_request" ? ask!.payload.requestId : "", "allow");
+    const result = await app.agentRuns.wait(ctx, {});
+    expect(text(result)).toContain("All 1 delegated agent finished");
+    expect(text(result)).toContain("FINAL: tests pass");
+  }, 20_000);
 });

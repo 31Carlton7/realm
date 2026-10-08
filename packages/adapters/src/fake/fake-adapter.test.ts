@@ -17,6 +17,35 @@ describe("FakeAdapter", () => {
     expect(got.indexOf("permission_request")).toBeLessThan(got.indexOf("tool_result"));
     await h.dispose();
   });
+  it("runs a scripted permission without a card under Full access, set at start or later, and still asks a question", async () => {
+    // THE MUTANT: needsPermission ignores the mode — a Full access child would hold on a card the
+    // real agents never raise, and a live check could not prove a child inherited Full access.
+    const script = [{ on: "go", emit: [
+      { kind: "tool" as const, name: "Bash", input: { command: "ls" }, needsPermission: true, result: "a b" },
+      { kind: "tool" as const, name: "AskUserQuestion", input: { questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] }, needsPermission: true, result: "answered" },
+    ] }];
+    const turn = async (h: ReturnType<FakeAdapter["start"]>): Promise<string[]> => {
+      const asked: string[] = [];
+      const done = (async () => { for await (const e of h.events) {
+        if (e.type === "permission_request") { asked.push(e.payload.toolName); h.respondPermission(e.payload.requestId, "allow"); }
+        if (e.type === "status" && e.payload.status === "idle" && asked.includes("AskUserQuestion")) break;
+      } })();
+      await h.send({ text: "go", attachments: [] });
+      await done;
+      return asked;
+    };
+    const born = new FakeAdapter({ script }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions" });
+    expect(await turn(born)).toEqual(["AskUserQuestion"]);
+    await born.dispose();
+    const raised = new FakeAdapter({ script }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+    await raised.setOptions({ permissionMode: "bypassPermissions" });
+    expect(await turn(raised)).toEqual(["AskUserQuestion"]);
+    await raised.dispose();
+    const asks = new FakeAdapter({ script }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+    expect(await turn(asks)).toEqual(["Bash", "AskUserQuestion"]);
+    await asks.dispose();
+  });
+
   it("paces a text step a word at a time when asked, and ends it on the whole text", async () => {
     const a = new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "one two  three", paceMs: 5 }] }] });
     const h = a.start({ cwd: "/tmp", mcpServers: [] });

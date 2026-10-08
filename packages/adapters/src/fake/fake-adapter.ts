@@ -64,6 +64,9 @@ export class FakeAdapter implements AgentAdapter {
     const sleep = () => new Promise((r) => setTimeout(r, delay));
     let disposed = false;
     let interrupted = false;
+    // Full access runs a scripted permission without a card, as the real agents do; a question is not
+    // a permission and is asked in every mode.
+    let mode = opts.permissionMode ?? "default";
 
     const resumeOutcome = opts.resume ? this.cfg.resume : undefined;
     // Made on first use, and once: the gateway keeps one MCP session per Realm session.
@@ -148,7 +151,7 @@ export class FakeAdapter implements AgentAdapter {
         } else {
           const toolUseId = newId();
           q.push(sessionEvent("tool_call", { toolUseId, name: st.name, input: st.input, parentToolUseId: null }));
-          if (st.needsPermission) {
+          if (st.needsPermission && !(mode === "bypassPermissions" && st.name !== "AskUserQuestion")) {
             const requestId = newId();
             const ask = st.name === "AskUserQuestion" ? askCardFromAskUserQuestion(st.input, FAKE_ASKER) : null;
             if (ask) asks.set(requestId, ask);
@@ -182,7 +185,7 @@ export class FakeAdapter implements AgentAdapter {
       },
       respondPermission: resolvePermission,
       interrupt: async () => { interrupted = true; denyAllPending(); },
-      setOptions: async () => {},
+      setOptions: async (o) => { if (o.permissionMode !== undefined) mode = o.permissionMode; },
       dispose: async () => {
         if (disposed) return;
         disposed = true;

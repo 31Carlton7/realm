@@ -19,6 +19,11 @@
  *   8. The lead's agent_wait was kept alive while it waited: the gateway's heartbeat, shortened to two
  *      seconds here (REALM_MCP_HEARTBEAT_MS), reached the scripted agent's client on the call's own
  *      stream before the answer did.
+ *   9. A Full access lead's sub-agents are born in Full access, and the one whose script holds a
+ *      permission runs it without a card.
+ *  10. Lowering a Full access lead to Ask each time while its sub-agents work lowers them too.
+ *  11. A sub-agent cannot start a sub-agent of its own: its call is refused at its gateway, and it
+ *      does the work itself.
  *
  * Ports: LIVE_SERVER_PORT (8795), LIVE_CDP_PORT (9235). Screenshots go to LIVE_OUT_DIR (the system
  * temp dir unless set); the scratch home to LIVE_SCRATCH_DIR. Kills only what listens on its own ports.
@@ -347,6 +352,54 @@ async function main() {
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "light"; return true; })()`);
   await sleep(400);
   await shot(c, "11-light");
+  await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(mode ?? "dark")}; return true; })()`);
+
+  await modeChecks(space.id);
+}
+
+/** A fresh lead in `permissionMode`, sent the "Build this with" brief over RPC; resolves with it once
+ *  both of its sub-agents exist. */
+async function buildWith(spaceId, permissionMode, title) {
+  const { session } = await api.call("sessions.create", { spaceId, agentKind: "claude", model: "claude-opus-5-5", title, permissionMode });
+  await api.call("sessions.send", { id: session.id, text: "Build this with sub-agents, one per task below.\n\n- GPT-6 Luna: the toggle\n- Fable: the migration", attachments: [], mentions: [] });
+  const kids = await until(async () => { const k = (await api.call("delegation.children", { sessionId: session.id })).children; return k.length === 2 ? k : null; }, 20_000, `${title}: two sub-agents`);
+  return { lead: session.id, kids };
+}
+const eventsOf = (id) => api.call("sessions.events", { id, afterSeq: 0, limit: 2000 });
+const leadSaid = (id, start) => until(async () => (await eventsOf(id)).some((e) => e.event.type === "assistant_text" && e.event.payload.text.startsWith(start)), 60_000, `lead says "${start}"`);
+
+async function modeChecks(spaceId) {
+  // ── 9. A Full access lead's sub-agents are born in Full access ─────────────────────────────
+  const full = await buildWith(spaceId, "bypassPermissions", "Full access lead");
+  note("Full access lead's sub-agents", full.kids.map((k) => ({ kind: k.session.agentKind, mode: k.session.permissionMode })));
+  check("both sub-agents of a Full access lead are born in Full access", full.kids.every((k) => k.session.permissionMode === "bypassPermissions"), full.kids.map((k) => k.session.permissionMode));
+  await leadSaid(full.lead, "Both sub-agents are done");
+  const lunaEvents = await eventsOf(full.kids.find((k) => k.session.agentKind === "codex").session.id);
+  check("the sub-agent whose script holds a permission ran it without a card", !lunaEvents.some((e) => e.event.type === "permission_request") && lunaEvents.some((e) => e.event.type === "tool_result" && e.event.payload.content.startsWith("Tests  4 passed")), lunaEvents.map((e) => e.event.type));
+
+  // ── 10. Lowering the lead lowers its working sub-agents ─────────────────────────────────────
+  const lowered = await buildWith(spaceId, "bypassPermissions", "Lowered lead");
+  await api.call("sessions.setOptions", { id: lowered.lead, permissionMode: "default" });
+  const after = (await api.call("delegation.children", { sessionId: lowered.lead })).children;
+  note("sub-agents after the lead was lowered", after.map((k) => ({ kind: k.session.agentKind, mode: k.session.permissionMode, status: k.session.status })));
+  check("lowering the lead to Ask each time lowers its working sub-agents with it", after.every((k) => k.session.permissionMode === "default"), after.map((k) => k.session.permissionMode));
+  // Now asking each time, the toggle's sub-agent holds its test run on a card; answered, both finish.
+  const lunaId = after.find((k) => k.session.agentKind === "codex").session.id;
+  const card = await until(async () => (await eventsOf(lunaId)).filter((e) => e.event.type === "permission_request").at(-1) ?? null, 30_000, "the lowered sub-agent asks");
+  check("the lowered sub-agent asks before running its tests", !!card);
+  await api.call("sessions.respondPermission", { id: lunaId, requestId: card.event.payload.requestId, decision: "allow" });
+  await leadSaid(lowered.lead, "Both sub-agents are done");
+
+  // ── 11. A sub-agent cannot start one of its own ─────────────────────────────────────────────
+  const { session: nester } = await api.call("sessions.create", { spaceId, agentKind: "claude", model: "claude-opus-5-5", title: "Nesting lead", permissionMode: "default" });
+  await api.call("sessions.send", { id: nester.id, text: "Nest a sub-agent for the copy pass.", attachments: [], mentions: [] });
+  await leadSaid(nester.id, "The sub-agent did the copy pass itself.");
+  const [only] = (await api.call("delegation.children", { sessionId: nester.id })).children;
+  const tried = (await eventsOf(only.session.id)).find((e) => e.event.type === "tool_result");
+  note("the sub-agent's own agent_start", tried?.event.payload);
+  check("a sub-agent's agent_start is refused at its gateway, and nothing is started under it",
+    tried?.event.payload.isError === true && /not available to this delegated session/.test(tried.event.payload.content)
+      && (await api.call("delegation.children", { sessionId: only.session.id })).children.length === 0, tried?.event.payload);
 }
 
 /** What the window's grounds are made of right now — the alphas the theme writes, and the root's

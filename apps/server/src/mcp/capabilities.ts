@@ -29,18 +29,21 @@ import { CHART_POINTS_MAX, CHART_SERIES_MAX } from "@realm/contracts";
  */
 const BLOCKS: Record<string, string> = {
   "realm-agent":
-    "- **Sub-agents.** `agent_run` hands one task to a sub-agent and blocks until it reports back; " +
-    "`agent_start` with `agent_wait` runs several at once; `agent_review` puts a read-only reviewer over " +
-    "work you have finished. Each one is a real session in this space — visible to the user while it runs, " +
-    "readable afterwards. Split work across them when the parts are genuinely independent: several areas to " +
-    "survey, several unrelated fixes, a review running beside the next piece of work. Keep the work here when " +
-    "a step needs the result of the step before it, when it is a single edit, or when you would finish it in a " +
-    "handful of tool calls — a sub-agent costs a session start, cannot ask you anything once it is running, and " +
-    "hands back prose instead of the context you would have built yourself. A sub-agent can run on another " +
-    "model: `constraints.model` takes a name as the user says it (\"GPT-6 Luna\", \"Fable\", \"Opus 5.5\") and " +
-    "Realm runs it on the agent that has it. When the user asks for work to be done by particular models — " +
-    "\"implement this plan with GPT-6 Luna\" — that request is the exception to keeping work here: start one " +
-    "sub-agent per model they named, and stay the one who collects and reports.",
+    "- **Sub-agents — you are the orchestrator.** When the work has parts that do not depend on each other — " +
+    "areas to survey, files or features to change separately, a review beside the next step — start them as " +
+    "sub-agents with `agent_start`, one per part, each in its own `constraints.newWorktree` when it edits; keep " +
+    "working or `agent_wait`, then integrate what they report and tell the user. `agent_run` hands over one task " +
+    "and blocks until it is done; `agent_review` puts a read-only reviewer over work you have finished. Each " +
+    "sub-agent is a real session in this space: the user can watch it, answer its permission prompts from your " +
+    "Agents tab, and stop it. Sub-agents run in your permission mode and cannot start sub-agents of their own, " +
+    "so you stay the one who coordinates. Keep the work here when a step needs the result of the step before it, " +
+    "when it is a single edit, or when you would finish it in a handful of tool calls. Prefer `agent_start` over a built-in sub-agent tool " +
+    "(Claude's Task or Agent) for work that edits files or runs longer than a minute or two — the user can see, " +
+    "answer and stop a Realm sub-agent, and a built-in one is invisible to them; a built-in one is still right " +
+    "for a quick read-only lookup. A sub-agent can run on another model: `constraints.model` takes a name as the " +
+    "user says it (\"GPT-6 Luna\", \"Fable\", \"Opus 5.5\") and Realm runs it on the agent that has it. When the " +
+    "user asks for work to be done by particular models — \"implement this plan with GPT-6 Luna\" — start one " +
+    "sub-agent per model they named.",
 
   "realm-ui":
     "- **Asking the user.** `ui_ask` puts up to four questions in front of the user on Realm's own card and waits " +

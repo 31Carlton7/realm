@@ -213,3 +213,24 @@ describe("awaitRuns — ticks while it waits, and stops for a caller that has go
     expect(ticks).toBe(2);
   });
 });
+
+describe("drain — the budget is working time", () => {
+  const waiting = (seq: number) => status("waiting_permission", seq);
+
+  it("does not time a child out while it waits on the user, and gives back the time it waited", async () => {
+    // THE MUTANT: a fixed deadline. The child waits on the user for twice its budget, then finishes —
+    // and is reported (and interrupted) as timed out for a wait the user caused.
+    const batches: StoredSessionEvent[][] = [[status("running", 1)], [waiting(2)], ...Array.from({ length: 30 }, () => []), [status("running", 3)], [], [said("done", 4), status("idle", 5)]];
+    const { engine, interrupted } = engineOver(batches);
+    const settled = await engine.drain("child", 0, run(), Date.now() + 40, 4);
+    expect(settled.outcome).toBe("done");
+    expect(interrupted).toEqual([]);
+  });
+
+  it("still times out a child that is working past its budget", async () => {
+    const { engine, interrupted } = engineOver([[status("running", 1)], []]);
+    const settled = await engine.drain("child", 0, run(), Date.now() + 30, 4);
+    expect(settled.outcome).toBe("timeout");
+    expect(interrupted).toEqual(["child"]);
+  });
+});

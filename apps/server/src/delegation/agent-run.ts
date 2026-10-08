@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Environment, type Session } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Environment, type Session } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "@realm/contracts";
-import { cleanupWorktree, errorMessage, resolveAgentKind, resolveEnvironment, resolveSkillSubset, type EnvironmentDeps } from "./dispatch";
+import { childPermissionMode, cleanupWorktree, errorMessage, modeLabel, rank, resolveAgentKind, resolveEnvironment, resolveSkillSubset, type ChildMode, type EnvironmentDeps } from "./dispatch";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
@@ -58,6 +58,10 @@ export type AgentChildRecord = {
   startedAt?: number;
   settledAt?: number;
   outcome?: DelegationOutcome;
+  /** The mode the child was born in, and how it came to be: the audit trail for "why is this agent in
+   *  Full access". `requested` is absent when the caller named none. Absent on records from before
+   *  children inherited their lead's mode. */
+  mode?: { requested?: string; granted: string; inherited: boolean };
 };
 
 const RunArgs = z.object({
@@ -84,19 +88,6 @@ const WaitArgs = z.object({
 
 type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown): void };
 
-/** More restrictive = lower. Used only to CAP: the child never gets a laxer mode than the parent
- *  effectively has, and `bypassPermissions` is unreachable through this table because a requested
- *  bypass is degraded to `default` before ranking and a bypass PARENT is capped to `default` first
- *  (the browser agent's rule, verbatim). An unranked mode (an adapter-specific string) ranks as
- *  `default` — capping math over an unknown mode should fail toward asking, not toward access.
- *
- *  `ask` TIES with `plan` rather than sitting beside it. They are two different read-only modes, not
- *  two rungs of one ladder: neither lets the child change anything, so capping a child of one to the
- *  other is safe in both directions, and giving either a lower number would claim an ordering between
- *  them that does not exist. */
-const MODE_RANK: Record<string, number> = { plan: 0, ask: 0, default: 1, acceptEdits: 2, bypassPermissions: 3 };
-const rank = (mode: string): number => MODE_RANK[mode] ?? 1;
-
 /**
  * Plan 13 W1: `agent_run` — general task delegation, `browser_agent_run`'s proven shape opened up to
  * ANY task. Same bones (a delegated child is a REAL, visible Realm session in the caller's space;
@@ -115,17 +106,17 @@ const rank = (mode: string): number => MODE_RANK[mode] ?? 1;
  *     one through Plan 7's `EnvironmentService.createWorktree`; neither means the space primary.
  *     The child session is BORN with it (`sessions.create`'s `environmentId`) — no rebind dance.
  *
- * **The safety lines, carried over verbatim and non-negotiable:** `bypassPermissions` is never
- * inherited NOR grantable — a bypass parent's child caps at `default`, and a requested bypass
- * degrades to `default` with the degradation stated in the result. Every granted mode is
- * min(parent's effective mode, requested). Depth-1: a delegated child (of EITHER tool) sees neither
- * `agent_run` nor `browser_agent_run` — enforced by the gateway toolset shape, by the provider's
- * child check, and re-checked here. Parent interrupt cancels (the engine's cancelled-wins drain).
+ * **The mode.** A child runs in its lead's mode, Full access included: every granted mode is
+ * min(parent's mode, requested) (`childPermissionMode`), so a request can only tighten, and lowering
+ * the lead lowers its running children (`cascadeMode`). Only the main session orchestrates: a child
+ * (of EITHER tool) sees neither `agent_run` nor `browser_agent_run` — enforced by the gateway toolset
+ * shape, by the provider's child check, and re-checked here. Parent interrupt cancels (the engine's
+ * cancelled-wins drain).
  */
 export class AgentRunService {
   constructor(private readonly d: {
     settings: SettingsLike;
-    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt">;
+    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt" | "setOptions">;
     rpc: Pick<RpcServer, "broadcast">;
     /** The shared settle/drain + run registry — the SAME instance `BrowserAgentService` uses. */
     engine: DelegationEngine;
@@ -161,6 +152,10 @@ export class AgentRunService {
     const time = (t: unknown): number | undefined => (typeof t === "number" && Number.isFinite(t) ? t : undefined);
     const startedAt = time(r.startedAt), settledAt = time(r.settledAt);
     const outcome = typeof r.outcome === "string" && OUTCOMES.has(r.outcome) ? r.outcome : undefined;
+    const m = r.mode;
+    const mode = m && typeof m === "object" && typeof m.granted === "string"
+      ? { granted: m.granted, inherited: m.inherited === true, ...(typeof m.requested === "string" ? { requested: m.requested } : {}) }
+      : undefined;
     return {
       parentSessionId: r.parentSessionId,
       goal: r.goal,
@@ -171,6 +166,7 @@ export class AgentRunService {
       ...(startedAt !== undefined ? { startedAt } : {}),
       ...(settledAt !== undefined ? { settledAt } : {}),
       ...(outcome ? { outcome } : {}),
+      ...(mode ? { mode } : {}),
     };
   }
 
@@ -296,7 +292,7 @@ export class AgentRunService {
     const remaining = this.maxDepth - child.depth;
     const delegationRule = remaining > 0
       ? `- You may delegate further, but only ${remaining} level${remaining === 1 ? "" : "s"} deeper (you are at depth ${child.depth} of ${this.maxDepth}). Prefer doing the work yourself: every extra level is another agent the human has to follow.`
-      : `- You cannot delegate further: you are at the maximum delegation depth (${this.maxDepth}), so there is no agent_run, agent_start or browser_agent_run here.`;
+      : "- You cannot delegate: do the work yourself. There is no agent_run, agent_start or browser_agent_run here — the session that started you is the one that coordinates.";
     return [
       "# Delegated agent (Realm)",
       "",
@@ -307,6 +303,7 @@ export class AgentRunService {
       "Ground rules — restated for clarity; each is also enforced server-side:",
       delegationRule,
       "- Work in THIS session's own checkout (your working directory) — that is where your changes belong.",
+      "- You run in the same permission mode as the session that started you. When you need permission, ask: your request reaches the user in that session's Agents tab.",
       "- Finish with a concise final message reporting the outcome — that message is the ONLY thing the delegating session receives.",
     ].join("\n");
   }
@@ -322,12 +319,32 @@ export class AgentRunService {
     }
   }
 
+  /**
+   * A lead's permission mode was just set: every child it is still running in a mode above that comes
+   * down to it. Turning Full access off has to reach the agents already working under it; turning it
+   * on is a decision about new work, so raising the lead never raises a child — a child already at or
+   * below the new mode is left alone, which is the same rule seen from the other side.
+   *
+   * The engine's registry is shared, so this reaches a browser-agent child too. It skips a run the
+   * lead does not own (a peer being asked a question is not its child), and one that has settled.
+   * A child on a harness Realm cannot set a mode on keeps the `default` its row already says.
+   */
+  async cascadeMode(leadId: string, mode: string): Promise<void> {
+    for (const run of this.d.engine.running(leadId)) {
+      if (!run.interruptOnCancel) continue;
+      let child: Session;
+      try { child = this.d.sessions.get(run.childSessionId); } catch { continue; }
+      if (!AGENT_SUPPORTS_PERMISSION_MODES[child.agentKind] || rank(child.permissionMode) <= rank(mode)) continue;
+      await this.d.sessions.setOptions(child.id, { permissionMode: mode }).catch(() => { /* deleted under us; nothing left to lower */ });
+    }
+  }
+
   /* ------------------------------------- the tool itself ------------------------------------- */
 
   /**
    * Spawn a child and register its run — everything `agent_run` and `agent_start` share, which is
    * all of it except who waits. Extracted rather than forked for the reason the engine and the
-   * dispatch recipe were: the bypass cap, the depth check and the worktree cleanup are three places
+   * dispatch recipe were: the mode rule, the depth check and the worktree cleanup are three places
    * a second copy would drift, and two of those three are safety lines.
    *
    * Returns the registered run on success, or the caller's refusal already worded.
@@ -354,18 +371,6 @@ export class AgentRunService {
     let parent;
     try { parent = this.d.sessions.get(ctx.sessionId); } catch { return err("the calling session no longer exists."); }
 
-    // THE SAFETY LINE, verbatim from browser_agent_run: bypassPermissions is never inherited nor
-    // grantable. A bypass parent's EFFECTIVE mode is `default` (its child never rides the parent's
-    // full access), a requested bypass degrades to `default` (stated in the result), and what is
-    // granted is min(parent effective, requested) — a constraint can only ever tighten. Applied at
-    // EVERY level: a depth-2 grandchild is capped against its depth-1 parent's already-capped mode,
-    // so the budget can never launder access down the tree.
-    const parentCap = parent.permissionMode === "bypassPermissions" ? "default" : parent.permissionMode;
-    let requested = constraints?.permissionMode;
-    let bypassDegraded = false;
-    if (requested === "bypassPermissions") { requested = "default"; bypassDegraded = true; }
-    const permissionMode = requested === undefined ? parentCap : rank(requested) < rank(parentCap) ? requested : parentCap;
-
     // Which harness and model. Unnamed, the child keeps the caller's agent kind when that kind can
     // take Realm's skills injection (same rule as the browser agent), and its model with it; a
     // `constraints.agentKind` overrides the kind, and a `constraints.model` names the model the way a
@@ -374,6 +379,13 @@ export class AgentRunService {
     const placed = await this.place(constraints, parent);
     if (!placed.ok) return err(placed.message);
     const { kind: agentKind, model, label: modelLabel } = placed.choice;
+
+    // The child's mode: the lead's, unless the caller asked for less — min(parent, requested), Full
+    // access included. Decided after the harness, because a harness Realm cannot set a mode on is
+    // refused a read-only child and written as `default` otherwise (`childPermissionMode`).
+    const granted = childPermissionMode(parent.permissionMode, constraints?.permissionMode, agentKind);
+    if (!granted.ok) return err(granted.message);
+    const permissionMode = granted.mode;
 
     const skills = resolveSkillSubset(ctx.spaceId, constraints?.skills, this.d.skills);
     if (!skills.ok) return err(skills.message);
@@ -406,7 +418,10 @@ export class AgentRunService {
     // Persisted BEFORE the first send: `ensureLive` reads the skill narrowing and the preamble off
     // this record when it starts the adapter, and the gateway reads the exclusion off it on the
     // child's first tools/list — the record must exist first.
-    const record: AgentChildRecord = { parentSessionId: ctx.sessionId, goal, skills: skillIds, depth: this.depthOf(ctx.sessionId) + 1, startedAt: Date.now() };
+    const record: AgentChildRecord = {
+      parentSessionId: ctx.sessionId, goal, skills: skillIds, depth: this.depthOf(ctx.sessionId) + 1, startedAt: Date.now(),
+      mode: { granted: permissionMode, inherited: granted.inherited, ...(constraints?.permissionMode ? { requested: constraints.permissionMode } : {}) },
+    };
     this.d.settings.set(childKey(childId), record);
     // The `agentOpened` idiom, same as the browser agent: the renderer brings the child's pane into
     // the layout BESIDE the parent (the fixed openItemBeside path), never replacing it.
@@ -439,7 +454,7 @@ export class AgentRunService {
       this.d.engine.end(ctx.sessionId, run);
       return err(`could not send the goal to the delegated session: ${message(e)}`);
     }
-    return { spawned: true, run, childId, title: created.session.title, budgetMs, bypassDegraded, on: `${AGENT_META[agentKind].label} · ${modelLabel}` };
+    return { spawned: true, run, childId, title: created.session.title, budgetMs, mode: modeSentence(granted, parent.permissionMode, constraints?.permissionMode, agentKind), on: `${AGENT_META[agentKind].label} · ${modelLabel}` };
   }
 
   /* ---------------------------------------- agent_run ---------------------------------------- */
@@ -508,10 +523,9 @@ export class AgentRunService {
     const spawned = await this.spawn(ctx, rawArgs, true);
     if (!isSpawned(spawned)) return spawned;
     const running = this.d.engine.running(ctx.sessionId).length;
-    const note = spawned.bypassDegraded ? ` ${BYPASS_NOTE}` : "";
     return ok([
-      `Started delegated agent ${spawned.childId} ("${spawned.title}") on ${spawned.on}. It is running now; this call did not wait for it.${note}`,
-      `Its time budget is ${Math.round(spawned.budgetMs / 1000)}s, enforced whether or not you wait.`,
+      `Started delegated agent ${spawned.childId} ("${spawned.title}") on ${spawned.on}. It is running now; this call did not wait for it. ${spawned.mode}`,
+      `Its time budget is ${Math.round(spawned.budgetMs / 1000)}s of working time (time spent waiting on the user does not count), enforced whether or not you wait.`,
       `You have ${running} delegated agent${running === 1 ? "" : "s"} running. Collect with ${AGENT_WAIT_TOOL_NAME} (handle: ${spawned.childId}); ${AGENT_STATUS_TOOL_NAME} lists them.`,
       "",
       `Start the others you need NOW, before waiting — that is the whole point of ${AGENT_START_TOOL_NAME}. Waiting on each one as you start it is just ${AGENT_RUN_TOOL_NAME} with extra steps.`,
@@ -584,19 +598,28 @@ export class AgentRunService {
 }
 
 /** `spawn`'s success arm. `run.settled` is non-null by the time this is returned — `watch` set it. */
-type Spawned = { spawned: true; run: ActiveRun; childId: string; title: string; budgetMs: number; bypassDegraded: boolean;
+type Spawned = { spawned: true; run: ActiveRun; childId: string; title: string; budgetMs: number;
+  /** The sentence the result says the child's mode in: "It runs in Full access, the same as you." */
+  mode: string;
   /** The harness and model it runs on, as the report says them: "Codex · GPT-6 Luna". */
   on: string };
 const isSpawned = (v: Spawned | CallToolResult): v is Spawned => (v as Spawned).spawned === true;
 
 const OUTCOMES: ReadonlySet<string> = new Set<DelegationOutcome>(["done", "stopped", "interrupted", "timeout", "failed", "gone"]);
 
-const BYPASS_NOTE = "bypassPermissions was requested but is never granted to a delegated agent — the child runs in \"default\" and its permission prompts surface on its own session.";
+/** How the result tells the caller what mode its child got, and why. */
+function modeSentence(granted: ChildMode, parentMode: string, requested: string | undefined, kind: AgentKind): string {
+  const mode = modeLabel(granted.mode);
+  if (granted.modeless) return `It runs in ${mode}: Realm cannot set a permission mode on ${AGENT_META[kind].label}.`;
+  if (granted.capped) return `${modeLabel(requested!)} was requested; capped at your mode, ${mode}.`;
+  if (granted.inherited) return `It runs in ${mode}, the same as you.`;
+  return `It runs in ${mode}, as asked (you are in ${modeLabel(parentMode)}).`;
+}
 
 /** The blocking tool's whole result: the outcome sentence, the structured trail, and the fenced
  *  report. `agent_wait` builds the same thing per handle through `reportSection`. */
 function reportOne(settled: SettledRun, spawned: Spawned): CallToolResult {
-  const note = spawned.bypassDegraded ? `\n\nNote: ${BYPASS_NOTE}` : "";
+  const note = ` ${spawned.mode}`;
   const trail = trailFor(settled, spawned.childId, spawned.title, spawned.on);
   const output = fenced(settled);
   switch (settled.outcome) {
@@ -672,6 +695,12 @@ function childMessage(goal: string): string {
 const MODELS_BY_NAME =
   "A sub-agent can run on a DIFFERENT model from yours: name it in constraints.model the way a person would — \"GPT-6 Luna\", \"Fable\", \"Opus 5.5\", \"Sonnet\" — or by id (\"gpt-6-luna\", \"claude-opus-5-5\"), and Realm runs it on the agent that has that model (Codex for GPT, Claude for Claude), so constraints.agentKind is not needed. A family name means its newest model (\"Fable\" is the newest Fable); a harness alone (\"Codex\") runs that agent's default. Leave model out and the sub-agent runs on your own model. When the user names models for the work — \"have GPT-6 Luna write the tests\", \"implement this plan with Fable and Sonnet sub-agents\" — do exactly that: one sub-agent per named model, each given its part.";
 
+/** The mode rule, as both spawn tools say it. */
+const SAME_MODE =
+  "The sub-agent runs in your permission mode — Full access included — unless you ask for less with constraints.permissionMode; when it needs permission, the user answers it from your Agents tab.";
+/** Only the main session orchestrates — the depth rule, as both spawn tools say it. */
+const NO_NESTING = "A sub-agent cannot start sub-agents of its own; you stay the one who coordinates.";
+
 /** The models line a description ends on, when there is a catalog to list — ready harnesses only,
  *  because naming a model the caller would then be refused is worse than naming nothing. */
 const availableNow = (menu: readonly string[]): string =>
@@ -681,7 +710,7 @@ export function agentRunTool(menu: readonly string[] = []): Tool {
   return {
     name: AGENT_RUN_TOOL_NAME,
     description:
-      `Hand ONE self-contained task to a sub-agent and BLOCK until it reports back: a real, visible Realm session in this space with the space's normal toolset (its MCP servers and skills), running in a named environment, a fresh worktree, or the space's primary checkout. ${MODELS_BY_NAME} Returns the sub-agent's fenced final report plus the child session's identity (that session's pane holds the full trace). The sub-agent never gets bypassPermissions — a requested bypass degrades to default — and its permission prompts surface on its own session. Delegation nests up to ${MAX_DELEGATION_DEPTH} levels deep. Use ${AGENT_START_TOOL_NAME} instead when you have SEVERAL independent tasks — running them one blocking call at a time wastes the parallelism.${availableNow(menu)}`,
+      `Hand ONE self-contained task to a sub-agent and BLOCK until it reports back: a real, visible Realm session in this space with the space's normal toolset (its MCP servers and skills), running in a named environment, a fresh worktree, or the space's primary checkout. ${MODELS_BY_NAME} Returns the sub-agent's fenced final report plus the child session's identity (that session's pane holds the full trace). ${SAME_MODE} ${NO_NESTING} Use ${AGENT_START_TOOL_NAME} instead when you have SEVERAL independent tasks — running them one blocking call at a time wastes the parallelism.${availableNow(menu)}`,
     inputSchema: spawnInputSchema(menu),
   };
 }
@@ -701,9 +730,9 @@ function spawnInputSchema(menu: readonly string[]): Tool["inputSchema"] {
           agentKind: { type: "string", enum: [...AgentKindSchema.options], description: "Agent for the child. Rarely needed: constraints.model already picks the agent. With a model, the name is looked up on this agent only. Omitted with no model: the caller's own kind (with a claude fallback when that kind cannot take Realm's skills)." },
           environmentId: { type: "string", description: "Run in this EXISTING environment of the caller's space. Mutually exclusive with newWorktree." },
           newWorktree: { type: ["boolean", "string"], description: "Create a fresh git worktree for the child: true titles it from the goal, a string titles it verbatim. Mutually exclusive with environmentId. Give PARALLEL agents separate worktrees — several agents editing one checkout will clobber each other." },
-          permissionMode: { type: "string", enum: ["plan", "ask", "default", "acceptEdits", "bypassPermissions"], description: "Requested mode; granted = min(parent's, requested). `plan` and `ask` are both read-only. bypassPermissions is NEVER granted (degrades to default)." },
-          maxTurns: { type: "number", description: "Scales the child's time budget (default 20; there is no per-turn counter — this is a time scale)." },
-          timeoutMs: { type: "number", description: "Absolute time budget in ms (5s–1h); overrides maxTurns scaling." },
+          permissionMode: { type: "string", enum: ["plan", "ask", "default", "acceptEdits", "bypassPermissions"], description: "Requested mode; granted = min(yours, requested). Omitted: yours, Full access included. `plan` and `ask` are both read-only." },
+          maxTurns: { type: "number", description: "Scales the child's budget of working time (default 20; there is no per-turn counter — this is a time scale). Time spent waiting on the user does not count." },
+          timeoutMs: { type: "number", description: "Absolute budget of working time in ms (5s–1h); overrides maxTurns scaling. Time spent waiting on the user does not count." },
           skills: { type: "array", items: { type: "string" }, description: "Narrow the child to this SUBSET of the space's enabled skills. An id not enabled in the space refuses the call." },
         },
         additionalProperties: false,
@@ -718,7 +747,7 @@ export function agentStartTool(menu: readonly string[] = []): Tool {
   return {
     name: AGENT_START_TOOL_NAME,
     description:
-      `Start a sub-agent WITHOUT waiting for it, and get back a handle (the child's session id). Same arguments and same safety rules as ${AGENT_RUN_TOOL_NAME} — the only difference is that this returns immediately, so you can start up to ${MAX_RUNS_PER_PARENT} independent tasks and have them run at the same time. ${MODELS_BY_NAME} Splitting a plan across models is this tool: one ${AGENT_START_TOOL_NAME} per model with its share of the plan, then one ${AGENT_WAIT_TOOL_NAME}. Collect the reports with ${AGENT_WAIT_TOOL_NAME}; ${AGENT_STATUS_TOOL_NAME} lists what is outstanding. Start every agent you need BEFORE you wait on any of them — starting one and immediately waiting is just ${AGENT_RUN_TOOL_NAME} with extra steps. Each child gets its own time budget, enforced whether or not you ever wait. Give parallel agents separate worktrees (constraints.newWorktree) unless they genuinely need the same checkout.${availableNow(menu)}`,
+      `Use this whenever the work splits into two or more independent parts — areas to survey, files or features to change separately, a review beside the next step. Start a sub-agent WITHOUT waiting for it, and get back a handle (the child's session id). Same arguments and same rules as ${AGENT_RUN_TOOL_NAME} — the only difference is that this returns immediately, so you can start up to ${MAX_RUNS_PER_PARENT} independent tasks and have them run at the same time. ${MODELS_BY_NAME} Splitting a plan across models is this tool: one ${AGENT_START_TOOL_NAME} per model with its share of the plan, then one ${AGENT_WAIT_TOOL_NAME}. Collect the reports with ${AGENT_WAIT_TOOL_NAME}; ${AGENT_STATUS_TOOL_NAME} lists what is outstanding. Start every agent you need BEFORE you wait on any of them — starting one and immediately waiting is just ${AGENT_RUN_TOOL_NAME} with extra steps. Each child gets its own budget of working time, enforced whether or not you ever wait. Give parallel agents separate worktrees (constraints.newWorktree) unless they genuinely need the same checkout. ${SAME_MODE} ${NO_NESTING}${availableNow(menu)}`,
     inputSchema: spawnInputSchema(menu),
   };
 }

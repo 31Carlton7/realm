@@ -322,9 +322,17 @@ export class DelegationEngine {
    * The adapter's start-of-life `idle` (emitted before the turn begins) cannot settle it, because no
    * assistant_text exists yet; a turn that is still running cannot either, because its last status
    * is `running`/`waiting_permission` until the adapter closes the turn.
+   *
+   * **The budget is working time.** While the child is `waiting_permission` it is waiting on the user,
+   * not working, so the clock stops: the span is added to the deadline once the child moves on, and a
+   * child held on a prompt is never timed out for it. Interrupting a child for something the user did
+   * (or has not yet done) would be blaming it for the wait. A child can therefore sit on a prompt
+   * indefinitely — the user owns that wait, and the lead's interrupt or deletion still ends it.
    */
   async drain(childId: string, fromSeq: number, run: ActiveRun, deadline: number, pollMs: number, onTick?: () => void): Promise<SettledRun> {
     let last = fromSeq;
+    // When the child started waiting on the user, while it still is.
+    let pausedSince: number | null = null;
     let lastStatus: string | null = null;
     let finalText: string | null = null;
     // Whether the child's last status said a person pressed stop — taken from the SAME event as the
@@ -355,7 +363,9 @@ export class DelegationEngine {
       if (lastStatus === "idle" && stopped) return { outcome: "stopped", finalText, lastStatus };
       if (lastStatus === "idle" && finalText !== null) return { outcome: "done", finalText, lastStatus };
       if (lastStatus === "error" || lastStatus === "ended") return { outcome: "failed", finalText, lastStatus };
-      if (Date.now() >= deadline) {
+      if (lastStatus === "waiting_permission") pausedSince ??= Date.now();
+      else if (pausedSince !== null) { deadline += Date.now() - pausedSince; pausedSince = null; }
+      if (pausedSince === null && Date.now() >= deadline) {
         void this.d.sessions.interrupt(childId).catch(() => { /* best effort — it may have just ended */ });
         return { outcome: "timeout", finalText, lastStatus };
       }
