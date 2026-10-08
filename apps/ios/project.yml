@@ -9,11 +9,20 @@ settings:
     SWIFT_VERSION: "6.0"
     DEVELOPMENT_TEAM: FY9QB79VAP
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "0.1"
+    MARKETING_VERSION: "0.1.0"
+    # The release script overrides this per build; Info.plist reads it as CFBundleVersion.
     CURRENT_PROJECT_VERSION: "1"
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: complete
+  configs:
+    Debug:
+      APS_ENVIRONMENT: development
+    Release:
+      # Distribution builds are signed for the App Store from the archive on, so their push
+      # entitlement is the production one.
+      APS_ENVIRONMENT: production
+      "CODE_SIGN_IDENTITY[sdk=iphoneos*]": Apple Distribution
 packages:
   RealmKit:
     path: RealmKit
@@ -25,6 +34,9 @@ targets:
       - path: Realm
     dependencies:
       - package: RealmKit
+        product: RealmKit
+      - package: RealmKit
+        product: RealmMarkdown
       - target: RealmNotificationService
     settings:
       base:
@@ -32,6 +44,11 @@ targets:
         PRODUCT_NAME: Realm
         INFOPLIST_FILE: Realm/Info.plist
         CODE_SIGN_ENTITLEMENTS: Realm/Realm.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # Palette.swift names the colours; generated symbols would collide with SwiftUI's red and green.
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+        ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
   RealmNotificationService:
     type: app-extension
     platform: iOS
@@ -39,6 +56,7 @@ targets:
       - path: RealmNotificationService
     dependencies:
       - package: RealmKit
+        product: RealmKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios.notifications
