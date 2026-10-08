@@ -32,10 +32,10 @@ const CATALOG: DelegableModels = { own: { kind: "claude", label: "Claude Opus 5.
 ] };
 
 async function mount(over: { lead?: typeof LEAD; children?: DelegatedChild[]; status?: Record<string, "idle" | "running" | "waiting_permission">; idle?: boolean;
-  runs?: string[]; transcripts?: Record<string, SessionEvent[]> } = {}) {
+  runs?: string[]; transcripts?: Record<string, SessionEvent[]>; catalog?: DelegableModels } = {}) {
   const lead = over.lead ?? LEAD;
   const api = fakeApi({ items: ITEMS, sessions: [lead, LUNA, FABLE, ...(over.children ?? []).map((c) => c.session).filter((x) => ![lead.id, "se2", "se3"].includes(x.id))],
-    delegatedChildren: { se1: over.children ?? CHILDREN }, delegableModels: CATALOG,
+    delegatedChildren: { se1: over.children ?? CHILDREN }, delegableModels: over.catalog ?? CATALOG,
     delegatedRuns: over.idle ? {} : { se1: (over.runs ?? ["se2"]).map((id) => ({ sessionId: id, startedAt: 0, detached: true, owned: true })) } });
   const store = createAppStore(api); await store.getState().boot();
   store.setState({
@@ -136,6 +136,15 @@ describe("Build with", () => {
     const chips = [...document.querySelectorAll(".subagents-pick .subagents-pick-label")].map((n) => n.textContent);
     // Mutant: suggest the first ready model of every harness — fx's first of 165 becomes a chip.
     expect(chips).toEqual(["Claude Opus 5.5", "Claude Fable 5.1", "GPT-6 Luna", "More models"]);
+  });
+
+  it("never offers the session's own default model a second time under its full name", async () => {
+    // A lead on Claude's default is "Fable 5.1"; the catalog calls the same model "Claude Fable 5.1".
+    // Mutant: compare the two names as written — the strip offers Fable twice.
+    await mount({ catalog: { ...CATALOG, own: { kind: "claude", label: "Fable 5.1" } } });
+    await chip(/GPT-6 Luna/);
+    const chips = [...document.querySelectorAll(".subagents-pick .subagents-pick-label")].map((n) => n.textContent);
+    expect(chips).toEqual(["Fable 5.1", "Claude Opus 5.5", "GPT-6 Luna", "More models"]);
   });
 
   it("the session's own model is offered first, and picking it names no model", async () => {

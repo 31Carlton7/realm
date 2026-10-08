@@ -389,7 +389,10 @@ function BuildWith({ lead, prefill }: { lead: Session; prefill: { plan: string; 
     const out: string[] = own ? [OWN] : [];
     const add = (k: string) => { if (!out.includes(k) && (k === OWN || byKey.has(k))) out.push(k); };
     picks.forEach(add);
-    const isOwn = (k: string) => { const m = byKey.get(k); return !!m && !!own && m.kind === own.kind && m.label === own.label; };
+    // The same model by either of its names: the lead on its harness's default is "Fable 5.1", and
+    // the catalog calls that model "Claude Fable 5.1".
+    const bare = (label: string, kind: AgentKind) => label.startsWith(`${AGENT_META[kind].label} `) ? label.slice(AGENT_META[kind].label.length + 1) : label;
+    const isOwn = (k: string) => { const m = byKey.get(k); return !!m && !!own && m.kind === own.kind && bare(m.label, m.kind) === bare(own.label, own.kind); };
     for (const k of favorites) if (out.length < CHIPS && byKey.get(k)?.ready && !isOwn(k)) add(k);
     for (const kind of SUGGESTED) {
       const m = models.find((x) => x.kind === kind && x.ready && !isOwn(x.key));
