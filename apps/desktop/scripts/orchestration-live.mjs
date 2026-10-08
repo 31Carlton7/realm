@@ -294,7 +294,7 @@ async function main() {
   const two = await until(async () => { const cs = await cards(); return cs.length === 2 ? cs : null; }, 20_000, "two sub-agents in the tab").catch(async (e) => { note("cards at timeout", await cards()); throw e; });
   note("cards", two);
   check("GPT-6 Luna's child is listed on Codex, by the title its lead gave it", two.some((x) => x.model === "GPT-6 Luna" && x.harness === "Codex" && x.task === "Dark-mode toggle"), two);
-  check("Fable resolved to the newest Fable, on Claude", two.some((x) => x.model === "Claude Fable 5.1" && x.harness === "Claude" && x.task === "Theme migration"), two);
+  check("Fable resolved to the newest Fable, on Claude", two.some((x) => x.model === "Fable 5.1" && x.harness === "Claude" && x.task === "Theme migration"), two);
   await until(async () => (await cards()).some((x) => x.state === "working"), 15_000, "a child working");
   await sleep(1200);
   await shot(c, "4-working");
@@ -353,7 +353,7 @@ async function main() {
   // ── 6. A transcript line brings the tab forward, with its row lit ───────────────────────────
   await evalIn(c, `(() => { [...document.querySelectorAll('.delegation-line .tool-row')].find((b) => b.textContent.includes('Theme migration')).click(); return true; })()`);
   const lit = await until(() => evalIn(c, `document.querySelector('.subagent[data-flash] .subagent-model')?.textContent ?? null`), 5_000, "lit row").catch(() => null);
-  check("a transcript line brings the Agents tab back with its row lit", lit === "Claude Fable 5.1", lit);
+  check("a transcript line brings the Agents tab back with its row lit", lit === "Fable 5.1", lit);
   await shot(c, "9-lit-row");
 
   // ── 7. Implement with… on a plan ────────────────────────────────────────────────────────────
