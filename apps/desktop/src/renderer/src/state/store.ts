@@ -1186,7 +1186,7 @@ export type AppState = {
   documentsAsk: DocumentsAsk | null;
   /** The space overview (⌘⇧Space): every space across every profile, sectioned. Its own flag rather
    *  than a `Sheet`, for the same reason `paletteOpen` is — it must toggle from its own hotkey while
-   *  open, which the sheet guard in hotkeys.ts forbids. */
+   *  open, which an `!overlayOpen` clause would forbid. */
   spacesOpen: boolean;
   /** profileId → the space last current in that profile, THIS RUN: the current space's fallback when
    *  no session has focus. A restart starts from the saved one (`SETTING_ACTIVE_SPACE`). */

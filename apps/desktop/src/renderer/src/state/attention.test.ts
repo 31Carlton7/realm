@@ -9,8 +9,7 @@ describe("isUnread", () => {
   });
 });
 
-describe("attentionOf / sessionMark", () => {
-
+describe("sessionMark", () => {
   it("a row wears its state when that is worth a mark, the unread ring otherwise — never both", () => {
     expect(sessionMark("running", true)).toEqual({ mark: "running", label: "running" });
     expect(sessionMark("error", true)).toEqual({ mark: "error", label: "error" });

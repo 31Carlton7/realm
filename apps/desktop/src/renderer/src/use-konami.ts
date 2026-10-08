@@ -5,7 +5,7 @@ import type { AppState } from "./state/store";
 /**
  * The one egg you have to find, and the only thing that unlocks the palette it pays out.
  *
- * Not a `hotkeys.ts` binding: that table matches one chord on one event, and this is a sequence.
+ * Not a keymap binding: the keymap matches one chord on one event, and this is a sequence.
  * Its guard would also be wrong here — bindings are swallowed inside inputs, and the sequence has
  * to land wherever the person happens to be typing.
  *

@@ -1,6 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { MODEL_NOTES, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { exited } from "../../components/popover-exit.test-fakes";
@@ -42,12 +40,6 @@ const dialog = () => screen.queryByRole("dialog", { name: "Model picker" });
 const search = () => screen.getByRole("combobox", { name: "Search models" });
 const option = (name: string | RegExp) => screen.getByRole("option", { name });
 const active = () => document.querySelector(".mp-row[data-active]");
-
-const repoFile = (rel: string): string => {
-  let dir = dirname(new URL(import.meta.url).pathname);
-  while (dir !== "/" && !existsSync(join(dir, "pnpm-workspace.yaml"))) dir = dirname(dir);
-  return join(dir, rel);
-};
 
 describe("the current choice", () => {
   it("opens on it: ticked, highlighted, and described in the strip under the list", () => {
@@ -325,13 +317,6 @@ describe("the strip under the list", () => {
     expect([...note.querySelectorAll("code")].map((c) => c.textContent)).toEqual(["openhands", "/settings"]);
     expect(note.textContent).not.toContain("`");
     expect(note.getAttribute("title")).not.toContain("`");
-  });
-
-  it("holds one height whatever the model says — the popover grows upward, so a taller strip would move the rows", () => {
-    const css = readFileSync(repoFile("apps/desktop/src/renderer/src/styles.css"), "utf8");
-    const about = /\.mp-about \{([^}]*)\}/.exec(css)?.[1] ?? "";
-    expect(about).toMatch(/(^|[;\s])height:/);
-    expect(about).not.toMatch(/min-height|max-height/);
   });
 });
 

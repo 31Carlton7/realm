@@ -11,7 +11,7 @@ export type MenuItem =
        *  as one item asks for it, so labels stay on one left edge — a menu where three rows start at
        *  x and one starts at x+20 reads as a mistake rather than as emphasis. */
       icon?: ReactNode;
-      /** Right-aligned shortcut hint, e.g. "⌘W". Purely visual — the binding lives in hotkeys.ts. */
+      /** Right-aligned shortcut hint, e.g. "⌘W". Purely visual — the binding lives in the keymap (keys/). */
       kbd?: string;
       /** A quiet line after the label saying what the row does — "Attach files to this message". The
        *  in-app menu draws it as the row's description; an OS menu row has no second voice, so there it
