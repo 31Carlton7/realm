@@ -155,19 +155,29 @@ const TOOLS: Tool[] = [
   },
 ];
 
-export function createWorkspaceProvider(d: WorkspaceToolsDeps): RealmToolProvider {
+/** More of this provider's tools, kept in their own modules with their own deps: the ones that change
+ *  what is on screen or how Realm is set up (`session-open.ts`, `spaces.ts`, `settings.ts`). */
+export type WorkspaceToolGroup = {
+  tools: Tool[];
+  handlers: Record<string, (ctx: ProviderCallContext, args: unknown) => Promise<CallToolResult>>;
+};
+
+export function createWorkspaceProvider(d: WorkspaceToolsDeps, groups: WorkspaceToolGroup[] = []): RealmToolProvider {
+  const tools = [...TOOLS, ...groups.flatMap((g) => g.tools)];
+  const handlers: WorkspaceToolGroup["handlers"] = Object.fromEntries(Object.entries(HANDLERS).map(([name, h]) => [name, (ctx, args) => h(d, ctx, args)]));
+  for (const g of groups) Object.assign(handlers, g.handlers);
   return {
     name: WORKSPACE_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
-      return d.mcp.providerEnabled(ctx.spaceId, WORKSPACE_PROVIDER_NAME) ? TOOLS : [];
+      return d.mcp.providerEnabled(ctx.spaceId, WORKSPACE_PROVIDER_NAME) ? tools : [];
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!d.mcp.providerEnabled(ctx.spaceId, WORKSPACE_PROVIDER_NAME))
         return err(`the ${WORKSPACE_PROVIDER_NAME} tools are disabled for this space — mcp.setProviderEnabled turns them back on.`);
-      const handler = HANDLERS[tool];
-      if (!handler) return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
+      const handler = Object.hasOwn(handlers, tool) ? handlers[tool] : undefined;
+      if (!handler) return err(`unknown tool "${tool}" — this provider has: ${tools.map((t) => t.name).join(", ")}`);
       try {
-        return await handler(d, ctx, args ?? {});
+        return await handler(ctx, args ?? {});
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
       }

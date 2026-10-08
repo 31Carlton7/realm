@@ -22,6 +22,16 @@
  *   S7  `workspace_state` says what is on screen and who the caller is, `sessions_list` lists this
  *       space's sessions and no other's, `session_read` reads a peer's transcript fenced, and a
  *       session in another space is refused.
+ *   S8  `session_open` opens a session that answers its prompt ("echo: echo hi") in a pane of its own
+ *       beside the caller's, and the saved layout has the split.
+ *   S10 `docs_open` opens a 3 MB PNG (13 of 28 failed TOO_LARGE in the log), `docs_state` says it is
+ *       the tab showing, and `docs_read` reads a page of a file by line.
+ *   S11 `browser_act` presses Meta+a in the fixture's field and the page's selection is all of it;
+ *       Shift+Tab takes the focus back a field; a key it cannot press is refused before any card.
+ *   S9  From a session that asks before acting: `space_switch` puts a card up, and once allowed the
+ *       window is in the other space; a switch while the user is typing is refused and the window
+ *       stays; `settings_set` puts a card up and the window turns dark; a setting off the list is
+ *       refused with no card. Last, because it moves the window away from the scenes above.
  *
  * Ports: LIVE_CDP_PORT (9232) and LIVE_SERVER_PORT (8792); refuses to run if either is taken.
  * Pictures land in LIVE_SHOT_DIR (a persistent folder, not /tmp). Touches only its scratch home and
@@ -81,6 +91,15 @@ const workspaceScript = (fixtureUrl) => [
     { kind: "call", tool: "realm-workspace__sessions_list", input: {} },
   ] },
   { on: "S7 read a session", emit: [{ kind: "call", tool: "realm-workspace__session_read", input: {}, argsFromMessage: true }] },
+  { on: "S8 open a session beside me", emit: [{ kind: "call", tool: "realm-workspace__session_open", input: { prompt: "echo hi", beside: "right" } }] },
+  { on: "S10 open the photo", emit: [{ kind: "call", tool: "realm-docs__docs_open", input: { path: "photo.png" } }] },
+  { on: "S10 what is open", emit: [{ kind: "call", tool: "realm-docs__docs_state", input: {} }] },
+  { on: "S10 read the notes", emit: [{ kind: "call", tool: "realm-docs__docs_read", input: { path: "notes.md", offset: 2, limit: 2 } }] },
+  { on: "S11 snapshot", emit: [{ kind: "call", tool: "realm-browser__browser_snapshot", input: {}, argsFromMessage: true }] },
+  { on: "S11 press", emit: [{ kind: "call", tool: "realm-browser__browser_act", input: {}, argsFromMessage: true }] },
+  { on: "S9 switch space", emit: [{ kind: "call", tool: "realm-workspace__space_switch", input: {}, argsFromMessage: true }] },
+  { on: "S9 go dark", emit: [{ kind: "call", tool: "realm-workspace__settings_set", input: { name: "theme", value: "dark" } }] },
+  { on: "S9 widen my reach", emit: [{ kind: "call", tool: "realm-workspace__settings_set", input: { name: "mcp.providersEnabled", value: "on" } }] },
 ];
 
 async function portFree(port) {
@@ -203,6 +222,15 @@ async function setTheme(c, mode) {
   await sleep(300);
 }
 
+/** The whole window, at 2×. */
+async function shoot(c, name) {
+  await sleep(300);
+  const { data } = await c.send("Page.captureScreenshot", { format: "png" });
+  const file = path.join(shots, `${name}.png`);
+  fs.writeFileSync(file, Buffer.from(data, "base64"));
+  console.log(`SCREENSHOT ${name} ${file}`);
+}
+
 /** The goal strip with the prompter under it, at 2×, with the pointer over the strip — its actions
  *  show on hover, as a row's own controls do. */
 async function shootStrip(c, name) {
@@ -228,7 +256,7 @@ async function main() {
   const mainEntry = path.join(repoRoot, "apps/desktop/out/main/index.js");
   if (!fs.existsSync(mainEntry)) throw new Error("apps/desktop/out is missing — run `pnpm build` first");
   // S6's page: a local site, so nothing leaves the Mac.
-  site = createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end("<!doctype html><title>S6 fixture</title><h1>S6 fixture page</h1><p>Read me after the pane comes back.</p>"); });
+  site = createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end("<!doctype html><title>S6 fixture</title><h1>S6 fixture page</h1><p>Read me after the pane comes back.</p><input id=first aria-label=First value=first><input id=field aria-label=Field value=\"select all of me\">"); });
   await new Promise((r) => site.listen(0, "127.0.0.1", r));
   const fixtureUrl = `http://127.0.0.1:${site.address().port}/`;
   const scriptFile = path.join(scratch, "fake-script.json");
@@ -401,7 +429,7 @@ async function main() {
   })()`);
   const titleNow = async () => (await api.call("items.list", { spaceId })).find((i) => i.id === browserItem.id).title;
   await until(async () => tabOf(await titleNow()), 15000, "S6 the browser's tab");
-  const firstRead = await until(async () => { await idle(sid); const r = await turn(`S6 read the page {"browserId": "${browserId}"}`, "realm-browser__browser_read"); return r.isError ? null : r; }, 20000, "S6 the first read");
+  const firstRead = await until(async () => { await idle(sid); const r = await turn(`S6 read the page {"browserId": "${browserId}"}`, "realm-browser__browser_read"); return r.isError || !r.content.includes("S6 fixture page") ? null : r; }, 20000, "S6 the first read");
   check("S6 the agent reads the page it opened", firstRead.content.includes("S6 fixture page"));
 
   // Closed from the layout the way the user closes a tab: the keyboard in the side panel, then ⌘W.
@@ -449,6 +477,115 @@ async function main() {
   await idle(sid);
   const awayRead = await turn(`S7 read a session {"sessionId": "${away}"}`, "realm-workspace__session_read");
   check("S7 a session in another space is refused, and says where to look instead", awayRead.isError && awayRead.content.includes("belongs to another space") && awayRead.content.includes("sessions_list lists those") && !awayRead.content.includes("private words"), awayRead.content);
+
+  // ── S8: a session opened beside the caller, for the user ─────────────────────────────────────
+  await idle(sid);
+  const before8 = new Set((await api.call("sessions.list", { spaceId })).map((s) => s.id));
+  const opened8 = await turn("S8 open a session beside me", "realm-workspace__session_open");
+  check("S8 session_open answers that it opened a session beside the caller", !opened8.isError && opened8.content.includes("in a pane beside yours"), opened8.content);
+  const fresh8 = (await api.call("sessions.list", { spaceId })).find((s) => !before8.has(s.id));
+  check("S8 the new session is the user's, opened by the caller, not a delegated child", fresh8?.dispatchedBy?.kind === "session_open" && fresh8.dispatchedBy.sessionId === sid, fresh8?.dispatchedBy);
+  await until(async () => (await texts(fresh8.id)).includes("echo: echo hi"), 15000, "S8 the new session's answer");
+  check("S8 the new session answered its prompt", true);
+  const item8 = (await api.call("items.list", { spaceId })).find((i) => i.refId === fresh8.id);
+  const myItem = (await api.call("items.list", { spaceId })).find((i) => i.refId === sid);
+  const view8 = await until(async () => {
+    const v = (await api.call("settings.get", { key: `ui.view:${profileId}` })).value;
+    const split = (l) => l?.type === "split" ? (l.dir === "row" && l.children.some((c) => c.itemId === myItem.id) && l.children.some((c) => c.itemId === item8.id) ? l : l.children.map(split).find(Boolean)) : null;
+    return split(v?.layout);
+  }, 8000, "S8 the saved split");
+  check("S8 the saved layout puts the new session side by side with the caller", !!view8, view8 && view8.children.map((c) => c.itemId));
+  const pane8 = await until(() => evalIn(c, `[...document.querySelectorAll('.panehost .panel:not([data-tabbed]) .panel-title')].map((t) => t.textContent)`).then((t) => (t.includes(fresh8.title) ? t : null)), 8000, "S8 the pane");
+  check("S8 the new session's pane is on screen", pane8.includes(myTitle) && pane8.includes(fresh8.title), pane8);
+  await shoot(c, "session-open-beside");
+
+  // ── S10: documents, by the agent ─────────────────────────────────────────────────────────────
+  const folder = (await api.call("sessions.get", { id: sid })).cwd;
+  fs.writeFileSync(path.join(folder, "photo.png"), Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(3 * 1024 * 1024)]));
+  fs.writeFileSync(path.join(folder, "notes.md"), "# Notes\nline two\nline three\nline four\n");
+  await idle(sid);
+  const photo = await turn("S10 open the photo", "realm-docs__docs_open");
+  check("S10 docs_open opens a 3 MB PNG", !photo.isError, photo.content);
+  await idle(sid);
+  const docsState = await turn("S10 what is open", "realm-docs__docs_state");
+  check("S10 docs_state says the photo is the tab showing", !docsState.isError && docsState.content.includes("- photo.png (showing)"), docsState.content);
+  await idle(sid);
+  const notes = await turn("S10 read the notes", "realm-docs__docs_read");
+  check("S10 docs_read reads lines 2–3, numbered", !notes.isError && notes.content.includes("notes.md — lines 2–3 of 4:") && notes.content.includes("    2| line two") && notes.content.includes("More: docs_read with offset 4."), notes.content);
+
+  // ── S11: key chords on a page ────────────────────────────────────────────────────────────────
+  await idle(sid);
+  // The tab back at the front of the side panel, so the page has the focus a keyboard would give it.
+  await api.call("sessions.send", { id: sid, text: `S6 show it again {"browserId": "${browserId}"}` });
+  await idle(sid);
+  const snap = await turn(`S11 snapshot {"browserId": "${browserId}"}`, "realm-browser__browser_snapshot");
+  const fieldRef = Number(/textbox "Field"[^\n]*\[ref=(\d+)\]|\[ref=(\d+)\][^\n]*textbox "Field"/.exec(snap.content)?.slice(1).find(Boolean));
+  check("S11 the snapshot lists the fixture's field", Number.isFinite(fieldRef), snap.content.split("\n").filter((l) => l.includes("Field")));
+  const pageTarget = (await targets()).find((t) => t.url === fixtureUrl);
+  const page = cdp(pageTarget.webSocketDebuggerUrl);
+  await page.ready;
+  const inPage = async (expr) => (await page.send("Runtime.evaluate", { expression: expr, returnByValue: true })).result.value;
+  await idle(sid);
+  const press = (action) => turn(`S11 press {"browserId": "${browserId}", "action": ${JSON.stringify(action)}}`, "realm-browser__browser_act");
+  const selectAll = await press({ kind: "key", key: "a", modifiers: ["meta"], ref: fieldRef });
+  const selected = await inPage(`(() => { const f = document.getElementById("field"); return { active: document.activeElement?.id, start: f.selectionStart, end: f.selectionEnd, length: f.value.length, value: f.value }; })()`);
+  check("S11 Meta+a selects all of the field, and types nothing", !selectAll.isError && selectAll.content.includes("pressed Meta+a") && selected.active === "field" && selected.start === 0 && selected.end === selected.length && selected.value === "select all of me", { result: selectAll.content, selected });
+  await idle(sid);
+  const shiftTab = await press({ kind: "key", key: "Shift+Tab" });
+  const focused = await inPage(`document.activeElement?.id`);
+  check("S11 Shift+Tab takes the focus back a field", !shiftTab.isError && focused === "first", { result: shiftTab.content, focused });
+  await idle(sid);
+  const nonsense = await press({ kind: "key", key: "BrowserBack" });
+  check("S11 a key it cannot press is refused, pointing to browser_navigate", nonsense.isError && nonsense.content.includes("use browser_navigate"), nonsense.content);
+  page.close();
+
+  // ── S9: moving the window and changing a setting, behind the user's card ─────────────────────
+  const asker = await fresh("S9 asker");
+  const cardFor = async (id, toolName, before) => until(async () => (await events(id))
+    .filter((e) => e.event.type === "permission_request" && e.event.payload.toolName === toolName).slice(before)[0]?.event.payload, 15000, `S9 ${toolName} card`);
+  const cards = async (id, toolName) => (await events(id)).filter((e) => e.event.type === "permission_request" && e.event.payload.toolName === toolName).length;
+  const turnOn = async (id, text, tool) => {
+    const before = (await results(id, tool)).length;
+    await api.call("sessions.send", { id, text });
+    return () => until(async () => { const all = await results(id, tool); return all.length > before ? all.at(-1) : null; }, 20000, text);
+  };
+  const panesNow = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel:not([data-tabbed]) .panel-title')].map((t) => t.textContent)`);
+  // A switch asked while the user is typing: the card is allowed, and the window stays.
+  let n = await cards(asker, "space_switch");
+  const typedSwitch = await turnOn(asker, `S9 switch space {"spaceId": "${elsewhere.id}"}`, "realm-workspace__space_switch");
+  const card1 = await cardFor(asker, "space_switch", n);
+  await evalIn(c, `(() => { const el = document.querySelector('.composer-input'); el.focus(); return true; })()`);
+  for (const type of ["keyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, key: "x", code: "KeyX", text: type === "keyDown" ? "x" : undefined, windowsVirtualKeyCode: 88 });
+  await api.call("sessions.respondPermission", { id: asker, requestId: card1.requestId, decision: "allow" });
+  const refused9 = await typedSwitch();
+  check("S9 a switch while the user is typing is refused, and the window stays", refused9.isError && refused9.content.includes("the user is typing") && (await api.call("settings.get", { key: "ui.activeSpaceId" })).value === spaceId, refused9.content);
+  await evalIn(c, `(() => { document.activeElement?.blur?.(); return __live.type(""); })()`);
+  await sleep(4500);
+  await idle(asker);
+  n = await cards(asker, "space_switch");
+  const switched = await turnOn(asker, `S9 switch space {"spaceId": "${elsewhere.id}"}`, "realm-workspace__space_switch");
+  const card2 = await cardFor(asker, "space_switch", n);
+  check("S9 space_switch put the user's card up first", card2.title === `Move the window to the space "S7 elsewhere"`, card2.title);
+  await api.call("sessions.respondPermission", { id: asker, requestId: card2.requestId, decision: "allow" });
+  const moved = await switched();
+  check("S9 once allowed, the window is in the other space", !moved.isError && moved.content === `The window is in "S7 elsewhere" now.` && (await api.call("settings.get", { key: "ui.activeSpaceId" })).value === elsewhere.id, moved.content);
+  const panes9 = await until(async () => { const t = await panesNow(); return t.includes("S7 away") ? t : null; }, 8000, "S9 the other space's session on screen");
+  check("S9 the other space's session is what the window shows", panes9.includes("S7 away"), panes9);
+  await shoot(c, "space-switch");
+  await idle(asker);
+  n = await cards(asker, "settings_set");
+  const dark = await turnOn(asker, "S9 go dark", "realm-workspace__settings_set");
+  const card3 = await cardFor(asker, "settings_set", n);
+  check("S9 settings_set put the user's card up first", card3.title === `Change Realm's theme from "light" to "dark"`, card3.title);
+  await api.call("sessions.respondPermission", { id: asker, requestId: card3.requestId, decision: "allow" });
+  const darkResult = await dark();
+  await until(() => evalIn(c, `document.documentElement.getAttribute("data-mode") === "dark"`), 5000, "S9 dark mode");
+  check("S9 the theme changed, and the window followed without a restart", !darkResult.isError && (await evalIn(c, `document.documentElement.getAttribute("data-mode")`)) === "dark", darkResult.content);
+  await shoot(c, "settings-set-dark");
+  await idle(asker);
+  n = await cards(asker, "settings_set");
+  const reach = await (await turnOn(asker, "S9 widen my reach", "realm-workspace__settings_set"))();
+  check("S9 a setting off the list is refused, with no card", reach.isError && reach.content.includes("is not a setting you can change") && (await cards(asker, "settings_set")) === n, reach.content);
 
   const errs = c.events.filter((e) => !e.includes("Autofill"));
   check("no renderer console errors", errs.length === 0, errs.slice(0, 5));

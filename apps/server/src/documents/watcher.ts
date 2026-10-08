@@ -62,7 +62,10 @@ export class DocumentWatcher {
       w.on("change", (_e, name) => { if (name) this.onDirEvent(dir, name.toString()); });
     }
     entry.files.add(abs);
-    if (!this.known.has(abs)) this.known.set(abs, (await readIfExists(abs))?.hash ?? null);
+    // A file this cannot read — an image past the editor's ceiling — is watched with nothing known
+    // about it rather than refused: opening it is only looking at it, and `settle` already says
+    // nothing about a file it cannot read.
+    if (!this.known.has(abs)) this.known.set(abs, (await readIfExists(abs).catch(() => null))?.hash ?? null);
   }
 
   /** Stop watching one file, tearing the directory watcher down once nothing in it is open. */

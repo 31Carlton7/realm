@@ -31,17 +31,22 @@ import { GoalService } from "./goals/service";
 import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
 import { createWorkspaceProvider } from "./workspace/agent-tools";
+import { createSessionOpenTools } from "./workspace/session-open";
+import { createSpacesTools } from "./workspace/spaces";
+import { createSettingsTools } from "./workspace/settings";
 import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { GOAL_PROVIDER_NAME, GuestSpecSchema, goalToolWireName, type GuestSpec } from "@realm/contracts";
+import { DEFAULT_PERMISSION_MODE_KEY, GOAL_PROVIDER_NAME, GuestSpecSchema, goalToolWireName, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
+import { namedInRoot } from "./documents/paths";
 import { LectureService } from "./school/lectures";
 import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
@@ -80,7 +85,7 @@ import { GhClient, ghRunner } from "./code-review/gh";
 import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
-import { SessionService } from "./sessions/service";
+import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { PlanLimitsService } from "./limits/service";
 import type { ProbeResult } from "@realm/adapters";
@@ -1153,6 +1158,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     listForSpace: (spaceId, dir) => documents.list(documents.open({ spaceId }).documentsId, dir),
     openPath: (p) => documents.openPath(p),
     progressForSpace: (spaceId, path) => documents.progressRead(documents.open({ spaceId }).documentsId, path),
+    readForSpace: async (spaceId, path) => {
+      const { rel, abs } = namedInRoot(documents.rootForSpace(spaceId), path);
+      const st = await stat(abs).catch(() => null);
+      if (!st) throw new Error(`no such file: ${rel}`);
+      if (!st.isFile()) throw new Error(`${rel} is not a file`);
+      return { path: rel, text: await extractor.text(abs) };
+    },
+    panesForSpace: (spaceId) => items.list(spaceId).filter((i) => i.kind === "documents" && !i.archived).flatMap((i) => {
+      try {
+        const ws = documents.get(i.refId);
+        return [{ title: i.title, root: documents.rootOfWorkspace(i.refId), openPaths: ws.openPaths, activePath: ws.activePath }];
+      } catch { return []; }
+    }),
   }));
   // Plan 25 W4, on the same terms: off until a space asks for it, a card per MACHINE rather than per
   // tool, and the card kept in bypassPermissions. Registered here and not conditionally — the
@@ -1173,7 +1191,17 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      the DOM — the app-ui provider's own argument for why clicking is the fragile route. */
   mcpGateway.registerProvider(createWorkspaceProvider({
     mcp, sessions: sessionsStore, events: sessionEvents, items, spaces, profiles, settings, documents, bridge: browserBridge, rpc,
-  }));
+  }, [
+    createSessionOpenTools({
+      sessions, items, spaces, settings, broker: browserBroker, rpc,
+      defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
+      placeModel: (caller, model) => agentRunsFinal.placeModel(caller, model),
+      delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id) },
+      turnOf: (id) => sessionEvents.listOfTypes(id, ["user_message"], { limit: 1 })[0]?.seq ?? null,
+    }),
+    createSpacesTools({ spaces, settings, broker: browserBroker, rpc }),
+    createSettingsTools({ settings, broker: browserBroker, rpc }),
+  ]));
   /* Any goal that was running when Realm last closed is parked rather than resumed. A desktop app is
      relaunched by someone opening it, sometimes days later and usually to do something else — see
      `parkOnBoot`. */

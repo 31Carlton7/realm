@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BrowserActionSchema, type BrowserActResult, type BrowserSnapshotResult } from "@realm/contracts";
+import { BrowserActionSchema, refineKeyAction, type BrowserActResult, type BrowserSnapshotResult } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
@@ -90,7 +90,7 @@ const TOOLS: Tool[] = [
       properties: {
         action: {
           type: "object",
-          description: "one action: {kind:'click',ref} · {kind:'type',ref,text} · {kind:'key',key,ref?} · {kind:'scroll',deltaY?,deltaX?,ref?}",
+          description: "one action: {kind:'click',ref} · {kind:'type',ref,text} · {kind:'key',key,modifiers?,ref?} — key is a named key or one character, modifiers joined by +: \"Meta+a\", \"Shift+Tab\", \"F5\" · {kind:'scroll',deltaY?,deltaX?,ref?}",
         },
       },
       required: ["action"],
@@ -109,7 +109,7 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   app_act: async (d, ctx, raw) => {
-    const args = parseArgs(z.object({ action: BrowserActionSchema }), raw);
+    const args = parseArgs(z.object({ action: BrowserActionSchema }).superRefine(refineKeyAction), raw);
     if ("error" in args) return args.error;
     const title = describe(args.value.action);
     /* Keyed on the tool, not on the element. The window is one surface — a grant for a click in it
