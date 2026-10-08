@@ -7418,8 +7418,8 @@ select { appearance: none; padding-right: 22px;
 .page:has(.page-content[data-wide] .space-sessions) { --page-measure: 1148px; }
 .page:has(.page-rail):has(.page-content[data-wide] .space-sessions) { --page-measure: 1348px; }
 .space-sessions-toolbar .space-sessions-new { margin-left: auto; }
-.space-sessions-count { margin-left: 4px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.space-sessions-head { margin: 20px 0 6px; padding-left: 8px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.space-sessions-count { margin-left: 4px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.space-sessions-head { margin: 20px 0 6px; padding-left: 32px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 .space-sessions-group:first-of-type .space-sessions-head { margin-top: 6px; }
 .space-sessions-list, .space-sessions-children { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .space-sessions-children { margin-top: 2px; }
@@ -7444,8 +7444,10 @@ select { appearance: none; padding-right: 22px;
 .space-sessions-agents { position: relative; z-index: 1; flex: none; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px;
   border: none; border-radius: var(--r-ctl); background: none; color: var(--rl-text-dim); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; }
 .space-sessions-agents:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.space-sessions-time { flex: none; width: 64px; text-align: right; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.space-sessions-time { flex: none; width: 64px; text-align: right; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 .space-sessions-dot { flex: none; width: 12px; display: grid; place-items: center; }
+/* The time is in the secondary ink: the tertiary measured 3.35:1 on the dark canvas, under the floor
+   every ink tier has to clear (design.md, "Quiet text is text"). */
 /* A row's own controls, under the pointer or the keyboard (or while a delete waits on its second
    ask): they take the mark's place at the far end, and the time stays. The state words give way. */
 .space-sessions-actions { position: relative; z-index: 1; flex: none; display: none; align-items: center; gap: 2px; margin-right: -4px; }
