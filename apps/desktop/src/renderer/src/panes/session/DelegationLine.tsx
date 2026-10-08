@@ -16,7 +16,7 @@ import { useElapsed } from "./use-elapsed";
 export const LeadSessionContext = createContext<string | null>(null);
 
 /**
- * A sub-agent, as its lead's transcript shows it: one quiet line — "Subagent finished · Write the
+ * A sub-agent, as its lead's transcript shows it: one quiet line — "Sub-agent finished · Write the
  * migration", the model it ran on, how long — and a click away from its row in the Agents tab.
  *
  * The call's raw input and result are deliberately not here. What a person wants from a delegation
@@ -58,7 +58,7 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
     <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={state} data-enter={enter || undefined}>
       <button type="button" className="tool-row" disabled={!lead || !id}
         title={lead && id ? "Show it in this session's Agents tab" : undefined}
-        aria-label={`${gone ? "Subagent" : STATE_VERB[state]}: ${task}${model ? `, on ${model}` : ""}`}
+        aria-label={`${gone ? "Sub-agent" : STATE_VERB[state]}: ${task}${model ? `, on ${model}` : ""}`}
         onClick={() => { if (lead && id) run(() => openAgentsTab(lead, { childId: id })); }}>
         <span className="tool-status" aria-hidden="true">
           {gone ? null
@@ -68,7 +68,7 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
             : state === "stopped" || state === "cancelled" ? <Icon name="stop" size={14} />
             : <Icon name="errorCircle" size={14} />}
         </span>
-        <span className="tool-name">{gone ? "Subagent" : STATE_VERB[state]}</span>
+        <span className="tool-name">{gone ? "Sub-agent" : STATE_VERB[state]}</span>
         <span className="delegation-line-task" title={goal}>{task}</span>
         {model && (
           <span className="delegation-line-model">

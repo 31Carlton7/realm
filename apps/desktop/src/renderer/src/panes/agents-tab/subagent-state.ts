@@ -15,10 +15,10 @@ export const STATE_LABEL: Record<SubagentState, string> = {
   failed: "Failed", timeout: "Timed out", stopped: "Stopped", cancelled: "Cancelled",
 };
 
-/** The transcript's line for the same state — "Subagent finished · <task>", as Codex writes it. */
+/** The transcript's line for the same state — "Sub-agent finished · <task>", as Codex writes it. */
 export const STATE_VERB: Record<SubagentState, string> = {
-  queued: "Subagent starting", working: "Subagent working", waiting: "Subagent waiting on you", done: "Subagent finished",
-  failed: "Subagent failed", timeout: "Subagent timed out", stopped: "Subagent stopped", cancelled: "Subagent cancelled",
+  queued: "Sub-agent starting", working: "Sub-agent working", waiting: "Sub-agent waiting on you", done: "Sub-agent finished",
+  failed: "Sub-agent failed", timeout: "Sub-agent timed out", stopped: "Sub-agent stopped", cancelled: "Sub-agent cancelled",
 };
 
 /** Still going, in any sense a clock should keep ticking for. */

@@ -4049,7 +4049,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagents-chooser-empty { margin: 0; padding: 10px 8px; font-size: 13px; color: var(--ink-2); }
 
 /* A sub-agent in its lead's transcript: one ledger line, the tool row's shape, with the model it runs
-   on and its clock pushed to the end — "Subagent finished · Write the migration". */
+   on and its clock pushed to the end — "Sub-agent finished · Write the migration". */
 /* The task is prose the lead wrote, not an identifier, so it is set as prose — the tool row's mono
    chip is for the command or path a call acts on. */
 .delegation-line-task { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-2); }

@@ -34,10 +34,10 @@ async function mount(events: ReturnType<typeof start>, children: DelegatedChild[
 afterEach(() => cleanup());
 
 describe("a sub-agent in its lead's transcript", () => {
-  it("is one quiet line — Subagent finished · its task — with the model it ran on and how long", async () => {
+  it("is one quiet line — Sub-agent finished · its task — with the model it ran on and how long", async () => {
     await mount(start("Write the tests\n\nFor the toggle.", { text: `Started delegated agent ${CHILD} ("Write the tests") on Codex · GPT-6 Luna.` }), [child()]);
-    const line = await screen.findByRole("button", { name: "Subagent finished: Write the tests, on GPT-6 Luna" });
-    expect(line).toHaveTextContent("Subagent finished");
+    const line = await screen.findByRole("button", { name: "Sub-agent finished: Write the tests, on GPT-6 Luna" });
+    expect(line).toHaveTextContent("Sub-agent finished");
     expect(line).toHaveTextContent("1m 40s");
     // Mutant: keep drawing the generic card — the raw tool name and its JSON in place of the line.
     expect(screen.queryByText("mcp__realm__realm-agent__agent_start")).toBeNull();
@@ -46,12 +46,12 @@ describe("a sub-agent in its lead's transcript", () => {
   it("says what the sub-agent is doing now, not what the call did — a child working again says so", async () => {
     const { store } = await mount(start("Write the tests", { text: `Started delegated agent ${CHILD}.` }), [child()]);
     store.setState({ sessionStatus: { [CHILD]: "running" } });
-    expect(await screen.findByRole("button", { name: /^Subagent working: Write the tests/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Sub-agent working: Write the tests/ })).toBeInTheDocument();
   });
 
   it("links to its row in this session's Agents tab", async () => {
     const { api, store } = await mount(start("Write the tests", { text: `Started delegated agent ${CHILD}.` }), [child()]);
-    fireEvent.click(await screen.findByRole("button", { name: /^Subagent finished/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Sub-agent finished/ }));
     await waitFor(() => expect(api.calls).toContain(`agentsTab:${LEAD}`));
     // The row it asks for waits for the tab to take it — no tab is mounted in this test to do so.
     // Mutant: open the tab without the child — the tab would open on its list and light nothing.
@@ -63,7 +63,7 @@ describe("a sub-agent in its lead's transcript", () => {
     store.setState({ sessionStatus: { [CHILD]: "waiting_permission" } });
     // Mutant: find the child by the result's id alone — until agent_run returns, the line could only
     // say it is starting, about a sub-agent that is in fact waiting on the user.
-    expect(await screen.findByRole("button", { name: /^Subagent waiting on you: Write the tests/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Sub-agent waiting on you: Write the tests/ })).toBeInTheDocument();
   });
 
   it("names a sub-agent by its title, and by the title the call gave before the child is known", async () => {
@@ -76,13 +76,13 @@ describe("a sub-agent in its lead's transcript", () => {
     expect(await screen.findByRole("button", { name: /: Dark-mode toggle$/ })).toBeInTheDocument();
     cleanup();
     await mount(start(goal, { text: `Started delegated agent ${CHILD} ("Dark-mode toggle") on Codex · GPT-6 Luna.` }), [child({ goal, session: session(CHILD, "s1", { title: "Dark-mode toggle", agentKind: "codex", model: "gpt-6-luna", dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }) })]);
-    expect(await screen.findByRole("button", { name: "Subagent finished: Dark-mode toggle, on GPT-6 Luna" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Sub-agent finished: Dark-mode toggle, on GPT-6 Luna" })).toBeInTheDocument();
   });
 
   it("a refused call keeps its card, so the refusal's words can be read", async () => {
     await mount(start("Write the tests", { text: 'refused: "GPT-6" could mean GPT-6 Astra or GPT-6 Luna.', isError: true }), []);
     expect(await screen.findByRole("button", { name: "mcp__realm__realm-agent__agent_start tool call" })).toBeInTheDocument();
-    expect(screen.queryByText(/^Subagent/)).toBeNull();
+    expect(screen.queryByText(/^Sub-agent/)).toBeNull();
   });
 
   it("a fan-out stands out of the ledger: two starts and a wait are lines, never a collapsed run", async () => {
@@ -97,7 +97,7 @@ describe("a sub-agent in its lead's transcript", () => {
     await mount([...start("Write the tests", { text: `Started delegated agent ${CHILD}.` }), ...second, ...wait], [
       child(), child({ session: session(OTHER, "s1", { agentKind: "claude", model: "claude-fable-5-1", dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }), goal: "Write the migration" })]);
     // Mutant: let these group like any run of calls — settled, the run folds to "Worked for <1s".
-    expect(await screen.findAllByRole("button", { name: /^Subagent finished/ })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: /^Sub-agent finished/ })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Collected 2 reports" })).toBeInTheDocument();
     expect(document.querySelector(".tool-group")).toBeNull();
   });

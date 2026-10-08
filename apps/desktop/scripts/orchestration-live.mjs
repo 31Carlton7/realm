@@ -12,7 +12,7 @@
  *      reached the lead is the brief naming both, as the user's own message.
  *   3. The children appear in the tab with their model, harness and task; their status moves —
  *      Working, Needs you (a permission held open), Done — and a done one shows its report.
- *   4. The lead's transcript draws each as one quiet "Subagent finished · <task>" line.
+ *   4. The lead's transcript draws each as one quiet "Sub-agent finished · <task>" line.
  *   5. A click on a card opens that child's transcript as a tab beside the lead.
  *   6. A click on a transcript line brings the Agents tab forward with that row lit.
  *   7. "Implement with…" on a plan opens the tab with the plan in the composer.
@@ -334,7 +334,7 @@ async function main() {
   check("the lead's agent_wait heard the gateway keep it alive before the answer", notices >= 3, { notices });
   const lines = await evalIn(c, `[...document.querySelectorAll('.delegation-line .tool-row')].map((b) => b.textContent)`);
   note("transcript lines", lines);
-  check("the transcript draws each as 'Subagent finished · <task>'", lines.filter((l) => l.startsWith("Subagent finished")).length === 2, lines);
+  check("the transcript draws each as 'Sub-agent finished · <task>'", lines.filter((l) => l.startsWith("Sub-agent finished")).length === 2, lines);
   check("…by the titles the lead gave them", lines.some((l) => l.includes("Dark-mode toggle")) && lines.some((l) => l.includes("Theme migration")), lines);
   check("…and the wait as one line that says what it collected", lines.includes("Collected 2 reports"), lines);
   await shot(c, "7-transcript");

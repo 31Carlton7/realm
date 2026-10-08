@@ -932,7 +932,7 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   well-formed: each model by the name the server resolves, the tools that do it named too. The agent
   stays the one who splits the work, reads the reports and answers for them, and the transcript holds
   the ask beside everything done about it.
-- A sub-agent in its lead's transcript is a line of its own — "Subagent finished · <task>", its model,
+- A sub-agent in its lead's transcript is a line of its own — "Sub-agent finished · <task>", its model,
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
   came for, hidden behind the one line that says nothing about it.
