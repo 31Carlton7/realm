@@ -2009,6 +2009,25 @@ kbd { font: 11px var(--font-mono); }
 .ip-generate .ip-grid { padding: 0; border-top: var(--hairline-w) solid var(--rl-hairline); padding-top: 10px; }
 .ip-error { color: var(--rl-warning); font-size: 12px; }
 
+/* ── Realmite maker ──────────────────────────────────────────────────────────
+   The creature at hero size with its four states under it, beside a row of choices per part. Each
+   choice is the creature itself with that part on, so the row reads as previews; the one picked
+   wears the accent ring, the selection's colour everywhere else in the app. */
+.rmt-maker { display: flex; align-items: flex-start; gap: 28px; }
+.rmt-maker-stage { flex: none; width: 236px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.rmt-maker-hero { display: grid; place-items: center; padding: 12px 0 4px; }
+.rmt-maker-states { list-style: none; margin: 0; padding: 0; display: flex; gap: 10px; }
+.rmt-maker-states li { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.rmt-maker-actions { display: flex; gap: 8px; }
+.rmt-maker-parts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rmt-maker-row { display: flex; align-items: center; gap: 12px; min-height: 40px; }
+.rmt-maker-name { flex: none; width: 64px; font-size: 13px; line-height: 16px; color: var(--ink-2); }
+.rmt-maker-options { display: flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
+.rmt-maker-option { width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: none; border-radius: var(--r-ctl); background: transparent; }
+.rmt-maker-option:hover { background: var(--hover); }
+.rmt-maker-option[aria-checked="true"] { background: var(--hover-2); box-shadow: inset 0 0 0 1.5px var(--rl-accent); }
+.rmt-maker-option:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
+
 .group-new { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; padding: 4px 8px; border-radius: var(--r-ctl);
   font-size: 12px; color: var(--rl-text-faint); }
 .group-new:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
