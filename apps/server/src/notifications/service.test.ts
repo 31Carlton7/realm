@@ -36,6 +36,19 @@ describe("NotificationsService — permissions", () => {
     expect(n).toMatchObject({ category: "permission", refId: "req-1", sessionId: session().id, spaceId: session().spaceId, title: "Fix the login flow", body: "Run ls", actedAt: null, readAt: null });
   });
 
+  it("titles a sub-agent's request by its lead and then it — the person started the lead, not the child", () => {
+    // THE MUTANT: the bare child title — "Dark-mode toggle" in a toast names nothing the person made.
+    const lead = session({ id: "01ARZ3NDEKTSV4RRFFQ69G5FA1", title: "Dark mode" });
+    const child = session({ title: "Dark-mode toggle", dispatchedBy: { kind: "agent_run", sessionId: lead.id } });
+    svc = new NotificationsService({ store, settings, rpc: { broadcast: () => {} } as unknown as RpcServer, sessions: { get: (id) => (id === lead.id ? lead : null) } });
+    svc.handleSessionEvent(child, sessionEvent("permission_request", { requestId: "req-c", toolName: "Bash", input: {}, title: "Run tests", suggestions: [] }));
+    expect(feed()[0]!.title).toBe("Dark mode › Dark-mode toggle");
+    // A fork names the session it came from and is nobody's sub-agent: its own title stands.
+    const fork = session({ title: "Fork", dispatchedBy: { kind: "fork", sessionId: lead.id } });
+    svc.handleSessionEvent(fork, sessionEvent("permission_request", { requestId: "req-f", toolName: "Bash", input: {}, title: "Run tests", suggestions: [] }));
+    expect(feed().find((n) => n.refId === "req-f")!.title).toBe("Fork");
+  });
+
   it("THE staleness mutant: a permission_response from ANY surface resolves the row — it never survives as pending", () => {
     const s = session();
     svc.handleSessionEvent(s, sessionEvent("permission_request", { requestId: "req-1", toolName: "Bash", input: {}, title: "Run ls", suggestions: [] }));

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Item, Session, SessionStatus } from "@realm/contracts";
 import { item, profile, session, space } from "../../state/store.test-fakes";
 import {
-  attentionRank, FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
+  agentsWaiting, attentionRank, FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
   rowsBySpace, sectionView, spaceRows, spaceTally, tallyOf, tallyWords, type SessionRow, type SidebarState,
 } from "./model";
 
@@ -323,5 +323,44 @@ describe("recentDays — every session by time", () => {
     expect(days.map((d) => d.label)).toEqual(["Today", "Yesterday"]);
     expect(days[0]!.rows.map((r) => r.id)).toEqual(["today"]);
     expect(days[1]!.rows.map((r) => r.kind)).toEqual(["fan-out"]);
+  });
+});
+
+describe("a sub-agent's request rolls up onto its lead", () => {
+  const child = (lead: string) => ({ dispatchedBy: { kind: "agent_run" as const, sessionId: lead } });
+  /** "lead" in Homework, with two sub-agents waiting — one of them an older build's grandchild — and
+   *  one working; "orphan" is a waiting sub-agent whose lead this window does not hold. */
+  const s = () => seed([
+    { id: "lead", space: "hw", status: "idle", at: NOW - 30 * MIN },
+    { id: "own", space: "hw", status: "waiting_permission", at: NOW - 2 * MIN },
+    { id: "k1", space: "hw", status: "waiting_permission", at: NOW - 3 * MIN, session: child("lead") },
+    { id: "k2", space: "hw", status: "running", session: child("lead") },
+    { id: "g1", space: "hw", status: "waiting_permission", at: NOW - 5 * MIN, session: child("k2") },
+    { id: "orphan", space: "hw", status: "waiting_permission", at: NOW - MIN, session: child("gone") },
+    { id: "quiet", space: "hw", status: "idle", at: NOW },
+  ]);
+
+  it("a waiting sub-agent of a listed lead is not a Needs you row; a lead's own request still is", () => {
+    // THE MUTANT: the old needsYou — one row per waiting child, at the top of the sidebar.
+    expect(needsYou(s()).map((r) => r.session.id).sort()).toEqual(["orphan", "own"]);
+  });
+
+  it("a waiting sub-agent whose lead this window does not hold keeps its own row — no request is lost", () => {
+    // THE MUTANT: drop every waiting child — "orphan"'s request would be nowhere in the sidebar.
+    expect(needsYou(s()).map((r) => r.session.id)).toContain("orphan");
+  });
+
+  it("counts per ROOT lead, across an older build's grandchild, and names the one that has waited longest", () => {
+    // THE MUTANT: count under the immediate parent — g1 would land on k2, which has no row.
+    expect(agentsWaiting(s()).get("lead")).toMatchObject({ count: 2, first: "g1" });
+    const row = listedSessions(s()).find((r) => r.id === "lead")!;
+    expect(row).toMatchObject({ agentsWaiting: 2, firstWaiting: "g1" });
+  });
+
+  it("puts a lead whose sub-agents wait at the top of its space, with what waits on you itself", () => {
+    // THE MUTANT: rank a lead by its own status alone — idle, and under the newer quiet session.
+    const rows = rowsBySpace(listedSessions(s())).get("hw")!;
+    expect(attentionRank(rows.find((r) => r.id === "lead")!)).toBe(0);
+    expect(rows.map((r) => r.id).indexOf("lead")).toBeLessThan(rows.map((r) => r.id).indexOf("quiet"));
   });
 });

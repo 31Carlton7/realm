@@ -873,7 +873,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   session by what it needed and drew the live ones as a wall and an office; it said again what those
   rows said, from a second place you had to go to, and the owner removed it (10-05). A relay beyond
   the Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
-  open condition is sent once.
+  open condition is sent once. A sub-agent's request is said on its lead's row, as a count with the
+  waiting dot, and answered on its card in the lead's Agents tab, because the person started the lead
+  and not the child; one whose lead the window does not hold keeps a Needs you row of its own.
 - Home is the way back to the work, not a page: it puts away whatever page is up and lands on the
   session that was in front, in its space — or on a fresh prompter when nothing was, as closing the
   last pane does. A control that only ever returns is not a toggle, so it is never lit and carries no
@@ -934,6 +936,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
   came for, hidden behind the one line that says nothing about it.
+- The lead's Agents tab is where its sub-agents are run from, not only watched: a card each, saying
+  where it stands, what it runs on, in which checkout and mode, and how much of its budget of working
+  time is spent. A card waiting on a request is open with the request in it, answered there through
+  the same call the transcript uses; any card opens its transcript, takes a message or is stopped. What
+  a sub-agent started of its own nests under it, never beside it.
 - A question is one card whichever agent or server asked it, and it says who is asking first —
   "Codex asks", "Linear's MCP server asks" — because the same question means something different from
   each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the

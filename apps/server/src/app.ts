@@ -376,6 +376,40 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "text", text: "I can't start a sub-agent from here, so I did the copy pass myself." },
     ],
   }, {
+    // The Agents tab as an orchestrator: four sub-agents at once, in every state it draws — one asks
+    // for a permission, one asks a question, one works for a while, one is done in seconds.
+    on: "Orchestrate the theme work", emit: [
+      { kind: "text", paceMs: 40, text: "Four parts that do not depend on each other, so four sub-agents." },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Run the settings test suite and report what fails", constraints: { model: "GPT-6 Luna" } } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Choose the default theme for new users" } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Survey every theme hook across the renderer", constraints: { model: "Fable" } } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Tidy the Settings copy for the theme row" } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", paceMs: 30, text: "All four sub-agents reported back." },
+    ],
+  }, {
+    on: "Run the settings test suite", emit: [
+      { kind: "tool", name: "Bash", needsPermission: true, input: { command: "pnpm vitest run settings" }, result: "Tests  18 passed (18)" },
+      { kind: "text", text: "All eighteen settings tests pass." },
+    ],
+  }, {
+    on: "Choose the default theme", emit: [
+      { kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "Answered", input: { questions: [{ question: "Which theme should new users start in?", header: "Theme",
+        multiSelect: false, options: [{ label: "System", description: "Follow the Mac" }, { label: "Dark" }, { label: "Light" }] }] } },
+      { kind: "text", text: "New users start in the theme you picked." },
+    ],
+  }, {
+    on: "Survey every theme hook", emit: [
+      { kind: "tool", name: "Read", input: { file_path: "apps/desktop/src/renderer/src/theme/use-theme.ts" }, result: "export function useTheme() { … }" },
+      { kind: "text", paceMs: 900, text: "Reading each pane that reads the theme: the session pane, the browser pane, the documents pane, the settings page, the sidebar, the composer, the terminal, the simulator frame, the code review page, the media viewer, and the quick chat window, noting which ones read the token directly and which go through the hook, so the switch can reach all of them in one place without a reload." },
+      { kind: "text", text: "Eleven surfaces read the theme; three bypass the hook." },
+    ],
+  }, {
+    on: "Tidy the Settings copy", emit: [
+      { kind: "tool", name: "Edit", input: { file_path: "apps/desktop/src/renderer/src/panes/settings/AppSettings.tsx", old_string: "Colour scheme", new_string: "Theme" }, result: "Edited" },
+      { kind: "text", text: "Renamed the row to Theme and shortened its note." },
+    ],
+  }, {
     // An app mention gives the session computer use for that app alone. The scripted agent reaches
     // for it as a real one would — a real call through its gateway, so the scoped grant is the
     // production path — and only to LIST what is running: it clicks nothing, ever.
@@ -687,6 +721,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Space names for the relay line: with no window anywhere, that line is all a person gets, and a
     // session title alone does not say which space to open.
     spaces: { get: (id: string) => spaces.get(id) },
+    sessions: { get: (id: string) => sessionsStore.get(id) ?? null },
     relay: new NotificationRelay({ settings, transport: realTransport, log: (line) => console.error(line) }) });
   // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
   // services genuinely need each other: SessionService checkpoints every turn, and CheckpointService

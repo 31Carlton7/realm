@@ -67,6 +67,42 @@ export function taskTitle(goal: string | null, fallback: string): string {
   return line ?? fallback;
 }
 
+/** What a sub-agent's card is titled: its session's title — the name it was given, or one a person
+ *  renamed it to — unless that is still the "Agent: <first line of the goal>" an older build wrote,
+ *  which is boilerplate cut at forty characters; the goal's first line says the same thing whole. */
+export function childTitle(child: Pick<DelegatedChild, "goal" | "session">): string {
+  const title = child.session.title.trim();
+  if (title && !/^(Agent|Browser agent): /.test(title)) return title;
+  return taskTitle(child.goal, title || "Sub-agent");
+}
+
+/** Where a state sorts in the Agents tab: what waits on you, then what is working, then what has
+ *  ended — the order the sidebar puts sessions in, for the same reason. */
+const ORDER: Record<SubagentState, number> = { waiting: 0, working: 1, queued: 1, done: 2, failed: 2, timeout: 2, stopped: 2, cancelled: 2 };
+
+/** The tab's order: by `ORDER`, then by when each started, oldest first. A sorted copy. */
+export function orchestratorOrder<T extends { startedAt: number }>(children: readonly T[], stateOf: (c: T) => SubagentState): T[] {
+  return [...children].sort((a, b) => ORDER[stateOf(a)] - ORDER[stateOf(b)] || a.startedAt - b.startedAt);
+}
+
+/** The roll-up over the cards, in words, most urgent first: "1 needs you · 3 working · 1 done". */
+export function rollup(states: readonly SubagentState[]): string {
+  const n = (...of: SubagentState[]) => states.filter((s) => of.includes(s)).length;
+  return [
+    [n("waiting"), n("waiting") === 1 ? "needs you" : "need you"], [n("working", "queued"), "working"], [n("done"), "done"],
+    [n("failed", "timeout"), "failed"], [n("stopped", "cancelled"), "stopped"],
+  ].filter(([k]) => (k as number) > 0).map(([k, w]) => `${k} ${w}`).join(" · ");
+}
+
+/** How much of its budget of working time a child has spent: the server's figure, carried forward
+ *  while it works and held while it waits on you, which the budget does not charge it for. Null
+ *  where the server kept none. */
+export function spentMs(child: Pick<DelegatedChild, "working">, state: SubagentState, now: number): number | null {
+  const w = child.working;
+  if (!w) return null;
+  return state === "working" || state === "queued" ? w.ms + Math.max(0, now - w.at) : w.ms;
+}
+
 /**
  * A report as a line or three of plain prose: what the row says once the child is done.
  *

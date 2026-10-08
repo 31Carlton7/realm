@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { sessionEvent, type DelegatedChild } from "@realm/contracts";
 import { session } from "../../state/store.test-fakes";
-import { modelLabel, reportSummary, subagentElapsed, subagentState, taskTitle } from "./subagent-state";
+import { childTitle, modelLabel, orchestratorOrder, reportSummary, rollup, spentMs, subagentElapsed, subagentState, taskTitle } from "./subagent-state";
 
 function child(over: Partial<DelegatedChild> = {}, status: "idle" | "running" | "waiting_permission" | "error" | "ended" = "idle"): DelegatedChild {
   return {
@@ -75,5 +75,32 @@ describe("the row's words", () => {
   it("reads a markdown report as plain prose", () => {
     expect(reportSummary("## Done\n\n- Added **the toggle** in `App.tsx`\n- See [the PR](https://x.y)\n\n```ts\nconst a = 1;\n```\nAll 12 pass."))
       .toBe("Done Added the toggle in App.tsx See the PR All 12 pass.");
+  });
+});
+
+describe("the orchestrator's words", () => {
+  it("titles a card by its session's title, unless that is still an old build's 'Agent: …' clip of the goal", () => {
+    // THE MUTANT: title from the goal's first line — a goal that opens with "You are a…" names nothing.
+    expect(childTitle({ goal: "You are a builder.\nAdd it.", session: session("a", "s", { title: "Dark-mode toggle" }) })).toBe("Dark-mode toggle");
+    expect(childTitle({ goal: "Write the tests\nmore", session: session("a", "s", { title: "Agent: Write the tests" }) })).toBe("Write the tests");
+  });
+
+  it("puts what needs you first, then what works, then what ended — each by when it started", () => {
+    const kids = [{ id: "done", startedAt: 1 }, { id: "work", startedAt: 3 }, { id: "wait", startedAt: 4 }, { id: "work0", startedAt: 2 }];
+    const st = { done: "done", work: "working", wait: "waiting", work0: "queued" } as const;
+    expect(orchestratorOrder(kids, (k) => st[k.id as keyof typeof st]).map((k) => k.id)).toEqual(["wait", "work0", "work", "done"]);
+  });
+
+  it("rolls the states up into words, most urgent first", () => {
+    expect(rollup(["working", "waiting", "queued", "done", "timeout", "cancelled"])).toBe("1 needs you · 2 working · 1 done · 1 failed · 1 stopped");
+    expect(rollup(["waiting", "waiting"])).toBe("2 need you");
+  });
+
+  it("holds the spent budget while the child waits on you, and carries it forward while it works", () => {
+    // THE MUTANT: tick through a wait — the budget the engine does not charge would read as spent.
+    const w = { working: { ms: 10_000, at: 100_000 } };
+    expect(spentMs(w, "working", 105_000)).toBe(15_000);
+    expect(spentMs(w, "waiting", 105_000)).toBe(10_000);
+    expect(spentMs({ working: null }, "working", 105_000)).toBeNull();
   });
 });
