@@ -942,6 +942,9 @@ export type Sheet =
    *  Opened from McpSection ("Activity") or the palette ("MCP Activity"); replaces whatever sheet was
    *  open (the one-slot ruling — see the sheet-plumbing note above), including space settings itself. */
   | { kind: "activity" }
+  /** Teams: who joins a team that exists — the starters not on it yet, and teammates the person
+   *  writes. From the team's page and the sidebar's Team fold alike. */
+  | { kind: "add-teammates"; spaceId: string }
   /** Plan 22: start a lecture (title prompt), wrap one up (pick which), import Plynn recordings. */
   | { kind: "new-lecture" }
   | { kind: "wrap-up-lecture" }

@@ -81,6 +81,18 @@ export function spendLine(spent: number, budget: number | null): string {
   return budget ? `${money(spent)} of ${money(budget)} this week` : `${money(spent)} this week`;
 }
 
+/** The team's week as its roles' shares divide it: "$45 of the team's $60 a week", and — past the cap,
+ *  which the server refuses — by how much. The meter fills to the cap and stops there. */
+export function sharesNote(shares: number, cap: number): { text: string; over: boolean; pct: number } {
+  const over = shares > cap + 1e-9;
+  const text = over
+    ? `Shares come to ${money(round2(shares))} of the team's ${money(cap)} a week — ${money(round2(shares - cap))} over`
+    : `Shares come to ${money(round2(shares))} of the team's ${money(cap)} a week`;
+  return { text, over, pct: cap > 0 ? Math.max(0, Math.min(100, (shares / cap) * 100)) : 100 };
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 /** How full a meter is, 0–100, and whether it has crossed 80% — orange is state, not decoration. */
 export function meter(spent: number, budget: number | null): { pct: number; high: boolean } | null {
   if (!budget) return null;
@@ -143,7 +155,8 @@ export function activitySentence(a: TeamActivity, actorName: string): { text: st
     case "made_team": return { text: "You made this space a team", detail: null };
     case "made_role": return { text: `You made ${a.object}`, detail: null };
     case "edited_role": return { text: `You changed ${a.object}`, detail: Array.isArray(d.changed) ? (d.changed as string[]).join(", ") : null };
-    case "archived_role": return { text: `You archived ${a.object}`, detail: null };
+    case "archived_role": return { text: `You removed ${a.object} from the team`, detail: "its runs and what it made stay" };
+    case "edited_team": return { text: "You changed the team's week", detail: num("weekBudgetUsd") !== null ? `${money(num("weekBudgetUsd"))} a week` : null };
     case "woke": return { text: `${actorName} woke`, detail: str("note") ? `“${str("note")}”` : d.wokeOn === "schedule" ? "on its schedule" : d.wokeOn === "review" ? "for your changes" : "when you ran it" };
     case "queued": return { text: `${a.object} is waiting for a free slot`, detail: null };
     case "finished": return { text: `${actorName} finished`, detail: [str("summary"), num("costUsd") !== null ? money(num("costUsd")) : null].filter(Boolean).join(" · ") || null };

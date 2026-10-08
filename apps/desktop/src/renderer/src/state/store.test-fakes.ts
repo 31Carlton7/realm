@@ -5,6 +5,7 @@ import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableMod
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
+import { RpcError } from "../rpc/client";
 import type { RoleRun, TeamActivity, TeamRecord, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
@@ -105,7 +106,8 @@ export const teamReview = (id: string, spaceId: string, title: string, extra: Pa
 
 /** A team space: its roles and reviews. */
 export const teamSpace = (spaceId: string, roles: TeamRole[], reviews: TeamReviewSummary[] = [], extra: Partial<TeamSpace> = {}): TeamSpace => ({
-  spaceId, enabled: true, roles, reviews, weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [], ...extra,
+  spaceId, enabled: true, roles, reviews, weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [],
+  repoPath: "/realm/memory/repos/space", repoMoved: false, sharesUsd: roles.reduce((n, r) => n + (r.weekBudgetUsd ?? 0), 0), formerRoles: [], ...extra,
 });
 
 /** A durable run. Defaults to a queued run with no attempts yet. */
@@ -184,6 +186,8 @@ export type FakeData = {
   teamRoleRuns?: Record<string, RoleRun[]>;
   teamRecords?: Record<string, TeamRecord[]>;
   teamActivity?: Record<string, TeamActivity[]>;
+  /** `team.make` refuses with this code (and message) until it is given a folder for the team's memory. */
+  teamMakeRefusal?: { code: string; message: string } | null;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -547,6 +551,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     teamRoleRuns: overrides.teamRoleRuns ?? {},
     teamRecords: overrides.teamRecords ?? {},
     teamActivity: overrides.teamActivity ?? {},
+    teamMakeRefusal: overrides.teamMakeRefusal ?? null,
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
@@ -1637,12 +1642,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     teamSpace: async (spaceId) => {
       calls.push(`teamSpace:${spaceId}`);
       return structuredClone(data.teams.find((t) => t.spaceId === spaceId))
-        ?? { spaceId, enabled: false, roles: [], reviews: [], weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: false, recordCount: 0, runSessionIds: [] };
+        ?? teamSpace(spaceId, [], [], { enabled: false, hasRepo: false, repoPath: null });
     },
-    teamMake: async (spaceId, templates) => {
-      calls.push(`teamMake:${spaceId}:${templates.join(",")}`);
+    teamMake: async (spaceId, templates, o) => {
+      calls.push(`teamMake:${spaceId}:${templates.join(",")}${o?.roles?.length ? `+${o.roles.map((r) => r.name).join(",")}` : ""}${o?.repoPath ? `@${o.repoPath}` : ""}${o?.weekBudgetUsd !== undefined ? `$${o.weekBudgetUsd}` : ""}`);
+      if (data.teamMakeRefusal && !o?.repoPath) throw new RpcError(data.teamMakeRefusal.code, data.teamMakeRefusal.message);
       let t = data.teams.find((x) => x.spaceId === spaceId);
-      if (!t) { t = { spaceId, enabled: true, roles: [], reviews: [], weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [] }; data.teams.push(t); }
+      if (!t) { t = teamSpace(spaceId, []); data.teams.push(t); }
       t.enabled = true;
       return t;
     },

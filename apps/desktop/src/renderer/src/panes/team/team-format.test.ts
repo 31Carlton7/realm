@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { teamReview, teamRole } from "../../state/store.test-fakes";
-import { ageShort, duration, feedTime, meter, money, reviewGroups, roleStateLine, runChip, spendLine, wakeSentence } from "./team-format";
+import { ageShort, duration, feedTime, meter, money, reviewGroups, roleStateLine, runChip, sharesNote, spendLine, wakeSentence } from "./team-format";
 
 const NOW = new Date(2026, 9, 8, 15, 0).getTime();
 
 describe("the team's words and numbers", () => {
+  it("says what the shares come to against the week, and by how much they pass it", () => {
+    expect(sharesNote(45, 60)).toEqual({ text: "Shares come to $45 of the team's $60 a week", over: false, pct: 75 });
+    // THE MUTANT: the cap read as a floor — over never said, and the meter past its end.
+    expect(sharesNote(85, 60)).toEqual({ text: "Shares come to $85 of the team's $60 a week — $25 over", over: true, pct: 100 });
+    expect(sharesNote(60, 60).over).toBe(false);
+    expect(sharesNote(10.1 + 0.2, 60).text).toBe("Shares come to $10.30 of the team's $60 a week");
+  });
+
   it("prints dollars as dollars, and never $0.00 beside work that cost something", () => {
     expect(money(0.84)).toBe("$0.84");
     expect(money(3)).toBe("$3");

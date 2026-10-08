@@ -280,7 +280,7 @@ export const liveApi = (): Api => ({
   mcpCallsList: (params) => rpc().call("mcp.calls.list", params),
   teamOverview: () => rpc().call("team.overview", {}),
   teamSpace: (spaceId) => rpc().call("team.space", { spaceId }),
-  teamMake: (spaceId, templates) => rpc().call("team.make", { spaceId, templates }),
+  teamMake: (spaceId, templates, o) => rpc().call("team.make", { spaceId, templates, roles: o?.roles ?? [], ...(o?.repoPath ? { repoPath: o.repoPath } : {}), ...(o?.weekBudgetUsd !== undefined ? { weekBudgetUsd: o.weekBudgetUsd } : {}) }),
   teamRoleCreate: (input) => rpc().call("team.roleCreate", input),
   teamRoleUpdate: (input) => rpc().call("team.roleUpdate", input),
   teamRoleArchive: async (id) => { await rpc().call("team.roleArchive", { id }); },
