@@ -13,7 +13,7 @@ import { reduceAll } from "./transcript-model";
  * costs on the agent the session is actually running.
  */
 const prompt = (id: string, text: string, extra: Partial<QueuedPrompt> = {}): QueuedPrompt =>
-  ({ id, text, attachments: [], ts: 1, ...extra });
+  ({ id, text, attachments: [], ts: 1, held: false, ...extra });
 
 async function mount(queued: QueuedPrompt[], agentKind: AgentKind = "fake", midTurnMode: MidTurnMode = "queue") {
   const it0 = item("i9", "s1", { kind: "session", refId: "se1", title: "s" });
@@ -214,5 +214,97 @@ describe("the prompter's limit warning", () => {
   it("ignores a warning belonging to another provider", async () => {
     await withLimits(limits({ agentKind: "claude", alert: "exceeded", alertWindow: "seven_day", windows: [w("seven_day", "Weekly", 100)] }));
     expect(warning()).toBeNull();
+  });
+});
+
+describe("editing a queued message", () => {
+  const field = () => document.querySelector<HTMLTextAreaElement>(".composer-queue-item .queue-edit");
+  const edit = async (row: number) => {
+    fireEvent.click(rows()[row]!.querySelector(".queue-icon")!);
+    await waitFor(() => expect(field()).not.toBeNull());
+  };
+
+  it("opens a field holding the text, and holds the message on the server", async () => {
+    // THE MUTANT: an editor that opens without the hold — the turn settles mid-edit and the old text goes.
+    const { api } = await mount([prompt("q1", "first"), prompt("q2", "second")]);
+    await edit(1);
+    expect(api.calls).toContain("holdQueued:se1:q2=true");
+    expect(field()!.value).toBe("second");
+    expect(rows()[1]!.querySelector(".queue-held")?.textContent).toBe("Held while you edit");
+  });
+
+  it("saves with Enter, in place", async () => {
+    const { api } = await mount([prompt("q1", "first")]);
+    await edit(0);
+    fireEvent.change(field()!, { target: { value: "first, edited" } });
+    fireEvent.keyDown(field()!, { key: "Enter" });
+    await waitFor(() => expect(api.calls).toContain("editQueued:se1:q1=first, edited"));
+    expect(field()).toBeNull();
+    // One close, not a save and then a second one from the blur that follows.
+    expect(api.calls.filter((c) => c.startsWith("editQueued") || c.startsWith("holdQueued:se1:q1=false"))).toHaveLength(1);
+  });
+
+  it("keeps Shift+Enter a newline, and under ⌘↩ sending keeps plain Enter one too", async () => {
+    const { api, store } = await mount([prompt("q1", "first")]);
+    act(() => store.setState({ submitKey: "cmdEnter" }));
+    await edit(0);
+    fireEvent.keyDown(field()!, { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(field()!, { key: "Enter" });
+    expect(field()).not.toBeNull();
+    fireEvent.change(field()!, { target: { value: "first\nmore" } });
+    fireEvent.keyDown(field()!, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.calls).toContain("editQueued:se1:q1=first\nmore"));
+  });
+
+  it("lets go with Esc, sending nothing and keeping the row as it was", async () => {
+    // THE MUTANT: Esc closing the field but leaving the hold — the queue stuck until the hold expires.
+    const { api } = await mount([prompt("q1", "first")]);
+    await edit(0);
+    fireEvent.change(field()!, { target: { value: "never mind" } });
+    fireEvent.keyDown(field()!, { key: "Escape" });
+    await waitFor(() => expect(api.calls).toContain("holdQueued:se1:q1=false"));
+    expect(api.calls.some((c) => c.startsWith("editQueued"))).toBe(false);
+    expect(rows()[0]!.querySelector(".queue-text")?.textContent).toBe("first");
+  });
+
+  it("turns Send now off while the message is held, here or in another window", async () => {
+    // THE MUTANT: Send now left live on a held row — the half-typed edit's old text sent on a click.
+    await mount([prompt("q1", "first"), prompt("q2", "second", { held: true })]);
+    expect(rows()[1]!.querySelector<HTMLButtonElement>(".queue-send")!.disabled).toBe(true);
+    expect(rows()[1]!.querySelector<HTMLButtonElement>(".queue-icon")!.disabled).toBe(true);
+    expect(rows()[1]!.querySelector(".queue-held")?.textContent).toBe("Being edited in another window");
+    expect(rows()[0]!.querySelector<HTMLButtonElement>(".queue-send")!.disabled).toBe(false);
+    await edit(0);
+    expect(rows()[0]!.querySelector<HTMLButtonElement>(".queue-send")!.disabled).toBe(true);
+  });
+
+  it("does not open a field on a message that already went out", async () => {
+    const { api } = await mount([prompt("q1", "first")]);
+    api.queuedPrompts.length = 0; // drained on the server, not yet broadcast
+    fireEvent.click(rows()[0]!.querySelector(".queue-icon")!);
+    await waitFor(() => expect(api.calls).toContain("holdQueued:se1:q1=true"));
+    expect(field()).toBeNull();
+  });
+
+  it("puts an edit the drain beat into the draft, with a toast", async () => {
+    // THE MUTANT: a save answered `edited: false` and dropped — the user's correction gone.
+    const { api, store } = await mount([prompt("q1", "first")]);
+    act(() => store.getState().setDraft("se1", "half a thought"));
+    await edit(0);
+    fireEvent.change(field()!, { target: { value: "first, fixed" } });
+    api.queuedPrompts.length = 0;
+    fireEvent.keyDown(field()!, { key: "Enter" });
+    await waitFor(() => expect(store.getState().drafts["se1"]).toBe("half a thought\n\nfirst, fixed"));
+    expect(store.getState().toasts.some((t) => t.text.includes("already gone out"))).toBe(true);
+  });
+
+  it("keeps what was typed when the message leaves while its field is open", async () => {
+    // THE MUTANT: the row unmounting with its field — a hold that expired takes the edit with it.
+    const { api, store } = await mount([prompt("q1", "first")]);
+    await edit(0);
+    fireEvent.change(field()!, { target: { value: "first, rewritten" } });
+    api.queuedPrompts.length = 0;
+    act(() => store.getState().applySessionQueue("se1", []));
+    await waitFor(() => expect(store.getState().drafts["se1"]).toBe("first, rewritten"));
   });
 });

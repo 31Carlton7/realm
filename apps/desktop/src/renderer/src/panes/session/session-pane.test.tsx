@@ -532,6 +532,18 @@ describe("reading a session by opening it", () => {
     rerender(true);
     await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
   });
+
+  it("a focused pane in a window nobody is looking at reads nothing — until the window comes back", async () => {
+    // THE MUTANTS: the effect without `windowActive` in its condition (it reads behind another app), or
+    // without it in its dependencies (coming back never reads, and the dot stays on a session on screen).
+    const { api, store, rerender } = await mountAt(false);
+    act(() => store.getState().setWindowActive(false));
+    rerender(true);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
+    act(() => store.getState().setWindowActive(true));
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
+  });
 });
 
 describe("opened from a list, the session takes the keyboard", () => {

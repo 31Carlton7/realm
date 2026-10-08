@@ -1923,6 +1923,28 @@ export const Methods = {
    *  the queue holds the mentions and element chips the message was composed with and `QueuedPrompt`
    *  does not — a prompter that re-sent the text it was shown would drop them. */
   "sessions.releaseQueued": { params: z.object({ id: IdSchema, queuedId: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * Hold one queued message while it is edited, or let it go. A held message is not drained, and
+   * neither is anything behind it — the queue's order is the order the user asked in. A settle that
+   * found it held is owed its drain, paid when the hold lets go; a settle the USER caused (Stop) owes
+   * nothing, so letting go after a Stop starts no turn. A hold expires on its own
+   * (`QUEUE_HOLD_TTL_MS`) so a window closed mid-edit cannot strand the queue. One hold per session:
+   * the last one wins.
+   *
+   * `held: false` in the answer to a hold means the message is gone — it was sent before the edit
+   * began — and the prompter should not open an editor on it.
+   */
+  "sessions.holdQueued": { params: z.object({ id: IdSchema, queuedId: z.string().min(1), held: z.boolean() }), result: z.object({ ok: z.literal(true), held: z.boolean() }) },
+  /**
+   * Replace a queued message's text, keeping its place in the queue, and let go of its hold.
+   *
+   * Every queue change is synchronous on the server, so this cannot interleave with the drain: the
+   * message is either still queued and takes the edit, or already gone and the answer is
+   * `edited: false` — the prompter then puts the text in the draft rather than losing it. Element
+   * chips and named things whose `@[…]` token the edit removed are dropped from what is delivered.
+   */
+  "sessions.editQueued": { params: z.object({ id: IdSchema, queuedId: z.string().min(1), text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).optional() })
+    .refine((p) => p.text.length > 0 || (p.attachments?.length ?? 1) > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ edited: z.boolean() }) },
   /** The queue as it stands, for a pane that has just mounted. Live changes arrive on `session.queue`;
    *  this is the initial read, the same split `sessions.events` and `session.event` already use. */
   "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema) }) },

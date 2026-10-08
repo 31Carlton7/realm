@@ -122,6 +122,33 @@ describe("a space's section", () => {
     expect(head("Versed").querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "running");
   });
 
+  it("wears the unread mark and its count on a folded head whose only news is a finished, unread session", async () => {
+    // THE MUTANT: `TallyMarks` drawing waiting and running only — a folded space with two finished
+    // turns nobody has read says nothing at all, which is the report this answers.
+    await mount(home({
+      items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("d", "s1", "Delta")], s2: [sessionItem("b", "s2", "Wants a yes")] },
+      sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("d", "s1", { title: "Delta", seenSeq: 1, lastEventSeq: 2 }),
+        session("b", "s2", { title: "Wants a yes", status: "waiting_permission" })],
+      settings: { "ui.sidebarCollapsedSpaces": ["s1"] },
+    }));
+    await waitFor(() => expect(head("Versed")).toHaveAttribute("aria-expanded", "false"));
+    expect(head("Versed")).toHaveAccessibleName("Versed — 2 unread");
+    const tally = head("Versed").querySelector(".item-trail")!;
+    expect(within(tally as HTMLElement).getByText("2").nextElementSibling).toHaveAttribute("data-status", "unseen");
+  });
+
+  it("keeps one mark on a head: something working outranks the unread count", async () => {
+    // THE MUTANT: the unread tally drawn whatever else is showing — two counts and two dots on one head.
+    await mount(home({
+      items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("d", "s1", "Delta")], s2: [sessionItem("b", "s2", "Wants a yes")] },
+      sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("d", "s1", { title: "Delta", status: "running" }),
+        session("b", "s2", { title: "Wants a yes", status: "waiting_permission" })],
+    }));
+    await waitFor(() => expect(head("Versed")).toHaveAccessibleName("Versed — 1 running, 1 unread"));
+    const dots = [...head("Versed").querySelectorAll(".item-trail .status-dot")].map((d) => d.getAttribute("data-status"));
+    expect(dots).toEqual(["running"]);
+  });
+
   it("folds, and remembers it across a relaunch", async () => {
     const { api, store } = await mount(home());
     await waitFor(() => expect(rowsIn("Homework")).toEqual(["Wants a yes"]));
@@ -251,6 +278,17 @@ describe("a session's row", () => {
     act(() => store.getState().applySessionStatus("a", "running"));
     expect(row().querySelectorAll(".status-dot")).toHaveLength(1);
     expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "running");
+  });
+
+  it("lifts an unread row's title, and only while unread is the mark it wears", async () => {
+    // THE MUTANT: `data-unread` keyed on `row.unread` alone — a running session that also has news
+    // would wear a heavy title beside a green dot, two marks asking to be told apart.
+    const { store } = await mount(home({ sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("b", "s2", { title: "Wants a yes", seenSeq: 4, lastEventSeq: 4 })] }));
+    const rowOf = (sec: string, name: RegExp) => within(section(sec)).getByRole("button", { name }).closest(".sb-row")!;
+    await waitFor(() => expect(rowOf("Versed", /^Alpha/)).toHaveAttribute("data-unread"));
+    expect(rowOf("Homework", /^Wants a yes/)).not.toHaveAttribute("data-unread");
+    act(() => store.getState().applySessionStatus("a", "running"));
+    expect(rowOf("Versed", /^Alpha/)).not.toHaveAttribute("data-unread");
   });
 
   it("wears a clock when a schedule started it", async () => {

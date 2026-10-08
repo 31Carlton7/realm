@@ -431,5 +431,10 @@ export const QueuedPromptSchema = z.object({
   text: z.string(),
   attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
   ts: z.number(),
+  /** Someone is editing it (`sessions.holdQueued`): the queue will not send it, nor anything behind
+   *  it, until the edit is saved or let go. Every window draws it, so a second window shows the hold
+   *  rather than offering a Send now the server would only have to refuse. Defaulted, so a payload
+   *  from before the field still parses. */
+  held: z.boolean().default(false),
 });
 export type QueuedPrompt = z.infer<typeof QueuedPromptSchema>;

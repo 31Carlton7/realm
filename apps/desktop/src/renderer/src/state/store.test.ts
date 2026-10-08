@@ -3560,6 +3560,22 @@ describe("what changed while you were away", () => {
       event: { type: "assistant_text", ts: 2001, payload: { messageId: "m10", text: "x" } } } as never);
     expect(api.calls.some((c) => c.startsWith("markSessionSeen:other"))).toBe(false);
   });
+
+  it("an event in the focused pane of a window nobody is looking at is not read", async () => {
+    // THE MUTANT: `isFocusedSession` without the window — a turn that finished while Realm sat behind
+    // another app was marked read, and its dot never drew.
+    const api = seeded(3, 1);
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("ix");
+    await store.getState().openSession("sx");
+    store.getState().setWindowActive(false);
+    api.calls.length = 0;
+    store.getState().applySessionEvent({ seq: 4, sessionId: "sx", ephemeral: false,
+      event: { type: "assistant_text", ts: 2000, payload: { messageId: "m9", text: "new" } } } as never);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
+  });
 });
 
 describe("what the app does when nobody is looking", () => {
