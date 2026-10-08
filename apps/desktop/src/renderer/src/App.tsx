@@ -614,6 +614,8 @@ export function App() {
     // stealing focus.
     const offDO = rpc().on("documents.openRequested", (p) => { const st = store.getState(); st.run(() => st.applyDocumentOpenRequested(p)); });
     const offSA = rpc().on("session.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentOpened(p)); });
+    // A session an agent opened for the user with `session_open`: a pane of its own, beside that agent's.
+    const offSO = rpc().on("session.openRequested", (p) => { const st = store.getState(); st.run(() => st.applySessionOpenRequested(p)); });
     // The same child's run settled. A clean finish reads its "Finished a turn" row (`applyAgentSettled`).
     const offSS = rpc().on("session.agentSettled", (p) => store.getState().applyAgentSettled(p));
     // W4's watching feed: settled actions into the pane chrome's ticker, in-flight acts onto the
@@ -705,7 +707,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

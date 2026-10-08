@@ -31,6 +31,7 @@ import { GoalService } from "./goals/service";
 import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
 import { createWorkspaceProvider } from "./workspace/agent-tools";
+import { createSessionOpenTools } from "./workspace/session-open";
 import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
@@ -38,7 +39,7 @@ import { join } from "node:path";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { GOAL_PROVIDER_NAME, GuestSpecSchema, goalToolWireName, type GuestSpec } from "@realm/contracts";
+import { DEFAULT_PERMISSION_MODE_KEY, GOAL_PROVIDER_NAME, GuestSpecSchema, goalToolWireName, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
@@ -80,7 +81,7 @@ import { GhClient, ghRunner } from "./code-review/gh";
 import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
-import { SessionService } from "./sessions/service";
+import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { PlanLimitsService } from "./limits/service";
 import type { ProbeResult } from "@realm/adapters";
@@ -1173,7 +1174,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      the DOM — the app-ui provider's own argument for why clicking is the fragile route. */
   mcpGateway.registerProvider(createWorkspaceProvider({
     mcp, sessions: sessionsStore, events: sessionEvents, items, spaces, profiles, settings, documents, bridge: browserBridge, rpc,
-  }));
+  }, [
+    createSessionOpenTools({
+      sessions, items, spaces, settings, broker: browserBroker, rpc,
+      defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
+      placeModel: (caller, model) => agentRunsFinal.placeModel(caller, model),
+      delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id) },
+    }),
+  ]));
   /* Any goal that was running when Realm last closed is parked rather than resumed. A desktop app is
      relaunched by someone opening it, sometimes days later and usually to do something else — see
      `parkOnBoot`. */

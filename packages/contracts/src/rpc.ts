@@ -2069,6 +2069,11 @@ export const Events = {
    *  bring the child session INTO the layout — the whole point of a delegated agent being a real
    *  session is that the user watches its full trace. */
   "session.agentOpened": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema }),
+  /** An agent's `session_open` made a session for the user, and it goes on screen BESIDE that agent's
+   *  pane — to the right or below (`edge`), as the user's own split would put it. Not
+   *  `session.agentOpened`: that one is a delegated child, which gets no pane. Quiet, like every
+   *  agent's open: the keyboard stays where the user left it. */
+  "session.openRequested": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema, openedBy: IdSchema, edge: z.enum(["right", "bottom"]) }),
   /** A delegated child's run settled — the other half of `session.agentOpened`, carrying the same ids
    *  plus how it ended, and sent exactly once per run by the tool that opened the child
    *  (`agent_run`/`agent_start`, `browser_agent_run`, a reviewer). Not for a durable run's worker:

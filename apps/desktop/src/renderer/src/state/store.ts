@@ -2499,6 +2499,11 @@ export type AppState = {
    *  delegated child opens nowhere — it is listed under its lead's running-agents control — and is
    *  remembered so its clean finish can be read (`applyAgentSettled`). */
   applyAgentOpened(payload: { spaceId: string; sessionId: string; itemId: string }): Promise<void>;
+  /** The `session.openRequested` handler: a session an agent's `session_open` made for the user goes
+   *  on screen beside that agent's pane, on the edge it asked for — quietly, the keyboard left where it
+   *  was. With the agent's pane not on screen it stays a sidebar row; with no room for a split it takes
+   *  the place of the pane beside the agent's, as any open beside does. */
+  applySessionOpenRequested(payload: { spaceId: string; sessionId: string; itemId: string; openedBy: string; edge: "right" | "bottom" }): Promise<void>;
   /** The `session.agentSettled` handler: a delegated child that finished cleanly has its "Finished a
    *  turn" row read — its report is already in the lead's transcript. */
   applyAgentSettled(payload: { spaceId: string; sessionId: string; itemId: string; outcome: DelegationOutcome }): void;
@@ -6930,6 +6935,26 @@ await get().refreshCustomThemes().catch(() => {});
         // child is how a fan-out filled a window with panes too narrow to read. It is listed under the
         // lead's running-agents control, and a click there previews it as a tab of the lead's side pane.
         delegatedChildren.set(sessionId, {});
+      },
+      async applySessionOpenRequested({ spaceId, itemId, openedBy, edge }) {
+        if (!inProfile(spaceId)) return;
+        await get().refreshItems(spaceId);
+        if (!inProfile(spaceId)) return;
+        const view = viewNow();
+        if (findLeafOfItem(view.layout, itemId)) return;
+        const opener = get().items.find((i) => i.kind === "session" && i.refId === openedBy);
+        const at = opener ? findLeafOfItem(view.layout, opener.id) : null;
+        if (!at) return;
+        const dir = edge === "right" ? "row" : "col";
+        let layout: Layout;
+        if (!get().splitRefusal(dir, at.id)) layout = openBesideInView(view.layout, at.id, itemId, edge);
+        else {
+          const other = besidePane(view.layout, at.id);
+          if (!other) return;
+          layout = showInView(view.layout, other.id, itemId);
+        }
+        set(writeView({ ...view, layout }));
+        await persist();
       },
       applyAgentSettled({ sessionId, outcome }) {
         const child = delegatedChildren.get(sessionId);
