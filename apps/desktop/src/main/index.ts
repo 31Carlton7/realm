@@ -226,12 +226,23 @@ async function refreshTray() {
  *  working with no window open, and only main is there for all of it. */
 const sleepGuard = new SleepGuard(powerSaveBlocker);
 
-/** Re-read whether anything is running, on the same event the tray's counts change on. A bridge
- *  that cannot answer reads as nothing running: with no daemon to ask there are no turns to keep a
- *  Mac awake for, and holding on to a blocker for an answer we cannot get is how one leaks. */
+/** Re-read whether anything is running or waiting, on the same event the tray's counts change on. A
+ *  bridge that cannot answer reads as nothing running: with no daemon to ask there are no turns to
+ *  keep a Mac awake for, and holding on to a blocker for an answer we cannot get is how one leaks. */
 async function refreshSleepGuard() {
   const counts = await daemonCounts();
   sleepGuard.setWorking(counts?.working ?? 0);
+  sleepGuard.setWaiting(counts?.needsYou ?? 0);
+}
+
+/** How many phones are paired with this Mac (Realm Mobile), asked when main connects and then kept
+ *  by `remote.changed`. A server that cannot say has none, as far as the guard is concerned. */
+async function readPairedPhones() {
+  try {
+    const status = await bridgeClient?.call("remote.status", {});
+    const phones = (status as { phones?: unknown } | undefined)?.phones;
+    sleepGuard.setPhones(Array.isArray(phones) ? phones.length : 0);
+  } catch { sleepGuard.setPhones(0); }
 }
 
 /** Whether the owner is at this Mac, for Realm Mobile's pushes (Plan 28): the server holds a push back
@@ -1731,15 +1742,21 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       port: info.port, token: info.token,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); presence.reset(); void profileDirectory.refresh(); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
-      onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
+      onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); sleepGuard.setWaiting(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
       onEvent: (event, payload) => {
         // A profile made, renamed or deleted: main's partitions, names and sign-ins follow.
         if (event === "profiles.changed") { void profileDirectory.refresh().then(retitleWindows); return; }
         // The counts the tray shows change on exactly one event.
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); return; }
+        // A phone paired or removed: whether a waiting session keeps the Mac awake goes with it.
+        if (event === "remote.changed") {
+          const phones = (payload as { phones?: unknown } | undefined)?.phones;
+          sleepGuard.setPhones(Array.isArray(phones) ? phones.length : 0);
+          return;
+        }
         // And the resident's own toasts, for the case the renderer used to own alone: with no window
         // there is nobody to ask for one, and a toast is the whole of how anything reaches you.
         if (event === "notifications.changed") void residentToast(payload);
