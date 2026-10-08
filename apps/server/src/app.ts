@@ -687,6 +687,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Space names for the relay line: with no window anywhere, that line is all a person gets, and a
     // session title alone does not say which space to open.
     spaces: { get: (id: string) => spaces.get(id) },
+    sessions: { get: (id: string) => sessionsStore.get(id) ?? null },
     relay: new NotificationRelay({ settings, transport: realTransport, log: (line) => console.error(line) }) });
   // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
   // services genuinely need each other: SessionService checkpoints every turn, and CheckpointService
