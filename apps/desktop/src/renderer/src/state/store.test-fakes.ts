@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -323,11 +323,17 @@ export type FakeData = {
   memoryRepos?: Record<string, MemoryRepoState>;
   /** Per-space opt-out of the profile's repo — the server's polarity (absent = inherited). */
   memoryRepoInheritDisabled?: Record<string, boolean>;
-  /** `memory.repo.log` by profile id. */
+  /** `memory.repo.log` by owner key (`profile:p1`, `space:s1`). */
   memoryRepoLogs?: Record<string, MemoryRepoCommit[]>;
   /** When set, `memory.repo.attach` refuses with this message, as the server refuses a folder that is
    *  not a memory repo. */
   memoryRepoAttachError?: string;
+  /** Each space's own memory repo, by space id (absent = none). */
+  spaceOwnMemoryRepos?: Record<string, MemoryRepoState>;
+  /** What `memory.repo.checkRemote` answers, by owner key (`profile:p1`); absent = "unknown". */
+  memoryRemoteChecks?: Record<string, MemoryRemoteCheck>;
+  /** What `memory.repo.importClaude` would add, by owner key; absent = nothing to import. */
+  claudeImports?: Record<string, MemoryClaudeImport>;
   /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
    *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
   notifications?: Notification[];
@@ -546,6 +552,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memoryRepoInheritDisabled: overrides.memoryRepoInheritDisabled ?? {},
     memoryRepoLogs: overrides.memoryRepoLogs ?? {},
     memoryRepoAttachError: overrides.memoryRepoAttachError ?? "",
+    spaceOwnMemoryRepos: overrides.spaceOwnMemoryRepos ?? {},
+    memoryRemoteChecks: overrides.memoryRemoteChecks ?? {},
+    claudeImports: overrides.claudeImports ?? {},
     documentWorkspaces: overrides.documentWorkspaces ?? {},
     documentFiles: overrides.documentFiles ?? {},
     notifications: overrides.notifications ?? [],
@@ -597,7 +606,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const reposOfSpace = (spaceId: string): MemoryRepoState[] => {
     const profileId = data.spaces.find((x) => x.id === spaceId)?.profileId;
     const r = profileId ? data.memoryRepos[profileId] : undefined;
-    return r ? [{ ...r, inheritedHere: !data.memoryRepoInheritDisabled[spaceId] }] : [];
+    const own = data.spaceOwnMemoryRepos[spaceId];
+    return [...(own ? [own] : []), ...(r ? [{ ...r, inheritedHere: !data.memoryRepoInheritDisabled[spaceId] }] : [])];
+  };
+  const ownerKey = (o: { scope: string; id: string }): string => `${o.scope}:${o.id}`;
+  const repoOf = (o: { scope: string; id: string }): MemoryRepoState | undefined => (o.scope === "profile" ? data.memoryRepos[o.id] : data.spaceOwnMemoryRepos[o.id]);
+  const putRepo = (r: MemoryRepoState): MemoryRepoState => {
+    if (r.scope === "profile") data.memoryRepos[r.ownerId] = r; else data.spaceOwnMemoryRepos[r.ownerId] = r;
+    return r;
   };
   const updateWatchers = new Set<(status: UpdateStatus) => void>();
   const api: FakeApi = {
@@ -1205,31 +1221,50 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`getMemoryRepos:space:${scope.spaceId}`);
       return reposOfSpace(scope.spaceId);
     },
-    createMemoryRepo: async (profileId) => {
-      calls.push(`createMemoryRepo:${profileId}`);
-      const r = data.memoryRepos[profileId] ?? fakeMemoryRepo({ ownerId: profileId, path: `/realm-home/memory/repos/profile-${profileId}` });
-      data.memoryRepos[profileId] = r;
-      return r;
+    createMemoryRepo: async (o) => {
+      calls.push(`createMemoryRepo:${ownerKey(o)}`);
+      return repoOf(o) ?? putRepo(fakeMemoryRepo({ scope: o.scope, ownerId: o.id, path: `/realm-home/memory/repos/${o.scope}-${o.id}` }));
     },
-    attachMemoryRepo: async (profileId, path) => {
-      calls.push(`attachMemoryRepo:${profileId}:${path}`);
+    attachMemoryRepo: async (o, path) => {
+      calls.push(`attachMemoryRepo:${ownerKey(o)}:${path}`);
       if (data.memoryRepoAttachError) throw new Error(data.memoryRepoAttachError);
-      const r = fakeMemoryRepo({ ownerId: profileId, path });
-      data.memoryRepos[profileId] = r;
-      return r;
+      return putRepo(fakeMemoryRepo({ scope: o.scope, ownerId: o.id, path }));
     },
-    detachMemoryRepo: async (profileId) => {
-      calls.push(`detachMemoryRepo:${profileId}`);
-      delete data.memoryRepos[profileId];
+    detachMemoryRepo: async (o) => {
+      calls.push(`detachMemoryRepo:${ownerKey(o)}`);
+      if (o.scope === "profile") delete data.memoryRepos[o.id]; else delete data.spaceOwnMemoryRepos[o.id];
     },
     setMemoryRepoInherited: async (spaceId, enabled) => {
       calls.push(`setMemoryRepoInherited:${spaceId}=${enabled}`);
       data.memoryRepoInheritDisabled[spaceId] = !enabled;
       return reposOfSpace(spaceId);
     },
-    memoryRepoLog: async (profileId, limit) => {
-      calls.push(`memoryRepoLog:${profileId}`);
-      return (data.memoryRepoLogs[profileId] ?? []).slice(0, limit);
+    memoryRepoLog: async (o, limit) => {
+      calls.push(`memoryRepoLog:${ownerKey(o)}`);
+      return (data.memoryRepoLogs[ownerKey(o)] ?? []).slice(0, limit);
+    },
+    setMemoryRepoRemote: async (o, url) => {
+      calls.push(`setMemoryRepoRemote:${ownerKey(o)}:${url}`);
+      return putRepo({ ...repoOf(o)!, remote: url, pushEnabled: false, sync: "off" });
+    },
+    checkMemoryRepoRemote: async (o) => {
+      calls.push(`checkMemoryRepoRemote:${ownerKey(o)}`);
+      return data.memoryRemoteChecks[ownerKey(o)] ?? { remote: repoOf(o)?.remote ?? null, verdict: "unknown", detail: "Realm can only ask GitHub whether a repository is private" };
+    },
+    setMemoryRepoSync: async (o, enabled, confirmPrivate) => {
+      calls.push(`setMemoryRepoSync:${ownerKey(o)}:${enabled}:${confirmPrivate}`);
+      return putRepo({ ...repoOf(o)!, pushEnabled: enabled, sync: enabled ? "synced" : "off" });
+    },
+    syncMemoryRepo: async (o) => {
+      calls.push(`syncMemoryRepo:${ownerKey(o)}`);
+      return repoOf(o)!;
+    },
+    importClaudeMemory: async (o, dryRun) => {
+      calls.push(`importClaudeMemory:${ownerKey(o)}:${dryRun}`);
+      const plan = data.claudeImports[ownerKey(o)] ?? { projects: 0, files: 0, entries: 0, skipped: [], sha: null };
+      if (dryRun || plan.entries === 0) return { ...plan, sha: null };
+      data.claudeImports[ownerKey(o)] = { projects: 0, files: 0, entries: 0, skipped: [], sha: null };
+      return { ...plan, sha: "f00dfeed" };
     },
     memorySources: async (sessionId) => {
       calls.push(`memorySources:${sessionId}`);
@@ -1890,6 +1925,7 @@ export function fakeMemoryRepo(o: Partial<MemoryRepoState> = {}): MemoryRepoStat
   return {
     path: "/realm-home/memory/repos/profile-p1", scope: "profile", ownerId: "p1", exists: true, valid: true, clean: true, uncommitted: [],
     head: "a1b2c3d", lastCommitAt: Date.parse("2026-10-08T09:30:00Z"), lastCommitSubject: "Create memory repo", remote: null, pushEnabled: false,
+    sync: "off", ahead: 0, behind: 0, syncError: null, lastSyncAt: null,
     indexChars: 19, inheritedHere: null, reason: null, ...o,
   };
 }

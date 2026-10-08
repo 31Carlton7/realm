@@ -426,7 +426,7 @@ function ProfileMemoryTab({ profileId, profileName }: { profileId: string; profi
       {/* What agents write, under what the user writes: the document above is standing instructions,
           the repo is memory an agent saves and every engine reads back. */}
       <h3 className="settings-head">Memory repo</h3>
-      <MemoryRepoRow profileId={profileId} />
+      <MemoryRepoRow owner={{ scope: "profile", id: profileId }} />
     </div>
   );
 }

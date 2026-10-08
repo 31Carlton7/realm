@@ -6946,6 +6946,12 @@ select { appearance: none; padding-right: 22px;
 .memory-repo-log li { display: flex; align-items: baseline; gap: 12px; font-size: 13px; line-height: 18px; }
 .memory-repo-log-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .memory-repo-log-when { flex: none; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* Sync: the remote's URL typed in place, the privacy question asked in place, and the one command
+   that resolves a diverged repo — copyable, never run by Realm. */
+.memory-remote-form > .settings-text { font-family: var(--font-mono); font-size: 12.5px; }
+.memory-repo .env-path { word-break: normal; overflow-wrap: anywhere; }
+.memory-sync-confirm { flex-basis: 100%; display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; color: var(--rl-text-bright); cursor: pointer; }
+.memory-resolve-row .install-cmd { min-width: 0; max-width: 100%; margin-top: 8px; }
 /* A heading inside the folded diagnostic is a sub-heading, not a peer of the rows around it. */
 .memory-sub { font-size: 13px; color: var(--rl-text-dim); }
 .settings-note code { font: 12px var(--font-mono); }

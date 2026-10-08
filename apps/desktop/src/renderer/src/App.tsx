@@ -29,7 +29,7 @@ import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, useApp, useAppStore, type AppState } from "./state/store";
+import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, type AppState } from "./state/store";
 import { sidebarHidden } from "./state/selectors";
 import { drawnShare, panelPlace } from "./state/view-room";
 import { useStore, type StoreApi } from "zustand";
@@ -602,9 +602,10 @@ export function App() {
       // A memory repo is told the same way: a save an agent made, or one made in another window.
       if (st.spaceMemoryRepos[spaceId]) st.run(() => st.refreshSpaceMemoryRepos(spaceId));
       const profileId = st.spaces.find((x) => x.id === spaceId)?.profileId;
-      if (profileId && st.profileMemoryRepo[profileId] !== undefined) {
-        st.run(() => st.refreshProfileMemoryRepo(profileId));
-        if (st.memoryRepoLog[profileId]) st.run(() => st.refreshMemoryRepoLog(profileId));
+      if (profileId && st.profileMemoryRepo[profileId] !== undefined) st.run(() => st.refreshProfileMemoryRepo(profileId));
+      // Each repo's history, where a row shows it: the profile's, and this space's own.
+      for (const owner of [...(profileId ? [{ scope: "profile" as const, id: profileId }] : []), { scope: "space" as const, id: spaceId }]) {
+        if (st.memoryRepoLog[memoryRepoKey(owner)]) st.run(() => st.refreshMemoryRepoLog(owner));
       }
     });
     const offB = subscribeAgentPanes(store, (event, fn) => rpc().on(event, fn));
