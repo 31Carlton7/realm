@@ -102,6 +102,13 @@ describe("a sub-agent in its lead's transcript", () => {
     expect(document.querySelector(".tool-group")).toBeNull();
   });
 
+  it("spells the wait the way the rest of the app does — sub-agents, hyphenated", async () => {
+    // The mutant: "Waiting for subagents" under lines that say "Sub-agent finished".
+    await mount([sessionEvent("tool_call", { toolUseId: "w1", name: "mcp__realm__realm-agent__agent_wait", input: {}, parentToolUseId: null })], []);
+    expect(await screen.findByRole("button", { name: "Waiting for sub-agents" })).toBeInTheDocument();
+    expect(screen.queryByText(/subagent/i)).toBeNull();
+  });
+
   it("in a read-only mount it still reads, and links nowhere", async () => {
     await mount(start("Write the tests", { text: `Started delegated agent ${CHILD}.` }), [child()], { sessionId: null });
     expect(await screen.findByRole("button", { name: /Write the tests/ })).toBeDisabled();

@@ -87,7 +87,7 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
 const COLLECTED = /^## Agent [0-9A-HJKMNP-TV-Z]{26} — /gm;
 
 /**
- * The lead waiting for its sub-agents, as a line of the same kind: "Waiting for 2 subagents", then
+ * The lead waiting for its sub-agents, as a line of the same kind: "Waiting for 2 sub-agents", then
  * "Collected 2 reports". The reports themselves are each sub-agent's own, in the Agents tab — which
  * is where the line goes.
  */
@@ -101,7 +101,7 @@ export function DelegationWait({ block, sessionStatus, enter = false }: { block:
   const collected = block.result ? (block.result.content.match(COLLECTED) ?? []).length : 0;
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const label = waiting
-    ? (owned > 0 ? `Waiting for ${plural(owned, "subagent")}` : "Waiting for subagents")
+    ? (owned > 0 ? `Waiting for ${plural(owned, "sub-agent")}` : "Waiting for sub-agents")
     : `Collected ${plural(collected, "report")}`;
   return (
     <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={waiting ? "working" : "done"} data-enter={enter || undefined}>
