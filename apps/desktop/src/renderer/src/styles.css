@@ -10147,7 +10147,8 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-shares-line .btn-quiet { margin-left: -7px; }
 .tp-shares-line .tp-meter-wide { width: 120px; }
 .tp-refusal { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px;
-  border-radius: var(--r-panel); background: var(--orange-tint); color: var(--orange); }
+  border-radius: var(--r-panel); background: var(--orange-tint); color: var(--rl-text-bright); }
+.tp-refusal > svg { color: var(--orange); }
 .tp-refusal-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tp-refusal-text .settings-row-name { color: var(--rl-text-bright); }
 .tp-refusal-text .settings-row-detail { color: var(--rl-text-dim); }
