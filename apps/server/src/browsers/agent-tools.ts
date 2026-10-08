@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema,
+  BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema, refineKeyAction,
   CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
   PANE_SHOW_WIRE_NAME, SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin, paneNotOpenError,
@@ -186,17 +186,17 @@ const TOOLS: Tool[] = [
         browserId: { type: "string" },
         action: {
           type: "object",
-          description: "One action. kind: click {ref, button?, clickCount?, modifiers?} | type {ref, text, method?: keys|insertText, submit?} | key {key, ref?} | scroll {ref?, deltaX?, deltaY?}",
+          description: "One action. kind: click {ref, button?, clickCount?, modifiers?} | type {ref, text, method?: keys|insertText, submit?} | key {key, modifiers?, ref?} | scroll {ref?, deltaX?, deltaY?}",
           properties: {
             kind: { type: "string", enum: ["click", "type", "key", "scroll"] },
             ref: { type: "number", description: "element ref from browser_snapshot" },
             button: { type: "string", enum: ["left", "middle", "right"] },
             clickCount: { type: "number" },
-            modifiers: { type: "array", items: { type: "string", enum: ["alt", "ctrl", "meta", "shift"] } },
+            modifiers: { type: "array", items: { type: "string", enum: ["alt", "ctrl", "meta", "shift"] }, description: "keys held during a click or a key press" },
             text: { type: "string" },
             method: { type: "string", enum: ["keys", "insertText"] },
             submit: { type: "boolean" },
-            key: { type: "string", description: "named key for kind=key, e.g. Enter, Tab, Escape" },
+            key: { type: "string", description: "for kind=key: a named key (Enter, Tab, Escape, ArrowDown, F5, …) or one character, with modifiers joined by + — \"Meta+a\" selects all, \"Shift+Tab\" goes back a field" },
             deltaX: { type: "number" },
             deltaY: { type: "number" },
           },
@@ -332,7 +332,7 @@ const ReadArgs = z.object({ browserId: z.string().min(1), kind: BrowserReadKindS
 /** `intent` is optional, as it is on `computer_act`: required, every call from an agent that has not
  *  learned the field would become a refusal — a change to the act path for a feature that promises
  *  never to touch it. It is the goal Laya's `target` question is asked against. */
-const ActArgs = z.object({ browserId: z.string().min(1), action: BrowserActionSchema, intent: z.string().optional() });
+const ActArgs = z.object({ browserId: z.string().min(1), action: BrowserActionSchema, intent: z.string().optional() }).superRefine(refineKeyAction);
 /** A walk's longest path, and a label's longest words — as for simulator_do and computer_do. */
 const MAX_PATH = 12;
 const MAX_LABEL = 120;
@@ -709,6 +709,8 @@ const HANDLERS: Record<string, Handler> = {
       // card, a step that could not run would be a card approved for nothing.
       if (a.tool === "browser_do") return err("browser_do cannot run inside browser_batch — a walk is already many clicks in one call. Call it directly.");
       if (!HANDLERS[a.tool]) return err(`unknown tool "${a.tool}" in batch.`);
+      // A key it cannot press is refused with the batch, before its card, as browser_act refuses one.
+      if (a.tool === "browser_act") { const act = parseArgs(ActArgs, a.arguments); if ("error" in act) return act.error; }
       validated.push(a);
     }
     const mutating = validated.filter((a) => !READ_ONLY_TOOLS.has(a.tool));

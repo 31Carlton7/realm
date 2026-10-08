@@ -1,8 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, isAbsolute } from "node:path";
+import { basename } from "node:path";
 import {
-  documentTemplate, emptyGuideProgress, expandHome, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
+  documentTemplate, emptyGuideProgress, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace, type GuideProgress,
 } from "@realm/contracts";
 import type { DocumentPreviewServer } from "./preview";
@@ -14,7 +13,7 @@ import type { ItemsStore } from "../store/items";
 import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
 import { hashText, readDocument, readIfExists, renameDocument, writeAtomic, writeDocument, type WriteOutcome } from "./files";
-import { HIDDEN_DIRS, relInRoot, resolveInRoot } from "./paths";
+import { HIDDEN_DIRS, namedInRoot, relInRoot, resolveInRoot } from "./paths";
 import { DocumentWatcher } from "./watcher";
 
 /**
@@ -87,10 +86,7 @@ export class DocumentService {
        every caller to know the workspace root first would be asking them to reimplement `relInRoot`.
        `~/…` is absolute too, once expanded — it is how agents write most of them. Outside the root
        is still a refusal, with a message that says so rather than one about traversal. */
-    const named = expandHome(p.path, homedir());
-    const rel = isAbsolute(named) ? relInRoot(root, named) : named;
-    if (rel === null) throw new RpcError("BAD_PATH", `${p.path} is outside this workspace`);
-    const abs = resolveInRoot(root, rel);
+    const { rel, abs } = namedInRoot(root, p.path);
     let st;
     try { st = await stat(abs); } catch { throw new RpcError("NOT_FOUND", `no such file: ${rel}`); }
     if (!st.isFile()) throw new RpcError("BAD_PATH", `${rel} is not a file`);

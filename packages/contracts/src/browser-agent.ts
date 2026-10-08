@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { KEY_MODIFIERS } from "./key-chord";
 import type { BrowserLoadError } from "./browser-load-error";
 
 /**
@@ -55,8 +56,11 @@ export const BrowserActionSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("key"),
-    /** A named key: "Enter", "Tab", "Escape", "Backspace", "ArrowDown", … */
-    key: z.string().min(1).max(24),
+    /** A named key ("Enter", "Tab", "Escape", "ArrowDown", "F5", …) or one character, with any
+     *  modifiers before it joined by "+": "Meta+a", "Shift+Tab". `resolveKeyChord` reads it. */
+    key: z.string().min(1).max(40),
+    /** Modifiers held for the press, beside any written into `key`. */
+    modifiers: z.array(z.enum(KEY_MODIFIERS)).optional(),
     ref: z.number().int().positive().optional(),
   }),
   z.object({

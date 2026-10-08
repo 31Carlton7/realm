@@ -15,7 +15,7 @@ import {
   groupsFromLayout, SpaceGroupsSchema,
   besidePane, clampPanelShare, columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type Room, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
-  SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey,
+  SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
@@ -803,7 +803,8 @@ export type DocumentsAsk = { documentsId: string; seq: number } & ({ search: tru
 export { SETTING_ACTIVE_SPACE, viewSettingKey };
 /** The profile the window was last on: what a window main bound to no profile opens on. */
 export const SETTING_ACTIVE_PROFILE = "ui.activeProfileId";
-export const SETTING_THEME = "ui.theme";
+/** In contracts, as `SETTING_SUBMIT_KEY` is: an agent's `settings_set` writes them (`AGENT_SETTINGS`). */
+export { SETTING_THEME };
 /** The palette, one key per face — a second axis from `ui.theme`'s light/dark: that says which mode,
  *  these say what the colours are in it. A key each rather than one compound value so the two faces
  *  are written independently, which is what choosing them independently means.
@@ -834,7 +835,6 @@ export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 export const SETTING_LAST_MODELS = "ui.lastModels";
 /** Whether the app keeps its decorative motion off for good. See `lowPower`. */
 const SETTING_LOW_POWER = "ui.lowPower";
-const SETTING_SUBMIT_KEY = "ui.submitKey";
 /** Whether the playful bits are allowed to run at all. Off unless the stored value is exactly
  *  `true`: a key nobody could read is not a request to be surprised. */
 const SETTING_EASTER_EGGS = "ui.easterEggs";
@@ -2579,6 +2579,18 @@ export type AppState = {
    *  delegated child opens nowhere — it is listed under its lead's running-agents control — and is
    *  remembered so its clean finish can be read (`applyAgentSettled`). */
   applyAgentOpened(payload: { spaceId: string; sessionId: string; itemId: string }): Promise<void>;
+  /** The `session.openRequested` handler: a session an agent's `session_open` made for the user goes
+   *  on screen beside that agent's pane, on the edge it asked for — quietly, the keyboard left where it
+   *  was. With the agent's pane not on screen it stays a sidebar row; with no room for a split it takes
+   *  the place of the pane beside the agent's, as any open beside does. */
+  /** The `space.switchRequested` handler: an agent's approved `space_switch`, carried out as the
+   *  user's own `selectSpace` — except while they are `typing`, and in a window bound to one profile
+   *  (the first window is the one whose space the server reads back). */
+  applySpaceSwitchRequested(payload: { spaceId: string }, typing: boolean): Promise<void>;
+  /** The `settings.changed` handler: an agent's `settings_set`, taken as if this window's own Settings
+   *  had made it — for the keys on `AGENT_SETTINGS` and no other, and only a value the app offers. */
+  applySettingChanged(payload: { key: string; value?: unknown }): void;
+  applySessionOpenRequested(payload: { spaceId: string; sessionId: string; itemId: string; openedBy: string; edge: "right" | "bottom" }): Promise<void>;
   /** The `session.agentSettled` handler: a delegated child that finished cleanly has its "Finished a
    *  turn" row read — its report is already in the lead's transcript. */
   applyAgentSettled(payload: { spaceId: string; sessionId: string; itemId: string; outcome: DelegationOutcome }): void;
@@ -7152,6 +7164,42 @@ await get().refreshCustomThemes().catch(() => {});
         // child is how a fan-out filled a window with panes too narrow to read. It is listed under the
         // lead's running-agents control, and a click there previews it as a tab of the lead's side pane.
         delegatedChildren.set(sessionId, {});
+      },
+      async applySpaceSwitchRequested({ spaceId }, typing) {
+        if (typing || api.boundProfileId() !== null) return;
+        if (!get().spaces.some((sp) => sp.id === spaceId && sp.profileId === get().activeProfileId)) return;
+        await get().selectSpace(spaceId);
+      },
+      applySettingChanged({ key, value }) {
+        switch (key) {
+          case AGENT_SETTINGS.theme.key: if (isThemePref(value)) set({ themePref: value }); return;
+          case AGENT_SETTINGS.reduceMotion.key:
+            if (isReducedMotionPref(value)) { set({ reduceMotion: value }); get().run(() => api.setReducedMotion(value)); }
+            return;
+          case AGENT_SETTINGS.submitKey.key: if (isSubmitKey(value)) set({ submitKey: value }); return;
+          case AGENT_SETTINGS.midTurnMode.key: set({ midTurnMode: resolveMidTurnMode(value) }); return;
+          case AGENT_SETTINGS.terminalCursorBlink.key: if (typeof value === "boolean") set({ terminalCursorBlink: value }); return;
+        }
+      },
+      async applySessionOpenRequested({ spaceId, itemId, openedBy, edge }) {
+        if (!inProfile(spaceId)) return;
+        await get().refreshItems(spaceId);
+        if (!inProfile(spaceId)) return;
+        const view = viewNow();
+        if (findLeafOfItem(view.layout, itemId)) return;
+        const opener = get().items.find((i) => i.kind === "session" && i.refId === openedBy);
+        const at = opener ? findLeafOfItem(view.layout, opener.id) : null;
+        if (!at) return;
+        const dir = edge === "right" ? "row" : "col";
+        let layout: Layout;
+        if (!get().splitRefusal(dir, at.id)) layout = openBesideInView(view.layout, at.id, itemId, edge);
+        else {
+          const other = besidePane(view.layout, at.id);
+          if (!other) return;
+          layout = showInView(view.layout, other.id, itemId);
+        }
+        set(writeView({ ...view, layout }));
+        await persist();
       },
       applyAgentSettled({ sessionId, outcome }) {
         const child = delegatedChildren.get(sessionId);

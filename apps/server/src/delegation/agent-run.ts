@@ -243,6 +243,15 @@ export class AgentRunService {
     return attempt(await m.refresh());
   }
 
+  /** `place` for a caller that is not delegating: `session_open` names a model the way these tools do,
+   *  and keeps the caller's own harness and model when it names none — not the child rule's fallback,
+   *  which moves a harness that cannot take Realm's skills onto one that can. */
+  async placeModel(caller: Session, model: string | undefined): Promise<ModelResolution> {
+    if (model !== undefined) return this.place({ model }, caller);
+    const label = caller.model === null ? DEFAULT_MODEL_LABEL[caller.agentKind] : this.labelOf(caller.agentKind, caller.model);
+    return { ok: true, choice: { kind: caller.agentKind, model: caller.model, label } };
+  }
+
   /** A model id's name, from the catalog when it is in it — the report should say "Claude Opus 5.5",
    *  not "claude-opus-5-5". */
   private labelOf(kind: AgentKind, id: string): string {

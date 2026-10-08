@@ -360,11 +360,13 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
  * Plan 16 W3's "Fork from here" — `sessionId` is the ANCESTOR session the fork carried context from,
  * which that fork leaves byte-untouched; `import` is a transcript carried in from an agent CLI's own
  * store (`ImportService`), whose `sessionId` is null because nothing dispatched it — it already
- * existed. A session the user created normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is
+ * existed; `session_open` is a session an agent opened beside itself for the USER to work in
+ * (`realm-workspace`'s tool) — `sessionId` is that agent's, and the session is nobody's child: it has
+ * a pane and a row of its own, and reports to no one. A session the user created normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is
  * nullable rather than having a "user" member: absence IS the ordinary case, and no backfill invents
  * one.
  */
-export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork", "import", "run"]);
+export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork", "import", "run", "session_open"]);
 export type DispatchKind = z.infer<typeof DispatchKindSchema>;
 export const DispatchedBySchema = z.object({
   /** The delegating session, or null for an origin with no parent agent (`user-dispatch`). */

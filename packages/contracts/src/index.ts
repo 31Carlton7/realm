@@ -27,6 +27,7 @@ export * from "./notifications";
 export * from "./review";
 export * from "./code-review";
 export * from "./browser-agent";
+export * from "./key-chord";
 export * from "./browser-upload";
 export * from "./browser-load-error";
 export * from "./fence";
@@ -70,6 +71,7 @@ export * from "./simulator";
 export * from "./simulator-input";
 export * from "./goal";
 export * from "./workspace";
+export * from "./agent-settings";
 export * from "./egg-pack";
 export * from "./sandbox";
 /* A different feature that shares a word — the Seatbelt policy an agent or shell is SPAWNED under,

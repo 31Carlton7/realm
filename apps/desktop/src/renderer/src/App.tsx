@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
 import { dismissBootSplash } from "./boot-splash";
+import { isEditableTarget } from "./hotkeys";
 import { bannerFor, type DaemonUiState } from "./components/daemon-banner";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { Rail } from "./components/sidebar/Rail";
@@ -502,6 +503,11 @@ export function subscribeSpaceLists(store: StoreApi<AppState>, on: Subscribe): (
 }
 
 /** The broadcasts that bring an agent-opened pane into the layout. Exported for its test. */
+/** How recent a keystroke into a field or a terminal keeps an agent's `space_switch` from moving the
+ *  window: long enough to cover the pause between two words, short enough that a person who has
+ *  stopped is not in the way. */
+const TYPING_QUIET_MS = 4_000;
+
 export const AGENT_PANE_EVENTS = ["browser.agentOpened", "simulator.agentOpened", "terminal.agentOpened"] as const;
 
 /**
@@ -623,6 +629,16 @@ export function App() {
     // stealing focus.
     const offDO = rpc().on("documents.openRequested", (p) => { const st = store.getState(); st.run(() => st.applyDocumentOpenRequested(p)); });
     const offSA = rpc().on("session.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentOpened(p)); });
+    // An agent's approved `space_switch`. Never under someone typing: a keystroke into a field in the
+    // last few seconds keeps the window where it is, and the agent is told it did not move.
+    let typedAt = 0;
+    const onTyped = (e: KeyboardEvent) => { if (isEditableTarget(e.target) || (e.target instanceof HTMLElement && e.target.closest(".xterm"))) typedAt = Date.now(); };
+    window.addEventListener("keydown", onTyped, true);
+    const offSw = rpc().on("space.switchRequested", (p) => { const st = store.getState(); st.run(() => st.applySpaceSwitchRequested(p, Date.now() - typedAt < TYPING_QUIET_MS)); });
+    // A setting an agent changed with `settings_set`, applied in every window.
+    const offSet = rpc().on("settings.changed", (p) => store.getState().applySettingChanged(p));
+    // A session an agent opened for the user with `session_open`: a pane of its own, beside that agent's.
+    const offSO = rpc().on("session.openRequested", (p) => { const st = store.getState(); st.run(() => st.applySessionOpenRequested(p)); });
     // The same child's run settled. A clean finish reads its "Finished a turn" row (`applyAgentSettled`).
     const offSS = rpc().on("session.agentSettled", (p) => store.getState().applyAgentSettled(p));
     // W4's watching feed: settled actions into the pane chrome's ticker, in-flight acts onto the
@@ -714,7 +730,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

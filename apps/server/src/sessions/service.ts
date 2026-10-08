@@ -45,7 +45,10 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
   goal?: "continuation" | "budget";
   /** A scheduled task's run, and the note the run appended to the task's instructions — the same
    *  transcript-only ride as `goal`: the agent is handed the text, note and all. */
-  scheduled?: { task: string; note: string } };
+  scheduled?: { task: string; note: string };
+  /** Written by another session's agent (`session_open`'s first message) — transcript-only, as `goal`
+   *  is, so the pane never shows an agent's words as something the user typed. */
+  from?: { sessionId: string; title: string } };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -604,7 +607,7 @@ export class SessionService {
     // which stay the files the user attached — the chip already shows a mentioned file.
     const refs = this.mentionedRefs(msg);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}),
-      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(refs.length ? { refs } : {}) }));
+      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(msg.from ? { from: msg.from } : {}), ...(refs.length ? { refs } : {}) }));
     await handle.send(this.resolveMentions(id, msg));
   }
 
