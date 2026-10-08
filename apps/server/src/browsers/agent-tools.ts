@@ -3,7 +3,7 @@ import {
   BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema,
   CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
-  SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin,
+  PANE_SHOW_WIRE_NAME, SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin, paneNotOpenError,
   type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
   type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserFillCredentialResult,
   type BrowserNavigateResult, type BrowserReadResult, type BrowserScreenshotResult,
@@ -375,7 +375,7 @@ const HANDLERS: Record<string, Handler> = {
       const live = await describeSafe(d, row.id);
       const state = live === null ? "app not connected"
         : live.open ? `open, url: ${live.url || "(blank)"}${live.loadError ? ` — did not load (${live.loadError.name})` : ""}`
-        : "pane not open in the app";
+        : `pane not open in the app (${PANE_SHOW_WIRE_NAME} brings it back)`;
       return `browserId: ${row.id} — ${state}${row.url && (!live?.open) ? ` (last url: ${row.url})` : ""}`;
     }));
     return ok(`Browser panes in this space:\n${lines.join("\n")}`);
@@ -414,7 +414,7 @@ const HANDLERS: Record<string, Handler> = {
     d.reads.forget(ctx.sessionId, row.value.id);
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
       const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
-      if (!result.url) return err(`navigation to ${url} was refused — the pane is not open in the app, or the space's origin allowlist blocks that origin.`);
+      if (!result.url) return err(`navigation to ${url} was refused — the pane is not open in the app (${PANE_SHOW_WIRE_NAME} brings it back), or the space's origin allowlist blocks that origin.`);
       return ok(`Navigating to ${result.url}. Use browser_snapshot once loaded.`);
     });
   },
@@ -486,7 +486,7 @@ const HANDLERS: Record<string, Handler> = {
     const consent = await refuseConsentAct(d, ctx, browserId); if (consent) return consent;
     const live = await describeSafe(d, browserId);
     // Said now, rather than after a walk's first read has retried its way to the same answer.
-    if (live && !live.open) return err(`browser ${browserId}'s pane is not open in the app — the user must open (or reopen) the browser pane before tools can drive it`);
+    if (live && !live.open) return err(paneNotOpenError(browserId));
     const host = hostOf(live?.url);
     // The labels and the text are the agent's words, not the page's, so the card can say them plainly.
     const clicks = `Click ${path.map((l) => `"${clip(l, 30)}"`).join(" › ")}`;

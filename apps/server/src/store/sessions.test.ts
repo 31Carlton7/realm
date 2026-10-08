@@ -36,6 +36,24 @@ describe("SessionsStore + SessionEventsStore", () => {
     expect(s.list(space.id).map((x) => x.id)).toEqual([sess.id]);
     expect(s.listAll()).toHaveLength(1);
   });
+  it("listOfTypes reads only the kinds asked for: the newest page by default, forward from a seq when given", () => {
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = s.create(input(space.id, env.id));
+    const said = (n: number) => ev.append(sess.id, sessionEvent("assistant_text", { messageId: `m${n}`, text: `line ${n}` }));
+    const first = said(1);
+    ev.append(sess.id, sessionEvent("status", { status: "running" }));
+    said(2); said(3);
+    ev.append(sess.id, sessionEvent("usage", { costUsd: 0, inputTokens: 1, outputTokens: 1, numTurns: 1 }));
+    said(4);
+    const texts = (rows: ReturnType<typeof ev.listOfTypes>) => rows.map((e) => (e.event.payload as { text: string }).text);
+    // THE MUTANT: ascending without a seq. The default page is then the session's first lines, and a
+    // reader asking what a long session is doing gets how it began.
+    expect(texts(ev.listOfTypes(sess.id, ["assistant_text"], { limit: 2 }))).toEqual(["line 3", "line 4"]);
+    expect(texts(ev.listOfTypes(sess.id, ["assistant_text"], { afterSeq: first.seq, limit: 2 }))).toEqual(["line 2", "line 3"]);
+    // The kinds that were not asked for never take a slot of the page.
+    expect(ev.listOfTypes(sess.id, ["assistant_text"], { limit: 10 })).toHaveLength(4);
+    expect(ev.listOfTypes(sess.id, [], { limit: 10 })).toEqual([]);
+  });
   it("update patches title/model/effort/permissionMode and delete cascades events", () => {
     const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
     const sess = s.create(input(space.id, env.id));

@@ -320,6 +320,27 @@ export class SessionEventsStore {
     return out;
   }
 
+  /**
+   * Only events of `types`, oldest first, at most `limit` of them: the first `limit` after `afterSeq`
+   * when it is given (reading forward a page at a time), else the session's LAST `limit` (what it has
+   * been doing lately). What `session_read` pages through; a status or usage row is not part of
+   * anything a reader asked for, so the filter is in the query rather than over a page of everything.
+   */
+  listOfTypes(sessionId: string, types: readonly SessionEvent["type"][], opts: { afterSeq?: number; limit: number }): StoredSessionEvent[] {
+    if (types.length === 0 || opts.limit <= 0) return [];
+    const inTypes = `type IN (${types.map(() => "?").join(", ")})`;
+    const rows = (opts.afterSeq !== undefined
+      ? this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND seq > ? AND ${inTypes} ORDER BY seq LIMIT ?`).all(sessionId, opts.afterSeq, ...types, opts.limit)
+      : this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND ${inTypes} ORDER BY seq DESC LIMIT ?`).all(sessionId, ...types, opts.limit).reverse()) as EventRow[];
+    const out: StoredSessionEvent[] = [];
+    for (const r of rows) {
+      let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { continue; }
+      const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
+      if (p.success) out.push({ seq: r.seq, sessionId, event: p.data });
+    }
+    return out;
+  }
+
   /** Events with seq > afterSeq, ascending. Rows that fail schema validation (e.g. from an older build) are skipped. */
   listAfter(sessionId: string, afterSeq: number, limit: number): StoredSessionEvent[] {
     const rows = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?").all(sessionId, afterSeq, limit) as EventRow[];

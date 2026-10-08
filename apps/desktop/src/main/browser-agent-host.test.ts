@@ -228,6 +228,9 @@ describe("BrowserAgentHost", () => {
     await host.handleOp("read", { browserId: "b1", kind: "text" });
     liveViews.delete("b1");
     await expect(host.handleOp("snapshot", { browserId: "b1" })).rejects.toThrow(/pane is not open/);
+    // THE MUTANT: "the user must open (or reopen) the browser pane" — a refusal with nothing in it for
+    // the agent to do. It names the tool that brings the pane back, and the user only as the fallback.
+    await expect(host.handleOp("snapshot", { browserId: "b1" })).rejects.toThrow('Call realm-workspace__pane_show with {"browserId": "b1"}');
   });
 
   it("unknown ops are refused by name", async () => {
