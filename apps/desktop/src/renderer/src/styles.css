@@ -10136,6 +10136,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-card-custom:hover { background: var(--rl-card); }
 .tp-mark-add { background: var(--rl-hover); color: var(--rl-text-dim); }
 .tp-picker { gap: 22px; }
+.tp-said { display: flex; flex-direction: column; gap: 12px; }
 .tp-picker-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
 .tp-picker-foot > .btn { flex: none; }
 .tp-picker-hint { margin-top: -10px; }

@@ -86,9 +86,13 @@ describe("making a team: who is on it", () => {
   it("when the team's memory can go nowhere Realm would put it, says why where the button is and lets you choose a folder", async () => {
     const message = "Realm keeps memory repos in its own folder, but that folder is inside /Users/me/Projects, which one of your spaces works in. Choose a folder outside your projects to keep it in.";
     const { api } = await mount(base({ teamMakeRefusal: { code: "MEMORY_REPO_FORBIDDEN", message } }), <TeamPage spaceId="s2" tab="team" />);
+    const seen = vi.fn();
+    Element.prototype.scrollIntoView = seen;
     pick("Editor");
     fireEvent.click(makeButton());
     const alert = await screen.findByRole("alert");
+    // Brought into view: below the fold, the refusal reads as a press that did nothing.
+    await waitFor(() => expect(seen).toHaveBeenCalled());
     expect(alert).toHaveTextContent("The team's memory needs a folder of its own");
     expect(alert).toHaveTextContent(message);
     // THE MUTANT: the refusal as a toast with no way forward — the dead end the owner hit.

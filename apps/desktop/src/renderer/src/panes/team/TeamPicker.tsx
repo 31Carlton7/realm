@@ -1,5 +1,5 @@
 import { Icon, Realmite, parseRealmiteSpec, realmiteFromSeed } from "@realm/ui";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ROLE_TEMPLATES, TEAM_DEFAULTS, teamShares, type CustomRoleInput, type RoleTemplate, type TeamSpace } from "@realm/contracts";
 import { Sheet } from "../../components/Sheet";
 import { RpcError } from "../../rpc/client";
@@ -168,6 +168,9 @@ export function MakeTeam({ spaceId }: { spaceId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const over = sharesNote(totals(team, picked).shares, totals(team, picked).cap).over;
+  // What went wrong is said where the button is, and brought into view: a refusal below the fold reads as a press that did nothing.
+  const said = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (refusal || error) said.current?.scrollIntoView?.({ block: "nearest" }); }, [refusal, error]);
   const make = (repoPath?: string) => {
     setBusy(true); setError(null);
     run(async () => {
@@ -198,23 +201,25 @@ export function MakeTeam({ spaceId }: { spaceId: string }) {
           Review for your yes before anything leaves Realm. Choose who is on it — you can add, change or remove anyone later.
         </p>
         <Gallery team={team} picked={picked} setPicked={setPicked} onWrite={setWriting} />
-        {refusal && (
-          <div className="tp-refusal" role="alert">
-            <Icon name="folder" size={16} />
-            <div className="tp-refusal-text">
-              <span className="settings-row-name">The team's memory needs a folder of its own</span>
-              <span className="settings-row-detail">{refusal}</span>
+        <div ref={said} className="tp-said">
+          {refusal && (
+            <div className="tp-refusal" role="alert">
+              <Icon name="folder" size={16} />
+              <div className="tp-refusal-text">
+                <span className="settings-row-name">The team's memory needs a folder of its own</span>
+                <span className="settings-row-detail">{refusal}</span>
+              </div>
+              <button type="button" className="btn" disabled={busy} onClick={choose}>Choose a folder…</button>
             </div>
-            <button type="button" className="btn" disabled={busy} onClick={choose}>Choose a folder…</button>
-          </div>
-        )}
-        <SharesFoot team={team} picked={picked} setPicked={setPicked}>
-          {error && <span className="tp-sheet-error" role="alert">{error}</span>}
-          <button type="button" className="btn primary" disabled={busy || n === 0 || over} onClick={() => make()}
-            title={n === 0 ? "Choose at least one teammate" : over ? "The shares are over the team's week" : undefined}>
-            Make {space?.name ?? "this space"} a team
-          </button>
-        </SharesFoot>
+          )}
+          <SharesFoot team={team} picked={picked} setPicked={setPicked}>
+            {error && <span className="tp-sheet-error" role="alert">{error}</span>}
+            <button type="button" className="btn primary" disabled={busy || n === 0 || over} onClick={() => make()}
+              title={n === 0 ? "Choose at least one teammate" : over ? "The shares are over the team's week" : undefined}>
+              Make {space?.name ?? "this space"} a team
+            </button>
+          </SharesFoot>
+        </div>
         {n === 0 && <p className="tp-make-note tp-picker-hint">Choose at least one teammate. Each runs on Sonnet unless you say otherwise, and stops at $3 or 20 minutes a run.</p>}
       </div>
       {writing !== false && (

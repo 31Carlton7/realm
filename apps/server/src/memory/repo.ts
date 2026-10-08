@@ -210,7 +210,8 @@ export class MemoryRepoService {
   async create(owner: RepoOwner, path?: string): Promise<MemoryRepoState> {
     if (path === undefined && !this.placeFor(owner)) {
       const root = this.forbiddenBy(this.resolvePath(this.defaultPath(owner)))!;
-      throw new RpcError("MEMORY_REPO_FORBIDDEN", `Realm keeps memory repos in its own folder, ${this.d.home}, but that folder is inside ${root}, which one of your spaces works in — and a memory repo has to stay apart from your projects. Choose a folder outside your projects to keep it in.`);
+      const second = this.d.fallbackRoot ? ` Its second place, ${this.d.fallbackRoot}, is inside one of them too.` : "";
+      throw new RpcError("MEMORY_REPO_FORBIDDEN", `Realm keeps memory repos in its own folder, ${this.d.home}, but that folder is inside ${root}, which one of your spaces works in, and a memory repo has to stay apart from your projects.${second} Choose a folder outside your projects to keep it in.`);
     }
     const p = path === undefined ? this.placeFor(owner)!.path : this.resolvePath(path);
     this.guard(p);

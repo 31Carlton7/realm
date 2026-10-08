@@ -113,6 +113,7 @@ describe("MemoryRepoService create / attach", () => {
     const err = await repos.create(P).catch((e: unknown) => e);
     expect(err).toMatchObject({ code: "MEMORY_REPO_FORBIDDEN" });
     expect((err as Error).message).toMatch(/one of your spaces works in/);
+    expect((err as Error).message).toMatch(/Its second place, .*elsewhere, is inside one of them too/);
     expect((err as Error).message).toMatch(/Choose a folder outside your projects/);
     // A folder the person chose outside every project is taken.
     const chosen = join(tempDir("realm-memrepo-chosen-"), "versed-memory");
