@@ -100,7 +100,8 @@ export function createMemoryAgentProvider(d: MemoryAgentToolsDeps): RealmToolPro
   return {
     name: MEMORY_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
-      if (!d.mcp.providerEnabled(ctx.spaceId, MEMORY_PROVIDER_NAME)) return [];
+      // `activeFor` already answers no in a space with this provider switched off (app.ts wires its
+      // `toolsEnabled` to the same switch), so the index and the tools can never disagree.
       return d.repos.activeFor(ctx.spaceId) ? TOOLS : [];
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {

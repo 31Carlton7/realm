@@ -241,6 +241,8 @@ describe("memory over rpc", () => {
     const before = new MemoryService({ home, claudeDir, settings, environments: new EnvironmentsStore(app.db), scopes: { profileIdOf: () => spA.profileId } });
     const preamble = capabilitiesContext(app.gateway.realmProvidersFor(cl.id, spA.id).filter((n) => n !== MEMORY_PROVIDER_NAME));
     for (const [kind, start] of [["claude", claude.starts[0]!], ["codex", codex.starts[0]!]] as const) {
+      expect(start.systemContext).not.toContain("# Memory repo");
+      expect(start.systemContext).not.toContain("memory_save");
       expect(start.systemContext).toBe(`${preamble}\n\n${before.systemContextFor({ spaceId: spA.id, kind, cwd: start.cwd, skillsInjected: false })}`);
     }
     expect(cursor.starts[0]!.systemContext).toBeUndefined();

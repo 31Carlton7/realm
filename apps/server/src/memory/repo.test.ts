@@ -108,31 +108,38 @@ describe("MemoryRepoService writes", () => {
   });
 
   it("makes one commit per add, replace and remove, staged by path only", async () => {
-    let stray = "";
-    // A file that appears while the save is in flight — another process writing into the repo. It
-    // passes the clean check, then must stay out of the commit.
-    const racing: GitRun = async (cwd, args, opts) => {
+    let racing = false;
+    // Files that change while the save is in flight — another process writing into the repo: a new
+    // one, and one git already tracks. Both pass the clean check, then must stay out of the commit.
+    const git_: GitRun = async (cwd, args, opts) => {
       const r = await gitCapture(cwd, args, opts);
-      if (stray && args.includes("status")) writeFileSync(stray, "someone else's");
+      if (racing && args.includes("status")) {
+        writeFileSync(join(cwd, "stray.md"), "someone else's");
+        writeFileSync(join(cwd, "notes.md"), "edited by someone else\n");
+      }
       return r;
     };
-    const { repos, repo } = await (async () => { const h = harness({ git: racing }); const s = await h.repos.create(PROFILE); return { ...h, repo: s.path }; })();
-    stray = join(repo, "stray.md");
+    const { repos, repo } = await (async () => { const h = harness({ git: git_ }); const s = await h.repos.create(PROFILE); return { ...h, repo: s.path }; })();
+    await repos.writeFile(repo, "notes.md", "mine\n");
+    racing = true;
     const added = await repos.edit(repo, { op: "add", entry: "Prefers tabs", sessionId: SESSION });
     expect(added).toMatchObject({ changed: true, file: "MEMORY.md" });
-    // THE MUTANT: `git add -A` (or a commit with no pathspec after it) — stray.md rides into the memory commit.
-    expect(tracked(repo)).toEqual(["MEMORY.md"]);
-    expect(git(repo, "status", "--porcelain")).toBe("?? stray.md\n");
-    expect(readFileSync(join(repo, "MEMORY.md"), "utf8")).toBe(`# Memory\n\n- Prefers tabs [source: realm:session/${SESSION}; added: 2026-10-08]\n\n## Index\n`);
+    // THE MUTANTS: `git add -A`, or `commit -a` with no pathspec — someone else's edit rides into the
+    // memory commit under the agent's name.
+    expect(git(repo, "show", "--name-only", "--format=").split("\n").filter(Boolean)).toEqual(["MEMORY.md"]);
+    expect(tracked(repo)).toEqual(["MEMORY.md", "notes.md"]);
+    expect(git(repo, "status", "--porcelain")).toBe(" M notes.md\n?? stray.md\n");
+    racing = false;
+    git(repo, "checkout", "--", "notes.md");
+    expect(readFileSync(join(repo, "MEMORY.md"), "utf8")).toBe(`# Memory\n\n- Prefers tabs [source: realm:session/${SESSION}; added: 2026-10-08]\n\n## Index\n- [[notes]]\n`);
     expect(git(repo, "log", "-1", "--format=%s|%an|%ae")).toBe("Remember Prefers tabs|Tester|realm@localhost\n");
 
-    stray = "";
     execFileSync("rm", [join(repo, "stray.md")]);
     await repos.edit(repo, { op: "replace", match: "Prefers tabs", entry: "Prefers two-space indents", sessionId: SESSION });
     await repos.edit(repo, { op: "remove", match: "two-space", sessionId: SESSION });
-    expect(commits(repo)).toBe(4);
+    expect(commits(repo)).toBe(5);
     expect(git(repo, "log", "--format=%s", "-3").split("\n").filter(Boolean)).toEqual(["Forget two-space", "Update Prefers two-space indents", "Remember Prefers tabs"]);
-    expect(readFileSync(join(repo, "MEMORY.md"), "utf8")).toBe(MEMORY_REPO_INITIAL_INDEX);
+    expect(readFileSync(join(repo, "MEMORY.md"), "utf8")).toBe(`${MEMORY_REPO_INITIAL_INDEX}- [[notes]]\n`);
   });
 
   it("stamps the calling session as the source, whatever the caller wrote", async () => {
