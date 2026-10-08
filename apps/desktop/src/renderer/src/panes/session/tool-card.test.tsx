@@ -90,7 +90,7 @@ describe("ToolCard copy buttons (A-M3)", () => {
     openCard();
     fireEvent.click(screen.getByRole("button", { name: "Copy result" }));
     expect(writeText).toHaveBeenCalledWith(content);
-    fireEvent.click(screen.getByRole("button", { name: "Copy input" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy arguments" }));
     expect(writeText).toHaveBeenLastCalledWith(expect.stringContaining("ls"));
   });
 });
@@ -489,6 +489,7 @@ describe("copy ✓ (§6 icon swap)", () => {
     try {
       mount("x");
       openCard();
+      fireEvent.click(screen.getByRole("button", { name: "Show raw" }));
       const copy = screen.getByRole("button", { name: "Copy result" });
       expect(copy.querySelector(".copy-icon")).not.toBeNull();
       expect(copy.querySelector(".copied-icon")).not.toBeNull();

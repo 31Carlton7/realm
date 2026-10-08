@@ -1,10 +1,10 @@
 import { Icon } from "@realm/ui";
 import DOMPurify from "dompurify";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useDissolve } from "../../../components/ScrollFades";
 import { DiffView, PathLabel } from "./DiffView";
 import { grammarForPath, highlightToHtml } from "./highlight";
-import type { MatchGroup, ToolInputView, ToolResultView, Todo, UploadFile } from "./tool-view";
+import type { MatchGroup, ToolArg, ToolInputView, ToolPanel, ToolResultView, Todo, UploadFile } from "./tool-view";
 
 /** The drawn forms of a tool call's input and result (AICSS's tool/structured-output blocks, fitted
  *  to the tools Realm's agents actually call). Each one is chosen by `tool-view.ts` and rendered
@@ -260,5 +260,173 @@ export function ToolResultBody({ view }: { view: ToolResultView }) {
     case "terminal": return <TerminalView output={view.output} exitCode={view.exitCode} />;
     case "code": return <CodeBlock text={view.text} lang={grammarForPath(view.path)} firstLine={view.firstLine} />;
     case "matches": return <MatchList groups={view.groups} note={view.note} />;
+  }
+}
+
+/** How long a copy control holds its ✓ before turning back to the copy glyph (the icon swap). */
+const COPIED_MS = 1400;
+
+/** A copy control in a panel's head: the copy glyph turning over to a tick, and the word for WHAT it
+ *  copies where a head carries two of them ("Command", "Output"). It copies the raw string it is
+ *  handed — what a reader pastes into a shell has to be what the tool was given, not Realm's drawing
+ *  of it — and keeps one accessible name throughout. */
+export function PanelCopy({ what, text, word = null }: { what: string; text: string; word?: string | null }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return (
+    <button type="button" className="tool-panel-copy" aria-label={`Copy ${what}`} title={`Copy ${what}`} data-copied={copied || undefined}
+      onClick={() => {
+        void navigator.clipboard.writeText(text);
+        setCopied(true);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+      }}>
+      <span className="icon-swap" data-on={copied || undefined}>
+        <Icon name="copy" size={12} className="swap-off" />
+        <Icon name="check" size={12} className="swap-on" />
+      </span>
+      {word && <span>{word}</span>}
+    </button>
+  );
+}
+
+/** One panel of a call's body: the panel a fenced block already is — the signature curve, a fill and
+ *  no ring — with a head of what it shows and how to copy it, unruled from the body under it. */
+function Panel({ head, acts, tone = null, children }: { head: ReactNode; acts: ReactNode; tone?: "terminal" | null; children?: ReactNode }) {
+  return (
+    <div className="tool-panel" data-tone={tone ?? undefined}>
+      <div className="tool-panel-head">
+        <span className="tool-panel-label">{head}</span>
+        <span className="tool-panel-acts">{acts}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Text a panel holds as it came — an error, a fetched page, an MCP result — capped, dissolving where
+ *  it runs on, and folded past `LINE_CLAMP` lines behind the shared "Show all". */
+function PanelText({ text, form = "code", error = false }: { text: string; form?: "code" | "prose"; error?: boolean }) {
+  const [showAll, setShowAll] = useState(false);
+  const total = lineCount(text);
+  const shown = showAll || total <= LINE_CLAMP ? text : text.split("\n").slice(0, LINE_CLAMP).join("\n");
+  const box = useRef<HTMLPreElement>(null);
+  useDissolve(box);
+  return (
+    <>
+      <pre className="tool-panel-text" ref={box} data-form={form} data-error={error || undefined}>{shown || "(empty)"}</pre>
+      {!showAll && total > LINE_CLAMP && <More label={`Show all ${total} lines`} onClick={() => setShowAll(true)} />}
+    </>
+  );
+}
+
+/** A failure's words in full, for the kinds whose panel has no place of its own for them. */
+export function ErrorPanel({ text }: { text: string }) {
+  return <Panel head="Error" acts={<PanelCopy what="error" text={text} />}><PanelText text={text} error /></Panel>;
+}
+
+/** A command and what it printed, in ONE terminal panel: where it ran and how it ended in the head,
+ *  the command on its prompt, the output under it in the same fill. */
+function RunPanel({ command, cwd, output, diff, exitCode }: Extract<ToolPanel, { kind: "run" }>) {
+  return (
+    <>
+    <Panel tone="terminal"
+      head={<>
+        {cwd && <span className="tool-panel-cwd" title={cwd}>in {cwd}</span>}
+        {/* Only where the payload stated it: an "exit 0" on output that never said so is a verdict
+            nobody gave. */}
+        {exitCode !== null && <span className="tool-panel-exit" data-bad={exitCode !== 0 || undefined}>exit {exitCode}</span>}
+      </>}
+      acts={<>
+        <PanelCopy what="command" text={command} word="Command" />
+        {output !== null && <PanelCopy what="output" text={output} word="Output" />}
+      </>}>
+      <div className="cmd-line">
+        <span className="cmd-prompt" aria-hidden="true">$</span>
+        <code>{command}</code>
+      </div>
+      {output !== null && !diff && <TerminalView output={output} exitCode={null} />}
+    </Panel>
+    {diff && <DiffView files={diff} />}
+    </>
+  );
+}
+
+/** "lines 40–58", from the file's own numbering, or nothing where the listing carried none. */
+const lineSpan = (text: string, first: number | null): string | null => {
+  if (first === null) return null;
+  const n = lineCount(text);
+  return n <= 1 ? `line ${first}` : `lines ${first}–${first + n - 1}`;
+};
+
+function McpArgs({ args }: { args: ToolArg[] }) {
+  return (
+    <dl className="tool-args">
+      {args.map((a) => (
+        <div key={a.key} className="tool-arg">
+          <dt>{a.key}</dt>
+          <dd data-form={a.form}>{a.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** An opened call's body: the panel for its kind (`toolPanel`). */
+export function ToolPanelBody({ panel, cwd }: { panel: Exclude<ToolPanel, { kind: "media" }>; cwd: string | null }) {
+  switch (panel.kind) {
+    case "run": return <RunPanel {...panel} cwd={panel.cwd ?? cwd} />;
+    // The diff alone: an edit's own receipt ("The file … has been updated") says nothing the diff does
+    // not, and it is still in Show raw.
+    case "diff": return <>{<DiffView files={panel.files} />}{panel.error && <ErrorPanel text={panel.error} />}</>;
+    case "read": return panel.error ? <ErrorPanel text={panel.error} /> : (
+      <Panel head={<>
+        <PathLabel className="tool-panel-path" path={panel.path} />
+        {lineSpan(panel.text, panel.firstLine) && <span className="tool-panel-note">{lineSpan(panel.text, panel.firstLine)}</span>}
+      </>} acts={<PanelCopy what="file" text={panel.text} />}>
+        <CodeBlock text={panel.text} lang={grammarForPath(panel.path)} firstLine={panel.firstLine} />
+      </Panel>
+    );
+    case "search": {
+      const files = panel.groups.length;
+      return (
+        <Panel head={<>
+          <span className="tool-panel-query">“{panel.pattern}”</span>
+          <span className="tool-panel-note">{files} {files === 1 ? "file" : "files"}</span>
+        </>} acts={<PanelCopy what="results" text={panel.groups.map((g) => g.path).join("\n")} />}>
+          <MatchList groups={panel.groups} note={panel.note} />
+        </Panel>
+      );
+    }
+    case "fetch": {
+      let host: string | null = null, rest = panel.url ?? "";
+      try { if (panel.url) { const u = new URL(panel.url); host = u.host; rest = `${u.pathname}${u.search}`.replace(/^\/$/, ""); } } catch { /* shown whole */ }
+      return (
+        <Panel head={panel.url
+          ? <>{host && <span className="tool-panel-host">{host}</span>}<span className="tool-panel-note" title={panel.url}>{host ? rest : panel.url}</span></>
+          : <span className="tool-panel-query">“{panel.query}”</span>}
+          acts={panel.result !== null && <PanelCopy what="result" text={panel.result} />}>
+          {panel.prompt && <div className="tool-panel-prompt">{panel.prompt}</div>}
+          {panel.result !== null && <PanelText text={panel.result} form="prose" error={panel.error} />}
+        </Panel>
+      );
+    }
+    case "mcp": return (
+      <Panel head={<><span className="tool-panel-host">{panel.server}</span><span className="tool-panel-note">{panel.tool}</span></>}
+        acts={<PanelCopy what="arguments" text={panel.argsText} />}>
+        {panel.args.length > 0 && <McpArgs args={panel.args} />}
+        {panel.result !== null && (
+          <>
+            <div className="tool-panel-head tool-panel-subhead">
+              <span className="tool-panel-label">{panel.error ? "Error" : "Result"}</span>
+              <span className="tool-panel-acts"><PanelCopy what={panel.error ? "error" : "result"} text={panel.result} /></span>
+            </div>
+            <PanelText text={panel.result} form={panel.json ? "code" : "prose"} error={panel.error} />
+          </>
+        )}
+      </Panel>
+    );
+    case "todos": return <TodoList todos={panel.todos} />;
   }
 }

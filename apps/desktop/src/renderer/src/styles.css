@@ -39,7 +39,7 @@
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
-.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary[data-form="code"], .tool-well, .wt-path, button.md-path, kbd,
+.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
@@ -4184,13 +4184,11 @@ button.edit-file:hover { background: var(--rl-hover); }
    three parts, a command in mono, a query or a description as prose — and is the one item of
    unbounded length, so it gives way first; the meta is reserved and says the state in a word. */
 .tool-card { border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; }
-.tool-card[data-open] { background: var(--rl-panel); box-shadow: var(--rl-edge); }
 .tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
-/* Open, the row is the card's head rather than a free-standing control: it keeps the card's top
-   corners and squares off against the body's divider. Rounding all four corners left the hover
-   fill curving away from the hairline at both ends — two dark notches sitting on the divider. */
-.tool-card[data-open] > .tool-row { border-radius: var(--r-ctl) var(--r-ctl) 0 0; corner-shape: squircle; }
+/* Open, the card is not a box: the row keeps its hover fill to say which call the body under it
+   belongs to, and the body hangs under the verb column on the transcript's own ground. */
+.tool-card[data-open] > .tool-row { background: var(--rl-hover); }
 .tool-chevron { color: var(--rl-text-faint); transition: transform var(--dur-base) var(--ease-in-out-strong); flex: none; margin-left: auto; }
 /* Direct children throughout: a card now contains its sub-agent's cards, and a descendant selector
    would have opening the parent rotate every chevron and unfold every body beneath it. */
@@ -4267,8 +4265,54 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* Why a call failed, under its row and outside the expander, set from the verb column. */
 .tool-reason { padding: 0 8px 4px 32px; font-size: 12px; line-height: 16px; color: var(--ink-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
-.tool-body { border-top: var(--hairline-w) solid var(--rl-hairline); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+/* Under the verb column (row padding 8 + lead 16 + gap 8), with no rule and no fill of its own: the
+   panels inside are the surfaces. */
+.tool-body { padding: 6px 0 10px 32px; display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity var(--dur-press) ease; }
+/* One panel per call: the panel a fenced block is — the signature curve on the card rung, a fill and
+   no ring, a head of what it shows and how to copy it, unruled from the body. */
+.tool-panel { display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-frame); overflow: hidden; padding-bottom: 6px; }
+.tool-panel[data-tone="terminal"] { background: var(--rl-terminal-bg); }
+.tool-panel-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 10px 0 14px; min-width: 0; }
+.tool-panel-label { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.tool-panel-label > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tool-panel-acts { flex: none; display: flex; align-items: center; gap: 2px; }
+.tool-panel-cwd { font: 11px var(--font-mono); color: var(--ink-3); }
+.tool-panel-exit { flex: none; font: 11px var(--font-mono); color: var(--ink-3); }
+.tool-panel-exit[data-bad] { color: var(--rl-danger); }
+.tool-panel-path { display: flex; font: 12px var(--font-mono); color: var(--ink-2); }
+.tool-panel-note { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-panel-query { color: var(--ink); }
+.tool-panel-host { flex: none; font-weight: var(--fw-title); color: var(--ink); }
+.tool-panel-prompt { padding: 0 14px 6px; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+.tool-panel-subhead { padding-top: 6px; }
+.tool-panel-copy { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 6px; border-radius: var(--r-chip);
+  font-size: 12px; color: var(--ink-3); }
+.tool-panel-copy:hover { background: var(--rl-hover); color: var(--ink); }
+.tool-panel-copy .swap-on { color: var(--rl-success); }
+/* Inside a panel the drawn pieces give up their own fill: the panel is the surface. */
+.tool-panel .cmd-line { padding: 2px 14px 6px; }
+.tool-panel .term-out { padding: 0 14px 6px; border-radius: 0; background: none; }
+.tool-panel .code-block { border-radius: 0; background: none; }
+.tool-panel .code-gutter { background: none; }
+.tool-panel .matches { padding: 0 6px; }
+.tool-panel .match-file { background: none; }
+.tool-panel .tool-expand { margin: 2px 0 0 14px; }
+.tool-panel-text { margin: 0; padding: 0 14px 6px; font: 12px/1.6 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 320px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
+.tool-panel-text[data-form="prose"] { font: 13px/1.55 var(--font-ui); }
+.tool-panel-text[data-error] { color: var(--rl-danger); }
+/* An MCP call's arguments: the key in quiet ink, the value as what it is. */
+.tool-args { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 14px; margin: 0; padding: 0 14px 6px; }
+.tool-arg { display: contents; }
+.tool-arg dt { font-size: 12px; line-height: 18px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-arg dd { margin: 0; min-width: 0; font-size: 12px; line-height: 18px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"] { font-family: var(--font-mono); }
+/* The exact payloads, behind one quiet word under the panel. */
+.tool-raw { display: flex; flex-direction: column; gap: 8px; }
+.tool-raw-toggle { align-self: flex-start; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); font-size: 12px; color: var(--ink-3); }
+.tool-raw-toggle:hover { background: var(--rl-hover); color: var(--ink); }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ rides §6's icon swap (the shared rule down in the motion block); the tick's colour is the
    only part of it that belongs to this button. */
@@ -5563,6 +5607,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .search-field,
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
+:root[data-squircle] .tool-panel,
 :root[data-squircle] .ui-block,
 :root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
@@ -5851,6 +5896,10 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* A tool call's panel is a fenced block's panel on the card rung, painted the same way. */
+:root[data-squircle] .tool-panel { --sq-fill: var(--rl-frame); box-shadow: none;
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
+:root[data-squircle] .tool-panel[data-tone="terminal"] { --sq-fill: var(--rl-terminal-bg); }
 /* A drawn block is the same panel the code it replaced was, painted the same way. */
 :root[data-squircle] .ui-block { --sq-fill: var(--surface); box-shadow: none; }
 /* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */
@@ -6206,7 +6255,7 @@ select { appearance: none; padding-right: 22px;
   .menu-list, .mention-list, .skill-picker-list, .mp-list, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
-  .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre, .app-view-request-well,
+  .transcript, .md pre, .msg-error pre, .tool-well, .tool-panel-text, .tool-body pre, .permission-details pre, .app-view-request-well,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display, .ui-block-scroll, .ui-diagram,
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,

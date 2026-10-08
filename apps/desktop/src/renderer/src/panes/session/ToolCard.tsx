@@ -6,8 +6,8 @@ import { useDissolve } from "../../components/ScrollFades";
 import { fileIconFor } from "../../components/file-icon";
 import { clip, editStat, editTarget, failureReason, mcpParts, prettyJson, readTarget, resultEditStat, statedExit, toolGlyph, toolSummary, toolVerb } from "./tool-summary";
 import { flattenRun, formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
-import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
-import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
+import { ErrorPanel, ToolInputBody, ToolPanelBody, ToolResultBody } from "./rich/ToolViews";
+import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolPanel, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
 import { ChildSessions, delegatedChildIds } from "./DelegatedRuns";
 import { DelegationLine, DelegationWait, isDelegationLine, isDelegationWait } from "./DelegationLine";
@@ -108,6 +108,26 @@ function Well({ label, text, error = false, rich = null }: { label: string; text
   );
 }
 
+/** The exact payloads, one quiet control under the panel: what the tool was handed and what it
+ *  answered, as they came, with their copy buttons. Kept available without competing with the panel,
+ *  and built only once asked for. */
+function RawWells({ block }: { block: ToolBlock }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="tool-raw">
+      <button type="button" className="tool-raw-toggle" aria-expanded={shown} onClick={() => setShown(!shown)}>
+        {shown ? "Hide raw" : "Show raw"}
+      </button>
+      {shown && (
+        <>
+          <Well label="Input" text={prettyJson(block.input)} />
+          {block.result && <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError} />}
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * Opening a card with ⌥ held opens every card in the same transcript — Finder's gesture on a
  * disclosure triangle, and the modifier this app already spells "the other way to do this" on a
@@ -202,14 +222,13 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
   const elapsed = useElapsed(block.ts, state === "running");
   const exit = block.result?.isError ? statedExit(block.result.content) : null;
   const reason = state === "error" ? failureReason(block.result!.content) : "";
-  /* The drawn forms of this call's payloads, or null where the raw well is still the best showing
-     (rich/tool-view.ts). Computed only once the body has been built — a transcript of 300 collapsed
-     cards must not diff 300 payloads to render a row nobody opened. */
-  const inputView = everOpened.current ? toolInputView(block.name, block.input) : null;
-  const resultView = everOpened.current && block.result ? toolResultView(block.name, block.input, block.result.content, block.result.isError) : null;
-  /* A picture the call is ABOUT, drawn in the input well instead of its filename (`Read` of a
-     screenshot, `Write` of a render). Same first-open gate as the views above. */
-  const mediaPath = everOpened.current ? toolMediaPath(block.name, block.input) : null;
+  /* The panel for this call's kind (rich/tool-view.ts), or — where Realm has none — the drawn forms of
+     its two payloads for the wells. Computed only once the body has been built: a transcript of 300
+     collapsed cards must not diff 300 payloads to render a row nobody opened. */
+  const panel = everOpened.current ? toolPanel(block) : null;
+  const inputView = everOpened.current && !panel ? toolInputView(block.name, block.input) : null;
+  const resultView = everOpened.current && !panel && block.result ? toolResultView(block.name, block.input, block.result.content, block.result.isError) : null;
+  const cwd = useContext(ToolCwd);
   /* The one state aicss.dev's image-generation component has, on the one call it belongs to: media
      being made, right now. Bound to `state === "running"` — the call's REAL settled state — so the
      canvas cannot outlive the work, and a failure leaves a failed card rather than a shimmer. */
@@ -280,11 +299,23 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
         <div className="tool-body-clip" inert={!open || undefined}>
           {everOpened.current && (
             <div className="tool-body">
-              <Well label="Input" text={prettyJson(block.input)}
-                rich={mediaPath ? <ToolMedia path={mediaPath} /> : inputView && <ToolInputBody view={inputView} />} />
-              {block.result && (
-                <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError}
-                  rich={resultView && <ToolResultBody view={resultView} />} />
+              {panel ? (
+                <>
+                  {panel.kind === "media"
+                    ? <><ToolMedia path={panel.path} />{panel.error && <ErrorPanel text={panel.error} />}</>
+                    : <ToolPanelBody panel={panel} cwd={cwd} />}
+                  <RawWells block={block} />
+                </>
+              ) : (
+                /* No panel for this kind: the payload itself, labelled for what it is, drawn where a
+                   view exists for it and raw where none does. */
+                <>
+                  <Well label="Arguments" text={prettyJson(block.input)} rich={inputView && <ToolInputBody view={inputView} />} />
+                  {block.result && (
+                    <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError}
+                      rich={resultView && <ToolResultBody view={resultView} />} />
+                  )}
+                </>
               )}
             </div>
           )}

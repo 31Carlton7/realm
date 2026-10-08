@@ -1619,15 +1619,19 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");
   });
 
-  it("an open card's head squares off against the body divider — only the card's own corners round", () => {
-    // Both radii are the control radius while collapsed: the row IS the card's whole surface, so
-    // its hover fill has to trace the card's corners exactly.
-    expect(bodiesFor(".tool-card").join(" ")).toContain("border-radius: var(--r-ctl)");
-    expect(bodiesFor(".tool-row").join(" ")).toContain("border-radius: var(--r-ctl)");
-    // Open, the bottom two stop rounding: a curve there pulls the hover fill away from the
-    // hairline and leaves a notch at each end of the divider.
-    expect(bodiesFor(".tool-card[data-open] > .tool-row").join(" "))
-      .toContain("border-radius: var(--r-ctl) var(--r-ctl) 0 0");
+  it("an open card is no box: the row keeps its fill and the body hangs under the verb column on the ground", () => {
+    // No panel fill and no ring round the open card — the panels inside it are the surfaces.
+    expect(RULES.filter((r) => partsOf(r).includes(".tool-card[data-open]"))).toEqual([]);
+    expect(bodiesFor(".tool-card[data-open] > .tool-row").join(" ")).toContain("background: var(--rl-hover)");
+    const body = bodiesFor(".tool-body").join(" ");
+    expect(body).toContain("padding: 6px 0 10px 32px"); // row padding 8 + lead 16 + gap 8
+    expect(body).not.toContain("border-top");
+    // A call's panel is a fenced block's: the card-rung curve, a fill, no ring — and painted.
+    const panel = bodiesFor(".tool-panel").join(" ");
+    expect(panel).toContain("border-radius: var(--r-squircle-card)");
+    expect(panel).not.toContain("box-shadow");
+    expect(bodiesFor(":root[data-squircle] .tool-panel").join(" ")).toContain("--sq-fill: var(--rl-frame)");
+    expect(bodiesFor('.tool-panel[data-tone="terminal"]').join(" ")).toContain("var(--rl-terminal-bg)");
   });
 
   it("an open card's rules reach its own row and body only — the cards inside it are a sub-agent's", () => {

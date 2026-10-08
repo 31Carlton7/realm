@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DiffView } from "./DiffView";
 import { CodeBlock, CommandView, MatchList, RequestView, TerminalView, TodoList, UploadView, clampGroups } from "./ToolViews";
@@ -224,26 +224,71 @@ const tool = (name: string, input: Record<string, unknown>, result: string | nul
 describe("ToolCard with a drawn payload", () => {
   const open = () => fireEvent.click(screen.getByRole("button", { name: /tool call/ }));
 
-  it("an opened Edit shows the diff where the JSON well used to be", () => {
-    render(<ToolCard sessionStatus="idle" block={tool("Edit", { file_path: "/a.ts", old_string: "a", new_string: "b" }, "ok")} />);
+  it("an opened Edit shows the diff alone — its receipt is in Show raw, with the exact payloads", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("Edit", { file_path: "/a.ts", old_string: "a", new_string: "b" }, "The file /a.ts has been updated.")} />);
     open();
     expect(q(".fd-line")).toHaveLength(2);
-    expect(q(".tool-section .tool-well")).toHaveLength(1); // the result well survives; the input well is drawn
+    expect(q(".tool-well")).toHaveLength(0);
+    expect(document.querySelector(".tool-body")).not.toHaveTextContent("has been updated");
+    fireEvent.click(screen.getByRole("button", { name: "Show raw" }));
+    expect(text(".tool-label > span")).toEqual(["Input", "Result"]);
+    expect(q(".tool-well")[1]).toHaveTextContent("The file /a.ts has been updated.");
   });
 
-  it("copy still puts the RAW payload on the clipboard, not the drawing of it", async () => {
+  it("a command and what it printed are ONE panel, and each copy takes its own raw string", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     render(<ToolCard sessionStatus="idle" block={tool("Bash", { command: "ls -la" }, "total 8")} />);
     open();
+    const panels = q(".tool-panel");
+    expect(panels).toHaveLength(1);
+    expect(panels[0]).toHaveAttribute("data-tone", "terminal");
+    expect(panels[0]!.querySelector(".cmd-line code")).toHaveTextContent("ls -la");
+    expect(panels[0]!.querySelector(".term-out")).toHaveTextContent("total 8");
+    fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
+    expect(writeText).toHaveBeenLastCalledWith("ls -la");
+    fireEvent.click(screen.getByRole("button", { name: "Copy output" }));
+    expect(writeText).toHaveBeenLastCalledWith("total 8");
+    // The raw input is still a click away, and copy there is the payload as the tool was handed it.
+    fireEvent.click(screen.getByRole("button", { name: "Show raw" }));
     fireEvent.click(screen.getByRole("button", { name: "Copy input" }));
-    expect(writeText).toHaveBeenCalledWith(JSON.stringify({ command: "ls -la" }, null, 2));
+    expect(writeText).toHaveBeenLastCalledWith(JSON.stringify({ command: "ls -la" }, null, 2));
   });
 
-  it("a tool with nothing better to draw keeps both raw wells", () => {
-    render(<ToolCard sessionStatus="idle" block={tool("mcp__x__do", { anything: 1 }, "some result")} />);
+  it("says an exit code in the run panel's head only where the output stated one", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("exec_command", { command: "false" }, "nope\n[exit 1]")} />);
+    open();
+    expect(document.querySelector(".tool-panel-exit")).toHaveTextContent("exit 1");
+    expect(document.querySelector(".term-out")).toHaveTextContent(/^nope$/);
+    cleanup();
+    render(<ToolCard sessionStatus="idle" block={tool("Bash", { command: "true" }, "fine")} />);
+    open();
+    expect(document.querySelector(".tool-panel-exit")).toBeNull();
+  });
+
+  it("an MCP call lists its arguments by key and draws a JSON result as JSON", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("mcp__linear__save_issue", { team: "REA", title: "Tool card redesign", priority: 2 }, '{"id":"REA-412"}')} />);
+    open();
+    expect(document.querySelector(".tool-panel-head")).toHaveTextContent("Linearsave_issue");
+    expect(text(".tool-arg dt")).toEqual(["team", "title", "priority"]);
+    expect(q(".tool-arg dd").map((d) => d.getAttribute("data-form"))).toEqual(["code", "prose", "code"]);
+    expect(document.querySelector(".tool-panel-text")).toHaveTextContent('"id": "REA-412"');
+    expect(document.querySelector(".tool-panel-text")).toHaveAttribute("data-form", "code");
+  });
+
+  it("a read says which lines of the file it holds, numbered as the file numbers them", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("Read", { file_path: "/w/a.ts" }, "    40\tconst a = 1;\n    41\tconst b = 2;")} />);
+    open();
+    expect(document.querySelector(".tool-panel-head")).toHaveTextContent("lines 40–41");
+    expect(document.querySelector(".code-gutter")).toHaveTextContent("40 41");
+  });
+
+  it("a tool Realm has no panel for keeps both wells, named Arguments and Result", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("frobnicate", { anything: 1 }, "some result")} />);
     open();
     expect(q(".tool-well")).toHaveLength(2);
+    expect(text(".tool-label > span")).toEqual(["Arguments", "Result"]);
+    expect(screen.queryByRole("button", { name: "Show raw" })).toBeNull(); // they ARE the raw payloads
   });
 
 });
