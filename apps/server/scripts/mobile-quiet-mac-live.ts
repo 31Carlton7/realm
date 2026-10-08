@@ -1,11 +1,13 @@
 /**
- * Plan 28 Phase 1 — what a phone sees when its Mac goes quiet without closing its connection
+ * Plan 28 — what a phone sees when its Mac goes quiet without closing its connection
  * (run with: pnpm --filter @realm/server exec tsx scripts/mobile-quiet-mac-live.ts --relay wss://…)
  *
  * A sleeping Mac, or one whose network was pulled, sends no close; its socket just stops. This runs the
  * sidecar as a child process on a scratch home, pairs a TypeScript phone with it, then SIGSTOPs the
  * sidecar — the gateway freezes with its socket open, as in sleep — and times how long until the phone
- * is told the Mac is offline, and what a request does meanwhile. Then SIGCONT, and the recovery.
+ * is told the Mac is offline, and what a request does meanwhile. Then SIGCONT: how soon the phone is
+ * told the Mac is back, and the recovery. Phase 1 found no notice within 180 s; PROTOCOL.md §3.2 now
+ * promises one 60 s after the Mac's last message or heartbeat.
  *
  * Flags: --relay <url> (required) · --wait <seconds> to wait for an offline notice (default 180)
  */
@@ -62,10 +64,16 @@ try {
   const noticedAt = await offline;
   results.offlineNoticeMs = noticedAt === null ? null : Math.round(noticedAt - frozeAt);
   console.log(noticedAt === null ? `  the phone was NOT told the Mac went quiet within ${WAIT / 1000} s` : `  the phone was told after ${Math.round((noticedAt - frozeAt) / 1000)} s`);
+  // The Mac's last heartbeat can be up to 20 s before the freeze, and the relay's alarm may run late.
+  ok("the phone is told the Mac went quiet, 40–80 s after it froze", noticedAt !== null && noticedAt - frozeAt >= 40_000 && noticedAt - frozeAt <= 80_000);
 
   // Wake it. Its socket may have been dropped meanwhile; either way the gateway carries on or reconnects.
+  const back = phone.waitFor("mac", (m) => ((m as { online?: boolean }).online === true ? true : undefined), 40_000).then(() => now()).catch(() => null);
   const wokeAt = now();
   process.kill(sidecar.pid!, "SIGCONT");
+  const backAt = await back;
+  results.onlineNoticeMs = backAt === null ? null : Math.round(backAt - wokeAt);
+  ok("the phone is told the Mac is back once it wakes", backAt !== null, backAt === null ? "" : `${Math.round(backAt - wokeAt)} ms`);
   await waitFor(/\[relay\] connected[\s\S]*$/, 5_000).catch(() => null);
   let recovered: number | null = null;
   for (let i = 0; i < 60 && recovered === null; i++) {
