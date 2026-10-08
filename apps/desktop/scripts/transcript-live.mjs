@@ -317,7 +317,7 @@ async function main() {
   const rows = await evalIn(c, `[...__live.pane(${JSON.stringify(ASKED)}).querySelectorAll(".tool-row")].map((r) => ({ name: r.querySelector(".tool-name")?.textContent,
     file: r.querySelector(".tool-file-name")?.textContent ?? null, dir: r.querySelector(".tool-file-dir")?.textContent ?? null, stat: r.querySelector(".tool-stat")?.textContent ?? null }))`);
   check("each edit's tool row shows the file's mark, its path and its counts", rows.some((r) => r.name === "Edit" && r.file === "orgs.ts" && r.dir === "web/lib/" && r.stat === "+17−2")
-    && rows.some((r) => r.name === "Edit" && r.file === "auto-compact.ts" && r.stat === "+3−1") && rows.some((r) => r.name === "Bash" && r.file === null), rows);
+    && rows.some((r) => r.name === "Edit" && r.file === "auto-compact.ts" && r.stat === "+3−1") && rows.some((r) => r.name === "Run" && r.file === null), rows);
   const groupShot = async (face) => {
     const g = await evalIn(c, `__live.show(__live.pane(${JSON.stringify(ASKED)}).querySelector(".tool-group"))`);
     await shoot(c, `tool-rows-${face}`, pad(g, 12));
