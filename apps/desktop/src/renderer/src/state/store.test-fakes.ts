@@ -1187,6 +1187,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
     dequeuePrompt: async (id, queuedId) => { calls.push(`dequeue:${id}:${queuedId}`); },
     releaseQueuedPrompt: async (id, queuedId) => { calls.push(`releaseQueued:${id}:${queuedId}`); },
+    holdQueuedPrompt: async (id, queuedId, held) => {
+      calls.push(`holdQueued:${id}:${queuedId}=${held}`);
+      return held && queuedPrompts.some((q) => q.id === queuedId);
+    },
+    editQueuedPrompt: async (id, queuedId, text) => {
+      calls.push(`editQueued:${id}:${queuedId}=${text}`);
+      const q = queuedPrompts.find((x) => x.id === queuedId);
+      if (q) q.text = text;
+      return q !== undefined;
+    },
     sessionQueue: async () => queuedPrompts,
     planLimits: async () => { calls.push("planLimits"); return planLimitRows; },
     recordFeedback: async (id, messageId, rating) => { calls.push(`recordFeedback:${id}:${messageId}=${rating ?? "none"}`); },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { newId, IdSchema } from "./ids";
-import { SpaceSchema, ItemKindSchema, PAGE_REF_IDS, FAVICON_MAX_BYTES, isFaviconDataUrl } from "./entities";
+import { SpaceSchema, ItemKindSchema, PAGE_REF_IDS, FAVICON_MAX_BYTES, QueuedPromptSchema, isFaviconDataUrl } from "./entities";
+import { Methods } from "./rpc";
 
 describe("entities", () => {
   it("IdSchema accepts ULIDs and rejects non-Crockford 26-char strings", () => {
@@ -61,5 +62,18 @@ describe("destination-page sentinels (Plan 12 W4)", () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) expect(id.startsWith("0000000000")).toBe(true); // newId()'s first 10 chars encode NOW
     expect(newId().startsWith("0000000000")).toBe(false);
+  });
+});
+
+describe("a queued message", () => {
+  it("reads as not held when the payload predates the field", () => {
+    // THE MUTANT: `held` required — a queue broadcast by a server from before holds no longer parses.
+    expect(QueuedPromptSchema.parse({ id: "q1", text: "hi", attachments: [], ts: 1 }).held).toBe(false);
+  });
+
+  it("refuses an edit to nothing at all on the wire", () => {
+    const edit = Methods["sessions.editQueued"].params;
+    expect(edit.safeParse({ id: newId(), queuedId: "q1", text: "", attachments: [] }).success).toBe(false);
+    expect(edit.safeParse({ id: newId(), queuedId: "q1", text: "fixed" }).success).toBe(true);
   });
 });

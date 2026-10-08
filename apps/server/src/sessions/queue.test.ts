@@ -206,3 +206,188 @@ describe("mid-turn prompts", () => {
     expect(queued[0].attachments).toEqual([{ path: "/tmp/shot.png", mime: "image/png" }]);
   });
 });
+
+describe("editing a queued message", () => {
+  const texts = (q: { text: string }[]) => q.map((x) => x.text);
+  const queued = async (c: Awaited<ReturnType<typeof client>>, id: string) => (await c.call("sessions.queued", { id })).result.queued as { id: string; text: string; held: boolean }[];
+
+  it("replaces the text and keeps the message's place", async () => {
+    // THE MUTANT: an edit as remove-and-re-enqueue, which sends the corrected message last.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+    const [a] = await queued(c, session.id);
+
+    expect((await c.call("sessions.editQueued", { id: session.id, queuedId: a!.id, text: "first, edited" })).result).toEqual({ edited: true });
+
+    expect(texts(await queued(c, session.id))).toEqual(["first, edited", "second"]);
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.userMessages(session.id).length === 2);
+    expect(c.userMessages(session.id)).toEqual(["go", "first, edited"]);
+  });
+
+  it("answers edited:false for a message that already went out, and sends nothing twice", async () => {
+    // THE MUTANT: an edit of a gone id that re-sends it, or re-queues it.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    const [a] = await queued(c, session.id);
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.userMessages(session.id).includes("first"));
+
+    expect((await c.call("sessions.editQueued", { id: session.id, queuedId: a!.id, text: "too late" })).result).toEqual({ edited: false });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(c.userMessages(session.id)).toEqual(["go", "first"]);
+    expect(await queued(c, session.id)).toEqual([]);
+  });
+
+  it("does not drain a held head at the settle, and letting go drains it", async () => {
+    // THE MUTANTS: a drain that ignores the hold (the old text goes out mid-edit), and a let-go that
+    // never pays the drain the settle owed (the message sits until something else settles).
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    const [a] = await queued(c, session.id);
+    expect((await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true })).result).toEqual({ ok: true, held: true });
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.events.some((e) => e.event === "session.status" && e.payload.sessionId === session.id && e.payload.status === "idle"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(c.userMessages(session.id)).toEqual(["go"]);
+
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: false });
+    await waitFor(() => c.userMessages(session.id).includes("first"));
+  });
+
+  it("saving the edit of a held head lets go and sends the edited text", async () => {
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    const [a] = await queued(c, session.id);
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true });
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.events.some((e) => e.event === "session.status" && e.payload.sessionId === session.id && e.payload.status === "idle"));
+
+    await c.call("sessions.editQueued", { id: session.id, queuedId: a!.id, text: "later" });
+
+    await waitFor(() => c.userMessages(session.id).includes("later"));
+    expect(c.userMessages(session.id)).toEqual(["go", "later"]);
+  });
+
+  it("letting go after the user's Stop starts no turn", async () => {
+    // THE MUTANT: a let-go that drains whenever the session is idle — the Stop button undone by an edit.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    const [a] = await queued(c, session.id);
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true });
+
+    await c.call("sessions.interrupt", { id: session.id });
+    await waitFor(() => c.events.some((e) => e.event === "session.status" && e.payload.sessionId === session.id && e.payload.status === "idle"));
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: false });
+
+    await new Promise((r) => setTimeout(r, 80));
+    expect(c.userMessages(session.id)).toEqual(["go"]);
+    expect(texts(await queued(c, session.id))).toEqual(["first"]);
+  });
+
+  it("a held head blocks the messages behind it", async () => {
+    // THE MUTANT: a drain that skips the held message and sends the next one in its place.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+    const [a] = await queued(c, session.id);
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true });
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.events.some((e) => e.event === "session.status" && e.payload.sessionId === session.id && e.payload.status === "idle"));
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(c.userMessages(session.id)).toEqual(["go"]);
+    expect(texts(await queued(c, session.id))).toEqual(["first", "second"]);
+  });
+
+  it("lets go of a hold nobody came back to", async () => {
+    // THE MUTANT: a hold with no timer — a window closed mid-edit strands the queue for good.
+    const { c, session } = await boot();
+    app.sessions.queueHoldTtlMs = 60;
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    const [a] = await queued(c, session.id);
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true });
+    await releaseTurn(c, session.id);
+
+    await waitFor(() => c.userMessages(session.id).includes("first"));
+    expect(await queued(c, session.id)).toEqual([]);
+  });
+
+  it("drops an element chip whose token the edit took out", async () => {
+    // THE MUTANT: the edit keeping the old `elements` — the agent handed a picked element the message
+    // no longer mentions.
+    const element = { ref: 1, url: "https://example.com", title: "Example", rect: { x: 0, y: 0, w: 10, h: 10 }, selector: "#buy", tag: "button", role: "button", name: "Buy", text: "Buy", html: "<button id=buy>Buy</button>" };
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first @[Buy] and @[Cart]", elements: [{ label: "Buy", element }, { label: "Cart", element: { ...element, name: "Cart" } }] });
+    const [a] = await queued(c, session.id);
+
+    await c.call("sessions.editQueued", { id: session.id, queuedId: a!.id, text: "first @[Cart] only" });
+
+    expect(app.sessions.queuedFor(session.id)[0]!.msg.elements!.map((e) => e.label)).toEqual(["Cart"]);
+  });
+
+  it("refuses an edit to nothing at all", async () => {
+    // THE MUTANT: no guard — an empty message queued that the adapter would be handed.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    const [a] = await queued(c, session.id);
+
+    const res = await c.call("sessions.editQueued", { id: session.id, queuedId: a!.id, text: "" });
+
+    expect(res.ok).toBe(false);
+    expect(texts(await queued(c, session.id))).toEqual(["first"]);
+  });
+
+  it("dequeue and send-now take the hold with them", async () => {
+    // THE MUTANT: a hold left behind on an id that is gone, still marked on the next broadcast and
+    // still owed a drain.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.send", { id: session.id, text: "plain" });
+    // "plain" is no script line of the fake, so it echoes and settles: the steer's new turn is not
+    // left parked on a card while the app closes.
+    const [a, b] = await queued(c, session.id);
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true });
+    await c.call("sessions.dequeue", { id: session.id, queuedId: a!.id });
+    expect(await queued(c, session.id)).toEqual([expect.objectContaining({ text: "plain", held: false })]);
+
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: b!.id, held: true });
+    await c.call("sessions.releaseQueued", { id: session.id, queuedId: b!.id });
+    await waitFor(() => c.userMessages(session.id).includes("plain"));
+    expect(c.queues(session.id).at(-1)).toEqual([]);
+  });
+
+  it("marks the held message on the broadcast, and only that one", async () => {
+    // THE MUTANT: `held` left off the wire, so no other window can tell the message is being edited.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+    const [, b] = await queued(c, session.id);
+
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: b!.id, held: true });
+
+    await waitFor(() => c.queues(session.id).at(-1)?.some((q: Any) => q.held) === true);
+    expect(c.queues(session.id).at(-1)!.map((q: Any) => [q.text, q.held])).toEqual([["first", false], ["second", true]]);
+  });
+
+  it("answers held:false for a hold on a message that has already gone", async () => {
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    expect((await c.call("sessions.holdQueued", { id: session.id, queuedId: "gone", held: true })).result).toEqual({ ok: true, held: false });
+  });
+});
