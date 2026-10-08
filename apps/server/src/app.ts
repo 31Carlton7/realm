@@ -30,6 +30,7 @@ import { SimulatorService } from "./simulators/service";
 import { GoalService } from "./goals/service";
 import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
+import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
 import { join } from "node:path";
@@ -312,7 +313,7 @@ export function defaultAdapters(): AdapterRegistry {
   // updates is the behaviour worth looking at. A to-do list is here for the same reason, in two
   // triggers rather than one run: the strip above the prompter shuts itself once every item is done,
   // and both sides of that have to be reachable and holdable long enough to look at.
-  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [{
+  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [...harnessFakeScript(), {
     // Code Review's "Review with…" (code-review/reviewer.ts) on the live checks' fixture request
     // (scripts/fixtures/code-review): a summary and three findings in the reply shape the page reads —
     // two on lines the fixture's diff shows, one off it, so anchored and unanchored both appear.

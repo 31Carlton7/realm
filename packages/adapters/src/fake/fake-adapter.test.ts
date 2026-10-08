@@ -74,6 +74,43 @@ describe("FakeAdapter", () => {
     expect(types).not.toContain("tool_result"); await h.dispose();
   });
 });
+describe("FakeAdapter, scripting a goal", () => {
+  /** The text of every whole message one turn of `text` produced. */
+  async function say(a: FakeAdapter, text: string): Promise<string[]> {
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const said: string[] = []; let running = false;
+    const c = (async () => { for await (const e of h.events) {
+      if (e.type === "status" && e.payload.status === "running") running = true;
+      if (e.type === "assistant_text") said.push(e.payload.text);
+      if (e.type === "status" && e.payload.status === "idle" && running) break;
+    } })();
+    await h.send({ text, attachments: [] }); await c;
+    await h.dispose();
+    return said;
+  }
+
+  it("picks a goal's turn by its number, and falls back to the objective's own entry", async () => {
+    // THE mutant ignores `turn`: the first entry for the objective answers every continuation, and a
+    // live check cannot script "turn 3 closes the goal".
+    const a = new FakeAdapter({ script: [
+      { on: "ship it", turn: 3, emit: [{ kind: "text", text: "third" }] },
+      { on: "ship it", emit: [{ kind: "text", text: "any other" }] },
+    ] });
+    expect(await say(a, "Continue working towards this objective:\n\nship it\n\nThis is turn 3. You have used 0 tokens.")).toEqual(["third"]);
+    expect(await say(a, "Continue working towards this objective:\n\nship it\n\nThis is turn 30. You have used 0 tokens.")).toEqual(["any other"]);
+    expect(await say(a, "ship it")).toEqual(["any other"]);
+  });
+
+  it("idles: one line and no tool call", async () => {
+    const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "idle" }] }] });
+    expect(await say(a, "x")).toEqual(["Nothing has changed since the last turn."]);
+  });
+
+  it("says why it cannot list tools when it was handed no gateway", async () => {
+    const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "list" }] }] });
+    expect(await say(a, "x")).toEqual(["tools/list failed: no Realm gateway was handed to this session"]);
+  });
+});
 describe("FakeAdapter lifecycle", () => {
   it("dispose resolves pending permissions as deny and ends the stream", async () => {
     const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "tool", name: "Bash", input: {}, needsPermission: true, result: "never" }] }] });

@@ -89,6 +89,26 @@ describe("a goal's turns, as the session service reports them", () => {
     expect(continuations()).toBe(1);
   });
 
+  it("tells an agent that already listed its tools that the list changed, before the goal's first turn", async () => {
+    // THE mutant is a goal service with no `notifyTools` wired: the agent is never told, and the turn
+    // that starts the goal is planned against the list it read before there was one.
+    const { c, id, goal } = await boot([
+      { on: "look around", emit: [{ kind: "list" }] },
+      { on: "tidy the notes", emit: [{ kind: "list", expect: ["realm-goal__update_goal", "realm-goal__goal_status"] }, { kind: "tool", name: "Read", input: {}, result: "" }, { kind: "tool", name: "Edit", input: {}, result: "" }] },
+    ]);
+    await c.call("sessions.send", { id, text: "look around" });
+    await waitFor(() => c.sessionEvents(id, "assistant_text").length === 1);
+    expect(c.sessionEvents(id, "assistant_text")[0].text).toContain("realm-goal__update_goal");
+    await waitFor(async () => (await c.call("sessions.get", { id })).status === "idle");
+    await c.call("goals.start", { sessionId: id, objective: "tidy the notes", tokenBudget: null });
+    await waitFor(() => c.sessionEvents(id, "assistant_text").length === 2);
+    const listed = c.sessionEvents(id, "assistant_text")[1].text as string;
+    expect(listed).toContain("list_changed: 1");
+    expect(listed).toContain("missing: none");
+    await c.call("goals.clear", { sessionId: id });
+    expect(await goal()).toBeNull();
+  });
+
   it("throws away a continuation still queued when the goal is marked done, and keeps what the user typed", async () => {
     const { c, id, goal } = await boot([
       { on: "hold", emit: [{ kind: "tool", name: "Bash", input: { command: "sleep" }, needsPermission: true, result: "x" }] },
