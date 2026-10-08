@@ -10022,7 +10022,9 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 button.tp-card:hover { border-color: var(--rl-line-strong); }
 button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 .tp-card-note { justify-content: center; align-items: flex-start; }
-.tp-card-new { padding-left: 0; }
+/* Its words stand on the note's left edge, the pill's padding hung outside it: `.page .btn-quiet`
+   outranked a bare padding-left: 0 and set "New role…" 10px in from the sentence above. */
+.tp-card-note .tp-card-new { margin-left: -10px; }
 .tp-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .tp-card-name { font-size: 15px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-card-line { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }

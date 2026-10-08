@@ -237,6 +237,11 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".delegation-line .tool-row > .tool-name:last-child").join(" ")).toMatch(/max-width:\s*none/);
   });
 
+  it("hangs the team note's New role pill outside the note's text edge", () => {
+    // Mutant: the old `padding-left: 0` that `.page .btn-quiet` outranked — the words sat 10px in.
+    expect(bodiesFor(".tp-card-note .tp-card-new").join(" ")).toMatch(/margin-left:\s*-10px/);
+  });
+
   it("sets a record's path in mono and the words after it in the interface's face", () => {
     // Mutant: the whole line in mono — "team memory · last changed by Carlton" read as machine output.
     expect(bodiesFor(".tp-file").join(" ")).not.toMatch(/font-family/);
