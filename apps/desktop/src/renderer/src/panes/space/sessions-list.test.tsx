@@ -78,6 +78,16 @@ describe("the Sessions page", () => {
     expect(screen.getByRole("button", { name: /^New session/ })).toHaveClass("btn");
   });
 
+  it("says where each session left off — its last reply's line — unless its state says more", async () => {
+    // Mutants: the reply never shown, or shown over "Needs you".
+    const { api } = await mount({ ...data([both("a", "Paywall work"), both("b", "Asking", { status: "waiting_permission" })]),
+      lastReplies: { a: "Free limit is now 3 verses a day; tests pass.", b: "I need to run a command." } });
+    expect(await within(row(/^Paywall work/)).findByText("Free limit is now 3 verses a day; tests pass.")).toBeInTheDocument();
+    expect(within(row(/^Asking/)).getByText("Needs you")).toBeInTheDocument();
+    expect(within(row(/^Asking/)).queryByText("I need to run a command.")).toBeNull();
+    expect(api.calls).toContain("sessionsDigest:s1");
+  });
+
   it("dims a session nothing was sent in and says so", async () => {
     await mount(data([both("e", "New session", { lastEventSeq: 0, seenSeq: 0 })]));
     const r = row("New session, nothing sent yet");

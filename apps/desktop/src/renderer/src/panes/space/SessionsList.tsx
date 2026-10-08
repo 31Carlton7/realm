@@ -15,12 +15,15 @@ import { agentTitle, spaceSessionPage, type PageRow, type SessionsView } from ".
 const CHILD_WORD: Partial<Record<DispatchKind, string>> = { agent_run: "agent", browser_agent_run: "browser agent", review: "reviewer" };
 
 /** The words in a row's second slot, and the tone they are set in: what it is waiting on, what went
- *  wrong, that it is at work — or, for a session nothing was ever sent in, that. */
-function stateWords(row: SessionRow, empty: boolean): { text: string; tone?: "warning" | "danger" } | null {
+ *  wrong, that it is at work, that nothing was ever sent in it — or where its last reply left off. */
+function stateWords(row: SessionRow, empty: boolean, reply: string | null = null): { text: string; tone?: "warning" | "danger" } | null {
   if (row.status === "waiting_permission") return { text: "Needs you", tone: "warning" };
   if (row.status === "error") return { text: "Failed", tone: "danger" };
   if (row.status === "running") return { text: "Working…" };
-  return empty ? { text: "Nothing sent yet" } : null;
+  if (empty) return { text: "Nothing sent yet" };
+  // Where it left off: the first line of its newest reply, which is what makes a row scannable
+  // without opening it.
+  return reply ? { text: reply } : null;
 }
 
 /**
@@ -96,6 +99,11 @@ export function SessionsList({ spaceId }: { spaceId: string }) {
 
   const now = Date.now();
   const page = spaceSessionPage(state, spaceId, view, query, now);
+  const replies = useApp((s) => s.sessionReplies);
+  const loadSessionReplies = useApp((s) => s.loadSessionReplies);
+  // Read again whenever a session in the space changes state — a turn ending is when a reply lands.
+  const states = Object.entries(state.sessionStatus).filter(([id]) => state.sessionSpace[id] === spaceId).map(([id, st]) => `${id}:${st}`).join(",");
+  useEffect(() => { run(() => loadSessionReplies(spaceId)); }, [spaceId, states, run, loadSessionReplies]);
   const isOpen = (r: PageRow) => unfolded.has(r.id) || r.hits.length > 0;
   const stops = stopsOf(page.groups, isOpen);
   const here = stops.find((s) => s.key === current) ?? stops[0] ?? null;
@@ -234,7 +242,7 @@ export function SessionsList({ spaceId }: { spaceId: string }) {
               <h2 className="space-sessions-head">{g.label}</h2>
               <ul className="space-sessions-list">
                 {g.rows.map((r) => (
-                  <PageRowView key={r.id} r={r} now={now} view={view} open={isOpen(r)} current={here?.key ?? null} armed={armed}
+                  <PageRowView key={r.id} r={r} now={now} view={view} reply={r.kind === "session" ? replies[r.id] ?? null : null} open={isOpen(r)} current={here?.key ?? null} armed={armed}
                     onToggle={() => setFold(r.id, !isOpen(r))} onFocusStop={setCurrent}
                     onOpen={open} onArchive={archive} onDelete={remove} onRestore={restore} />
                 ))}
@@ -248,13 +256,13 @@ export function SessionsList({ spaceId }: { spaceId: string }) {
 }
 
 type RowProps = {
-  r: PageRow; now: number; view: SessionsView; open: boolean; current: string | null; armed: string | null;
+  r: PageRow; now: number; view: SessionsView; reply: string | null; open: boolean; current: string | null; armed: string | null;
   onToggle: () => void; onFocusStop: (key: string) => void; onOpen: (stop: Stop, beside: boolean) => void;
   onArchive: (item: Item, key: string) => void; onDelete: (item: Item, key: string) => void; onRestore: (item: Item) => void;
 };
 
 /** One row of the page, and its sessions under it when it is unfolded. */
-function PageRowView({ r, now, view, open, current, armed, onToggle, onFocusStop, onOpen, onArchive, onDelete, onRestore }: RowProps) {
+function PageRowView({ r, now, view, reply, open, current, armed, onToggle, onFocusStop, onOpen, onArchive, onDelete, onRestore }: RowProps) {
   const [renaming, setRenaming] = useState(false);
   const { onContextMenu, element } = useItemContextMenu(() => setRenaming(true));
   const lead = r.kind === "fan-out" ? null : r;
@@ -266,7 +274,7 @@ function PageRowView({ r, now, view, open, current, armed, onToggle, onFocusStop
   const own = lead ? lead.row : null;
   const mark = own ? sessionMark(own.status, own.unread) : null;
   const isArmed = armed === r.id;
-  const words = isArmed ? { text: "Press ⌘⌫ again to delete it and its transcript", tone: "danger" as const } : own ? stateWords(own, lead!.empty) : null;
+  const words = isArmed ? { text: "Press ⌘⌫ again to delete it and its transcript", tone: "danger" as const } : own ? stateWords(own, lead!.empty, reply) : null;
   const other = lead?.otherAgent ? AGENT_META[lead.otherAgent] : null;
   const named = [title, other?.label, mark?.label ?? (lead?.empty ? "nothing sent yet" : undefined),
     folds ? `${children.length} ${noun}` : undefined, ...tallyWords(tally)].filter(Boolean).join(", ");

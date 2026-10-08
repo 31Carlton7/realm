@@ -87,6 +87,7 @@ export const liveApi = (): Api => ({
   destroyBrowserView: (browserId) => { void window.realm.browser.destroy(browserId); },
   listSessions: (spaceId) => rpc().call("sessions.list", { spaceId }),
   listAllSessions: (profileId = null) => rpc().call("sessions.listAll", { profileId }),
+  sessionsDigest: (spaceId) => rpc().call("sessions.digest", { spaceId }),
   getSession: (id) => rpc().call("sessions.get", { id }),
   /* The wire's `itemId` is nullable because `unlisted` exists; a plain create never asks for one, so
      the non-null it always returns is asserted here rather than at four call sites that cannot get
