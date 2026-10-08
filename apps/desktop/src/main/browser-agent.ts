@@ -6,7 +6,7 @@
  * reaches it over the browserHost bridge.
  */
 import {
-  acceptsUpload, AGENT_FRAME, AGENT_MARK_ATTR, AGENT_MARK_FRAME, mimeForPath, normalizeOrigin,
+  acceptsUpload, AGENT_FRAME, AGENT_MARK_ATTR, AGENT_MARK_FRAME, chordKeyEvents, mimeForPath, NAMED_KEYS, normalizeOrigin, resolveKeyChord,
   PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX,
   UPLOAD_CHOOSER_TIMEOUT_MS, UPLOAD_DROP_MAX_BYTES, UPLOAD_MAX_FILES,
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
@@ -404,25 +404,6 @@ async function hasClickListeners(send: CdpSend, backendNodeId: number): Promise<
 const MODIFIER_BITS = { alt: 1, ctrl: 2, meta: 4, shift: 8 } as const;
 const BUTTON_BITS = { left: 1, right: 2, middle: 4 } as const;
 
-/** Named keys for `kind: "key"` — key, code, and Windows virtual key code (React and most frameworks
- *  key off one of these three; sending all three is what makes synthetic keys indistinguishable). */
-const NAMED_KEYS: Record<string, { key: string; code: string; vk: number; text?: string }> = {
-  Enter: { key: "Enter", code: "Enter", vk: 13, text: "\r" },
-  Tab: { key: "Tab", code: "Tab", vk: 9 },
-  Escape: { key: "Escape", code: "Escape", vk: 27 },
-  Backspace: { key: "Backspace", code: "Backspace", vk: 8 },
-  Delete: { key: "Delete", code: "Delete", vk: 46 },
-  ArrowUp: { key: "ArrowUp", code: "ArrowUp", vk: 38 },
-  ArrowDown: { key: "ArrowDown", code: "ArrowDown", vk: 40 },
-  ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", vk: 37 },
-  ArrowRight: { key: "ArrowRight", code: "ArrowRight", vk: 39 },
-  Home: { key: "Home", code: "Home", vk: 36 },
-  End: { key: "End", code: "End", vk: 35 },
-  PageUp: { key: "PageUp", code: "PageUp", vk: 33 },
-  PageDown: { key: "PageDown", code: "PageDown", vk: 34 },
-  Space: { key: " ", code: "Space", vk: 32, text: " " },
-};
-
 /**
  * Execute one action. The two invariants the mutants target:
  *
@@ -461,11 +442,11 @@ export async function performAct(send: CdpSend, action: BrowserAction): Promise<
         return { ok: true, detail: `typed ${action.text.length} character(s) into ref=${action.ref}${action.submit ? " and pressed Enter" : ""}` };
       }
       case "key": {
+        const resolved = resolveKeyChord(action.key, action.modifiers);
+        if (!resolved.ok) return { ok: false, error: resolved.error };
         if (action.ref !== undefined) await focusRef(send, action.ref);
-        const known = NAMED_KEYS[action.key];
-        if (!known) return { ok: false, error: `unknown key "${action.key}" — one of: ${Object.keys(NAMED_KEYS).join(", ")}` };
-        await pressNamedKey(send, action.key);
-        return { ok: true, detail: `pressed ${action.key}` };
+        for (const ev of chordKeyEvents(resolved.chord)) await send("Input.dispatchKeyEvent", ev);
+        return { ok: true, detail: `pressed ${resolved.chord.label}` };
       }
       case "scroll": {
         let point = action.ref !== undefined ? await resolvePoint(send, action.ref) : null;
@@ -661,7 +642,7 @@ async function focusRef(send: CdpSend, backendNodeId: number): Promise<boolean> 
   try { await send("DOM.focus", { backendNodeId }); return true; } catch { return false; }
 }
 
-async function pressNamedKey(send: CdpSend, name: string): Promise<void> {
+async function pressNamedKey(send: CdpSend, name: "Enter"): Promise<void> {
   const k = NAMED_KEYS[name]!;
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk, ...(k.text ? { text: k.text, unmodifiedText: k.text } : {}) });
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk });

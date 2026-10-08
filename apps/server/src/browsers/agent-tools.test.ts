@@ -164,6 +164,19 @@ describe("gating — the named mutants", () => {
     expect(calls.gates).toEqual([]);
   });
 
+  it("a key it cannot press is refused before the card, alone or in a batch; a chord goes through", async () => {
+    const { call, calls } = setup();
+    const alone = await call("browser_act", { browserId: "b1", action: { kind: "key", key: "Hyper+q" } });
+    expect(alone.isError).toBe(true);
+    expect(text(alone)).toContain(`"Hyper" in "Hyper+q" is not a modifier`);
+    const batched = await call("browser_batch", { actions: [{ tool: "browser_act", arguments: { browserId: "b1", action: { kind: "key", key: "BrowserBack" } } }] });
+    expect(text(batched)).toContain("use browser_navigate");
+    expect(calls.gates).toEqual([]);
+    await call("browser_act", { browserId: "b1", action: { kind: "key", key: "a", modifiers: ["meta"] } });
+    expect(calls.gates.map((g) => g.toolKey)).toEqual(["browser_act"]);
+    expect(calls.bridge.find((b) => b.op === "act")?.params.action).toEqual({ kind: "key", key: "a", modifiers: ["meta"] });
+  });
+
   it("the act permission title names the action, attributes the label to the PAGE, and names the host", async () => {
     const { call, calls } = setup();
     await call("browser_act", { browserId: "b1", action: { kind: "click", ref: 11 } });
