@@ -215,8 +215,12 @@ export class GoalService {
    *
    * `turn` is what the session service saw of the turn; without it (older callers, most tests) the
    * text fallback and the stall guard have nothing to read and stay out of it.
+   *
+   * `queuedNext` says the settle is already sending a queued message as the next turn. The session
+   * service takes that message off its queue before this runs, so `queued()` alone would read empty
+   * and the goal would send its continuation beside the user's message.
    */
-  async onSettled(sessionId: string, opts: { interrupted: boolean; turn?: SettledTurn }): Promise<"continued" | "budget" | "stopped" | "failing" | "stalled" | "closed" | "capped" | "idle"> {
+  async onSettled(sessionId: string, opts: { interrupted: boolean; queuedNext?: boolean; turn?: SettledTurn }): Promise<"continued" | "budget" | "stopped" | "failing" | "stalled" | "closed" | "capped" | "idle"> {
     const goal = this.d.goals.get(sessionId);
     if (!goal || goal.status !== "active") return "idle";
     // The user's stop, and the user's own next message, both outrank the goal.
@@ -251,7 +255,7 @@ export class GoalService {
         return "stalled";
       }
     }
-    if (this.d.queued(sessionId)) return "idle";
+    if (opts.queuedNext || this.d.queued(sessionId)) return "idle";
     if (counted.tokenBudget === null && counted.turns >= MAX_GOAL_TURNS) {
       this.stop(sessionId, "blocked", `This goal has taken ${counted.turns} turns, the most Realm runs one with no token budget. Resume it to keep going.`);
       return "capped";

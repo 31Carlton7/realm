@@ -205,7 +205,7 @@ export class SessionService {
     goals?: {
       onUsage(sessionId: string, reading: SessionEventPayload<"usage">): void;
       onError(sessionId: string): void;
-      onSettled(sessionId: string, opts: { interrupted: boolean; turn?: SettledTurn }): Promise<unknown>;
+      onSettled(sessionId: string, opts: { interrupted: boolean; queuedNext?: boolean; turn?: SettledTurn }): Promise<unknown>;
     };
     /** The views MCP servers draw for tool calls (`apps/views.ts`): told every call the agent
      *  reports, and asked, when its result arrives, for the view that call drew. Optional — without
@@ -1516,6 +1516,9 @@ export class SessionService {
          *
          * `void` for the same reason the summary is: this runs inside the adapter pump, and awaiting
          * a send here would hold the pump open across the next turn's first events. */
+        // Read BEFORE the drain, which takes the message off the queue synchronously: the goal below
+        // must still learn that a queued message is about to be the next turn.
+        const queuedNext = !ev.payload.interrupted && (this.queued.get(id)?.length ?? 0) > 0;
         if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
         /* …and then the goal, if this session is pursuing one. AFTER the drain and never instead of
            it: a message the user typed during the turn is the next turn, and the goal picks up
@@ -1525,7 +1528,7 @@ export class SessionService {
         const seen = this.turnSeen.get(id);
         this.turnSeen.delete(id);
         const turn = seen && { continuation: seen.continuation, toolCalls: seen.toolCalls, wallMs: Date.now() - seen.startedAt, finalText: seen.finalText };
-        void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true, ...(turn ? { turn } : {}) }).catch(() => {});
+        void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true, queuedNext, ...(turn ? { turn } : {}) }).catch(() => {});
       }
       if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
         for (const settle of this.settleWaiters.get(id) ?? []) settle();

@@ -109,6 +109,27 @@ describe("a goal's turns, as the session service reports them", () => {
     expect(await goal()).toBeNull();
   });
 
+  it("lets the message the user queued during a goal's turn go next, alone", async () => {
+    /* Rule 3 of the loop: a message the person typed while the turn ran is the next turn, and the goal
+       picks up behind it. The settle drains that message off the queue BEFORE the goal looks at the
+       queue, so THE bug is a goal that finds the queue empty and sends its continuation as well —
+       two turns where the user asked for one. */
+    const { c, id } = await boot([
+      { on: "hold", emit: [{ kind: "tool", name: "Bash", input: { command: "sleep" }, needsPermission: true, result: "x" }] },
+    ]);
+    await c.call("settings.set", { key: MID_TURN_MODE_KEY, value: "queue" });
+    await c.call("goals.start", { sessionId: id, objective: "hold the line", tokenBudget: null });
+    await waitFor(() => c.sessionEvents(id, "permission_request").length === 1);
+    await c.call("sessions.send", { id, text: "and hold this too" });
+    expect((await c.call("sessions.queued", { id })).queued.length).toBe(1);
+    const first = c.sessionEvents(id, "permission_request")[0].requestId;
+    await c.call("sessions.respondPermission", { id, requestId: first, decision: "allow" });
+    // The user's turn is running (held on its own card); nothing else may have gone out.
+    await waitFor(() => c.sessionEvents(id, "permission_request").length === 2);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(c.sessionEvents(id, "user_message").map((m: Any) => m.goal ?? m.text)).toEqual(["hold the line", "and hold this too"]);
+  });
+
   it("throws away a continuation still queued when the goal is marked done, and keeps what the user typed", async () => {
     const { c, id, goal } = await boot([
       { on: "hold", emit: [{ kind: "tool", name: "Bash", input: { command: "sleep" }, needsPermission: true, result: "x" }] },

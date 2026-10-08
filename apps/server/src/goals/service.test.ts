@@ -105,6 +105,13 @@ describe("the turn after the turn", () => {
     expect(service.get("s1")!.turns).toBe(1);
   });
 
+  it("stands down when the settle is already sending a queued message, though the queue now reads empty", async () => {
+    const { service, sent } = bring();
+    await service.start("s1", "ship it", null);
+    expect(await service.onSettled("s1", { interrupted: false, queuedNext: true })).toBe("idle");
+    expect(sent).toHaveLength(1);
+  });
+
   it("does nothing at all for a session with no goal, or one that is stopped", async () => {
     const { service, sent } = bring();
     expect(await service.onSettled("nobody", { interrupted: false })).toBe("idle");
