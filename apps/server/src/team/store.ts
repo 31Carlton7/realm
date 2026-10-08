@@ -231,12 +231,12 @@ export class TeamStore {
 
   activity(spaceId: string, limit: number, before?: number): TeamActivity[] {
     const rows = before === undefined
-      ? this.db.prepare("SELECT * FROM team_activity WHERE space_id = ? ORDER BY ts DESC, id DESC LIMIT ?").all(spaceId, limit)
-      : this.db.prepare("SELECT * FROM team_activity WHERE space_id = ? AND ts < ? ORDER BY ts DESC, id DESC LIMIT ?").all(spaceId, before, limit);
+      ? this.db.prepare("SELECT * FROM team_activity WHERE space_id = ? ORDER BY ts DESC, rowid DESC LIMIT ?").all(spaceId, limit)
+      : this.db.prepare("SELECT * FROM team_activity WHERE space_id = ? AND ts < ? ORDER BY ts DESC, rowid DESC LIMIT ?").all(spaceId, before, limit);
     return (rows as RawActivity[]).map(toActivity);
   }
 
   activityForRun(runId: string): TeamActivity[] {
-    return (this.db.prepare("SELECT * FROM team_activity WHERE run_id = ? ORDER BY ts ASC, id ASC").all(runId) as RawActivity[]).map(toActivity);
+    return (this.db.prepare("SELECT * FROM team_activity WHERE run_id = ? ORDER BY ts ASC, rowid ASC").all(runId) as RawActivity[]).map(toActivity);
   }
 }
