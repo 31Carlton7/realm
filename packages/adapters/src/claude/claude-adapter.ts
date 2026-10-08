@@ -1,7 +1,8 @@
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AgentModel, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -60,6 +61,52 @@ export function fastModeByModel(rows: readonly { value: string; resolvedModel?: 
     if (!base) continue;
     if (!isDefault && (r.value === base || r.resolvedModel === base)) out[base] = r.supportsFastMode;
     else if (!(base in out)) out[base] = r.supportsFastMode;
+  }
+  return out;
+}
+
+/**
+ * The CLI's `supportedModels()` list as the rows a picker offers.
+ *
+ * The CLI lists a model under an alias where it has one (`sonnet`) and says which model that is
+ * (`resolvedModel`). A row pins the resolved id, so a session stays on the model its row named after
+ * the alias moves on to a newer one. The `default` row is not a model of its own: it names the model
+ * a session that pinned nothing runs, and that model's row is marked rather than listed twice. A
+ * default that no other row names still gets a row, under its id, so the mark always has one to land
+ * on.
+ *
+ * The CLI prints a model's name without its vendor ("Opus 5.5"). The vendor goes back in front
+ * because a model's identity across harnesses is its name (`canonicalModelKey`), and every other
+ * source of that name — the curated list, the public catalog — says "Claude Opus 5.5".
+ *
+ * Effort and fast mode ride along only where a row states them. `supportsEffort: false` is a
+ * statement, so it is an empty list rather than an absent one.
+ */
+export function claudeCatalog(rows: readonly { value: string; resolvedModel?: string; displayName?: string; supportsEffort?: boolean; supportedEffortLevels?: readonly string[]; supportsFastMode?: boolean }[]): AgentModel[] {
+  const pinned = (r: { value: string; resolvedModel?: string }): string =>
+    (typeof r.resolvedModel === "string" && r.resolvedModel.trim() !== "" ? r.resolvedModel : r.value);
+  const listed = rows.filter((r) => typeof r?.value === "string" && r.value.trim() !== "");
+  const unpinned = listed.find((r) => r.value === "default");
+  const defaultId = unpinned && pinned(unpinned) !== "default" ? pinned(unpinned) : null;
+  const named = listed.filter((r) => r.value !== "default");
+  const ordered = unpinned && defaultId !== null && !named.some((r) => pinned(r) === defaultId)
+    ? [{ ...unpinned, displayName: undefined }, ...named]
+    : named;
+  const out: AgentModel[] = [];
+  const seen = new Set<string>();
+  for (const r of ordered) {
+    const id = pinned(r);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const name = typeof r.displayName === "string" ? r.displayName.trim() : "";
+    const label = name === "" ? id : /^claude\b/i.test(name) ? name : `Claude ${name}`;
+    const efforts = r.supportsEffort === false ? [] : Array.isArray(r.supportedEffortLevels) ? r.supportedEffortLevels.filter((l) => CLAUDE_EFFORTS.has(l)) : null;
+    out.push({
+      id, label,
+      ...(id === defaultId ? { isDefault: true } : {}),
+      ...(efforts ? { efforts } : {}),
+      ...(typeof r.supportsFastMode === "boolean" ? { fastMode: r.supportsFastMode } : {}),
+    });
   }
   return out;
 }
@@ -176,6 +223,8 @@ const CLAUDE_ASKER = { kind: "agent", name: "Claude", agent: "claude" } as const
 
 const STDERR_TAIL_LINES = 50;
 const DISPOSE_TIMEOUT_MS = 3000;
+/** How long the catalog handshake may run before the probe answers without a catalog. */
+const CATALOG_TIMEOUT_MS = 10_000;
 
 /**
  * The CLI subprocess, started through Realm's execution sandbox instead of plainly.
@@ -215,9 +264,64 @@ function spawnWrapped(o: SpawnOptions, wrap: NonNullable<StartOptions["wrap"]>, 
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude" as const;
   private queryFn: QueryFn;
-  constructor(deps: { query?: QueryFn } = {}) { this.queryFn = deps.query ?? sdkQuery; }
+  private probeCli: () => ReturnType<typeof probeClaude>;
+  private catalogTimeoutMs: number;
+  /** `probe` and `catalogTimeoutMs` are seams for the suite; production passes neither. */
+  constructor(deps: { query?: QueryFn; probe?: () => ReturnType<typeof probeClaude>; catalogTimeoutMs?: number } = {}) {
+    this.queryFn = deps.query ?? sdkQuery;
+    this.probeCli = deps.probe ?? (() => probeClaude());
+    this.catalogTimeoutMs = deps.catalogTimeoutMs ?? CATALOG_TIMEOUT_MS;
+  }
 
-  async probe(): Promise<ProbeResult> { const p = await probeClaude(); return { kind: this.kind, ...p }; }
+  /**
+   * Whether `claude` runs and is signed in, and the models it offers.
+   *
+   * A CLI that says it is signed out is not asked for its catalog: no session can start on it, and
+   * the sign-in card is what the prompter shows instead of a picker.
+   */
+  async probe(): Promise<ProbeResult> {
+    const p = await this.probeCli();
+    const models = p.available && p.loggedIn !== false ? await this.listModels() : null;
+    return { kind: this.kind, ...p, models };
+  }
+
+  /**
+   * The live model catalog, read off the handshake a query makes before any prompt is sent.
+   *
+   * No turn runs and nothing is billed: the prompt stream stays empty, and it is closed once the list
+   * is in hand. The query is isolated from the user's own settings (`settingSources: []`), so no
+   * hook, plugin or MCP server of theirs starts for a probe, and it leaves no transcript behind
+   * (`persistSession: false`). It runs the binary every session runs — the SDK's own unless
+   * REALM_CLAUDE_BIN names another — so the list is what that binary can run, which is the one thing
+   * a curated list could never promise.
+   *
+   * `null` on ANY failure — a spawn that died, a CLI that declined the request, an empty list, a
+   * handshake that outlasted its timeout — because the picker has the curated list to fall back on
+   * and a failed enumeration must never fail the probe that carries availability.
+   */
+  private async listModels(): Promise<AgentModel[] | null> {
+    const input = new AsyncQueue<SDKUserMessage>();
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const q = this.queryFn({ prompt: input, options: {
+        cwd: tmpdir(), settingSources: [], persistSession: false, abortController: abort,
+        stderr: () => {}, pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,
+      } });
+      const rows = await Promise.race([
+        q.supportedModels(),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("the catalog handshake timed out")), this.catalogTimeoutMs); }),
+      ]);
+      const models = claudeCatalog(rows);
+      return models.length > 0 ? models : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+      input.close();
+      abort.abort();
+    }
+  }
 
   start(opts: StartOptions & ClaudeResumeFork): ClaudeHandle {
     const events = new AsyncQueue<SessionEvent>();

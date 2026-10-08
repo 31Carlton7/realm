@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
+import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeCatalog, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
+import { tmpdir } from "node:os";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
 
 type FakeOpts = {
@@ -1024,5 +1025,171 @@ describe("the sandbox wrap", () => {
     const spawn = o.spawnClaudeCodeProcess as (so: { command: string; args: string[]; env: NodeJS.ProcessEnv; signal: AbortSignal }) => unknown;
     expect(() => spawn({ command: "/bin/echo", args: [], env: process.env, signal: new AbortController().signal }))
       .toThrow(/sandbox-exec is missing/);
+  });
+});
+
+/**
+ * What `supportedModels()` answered on Claude Code 2.1.293 (Agent SDK 0.3.293), cut to the rows that
+ * each show something different: the `default` row, an alias, a dated id with no effort statement,
+ * and an older model that takes four levels rather than five.
+ */
+const LISTED = [
+  { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)", description: "Opus 5.5 · Best for everyday, complex tasks", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsFastMode: true },
+  { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", description: "For complex work and everyday tasks", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsFastMode: true },
+  { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5", description: "Most efficient for simpler tasks", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+  { value: "claude-haiku-4-5-20251001", resolvedModel: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5", description: "Fastest for quick answers" },
+  { value: "claude-opus-4-6", resolvedModel: "claude-opus-4-6", displayName: "Opus 4.6", description: "Best for everyday, complex tasks", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "max"] },
+];
+
+describe("claudeCatalog", () => {
+  it("lists each model once under the id its row resolves to, named with its vendor, and marks the one an unpinned session runs", () => {
+    expect(claudeCatalog(LISTED)).toEqual([
+      { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true, efforts: ["low", "medium", "high", "xhigh", "max"], fastMode: true },
+      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
+      { id: "claude-opus-4-6", label: "Claude Opus 4.6", efforts: ["low", "medium", "high", "max"] },
+    ]);
+  });
+
+  it("never lists the default row as a model of its own", () => {
+    expect(claudeCatalog(LISTED).map((m) => m.id)).not.toContain("default");
+    expect(claudeCatalog(LISTED).filter((m) => m.isDefault)).toHaveLength(1);
+  });
+
+  it("gives a default that no other row names a row of its own, under its id, so the mark has somewhere to land", () => {
+    expect(claudeCatalog([
+      { value: "default", resolvedModel: "claude-opus-5-5[1m]", displayName: "Default (recommended)" },
+      { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5" },
+    ])).toEqual([
+      { id: "claude-opus-5-5[1m]", label: "claude-opus-5-5[1m]", isDefault: true },
+      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+    ]);
+  });
+
+  it("marks nothing when the CLI lists no default row, or one that resolves to nothing", () => {
+    expect(claudeCatalog([{ value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5" }]).some((m) => m.isDefault)).toBe(false);
+    expect(claudeCatalog([{ value: "default", displayName: "Default" }, { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5" }]))
+      .toEqual([{ id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" }]);
+  });
+
+  it("keeps the first row when two resolve to one id, so an alias and its full id are one model", () => {
+    expect(claudeCatalog([
+      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", supportsFastMode: true },
+      { value: "claude-opus-5-5", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5 (full id)", supportsFastMode: false },
+    ])).toEqual([{ id: "claude-opus-5-5", label: "Claude Opus 5.5", fastMode: true }]);
+  });
+
+  it("pins a row with no resolved id to its own value", () => {
+    expect(claudeCatalog([{ value: "claude-opus-5", displayName: "Opus 5" }])).toEqual([{ id: "claude-opus-5", label: "Claude Opus 5" }]);
+  });
+
+  it("does not put the vendor in front of a name that already carries it, and names a row with no name by its id", () => {
+    expect(claudeCatalog([
+      { value: "a", resolvedModel: "claude-fable-5-1", displayName: "Claude Fable 5.1" },
+      { value: "b", resolvedModel: "claude-fable-5", displayName: "  " },
+      { value: "c", resolvedModel: "claude-opus-5" },
+    ]).map((m) => m.label)).toEqual(["Claude Fable 5.1", "claude-fable-5", "claude-opus-5"]);
+  });
+
+  it("files a model that takes no effort as an empty list, and leaves one that says nothing out", () => {
+    const [none, silent, mixed] = claudeCatalog([
+      { value: "a", supportsEffort: false, supportedEffortLevels: ["low"] },
+      { value: "b" },
+      { value: "c", supportedEffortLevels: ["minimal", "low", "high"] },
+    ]);
+    expect(none).toEqual({ id: "a", label: "a", efforts: [] });
+    expect(silent).toEqual({ id: "b", label: "b" });
+    expect(mixed!.efforts).toEqual(["low", "high"]);
+  });
+
+  it("skips a row with no usable value instead of inventing an id for it", () => {
+    expect(claudeCatalog([{ value: "" }, { value: "   " }, { displayName: "Nameless" } as never, { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5" }]))
+      .toEqual([{ id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" }]);
+  });
+});
+
+describe("ClaudeAdapter.probe — the live catalog", () => {
+  type Asked = { prompt: AsyncIterable<unknown>; options: Record<string, unknown> };
+  const SIGNED_IN = { available: true, version: "2.1.293 (Claude Code)", loggedIn: true, reason: null } as const;
+  const handshake = (answer: () => Promise<unknown>, asked: Asked[] = []) =>
+    ((arg: Asked) => { asked.push(arg); return { supportedModels: answer }; }) as never;
+
+  it("answers with the CLI's own list alongside what the CLI probe found", async () => {
+    const a = new ClaudeAdapter({ probe: async () => SIGNED_IN, query: handshake(async () => LISTED) });
+    expect(await a.probe()).toEqual({ kind: "claude", ...SIGNED_IN, models: claudeCatalog(LISTED) });
+  });
+
+  it("asks without sending a prompt, isolated from the user's settings, and leaves no transcript", async () => {
+    const asked: Asked[] = [];
+    await new ClaudeAdapter({ probe: async () => SIGNED_IN, query: handshake(async () => LISTED, asked) }).probe();
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.options).toMatchObject({ cwd: tmpdir(), settingSources: [], persistSession: false });
+    expect(asked[0]!.options).not.toHaveProperty("env");
+    expect(await asked[0]!.prompt[Symbol.asyncIterator]().next()).toEqual({ value: undefined, done: true });
+  });
+
+  it("runs the binary a session would run", async () => {
+    const asked: Asked[] = [];
+    const prev = process.env.REALM_CLAUDE_BIN;
+    process.env.REALM_CLAUDE_BIN = "/opt/elsewhere/claude";
+    try {
+      await new ClaudeAdapter({ probe: async () => SIGNED_IN, query: handshake(async () => LISTED, asked) }).probe();
+    } finally {
+      if (prev === undefined) delete process.env.REALM_CLAUDE_BIN; else process.env.REALM_CLAUDE_BIN = prev;
+    }
+    expect(asked[0]!.options.pathToClaudeCodeExecutable).toBe("/opt/elsewhere/claude");
+  });
+
+  it("ends the query it opened once the list is in hand", async () => {
+    const asked: Asked[] = [];
+    await new ClaudeAdapter({ probe: async () => SIGNED_IN, query: handshake(async () => LISTED, asked) }).probe();
+    expect((asked[0]!.options.abortController as AbortController).signal.aborted).toBe(true);
+  });
+
+  it("asks a CLI whose sign-in could not be read, because unknown is not signed out", async () => {
+    const asked: Asked[] = [];
+    const unknown = { ...SIGNED_IN, loggedIn: null, reason: "unknown (keychain)" };
+    const row = await new ClaudeAdapter({ probe: async () => unknown, query: handshake(async () => LISTED, asked) }).probe();
+    expect(asked).toHaveLength(1);
+    expect(row.models).toEqual(claudeCatalog(LISTED));
+  });
+
+  it("starts nothing for a CLI that is missing or signed out", async () => {
+    for (const found of [
+      { available: false, version: null, loggedIn: null, reason: "`claude` is not on PATH" },
+      { ...SIGNED_IN, loggedIn: false, reason: "not signed in — run `claude auth login`" },
+    ]) {
+      const asked: Asked[] = [];
+      const row = await new ClaudeAdapter({ probe: async () => found, query: handshake(async () => LISTED, asked) }).probe();
+      expect(asked, found.reason).toHaveLength(0);
+      expect(row).toEqual({ kind: "claude", ...found, models: null });
+    }
+  });
+
+  it("reports the CLI as available with no catalog when the list cannot be read", async () => {
+    const failures: Record<string, () => Promise<unknown>> = {
+      "the CLI declines the request": async () => { throw new Error("control request declined"); },
+      "the list is empty": async () => [],
+      "the list holds only the default row": async () => [LISTED[0]].map((r) => ({ ...r, resolvedModel: undefined })),
+    };
+    for (const [why, answer] of Object.entries(failures)) {
+      const asked: Asked[] = [];
+      const row = await new ClaudeAdapter({ probe: async () => SIGNED_IN, query: handshake(answer, asked) }).probe();
+      expect(row, why).toEqual({ kind: "claude", ...SIGNED_IN, models: null });
+      expect((asked[0]!.options.abortController as AbortController).signal.aborted, why).toBe(true);
+    }
+  });
+
+  it("reports no catalog when the query cannot start at all", async () => {
+    const a = new ClaudeAdapter({ probe: async () => SIGNED_IN, query: (() => { throw new Error("Native CLI binary for darwin-arm64 not found"); }) as never });
+    expect(await a.probe()).toEqual({ kind: "claude", ...SIGNED_IN, models: null });
+  });
+
+  it("stops waiting for a handshake that never answers, and ends it", async () => {
+    const asked: Asked[] = [];
+    const a = new ClaudeAdapter({ probe: async () => SIGNED_IN, catalogTimeoutMs: 15, query: handshake(() => new Promise(() => {}), asked) });
+    expect(await a.probe()).toEqual({ kind: "claude", ...SIGNED_IN, models: null });
+    expect((asked[0]!.options.abortController as AbortController).signal.aborted).toBe(true);
+    expect(await asked[0]!.prompt[Symbol.asyncIterator]().next()).toEqual({ value: undefined, done: true });
   });
 });

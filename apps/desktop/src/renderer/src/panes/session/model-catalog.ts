@@ -1,4 +1,4 @@
-import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, type AgentKind, type ModelInfo } from "@realm/contracts";
+import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, type AgentKind, type AgentModel, type ModelInfo } from "@realm/contracts";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
@@ -84,18 +84,22 @@ export type ModelRow = {
  * Model lists come from THREE sources, most honest first:
  *
  * 1. **The probe's live catalog** (`agentProbe[kind].models`) — ids the provider itself handed over
- *    (Codex `model/list`, Cursor's ACP `availableModels`). A probe-sourced list additionally gets a
- *    leading DEFAULT row (`modelId: null`, the adapter's own default): a live catalog's ordering
- *    carries no promise that its first entry IS the default the adapter runs un-pinned (Cursor's
- *    catalog leads with "Auto" while an un-pinned session runs Composer — verified live), so
- *    `model === null` selects the explicit default row instead of guessing at index 0.
- * 2. **The static curated list** (`AGENT_MODELS[kind]`) — Claude, whose CLI has no enumeration
- *    channel, plus any kind whose probe has not answered (or answered without models).
+ *    (Codex `model/list`, Cursor's ACP `availableModels`, Claude Code's `supportedModels()`). A
+ *    probe-sourced list additionally gets a leading DEFAULT row (`modelId: null`, the adapter's own
+ *    default): a live catalog's ordering carries no promise that its first entry IS the default the
+ *    adapter runs un-pinned (Cursor's catalog leads with "Auto" while an un-pinned session runs
+ *    Composer — verified live), so `model === null` selects the explicit default row instead of
+ *    guessing at index 0.
+ * 2. **The static curated list** (`AGENT_MODELS[kind]`) — a curated kind whose probe has not answered
+ *    (or answered without models): Claude until its first probe lands, and DeepSeek always.
  * 3. **The single DEFAULT_MODEL_LABEL row** — a kind with no list at all.
  *
- * `model === null` means the user has pinned nothing and the adapter is running its own default. That
- * still marks a row: the frontier model, which is the first of the kind's list and the one the chip
- * already names via `DEFAULT_MODEL_LABEL` (presets.test.ts pins the two to each other).
+ * `model === null` means the user has pinned nothing and the adapter is running its own default. For
+ * a curated kind that still marks a row IN the list, whichever source the list came from, so the
+ * kind keeps one row per model and gains no default row when a live catalog replaces its curated
+ * one. The row is the one the catalog says an un-pinned session runs (`isDefault`); where nothing is
+ * marked it is the first, the curated list's own convention and the model the chip already names via
+ * `DEFAULT_MODEL_LABEL` (presets.test.ts pins the two to each other).
  */
 export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites = [], also = [] }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; canSwitchAgent: boolean;
@@ -120,8 +124,8 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
   const ownProbed = agentProbe.find((p) => p.kind === kind)?.models ?? null;
   const ownLive = ownProbed !== null && ownProbed.length > 0;
   const selectedId = model !== null ? model
-    : ownLive ? null                          // the explicit adapter-default row
-    : (AGENT_MODELS[kind][0]?.id ?? null);    // static lists pin their first entry as the default
+    : isCurated(kind) ? defaultIn(ownLive ? ownProbed : AGENT_MODELS[kind])
+    : null;
 
   const byKey = new Map<string, ModelRow>();
   const rows: ModelRow[] = [];
@@ -133,7 +137,7 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
     const models: ReadonlyArray<{ id: string; label: string }> = live ? probed : AGENT_MODELS[k];
     // A kind with no list at all, and the explicit default row a live catalog earns. Both are
     // per-harness by nature, so they key on the harness and never merge with another's default.
-    const defaults = models.length === 0 || live
+    const defaults = models.length === 0 || (live && !isCurated(k))
       ? [{ key: `default:${k}`, id: null as string | null, label: DEFAULT_MODEL_LABEL[k] }]
       : [];
     const entries = [
@@ -189,6 +193,14 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
   }
   return rows;
 }
+
+/** Whether Realm curates a model list for this kind. Such a kind's default is a model in its list,
+ *  curated or live, rather than a row of its own beside the list. */
+const isCurated = (k: AgentKind): boolean => AGENT_MODELS[k].length > 0;
+
+/** The id a session that pinned nothing is shown on, for a kind whose default is in its list: the
+ *  row the catalog marks as the default, else the first. */
+const defaultIn = (models: readonly AgentModel[]): string | null => (models.find((m) => m.isDefault) ?? models[0])?.id ?? null;
 
 /**
  * Whether a label is a bare wire id rather than a name someone wrote for humans.
@@ -390,8 +402,9 @@ const choicesOf = (ids: readonly string[]): EffortChoice[] => ids.map((id) => ({
  * The reasoning levels worth offering for the model a session asks for, from whoever can say:
  *
  * - **Claude** — the levels Claude Code said this model takes (`MODEL_EFFORTS_KEY`, filed off a
- *   session's `supportedModels()`), and until one has, Realm's levels narrowed to the public catalog's
- *   list for the model. The SDK documents `high` as the default.
+ *   session's `supportedModels()`), and until one has, the same list as the probe read it before any
+ *   session ran. Where the probe has no catalog either, Realm's levels narrowed to the public
+ *   catalog's list for the model. The SDK documents `high` as the default.
  * - **Codex** — the model's own `supportedReasoningEfforts` and `defaultReasoningEffort`, off the probe's
  *   catalog; the default row reads the model the catalog marks as default.
  * - **An ACP agent** — its `thought_level` option: this session's own (`init`) once it has booted, the
@@ -415,9 +428,10 @@ export function effortOptions({ kind, model, agentProbe, info, remembered, init 
   if (!AGENT_TAKES_EFFORT[kind]) return NO_EFFORT;
   if (kind === "claude") {
     const said = remembered[fastSupportKey(kind, model)];
+    const probed = agentProbe.find((p) => p.kind === kind)?.models?.find((x) => (model === null ? x.isDefault === true : x.id === model))?.efforts;
     const listed = new Set(info?.efforts ?? []);
     const narrowed = EFFORT_LEVELS.filter((l) => listed.has(l));
-    const levels = said ?? (narrowed.length > 0 ? narrowed : [...EFFORT_LEVELS]);
+    const levels = said ?? probed ?? (narrowed.length > 0 ? narrowed : [...EFFORT_LEVELS]);
     return { levels: choicesOf(levels), defaultId: levels.includes("high") ? "high" : null };
   }
   const probe = agentProbe.find((p) => p.kind === kind);

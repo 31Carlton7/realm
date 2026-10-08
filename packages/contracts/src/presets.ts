@@ -65,9 +65,11 @@ export type AgentModel = {
  *
  * The asymmetry is deliberate, not an accident of neglect:
  *
- *  - **claude** is a curated list that stays hardcoded because no enumeration channel exists — the
- *    Claude Code CLI has no `--list-models`, and the Agent SDK takes a model id on faith. Curation is
- *    the honest option left; keep it in step with the CLI's own picker.
+ *  - **claude** is a curated list for the moments the live one is not in hand. The probe reads Claude
+ *    Code's own catalog off a query's handshake (`supportedModels()`, see `ClaudeAdapter.probe`), and
+ *    this list stands in until that answer lands and wherever it cannot be read. The CLI has no
+ *    `--list-models` and the Agent SDK takes a model id on faith, so keep it in step with the CLI's
+ *    own picker.
  *
  *    "On faith" is the trap: a model id here is only usable if the `claude` binary the Agent SDK
  *    bundles is new enough to know it. Too old and the API rejects the turn with

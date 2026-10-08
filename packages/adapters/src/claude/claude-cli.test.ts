@@ -63,6 +63,27 @@ describe("a Claude session on the real SDK", () => {
     await h.dispose(); await pump;
   }, 30_000);
 
+  it("reads the model catalog off the handshake alone: no message is sent, and the CLI is let go", async () => {
+    const own = join(dir, "probe-journal.jsonl");
+    const prev = process.env.FAKE_CLAUDE_JOURNAL;
+    process.env.FAKE_CLAUDE_JOURNAL = own;
+    let row;
+    try {
+      row = await new ClaudeAdapter({ probe: async () => ({ available: true, version: "2.1.281 (Claude Code)", loggedIn: true, reason: null }) }).probe();
+    } finally {
+      if (prev === undefined) delete process.env.FAKE_CLAUDE_JOURNAL; else process.env.FAKE_CLAUDE_JOURNAL = prev;
+    }
+    const levels = ["low", "medium", "high", "xhigh", "max"];
+    expect(row.models).toEqual([
+      { id: "claude-fable-5-1", label: "claude-fable-5-1", isDefault: true, efforts: levels, fastMode: false },
+      { id: "claude-opus-5-5[1m]", label: "Claude Opus (1M context)", efforts: levels, fastMode: true },
+      { id: "claude-sonnet-5", label: "Claude Sonnet", efforts: levels, fastMode: true },
+      { id: "claude-haiku-4-5", label: "Claude Haiku", efforts: [] },
+    ]);
+    const asked = readFileSync(own, "utf8").trim().split("\n").map((l) => (JSON.parse(l) as { subtype: string }).subtype);
+    expect(asked).toEqual(["initialize"]);
+  }, 30_000);
+
   it("starts a session asked for fast mode and a level before its first turn at both", async () => {
     // The first turn is the one a person switched them on for; the flag layer a live query writes
     // to does not exist until the process does, so these go in at start (`settings`, `--effort`).
