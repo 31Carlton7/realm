@@ -277,13 +277,9 @@ const MODELS: { id: string; label: string }[] = [
 ];
 const modelLabel = (m: string | null) => MODELS.find((x) => x.id === m)?.label ?? m ?? "The agent's default";
 
-const CADENCES: { cron: string | null; label: string }[] = [
-  { cron: "0 9 * * 1-5", label: "Every weekday at 9:00" },
-  { cron: "0 9 * * 1,4", label: "Mondays and Thursdays at 9:00" },
-  { cron: "0 9 * * *", label: "Every day at 9:00" },
-  { cron: "0 8 * * 1", label: "Mondays at 8:00" },
-  { cron: null, label: "Only when you run it" },
-];
+// Each named as the role's card names it, so the option picked reads the same once it is the setting.
+const CADENCES: { cron: string | null; label: string }[] = ["0 9 * * 1-5", "0 9 * * 1,4", "0 9 * * *", "0 8 * * 1", null]
+  .map((cron) => ({ cron, label: wakeSentence(cron) }));
 
 function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
   const runs = useApp((s) => s.teamRoleRuns[role.id]);

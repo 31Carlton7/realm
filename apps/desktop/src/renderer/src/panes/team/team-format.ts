@@ -1,4 +1,5 @@
 import { describeSchedule, type RoleRun, type TeamActivity, type TeamReviewSummary, type TeamRole } from "@realm/contracts";
+import { cadenceSentence, clockLabel } from "../schedules/schedule-model";
 
 /**
  * The words and numbers the team surfaces print, pure so each is testable. Dollars are always shown
@@ -48,9 +49,15 @@ export function agoPhrase(ts: number, now = Date.now()): string {
   return a === "now" ? "just now" : /^\d/.test(a) ? `${a} ago` : a;
 }
 
-/** How a role's runs are woken, in a sentence: "Weekdays at 09:00", or that it waits to be asked. */
+/** How a role's runs are woken, in a sentence: "Every weekday at 9:00 AM", or that it waits to be
+ *  asked. The clock is the Scheduled page's — a team card reading "09:00" beside a task reading
+ *  "9:00 AM" was one time written two ways. Days the task modal cannot name keep the schedule's own
+ *  words with the same clock: "Monday, Thursday at 9:00 AM". */
 export function wakeSentence(cron: string | null): string {
-  return cron ? describeSchedule(cron).replace(/^Weekdays at/, "Every weekday at") : "Only when you run it";
+  if (!cron) return "Only when you run it";
+  const named = cadenceSentence(cron);
+  const words = named !== cron ? named : describeSchedule(cron).replace(/\b(\d{2}):(\d{2})\b/g, (_, h: string, m: string) => clockLabel(Number(h), Number(m)));
+  return words.replace(/^Weekdays at/, "Every weekday at");
 }
 
 /** A role's state, in a card's corner: "Working · 4m", "Next Thu 9:00", "Waiting on you". */

@@ -34,7 +34,10 @@ describe("the team's words and numbers", () => {
   it("says a role's state in a card's corner, and its clock as a sentence", () => {
     expect(roleStateLine(teamRole("r", "s", "CM", { state: "working", stateSince: NOW - 4 * 60_000 }), NOW)).toBe("Working · 4m");
     expect(roleStateLine(teamRole("r", "s", "CM", { state: "waiting" }), NOW)).toBe("Waiting on you");
-    expect(wakeSentence("0 9 * * 1-5")).toBe("Every weekday at 09:00");
+    // The Scheduled page's clock, not a second one: "9:00 AM", never "09:00".
+    expect(wakeSentence("0 9 * * 1-5")).toBe("Every weekday at 9:00 AM");
+    expect(wakeSentence("0 8 * * 1")).toBe("Mondays at 8:00 AM");
+    expect(wakeSentence("0 9 * * 1,4")).toBe("Monday, Thursday at 9:00 AM");
     expect(wakeSentence(null)).toBe("Only when you run it");
   });
 
