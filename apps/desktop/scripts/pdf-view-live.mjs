@@ -153,7 +153,7 @@ async function main() {
       REALM_HOME: home, REALM_HTML_MENUS: "1", REALM_ENABLE_FAKE_AGENT: "1",
       REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
-      LIVE_USER_DATA: path.join(scratch, "userData"), LIVE_MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js"),
+      LIVE_USER_DATA: path.join(scratch, "userData"), LIVE_MAIN: process.env.LIVE_MAIN ?? path.join(repoRoot, "apps/desktop/out/main/index.js"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
