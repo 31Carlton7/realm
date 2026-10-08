@@ -82,6 +82,7 @@ describe("ipaProblems", () => {
       [{ apsEnvironment: "development" }, /aps-environment is development/],
       [{ apsEnvironment: null }, /aps-environment is missing/],
       [{ authority: "Apple Development: Carlton Aikins (2ZNEBDL6TW)" }, /signed by Apple Development/],
+      [{ authority: "Apple Development: Carlton Aikins (FY9QB79VAP)" }, /signed by Apple Development/],
       [{ authority: "Apple Distribution: Someone Else (AAAAAAAAAA)" }, /expected the team's Apple Distribution/],
       [{ authority: null }, /signed by nobody/],
       [{ encryptionDeclared: null }, /ITSAppUsesNonExemptEncryption/],
