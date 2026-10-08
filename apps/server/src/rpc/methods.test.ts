@@ -1,10 +1,10 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { existsSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { sessionEvent } from "@realm/contracts";
+import { prAccountKey, sessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { SessionEventsStore } from "../store/sessions";
 import { waitFor } from "../test-utils";
@@ -423,6 +423,92 @@ describe("diff and the git write path over rpc", () => {
     c.close();
   });
 
+});
+
+/**
+ * Which GitHub account a shipped pull request is opened as, over the wire: the pick of the profile the
+ * named checkout's space belongs to. The request leg's own rules live in git-write.test.ts.
+ */
+describe("the account a shipped pull request is opened as", () => {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+
+  /** A gh signed in to carlton (active) and mara, which writes to `sent` whose token `pr create` carried. */
+  function twoAccountGh(sent: string): string {
+    const path = join(tempDir("realm-gh-"), "gh");
+    writeFileSync(path, `#!/bin/sh
+case "$1 $2" in
+  "auth status") echo '{"hosts":{"github.com":[{"login":"carlton","active":true,"state":"success","tokenSource":"keyring"},{"login":"mara","active":false,"state":"success","tokenSource":"keyring"}]}}' ;;
+  "auth token") echo "token-of-$4" ;;
+  "pr view") exit 1 ;;
+  "pr create") case "$GH_TOKEN" in token-of-*) echo "\${GH_TOKEN#token-of-}" > '${sent}' ;; *) echo "gh's own" > '${sent}' ;; esac; echo "https://github.com/acme/widgets/pull/7" ;;
+  *) exit 1 ;;
+esac
+`);
+    chmodSync(path, 0o755);
+    return path;
+  }
+
+  async function bootWithGh() {
+    const home = tempDir("realm-home-");
+    const sent = join(tempDir("realm-sent-"), "as");
+    app = await createApp({ home, port: 0, codeReview: { gh: twoAccountGh(sent) } });
+    const c = await client(app.port);
+    return { c, sent: () => (existsSync(sent) ? readFileSync(sent, "utf8").trim() : null) };
+  }
+
+  /** A space whose folder is a repository with a GitHub address and a directory to push to, and a
+   *  worktree of it with one staged change — a checkout a ship can name. */
+  async function checkout(c: Awaited<ReturnType<typeof client>>, profileId: string, name: string) {
+    const space = (await c.call("spaces.create", { profileId, name })).result;
+    const cwd = space.folderPath;
+    git(cwd, "init", "-b", "main");
+    for (const [k, v] of [["user.email", "t@example.com"], ["user.name", "t"], ["commit.gpgsign", "false"]]) git(cwd, "config", k!, v!);
+    writeFileSync(join(cwd, "a.txt"), "one\n");
+    git(cwd, "add", "."); git(cwd, "commit", "-m", "init");
+    const bare = tempDir("realm-remote-");
+    execFileSync("git", ["init", "-q", "--bare", "-b", "main", bare]);
+    git(cwd, "remote", "add", "origin", "https://github.com/acme/widgets.git");
+    git(cwd, "remote", "set-url", "--push", "origin", bare);
+    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: name })).result;
+    writeFileSync(join(env.path, "a.txt"), `${name}\n`);
+    await c.call("workspace.stage", { cwd: env.path, paths: ["a.txt"] });
+    return { env };
+  }
+  const ship = (c: Awaited<ReturnType<typeof client>>, env: { id: string; path: string }, named = true) =>
+    c.call("workspace.ship", { cwd: env.path, commit: true, message: "Add a thing", push: true, setUpstream: true, openPr: true, ...(named ? { environmentId: env.id } : {}) });
+
+  it("is the one the checkout's profile picked, and gh's own for a profile that picked none", async () => {
+    const { c, sent } = await bootWithGh();
+    const work = (await c.call("profiles.create", { name: "Work" })).result;
+    const school = (await c.call("profiles.create", { name: "School" })).result;
+    await c.call("settings.set", { key: prAccountKey(work.id), value: "mara" });
+    const picked = (await ship(c, (await checkout(c, work.id, "Versed")).env)).result;
+    expect(picked.pr).toMatchObject({ state: "created", url: "https://github.com/acme/widgets/pull/7" });
+    expect(sent()).toBe("mara");
+    const plain = (await ship(c, (await checkout(c, school.id, "Homework")).env)).result;
+    expect(plain.pr.state).toBe("created");
+    expect(sent()).toBe("gh's own");
+    c.close();
+  });
+
+  it("is gh's own when the pick names an account gh is no longer signed in to", async () => {
+    const { c, sent } = await bootWithGh();
+    const work = (await c.call("profiles.create", { name: "Work" })).result;
+    await c.call("settings.set", { key: prAccountKey(work.id), value: "someone-gone" });
+    expect((await ship(c, (await checkout(c, work.id, "Versed")).env)).result.pr.state).toBe("created");
+    expect(sent()).toBe("gh's own");
+    c.close();
+  });
+
+  it("is gh's own for a ship that names no checkout, since nothing says whose it is", async () => {
+    const { c, sent } = await bootWithGh();
+    const work = (await c.call("profiles.create", { name: "Work" })).result;
+    await c.call("settings.set", { key: prAccountKey(work.id), value: "mara" });
+    expect((await ship(c, (await checkout(c, work.id, "Versed")).env, false)).result.pr.state).toBe("created");
+    expect(sent()).toBe("gh's own");
+    c.close();
+  });
 });
 
 /** The durable ship log over the wire (Plan 14 W1): attribution, listing, and the broadcast. The

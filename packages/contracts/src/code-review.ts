@@ -13,7 +13,8 @@ import { IdSchema } from "./ids";
  * Which of gh's accounts is a profile's own choice (`prAccountKey`): the one gh has active until
  * another is picked. A picked account's calls are started through a shell that asks gh for that
  * account's token and hands it to the `gh` it starts, so the token goes from gh to gh without Realm
- * ever reading it, and gh's own active account — the one a terminal uses — is left as it was.
+ * ever reading it, and gh's own active account — the one a terminal uses — is left as it was. The
+ * pull request Ship opens from one of the profile's checkouts goes out the same way, as that account.
  *
  * Nothing here may be reached by an agent: the reviewer a person runs from the page writes findings
  * for that person to keep or discard, and only Submit posts. The service never takes a review from
@@ -86,11 +87,11 @@ export const GhStatusSchema = z.object({
 export type GhStatus = z.infer<typeof GhStatusSchema>;
 
 /**
- * The account a profile's Code review runs as, once the person has picked one: a login, kept per
- * PROFILE for the reason the instructions are — work and school are different people on GitHub. A
- * login and nothing else: the token stays gh's. It holds only while gh is signed in to that account;
- * signed out of it, the profile is back on gh's active account, and the pick returns when the
- * account does.
+ * The account a profile's Code review runs as, and its shipped pull requests are opened as, once the
+ * person has picked one: a login, kept per PROFILE for the reason the instructions are — work and
+ * school are different people on GitHub. A login and nothing else: the token stays gh's. It holds
+ * only while gh is signed in to that account; signed out of it, the profile is back on gh's active
+ * account, and the pick returns when the account does.
  */
 export const prAccountKey = (profileId: string): string => `codeReview.account:${profileId}`;
 

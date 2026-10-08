@@ -197,14 +197,14 @@ describe("the account a profile reviews as", () => {
     expect(within(group).getByRole("menuitemcheckbox", { name: "@carlton" })).toHaveAttribute("aria-checked", "true");
     const other = within(group).getByRole("menuitemcheckbox", { name: "@mara" });
     expect(other).toHaveAttribute("aria-checked", "false");
-    expect(other).toHaveAttribute("title", "Read pull requests and post reviews as @mara in this profile. The account gh uses in a terminal stays the same.");
+    expect(other).toHaveAttribute("title", "Read pull requests, post reviews, and open pull requests as @mara in this profile. The account gh uses in a terminal stays the same.");
     calls.length = 0;
     fireEvent.click(other);
     await waitFor(() => expect(called("codeReview.setAccount")).toHaveLength(1));
     expect(called("codeReview.setAccount")[0]!.params).toEqual({ profileId: "p1", login: "mara" });
     await waitFor(() => expect(called("codeReview.list").map((c) => c.params.section).sort()).toEqual(["authored", "review"]));
     expect(called("codeReview.list").every((c) => c.params.account === "mara")).toBe(true);
-    expect(store.getState().toasts.map((t) => t.text)).toContain("Code review in this profile uses @mara");
+    expect(store.getState().toasts.map((t) => t.text)).toContain("Code review and pull requests in this profile use @mara");
     const again = await openOptions();
     expect(within(again).getByRole("menuitemcheckbox", { name: "@mara" })).toHaveAttribute("aria-checked", "true");
     expect(within(again).getByRole("menuitemcheckbox", { name: "@carlton" })).toHaveAttribute("aria-checked", "false");
@@ -215,7 +215,7 @@ describe("the account a profile reviews as", () => {
     await mount();
     await openRequest();
     const active = within(await openOptions()).getByRole("menuitemcheckbox", { name: "@carlton" });
-    expect(active).toHaveAttribute("title", "Code review in this profile reads and posts as @carlton, the account gh has active. To keep this profile on @carlton when that changes, choose it.");
+    expect(active).toHaveAttribute("title", "This profile reads pull requests, posts reviews, and opens pull requests as @carlton, the account gh has active. To keep this profile on @carlton when that changes, choose it.");
     calls.length = 0;
     fireEvent.click(active);
     await waitFor(() => expect(called("codeReview.setAccount")).toHaveLength(1));
@@ -224,7 +224,7 @@ describe("the account a profile reviews as", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Stream the tokenizer" })).toBeInTheDocument();
     expect(called("codeReview.list")).toHaveLength(0);
     const kept = within(await openOptions()).getByRole("menuitemcheckbox", { name: "@carlton" });
-    expect(kept).toHaveAttribute("title", "Code review in this profile reads and posts as @carlton.");
+    expect(kept).toHaveAttribute("title", "This profile reads pull requests, posts reviews, and opens pull requests as @carlton.");
     fireEvent.click(kept);
     await exited();
     expect(called("codeReview.setAccount")).toHaveLength(1);

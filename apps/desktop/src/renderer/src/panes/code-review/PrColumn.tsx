@@ -21,7 +21,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * fill once chosen, nothing lit under a passing pointer.
  *
  * Its menu is where the account is: who gh is signed in as, and — where gh is signed in to more than
- * one — each of them to pick from, the one this profile reads and posts as ticked. A pick is kept for
+ * one — each of them to pick from, the one this profile reads, posts and ships as ticked. A pick is kept for
  * the profile, so the ticked account can be picked too while it is only gh's active one: that keeps
  * the profile on it when a terminal switches gh to another. With one account there is nothing to
  * choose, and the menu names it as it always did.
@@ -121,9 +121,9 @@ export function PrColumn({ login, account, accounts, pins, selected, onSelect, o
         const picked = sameLogin(a, account);
         return {
           label: `@${a}`, checked: inUse, onSelect: () => { if (!picked) onAccount(a); },
-          title: picked ? `Code review in this profile reads and posts as @${a}.`
-            : inUse ? `Code review in this profile reads and posts as @${a}, the account gh has active. To keep this profile on @${a} when that changes, choose it.`
-              : `Read pull requests and post reviews as @${a} in this profile. The account gh uses in a terminal stays the same.`,
+          title: picked ? `This profile reads pull requests, posts reviews, and opens pull requests as @${a}.`
+            : inUse ? `This profile reads pull requests, posts reviews, and opens pull requests as @${a}, the account gh has active. To keep this profile on @${a} when that changes, choose it.`
+              : `Read pull requests, post reviews, and open pull requests as @${a} in this profile. The account gh uses in a terminal stays the same.`,
         };
       }),
     ]

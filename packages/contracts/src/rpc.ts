@@ -1483,6 +1483,10 @@ export const Methods = {
    * commit already made, and a second commit would be wrong. `setUpstream` is only ever true because
    * the user was shown `no-upstream` and said yes. A commit with a blank message is refused outright
    * (COMMIT_EMPTY_MESSAGE) rather than reported as an outcome: it is a mistake, not a state.
+   *
+   * The pull request is opened as the GitHub account the checkout's profile picked for Code review
+   * (`prAccountKey`), where it picked one and the ship names its `environmentId`; otherwise as gh's
+   * own active account. The push is git's, and authenticates however git is set up to.
    */
   "workspace.ship": {
     params: z.object({

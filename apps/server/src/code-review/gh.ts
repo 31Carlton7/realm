@@ -5,44 +5,18 @@ import {
   type PrSummary, type ReviewerState, type SubmitReview, type SubmittedReview,
 } from "@realm/contracts";
 import { RpcError } from "../store/rows";
+import { GITHUB_HOST, ghAs } from "../workspace/gh-account";
 
 export type GhResult = { code: number; stdout: string; stderr: string };
 /** Running `gh` — injectable, so a suite points at a script of its own: nothing in this repository's
  *  test suite may reach GitHub. `input` is written to its stdin (a review's JSON body), and `as` names
- *  the account the call is sent as, where that is not gh's own active one (`AS_ACCOUNT`). */
+ *  the account the call is sent as, where that is not gh's own active one (`ghAs`). */
 export type GhRun = (args: string[], opts?: { input?: string; timeoutMs?: number; as?: string }) => Promise<GhResult>;
 
 /** A read is a page of a list or one request; a minute is a long time for either to say nothing. */
 const GH_TIMEOUT_MS = 60_000;
 /** A page of a big change's patches runs to megabytes; a list or a request is a few kilobytes. */
 const GH_MAX_BUFFER = 64 * 1024 * 1024;
-
-/** The one host the page reads: its links, its addresses and its searches are all github.com's. */
-const GITHUB_HOST = "github.com";
-
-/**
- * What `/bin/sh` runs for a call sent as another of the accounts gh is signed in to: ask gh for that
- * account's token, and start gh with it in `GH_TOKEN`, which gh puts ahead of what it has stored.
- *
- * gh keeps one active account per host and has no flag for "as this one, just now". A shell does it,
- * rather than this process, so that the token goes from one gh to the next and never passes through
- * Realm: nothing here reads it, holds it or could log it, and gh's own active account — the one a
- * terminal uses — is not touched. It is asked for on every call, so a token refreshed in a terminal
- * is the one the next call carries.
- *
- * The command, the login and the host are positional parameters and never text in the script, so
- * nothing in them is read as shell. The token read is kept off stdin, which a review's body arrives
- * on and `exec` hands to the call. No gh at all exits 127, as a spawn of it would report; an account
- * gh no longer has exits 4, gh's own code for "authentication required" — the two states the page
- * already has words for.
- */
-const AS_ACCOUNT = [
-  'command -v "$1" >/dev/null 2>&1 || exit 127',
-  'GH_TOKEN=$("$1" auth token --user "$2" --hostname "$3" </dev/null 2>/dev/null) && [ -n "$GH_TOKEN" ] || { echo "gh is not signed in to GitHub as $2" >&2; exit 4; }',
-  "export GH_TOKEN",
-  "gh=$1; shift 3",
-  'exec "$gh" "$@"',
-].join("\n");
 
 /**
  * The real `gh`, at `command`.
@@ -55,7 +29,7 @@ const AS_ACCOUNT = [
  */
 export function ghRunner(command: string): GhRun {
   return (args, opts = {}) => new Promise((resolve, reject) => {
-    const [file, argv] = opts.as === undefined ? [command, args] : ["/bin/sh", ["-c", AS_ACCOUNT, "realm-gh", command, opts.as, GITHUB_HOST, ...args]];
+    const [file, argv] = opts.as === undefined ? [command, args] : ghAs(command, opts.as, args);
     const child = execFile(file, argv, {
       cwd: tmpdir(), timeout: opts.timeoutMs ?? GH_TIMEOUT_MS, maxBuffer: GH_MAX_BUFFER, encoding: "utf8",
       env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_SPINNER_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0" },

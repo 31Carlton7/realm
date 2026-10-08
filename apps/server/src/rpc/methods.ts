@@ -185,7 +185,9 @@ export function registerMethods(d: Deps): void {
       if (env.path !== p.cwd) throw new RpcError("ENVIRONMENT_MISMATCH", `environment ${p.environmentId} is at ${env.path}, not ${p.cwd}`);
       log = { environmentId: env.id, spaceId: env.spaceId };
     }
-    const result = await d.gitWrite.ship({ ...p, log });
+    const profileId = log ? d.spaces.get(log.spaceId)?.profileId ?? null : null;
+    const account = profileId ? await d.codeReview.accountOf(profileId) : null;
+    const result = await d.gitWrite.ship({ ...p, log, account });
     // Broadcast even when a step reported a problem: a commit that succeeded before a push that was
     // rejected still moved the tree, and the pane must show that.
     changed(p.cwd);

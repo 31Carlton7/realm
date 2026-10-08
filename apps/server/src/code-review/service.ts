@@ -169,8 +169,10 @@ export class CodeReviewService {
     return value;
   }
 
-  /** The account `profileId` picked, as gh spells it, while gh is still signed in to it. */
-  private async accountOf(profileId: string, force = false): Promise<string | null> {
+  /** The account `profileId` picked, as gh spells it, while gh is still signed in to it — what its
+   *  Code review runs as, and what a pull request shipped from one of its checkouts is opened as.
+   *  Null for a profile that picked none: no gh call is made, and gh's own active account stands. */
+  async accountOf(profileId: string, force = false): Promise<string | null> {
     const picked = this.d.settings.get(prAccountKey(profileId));
     if (typeof picked !== "string" || picked === "") return null;
     return (await this.accounts(force)).find((a) => a.toLowerCase() === picked.toLowerCase()) ?? null;

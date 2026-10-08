@@ -113,7 +113,7 @@ function Ready({ login, account, profileId, vantage, onStatus, onLost }: {
   }, [listAccounts]);
   const pickAccount = (next: string) => run(async () => {
     const status = await codeReview.setAccount(profileId, next).catch((e: unknown) => { listAccounts(true); throw e; });
-    if (status.state === "ready") toast({ tone: "success", text: `Code review in this profile uses @${status.login ?? next}`, icon: "github" });
+    if (status.state === "ready") toast({ tone: "success", text: `Code review and pull requests in this profile use @${status.login ?? next}`, icon: "github" });
     onStatus(status);
   });
 
