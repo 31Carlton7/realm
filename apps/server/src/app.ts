@@ -544,6 +544,14 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "tool", name: "Bash", input: { command: "magick hero.png -modulate 100,112,94 hero-warm.png", description: "Warm the sky" }, result: "" },
       { kind: "text", paceMs: 30, text: "Warmed the sky and left the ridge as it was. The new version is `hero-warm.png`, beside the original." },
     ],
+  }, {
+    // A deck composed into ANOTHER space's folder by a shell command, the way the Versed slideshow was
+    // made: no write tool names a slide, so only the settle's sweep (sessions/turn-media.ts) finds it.
+    // Held on its permission, so a live check can put the slide on disk while the turn is open.
+    on: "Compose the deck", emit: [
+      { kind: "tool", name: "Bash", input: { command: "cd ../versed/content/decks && node compose.mjs deck v1", description: "Compose the slides" }, needsPermission: true, result: "deck/v1/01.png 1080x1920" },
+      { kind: "text", paceMs: 30, text: "Composed the first slide of the deck." },
+    ],
   }] });
   /* The fake behind real agents' NAMES, for a live check that has to show work handed across
      harnesses — a sub-agent on the real Codex would be a billed turn. Named kinds only, and only with
