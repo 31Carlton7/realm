@@ -16,12 +16,19 @@
  *       `GOAL COMPLETE:` line, and the continuation told it to.
  *   S5  The user's Mark done on the strip ends a running goal, and nothing continues after it. The
  *       strip is captured in light and dark.
+ *   S6  A browser pane the agent opened is closed from the layout; the agent's next read is refused
+ *       with a sentence naming `realm-workspace__pane_show`, the agent calls it, the pane is back in
+ *       its session's side pane, and the read succeeds. The #1 failure in the call log (125 times).
+ *   S7  `workspace_state` says what is on screen and who the caller is, `sessions_list` lists this
+ *       space's sessions and no other's, `session_read` reads a peer's transcript fenced, and a
+ *       session in another space is refused.
  *
  * Ports: LIVE_CDP_PORT (9232) and LIVE_SERVER_PORT (8792); refuses to run if either is taken.
  * Pictures land in LIVE_SHOT_DIR (a persistent folder, not /tmp). Touches only its scratch home and
  * kills only what it started — the server is a second Electron, so it is reaped by its port too.
  */
 import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
@@ -35,6 +42,7 @@ const shots = process.env.LIVE_SHOT_DIR ?? path.join(os.homedir(), ".cache/realm
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-self-use-live-"));
 fs.mkdirSync(shots, { recursive: true });
 let electron = null;
+let site = null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ── The scenarios, as the scripted agent plays them ──────────────────────────────────────────── */
@@ -60,6 +68,19 @@ const SCRIPT = [
   { on: "S4 finish the changelog", emit: [{ kind: "list", expect: GOAL_TOOLS }, ...work] },
   // S5: busy, paced turns that never finish on their own.
   { on: "S5 keep polishing the copy", emit: [...work, { kind: "text", paceMs: 40, text: "Tightened two more paragraphs and checked the build again." }] },
+];
+/** S6 and S7 call tools with ids learned at run time: the message ends with them (`argsFromMessage`). */
+const WORKSPACE_TOOLS = ["realm-workspace__workspace_state", "realm-workspace__pane_show", "realm-workspace__sessions_list", "realm-workspace__session_read"];
+const workspaceScript = (fixtureUrl) => [
+  { on: "S6 open the fixture", emit: [{ kind: "call", tool: "realm-browser__browser_open", input: { url: fixtureUrl } }] },
+  { on: "S6 read the page", emit: [{ kind: "call", tool: "realm-browser__browser_read", input: { kind: "text" }, argsFromMessage: true }] },
+  { on: "S6 show it again", emit: [{ kind: "call", tool: "realm-workspace__pane_show", input: {}, argsFromMessage: true }] },
+  { on: "S7 look at the workspace", emit: [
+    { kind: "list", expect: WORKSPACE_TOOLS },
+    { kind: "call", tool: "realm-workspace__workspace_state", input: {} },
+    { kind: "call", tool: "realm-workspace__sessions_list", input: {} },
+  ] },
+  { on: "S7 read a session", emit: [{ kind: "call", tool: "realm-workspace__session_read", input: {}, argsFromMessage: true }] },
 ];
 
 async function portFree(port) {
@@ -206,8 +227,12 @@ async function main() {
   for (const p of [CDP_PORT, SERVER_PORT]) if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);
   const mainEntry = path.join(repoRoot, "apps/desktop/out/main/index.js");
   if (!fs.existsSync(mainEntry)) throw new Error("apps/desktop/out is missing — run `pnpm build` first");
+  // S6's page: a local site, so nothing leaves the Mac.
+  site = createServer((_req, res) => { res.writeHead(200, { "content-type": "text/html" }); res.end("<!doctype html><title>S6 fixture</title><h1>S6 fixture page</h1><p>Read me after the pane comes back.</p>"); });
+  await new Promise((r) => site.listen(0, "127.0.0.1", r));
+  const fixtureUrl = `http://127.0.0.1:${site.address().port}/`;
   const scriptFile = path.join(scratch, "fake-script.json");
-  fs.writeFileSync(scriptFile, JSON.stringify(SCRIPT));
+  fs.writeFileSync(scriptFile, JSON.stringify([...SCRIPT, ...workspaceScript(fixtureUrl)]));
 
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, [
@@ -344,6 +369,87 @@ async function main() {
   await setTheme(c, "light");
   await shootStrip(c, "goal-strip-done-light");
 
+  // ── S6: a closed browser pane, brought back by the agent ─────────────────────────────────────
+  await idle(sid);
+  // browser_open asks first; this session's user has said yes to everything.
+  await api.call("sessions.setOptions", { id: sid, permissionMode: "bypassPermissions" });
+  const results = async (id, tool) => {
+    const evs = await events(id);
+    return evs.filter((e) => e.event.type === "tool_call" && e.event.payload.name === `mcp__realm__${tool}`)
+      .map((call) => evs.find((e) => e.event.type === "tool_result" && e.event.payload.toolUseId === call.event.payload.toolUseId)?.event.payload)
+      .filter(Boolean);
+  };
+  const turn = async (text, tool) => {
+    const before = (await results(sid, tool)).length;
+    await api.call("sessions.send", { id: sid, text });
+    return until(async () => { const all = await results(sid, tool); return all.length > before ? all.at(-1) : null; }, 20000, text);
+  };
+  const opened = await turn("S6 open the fixture", "realm-browser__browser_open");
+  const browserId = /Opened browser pane (\S+) at/.exec(opened.content)?.[1];
+  check("S6 the agent opened a browser pane", !opened.isError && !!browserId, opened.content);
+  const browserItem = (await api.call("items.list", { spaceId })).find((i) => i.kind === "browser" && i.refId === browserId);
+  const myTitle = (await api.call("sessions.get", { id: sid })).title;
+  /* The browser's tab in the side panel, and whose side panel it is: the one in the same panel group
+     as the session pane titled `owner` (side-tools.mjs's reading of the layout). */
+  const tabOf = (title, owner = "") => evalIn(c, `(() => {
+    const tab = [...document.querySelectorAll('.panehost .panel[data-tabbed] .pane-tab')].find((t) => t.querySelector('.pane-tab-title')?.textContent === ${JSON.stringify(title)});
+    if (!tab) return null;
+    const group = (el) => el?.parentElement?.closest('[data-panel-group]') ?? null;
+    const side = tab.closest('.panel');
+    const pane = [...document.querySelectorAll('.panehost .panel:not([data-tabbed])')].find((p) => p.querySelector(':scope > .panel-bar .panel-title')?.textContent === ${JSON.stringify(owner)});
+    return { active: tab.hasAttribute('data-active'), besideOwner: !!pane && group(pane) === group(side) };
+  })()`);
+  const titleNow = async () => (await api.call("items.list", { spaceId })).find((i) => i.id === browserItem.id).title;
+  await until(async () => tabOf(await titleNow()), 15000, "S6 the browser's tab");
+  const firstRead = await until(async () => { await idle(sid); const r = await turn(`S6 read the page {"browserId": "${browserId}"}`, "realm-browser__browser_read"); return r.isError ? null : r; }, 20000, "S6 the first read");
+  check("S6 the agent reads the page it opened", firstRead.content.includes("S6 fixture page"));
+
+  // Closed from the layout the way the user closes a tab: the keyboard in the side panel, then ⌘W.
+  await evalIn(c, `(() => { document.querySelector('.panehost .panel[data-tabbed]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); document.activeElement?.blur?.(); return true; })()`);
+  for (const type of ["keyDown", "keyUp"]) await c.send("Input.dispatchKeyEvent", { type, modifiers: 4, key: "w", code: "KeyW", windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 });
+  await until(async () => !(await tabOf(await titleNow())), 8000, "S6 the tab to close");
+  check("S6 the browser's item outlives its pane", (await api.call("items.list", { spaceId })).some((i) => i.id === browserItem.id));
+  await idle(sid);
+  const refused = await turn(`S6 read the page {"browserId": "${browserId}"}`, "realm-browser__browser_read");
+  check("S6 a read of the closed pane is refused, naming pane_show and the id", refused.isError && refused.content.includes(`realm-workspace__pane_show with {"browserId": "${browserId}"}`), refused.content);
+  await idle(sid);
+  const shown = await turn(`S6 show it again {"browserId": "${browserId}"}`, "realm-workspace__pane_show");
+  check("S6 pane_show brings it back and says the tools can drive it", !shown.isError && shown.content.includes("back in your side pane"), shown.content);
+  const back = await until(async () => tabOf(await titleNow(), myTitle), 8000, "S6 the tab to come back");
+  check("S6 the pane is back as the showing tab of the agent's own session's side panel", back.active && back.besideOwner, back);
+  const shot = await c.send("Page.captureScreenshot", { format: "png" });
+  const shotFile = path.join(shots, "pane-show-side-panel.png");
+  fs.writeFileSync(shotFile, Buffer.from(shot.data, "base64"));
+  console.log(`SCREENSHOT pane-show-side-panel ${shotFile}`);
+  await idle(sid);
+  const again = await turn(`S6 read the page {"browserId": "${browserId}"}`, "realm-browser__browser_read");
+  check("S6 the read succeeds once the pane is back", !again.isError && again.content.includes("S6 fixture page"), again.content.slice(0, 160));
+
+  // ── S7: the workspace and its sessions, read by the agent ────────────────────────────────────
+  const peer = await fresh("S7 peer");
+  await api.call("sessions.send", { id: peer, text: "hello from the peer" });
+  await until(async () => (await texts(peer)).includes("echo: hello from the peer"), 15000, "S7 the peer's reply");
+  const { profileId } = (await api.call("spaces.list", {})).find((sp) => sp.id === spaceId);
+  const elsewhere = await api.call("spaces.create", { profileId, name: "S7 elsewhere" });
+  const away = (await api.call("sessions.create", { spaceId: elsewhere.id, agentKind: "fake", title: "S7 away" })).session.id;
+  await api.call("sessions.send", { id: away, text: "private words in another space" });
+  await until(async () => (await texts(away)).length > 0, 15000, "S7 the other space's reply");
+  await idle(sid);
+  const state = await turn("S7 look at the workspace", "realm-workspace__workspace_state");
+  const listed = (await texts(sid)).filter((t) => t.startsWith("tools/list")).at(-1) ?? "";
+  check("S7 the agent lists the realm-workspace tools", listed.includes("missing: none"), listed.split("\n").at(-1));
+  check("S7 workspace_state names the caller and the window", state.content.includes(`You are session ${sid}`) && state.content.includes("The window is in this space.") && state.content.includes("Your session is on screen."), state.content.split("\n").slice(0, 6));
+  check("S7 workspace_state says the browser is on screen and mounted", state.content.includes(`browserId ${browserId} — on screen, the tab showing in the side panel; page mounted`), state.content.split("\n").find((l) => l.includes(browserId ?? "-")));
+  check("S7 workspace_state lists the peer and nothing of the other space", state.content.includes(`sessionId ${peer}`) && !state.content.includes(away) && !state.content.includes("S7 away"));
+  const sessionsList = (await results(sid, "realm-workspace__sessions_list")).at(-1);
+  check("S7 sessions_list lists this space's sessions only, marking the caller", sessionsList.content.includes(peer) && sessionsList.content.includes(`${sid} `) && sessionsList.content.includes("[you]") && !sessionsList.content.includes(away), sessionsList.content.split("\n").slice(0, 4));
+  await idle(sid);
+  const peerRead = await turn(`S7 read a session {"sessionId": "${peer}"}`, "realm-workspace__session_read");
+  check("S7 session_read reads the peer's transcript, fenced", !peerRead.isError && peerRead.content.includes("assistant: echo: hello from the peer") && peerRead.content.includes("ANOTHER SESSION'S TRANSCRIPT"), peerRead.content.slice(0, 200));
+  await idle(sid);
+  const awayRead = await turn(`S7 read a session {"sessionId": "${away}"}`, "realm-workspace__session_read");
+  check("S7 a session in another space is refused, and says where to look instead", awayRead.isError && awayRead.content.includes("belongs to another space") && awayRead.content.includes("sessions_list lists those") && !awayRead.content.includes("private words"), awayRead.content);
+
   const errs = c.events.filter((e) => !e.includes("Autofill"));
   check("no renderer console errors", errs.length === 0, errs.slice(0, 5));
   api.close();
@@ -361,6 +467,7 @@ function reapPort(port) {
 main()
   .catch((e) => { console.error("ERROR", e.message); process.exitCode = 1; })
   .finally(() => {
+    site?.close();
     electron?.kill("SIGTERM");
     setTimeout(() => {
       electron?.kill("SIGKILL");
