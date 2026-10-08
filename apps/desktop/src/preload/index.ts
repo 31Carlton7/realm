@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -288,7 +288,7 @@ contextBridge.exposeInMainWorld("realm", {
     /** Every door names the PROFILE: sign-ins are a profile's own (Plan 27 Phase 2). */
     list: (profileId: string): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:list", profileId),
     /** `available`: the OS will encrypt. `canPromptTouchID`: this Mac can actually satisfy a fill. */
-    status: (): Promise<{ available: boolean; canPromptTouchID: boolean; presenceTtlMs: number }> => ipcRenderer.invoke("credentials:status"),
+    status: (): Promise<{ available: boolean; canPromptTouchID: boolean; canPromptDeviceOwner: boolean; presenceTtlMs: number }> => ipcRenderer.invoke("credentials:status"),
     add: (profileId: string, input: BrowserCredentialInput): Promise<BrowserCredential> => ipcRenderer.invoke("credentials:add", profileId, input),
     remove: (profileId: string, id: string): Promise<boolean> => ipcRenderer.invoke("credentials:remove", profileId, id),
     /** COPY one into another profile; the original stays. Answers with the profile's name. */
@@ -296,6 +296,11 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.invoke("credentials:share", profileId, id, toProfileId),
     /** Resolves the value main actually stored — clamped, so a stale renderer learns the truth. */
     setPresenceTtl: (ms: number): Promise<number> => ipcRenderer.invoke("credentials:set-presence-ttl", ms),
+    /** How this profile's sign-ins and passkeys are unlocked. Renderer IPC only — no RPC method or
+     *  tool reaches it — and main asks macOS to confirm the user before any weakening. */
+    unlockPolicy: (profileId: string): Promise<UnlockPolicyStatus | null> => ipcRenderer.invoke("credentials:unlock-policy", profileId),
+    setUnlockPolicy: (profileId: string, policy: UnlockPolicy): Promise<{ ok: true; status: UnlockPolicyStatus } | { ok: false; error: string }> =>
+      ipcRenderer.invoke("credentials:set-unlock-policy", profileId, policy),
   },
   /** Settings → Sign-ins, the passkey half. Read, forget and share only: there is no `add`, because a
    *  passkey is created by a site asking for one and the user answering Touch ID. */

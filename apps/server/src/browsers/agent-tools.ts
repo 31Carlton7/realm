@@ -235,7 +235,7 @@ const TOOLS: Tool[] = [
     name: "browser_fill_credential",
     description:
       "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings → Sign-ins, and fill it). " +
-      "Both work the same way: Realm checks the pane's current origin, refuses if it is not the page the sign-in belongs to, asks the user to approve this specific fill, and requires Touch ID — every time. You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
+      "Both work the same way: Realm checks the pane's current origin, refuses if it is not the page the sign-in belongs to, asks the user to approve this specific fill, and unlocks it the way the user set for this profile (Touch ID unless they chose otherwise). You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
       "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). Two-factor prompts (Duo, Okta, an emailed code) are not automated: hand those to the user.",
     inputSchema: {
       type: "object",

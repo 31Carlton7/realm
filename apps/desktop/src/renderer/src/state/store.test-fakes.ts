@@ -1,5 +1,5 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
+import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
@@ -269,6 +269,10 @@ export type FakeData = {
   profilesInOtherWindows?: string[];
   credentials?: (BrowserCredential & { profileId?: string })[];
   credentialStatus?: CredentialStatus;
+  /** Each profile's unlock policy, by profile id; a profile absent here is on Touch ID. `refuseUnlock`
+   *  makes the fake answer a weakening as main does when macOS did not confirm the user. */
+  unlockPolicies?: Record<string, UnlockPolicy>;
+  refuseUnlock?: boolean;
   /** Passkeys Realm holds. Like `credentials`, the fixture carries NO private key field — a fake
    *  that kept one would be a fake that could pass a test main fails. p1's unless named. */
   passkeys?: (Passkey & { profileId?: string })[];
@@ -500,7 +504,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // would put numbers into snapshots that have nothing to do with what is being tested.
     modelCatalog: overrides.modelCatalog ?? [],
     credentials: overrides.credentials ?? [],
-    credentialStatus: overrides.credentialStatus ?? { available: true, canPromptTouchID: true, presenceTtlMs: 0 },
+    credentialStatus: overrides.credentialStatus ?? { available: true, canPromptTouchID: true, canPromptDeviceOwner: true, presenceTtlMs: 0 },
+    unlockPolicies: overrides.unlockPolicies ?? {},
+    refuseUnlock: overrides.refuseUnlock ?? false,
     passkeys: overrides.passkeys ?? [],
     lectures: overrides.lectures ?? {},
     plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
@@ -1454,6 +1460,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { ok: true, profileName: target.name };
     },
     credentialSetPresenceTtl: async (ms) => { calls.push(`credentialSetPresenceTtl:${ms}`); data.credentialStatus.presenceTtlMs = ms; return ms; },
+    credentialUnlockPolicy: async (profileId) => ({ policy: data.unlockPolicies[profileId] ?? { kind: "touch-id" }, sessionUntil: null }),
+    credentialSetUnlockPolicy: async (profileId, policy) => {
+      calls.push(`credentialSetUnlockPolicy:${profileId}:${policy.kind}`);
+      const current = data.unlockPolicies[profileId] ?? { kind: "touch-id" };
+      if (data.refuseUnlock && unlockPolicyRank(policy) > unlockPolicyRank(current)) {
+        return { ok: false, error: "macOS did not confirm it was you, so nothing changed." };
+      }
+      data.unlockPolicies[profileId] = policy;
+      return { ok: true, status: { policy, sessionUntil: null } };
+    },
     passkeyList: async (profileId) => {
       calls.push("passkeyList");
       return data.passkeys.filter((p) => (p.profileId ?? "p1") === profileId).map(({ profileId: _p, ...p }) => p);

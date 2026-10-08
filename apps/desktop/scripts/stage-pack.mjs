@@ -63,6 +63,7 @@ for (const [binary, missing] of [
   ["scrollphase", "the app falls back to timer-based scroll phases"],
   ["axhelper", "the computer-use tools stay unavailable"],
   ["phonescreen", "a real iPhone's picture is the runner's screenshots, about one a second"],
+  ["deviceowner", "sign-ins unlock with Touch ID only, never the login password"],
 ]) {
   const built = join(desktop, "native", "bin", binary);
   if (existsSync(built)) cpSync(built, join(stage, binary));

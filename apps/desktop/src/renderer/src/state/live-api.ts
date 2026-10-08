@@ -201,6 +201,8 @@ export const liveApi = (): Api => ({
   passkeyRemove: (profileId, id) => window.realm.passkeys.remove(profileId, id),
   passkeyShare: (profileId, id, toProfileId) => window.realm.passkeys.share(profileId, id, toProfileId),
   credentialSetPresenceTtl: (ms) => window.realm.credentials.setPresenceTtl(ms),
+  credentialUnlockPolicy: (profileId) => window.realm.credentials.unlockPolicy(profileId),
+  credentialSetUnlockPolicy: (profileId, policy) => window.realm.credentials.setUnlockPolicy(profileId, policy),
   openTccPane: (pane) => window.realm.permissions.openSettings(pane),
   macAccessStatus: () => window.realm.macAccess.status(),
   macAccessGrant: (id) => window.realm.macAccess.grant(id),
