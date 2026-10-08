@@ -23,7 +23,10 @@ export type FakeStep =
    *  an agent's CLI calls it — and recorded as the call and its result. `tool` is the gateway's name
    *  for it (`realm-agent__agent_start`); the transcript shows it under Claude's prefix. The one step
    *  that reaches past the script: what answers it is the production path. */
-  | { kind: "call"; tool: string; input: Record<string, unknown> }
+  | { kind: "call"; tool: string; input: Record<string, unknown>;
+      /** Merge the JSON object the user's message ends with over `input` — how a live check hands the
+       *  agent an id it only learns at run time ("S6 read {"browserId": "01…"}"). */
+      argsFromMessage?: boolean }
   /** Read this session's tool list from the gateway, as the agent would see it right now, and say it
    *  as the turn's text: the names, how many `tools/list_changed` the session has been sent, and —
    *  given `expect` — which of those names are missing. What lets a live check see what an agent
@@ -119,9 +122,10 @@ export class FakeAdapter implements AgentAdapter {
         if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
         if (st.kind === "call") {
           const toolUseId = newId();
-          q.push(sessionEvent("tool_call", { toolUseId, name: `mcp__realm__${st.tool}`, input: st.input, parentToolUseId: null }));
+          const input = st.argsFromMessage ? { ...st.input, ...argsIn(msg.text) } : st.input;
+          q.push(sessionEvent("tool_call", { toolUseId, name: `mcp__realm__${st.tool}`, input, parentToolUseId: null }));
           const answer = gateway
-            ? await gateway.call(st.tool, st.input).catch((e: unknown) => ({ text: (e as Error).message ?? String(e), isError: true }))
+            ? await gateway.call(st.tool, input).catch((e: unknown) => ({ text: (e as Error).message ?? String(e), isError: true }))
             : { text: "no Realm gateway was handed to this session", isError: true };
           if (disposed) return;
           // What kept the call alive is said under its answer, so a live check can see it on the
@@ -197,6 +201,16 @@ export class FakeAdapter implements AgentAdapter {
       },
     };
   }
+}
+
+/** The JSON object a message ends with (from its first `{`), for a `call` step's `argsFromMessage`.
+ *  Text that does not parse throws, and the turn reports it as an error: a script that meant to pass
+ *  an id and passed nothing should say so, not call the tool without it. */
+function argsIn(text: string): Record<string, unknown> {
+  const at = text.indexOf("{");
+  if (at < 0) return {};
+  const value: unknown = JSON.parse(text.slice(at));
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 /** Make a scripted `Write` or `Edit` real, under `cwd` and nowhere else. The error message, or null. */

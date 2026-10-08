@@ -892,12 +892,17 @@ describe("realm-browser allowedTools (Plan 11 W4)", () => {
       // for a value, so a promptless call discloses nothing but the origin/username/label the USER
       // typed into Settings. The FILL is a different tool and is deliberately absent below.
       "mcp__realm__realm-browser__browser_credentials",
+      // What is in the space, and what its sessions said: reads Realm itself never prompts for.
+      "mcp__realm__realm-workspace__workspace_state",
+      "mcp__realm__realm-workspace__sessions_list",
+      "mcp__realm__realm-workspace__session_read",
     ]);
   });
 
   it("NEVER contains a mutating tool name (the named mutant: a pre-allowed act)", () => {
     const allowed = claudeAllowedTools([gatewayEntry]);
-    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential"]) {
+    // `pane_show` changes what is on the user's screen: it keeps Claude's prompt where the mode has one.
+    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential", "pane_show"]) {
       expect(allowed.some((t) => t.endsWith(`__${mutating}`))).toBe(false);
     }
   });

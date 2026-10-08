@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
 import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, WORKSPACE_PROVIDER_NAME, WORKSPACE_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -130,7 +130,12 @@ export function claudeMcpServers(servers: readonly McpServerConfig[]): Record<st
  * same shared list the server's broker gates by, and the test pins its exact expansion.
  */
 export function claudeAllowedTools(servers: readonly McpServerConfig[]): string[] {
-  return servers.flatMap((s) => BROWSER_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__realm-browser__${t}`));
+  return servers.flatMap((s) => [
+    ...BROWSER_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__realm-browser__${t}`),
+    // `realm-workspace`'s reads, on the same terms and from the same kind of shared list: Realm never
+    // prompts for them, so Claude's prompt would be the only card in front of a read.
+    ...WORKSPACE_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__${WORKSPACE_PROVIDER_NAME}__${t}`),
+  ]);
 }
 
 /**

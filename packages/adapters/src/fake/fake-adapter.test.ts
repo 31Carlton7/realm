@@ -135,6 +135,18 @@ describe("FakeAdapter, scripting a goal", () => {
     expect(await say(a, "x")).toEqual(["Nothing has changed since the last turn."]);
   });
 
+  it("calls a tool with the arguments the message ends with, over the scripted ones", async () => {
+    const a = new FakeAdapter({ script: [{ on: "read", emit: [{ kind: "call", tool: "realm-browser__browser_read", input: { kind: "text", browserId: "unset" }, argsFromMessage: true }] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const calls: unknown[] = [];
+    const c = (async () => { for await (const e of h.events) { if (e.type === "tool_call") calls.push(e.payload.input); if (e.type === "tool_result") break; } })();
+    await h.send({ text: 'S6 read {"browserId": "b42"}', attachments: [] }); await c;
+    // THE MUTANT: the scripted input as written. The live check can then never name a pane it only
+    // learned the id of at run time.
+    expect(calls).toEqual([{ kind: "text", browserId: "b42" }]);
+    await h.dispose();
+  });
+
   it("says why it cannot list tools when it was handed no gateway", async () => {
     const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "list" }] }] });
     expect(await say(a, "x")).toEqual(["tools/list failed: no Realm gateway was handed to this session"]);

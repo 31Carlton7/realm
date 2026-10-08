@@ -340,6 +340,13 @@ describe("results and scoping", () => {
     expect(calls.bridge).toEqual([]);
   });
 
+  it("browser_list says how to bring back a pane that is not open", async () => {
+    const { call } = setup({ bridgeResults: { describe: { open: false, url: "", title: "", element: null } } });
+    // THE MUTANT: the old "pane not open in the app" on its own. The agent reads that the pane is gone
+    // and stops, beside the one tool that would bring it back (125 such calls in the log).
+    expect(text(await call("browser_list", {}))).toContain("pane not open in the app (realm-workspace__pane_show brings it back)");
+  });
+
   it("browser_list only lists this space's panes", async () => {
     const { call } = setup();
     const t = text(await call("browser_list", {}));
@@ -1742,6 +1749,8 @@ describe("browser_do", () => {
     const r = await walk(s, { path: ["Docs"] });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("pane is not open in the app");
+    // …and what to do about it: the tool that brings it back, with the id already filled in.
+    expect(text(r)).toContain('Call realm-workspace__pane_show with {"browserId": "b1"}');
     expect(s.calls.gates).toEqual([]);
     // THE MUTANT: walk anyway, and the first read retries its way to the same answer five seconds later.
     expect(s.calls.bridge.filter((b) => b.op === "snapshot")).toEqual([]);
