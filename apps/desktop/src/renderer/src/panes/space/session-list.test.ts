@@ -85,6 +85,12 @@ describe("nesting", () => {
     expect(rowsOf(p)[0]!.kind).toBe("fan-out");
   });
 
+  it("a fork of a session in the space is a session of its own, not its agent", () => {
+    // Mutant: any dispatchedBy counts as a child — the fork disappears under the session it came from.
+    const p = spaceSessionPage(seed([{ id: "src" }, { id: "fork", by: { sessionId: "src", kind: "fork" } }]), "v", "active", "", NOW());
+    expect(ids(rowsOf(p)).sort()).toEqual(["fork", "src"]);
+  });
+
   it("a lead's time is its newest agent's, and its tally is the agents' live state", () => {
     const p = spaceSessionPage(seed([{ id: "L", at: NOW() - 5 * DAY }, { id: "a", by: agent("L"), status: "running", at: NOW() - 2 * HOUR }]), "v", "active", "", NOW());
     expect(lead(p, "L").at).toBe(NOW() - 2 * HOUR);
