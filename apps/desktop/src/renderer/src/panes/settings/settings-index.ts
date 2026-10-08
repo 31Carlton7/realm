@@ -6,7 +6,7 @@ import {
 
 /** One page of Settings, as the rail lists it. */
 export type SettingsTab =
-  | "general" | "appearance" | "keys" | "notifications"
+  | "general" | "appearance" | "keys" | "notifications" | "devices"
   | "engines" | "usage"
   | "signins"
   | "permissions" | "computer-use"
@@ -24,6 +24,8 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
   { label: "You", tabs: [
     { id: "general", label: "General", icon: "settings" }, { id: "appearance", label: "Appearance", icon: "sun" },
     { id: "keys", label: "Keys", icon: "command" }, { id: "notifications", label: "Notifications", icon: "bell" },
+    // The pack's smartphone, which the set holds under the device pane's name.
+    { id: "devices", label: "Devices", icon: "simulator" },
   ] },
   { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }] },
   { label: "Browser", tabs: [{ id: "signins", label: "Sign-ins", icon: "key" }] },
@@ -67,11 +69,15 @@ export type SettingEntry = {
   /** Words someone might type for this row that its label does not contain. Matched, never shown. */
   terms?: string;
   page?: true;
-  /** For a row a page draws only where the platform has the thing (the App icon row needs a Dock).
-   *  False means search leaves it out — a result that lands on a row that is not there is a dead
-   *  end — and the index-agrees-with-page test does not expect it. Absent means always. */
-  available?: () => boolean;
+  /** For a row a page draws only where the thing exists — the App icon row needs a Dock, the iPhone
+   *  row a paired phone. False means search leaves it out — a result that lands on a row that is not
+   *  there is a dead end — and the index-agrees-with-page test does not expect it. Absent means always. */
+  available?: (facts: SettingsFacts) => boolean;
 };
+
+/** What the store knows that decides whether a row is drawn at all. */
+export type SettingsFacts = { phonesPaired: boolean };
+export const NO_FACTS: SettingsFacts = { phonesPaired: false };
 
 /**
  * Every row a search can find, in the order the pages draw them.
@@ -134,7 +140,12 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "sound-volume", tab: "notifications", label: "Volume", terms: "sound loudness audio" },
   { id: "relay-imessage", tab: "notifications", label: "Text me when an agent needs me", terms: "imessage sms phone messages relay" },
   { id: "relay-slack", tab: "notifications", label: "Post to Slack", terms: "webhook relay" },
+  { id: "relay-iphone", tab: "notifications", label: "Notify my iPhone", terms: "phone push mobile relay",
+    available: (facts) => facts.phonesPaired },
   ...NOTIFICATION_CATEGORIES.map((c): SettingEntry => ({ id: `notify:${c}`, tab: "notifications", section: "Notify me about", label: CATEGORY_COPY[c].label })),
+
+  // Devices
+  { id: "pair-iphone", tab: "devices", label: "Pair an iPhone", terms: "phone mobile qr code scan" },
 
   // Engines
   { id: "engine-checks", tab: "engines", label: "Check for new models", terms: "updates cli version catalog" },
@@ -178,13 +189,13 @@ const words = (s: string): string[] => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).
  * that needed the terms — and in page order within a rank, so a query that names a page lists that
  * page's rows as the page draws them.
  */
-export function searchSettings(query: string): SettingEntry[] {
+export function searchSettings(query: string, facts: SettingsFacts = NO_FACTS): SettingEntry[] {
   const typed = words(query);
   if (typed.length === 0) return [];
   const starts = (pool: string[]) => typed.every((w) => pool.some((p) => p.startsWith(w)));
   const hits: { entry: SettingEntry; rank: number; at: number }[] = [];
   SETTINGS_INDEX.forEach((entry, at) => {
-    if (entry.available?.() === false) return;
+    if (entry.available?.(facts) === false) return;
     const label = words(entry.label);
     const place = [...label, ...words(settingsTabLabel(entry.tab)), ...words(entry.section ?? "")];
     const all = [...place, ...words(entry.terms ?? "")];

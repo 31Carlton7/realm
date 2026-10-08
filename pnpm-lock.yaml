@@ -219,6 +219,9 @@ importers:
       unicode-emoji-json:
         specifier: ^0.9.0
         version: 0.9.0
+      uqr:
+        specifier: 0.1.3
+        version: 0.1.3
       vite:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.12)
@@ -4943,6 +4946,9 @@ packages:
     hasBin: true
     peerDependencies:
       browserslist: '>= 4.21.0'
+
+  uqr@0.1.3:
+    resolution: {integrity: sha512-0rjE8iEJe4YmT9TOhwsZtqCMRLc5DXZUI2UEYUUg63ikBkqqE5EYWaI0etFe/5KUcmcYwLih2RND1kq+hrUJXA==}
 
   use-sync-external-store@1.6.0:
     resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
@@ -9966,6 +9972,8 @@ snapshots:
       browserslist: 4.28.8
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  uqr@0.1.3: {}
 
   use-sync-external-store@1.6.0(react@19.2.8):
     dependencies:
