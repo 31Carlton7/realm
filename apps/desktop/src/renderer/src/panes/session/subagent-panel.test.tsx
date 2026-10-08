@@ -51,7 +51,7 @@ describe("the sub-agent panel", () => {
     const body = within(drawer());
     expect(body.getByText("What it has done")).toBeInTheDocument();
     expect(body.getByText("2 calls")).toBeInTheDocument();
-    expect(body.getByText("/repo/mapper.ts")).toBeInTheDocument();
+    expect(body.getByTitle("/repo/mapper.ts")).toBeInTheDocument();
     expect(body.getByText("pnpm vitest run mapper")).toBeInTheDocument();
   });
 
@@ -65,8 +65,8 @@ describe("the sub-agent panel", () => {
     ]);
     await watch("audit the mapper");
     const body = within(drawer());
-    expect(body.getByText("/repo/mapper.ts")).toBeInTheDocument();
-    expect(body.queryByText("/repo/parent-only.ts")).toBeNull();
+    expect(body.getByTitle("/repo/mapper.ts")).toBeInTheDocument();
+    expect(body.queryByTitle("/repo/parent-only.ts")).toBeNull();
     expect(body.getByText("1 call")).toBeInTheDocument();
   });
 
@@ -108,7 +108,7 @@ describe("the sub-agent panel", () => {
       launch("t1", "audit the mapper"),
       under("t1", "c1", "Read", { file_path: "/repo/mapper.ts" }),
     ]) } } });
-    await waitFor(() => expect(within(drawer()).getByText("/repo/mapper.ts")).toBeInTheDocument());
+    await waitFor(() => expect(within(drawer()).getByTitle("/repo/mapper.ts")).toBeInTheDocument());
   });
 
   it("shows the report once it lands, which is the whole point of having delegated", async () => {

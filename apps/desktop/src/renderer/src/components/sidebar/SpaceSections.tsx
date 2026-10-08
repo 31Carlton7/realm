@@ -6,6 +6,7 @@ import { Menu, type MenuItem } from "../Menu";
 import { SpaceIcon } from "../SpaceIcon";
 import { reorderWithin, rowsBySpace, sectionView, spaceTally, tallyWords, type ListRow, type SessionRow, type SidebarState, type Tally } from "./model";
 import { ListRowView, TallyMarks } from "./SessionRows";
+import { TeamRows } from "./TeamRows";
 import { useNewSessionIn, useOpenSpacePage, useOrderedSpaces, useSpaceTint } from "./use-sidebar-model";
 
 /** What a section head carries in a drag, told apart from an item's. */
@@ -60,10 +61,14 @@ type SectionDrag = {
 };
 
 function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; rows: ListRow[]; tally: Tally; onChanged: () => void; drag: SectionDrag }) {
+  const team = useApp((s) => s.teams[space.id]);
   const collapsed = useApp((s) => s.sidebarCollapsedSpaces.includes(space.id));
   const setSpaceSectionCollapsed = useApp((s) => s.setSpaceSectionCollapsed);
   const run = useApp((s) => s.run);
   const openSpacePage = useOpenSpacePage();
+  const setSpaceSessionsView = useApp((s) => s.setSpaceSessionsView);
+  // The space's Sessions page, on the filter the opener names: "Show more" counts the live ones.
+  const openSessions = (view: "active" | "archived") => { setSpaceSessionsView(space.id, view); openSpacePage(space.id, "sessions"); };
   const newSessionIn = useNewSessionIn();
   // A plain folder has no worktrees, so its ⋯ offers no session in one (store.ts).
   const plainFolder = useApp((s) => spaceIsPlainFolder(s, space.id));
@@ -88,7 +93,9 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
     ...(reveal ? [{ label: "Show in Finder", icon: <Icon name="folder" size={16} />, onSelect: () => { void reveal(space.folderPath); } }] : []),
     { label: "Connections", icon: <Icon name="connections-page" size={16} />, onSelect: () => openSpacePage(space.id, "connections") },
     { label: "Memory", icon: <Icon name="context" size={16} />, onSelect: () => openSpacePage(space.id, "memory") },
-    { label: "Archived sessions", icon: <Icon name="archive" size={16} />, onSelect: () => openSpacePage(space.id, "sessions") },
+    // A team's home, or where a space becomes one.
+    { label: team?.enabled ? "Team" : "Make this a team…", icon: <Icon name="team" size={16} />, onSelect: () => openSpacePage(space.id, "team") },
+    { label: "Archived sessions", icon: <Icon name="archive" size={16} />, onSelect: () => openSessions("archived") },
     { label: "Space settings", icon: <Icon name="settings" size={16} />, onSelect: () => openSpacePage(space.id, "general") },
   ];
   return (
@@ -116,6 +123,8 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
         <div className="sb-section-wrap" data-open={!collapsed || undefined}>
           <div className="sb-section-clip" inert={collapsed || undefined} aria-hidden={collapsed || undefined}>
             <div className="item-list" id={listId}>
+              {/* The space's team, above its sessions: Review while something waits, then the roles. */}
+              {team?.enabled && <TeamRows team={team} />}
               {rows.length === 0 ? (
                 // An empty space offers the shortest honest path to work in it.
                 <div className="item sb-row" data-nested="" data-actions="0">
@@ -126,7 +135,7 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
               ) : shown.map((r) => <ListRowView key={r.id} row={r} nested onChanged={onChanged} />)}
               {hidden > 0 && (
                 <button type="button" className="agents-more sb-more" title={`Every session in ${space.name}, on its page`}
-                  onClick={() => openSpacePage(space.id, "sessions")}>Show more <span className="item-count">{hidden}</span></button>
+                  onClick={() => openSessions("active")}>Show more <span className="item-count">{hidden}</span></button>
               )}
             </div>
           </div>

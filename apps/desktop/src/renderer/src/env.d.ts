@@ -134,6 +134,8 @@ interface Window {
       quickLook?(path: string, base?: string): Promise<void>;
       share?(path: string, at: { x: number; y: number }, base?: string): Promise<void>;
       startDrag?(path: string): void;
+      /** A PDF handed to Preview, for what Realm's viewer does not do: print, forms, signing. */
+      openInPreview?(path: string): Promise<void>;
     };
     /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
     saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedFile>;
@@ -193,12 +195,14 @@ interface Window {
     /** Every door names the PROFILE whose sign-ins it is: they are a profile's own (Plan 27 Phase 2). */
     credentials: {
       list(profileId: string): Promise<import("@realm/contracts").BrowserCredential[]>;
-      status(): Promise<{ available: boolean; canPromptTouchID: boolean; presenceTtlMs: number }>;
+      status(): Promise<{ available: boolean; canPromptTouchID: boolean; canPromptDeviceOwner: boolean; presenceTtlMs: number }>;
       add(profileId: string, input: import("@realm/contracts").BrowserCredentialInput): Promise<import("@realm/contracts").BrowserCredential>;
       remove(profileId: string, id: string): Promise<boolean>;
       /** COPY one into another profile; the original stays. */
       share(profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }>;
       setPresenceTtl(ms: number): Promise<number>;
+      unlockPolicy(profileId: string): Promise<import("@realm/contracts").UnlockPolicyStatus | null>;
+      setUnlockPolicy(profileId: string, policy: import("@realm/contracts").UnlockPolicy): Promise<{ ok: true; status: import("@realm/contracts").UnlockPolicyStatus } | { ok: false; error: string }>;
     };
     /** Settings → Sign-ins, the passkey half. No `add`: a passkey is created by a site asking for one
      *  in a pane and the user answering Touch ID, so there is nothing for a person to type. */

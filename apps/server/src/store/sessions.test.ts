@@ -5,7 +5,7 @@ import { sessionEvent } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { ProfilesStore } from "./profiles";
 import { SpacesStore } from "./spaces";
-import { SessionsStore, SessionEventsStore } from "./sessions";
+import { SessionsStore, SessionEventsStore, REPLY_LINE_MAX, replyLine } from "./sessions";
 import { EnvironmentsStore } from "./environments";
 import { NotFoundError } from "./rows";
 
@@ -35,6 +35,24 @@ describe("SessionsStore + SessionEventsStore", () => {
     expect(s.get(sess.id)?.lastEventSeq).toBe(b.seq);
     expect(s.list(space.id).map((x) => x.id)).toEqual([sess.id]);
     expect(s.listAll()).toHaveLength(1);
+  });
+  it("listOfTypes reads only the kinds asked for: the newest page by default, forward from a seq when given", () => {
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = s.create(input(space.id, env.id));
+    const said = (n: number) => ev.append(sess.id, sessionEvent("assistant_text", { messageId: `m${n}`, text: `line ${n}` }));
+    const first = said(1);
+    ev.append(sess.id, sessionEvent("status", { status: "running" }));
+    said(2); said(3);
+    ev.append(sess.id, sessionEvent("usage", { costUsd: 0, inputTokens: 1, outputTokens: 1, numTurns: 1 }));
+    said(4);
+    const texts = (rows: ReturnType<typeof ev.listOfTypes>) => rows.map((e) => (e.event.payload as { text: string }).text);
+    // THE MUTANT: ascending without a seq. The default page is then the session's first lines, and a
+    // reader asking what a long session is doing gets how it began.
+    expect(texts(ev.listOfTypes(sess.id, ["assistant_text"], { limit: 2 }))).toEqual(["line 3", "line 4"]);
+    expect(texts(ev.listOfTypes(sess.id, ["assistant_text"], { afterSeq: first.seq, limit: 2 }))).toEqual(["line 2", "line 3"]);
+    // The kinds that were not asked for never take a slot of the page.
+    expect(ev.listOfTypes(sess.id, ["assistant_text"], { limit: 10 })).toHaveLength(4);
+    expect(ev.listOfTypes(sess.id, [], { limit: 10 })).toEqual([]);
   });
   it("update patches title/model/effort/permissionMode and delete cascades events", () => {
     const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
@@ -106,5 +124,33 @@ describe("SessionsStore + SessionEventsStore", () => {
     expect(() => s.moveToSpace(sess.id, "01ARZ3NDEKTSV4RRFFQ69G5FAV", otherEnv.id, null)).toThrow(NotFoundError);
     expect(() => s.moveToSpace(sess.id, other.id, "01ARZ3NDEKTSV4RRFFQ69G5FAV", null)).toThrow(NotFoundError);
     expect(() => s.moveToSpace(sess.id, other.id, env.id, null)).toThrow(/another space/);
+  });
+});
+
+describe("where each session left off", () => {
+  it("is the first line of each session's NEWEST reply, in this space only, and null before any", () => {
+    // Mutants: the oldest reply (ORDER BY seq ASC), or every space's sessions.
+    const { db, home, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const talked = s.create(input(space.id, env.id));
+    const quiet = s.create(input(space.id, env.id));
+    ev.append(talked.id, sessionEvent("assistant_text", { messageId: "a", text: "First answer." }));
+    ev.append(talked.id, sessionEvent("tool_call", { id: "t", name: "Bash", input: {} } as never));
+    ev.append(talked.id, sessionEvent("assistant_text", { messageId: "b", text: "Shipped the two fixes.\n\nDetails follow." }));
+    const p2 = new ProfilesStore(db).create({ name: "X", icon: "x", color: "#000" });
+    const other = new SpacesStore(db, home).create({ profileId: p2.id, name: "O", icon: "f" });
+    const elsewhere = s.create(input(other.id, new EnvironmentsStore(db).ensurePrimary(other.id).id));
+    ev.append(elsewhere.id, sessionEvent("assistant_text", { messageId: "c", text: "Not here." }));
+    expect(Object.fromEntries(ev.lastReplies(space.id).map((r) => [r.sessionId, r.lastReply])))
+      .toEqual({ [talked.id]: "Shipped the two fixes.", [quiet.id]: null });
+  });
+
+  it("takes a reply's first line of words, without its markdown, capped", () => {
+    // Mutant: the raw first line — "## Summary" or a code fence as the row's words.
+    expect(replyLine("\n## **Summary** of `it`\nmore")).toBe("Summary of it");
+    expect(replyLine("```ts\nconst x = 1;\n```\n- Fixed the parser")).toBe("Fixed the parser");
+    expect(replyLine("   \n  ")).toBeNull();
+    const long = replyLine("word ".repeat(80))!;
+    expect(long.length).toBe(REPLY_LINE_MAX);
+    expect(long.endsWith("…")).toBe(true);
   });
 });

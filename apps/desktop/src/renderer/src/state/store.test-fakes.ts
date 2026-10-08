@@ -1,10 +1,12 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
+import { RpcError } from "../rpc/client";
+import type { RoleRun, TeamActivity, TeamRecord, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -88,11 +90,31 @@ export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}):
   ({ id, environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId, branch: "main", sha: `sha-${id}`,
     subject: `shipped ${id}`, prUrl: null, pushState: "pushed", createdAt: 0, ...extra });
 
+/** A team role, idle, with no clock. */
+export const teamRole = (id: string, spaceId: string, name: string, extra: Partial<TeamRole> = {}): TeamRole => ({
+  id, spaceId, name, brief: `${name}'s brief.`, realmite: { seed: id }, template: null, agentKind: "claude", model: "sonnet", effort: null,
+  permissionMode: "default", skills: [], scheduleId: null, cron: null, scheduleEnabled: false, nextRunAt: null, wakeOnReview: true,
+  weekBudgetUsd: null, runCapUsd: 3, runCapMs: 1_200_000, maxConcurrent: 1, archived: false, createdAt: 0, updatedAt: 0,
+  state: "idle", stateSince: null, pausedWhy: null, weekSpendUsd: 0, lastRunAt: null, latestSessionId: null, unread: false, ...extra,
+});
+
+/** A review waiting on a person. */
+export const teamReview = (id: string, spaceId: string, title: string, extra: Partial<TeamReviewSummary> = {}): TeamReviewSummary => ({
+  id, spaceId, roleId: null, roleName: null, runId: null, sessionId: null, recordPath: null, kind: "slideshows", title, state: "waiting",
+  note: null, version: 1, itemCount: 1, thumb: null, channels: [], account: null, changedSinceApproval: false, createdAt: 0, decidedAt: null, updatedAt: 0, ...extra,
+});
+
+/** A team space: its roles and reviews. */
+export const teamSpace = (spaceId: string, roles: TeamRole[], reviews: TeamReviewSummary[] = [], extra: Partial<TeamSpace> = {}): TeamSpace => ({
+  spaceId, enabled: true, roles, reviews, weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [],
+  repoPath: "/realm/memory/repos/space", repoMoved: false, sharesUsd: roles.reduce((n, r) => n + (r.weekBudgetUsd ?? 0), 0), formerRoles: [], ...extra,
+});
+
 /** A durable run. Defaults to a queued run with no attempts yet. */
 export const runRow = (id: string, spaceId: string, extra: Partial<Run> = {}): Run =>
   ({ id, spaceId, title: `Run ${id}`, goal: `do ${id}`, agentKind: "claude", environmentId: null,
     constraints: null, dedupeKey: null, state: "queued", attempt: 0, maxAttempts: 1, sessionId: null, scheduleId: null,
-    deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
+    roleId: null, wokeOn: null, costUsd: null, deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: null, settledAt: null, updatedAt: 0, ...extra });
 
 /** One attempt of a run. */
 export const runAttempt = (id: string, runId: string, n: number, extra: Partial<RunAttempt> = {}): RunAttempt =>
@@ -158,6 +180,14 @@ export type FakeData = {
    *  a new path here as the server would; `clearAvatar` empties it. */
   avatarPath?: string | null;
   schedules?: Schedule[];
+  /** Team spaces as `team.overview` answers, and the detail behind them by id. */
+  teams?: TeamSpace[];
+  teamReviews?: Record<string, TeamReviewDetail>;
+  teamRoleRuns?: Record<string, RoleRun[]>;
+  teamRecords?: Record<string, TeamRecord[]>;
+  teamActivity?: Record<string, TeamActivity[]>;
+  /** `team.make` refuses with this code (and message) until it is given a folder for the team's memory. */
+  teamMakeRefusal?: { code: string; message: string } | null;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -269,6 +299,10 @@ export type FakeData = {
   profilesInOtherWindows?: string[];
   credentials?: (BrowserCredential & { profileId?: string })[];
   credentialStatus?: CredentialStatus;
+  /** Each profile's unlock policy, by profile id; a profile absent here is on Touch ID. `refuseUnlock`
+   *  makes the fake answer a weakening as main does when macOS did not confirm the user. */
+  unlockPolicies?: Record<string, UnlockPolicy>;
+  refuseUnlock?: boolean;
   /** Passkeys Realm holds. Like `credentials`, the fixture carries NO private key field — a fake
    *  that kept one would be a fake that could pass a test main fails. p1's unless named. */
   passkeys?: (Passkey & { profileId?: string })[];
@@ -319,6 +353,21 @@ export type FakeData = {
   /** Per-space disable override for the inherited profile doc — mirrors the server's polarity
    *  (absent = inherited ON). */
   profileDocDisabled?: Record<string, boolean>;
+  /** Each profile's memory repo, by profile id (absent = none attached). */
+  memoryRepos?: Record<string, MemoryRepoState>;
+  /** Per-space opt-out of the profile's repo — the server's polarity (absent = inherited). */
+  memoryRepoInheritDisabled?: Record<string, boolean>;
+  /** `memory.repo.log` by owner key (`profile:p1`, `space:s1`). */
+  memoryRepoLogs?: Record<string, MemoryRepoCommit[]>;
+  /** When set, `memory.repo.attach` refuses with this message, as the server refuses a folder that is
+   *  not a memory repo. */
+  memoryRepoAttachError?: string;
+  /** Each space's own memory repo, by space id (absent = none). */
+  spaceOwnMemoryRepos?: Record<string, MemoryRepoState>;
+  /** What `memory.repo.checkRemote` answers, by owner key (`profile:p1`); absent = "unknown". */
+  memoryRemoteChecks?: Record<string, MemoryRemoteCheck>;
+  /** What `memory.repo.importClaude` would add, by owner key; absent = nothing to import. */
+  claudeImports?: Record<string, MemoryClaudeImport>;
   /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
    *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
   notifications?: Notification[];
@@ -344,6 +393,8 @@ export type FakeData = {
   libraryAdd?: ((input: LibraryAddInput) => LibraryAddResult) | null;
   /** The paths `library.add` should treat as folders, with what each holds. */
   addFolders?: Record<string, { files: string[]; bytes: number; subfolders: number }>;
+  /** What `sessions.digest` answers per session id: where each left off. Absent = no replies. */
+  lastReplies?: Record<string, string>;
   /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. */
   iconAssets?: Record<string, IconAsset[]>;
   /** What `pickIconImage()` answers with. Defaults to null (cancelled) — a test opts in by setting
@@ -483,7 +534,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // would put numbers into snapshots that have nothing to do with what is being tested.
     modelCatalog: overrides.modelCatalog ?? [],
     credentials: overrides.credentials ?? [],
-    credentialStatus: overrides.credentialStatus ?? { available: true, canPromptTouchID: true, presenceTtlMs: 0 },
+    credentialStatus: overrides.credentialStatus ?? { available: true, canPromptTouchID: true, canPromptDeviceOwner: true, presenceTtlMs: 0 },
+    unlockPolicies: overrides.unlockPolicies ?? {},
+    refuseUnlock: overrides.refuseUnlock ?? false,
     passkeys: overrides.passkeys ?? [],
     lectures: overrides.lectures ?? {},
     plynn: overrides.plynn ?? { available: false, folder: "/tmp/plynn/Meetings", meetings: [] },
@@ -493,6 +546,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     usageRecords: overrides.usageRecords ?? emptyUsageRecords(),
     avatarPath: overrides.avatarPath ?? null,
     schedules: overrides.schedules ?? [],
+    teams: overrides.teams ?? [],
+    teamReviews: overrides.teamReviews ?? {},
+    teamRoleRuns: overrides.teamRoleRuns ?? {},
+    teamRecords: overrides.teamRecords ?? {},
+    teamActivity: overrides.teamActivity ?? {},
+    teamMakeRefusal: overrides.teamMakeRefusal ?? null,
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
@@ -533,6 +592,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpProvidersBySpace: overrides.mcpProvidersBySpace ?? {},
     profileMemoryDocs: overrides.profileMemoryDocs ?? {},
     profileDocDisabled: overrides.profileDocDisabled ?? {},
+    memoryRepos: overrides.memoryRepos ?? {},
+    memoryRepoInheritDisabled: overrides.memoryRepoInheritDisabled ?? {},
+    memoryRepoLogs: overrides.memoryRepoLogs ?? {},
+    memoryRepoAttachError: overrides.memoryRepoAttachError ?? "",
+    spaceOwnMemoryRepos: overrides.spaceOwnMemoryRepos ?? {},
+    memoryRemoteChecks: overrides.memoryRemoteChecks ?? {},
+    claudeImports: overrides.claudeImports ?? {},
     documentWorkspaces: overrides.documentWorkspaces ?? {},
     documentFiles: overrides.documentFiles ?? {},
     notifications: overrides.notifications ?? [],
@@ -546,6 +612,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     libraryAdd: overrides.libraryAdd ?? null,
     addFolders: overrides.addFolders ?? {},
     iconAssets: overrides.iconAssets ?? {},
+    lastReplies: overrides.lastReplies ?? {},
     pickIconImage: overrides.pickIconImage ?? null,
   };
   let n = 100;
@@ -580,6 +647,18 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         doc: data.profileMemoryDocs[profileId] ?? "", enabledHere: !data.profileDocDisabled[spaceId],
       },
     };
+  };
+  const reposOfSpace = (spaceId: string): MemoryRepoState[] => {
+    const profileId = data.spaces.find((x) => x.id === spaceId)?.profileId;
+    const r = profileId ? data.memoryRepos[profileId] : undefined;
+    const own = data.spaceOwnMemoryRepos[spaceId];
+    return [...(own ? [own] : []), ...(r ? [{ ...r, inheritedHere: !data.memoryRepoInheritDisabled[spaceId] }] : [])];
+  };
+  const ownerKey = (o: { scope: string; id: string }): string => `${o.scope}:${o.id}`;
+  const repoOf = (o: { scope: string; id: string }): MemoryRepoState | undefined => (o.scope === "profile" ? data.memoryRepos[o.id] : data.spaceOwnMemoryRepos[o.id]);
+  const putRepo = (r: MemoryRepoState): MemoryRepoState => {
+    if (r.scope === "profile") data.memoryRepos[r.ownerId] = r; else data.spaceOwnMemoryRepos[r.ownerId] = r;
+    return r;
   };
   const updateWatchers = new Set<(status: UpdateStatus) => void>();
   const api: FakeApi = {
@@ -962,6 +1041,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     disposeTerminal: (id) => { disposed.push(id); },
     destroyBrowserView: (id) => { destroyedBrowserViews.push(id); },
     listSessions: async (sid) => { calls.push(`listSessions:${sid}`); return data.sessions.filter((s) => s.spaceId === sid); },
+    sessionsDigest: async (spaceId) => {
+      calls.push(`sessionsDigest:${spaceId}`);
+      return data.sessions.filter((s) => s.spaceId === spaceId).map((s) => ({ sessionId: s.id, lastReply: data.lastReplies[s.id] ?? null }));
+    },
     listAllSessions: async (profileId = null) => {
       calls.push(`listAllSessions:${profileId ?? "all"}`);
       await wait("listAllSessions");
@@ -1178,6 +1261,61 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.profileDocDisabled[spaceId] = !enabled;
       return memState(spaceId);
     },
+    getMemoryRepos: async (scope) => {
+      if ("profileId" in scope) {
+        calls.push(`getMemoryRepos:profile:${scope.profileId}`);
+        const r = data.memoryRepos[scope.profileId];
+        return r ? [{ ...r, inheritedHere: null }] : [];
+      }
+      calls.push(`getMemoryRepos:space:${scope.spaceId}`);
+      return reposOfSpace(scope.spaceId);
+    },
+    createMemoryRepo: async (o) => {
+      calls.push(`createMemoryRepo:${ownerKey(o)}`);
+      // Its first commit is made as it is created: just now, whatever the fixture's date says.
+      return repoOf(o) ?? putRepo(fakeMemoryRepo({ scope: o.scope, ownerId: o.id, path: `/realm-home/memory/repos/${o.scope}-${o.id}`, lastCommitAt: Date.now() }));
+    },
+    attachMemoryRepo: async (o, path) => {
+      calls.push(`attachMemoryRepo:${ownerKey(o)}:${path}`);
+      if (data.memoryRepoAttachError) throw new Error(data.memoryRepoAttachError);
+      return putRepo(fakeMemoryRepo({ scope: o.scope, ownerId: o.id, path }));
+    },
+    detachMemoryRepo: async (o) => {
+      calls.push(`detachMemoryRepo:${ownerKey(o)}`);
+      if (o.scope === "profile") delete data.memoryRepos[o.id]; else delete data.spaceOwnMemoryRepos[o.id];
+    },
+    setMemoryRepoInherited: async (spaceId, enabled) => {
+      calls.push(`setMemoryRepoInherited:${spaceId}=${enabled}`);
+      data.memoryRepoInheritDisabled[spaceId] = !enabled;
+      return reposOfSpace(spaceId);
+    },
+    memoryRepoLog: async (o, limit) => {
+      calls.push(`memoryRepoLog:${ownerKey(o)}`);
+      return (data.memoryRepoLogs[ownerKey(o)] ?? []).slice(0, limit);
+    },
+    setMemoryRepoRemote: async (o, url) => {
+      calls.push(`setMemoryRepoRemote:${ownerKey(o)}:${url}`);
+      return putRepo({ ...repoOf(o)!, remote: url, pushEnabled: false, sync: "off" });
+    },
+    checkMemoryRepoRemote: async (o) => {
+      calls.push(`checkMemoryRepoRemote:${ownerKey(o)}`);
+      return data.memoryRemoteChecks[ownerKey(o)] ?? { remote: repoOf(o)?.remote ?? null, verdict: "unknown", detail: "Realm can only ask GitHub whether a repository is private" };
+    },
+    setMemoryRepoSync: async (o, enabled, confirmPrivate) => {
+      calls.push(`setMemoryRepoSync:${ownerKey(o)}:${enabled}:${confirmPrivate}`);
+      return putRepo({ ...repoOf(o)!, pushEnabled: enabled, sync: enabled ? "synced" : "off" });
+    },
+    syncMemoryRepo: async (o) => {
+      calls.push(`syncMemoryRepo:${ownerKey(o)}`);
+      return repoOf(o)!;
+    },
+    importClaudeMemory: async (o, dryRun) => {
+      calls.push(`importClaudeMemory:${ownerKey(o)}:${dryRun}`);
+      const plan = data.claudeImports[ownerKey(o)] ?? { projects: 0, files: 0, entries: 0, skipped: [], sha: null };
+      if (dryRun || plan.entries === 0) return { ...plan, sha: null };
+      data.claudeImports[ownerKey(o)] = { projects: 0, files: 0, entries: 0, skipped: [], sha: null };
+      return { ...plan, sha: "f00dfeed" };
+    },
     memorySources: async (sessionId) => {
       calls.push(`memorySources:${sessionId}`);
       const m = data.memorySources[sessionId];
@@ -1187,6 +1325,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
     dequeuePrompt: async (id, queuedId) => { calls.push(`dequeue:${id}:${queuedId}`); },
     releaseQueuedPrompt: async (id, queuedId) => { calls.push(`releaseQueued:${id}:${queuedId}`); },
+    holdQueuedPrompt: async (id, queuedId, held) => {
+      calls.push(`holdQueued:${id}:${queuedId}=${held}`);
+      return held && queuedPrompts.some((q) => q.id === queuedId);
+    },
+    editQueuedPrompt: async (id, queuedId, text) => {
+      calls.push(`editQueued:${id}:${queuedId}=${text}`);
+      const q = queuedPrompts.find((x) => x.id === queuedId);
+      if (q) q.text = text;
+      return q !== undefined;
+    },
     sessionQueue: async () => queuedPrompts,
     planLimits: async () => { calls.push("planLimits"); return planLimitRows; },
     recordFeedback: async (id, messageId, rating) => { calls.push(`recordFeedback:${id}:${messageId}=${rating ?? "none"}`); },
@@ -1348,6 +1496,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { ok: true, profileName: target.name };
     },
     credentialSetPresenceTtl: async (ms) => { calls.push(`credentialSetPresenceTtl:${ms}`); data.credentialStatus.presenceTtlMs = ms; return ms; },
+    credentialUnlockPolicy: async (profileId) => ({ policy: data.unlockPolicies[profileId] ?? { kind: "touch-id" }, sessionUntil: null }),
+    credentialSetUnlockPolicy: async (profileId, policy) => {
+      calls.push(`credentialSetUnlockPolicy:${profileId}:${policy.kind}`);
+      const current = data.unlockPolicies[profileId] ?? { kind: "touch-id" };
+      if (data.refuseUnlock && unlockPolicyRank(policy) > unlockPolicyRank(current)) {
+        return { ok: false, error: "macOS did not confirm it was you, so nothing changed." };
+      }
+      data.unlockPolicies[profileId] = policy;
+      return { ok: true, status: { policy, sessionUntil: null } };
+    },
     passkeyList: async (profileId) => {
       calls.push("passkeyList");
       return data.passkeys.filter((p) => (p.profileId ?? "p1") === profileId).map(({ profileId: _p, ...p }) => p);
@@ -1478,6 +1636,61 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     // never what comes back.
     setAvatar: async (path) => { calls.push(`setAvatar:${path}`); data.avatarPath = `/realm-home/avatar/${++n}.png`; return data.avatarPath; },
     clearAvatar: async () => { calls.push("clearAvatar"); data.avatarPath = null; },
+    // Copies, as the wire hands over: a store that kept the fake's own objects would see a mutation
+    // here as no change at all.
+    teamOverview: async () => { calls.push("teamOverview"); return structuredClone(data.teams.filter((t) => t.enabled)); },
+    teamSpace: async (spaceId) => {
+      calls.push(`teamSpace:${spaceId}`);
+      return structuredClone(data.teams.find((t) => t.spaceId === spaceId))
+        ?? teamSpace(spaceId, [], [], { enabled: false, hasRepo: false, repoPath: null });
+    },
+    teamMake: async (spaceId, templates, o) => {
+      calls.push(`teamMake:${spaceId}:${templates.join(",")}${o?.roles?.length ? `+${o.roles.map((r) => r.name).join(",")}` : ""}${o?.repoPath ? `@${o.repoPath}` : ""}${o?.weekBudgetUsd !== undefined ? `$${o.weekBudgetUsd}` : ""}`);
+      if (data.teamMakeRefusal && !o?.repoPath) throw new RpcError(data.teamMakeRefusal.code, data.teamMakeRefusal.message);
+      let t = data.teams.find((x) => x.spaceId === spaceId);
+      if (!t) { t = teamSpace(spaceId, []); data.teams.push(t); }
+      t.enabled = true;
+      return t;
+    },
+    teamRoleCreate: async (input) => { calls.push(`teamRoleCreate:${input.name}`); throw new Error("not faked"); },
+    teamRoleUpdate: async (input) => {
+      calls.push(`teamRoleUpdate:${input.id}`);
+      for (const t of data.teams) { const r = t.roles.find((x) => x.id === input.id); if (r) { Object.assign(r, input); return r; } }
+      throw new Error("no role");
+    },
+    teamRoleArchive: async (id) => { calls.push(`teamRoleArchive:${id}`); },
+    teamRoleRun: async (id, message) => { calls.push(`teamRoleRun:${id}:${message ?? ""}`); throw new Error("not faked"); },
+    teamRoleRuns: async (id) => { calls.push(`teamRoleRuns:${id}`); return data.teamRoleRuns[id] ?? []; },
+    teamReview: async (id) => { calls.push(`teamReview:${id}`); const r = data.teamReviews[id]; if (!r) throw new Error("no review"); return structuredClone(r); },
+    teamReviewDecide: async (id, decision) => {
+      calls.push(`teamReviewDecide:${id}:${decision}`);
+      const r = data.teamReviews[id]!;
+      r.state = decision === "approve" ? "approved" : decision === "done" ? "done" : "dismissed";
+      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) s.state = r.state; }
+      return r;
+    },
+    teamReviewRequestChanges: async (id, note) => {
+      calls.push(`teamReviewRequestChanges:${id}:${note}`);
+      const r = data.teamReviews[id]!;
+      r.state = "changes"; r.note = note;
+      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) { s.state = "changes"; s.note = note; } }
+      return r;
+    },
+    teamRecords: async (spaceId) => { calls.push(`teamRecords:${spaceId}`); return (data.teamRecords[spaceId] ?? []).map(({ markdown: _m, absPath: _a, lastAuthor: _l, ...rest }) => rest); },
+    teamRecord: async (spaceId, path) => {
+      calls.push(`teamRecord:${spaceId}:${path}`);
+      const r = (data.teamRecords[spaceId] ?? []).find((x) => x.path === path);
+      if (!r) throw new Error("no record");
+      return r;
+    },
+    teamRecordWrite: async (spaceId, path, markdown) => {
+      calls.push(`teamRecordWrite:${spaceId}:${path}`);
+      const r = (data.teamRecords[spaceId] ?? []).find((x) => x.path === path)!;
+      r.markdown = markdown;
+      return r;
+    },
+    teamRecordCreate: async (spaceId, name) => { calls.push(`teamRecordCreate:${spaceId}:${name}`); throw new Error("not faked"); },
+    teamActivity: async (spaceId) => { calls.push(`teamActivity:${spaceId}`); return data.teamActivity[spaceId] ?? []; },
     listSchedules: async (spaceId) => { calls.push(`listSchedules:${spaceId}`); return data.schedules.filter((r) => r.spaceId === spaceId); },
     createSchedule: async (input) => {
       calls.push(`createSchedule:${input.spaceId}`);
@@ -1485,7 +1698,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         id: `sch${data.schedules.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
         cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints ?? null,
         nextRunAt: nextFireOf(input.cron, Date.now()), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
-        newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false,
+        newSessionPerRun: input.newSessionPerRun ?? true, archiveSucceeded: input.archiveSucceeded ?? false, roleId: null,
         createdAt: Date.now(), updatedAt: Date.now(),
       };
       data.schedules = [made, ...data.schedules];
@@ -1830,4 +2043,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;
+}
+
+/** A memory repo as `memory.repo.get` reports a clean, valid one; tests override what they are about. */
+export function fakeMemoryRepo(o: Partial<MemoryRepoState> = {}): MemoryRepoState {
+  return {
+    path: "/realm-home/memory/repos/profile-p1", scope: "profile", ownerId: "p1", exists: true, valid: true, clean: true, uncommitted: [],
+    head: "a1b2c3d", lastCommitAt: Date.parse("2026-10-08T09:30:00Z"), lastCommitSubject: "Create memory repo", remote: null, pushEnabled: false,
+    sync: "off", ahead: 0, behind: 0, syncError: null, lastSyncAt: null,
+    indexChars: 19, inheritedHere: null, reason: null, ...o,
+  };
 }

@@ -10,6 +10,7 @@ import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { MemoryDoc } from "../../components/settings/MemoryDoc";
+import { MemoryRepoRow } from "../../components/settings/MemoryRepoRow";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -422,6 +423,10 @@ function ProfileMemoryTab({ profileId, profileName }: { profileId: string; profi
           {reveal && <button type="button" className="btn-quiet" onClick={() => { void reveal(stored.path); }}>Show in Finder</button>}
         </div>
       </div>
+      {/* What agents write, under what the user writes: the document above is standing instructions,
+          the repo is memory an agent saves and every engine reads back. */}
+      <h3 className="settings-head">Memory repo</h3>
+      <MemoryRepoRow owner={{ scope: "profile", id: profileId }} />
     </div>
   );
 }

@@ -847,4 +847,83 @@ export const migrations: string[] = [
   CREATE INDEX IF NOT EXISTS saved_turns_session ON saved_turns(session_id, event_seq);
   CREATE INDEX IF NOT EXISTS saved_turns_recent ON saved_turns(saved_at DESC, event_seq DESC);
   `,
+  // v42 — goal mode's provider is `realm-goal` now, not `goal`, so it sits beside Realm's other
+  // providers and an agent searching its deferred tools for `realm-` finds it. The per-space switch is
+  // stored BY NAME (`mcp.providersDisabled:<spaceId>`, a JSON array), so a space that had turned the
+  // goal tools off would quietly have them back under the new name. Each such list has `goal`
+  // swapped for `realm-goal`, once, and comes out sorted as `setProviderEnabled` writes it. Idempotent: a list that no longer
+  // holds `goal` is not touched, and a list that somehow holds both comes out with one.
+  `
+  UPDATE settings SET value_json = (
+    SELECT json_group_array(name) FROM (
+      SELECT DISTINCT CASE WHEN value = 'goal' THEN 'realm-goal' ELSE value END AS name
+      FROM json_each(settings.value_json) ORDER BY name))
+  WHERE key LIKE 'mcp.providersDisabled:%'
+    AND json_valid(value_json)
+    AND EXISTS (SELECT 1 FROM json_each(settings.value_json) WHERE value = 'goal');
+  `,
+  // v43 — team roles (Teams, Phase 1). A team is a space with standing roles; a role is a saved agent
+  // definition, and its work is ordinary `runs` — so this adds one table and tags the two tables a
+  // role's work already lives in, rather than a second scheduler beside them.
+  //
+  // `realmite_json` is the role's creature as the maker left it (`RealmiteSpec`, every part written
+  // out), so a role reads back as the creature the person chose even after the generator is retuned.
+  // `runs.role_id` / `schedules.role_id` are plain strings with no foreign key, for the reason
+  // `runs.schedule_id` has none: "role R ran X" stays true after R is archived. `woke_on` says why a
+  // run started (schedule | review | manual) and `cost_usd` is settled from its session's usage.
+  // Nothing is backfilled: every run and schedule written before this belongs to no role.
+  `
+  CREATE TABLE IF NOT EXISTS team_roles (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, brief TEXT NOT NULL, realmite_json TEXT NOT NULL, template TEXT,
+    agent_kind TEXT NOT NULL, model TEXT, effort TEXT,
+    permission_mode TEXT NOT NULL DEFAULT 'default',
+    skills_json TEXT NOT NULL DEFAULT '[]',
+    wake_on_review INTEGER NOT NULL DEFAULT 1,
+    week_budget_usd REAL, run_cap_usd REAL NOT NULL DEFAULT 3, run_cap_ms INTEGER NOT NULL DEFAULT 1200000,
+    max_concurrent INTEGER NOT NULL DEFAULT 1,
+    archived INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS team_roles_space ON team_roles(space_id, archived, sort_order);
+  ALTER TABLE schedules ADD COLUMN role_id TEXT;
+  ALTER TABLE runs ADD COLUMN role_id TEXT;
+  ALTER TABLE runs ADD COLUMN woke_on TEXT;
+  ALTER TABLE runs ADD COLUMN cost_usd REAL;
+  CREATE INDEX IF NOT EXISTS runs_role ON runs(role_id, created_at DESC) WHERE role_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS schedules_role ON schedules(role_id) WHERE role_id IS NOT NULL;
+  `,
+  // v44 — Review: what a team's roles make, waiting for a person's yes. A review is one batch (six
+  // slideshows, one email draft); its items are the pieces, each with the files and text that were
+  // approved and the hash of exactly those bytes, so a file changed after the yes is a yes to
+  // something else and the item drops back to waiting. `version` counts revisions: a run woken by
+  // "Request changes" replaces the items in place, and the earlier version's rows stay, one step back.
+  // `act_state` is Phase 3's (posting); Phase 1 only ever writes `none` and `ready`.
+  `
+  CREATE TABLE IF NOT EXISTS team_reviews (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    role_id TEXT, run_id TEXT, session_id TEXT, record_path TEXT,
+    kind TEXT NOT NULL, title TEXT NOT NULL, state TEXT NOT NULL, note TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL, decided_at INTEGER, updated_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS team_reviews_space ON team_reviews(space_id, state, created_at DESC);
+  CREATE TABLE IF NOT EXISTS team_review_items (
+    id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES team_reviews(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL DEFAULT 1, ord INTEGER NOT NULL,
+    files_json TEXT NOT NULL, body TEXT, target_json TEXT,
+    content_hash TEXT NOT NULL, approved_hash TEXT,
+    act_state TEXT NOT NULL DEFAULT 'none');
+  CREATE INDEX IF NOT EXISTS team_review_items_review ON team_review_items(review_id, version, ord);
+  `,
+  // v45 — the team's activity log: every wake, submission, decision, record change and budget stop,
+  // one line each. Append-only by contract — nothing in the code updates or deletes a row
+  // (`team/activity.test.ts` holds that), so "what did this team do" is answered from one place.
+  `
+  CREATE TABLE IF NOT EXISTS team_activity (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL, actor TEXT NOT NULL,
+    run_id TEXT, session_id TEXT, verb TEXT NOT NULL, object TEXT,
+    detail_json TEXT NOT NULL DEFAULT '{}');
+  CREATE INDEX IF NOT EXISTS team_activity_space ON team_activity(space_id, ts DESC);
+  CREATE INDEX IF NOT EXISTS team_activity_run ON team_activity(run_id) WHERE run_id IS NOT NULL;
+  `,
 ];

@@ -147,6 +147,17 @@ function LimitRow({ limits }: { limits: PlanLimits | null }) {
   );
 }
 
+/** What a queued row can do with its message. Edit holds it on the server while the field is open
+ *  (`sessions.holdQueued`), so a turn that settles mid-edit cannot send the old text. */
+export type QueueActions = {
+  onRelease: (queuedId: string) => void;
+  onDrop: (queuedId: string) => void;
+  /** Answers false when the message had already gone out, and the field does not open. */
+  onBeginEdit: (queuedId: string) => Promise<boolean>;
+  onSaveEdit: (queuedId: string, text: string) => void;
+  onCancelEdit: (queuedId: string) => void;
+};
+
 /**
  * The messages waiting for this turn to end, oldest first.
  *
@@ -155,29 +166,86 @@ function LimitRow({ limits }: { limits: PlanLimits | null }) {
  *
  * The send-now sits on the row rather than in the button corner, which is Stop's while a turn runs.
  * What it costs is `steerNote`'s answer and differs by agent.
+ *
+ * A message is edited in place, as plain text: an element chip shows as its `@[label]` token, and
+ * taking the token out drops the chip (the server's `keepLiveChips`), exactly as in the prompter.
  */
-function QueueRow({ kind, queued, onRelease, onDrop }: { kind: AgentKind; queued: QueuedPrompt[]; onRelease: (queuedId: string) => void; onDrop: (queuedId: string) => void }) {
+function QueueRow({ kind, queued, submitKey, actions }: { kind: AgentKind; queued: QueuedPrompt[]; submitKey: SubmitKey; actions: QueueActions }) {
+  const [editing, setEditingState] = useState<{ id: string; text: string; was: string } | null>(null);
+  // Mirrored in a ref so the Enter that closes the field and the blur that follows it are one close,
+  // not two saves.
+  const open = useRef(editing);
+  const setEditing = (v: typeof editing) => { open.current = v; setEditingState(v); };
+  // The message went out (or was removed elsewhere) while its field was open: what was typed is not
+  // thrown away — a save of a message that is gone lands in the draft.
+  useEffect(() => {
+    if (!editing || queued.some((q) => q.id === editing.id)) return;
+    if (editing.text !== editing.was && editing.text.trim()) actions.onSaveEdit(editing.id, editing.text);
+    setEditing(null);
+  }, [queued, editing, actions]);
   if (queued.length === 0) return null;
   const note = steerNote(kind);
+  const begin = async (q: QueuedPrompt) => {
+    if (await actions.onBeginEdit(q.id)) setEditing({ id: q.id, text: q.text, was: q.text });
+  };
+  const close = (save: boolean) => {
+    const e = open.current;
+    if (!e) return;
+    const changed = e.text !== e.was;
+    // An edit to nothing at all is not a message; keep the field open rather than send it or drop it.
+    if (save && changed && !e.text.trim() && !queued.find((q) => q.id === e.id)?.attachments.length) return;
+    setEditing(null);
+    if (save && changed) actions.onSaveEdit(e.id, e.text);
+    else actions.onCancelEdit(e.id);
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(false); return; }
+    if (e.key !== "Enter" || e.shiftKey) return;
+    // The prompter's own send chord, so a correction is saved with the key that sends a message.
+    if (e.metaKey || e.ctrlKey || submitKey === "enter") { e.preventDefault(); close(true); }
+  };
   return (
     <ul className="composer-queue" aria-label="Queued messages">
-      {queued.map((q, i) => (
-        <li key={q.id} className="composer-queue-item">
-          <span className="queue-position" aria-hidden="true">{i + 1}</span>
-          {/* One line, with the whole of it in the title: the row is a reminder of what is coming, and
-              the message becomes a real bubble the moment it goes out. */}
-          <span className="queue-text" title={q.text}>{q.text || "(attachments only)"}</span>
-          {q.attachments.length > 0 && (
-            <span className="queue-attach" title={q.attachments.map((a) => basenameOf(a.path)).join(", ")}>
-              <Icon name="attach" size={12} />{q.attachments.length}
-            </span>
-          )}
-          <button type="button" className="queue-send" title={note} onClick={() => onRelease(q.id)}>Send now</button>
-          <button type="button" className="queue-drop" aria-label={`Remove queued message: ${q.text}`} title="Remove" onClick={() => onDrop(q.id)}>
-            <Icon name="close" size={12} />
-          </button>
-        </li>
-      ))}
+      {queued.map((q, i) => {
+        const mine = editing?.id === q.id;
+        // Held and not by this field: another window is editing it, so this one only shows that.
+        const elsewhere = q.held && !mine;
+        return (
+          <li key={q.id} className="composer-queue-item" data-editing={mine || undefined} data-held={q.held || mine || undefined}>
+            <span className="queue-position" aria-hidden="true">{i + 1}</span>
+            {mine ? (
+              <textarea className="queue-edit" aria-label={`Edit queued message ${i + 1}`} autoFocus rows={1}
+                value={editing.text} onChange={(e) => setEditing({ ...editing, text: e.target.value })}
+                onKeyDown={onKeyDown} onBlur={() => close(true)} />
+            ) : (
+              /* One line, with the whole of it in the title: the row is a reminder of what is coming,
+                 and the message becomes a real bubble the moment it goes out. */
+              <span className="queue-text" title={q.text}>{q.text || "(attachments only)"}</span>
+            )}
+            {(mine || elsewhere) && <span className="queue-held">{mine ? "Held while you edit" : "Being edited in another window"}</span>}
+            {q.attachments.length > 0 && (
+              <span className="queue-attach" title={q.attachments.map((a) => basenameOf(a.path)).join(", ")}>
+                <Icon name="attach" size={12} />{q.attachments.length}
+              </span>
+            )}
+            {!mine && (
+              <button type="button" className="queue-icon" aria-label={`Edit queued message: ${q.text}`} title="Edit"
+                disabled={elsewhere} onClick={() => void begin(q)}>
+                <Icon name="edit" size={12} />
+              </button>
+            )}
+            <button type="button" className="queue-send" title={note} disabled={mine || elsewhere}
+              // Clicked from an open field, the field's blur has already saved; this would only race it.
+              onMouseDown={(e) => { if (mine) e.preventDefault(); }}
+              onClick={() => actions.onRelease(q.id)}>Send now</button>
+            <button type="button" className="queue-drop" aria-label={`Remove queued message: ${q.text}`} title="Remove"
+              onMouseDown={(e) => { if (mine) e.preventDefault(); }}
+              onClick={() => { if (mine) setEditing(null); actions.onDrop(q.id); }}>
+              <Icon name="close" size={12} />
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -196,6 +264,7 @@ function QueueRow({ kind, queued, onRelease, onDrop }: { kind: AgentKind; queued
 /** Stable, so a Composer with no references does not get a new array on every render. */
 const NO_SESSION_REFS: readonly SessionRef[] = [];
 const NO_REFS: readonly MentionRef[] = [];
+const NO_QUEUE_ACTIONS: QueueActions = { onRelease: () => {}, onDrop: () => {}, onBeginEdit: async () => false, onSaveEdit: () => {}, onCancelEdit: () => {} };
 const NO_SPACES: readonly { id: string; name: string }[] = [];
 
 function SessionRefRow({ refs, onRemove }: { refs: readonly SessionRef[]; onRemove: (sessionId: string) => void }) {
@@ -253,6 +322,13 @@ const MODE_LABEL: Record<SessionMode, string> = { build: "Build", plan: "Plan", 
 /** `search` for Ask, not the session bubble: the mode is reading and searching, and the bubble is
  *  already what a session row is. */
 const MODE_ICON: Record<SessionMode, IconName> = { build: "tool", plan: "plan", ask: "search" };
+/** A session's mode as the prompter's control draws it: the mode's name and mark for Plan and Ask,
+ *  the permission's for Build — so a Full access sub-agent reads the same in its lead's Agents tab
+ *  as in its own prompter. */
+export function permissionMark(permissionMode: string): { icon: IconName; label: string } {
+  const mode = sessionModeOf(permissionMode);
+  return mode === "build" ? { icon: permissionIcon(permissionMode), label: permissionLabel(permissionMode) } : { icon: MODE_ICON[mode], label: MODE_LABEL[mode] };
+}
 /** A mode's glyph in the "+" menu, in the tone the card wears for it — Plan's and Ask's tints are the
  *  mode's ambient signal, and the row naming the mode is the one place it should match them. */
 const ModeMark = ({ mode }: { mode: SessionMode }) => <span className="mode-mark" data-mode={mode}><Icon name={MODE_ICON[mode]} size={16} /></span>;
@@ -299,7 +375,7 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * "+", and placement clear of a browser pane's native view, which composites over anything drawn.
  *
  * Three sections. **Add** is what goes with the message or into the space: files (⌘U, bound in
- * hotkeys.ts — the hint here is visual), a folder, a part of Realm itself (Select in Realm, the
+ * the keymap in keys/ — the hint here is visual), a folder, a part of Realm itself (Select in Realm, the
  * in-app element picker — app-pick/), skills, and a goal, which arms the box with `/goal` rather
  * than opening anything. Skills opens the `SkillPicker`, which lists every skill on
  * the machine; priming the `@` popover could only ever offer the ones already on.
@@ -424,7 +500,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -466,7 +542,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   sessionRefs?: readonly SessionRef[]; onRemoveSessionRef?: (sessionId: string) => void;
   /** One of Realm's own sidebar items was dropped on the prompter. The pane decides what it means. */
   onDropItem?: (itemId: string) => void;
-  queued?: QueuedPrompt[]; onReleaseQueued?: (queuedId: string) => void; onDropQueued?: (queuedId: string) => void; midTurnMode?: MidTurnMode; planLimits?: PlanLimits | null;
+  queued?: QueuedPrompt[]; queueActions?: QueueActions; midTurnMode?: MidTurnMode; planLimits?: PlanLimits | null;
   /** Set the permission Build will return to, while a read-only mode is in force. Absent leaves the
    *  chip a label, which is what the read-only mounts want. */
   onParkPermission?: (permissionMode: string) => void;
@@ -1084,7 +1160,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
     // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
-    // window level in hotkeys.ts — consuming it here would turn dispatch into a plain send.
+    // window level in the keymap (keys/) — consuming it here would turn dispatch into a plain send.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); send(); return; }
     // ⌫ behind and ⌦ in front of an element chip take the whole token (see `deleteChipAt` for why
     // only that kind). A collapsed selection and no modifiers: ⌥⌫ and a live selection are the user
@@ -1317,7 +1393,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           neutral: a colour that is always on is a colour that says nothing. */}
       <div className="composer" data-mode={mode} data-dropping={drop.dropping || itemDrop.dropping || undefined} {...bothDrops}>
         <LimitRow limits={planLimits} />
-        <QueueRow kind={kind} queued={queued} onRelease={onReleaseQueued ?? (() => {})} onDrop={onDropQueued ?? (() => {})} />
+        <QueueRow kind={kind} queued={queued} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
         <SessionRefRow refs={sessionRefs} onRemove={onRemoveSessionRef ?? (() => {})} />
         {/* A mention whose skill vanished after typing (W4): warning tone, same row language as the

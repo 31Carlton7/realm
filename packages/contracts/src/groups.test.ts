@@ -61,7 +61,7 @@ describe("migrateGroups", () => {
     expect(gs.groups.map((g) => g.id)).toEqual([ULID(1)]);
   });
   // The cross-group form of layout.ts's within-a-tree uniqueness. Two groups both claiming a pane
-  // makes groupOfItem — which the sidebar's grouping and moveItemToGroup both rest on — start lying.
+  // would make "which group is this item in" unanswerable.
   it("dedupes an item claimed by two groups: the first group keeps it", () => {
     const gs = SpaceGroupsSchema.parse({
       groups: [group(1, row([leaf("A"), leaf("B")])), group(2, row([leaf("B", "L-B2"), leaf("C")]))],

@@ -12,7 +12,7 @@ import { cleanupWorktree, errorMessage, resolveAgentKind, resolveEnvironment, re
  *  preamble and skill narrowing when resumed. Keyed by SESSION id; removed when that session dies. */
 const workerKey = (sessionId: string): string => `run.session:${sessionId}`;
 
-export type RunWorkerRecord = { runId: string; goal: string; skills: string[] | null };
+export type RunWorkerRecord = { runId: string; goal: string; skills: string[] | null; preamble?: string | null };
 
 /** Session-status transitions that count as a turn SETTLING — the notifications feed's vocabulary,
  *  verbatim, because both hooks read the same event off the same rail and must agree about what an
@@ -36,6 +36,10 @@ export type CreateRunInput = {
    *  when the schedule continues one conversation. Dispatch falls back to a fresh session when it is
    *  gone or runs another agent. */
   sessionId?: string | null;
+  /** The team role this run works for, and what woke it (`team/service.ts`). A role's run waits in
+   *  `queued` until `admit` lets it start, and wears the role's preamble. */
+  roleId?: string | null;
+  wokeOn?: string | null;
 };
 
 /**
@@ -85,6 +89,14 @@ export class RunService {
     /** Told of every run that reaches a terminal state, after it is written — the scheduler's hook
      *  for what a schedule does once its run is over (archiving a success). */
     onSettled?: (run: Run) => void;
+    /** Told of every write a client is told of — a team role's run starting arms its minutes cap. */
+    onChanged?: (run: Run) => void;
+    /** Whether a queued run may start now. Consulted for a team role's run only: a role's run that is
+     *  not admitted stays `queued`, and `pump` tries again when a slot frees. Everything else
+     *  dispatches as it always has. */
+    admit?: (run: Run) => boolean;
+    /** The standing context a role's run wears instead of the plain unattended preamble. */
+    rolePreamble?: (run: Run) => string | null;
     /** Worker kind when the run named none: claude in production; tests override to the fake. */
     fallbackKind?: AgentKind;
     /** Test seam only — production leaves this alone and uses the real clock. */
@@ -107,6 +119,7 @@ export class RunService {
     return {
       runId: r.runId, goal: r.goal,
       skills: Array.isArray(r.skills) ? r.skills.filter((x): x is string => typeof x === "string") : null,
+      preamble: typeof r.preamble === "string" ? r.preamble : null,
     };
   }
 
@@ -128,7 +141,7 @@ export class RunService {
    *  systemContext. Undefined for every non-worker session. */
   extraSystemContext(sessionId: string): string | undefined {
     const w = this.workerRecord(sessionId);
-    return w ? workerPreamble(w.goal) : undefined;
+    return w ? (w.preamble ?? workerPreamble(w.goal)) : undefined;
   }
 
   /**
@@ -192,6 +205,7 @@ export class RunService {
       environmentId: null,
       constraints, dedupeKey: input.dedupeKey, maxAttempts: input.maxAttempts, deadlineAt: input.deadlineAt,
       scheduleId: input.scheduleId ?? null, sessionId: input.sessionId ?? null,
+      roleId: input.roleId ?? null, wokeOn: input.wokeOn ?? null,
     });
     if (!created) {
       const existing = input.dedupeKey ? this.d.store.findLiveByDedupeKey(input.spaceId, input.dedupeKey) : null;
@@ -203,6 +217,7 @@ export class RunService {
           spaceId: input.spaceId, title, goal: input.goal, agentKind, environmentId: null,
           constraints, dedupeKey: input.dedupeKey, maxAttempts: input.maxAttempts, deadlineAt: input.deadlineAt,
           scheduleId: input.scheduleId ?? null, sessionId: input.sessionId ?? null,
+          roleId: input.roleId ?? null, wokeOn: input.wokeOn ?? null,
         });
         if (!retry) throw new RpcError("RUN_DEDUPE", "a live run with this dedupe key already exists in this space");
         this.broadcast(retry);
@@ -251,6 +266,47 @@ export class RunService {
     return requeued;
   }
 
+  /**
+   * Try every queued role run again — called when a slot may have freed (a role's run settled, a cap
+   * was raised). Oldest first, so a role's runs start in the order they were woken. `dispatch`'s
+   * claim is a compare-and-set, so a pump racing a dispatch still starts each run once.
+   */
+  pump(): void {
+    if (this.closing) return;
+    for (const run of this.d.store.listLive()) {
+      if (run.state === "queued" && run.roleId) void this.dispatch(run.id, null);
+    }
+  }
+
+  /** The runs a role made, newest first. */
+  listForRole(roleId: string, limit: number): Run[] { return this.d.store.listForRole(roleId, limit); }
+
+  /** What a role (or a team's roles) spent since a moment. */
+  spentSince(where: { roleId?: string; spaceId?: string }, since: number): number { return this.d.store.spentSince(where, since); }
+
+  /** Every live run, across every space. */
+  listLive(): Run[] { return this.d.store.listLive(); }
+
+  /** Write a run's spend so far. Not a transition: broadcast, but no settle. */
+  recordCost(id: string, costUsd: number): Run | null {
+    const run = this.d.store.update(id, { costUsd });
+    if (run) this.broadcast(run);
+    return run;
+  }
+
+  /**
+   * Stop a live run at a limit it was given — its dollars or its minutes. Interrupts the session and
+   * settles the run `cancelled` with the reason in words: the work was stopped, not found impossible,
+   * and nothing retries it.
+   */
+  stopAtLimit(id: string, why: string): Run {
+    const run = this.require(id);
+    if (isRunTerminal(run.state)) return run;
+    if (run.sessionId) void this.d.sessions.interrupt(run.sessionId).catch(() => { /* it may have just ended */ });
+    this.d.store.closeAttempt(id, "cancelled", why);
+    return this.settle(id, "cancelled", { error: why });
+  }
+
   /* --------------------------------------- the flow ------------------------------------------ */
 
   /** Back to `queued`, with the budget widened enough for the attempt that is about to happen. */
@@ -278,6 +334,9 @@ export class RunService {
       // Checked here rather than only at settle: a run whose deadline passed while it sat queued
       // should not spend an attempt proving it.
       if (this.expiredNow(before)) { this.settle(id, "expired", { error: "the run's deadline passed before it could start" }); return; }
+      // A role's run waits its turn: the role, its team and Realm each cap how many go at once. It
+      // stays `queued` — the honest state — and `pump` dispatches it when one of them settles.
+      if (before.roleId && this.d.admit && !this.d.admit(before)) return;
 
       const run = this.d.store.claim(id);
       if (!run) return; // someone else claimed it; exactly one dispatcher wins
@@ -354,12 +413,13 @@ export class RunService {
       // this record when it starts the adapter, so the record must exist first. Written on a resumed
       // session too, so a session that has served one run and now serves the next names the run it
       // is working for — `release` fails THAT run if the session is deleted.
-      const record: RunWorkerRecord = { runId: id, goal: run.goal, skills: skills.value };
+      const record: RunWorkerRecord = { runId: id, goal: run.goal, skills: skills.value,
+        preamble: run.roleId ? this.d.rolePreamble?.(run) ?? null : null };
       this.d.settings.set(workerKey(sessionId), record);
 
       this.d.store.openAttempt({ runId: id, n: run.attempt, sessionId });
       const dispatched = this.d.store.update(id, { sessionId, environmentId: env.value.environmentId })!;
-      if (createdItemId && run.scheduleId === null) {
+      if (createdItemId && run.scheduleId === null && run.roleId === null) {
         // The `agentOpened` idiom: the worker streams into its own pane, because a run the user
         // cannot watch is the thing this whole design refuses to ship. Deliberately WITHOUT the
         // `session.agentSettled` half the delegation tools send: a worker is nobody's sub-agent, no
@@ -369,6 +429,7 @@ export class RunService {
         // Not for a run a schedule fired. That one arrives on a clock, while the person is in the
         // middle of something else, and a pane opening beside their work is the interruption the
         // Scheduled page exists to replace: the run lands under its task there, unread until opened.
+        // A team role's run is the same: it is read from the role's page.
         this.d.rpc.broadcast("session.agentOpened", { spaceId: run.spaceId, sessionId, itemId: createdItemId });
       }
       this.broadcast(dispatched);
@@ -504,6 +565,7 @@ export class RunService {
 
   private broadcast(run: Run): void {
     this.d.rpc.broadcast("runs.changed", { spaceId: run.spaceId, run });
+    this.d.onChanged?.(run);
   }
 
   private require(id: string): Run {
@@ -548,7 +610,7 @@ const OUTCOME_WORD: Record<string, string> = {
 };
 
 /** The unattended-run posture, stated once as the worker's standing context. */
-function workerPreamble(goal: string): string {
+export function workerPreamble(goal: string): string {
   return [
     "# Unattended run (Realm)",
     "",

@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
-import { PANE_DIVIDER, PANE_MIN, allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, ElementChipSchema, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type DevicePickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { PANE_DIVIDER, PANE_MIN, allItems, findLeaf, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, ElementChipSchema, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type DevicePickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
 
@@ -891,6 +891,118 @@ describe("app store", () => {
     api.pickFolder = async () => null;
     await store.getState().pickAndLinkProject();
     expect(store.getState().projects).toHaveLength(1);
+  });
+
+  describe("splitNewSession — Split right / down makes a session, not an empty pane", () => {
+    const wide = { width: 8 * PANE_MIN.width + 7 * PANE_DIVIDER, height: 2 * PANE_MIN.height + PANE_DIVIDER };
+    /** Session se1 (item i9, space s1) alone on screen and focused. */
+    const oneSession = async () => {
+      api = fakeApi({
+        items: { s1: [item("i9", "s1", { kind: "session", title: "A", refId: "se1" }), item("i8", "s1", { kind: "session", title: "B", refId: "se2" })], s2: [item("w2", "s2", { kind: "terminal", title: "T" })] },
+        sessions: [session("se1", "s1"), session("se2", "s1")],
+      });
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i9");
+      store.setState({ viewRoom: wide });
+      return store;
+    };
+    const created = () => api.calls.filter((c) => c.startsWith("createSession"));
+    /** The item of the session `createSession` made last. */
+    const newItem = () => api.data.items.s1!.concat(api.data.items.s2 ?? []).find((i) => i.kind === "session" && i.id !== "i9" && i.id !== "i8")!;
+
+    it("splits right of the focused session with a NEW session, and focuses it", async () => {
+      // THE MUTANTS: calling splitFocused (an empty pane, no session), and opening without the edge
+      // (the new session REPLACES the focused one instead of standing beside it).
+      const store = await oneSession();
+      await store.getState().splitNewSession("row");
+      expect(created()).toEqual(["createSession:claude"]);
+      const l = store.getState().layout!;
+      expect(l.type === "split" && l.dir).toBe("row");
+      expect(primaryLeaves(l).map((p) => p.itemId)).toEqual(["i9", newItem().id]);
+      expect(store.getState().focusedLeafId).toBe(findLeafOfItem(l, newItem().id)!.id);
+      // …with the keyboard in its prompter (THE MUTANT: a split that leaves the caret behind).
+      expect(store.getState().keyboardFor?.sessionId).toBe(newItem().refId);
+    });
+
+    it("split down puts it below", async () => {
+      // THE MUTANT: a hard-coded "right".
+      const store = await oneSession();
+      await store.getState().splitNewSession("col");
+      const l = store.getState().layout!;
+      expect(l.type === "split" && l.dir).toBe("col");
+      expect(primaryLeaves(l).map((p) => p.itemId)).toEqual(["i9", newItem().id]);
+    });
+
+    it("a refused split says why and creates no session", async () => {
+      // THE MUTANT: create first, ask for room after — a refused split leaves an orphan session.
+      const store = await oneSession();
+      store.setState({ viewRoom: { width: PANE_MIN.width, height: PANE_MIN.height } });
+      const before = store.getState().layout;
+      await store.getState().splitNewSession("row");
+      expect(created()).toEqual([]);
+      expect(store.getState().layout).toBe(before);
+      expect(store.getState().toasts.map((t) => t.text)).toEqual([store.getState().splitRefusal("row")]);
+    });
+
+    it("is made in the anchor pane's space, not the window's current one", async () => {
+      // THE MUTANT: no spaceId, which sends the session to whichever space is current. They differ
+      // when nothing is focused: the anchor is the first pane, the current space the last one visited.
+      const store = await oneSession();
+      store.setState({ focusedLeafId: null, lastSpaceByProfile: { p1: "s2" } });
+      expect(store.getState().activeSpaceId).toBe("s2");
+      await store.getState().splitNewSession("row");
+      expect(newItem().spaceId).toBe("s1");
+      expect(primaryLeaves(store.getState().layout!).map((p) => p.itemId)).toEqual(["i9", newItem().id]);
+    });
+
+    it("from a side-panel tab, anchors on that tab's session", async () => {
+      // THE MUTANT: anchoring on the panel leaf itself — the new session would land beside whatever
+      // pane `openItemAt` reaches for, not beside the session the tab belongs to.
+      const store = await oneSession();
+      await store.getState().openItemAt("i8", findLeafOfItem(store.getState().layout!, "i9")!.id, "right"); // [se1 | se2]
+      store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i9")!.id);
+      await store.getState().newTab(); // a tab in se1's panel, focused
+      const panelLeaf = store.getState().focusedLeafId!;
+      expect(findSidePane(store.getState().layout!, "i9")?.id).toBe(panelLeaf);
+      await store.getState().splitNewSession("row");
+      const l = store.getState().layout!;
+      const order = primaryLeaves(l).map((p) => p.itemId);
+      expect(order).toEqual(["i9", newItem().id, "i8"]);
+      expect(findSidePane(l, "i9")).not.toBeNull();
+    });
+
+    it("⌘N and an empty pane's New session hand the new session's prompter the keyboard", async () => {
+      // THE MUTANT: the handoff kept to the split — ⌘N and the button would leave the caret behind.
+      const store = await oneSession();
+      await store.getState().newSessionInstant();
+      expect(store.getState().keyboardFor?.sessionId).toBe(newItem().refId);
+      await store.getState().splitFocused("row");
+      const empty = store.getState().focusedLeafId!;
+      await store.getState().newSessionInstant(empty);
+      const filled = findLeaf(store.getState().layout!, empty)!;
+      const made = store.getState().items.find((i) => i.id === filled.itemId)!;
+      expect(made.kind).toBe("session");
+      expect(store.getState().keyboardFor?.sessionId).toBe(made.refId);
+    });
+
+    it("into an empty pane fills it rather than splitting it", async () => {
+      const store = await oneSession();
+      await store.getState().splitFocused("row"); // an empty pane, focused
+      await store.getState().splitNewSession("row");
+      expect(primaryLeaves(store.getState().layout!).map((p) => p.itemId)).toEqual(["i9", newItem().id]);
+    });
+
+    it("with no space to make a session in, still splits — an empty pane", async () => {
+      // THE MUTANT: returning on no space — the key would do nothing at all.
+      api = fakeApi({ spaces: [] });
+      const store = createAppStore(api);
+      await store.getState().boot();
+      store.setState({ viewRoom: wide, layout: leaf("E", null), focusedLeafId: "E" });
+      await store.getState().splitNewSession("row");
+      expect(created()).toEqual([]);
+      expect(primaryLeaves(store.getState().layout!)).toHaveLength(2);
+    });
   });
 
   describe("create race: items.changed refresh lands before terminals.create resolves", () => {
@@ -3447,6 +3559,22 @@ describe("what changed while you were away", () => {
     store.getState().applySessionEvent({ seq: 5, sessionId: "other", ephemeral: false,
       event: { type: "assistant_text", ts: 2001, payload: { messageId: "m10", text: "x" } } } as never);
     expect(api.calls.some((c) => c.startsWith("markSessionSeen:other"))).toBe(false);
+  });
+
+  it("an event in the focused pane of a window nobody is looking at is not read", async () => {
+    // THE MUTANT: `isFocusedSession` without the window — a turn that finished while Realm sat behind
+    // another app was marked read, and its dot never drew.
+    const api = seeded(3, 1);
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().openItem("ix");
+    await store.getState().openSession("sx");
+    store.getState().setWindowActive(false);
+    api.calls.length = 0;
+    store.getState().applySessionEvent({ seq: 4, sessionId: "sx", ephemeral: false,
+      event: { type: "assistant_text", ts: 2000, payload: { messageId: "m9", text: "new" } } } as never);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
   });
 });
 

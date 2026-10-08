@@ -161,6 +161,7 @@ export class RubberBand<T extends RubberTarget> {
  *  grids and fields keep their own scrolling, which their own engines already own. */
 export const RUBBER_SCROLLERS = [
   ".transcript", ".space-body", ".page-content", ".summary-scroll", ".diff-list", ".documents-rich-scroll",
+  ".pdf-view",
 ].join(", ");
 
 /** Whether something between the pointer and `scroller` would still scroll that way itself — a code

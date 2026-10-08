@@ -29,7 +29,7 @@ export const BROWSER_HOST_OPS = [
    *  a machine password — `secret-box` mixes the domain in as AAD. */
   "eggsKey",
   /** Arm a one-shot download grant, click the ref, and await the file. The DIRECTORY is decided
-   *  server-side (from the space's project) and travels with the op — main never picks a path, and
+   *  server-side (`spaceDownloadDir`) and travels with the op — main never picks a path, and
    *  the page never influences one. */
   "download",
   /** Put files INTO a page (Plan 26). The PATHS are decided server-side — resolved, symlink-checked,

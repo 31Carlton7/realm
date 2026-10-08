@@ -186,6 +186,8 @@ describe("mcp over rpc", () => {
        declared further down `app.ts`. `goal` is on by default because its reach is the narrowest here
        (two tools that appear only on a session already pursuing a goal, and the most either can do is
        end it); `realm-schedule` because it only writes a row this space's own page can see.
+       `realm-memory` comes after them for the same reason, and is on because it lists nothing at all
+       until the profile has a memory repo — attaching one is the opt-in.
        `realm-ui` is ON, and sits after the delegation tools it is registered beside: it can only ask,
        and an answer is the user's click. */
     const before = (await c.call("mcp.providers.list", { spaceId: work.id })).result.providers;
@@ -201,7 +203,7 @@ describe("mcp over rpc", () => {
       row("realm-computer", false), row("realm-terminal", true),
       row("realm-app", false), row("realm-docs", true),
       row("realm-vm", false), row("realm-simulator", true),
-      row("goal", true), row("realm-schedule", true),
+      row("realm-goal", true), row("realm-workspace", true), row("realm-schedule", true), row("realm-team", true), row("realm-memory", true),
     ]);
     await c.call("mcp.setProviderEnabled", { spaceId: work.id, name: "realm-browser", enabled: false });
     // The disable is per-space: Work reads OFF, School still reads ON.
@@ -210,7 +212,7 @@ describe("mcp over rpc", () => {
       row("realm-computer", false), row("realm-terminal", true),
       row("realm-app", false), row("realm-docs", true),
       row("realm-vm", false), row("realm-simulator", true),
-      row("goal", true), row("realm-schedule", true),
+      row("realm-goal", true), row("realm-workspace", true), row("realm-schedule", true), row("realm-team", true), row("realm-memory", true),
     ]);
     /* And the opt-in provider turns ON through the same switch, for this space alone.
        By NAME rather than by index: these lines each ask about one provider's switch, and an index

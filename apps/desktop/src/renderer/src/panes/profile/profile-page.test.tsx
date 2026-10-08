@@ -3,7 +3,7 @@ import { render, screen, act, fireEvent, waitFor, within } from "@testing-librar
 import { PAGE_REF_IDS } from "@realm/contracts";
 import { ProfilePage } from "./ProfilePage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, mcpServer, profile, session, skillRow, space, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, fakeMemoryRepo, item, mcpServer, profile, session, skillRow, space, type FakeData } from "../../state/store.test-fakes";
 
 /** The page pane as PaneHost mounts it: a destination item whose refId is the kind's sentinel
  *  (Plan 14 W2) — the PROFILE is derived live from the item's space, never stored. */
@@ -173,6 +173,170 @@ describe("ProfilePage · Memory", () => {
     fireEvent.blur(doc);
     await waitFor(() => expect(api.data.profileMemoryDocs.p1).toBe("new profile-wide rule"));
     expect(api.data.profileMemoryDocs.p2).toBe("other profile's doc");
+  });
+});
+
+describe("ProfilePage · Memory repo", () => {
+  const openMemory = () => fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+
+  it("offers Create and Attach when the profile has none, and Create makes this profile's", async () => {
+    const { api } = await mount({ memoryRepoLogs: { "profile:p1": [{ sha: "a1b2c3d4", subject: "Create memory repo", at: Date.now() - 60_000 }] } });
+    openMemory();
+    expect(await screen.findByText("No memory repo")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Attach existing…" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    // THE MUTANT: create for the vantage space's id, or for another profile — the repo lands on the wrong owner.
+    await waitFor(() => expect(api.calls).toContain("createMemoryRepo:profile:p1"));
+    expect(await screen.findByText("/realm-home/memory/repos/profile-p1")).toBeInTheDocument();
+    expect(screen.getByText("Last saved")).toBeInTheDocument();
+    expect(screen.getByText(/^Just now: Create memory repo$/)).toBeInTheDocument();
+    expect(screen.getByText("Nowhere. It stays on this Mac.")).toBeInTheDocument();
+    expect(screen.getByText("Recent memories")).toBeInTheDocument();
+  });
+
+  it("attaches the picked folder, and says the server's refusal when it is not a memory repo", async () => {
+    const refusal = "/tmp/picked-repo is not a memory repo: it has no MEMORY.md at its top";
+    const { api, store } = await mount({ memoryRepoAttachError: refusal });
+    openMemory();
+    fireEvent.click(await screen.findByRole("button", { name: "Attach existing…" }));
+    await waitFor(() => expect(store.getState().toasts.map((t) => t.text)).toContain(refusal));
+    expect(api.calls).toContain("attachMemoryRepo:profile:p1:/tmp/picked-repo");
+    expect(screen.getByText("No memory repo")).toBeInTheDocument();
+    api.data.memoryRepoAttachError = "";
+    fireEvent.click(screen.getByRole("button", { name: "Attach existing…" }));
+    expect(await screen.findByText("/tmp/picked-repo")).toBeInTheDocument();
+  });
+
+  it("says in words why agents cannot save, toned by how bad it is", async () => {
+    const dirty = fakeMemoryRepo({ clean: false, uncommitted: ["draft.md"], reason: "1 uncommitted change — agents save again once the repo is clean" });
+    const { store } = await mount({ memoryRepos: { p1: dirty } });
+    openMemory();
+    // THE MUTANT: the status ignores `clean` — it reads "Last saved" while every save is refused.
+    expect(await screen.findByText("Saving paused")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("1 uncommitted change — agents save again once the repo is clean.")).toBeInTheDocument();
+    act(() => store.setState({ profileMemoryRepo: { p1: fakeMemoryRepo({ valid: false, reason: "the folder is gone" }) } }));
+    expect(screen.getByText("Not a memory repo")).toHaveAttribute("data-tone", "danger");
+    expect(screen.getByText("The folder is gone.")).toBeInTheDocument();
+  });
+
+  it("detaches this profile's repo and leaves the folder to the user", async () => {
+    const { api } = await mount({ memoryRepos: { p1: fakeMemoryRepo() } });
+    openMemory();
+    const detach = await screen.findByRole("button", { name: "Detach" });
+    expect(detach).toHaveAttribute("title", expect.stringContaining("The folder and its history stay where they are"));
+    fireEvent.click(detach);
+    await waitFor(() => expect(api.calls).toContain("detachMemoryRepo:profile:p1"));
+    expect(await screen.findByText("No memory repo")).toBeInTheDocument();
+  });
+});
+
+describe("ProfilePage · Memory repo sync", () => {
+  const openMemory = () => fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+  const REMOTE = "/Users/me/memory.git";
+
+  it("adds a remote from the row, and says the repo stays on this Mac until then", async () => {
+    const { api } = await mount({ memoryRepos: { p1: fakeMemoryRepo() } });
+    openMemory();
+    expect(await screen.findByText("Nowhere. It stays on this Mac.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add remote…" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Remote URL" }), { target: { value: ` ${REMOTE} ` } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.calls).toContain(`setMemoryRepoRemote:profile:p1:${REMOTE}`));
+    expect(await screen.findByText("Not synced. Realm only syncs memory to a private remote.")).toBeInTheDocument();
+  });
+
+  it("turns sync on for a remote Realm cannot check only once the user confirms it is private", async () => {
+    const { api } = await mount({ memoryRepos: { p1: fakeMemoryRepo({ remote: REMOTE }) } });
+    openMemory();
+    fireEvent.click(await screen.findByRole("button", { name: "Turn on sync…" }));
+    expect(await screen.findByText("Not checked")).toBeInTheDocument();
+    expect(screen.getByText(/Turn sync on only for a private repository you own\./)).toBeInTheDocument();
+    const on = screen.getByRole("button", { name: "Turn on sync" });
+    // THE MUTANT: leave the button enabled before the box is ticked — one click sends memory to a
+    // remote nobody said is private.
+    expect(on).toBeDisabled();
+    const box = screen.getByRole("checkbox", { name: "I confirm this remote is private" });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    fireEvent.click(on);
+    await waitFor(() => expect(api.calls).toContain("setMemoryRepoSync:profile:p1:true:true"));
+    expect(await screen.findByText(/Up to date/)).toBeInTheDocument();
+  });
+
+  it("offers no way to sync to a remote GitHub says is public, and needs no box for a private one", async () => {
+    const url = "git@github.com:me/memory.git";
+    const { api, store } = await mount({
+      memoryRepos: { p1: fakeMemoryRepo({ remote: url }) },
+      memoryRemoteChecks: { "profile:p1": { remote: url, verdict: "public", detail: "GitHub says me/memory is public" } },
+    });
+    openMemory();
+    fireEvent.click(await screen.findByRole("button", { name: "Turn on sync…" }));
+    expect(await screen.findByText("GitHub says me/memory is public. Memory never syncs to a public remote.")).toBeInTheDocument();
+    expect(screen.getByText("Public")).toHaveAttribute("data-tone", "danger");
+    expect(screen.queryByRole("button", { name: "Turn on sync" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    api.data.memoryRemoteChecks["profile:p1"] = { remote: url, verdict: "private", detail: "GitHub says me/memory is private" };
+    fireEvent.click(await screen.findByRole("button", { name: "Turn on sync…" }));
+    expect(await screen.findByText(/^GitHub says me\/memory is private\./)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Turn on sync" }));
+    await waitFor(() => expect(api.calls).toContain("setMemoryRepoSync:profile:p1:true:false"));
+    expect(store.getState().profileMemoryRepo.p1?.pushEnabled).toBe(true);
+  });
+
+  it("says saves are waiting when the network was down, and Retry now syncs", async () => {
+    const { api } = await mount({ memoryRepos: { p1: fakeMemoryRepo({ remote: REMOTE, pushEnabled: true, sync: "queued", ahead: 2, syncError: `'${REMOTE}' does not appear to be a git repository` }) } });
+    openMemory();
+    // git's own words, with the URL already on the line above said as "the remote".
+    const text = await screen.findByText("2 saves waiting to push — the remote does not appear to be a git repository. Realm tries again on the next save.");
+    expect(text).toHaveAttribute("data-tone", "warning");
+    // A queued push never pauses saving: the status row still says when it last saved.
+    expect(screen.getByText("Last saved")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry now" }));
+    await waitFor(() => expect(api.calls).toContain("syncMemoryRepo:profile:p1"));
+  });
+
+  it("pauses saving when the repo diverged, and hands the user the command to resolve it in Terminal", async () => {
+    const path = "/Users/me/Agent Memory";
+    await mount({ memoryRepos: { p1: fakeMemoryRepo({
+      path, remote: REMOTE, pushEnabled: true, sync: "diverged", ahead: 1, behind: 2,
+      reason: "this repo and its remote have both changed since they last matched — Realm never merges memory, so saving is paused until you resolve it in Terminal",
+    }) } });
+    openMemory();
+    // THE MUTANT: the status reads only `clean` — a diverged repo says "Last saved" while every save is refused.
+    expect(await screen.findByText("Saving paused")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("It and this repo have both changed since they last matched. Realm never merges memory.")).toHaveAttribute("data-tone", "danger");
+    expect(screen.getByText("Resolve in Terminal")).toBeInTheDocument();
+    expect(screen.getByText("cd '/Users/me/Agent Memory' && git pull --no-rebase")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy command" })).toBeInTheDocument();
+  });
+});
+
+describe("ProfilePage · Claude memory import", () => {
+  const openMemory = () => fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+
+  it("counts what it would add, asks, then imports — and is gone when there is nothing left", async () => {
+    const { api } = await mount({
+      memoryRepos: { p1: fakeMemoryRepo() },
+      claudeImports: { "profile:p1": { projects: 2, files: 5, entries: 6, skipped: [{ file: "/x/key.md", reason: "it looks like it holds a GitHub token" }], sha: null } },
+    });
+    openMemory();
+    expect(await screen.findByText("6 memories from 2 projects you imported from Claude are not in this repo yet.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Import…" }));
+    // THE MUTANT: import on the first click — nothing is written before the user has seen the count.
+    expect(api.calls.filter((c) => c === "importClaudeMemory:profile:p1:false")).toEqual([]);
+    expect(screen.getByText(/^Add 6 memories and 5 files to this repo as one commit\? .* 1 file stays out: it looks like it holds a GitHub token\.$/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Import 6" }));
+    await waitFor(() => expect(api.calls).toContain("importClaudeMemory:profile:p1:false"));
+    expect(await screen.findByText("Imported 6 memories. Each entry names the file it came from.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Import/ })).toBeNull();
+  });
+
+  it("shows no import row for a profile with no Claude memory", async () => {
+    const { api } = await mount({ memoryRepos: { p1: fakeMemoryRepo() } });
+    openMemory();
+    await waitFor(() => expect(api.calls).toContain("importClaudeMemory:profile:p1:true"));
+    expect(screen.queryByText("Claude memory")).toBeNull();
   });
 });
 

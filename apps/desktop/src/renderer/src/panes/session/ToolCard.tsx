@@ -4,17 +4,31 @@ import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
 import { useDissolve } from "../../components/ScrollFades";
 import { fileIconFor } from "../../components/file-icon";
-import { clip, editStat, editTarget, prettyJson, resultEditStat, toolSummary } from "./tool-summary";
-import { flattenRun, formatDuration, formatToolRun, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
-import { ToolInputBody, ToolResultBody } from "./rich/ToolViews";
-import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolMediaPath, toolResultView } from "./rich/tool-view";
+import { clip, editStat, editTarget, failureReason, mcpParts, prettyJson, readTarget, resultEditStat, statedExit, toolGlyph, toolSummary, toolVerb } from "./tool-summary";
+import { flattenRun, formatDuration, formatToolRun, runWork, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
+import { ErrorPanel, ToolInputBody, ToolPanelBody, ToolResultBody } from "./rich/ToolViews";
+import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolPanel, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
 import { ChildSessions, delegatedChildIds } from "./DelegatedRuns";
 import { DelegationLine, DelegationWait, isDelegationLine, isDelegationWait } from "./DelegationLine";
 import { useElapsed } from "./use-elapsed";
 import { AppView } from "../app-view/AppView";
 
-type ToolState = "running" | "ok" | "error" | "none";
+type ToolState = "running" | "waiting" | "ok" | "error" | "none";
+
+/** What the lead slot tells a screen reader, per state. "none" is a call that never got a result —
+ *  the session ended or was stopped first. */
+const STATE_LABEL: Record<ToolState, string> = { running: "running", waiting: "waiting for you", ok: "done", error: "failed", none: "stopped" };
+
+/** A running call says how long it has been at it once that is worth reading: under this, the number
+ *  would flicker onto every quick read and off again. */
+const ELAPSED_AFTER_MS = 3_000;
+
+/** The calls the agent is blocked on for a permission, by id (`waitingToolIds`). Context rather than a
+ *  prop so a sub-agent's cards, nested two components down, are told too; each card reduces it to
+ *  one boolean before its memoized body, so a request opening re-renders the row it names and no
+ *  other. */
+export const ToolWaiting = createContext<ReadonlySet<string>>(new Set());
 
 /** How long the copy button holds its ✓ before cross-fading back to the copy glyph (§6 icon swap). */
 const COPIED_MS = 1400;
@@ -24,10 +38,11 @@ const COPIED_MS = 1400;
 export const ToolCwd = createContext<string | null>(null);
 
 /**
- * The file an editing call changed, named the way the turn's edit card and the prose name it: the
- * file type's mark, the directory dimmed and the name bright. One shape for Claude's `Edit`, Codex's
- * `apply_patch` and an ACP agent's edit, because to the reader they are the same act — and a mono
- * chip of the raw path said less, at more width, than the three parts of it a reader looks for.
+ * The file a call read or changed, named the way the turn's edit card and the prose name it: the
+ * directory dimmed and the name bright. One shape for Claude's `Edit`, Codex's `apply_patch` and an
+ * ACP agent's edit, because to the reader they are the same act — and a mono chip of the raw path
+ * said less, at more width, than the parts of it a reader looks for. The file's mark is the row's
+ * lead glyph, so it is not drawn twice.
  */
 function ToolFile({ path, more }: { path: string; more: number }) {
   const cwd = useContext(ToolCwd)?.replace(/\/+$/, "") ?? null;
@@ -35,7 +50,6 @@ function ToolFile({ path, more }: { path: string; more: number }) {
   const cut = shown.lastIndexOf("/");
   return (
     <span className="tool-file" title={path}>
-      <Icon name={fileIconFor(path)} size={14} className="tool-file-mark" />
       <span className="tool-file-path">
         {cut >= 0 && <span className="tool-file-dir">{shown.slice(0, cut + 1)}</span>}
         <span className="tool-file-name">{shown.slice(cut + 1)}</span>
@@ -94,6 +108,26 @@ function Well({ label, text, error = false, rich = null }: { label: string; text
   );
 }
 
+/** The exact payloads, one quiet control under the panel: what the tool was handed and what it
+ *  answered, as they came, with their copy buttons. Kept available without competing with the panel,
+ *  and built only once asked for. */
+function RawWells({ block }: { block: ToolBlock }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="tool-raw">
+      <button type="button" className="tool-raw-toggle" aria-expanded={shown} onClick={() => setShown(!shown)}>
+        {shown ? "Hide raw" : "Show raw"}
+      </button>
+      {shown && (
+        <>
+          <Well label="Input" text={prettyJson(block.input)} />
+          {block.result && <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError} />}
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * Opening a card with ⌥ held opens every card in the same transcript — Finder's gesture on a
  * disclosure triangle, and the modifier this app already spells "the other way to do this" on a
@@ -138,30 +172,63 @@ type ToolCardProps = {
  *  component rather than a branch inside this one, because a call can turn from one into the other
  *  when a refusal lands, and the two hold different hooks. */
 export const ToolCard = memo(function ToolCard(props: ToolCardProps) {
+  const waiting = useContext(ToolWaiting).has(props.block.toolUseId);
   if (isDelegationLine(props.block)) return <DelegationLine block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />;
   if (isDelegationWait(props.block)) return <DelegationWait block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />;
-  return <ToolCardBody {...props} />;
+  return <ToolCardBody {...props} waiting={waiting} />;
 });
 
-function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardProps) {
+/** The row's object: what the act was done TO. A path is the file's three parts; a command is code;
+ *  a query or a description is prose, a query in quotes. An MCP call names its server first, the
+ *  way a question names who is asking. None of it wears a chip: thirty rows each carrying a ringed
+ *  field read as a column of outlines rather than as a ledger. */
+function ToolObject({ block, summary }: { block: ToolBlock; summary: string }) {
+  const edit = editTarget(block);
+  if (edit) return <ToolFile path={edit.path} more={edit.more} />;
+  const read = readTarget(block);
+  if (read) return <ToolFile path={read} more={0} />;
+  const verb = toolVerb(block.name, block.toolKind);
+  const mcp = mcpParts(block.name);
+  const where = typeof block.input["path"] === "string" ? (block.input["path"] as string) : null;
+  const code = verb === "Run" || verb === "Find files";
+  const quoted = verb === "Search" || verb === "Search web";
+  const text = verb === "Fetch" ? summary.replace(/^https?:\/\//, "") : summary;
+  return (
+    <>
+      {mcp && <span className="tool-server">{mcp.server}</span>}
+      {text && (
+        <span className="tool-summary" data-form={code ? "code" : "prose"} title={summary}>
+          {quoted ? `“${text}”` : text}
+          {verb === "Search" && where && <span className="tool-where"> in {where}</span>}
+        </span>
+      )}
+    </>
+  );
+}
+
+const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = false, nested, waiting }: ToolCardProps & { waiting: boolean }) {
   const [open, setOpen] = useState(false);
   const everOpened = useRef(false);
   everOpened.current ||= open;
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
-  const state: ToolState = block.result ? (block.result.isError ? "error" : "ok") : live ? "running" : "none";
+  const state: ToolState = block.result ? (block.result.isError ? "error" : "ok") : !live ? "none" : waiting ? "waiting" : "running";
   const summary = clip(toolSummary(block.name, block.input));
-  /* An edit names its file and its counts, from the call's own two sides where it carries them, or
-     from the diff an ACP agent's result carries (map-acp.ts). */
-  const target = editTarget(block);
+  const verb = toolVerb(block.name, block.toolKind);
+  /* An edit names its counts, from the call's own two sides where it carries them, or from the diff
+     an ACP agent's result carries (map-acp.ts). */
+  const file = editTarget(block)?.path ?? readTarget(block);
+  const glyph = file ? fileIconFor(file) : toolGlyph(block.name, block.toolKind);
   const stat = editStat(block.name, block.input) ?? resultEditStat(block);
-  /* The drawn forms of this call's payloads, or null where the raw well is still the best showing
-     (rich/tool-view.ts). Computed only once the body has been built — a transcript of 300 collapsed
-     cards must not diff 300 payloads to render a row nobody opened. */
-  const inputView = everOpened.current ? toolInputView(block.name, block.input) : null;
-  const resultView = everOpened.current && block.result ? toolResultView(block.name, block.input, block.result.content, block.result.isError) : null;
-  /* A picture the call is ABOUT, drawn in the input well instead of its filename (`Read` of a
-     screenshot, `Write` of a render). Same first-open gate as the views above. */
-  const mediaPath = everOpened.current ? toolMediaPath(block.name, block.input) : null;
+  const elapsed = useElapsed(block.ts, state === "running");
+  const exit = block.result?.isError ? statedExit(block.result.content) : null;
+  const reason = state === "error" ? failureReason(block.result!.content) : "";
+  /* The panel for this call's kind (rich/tool-view.ts), or — where Realm has none — the drawn forms of
+     its two payloads for the wells. Computed only once the body has been built: a transcript of 300
+     collapsed cards must not diff 300 payloads to render a row nobody opened. */
+  const panel = everOpened.current ? toolPanel(block) : null;
+  const inputView = everOpened.current && !panel ? toolInputView(block.name, block.input) : null;
+  const resultView = everOpened.current && !panel && block.result ? toolResultView(block.name, block.input, block.result.content, block.result.isError) : null;
+  const cwd = useContext(ToolCwd);
   /* The one state aicss.dev's image-generation component has, on the one call it belongs to: media
      being made, right now. Bound to `state === "running"` — the call's REAL settled state — so the
      canvas cannot outlive the work, and a failure leaves a failed card rather than a shimmer. */
@@ -172,27 +239,43 @@ function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardP
     /* The id on the element, so anything that needs to point AT a specific call can find it. */
     <div className="tool-card" data-tool-use-id={block.toolUseId}
       data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
-      <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={(e) => setOpen(expand(e, !open))}>
-        <span className="tool-status" aria-label={state === "running" ? "running" : state === "ok" ? "done" : state === "error" ? "failed" : "no result"}>
-          {/* 16, not the 14 the settled glyphs use: the orb fills the status slot, and 40 dots at
-              0.12–1 opacity carry far less weight than a 1.5px stroke, so it reads lighter even so. */}
-          {state === "running" && <Spinner size={16} />}
-          {state === "ok" && <Icon name="check" size={14} />}
-          {state === "error" && <Icon name="errorCircle" size={14} />}
+      <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} title={block.name}
+        onClick={(e) => setOpen(expand(e, !open))}>
+        {/* The lead slot: what KIND of act this was, at rest, and the call's state in its place while
+            that state is the news — running, waiting on the person, failed. A settled call wears no
+            tick: thirty identical ticks carry nothing. The two layers turn over on the shared icon
+            swap; the state layer's glyph is bound to the block's real result, never a clock. */}
+        <span className="tool-status icon-swap" data-on={state === "running" || state === "waiting" || state === "error" || undefined}
+          role="img" aria-label={STATE_LABEL[state]}>
+          <span className="swap-off" data-glyph={glyph}><Icon name={glyph} size={14} /></span>
+          <span className="swap-on">
+            {/* 16, not the 14 the glyphs use: the orb fills the slot, and 40 dots at 0.12–1 opacity
+                carry far less weight than a 1.5px stroke, so it reads lighter even so. */}
+            {state === "running" && <Spinner size={16} />}
+            {state === "waiting" && <Icon name="shieldQuestion" size={14} />}
+            {state === "error" && <Icon name="errorCircle" size={14} />}
+          </span>
         </span>
-        <span className="tool-name">{block.name}</span>
-        {target ? <ToolFile path={target.path} more={target.more} />
-          : summary && <span className="tool-summary" title={summary}>{summary}</span>}
+        <span className="tool-name">{verb}</span>
+        <span className="tool-object"><ToolObject block={block} summary={summary} /></span>
         {stat && (
           /* A zero side is dropped rather than printed: "−0" on a pure addition is a count of
-             nothing, and it reads as a deletion until the eye gets to the digit. */
+             nothing, and it reads as a deletion until the eye gets to the digit. The signs stay, so
+             colour is never the only thing saying which is which. */
           <span className="tool-stat">
             {stat.add > 0 && <span className="tool-stat-add">+{stat.add}</span>}
             {stat.del > 0 && <span className="tool-stat-del">−{stat.del}</span>}
           </span>
         )}
+        {/* The state in a word, so it is never colour or a glyph alone. */}
+        {state === "running" && elapsed >= ELAPSED_AFTER_MS && <span className="tool-meta" data-tone="quiet">{formatDuration(elapsed)}</span>}
+        {state === "waiting" && <span className="tool-meta" data-tone="warning">Waiting for you</span>}
+        {state === "error" && <span className="tool-meta" data-tone="danger">{exit ? `exit ${exit.code}` : "Failed"}</span>}
+        {state === "none" && <span className="tool-meta" data-tone="quiet">Stopped</span>}
         <Icon name="chevronRight" size={12} className="tool-chevron" />
       </button>
+      {/* Why it failed, without opening it: that is the thing a reader of a failed call came for. */}
+      {reason && <div className="tool-reason" title={block.result!.content}>{reason}</div>}
       {/* Outside the expander on purpose: the placeholder's whole job is to be seen while the work
           happens, and a canvas the reader has to open a card to find would be a spinner with extra
           steps. It leaves of its own accord when the result lands. */}
@@ -216,11 +299,23 @@ function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardP
         <div className="tool-body-clip" inert={!open || undefined}>
           {everOpened.current && (
             <div className="tool-body">
-              <Well label="Input" text={prettyJson(block.input)}
-                rich={mediaPath ? <ToolMedia path={mediaPath} /> : inputView && <ToolInputBody view={inputView} />} />
-              {block.result && (
-                <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError}
-                  rich={resultView && <ToolResultBody view={resultView} />} />
+              {panel ? (
+                <>
+                  {panel.kind === "media"
+                    ? <><ToolMedia path={panel.path} />{panel.error && <ErrorPanel text={panel.error} />}</>
+                    : <ToolPanelBody panel={panel} cwd={cwd} />}
+                  <RawWells block={block} />
+                </>
+              ) : (
+                /* No panel for this kind: the payload itself, labelled for what it is, drawn where a
+                   view exists for it and raw where none does. */
+                <>
+                  <Well label="Arguments" text={prettyJson(block.input)} rich={inputView && <ToolInputBody view={inputView} />} />
+                  {block.result && (
+                    <Well label={block.result.isError ? "Error" : "Result"} text={block.result.content || "(empty)"} error={block.result.isError}
+                      rich={resultView && <ToolResultBody view={resultView} />} />
+                  )}
+                </>
               )}
             </div>
           )}
@@ -228,7 +323,7 @@ function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardP
       </div>
     </div>
   );
-}
+});
 
 /** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still
  *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's
@@ -238,16 +333,22 @@ function useWorkedFor(working: boolean, firstTs: number, settledMs: number): str
   return formatDuration(working ? elapsed : settledMs);
 }
 
-/** §2.8/§5: a run of consecutive tool calls, folded behind one ledger line with a dashed connector.
+/** §2.8/§5: a run of consecutive tool calls, folded behind one ledger line with a rail under it.
  *  It opens itself while the agent is still working through the run — collapsing live activity out
  *  of sight is the one thing this treatment must not do — and a manual toggle then wins for good.
- *  The collapsed row reads `Worked for <duration> ›` (Ara refresh §4); the counts line the ledger
- *  still computes ("3 tools · 1 file · 2 commands") survives as the row's tooltip. */
-export function ToolGroup({ steps, sessionStatus, subagent = false }: {
+ *
+ *  The head names the WORK, not only its length: "Worked for 2m 4s · 6 reads · 2 edits +31 −4 ·
+ *  3 commands", and while the run is live, the call in flight instead ("· Run pnpm test"). A failure
+ *  inside it is on the head too, last and reserved, so the one fact worth surfacing from a folded run
+ *  can never be the part an ellipsis takes. The counts line stays the tooltip. */
+export function ToolGroup({ steps, sessionStatus, subagent = false, endsTurn = false }: {
   steps: readonly ToolStep[]; sessionStatus: SessionStatus;
   /** These steps are a sub-agent's, not a run of the agent's own calls. Sitting directly under a
    *  Task row, an unqualified "Worked for 42s" would read as that Task's own elapsed time. */
   subagent?: boolean;
+  /** Nothing the agent said or did came after this run in its turn. A run that ENDS a turn on a
+   *  failure opens itself, as it does while live: the agent stopped there, and the failure is why. */
+  endsTurn?: boolean;
 }) {
   const [manual, setManual] = useState<boolean | null>(null);
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
@@ -257,19 +358,35 @@ export function ToolGroup({ steps, sessionStatus, subagent = false }: {
   // settle, having just spent five minutes ticking upward.
   const blocks = flattenRun(steps);
   const working = live && blocks.some((b) => !b.result);
-  const open = manual ?? working;
+  const last = steps[steps.length - 1]!.block;
+  const stoppedOnFailure = endsTurn && !live && last.result?.isError === true;
+  const open = manual ?? (working || stoppedOnFailure);
   const summary = summarizeToolRun(blocks);
+  const work = runWork(summary);
   // The run's first call really is its earliest: blocks arrive in order, and a sub-agent's calls
   // postdate the one that spawned them. Only the END of the span needs looking for (summarizeToolRun).
   const workedFor = useWorkedFor(working, blocks[0]!.ts, summary.durationMs);
   return (
     <div className="tool-group" data-subagent={subagent || undefined} data-open={open || undefined} data-working={working || undefined}>
-      {/* Plan 9 W2: the row wears ThinkingState's header treatment — while the run is live the label
-          shimmers (BUI's working treatment); the label itself stays the kept Ara decision,
-          `Worked for <duration>`, ticking live and freezing on settle. */}
       <button className="tool-group-row" aria-expanded={open} aria-label={`${blocks.length} ${subagent ? "sub-agent " : ""}tool calls`}
         title={formatToolRun(summary)} onClick={() => setManual(!open)}>
         <span className="tool-group-summary">{subagent ? "Sub-agent worked for" : "Worked for"} {workedFor}</span>
+        {/* Parts in reading order, yielding from the right as the pane narrows. */}
+        <span className="tool-group-work">
+          {(working && summary.liveStep ? [summary.liveStep] : [
+            work.reads,
+            work.edits && <>{work.edits}
+              {summary.add > 0 && <span className="tool-stat-add"> +{summary.add}</span>}
+              {summary.del > 0 && <span className="tool-stat-del"> −{summary.del}</span>}</>,
+            work.searches,
+            work.commands,
+          ]).filter(Boolean).map((part, i) => <span key={i}> · {part}</span>)}
+        </span>
+        {summary.failed > 0 && (
+          <span className="tool-group-failed">
+            <span className="tool-group-failed-dot">·</span><Icon name="errorCircle" size={12} />{summary.failed} failed
+          </span>
+        )}
         <Icon name="chevronRight" size={12} className="tool-chevron" />
       </button>
       {open && (

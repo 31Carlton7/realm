@@ -131,6 +131,13 @@ export class SessionsStore {
   setLastEventSeq(id: string, seq: number): void {
     this.db.prepare("UPDATE sessions SET last_event_seq = ?, updated_at = ? WHERE id = ?").run(seq, now(), id);
   }
+  /** The log grew by an event about the past (the turn-media catch-up's): its length moves, but the
+   *  session is not touched now, so it keeps its place in an activity sort — and a session read to
+   *  the end stays read to the end, rather than wearing a dot for something the user never missed. */
+  setLastEventSeqQuietly(id: string, seq: number): void {
+    this.db.prepare(`UPDATE sessions SET seen_seq = CASE WHEN seen_seq >= last_event_seq THEN ? ELSE seen_seq END,
+      last_event_seq = ? WHERE id = ?`).run(seq, seq, id);
+  }
 
   /*
    * The three conversation-rewind columns (v33).
@@ -188,6 +195,29 @@ export class SessionsStore {
     this.db.prepare("DELETE FROM search_index WHERE kind = 'session' AND ref = ?").run(id);
     this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
   }
+}
+
+/** The longest a reply's line is kept: a row has one line to give it, and past this it is ellipsized
+ *  on screen anyway. */
+export const REPLY_LINE_MAX = 140;
+
+/**
+ * A reply's first line of prose, as a row can show it: the first line with words on it, its markdown
+ * marks taken off (a heading's #, a list's bullet, emphasis, code ticks), its spacing collapsed, and
+ * cut at `REPLY_LINE_MAX` with an ellipsis. A reply that opens with a code fence starts at the line
+ * after it. Null when there are no words at all.
+ */
+export function replyLine(text: string): string | null {
+  let fenced = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("```")) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    const words = line.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+    if (!words) continue;
+    return words.length > REPLY_LINE_MAX ? `${words.slice(0, REPLY_LINE_MAX - 1).trimEnd()}…` : words;
+  }
+  return null;
 }
 
 type EventRow = { seq: number; session_id: string; ts: number; type: string; payload_json: string };
@@ -290,6 +320,21 @@ export class SessionEventsStore {
     }
     return null;
   }
+  /**
+   * Where each of a space's sessions left off: the first line of its newest reply, for a list of them
+   * to say without opening any (`replyLine`). Null for a session that has not replied. One indexed
+   * look per session (`session_events_session`), never a read of a transcript.
+   */
+  lastReplies(spaceId: string): { sessionId: string; lastReply: string | null }[] {
+    const rows = this.db.prepare(`SELECT s.id AS session_id,
+        (SELECT ev.payload_json FROM session_events ev WHERE ev.session_id = s.id AND ev.type = 'assistant_text' ORDER BY ev.seq DESC LIMIT 1) AS payload
+      FROM sessions s WHERE s.space_id = ?`).all(spaceId) as { session_id: string; payload: string | null }[];
+    return rows.map((r) => {
+      let text: unknown = null;
+      if (r.payload) { try { text = (JSON.parse(r.payload) as { text?: unknown }).text; } catch { /* unreadable: no line */ } }
+      return { sessionId: r.session_id, lastReply: typeof text === "string" ? replyLine(text) : null };
+    });
+  }
   /** The newest persisted event of one type, or null. Skips rows that fail schema validation. */
   lastOfType(sessionId: string, type: SessionEvent["type"]): SessionEvent | null {
     const r = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1")
@@ -316,6 +361,27 @@ export class SessionEventsStore {
       let text: unknown; try { text = (JSON.parse(r.payload_json) as { text?: unknown }).text; } catch { continue; }
       if (typeof text !== "string" || text.trim() === "") continue;
       out.push({ role: r.type === "user_message" ? "user" : "assistant", text });
+    }
+    return out;
+  }
+
+  /**
+   * Only events of `types`, oldest first, at most `limit` of them: the first `limit` after `afterSeq`
+   * when it is given (reading forward a page at a time), else the session's LAST `limit` (what it has
+   * been doing lately). What `session_read` pages through; a status or usage row is not part of
+   * anything a reader asked for, so the filter is in the query rather than over a page of everything.
+   */
+  listOfTypes(sessionId: string, types: readonly SessionEvent["type"][], opts: { afterSeq?: number; limit: number }): StoredSessionEvent[] {
+    if (types.length === 0 || opts.limit <= 0) return [];
+    const inTypes = `type IN (${types.map(() => "?").join(", ")})`;
+    const rows = (opts.afterSeq !== undefined
+      ? this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND seq > ? AND ${inTypes} ORDER BY seq LIMIT ?`).all(sessionId, opts.afterSeq, ...types, opts.limit)
+      : this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND ${inTypes} ORDER BY seq DESC LIMIT ?`).all(sessionId, ...types, opts.limit).reverse()) as EventRow[];
+    const out: StoredSessionEvent[] = [];
+    for (const r of rows) {
+      let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { continue; }
+      const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
+      if (p.success) out.push({ seq: r.seq, sessionId, event: p.data });
     }
     return out;
   }

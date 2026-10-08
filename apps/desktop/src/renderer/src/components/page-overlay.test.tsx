@@ -47,6 +47,17 @@ describe("app-level pages over the workspace", () => {
     expect(within(document.querySelector(".page-overlay-bar") as HTMLElement).queryAllByRole("button")).toEqual([]);
   });
 
+  it("names a space's page for the space in its bar, not for the tab it opened on", async () => {
+    // A team's role page wore "Overview" in the bar — the name of a tab, over a page about Versed.
+    // THE mutant: the bar reading the static page label again.
+    const { store } = await mount();
+    act(() => store.getState().openSpacePage("s1"));
+    const bar = document.querySelector(".page-overlay-bar") as HTMLElement;
+    expect(bar).toHaveTextContent("Versed");
+    expect(bar).not.toHaveTextContent("Overview");
+    expect(screen.getByRole("dialog", { name: "Versed" })).toBeInTheDocument();
+  });
+
   it("goes back from the rail's lit button, pressed again", async () => {
     // Connections takes the sidebar away, so the rail is the way back from it — a lit control says
     // the state and undoes it.

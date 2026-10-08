@@ -1,9 +1,9 @@
 import { z } from "zod";
 import {
-  BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema,
+  BROWSER_READ_ONLY_TOOLS, BrowserActionSchema, BrowserGeneratedCredentialSchema, BrowserReadKindSchema, refineKeyAction,
   CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
-  SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin,
+  PANE_SHOW_WIRE_NAME, SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin, paneNotOpenError,
   type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
   type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserFillCredentialResult,
   type BrowserNavigateResult, type BrowserReadResult, type BrowserScreenshotResult,
@@ -59,10 +59,11 @@ export const BROWSER_PROVIDER_NAME = "realm-browser";
  */
 export type BrowserAgentToolsDeps = {
   browsers: Pick<BrowsersStore, "get" | "list">;
-  /** Plan 23: resolves a space's project, whose root is the only place a download may land. A space
-   *  with no project has no destination and `browser_download` refuses — deliberately, rather than
-   *  inventing a Realm-owned directory no other surface shows the user. */
+  /** Plan 23: resolves a space's project. Its root is where a download lands when the space has one. */
   projects: Pick<ProjectsStore, "list">;
+  /** The space's own folder, where a download lands when the space has no project (`spaceDownloadDir`).
+   *  Required, so a harness cannot quietly drop the fallback and leave most spaces unable to download. */
+  spaces: { get(id: string): { folderPath: string } | null | undefined };
   /**
    * Plan 26: the space's own folder — the default root a `browser_upload` may read from. Anything
    * outside it is still uploadable, but only with its full path quoted on the approval card, so the
@@ -185,17 +186,17 @@ const TOOLS: Tool[] = [
         browserId: { type: "string" },
         action: {
           type: "object",
-          description: "One action. kind: click {ref, button?, clickCount?, modifiers?} | type {ref, text, method?: keys|insertText, submit?} | key {key, ref?} | scroll {ref?, deltaX?, deltaY?}",
+          description: "One action. kind: click {ref, button?, clickCount?, modifiers?} | type {ref, text, method?: keys|insertText, submit?} | key {key, modifiers?, ref?} | scroll {ref?, deltaX?, deltaY?}",
           properties: {
             kind: { type: "string", enum: ["click", "type", "key", "scroll"] },
             ref: { type: "number", description: "element ref from browser_snapshot" },
             button: { type: "string", enum: ["left", "middle", "right"] },
             clickCount: { type: "number" },
-            modifiers: { type: "array", items: { type: "string", enum: ["alt", "ctrl", "meta", "shift"] } },
+            modifiers: { type: "array", items: { type: "string", enum: ["alt", "ctrl", "meta", "shift"] }, description: "keys held during a click or a key press" },
             text: { type: "string" },
             method: { type: "string", enum: ["keys", "insertText"] },
             submit: { type: "boolean" },
-            key: { type: "string", description: "named key for kind=key, e.g. Enter, Tab, Escape" },
+            key: { type: "string", description: "for kind=key: a named key (Enter, Tab, Escape, ArrowDown, F5, …) or one character, with modifiers joined by + — \"Meta+a\" selects all, \"Shift+Tab\" goes back a field" },
             deltaX: { type: "number" },
             deltaY: { type: "number" },
           },
@@ -234,7 +235,7 @@ const TOOLS: Tool[] = [
     name: "browser_fill_credential",
     description:
       "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings → Sign-ins, and fill it). " +
-      "Both work the same way: Realm checks the pane's current origin, refuses if it is not the page the sign-in belongs to, asks the user to approve this specific fill, and requires Touch ID — every time. You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
+      "Both work the same way: Realm checks the pane's current origin, refuses if it is not the page the sign-in belongs to, asks the user to approve this specific fill, and unlocks it the way the user set for this profile (Touch ID unless they chose otherwise). You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
       "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). Two-factor prompts (Duo, Okta, an emailed code) are not automated: hand those to the user.",
     inputSchema: {
       type: "object",
@@ -261,7 +262,7 @@ const TOOLS: Tool[] = [
   {
     name: "browser_download",
     description:
-      `Download the file behind a link or button by its [ref=N], into the space project's ${DOWNLOAD_DIRNAME}/ directory. Asks the user for permission. Any file type is saved, but only from the origin the pane is already on, and only up to ${Math.round(DOWNLOAD_MAX_BYTES / 1024 / 1024)} MB. Returns the project-relative path, which you can then read with your own file tools. Batch this when fetching several files: one prompt covers the batch.`,
+      `Download the file behind a link or button by its [ref=N], into ${DOWNLOAD_DIRNAME}/ in the space's project, or in the space's own folder when it has no project. Asks the user for permission. Any file type is saved, but only from the origin the pane is already on, and only up to ${Math.round(DOWNLOAD_MAX_BYTES / 1024 / 1024)} MB. Returns the path relative to that folder, which you can then read with your own file tools. Batch this when fetching several files: one prompt covers the batch.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -331,7 +332,7 @@ const ReadArgs = z.object({ browserId: z.string().min(1), kind: BrowserReadKindS
 /** `intent` is optional, as it is on `computer_act`: required, every call from an agent that has not
  *  learned the field would become a refusal — a change to the act path for a feature that promises
  *  never to touch it. It is the goal Laya's `target` question is asked against. */
-const ActArgs = z.object({ browserId: z.string().min(1), action: BrowserActionSchema, intent: z.string().optional() });
+const ActArgs = z.object({ browserId: z.string().min(1), action: BrowserActionSchema, intent: z.string().optional() }).superRefine(refineKeyAction);
 /** A walk's longest path, and a label's longest words — as for simulator_do and computer_do. */
 const MAX_PATH = 12;
 const MAX_LABEL = 120;
@@ -375,7 +376,7 @@ const HANDLERS: Record<string, Handler> = {
       const live = await describeSafe(d, row.id);
       const state = live === null ? "app not connected"
         : live.open ? `open, url: ${live.url || "(blank)"}${live.loadError ? ` — did not load (${live.loadError.name})` : ""}`
-        : "pane not open in the app";
+        : `pane not open in the app (${PANE_SHOW_WIRE_NAME} brings it back)`;
       return `browserId: ${row.id} — ${state}${row.url && (!live?.open) ? ` (last url: ${row.url})` : ""}`;
     }));
     return ok(`Browser panes in this space:\n${lines.join("\n")}`);
@@ -414,7 +415,7 @@ const HANDLERS: Record<string, Handler> = {
     d.reads.forget(ctx.sessionId, row.value.id);
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
       const result = (await d.bridge.call("navigate", { browserId: row.value.id, url })) as BrowserNavigateResult;
-      if (!result.url) return err(`navigation to ${url} was refused — the pane is not open in the app, or the space's origin allowlist blocks that origin.`);
+      if (!result.url) return err(`navigation to ${url} was refused — the pane is not open in the app (${PANE_SHOW_WIRE_NAME} brings it back), or the space's origin allowlist blocks that origin.`);
       return ok(`Navigating to ${result.url}. Use browser_snapshot once loaded.`);
     });
   },
@@ -486,7 +487,7 @@ const HANDLERS: Record<string, Handler> = {
     const consent = await refuseConsentAct(d, ctx, browserId); if (consent) return consent;
     const live = await describeSafe(d, browserId);
     // Said now, rather than after a walk's first read has retried its way to the same answer.
-    if (live && !live.open) return err(`browser ${browserId}'s pane is not open in the app — the user must open (or reopen) the browser pane before tools can drive it`);
+    if (live && !live.open) return err(paneNotOpenError(browserId));
     const host = hostOf(live?.url);
     // The labels and the text are the agent's words, not the page's, so the card can say them plainly.
     const clicks = `Click ${path.map((l) => `"${clip(l, 30)}"`).join(" › ")}`;
@@ -708,6 +709,8 @@ const HANDLERS: Record<string, Handler> = {
       // card, a step that could not run would be a card approved for nothing.
       if (a.tool === "browser_do") return err("browser_do cannot run inside browser_batch — a walk is already many clicks in one call. Call it directly.");
       if (!HANDLERS[a.tool]) return err(`unknown tool "${a.tool}" in batch.`);
+      // A key it cannot press is refused with the batch, before its card, as browser_act refuses one.
+      if (a.tool === "browser_act") { const act = parseArgs(ActArgs, a.arguments); if ("error" in act) return act.error; }
       validated.push(a);
     }
     const mutating = validated.filter((a) => !READ_ONLY_TOOLS.has(a.tool));
@@ -879,7 +882,7 @@ async function runDownload(d: Deps, browserId: string, ref: number, dir: string)
   const result = (await d.bridge.call("download", { browserId, ref, dir })) as BrowserDownloadResult;
   if (!result.ok) return err(`download failed: ${result.error}`);
   const name = clip(result.name.replace(/\s+/g, " "), 120);
-  return ok(`Saved "${name}" (${Math.round(result.bytes / 1024)} KB) into ${DOWNLOAD_DIRNAME}/ in the space's project. Read it at the project-relative path ${clip(result.relPath, 200)}.`);
+  return ok(`Saved "${name}" (${Math.round(result.bytes / 1024)} KB) into ${DOWNLOAD_DIRNAME}/. Read it at ${clip(result.relPath, 200)}.`);
 }
 
 /**
@@ -960,18 +963,24 @@ async function describeDownload(d: Deps, browserId: string, ref: number): Promis
 }
 
 /**
- * Where downloads land for a space: the first project's root. `null` when the space has no project.
+ * Where downloads land for a space: `downloads/` in the first project's root, or, when the space has no
+ * project, in the space's own folder — the folder Documents shows, sessions run in, and
+ * `spaceScreenshotDir` already writes to. `null` only for a space that is not there.
  *
  * Exported because the USER's own downloads (Plan 23 W4, via the pane's blocked-download bar) must
  * land in exactly the same place as the agent's, resolved by exactly the same rule. Two resolvers
  * would eventually disagree, and the one that drifted would be writing files somewhere nobody looks.
  */
-export function spaceDownloadDir(projects: Pick<ProjectsStore, "list">, spaceId: string): string | null {
-  const project = projects.list(spaceId)[0];
-  return project ? join(project.rootPath, DOWNLOAD_DIRNAME) : null;
+export function spaceDownloadDir(
+  projects: Pick<ProjectsStore, "list">,
+  spaces: { get(id: string): { folderPath: string } | null | undefined },
+  spaceId: string,
+): string | null {
+  const root = projects.list(spaceId)[0]?.rootPath ?? spaces.get(spaceId)?.folderPath;
+  return root ? join(root, DOWNLOAD_DIRNAME) : null;
 }
 
-const downloadDir = (d: Deps, spaceId: string): string | null => spaceDownloadDir(d.projects, spaceId);
+const downloadDir = (d: Deps, spaceId: string): string | null => spaceDownloadDir(d.projects, d.spaces, spaceId);
 
 /**
  * Where a pane's screenshots land: the space's own folder, under `screenshots/`. Beside
@@ -984,7 +993,7 @@ export function spaceScreenshotDir(spaces: { get(id: string): { folderPath: stri
 }
 
 const noDestination =
-  "refused: this space has no project, so there is nowhere for a download to land where the user would see it. Add a project to the space first (its folder is where downloads go, and they show up in the diff pane).";
+  "refused: this space no longer exists, so there is nowhere for a download to land.";
 
 /* ---------------------------------- the observer ---------------------------------- */
 

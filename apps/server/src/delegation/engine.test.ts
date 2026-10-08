@@ -170,3 +170,67 @@ describe("drain — a turn a person stopped is not a finish", () => {
     expect((await settle(plain.engine)).outcome).toBe("done");
   });
 });
+
+/**
+ * A waiting tool is only audible on the wire if the wait says it is still waiting — and only useful
+ * while someone is listening. These pin both halves of `awaitRuns`'s options.
+ */
+describe("awaitRuns — ticks while it waits, and stops for a caller that has gone", () => {
+  it("reports a tick on every pass that is still waiting, and none once satisfied", async () => {
+    // THE MUTANT: ticks never called — agent_wait goes silent and Claude aborts it at 300 s.
+    const { engine } = engineOver([[]]);
+    const r = run();
+    let ticks = 0;
+    setTimeout(() => { r.done = { outcome: "done", finalText: "ok", lastStatus: "idle" }; }, 30);
+    const outcome = await engine.awaitRuns([r], "all", Date.now() + 2000, 5, { onTick: () => { ticks += 1; } });
+    expect(outcome).toBe("settled");
+    expect(ticks).toBeGreaterThanOrEqual(2);
+    const after = ticks;
+    await new Promise((res) => setTimeout(res, 30));
+    expect(ticks).toBe(after);
+  });
+
+  it("returns aborted when the caller's signal fires, leaving the run untouched", async () => {
+    // THE MUTANT: the signal ignored — the wait listens on to its deadline for a socket that is gone.
+    const { engine, interrupted } = engineOver([[]]);
+    const r = run();
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 20);
+    const t0 = Date.now();
+    const outcome = await engine.awaitRuns([r], "all", Date.now() + 5000, 5, { signal: controller.signal });
+    expect(outcome).toBe("aborted");
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(r.done).toBeNull();
+    expect(r.cancelled).toBe(false);
+    expect(interrupted).toEqual([]);
+  });
+
+  it("drain ticks while the child works", async () => {
+    const { engine } = engineOver([[status("running", 1)], [], [said("done", 2), status("idle", 3)]]);
+    let ticks = 0;
+    const settled = await engine.drain("peer", 0, run(), Date.now() + 2000, 1, () => { ticks += 1; });
+    expect(settled.outcome).toBe("done");
+    expect(ticks).toBe(2);
+  });
+});
+
+describe("drain — the budget is working time", () => {
+  const waiting = (seq: number) => status("waiting_permission", seq);
+
+  it("does not time a child out while it waits on the user, and gives back the time it waited", async () => {
+    // THE MUTANT: a fixed deadline. The child waits on the user for twice its budget, then finishes —
+    // and is reported (and interrupted) as timed out for a wait the user caused.
+    const batches: StoredSessionEvent[][] = [[status("running", 1)], [waiting(2)], ...Array.from({ length: 30 }, () => []), [status("running", 3)], [], [said("done", 4), status("idle", 5)]];
+    const { engine, interrupted } = engineOver(batches);
+    const settled = await engine.drain("child", 0, run(), Date.now() + 40, 4);
+    expect(settled.outcome).toBe("done");
+    expect(interrupted).toEqual([]);
+  });
+
+  it("still times out a child that is working past its budget", async () => {
+    const { engine, interrupted } = engineOver([[status("running", 1)], []]);
+    const settled = await engine.drain("child", 0, run(), Date.now() + 30, 4);
+    expect(settled.outcome).toBe("timeout");
+    expect(interrupted).toEqual(["child"]);
+  });
+});

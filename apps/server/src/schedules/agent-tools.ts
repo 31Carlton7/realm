@@ -50,6 +50,7 @@ const TOOLS: Tool[] = [
     description: [
       "Schedule work to start later in this space — once at a moment, or repeatedly on a cron.",
       "What fires is a task: a FRESH agent session with none of this conversation, so write `goal` as complete standing instructions — name the repository, the branch, the channel, the person, everything it needs — never as a follow-up to something said here.",
+      "It never runs in Full access, whatever this session's mode, because it runs while nobody is watching.",
       "Give exactly one of `at` (once) or `cron` (repeating). Resolve a relative ask like \"in two weeks\" to an absolute moment yourself and pass it as `at`.",
       "Use this when the user asks for something to happen LATER. Do the work now when they are asking for it now, and never schedule something you could finish in this turn.",
       "Tell the user the moment it is set for, in their own terms — work that arrives unannounced is the failure this tool has to avoid.",

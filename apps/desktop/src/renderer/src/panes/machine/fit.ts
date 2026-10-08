@@ -96,47 +96,6 @@ export function fitFramebuffer(fb: Framebuffer, box: Box, dpr: number, mode: Fit
   };
 }
 
-/**
- * A point in the PANE's coordinates → the framebuffer pixel under it, or null when the point is in
- * the letterbox rather than on the screen.
- *
- * Null rather than a clamp, deliberately. A click in the letterbox is a click on nothing, and
- * clamping it would send a press to the guest's outermost pixel — which on a desktop is a menu bar,
- * a dock or a window's close button. The one place a clamp is right is a DRAG that leaves the
- * canvas, and that is the caller's business: a drag has to keep reporting so the button can be
- * released in the guest, which is why `toFramebufferClamped` exists beside this.
- */
-export function toFramebuffer(fit: Fit, fb: Framebuffer, point: { x: number; y: number }, dpr: number): { x: number; y: number } | null {
-  const d = dpr > 0 ? dpr : 1;
-  const x = ((point.x - fit.offsetX) * d) / fit.deviceScale;
-  const y = ((point.y - fit.offsetY) * d) / fit.deviceScale;
-  if (x < 0 || y < 0 || x >= fb.width || y >= fb.height) return null;
-  return { x: Math.floor(x), y: Math.floor(y) };
-}
-
-/** The same map, clamped into the screen — for a drag that has left the canvas and still has a
- *  button held down. A drag that stopped reporting at the edge would leave that button DOWN in the
- *  guest, which is the worst possible thing to leave behind on somebody else's Mac. */
-export function toFramebufferClamped(fit: Fit, fb: Framebuffer, point: { x: number; y: number }, dpr: number): { x: number; y: number } {
-  const d = dpr > 0 ? dpr : 1;
-  const x = ((point.x - fit.offsetX) * d) / fit.deviceScale;
-  const y = ((point.y - fit.offsetY) * d) / fit.deviceScale;
-  return {
-    x: Math.min(fb.width - 1, Math.max(0, Math.floor(x))),
-    y: Math.min(fb.height - 1, Math.max(0, Math.floor(y))),
-  };
-}
-
-/** The inverse: a framebuffer pixel → its centre in the pane's coordinates. What the agent cursor's
- *  overlay is positioned by, so the mark is placed by the SAME arithmetic the input used. */
-export function toPane(fit: Fit, point: { x: number; y: number }, dpr: number): { x: number; y: number } {
-  const d = dpr > 0 ? dpr : 1;
-  return {
-    x: fit.offsetX + ((point.x + 0.5) * fit.deviceScale) / d,
-    y: fit.offsetY + ((point.y + 0.5) * fit.deviceScale) / d,
-  };
-}
-
 /** The pane bar's percentage. Absent at 1:1 in device terms, because "100%" on every pane is a
  *  number nobody reads; present otherwise, because a user reading small text needs to know whether
  *  they are looking at a resampled image. */

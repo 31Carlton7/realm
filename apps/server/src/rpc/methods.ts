@@ -38,6 +38,7 @@ import { oauthSecretBox, type McpOauth } from "../mcp/oauth";
 import { spaceDownloadDir, spaceScreenshotDir } from "../browsers/agent-tools";
 import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
+import type { MemoryRepoService, RepoOwner } from "../memory/repo";
 import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
 import type { MachineService } from "../machines/service";
@@ -55,6 +56,7 @@ import type { UsageService } from "../usage/service";
 import type { GraphifyService } from "../graphify/service";
 import type { RunService } from "../runs/service";
 import type { ScheduleService } from "../schedules/service";
+import type { TeamService } from "../team/service";
 import type { ReviewService } from "../delegation/review";
 import type { CodeReviewService } from "../code-review/service";
 import type { DelegationEngine } from "../delegation/engine";
@@ -90,7 +92,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeamService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -593,6 +595,59 @@ export function registerMethods(d: Deps): void {
   // ground truth that belongs to that session and no other.
   reg("memory.sources", (p) => d.sessions.memorySources(p.sessionId));
 
+  // Memory repos (Agent Memory Repo): one per profile, inherited by its spaces, and optionally one per
+  // space beside it (a team's). Every change is told to every space that shows the repo: all of a
+  // profile's spaces for its repo, the one space for a space's own.
+  type Owner = { scope: "profile" | "space"; ownerId: string };
+  const ownerOf = (p: Owner): RepoOwner => {
+    if (p.scope === "profile" ? !d.profiles.get(p.ownerId) : !d.spaces.get(p.ownerId)) throw new NotFoundError(p.scope, p.ownerId);
+    return { scope: p.scope, id: p.ownerId };
+  };
+  const repoChanged = (o: RepoOwner): void => {
+    const ids = o.scope === "space" ? [o.id] : d.spaces.list(o.id).map((sp) => sp.id);
+    for (const spaceId of ids) rpc.broadcast("memory.changed", { spaceId });
+  };
+  const reposOfSpace = async (spaceId: string) => {
+    const sp = d.spaces.get(spaceId);
+    if (!sp) throw new NotFoundError("space", spaceId);
+    const own = await d.memoryRepos.state({ scope: "space", id: spaceId }, spaceId);
+    const inherited = await d.memoryRepos.state({ scope: "profile", id: sp.profileId }, spaceId);
+    return { repos: [own, inherited].filter((r): r is NonNullable<typeof r> => r !== null) };
+  };
+  reg("memory.repo.get", async (p) => {
+    if ((p.profileId === undefined) === (p.spaceId === undefined)) throw new RpcError("BAD_PARAMS", "give exactly one of profileId or spaceId");
+    if (p.spaceId !== undefined) return reposOfSpace(p.spaceId);
+    const st = await d.memoryRepos.state(ownerOf({ scope: "profile", ownerId: p.profileId! }));
+    return { repos: st ? [st] : [] };
+  });
+  /** One repo-changing call: run it, tell every space that shows the repo, answer with its result. */
+  const changing = <T>(p: Owner, fn: (o: RepoOwner) => Promise<T> | T): Promise<T> => (async () => {
+    const o = ownerOf(p);
+    const r = await fn(o);
+    repoChanged(o);
+    return r;
+  })();
+  reg("memory.repo.create", (p) => changing(p, (o) => d.memoryRepos.create(o, p.path)));
+  reg("memory.repo.attach", (p) => changing(p, (o) => d.memoryRepos.attach(o, p.path)));
+  reg("memory.repo.detach", (p) => changing(p, (o) => { d.memoryRepos.detach(o); return { ok: true as const }; }));
+  reg("memory.repo.setInherited", async (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    d.memoryRepos.setInherited(p.spaceId, p.enabled);
+    rpc.broadcast("memory.changed", { spaceId: p.spaceId });
+    return reposOfSpace(p.spaceId);
+  });
+  reg("memory.repo.log", async (p) => ({ commits: await d.memoryRepos.log(ownerOf(p), p.limit) }));
+  reg("memory.repo.setRemote", (p) => changing(p, (o) => d.memoryRepos.setRemote(o, p.url)));
+  reg("memory.repo.checkRemote", (p) => d.memoryRepos.checkRemote(ownerOf(p)));
+  reg("memory.repo.setSync", (p) => changing(p, (o) => d.memoryRepos.setSync(o, p.enabled, p.confirmPrivate === true)));
+  reg("memory.repo.sync", (p) => changing(p, (o) => d.memoryRepos.sync(o)));
+  reg("memory.repo.importClaude", async (p) => {
+    const o = ownerOf(p);
+    const r = await d.memoryRepos.importClaude(o, { dryRun: p.dryRun });
+    if (r.sha !== null) repoChanged(o);
+    return r;
+  });
+
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
   reg("projects.delete", (p) => { const pr = d.projects.get(p.id); d.projects.delete(p.id); if (pr) rpc.broadcast("items.changed", { spaceId: pr.spaceId }); return { ok: true as const }; });
@@ -696,7 +751,7 @@ export function registerMethods(d: Deps): void {
   reg("browsers.profile", (p) => d.browsers.profileOf(p.browserId, d.profiles));
   reg("browsers.update", (p) => { d.browsers.update(p.browserId, p); return { ok: true as const }; });
   reg("browsers.close", (p) => { d.browsers.close(p.browserId); return { ok: true as const }; });
-  reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, p.spaceId) }));
+  reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, d.spaces, p.spaceId) }));
   reg("browsers.screenshotDir", (p) => ({ dir: spaceScreenshotDir(d.spaces, p.spaceId) }));
   reg("browsers.suggest", (p) => ({ pages: d.browsers.suggest(p.spaceId, p.query, p.limit) }));
   reg("browsers.recent", (p) => ({ pages: d.browsers.recent(p.spaceId, p.limit) }));
@@ -887,6 +942,29 @@ export function registerMethods(d: Deps): void {
   reg("schedules.delete", (p) => ({ deleted: d.schedules.remove(p.id) }));
   reg("schedules.runNow", (p) => d.schedules.runNow(p.id));
 
+  // Teams. The space-scoped reads check the space; the by-id methods let the service raise
+  // NotFoundError, since it loads the row anyway.
+  const space = (id: string) => { if (!d.spaces.get(id)) throw new NotFoundError("space", id); return id; };
+  reg("team.overview", () => d.team.overview());
+  reg("team.space", (p) => d.team.space(space(p.spaceId)));
+  reg("team.make", (p) => d.team.makeTeam(space(p.spaceId), p.templates, { roles: p.roles, ...(p.repoPath ? { repoPath: p.repoPath } : {}), ...(p.weekBudgetUsd !== undefined ? { weekBudgetUsd: p.weekBudgetUsd } : {}) }));
+  reg("team.setBudget", (p) => d.team.setTeamBudget(space(p.spaceId), p.weekBudgetUsd));
+  reg("team.roleCreate", (p) => d.team.createRole({ ...p, spaceId: space(p.spaceId) }));
+  reg("team.roleUpdate", (p) => d.team.updateRole(p));
+  reg("team.roleArchive", (p) => { d.team.archiveRole(p.id); return { archived: true }; });
+  reg("team.roleRun", (p) => { refuseWhileDraining("start a role's run"); return d.team.runRole(p.id, p.message); });
+  reg("team.roleRuns", (p) => d.team.roleRuns(p.id, p.limit));
+  reg("team.review", (p) => d.team.review(p.id));
+  reg("team.reviewApprove", (p) => d.team.approve(p.id));
+  reg("team.reviewRequestChanges", (p) => d.team.requestChanges(p.id, p.note));
+  reg("team.reviewDone", (p) => d.team.markDone(p.id));
+  reg("team.reviewDismiss", (p) => d.team.dismiss(p.id));
+  reg("team.records", (p) => d.team.records(space(p.spaceId)));
+  reg("team.record", (p) => d.team.record(space(p.spaceId), p.path));
+  reg("team.recordWrite", (p) => d.team.writeRecord(space(p.spaceId), p.path, p.markdown));
+  reg("team.recordCreate", (p) => d.team.createRecord(space(p.spaceId), p.name));
+  reg("team.activity", (p) => d.team.activity(space(p.spaceId), p.limit, p.before));
+
   reg("runs.list", (p) => d.runs.list(p));
   reg("runs.get", (p) => d.runs.get(p.id));
   reg("runs.create", (p) => { refuseWhileDraining("start a task"); return d.runs.create({ spaceId: p.spaceId, goal: p.goal, title: p.title, constraints: p.constraints, dedupeKey: p.dedupeKey, maxAttempts: p.maxAttempts, deadlineAt: p.deadlineAt }); });
@@ -982,6 +1060,10 @@ export function registerMethods(d: Deps): void {
   });
   reg("sessions.list", (p) => d.sessions.list(p.spaceId));
   reg("sessions.listAll", (p) => d.sessions.listAll(p.profileId));
+  reg("sessions.digest", (p) => {
+    if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
+    return d.sessions.lastReplies(p.spaceId);
+  });
   reg("sessions.markSeen", (p) => { d.sessions.markSeen(p.id, p.seq); return { ok: true as const }; });
   reg("sessions.get", (p) => d.sessions.get(p.id));
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
@@ -991,6 +1073,8 @@ export function registerMethods(d: Deps): void {
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
   reg("limits.get", async () => ({ limits: d.planLimits.list() }));
   reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });
+  reg("sessions.holdQueued", (p) => ({ ok: true as const, held: d.sessions.holdQueued(p.id, p.queuedId, p.held) }));
+  reg("sessions.editQueued", (p) => ({ edited: d.sessions.editQueued(p.id, p.queuedId, p.text, p.attachments) }));
   reg("sessions.queued", async (p) => ({ queued: d.sessions.queuedPrompts(p.id) }));
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.recordFeedback", (p) => { d.sessions.recordFeedback(p.id, p.messageId, p.rating); return { ok: true as const }; });

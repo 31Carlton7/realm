@@ -1,22 +1,20 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { Session } from "@realm/contracts";
+import { useMemo, useRef, useState } from "react";
 import { useApp } from "../../state/store";
-import { PendingRequest } from "../../panes/session/PendingRequest";
-import { emptyTranscript } from "../../panes/session/transcript-model";
-import { NEEDS_YOU_LABEL, needsYou, type NeedsYouRow } from "./model";
+import { AnswerHere } from "../../panes/session/AnswerHere";
+import { NEEDS_YOU_LABEL, needsYou, reviewsNeedingYou, type NeedsYouRow, type ReviewNeedsRow } from "./model";
+import { REVIEW_GLYPH } from "./TeamRows";
 import { useSidebarState } from "./use-sidebar-model";
-
-const NO_REQUESTS = emptyTranscript().pendingPermissions;
 
 /**
  * Needs you: the one list of what waits on an answer (Plan 27).
  *
  * Sessions waiting on a permission or a question, the longest-waiting first, then the ones that
  * failed — from every space and every profile, each naming its space (and its profile, when that is
- * not the one on screen). Drawn only when something is in it. It replaces the head band's "N need
- * you" pill and the Active section; working and unread are not here, they show in their spaces and
- * under Recent.
+ * not the one on screen). A sub-agent's request is not a row here: it is a count on its lead's row,
+ * answered in the lead's Agents tab (`needsYou`). Drawn only when something is in it. It replaces the
+ * head band's "N need you" pill and the Active section; working and unread are not here, they show in
+ * their spaces and under Recent.
  *
  * A row opens its session, as every row in the sidebar does. A waiting row also answers in place:
  * its disclosure unfolds the session's own request card under it — the transcript's card, through
@@ -25,12 +23,19 @@ const NO_REQUESTS = emptyTranscript().pendingPermissions;
 export function NeedsYou() {
   const state = useSidebarState();
   const rows = useMemo(() => needsYou(state), [state]);
-  if (rows.length === 0) return null;
+  const reviews = useMemo(() => reviewsNeedingYou(state), [state]);
+  if (rows.length === 0 && reviews.length === 0) return null;
+  // A session's question first — an agent is stopped on it — then the batches waiting in Review,
+  // then what failed.
+  const asking = rows.filter((r) => r.status === "waiting_permission");
+  const failed = rows.filter((r) => r.status !== "waiting_permission");
   return (
     <section className="sb-needs" aria-label="Needs you">
       <div className="group-label">Needs you</div>
       <div className="item-list">
-        {rows.map((r) => <NeedsYouItem key={r.session.id} row={r} />)}
+        {asking.map((r) => <NeedsYouItem key={r.session.id} row={r} />)}
+        {reviews.map((r) => <ReviewNeedsItem key={r.review.id} row={r} />)}
+        {failed.map((r) => <NeedsYouItem key={r.session.id} row={r} />)}
       </div>
     </section>
   );
@@ -79,33 +84,26 @@ function NeedsYouItem({ row }: { row: NeedsYouRow }) {
   );
 }
 
-/**
- * The request cards a session is blocked on, under its row. The transcript is loaded here when no
- * pane ever opened it, which is the board's own way of drawing a pending request.
- *
- * Escape folds the card and answers nothing: in the transcript a card takes Escape as Deny, and a
- * person leaving a list they only looked at must never send one. A field being typed in keeps its
- * own Escape.
- */
-function AnswerHere({ id, session, onLeave }: { id: string; session: Session; onLeave: () => void }) {
-  const loaded = useApp((s) => s.transcripts[session.id] !== undefined);
-  const pending = useApp((s) => s.transcripts[session.id]?.t.pendingPermissions ?? NO_REQUESTS);
-  const openSession = useApp((s) => s.openSession);
-  const respondPermission = useApp((s) => s.respondPermission);
+/** A batch waiting in a team's Review: opens the space's Review pane on it. */
+function ReviewNeedsItem({ row }: { row: ReviewNeedsRow }) {
+  const spaces = useApp((s) => s.spaces);
+  const profiles = useApp((s) => s.profiles);
+  const activeProfileId = useApp((s) => s.activeProfileId);
+  const openTeamReview = useApp((s) => s.openTeamReview);
   const run = useApp((s) => s.run);
-  useEffect(() => { if (!loaded) run(() => openSession(session.id)); }, [loaded, session.id, openSession, run]);
-  const onKeyDownCapture = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Escape" || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-    e.preventDefault(); e.stopPropagation();
-    onLeave();
-  };
-  if (pending.length === 0) return null;
+  const space = spaces.find((sp) => sp.id === row.spaceId);
+  const profile = space && space.profileId !== activeProfileId ? profiles.find((p) => p.id === space.profileId) : undefined;
+  const where = [space?.name, profile?.name].filter(Boolean).join(" · ");
+  const by = row.review.roleName ? `, from ${row.review.roleName}` : "";
   return (
-    <div className="sb-need-answer" id={id} role="group" aria-label={`Waiting in ${session.title}`} onKeyDownCapture={onKeyDownCapture}>
-      {pending.map((p) => (
-        <PendingRequest key={p.requestId} permission={p} ownsEscape={false}
-          onDecide={(...decision) => run(() => respondPermission(session.id, p.requestId, ...decision))} />
-      ))}
+    <div className="item" data-actions="0">
+      <button type="button" className="item-row" aria-label={`${row.review.title}${where ? ` in ${where}` : ""}${by} — waiting for your review`}
+        title={`${row.review.title}${where ? ` — ${where}` : ""}`} onClick={() => run(() => openTeamReview(row.spaceId, row.review.id))}>
+        <Icon name={REVIEW_GLYPH[row.review.kind]} size={16} />
+        <span className="item-title">{row.review.title}</span>
+        {where && <span className="item-where">{where}</span>}
+        <span className="item-trail"><span className="status-dot item-status" data-status="waiting_permission" title="Waiting for your review" /></span>
+      </button>
     </div>
   );
 }

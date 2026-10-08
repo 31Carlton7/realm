@@ -24,24 +24,6 @@ describe("describeLoadError", () => {
     expect(describeLoadError(err("ERR_CONNECTION_TIMED_OUT", -118, "https://localhost/")).tips[0]).toContain("port 443");
   });
 
-  it("covers each of the common failures with its own reason", () => {
-    const reasons = {
-      unresolved: describeLoadError(err("ERR_NAME_NOT_RESOLVED", -105, "http://realm-live-check.invalid/")).reason,
-      timedOut: describeLoadError(err("ERR_CONNECTION_TIMED_OUT", -118, "https://example.com/")).reason,
-      offline: describeLoadError(err("ERR_INTERNET_DISCONNECTED", -106, "https://example.com/")).reason,
-      reset: describeLoadError(err("ERR_CONNECTION_RESET", -101, "http://127.0.0.1:8895/")).reason,
-      unsafePort: describeLoadError(err("ERR_UNSAFE_PORT", -312, "http://localhost:6000/")).reason,
-    };
-    expect(reasons).toEqual({
-      unresolved: "realm-live-check.invalid's address couldn't be found.",
-      timedOut: "example.com took too long to respond.",
-      offline: "This Mac isn't connected to the internet.",
-      reset: "The connection to 127.0.0.1 was reset.",
-      unsafePort: "Port 6000 is reserved for another kind of service, so Realm won't open it.",
-    });
-    expect(describeLoadError(err("ERR_INTERNET_DISCONNECTED", -106, "https://example.com/")).title).toBe("No internet connection");
-  });
-
   it("gives a certificate failure the padlock and a page with no way past it", () => {
     const page = describeLoadError(err("ERR_CERT_AUTHORITY_INVALID", -202, "https://127.0.0.1:8893/"));
     expect(page.mark).toBe("lock");

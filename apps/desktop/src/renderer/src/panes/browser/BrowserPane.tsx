@@ -71,11 +71,11 @@ function useBlockedDownloads(browserId: string, spaceId: string) {
     setNote(null);
     try {
       const { host, server } = getBrowserBridges();
-      // The SERVER decides where downloads go, by the same rule the agent's follow. A space with no
-      // project has no destination, and saying so is better than inventing one.
+      // The SERVER decides where downloads go, by the same rule the agent's follow. Null means the
+      // space itself is gone, and saying so is better than inventing a destination.
       const dir = await server.downloadDir(spaceId);
       if (dir === null) {
-        setNote("This space has no project folder, so there's nowhere to save downloads yet.");
+        setNote("This space's folder can't be found, so the download wasn't saved.");
         return;
       }
       const result = await host.saveDownload(browserId, entry.id, dir);
@@ -110,7 +110,7 @@ function passkeyNoticeText(notice: PasskeyNotice): string {
     case "rp_mismatch":
       return `This page asked for a passkey belonging to ${notice.rpId}. Realm refused it.`;
     case "unavailable":
-      return "This Mac has no Touch ID sensor, so Realm can't unlock a passkey.";
+      return "This Mac has no Touch ID sensor, so Realm can't unlock a passkey. Settings ▸ Sign-ins can unlock this profile with the Mac's password instead.";
   }
 }
 
@@ -894,9 +894,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
         <div className="browser-notice" role="status">
           <Icon name="attach" size={12} />
           {/* The note, when there is one, is the answer to what the user just pressed — so it wins the
-              text. The entry's own buttons stay put underneath it: a save that failed because the
-              space has no project is one the user can retry after adding one, and swallowing the
-              Save button at that moment would strand them. */}
+              text. The entry's own buttons stay put underneath it: a save that failed is one the user
+              can retry, and swallowing the Save button at that moment would strand them. */}
           <span className="browser-notice-text">
             {downloads.note ?? (
               <>

@@ -140,6 +140,23 @@ describe("the goal strip", () => {
     await waitFor(() => expect(api.calls).toContain("goalResume:se1"));
   });
 
+  it("can be marked done by the user while it runs or once something stopped it", async () => {
+    /* 2026-10-07: the agent could not close its goal, and the person watching could only type "good
+       job" into a loop that kept continuing. THE mutant draws no Mark done, or one that sets anything
+       but `complete`. */
+    const { api, store, container } = await mount();
+    act(() => store.getState().applyGoalChanged({ sessionId: "se1", goal: { ...GOAL, status: "blocked", note: "3 turns in a row made no progress, so Realm stopped continuing this goal." } }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark this goal done" }));
+    await waitFor(() => expect(api.calls).toContain("goalSet:se1=complete"));
+    const strip = container.querySelector(".composer-goal") as HTMLElement;
+    await waitFor(() => expect(within(strip).getByText("Done")).toBeInTheDocument());
+    expect(within(strip).getByText("Marked done by you.")).toBeInTheDocument();
+    // Done is done: nothing left to mark.
+    expect(screen.queryByRole("button", { name: "Mark this goal done" })).toBeNull();
+    act(() => store.getState().applyGoalChanged({ sessionId: "se1", goal: GOAL }));
+    expect(screen.getByRole("button", { name: "Mark this goal done" })).toBeInTheDocument();
+  });
+
   it("a finished goal offers neither pause nor resume, only a way to drop it", async () => {
     const { api, store } = await mount();
     act(() => store.getState().applyGoalChanged({ sessionId: "se1", goal: { ...GOAL, status: "complete", note: "Released 1.2.0." } }));

@@ -151,6 +151,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "saved-signins", tab: "signins", label: "Saved sign-ins", terms: "password credential login account generated agent sign-up" },
   { id: "passkeys", tab: "signins", label: "Passkeys", terms: "webauthn" },
   { id: "touch-id", tab: "signins", label: "Touch ID", terms: "fingerprint presence biometric" },
+  { id: "unlock-policy", tab: "signins", label: "Unlock sign-ins with", terms: "touch id password session without asking unattended lab mac mini headless policy" },
 
   // Permissions
   { id: "computer-control", tab: "computer-use", label: "Computer control", terms: "accessibility screen recording grant macos" },

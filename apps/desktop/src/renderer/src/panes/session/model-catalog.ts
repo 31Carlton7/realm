@@ -6,8 +6,7 @@ import type { AgentProbe } from "../../state/store";
  * Everything Realm knows about the models a session could be put on, as plain functions over plain
  * data: which models exist and which harness would run each (`modelRows`), how a list of them reads
  * (`filterRows`, `groupRows`, `modelLabel`), what each can be asked for (`effortOptions`,
- * `fastModeAvailability`), what to say about one (`modelAbout`), and which model a person meant by a
- * name (`resolveModelName`).
+ * `fastModeAvailability`), and what to say about one (`modelAbout`).
  *
  * The prompter's picker is one reader. Anything else that picks a model — a scheduled task's Model
  * row, which is the same picker, and a plan handed to sub-agents on other models — reads the same
@@ -223,6 +222,21 @@ function resolveHarness(harnesses: AgentKind[], { kind, canSwitchAgent, noteOf }
  */
 export function modelIdOn(row: ModelRow, harness: AgentKind): string | null | undefined {
   return row.harnesses.includes(harness) ? row.ids[harness] ?? null : undefined;
+}
+
+/**
+ * A remembered model, if the harness still offers it — else `null`, the harness's own default.
+ *
+ * Read from the same two lists `modelRows` draws: the probe's live catalog when it has one, else the
+ * curated `AGENT_MODELS`. A kind with neither (unprobed, or a harness that cannot enumerate) has
+ * nothing to check against, so the id stands as stored and the adapter has the last word on it.
+ */
+export function usableModel(kind: AgentKind, model: string | null, agentProbe: AgentProbe[]): string | null {
+  if (model === null) return null;
+  const probed = agentProbe.find((p) => p.kind === kind)?.models ?? null;
+  const known: ReadonlyArray<{ id: string }> = probed !== null && probed.length > 0 ? probed : AGENT_MODELS[kind];
+  if (known.length === 0) return model;
+  return known.some((m) => m.id === model) ? model : null;
 }
 
 /** A harness's own default row — "whatever this agent runs when nothing is pinned". */
@@ -662,78 +676,3 @@ export function modelAbout(row: ModelRow, route: AgentKind, info: Record<string,
 /** A harness's billing sentence to the end of its first clause — "Bills through your ChatGPT plan or
  *  OpenAI API key." — for a line with room for one statement; the rest belongs to the line's hover. */
 export const billingLead = (billing: string): string => `${billing.split(" — ")[0]!.replace(/\.$/, "")}.`;
-
-/** A name resolved to something a session can be put on. */
-export type ModelMatch = {
-  row: ModelRow;
-  /** The harness that would run it — the one the name asked for, or the row's own route. */
-  kind: AgentKind;
-  /** The id to transmit on that harness; null is the harness's own default. */
-  modelId: string | null;
-  /** The model's full name, for saying back what was understood ("Claude Fable 5.1"). */
-  label: string;
-  /** The name matched a model's whole name, rather than part of one. */
-  exact: boolean;
-};
-
-/** A name's comparison tokens: lowercased, letters split from digits ("gpt6" is "gpt 6"), and the
- *  version kept as one token the way `canonicalModelKey` keeps it. */
-const tokensOf = (name: string): string[] =>
-  canonicalModelKey(name.replace(/([a-z])(\d)/gi, "$1 $2").replace(/(\d)([a-z])/gi, "$1 $2")).split("-").filter(Boolean);
-
-/** The newer of two versions, for "Fable" meaning Fable 5.1 over Fable 5: the highest number token,
- *  compared part by part. */
-const versionOf = (tokens: string[]): number[] => {
-  const v = tokens.filter((t) => /^\d+(\.\d+)*$/.test(t)).map((t) => t.split(".").map(Number));
-  return v.sort(compareVersions).at(-1) ?? [];
-};
-function compareVersions(a: number[], b: number[]): number {
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const d = (a[i] ?? -1) - (b[i] ?? -1);
-    if (d !== 0) return d;
-  }
-  return 0;
-}
-
-/** The harness a phrase names, by its label ("Cursor", "Claude Code", "GitHub Copilot") or its kind
- *  ("opencode", "acp:grok"), or null. */
-function harnessNamed(text: string): AgentKind | null {
-  const t = text.trim().toLowerCase().replace(/\s+/g, " ");
-  for (const k of [...SELECTABLE_AGENT_KINDS, "fake"] as AgentKind[]) {
-    const label = AGENT_META[k].label.toLowerCase();
-    if (t === label || t === `${label} code` || t === k || t === k.replace(/^acp:/, "")) return k;
-  }
-  return null;
-}
-
-/**
- * Which model a person meant by a name — "Fable", "GPT-6 Luna", "opus 5.5", "GPT-5.5 via Cursor".
- *
- * Every word of the name has to be in the model's name (or, for a harness's default row, the
- * harness's): "fable 5" is Fable 5 and never Fable 5.1, because a version is one token. Among the
- * models that fit, one whose whole name it is wins, then the newest version — "Fable" is Fable 5.1 —
- * then list order, which is the vendor's. A trailing "via / through / on <harness>" asks for that
- * route, and only models that harness runs can answer it.
- *
- * Null when nothing fits: a name no list Realm holds carries — a Codex model before Codex's catalog
- * has been read — is a question back to the person, never a guess at a different model.
- */
-export function resolveModelName(name: string, rows: ModelRow[]): ModelMatch | null {
-  const via = /^(.*\S)\s+(?:via|through|on)\s+(.+)$/i.exec(name.trim());
-  const route = via ? harnessNamed(via[2]!) : null;
-  const want = tokensOf(route ? via![1]! : name);
-  if (want.length === 0) return null;
-  let best: { row: ModelRow; exact: boolean; version: number[] } | null = null;
-  for (const row of rows) {
-    if (row.blockedReason || (route && !row.harnesses.includes(route))) continue;
-    const own = tokensOf(row.label);
-    const all = isHarnessDefault(row) ? [...own, ...tokensOf(AGENT_META[row.kind].label)] : own;
-    if (!want.every((t) => all.includes(t))) continue;
-    const exact = own.length === want.length && own.every((t) => want.includes(t));
-    const version = versionOf(own);
-    if (!best || (exact && !best.exact) || (exact === best.exact && compareVersions(version, best.version) > 0)) best = { row, exact, version };
-  }
-  if (!best) return null;
-  const kind = route ?? best.row.kind;
-  return { row: best.row, kind, modelId: modelIdOn(best.row, kind) ?? null, label: best.row.label, exact: best.exact };
-}

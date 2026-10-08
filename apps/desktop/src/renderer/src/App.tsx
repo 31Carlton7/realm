@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
 import { dismissBootSplash } from "./boot-splash";
+import { isEditableTarget } from "./keys/commands";
 import { bannerFor, type DaemonUiState } from "./components/daemon-banner";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { Rail } from "./components/sidebar/Rail";
@@ -14,6 +15,7 @@ import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
+import { AddTeammatesSheet } from "./panes/team/TeamPicker";
 import { CommandPalette } from "./components/CommandPalette";
 import { Toasts } from "./components/Toasts";
 import { AppPickerBridge } from "./app-pick/AppPicker";
@@ -29,7 +31,7 @@ import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, useApp, useAppStore, type AppState } from "./state/store";
+import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, type AppState } from "./state/store";
 import { sidebarHidden } from "./state/selectors";
 import { drawnShare, panelPlace } from "./state/view-room";
 import { useStore, type StoreApi } from "zustand";
@@ -370,6 +372,7 @@ function SheetHost() {
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;
+  if (sheet.kind === "add-teammates") return <AddTeammatesSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "new-lecture") return <NewLectureSheet />;
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
@@ -395,7 +398,7 @@ export function Main() {
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const closeEmptyPane = useApp((s) => s.closeEmptyPane);
   const closeInPane = useApp((s) => s.closeInPane);
-  const splitFocused = useApp((s) => s.splitFocused);
+  const splitNewSession = useApp((s) => s.splitNewSession);
   const openItemAt = useApp((s) => s.openItemAt);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const resizeSplit = useApp((s) => s.resizeSplit);
@@ -434,9 +437,10 @@ export function Main() {
         onFocus={focusLeaf}
         onClose={(id) => run(() => closeFromLayout(id))}
         onCloseEmpty={(leafId) => run(() => closeEmptyPane(leafId))}
+        onNewSessionHere={(leafId) => run(() => newSessionInstant(leafId))}
         onUnsplit={(leafId) => run(() => closeInPane(leafId))}
         // The split button targets its own leaf: focus it synchronously, then split reads the fresh focus.
-        onSplit={(leafId, dir) => { focusLeaf(leafId); run(() => splitFocused(dir)); }}
+        onSplit={(leafId, dir) => { focusLeaf(leafId); run(() => splitNewSession(dir)); }}
         onResize={resizeSplit}
         onEqualize={equalizeSplit}
         onDropItem={(id, leafId, edge) => run(() => openItemAt(id, leafId, edge))}
@@ -501,6 +505,11 @@ export function subscribeSpaceLists(store: StoreApi<AppState>, on: Subscribe): (
 }
 
 /** The broadcasts that bring an agent-opened pane into the layout. Exported for its test. */
+/** How recent a keystroke into a field or a terminal keeps an agent's `space_switch` from moving the
+ *  window: long enough to cover the pause between two words, short enough that a person who has
+ *  stopped is not in the way. */
+const TYPING_QUIET_MS = 4_000;
+
 export const AGENT_PANE_EVENTS = ["browser.agentOpened", "simulator.agentOpened", "terminal.agentOpened"] as const;
 
 /**
@@ -556,6 +565,14 @@ export function App() {
     // A schedule was created, edited, deleted or fired. Held-only like ships: the payload carries no
     // row (a schedule changes rarely, and a deletion has no row to carry), so a page already showing
     // this space re-lists and everyone else does nothing.
+    // A team moved: a role woke or settled, work arrived in Review, a decision was made. The space's
+    // snapshot is re-read (the sidebar's Review row and Team fold read it) along with whatever of its
+    // detail is on screen. Read once at start too, for every team space.
+    const offTeam = rpc().on("team.changed", ({ spaceId }) => {
+      const st = store.getState();
+      st.run(() => st.refreshTeam(spaceId));
+    });
+    { const st = store.getState(); st.run(() => Promise.all([st.refreshTeams(), st.hydrateTeamFolds()])); }
     const offSched = rpc().on("schedules.changed", ({ spaceId }) => {
       const st = store.getState();
       if (st.schedules[spaceId]) st.run(() => st.refreshSchedules(spaceId));
@@ -599,6 +616,14 @@ export function App() {
     const offMem = rpc().on("memory.changed", ({ spaceId }) => {
       const st = store.getState();
       if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
+      // A memory repo is told the same way: a save an agent made, or one made in another window.
+      if (st.spaceMemoryRepos[spaceId]) st.run(() => st.refreshSpaceMemoryRepos(spaceId));
+      const profileId = st.spaces.find((x) => x.id === spaceId)?.profileId;
+      if (profileId && st.profileMemoryRepo[profileId] !== undefined) st.run(() => st.refreshProfileMemoryRepo(profileId));
+      // Each repo's history, where a row shows it: the profile's, and this space's own.
+      for (const owner of [...(profileId ? [{ scope: "profile" as const, id: profileId }] : []), { scope: "space" as const, id: spaceId }]) {
+        if (st.memoryRepoLog[memoryRepoKey(owner)]) st.run(() => st.refreshMemoryRepoLog(owner));
+      }
     });
     const offB = subscribeAgentPanes(store, (event, fn) => rpc().on(event, fn));
     // Every browser's page — address, title, icon — saved as it changes, shown in a pane or not: an
@@ -614,6 +639,16 @@ export function App() {
     // stealing focus.
     const offDO = rpc().on("documents.openRequested", (p) => { const st = store.getState(); st.run(() => st.applyDocumentOpenRequested(p)); });
     const offSA = rpc().on("session.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentOpened(p)); });
+    // An agent's approved `space_switch`. Never under someone typing: a keystroke into a field in the
+    // last few seconds keeps the window where it is, and the agent is told it did not move.
+    let typedAt = 0;
+    const onTyped = (e: KeyboardEvent) => { if (isEditableTarget(e.target) || (e.target instanceof HTMLElement && e.target.closest(".xterm"))) typedAt = Date.now(); };
+    window.addEventListener("keydown", onTyped, true);
+    const offSw = rpc().on("space.switchRequested", (p) => { const st = store.getState(); st.run(() => st.applySpaceSwitchRequested(p, Date.now() - typedAt < TYPING_QUIET_MS)); });
+    // A setting an agent changed with `settings_set`, applied in every window.
+    const offSet = rpc().on("settings.changed", (p) => store.getState().applySettingChanged(p));
+    // A session an agent opened for the user with `session_open`: a pane of its own, beside that agent's.
+    const offSO = rpc().on("session.openRequested", (p) => { const st = store.getState(); st.run(() => st.applySessionOpenRequested(p)); });
     // The same child's run settled. A clean finish reads its "Finished a turn" row (`applyAgentSettled`).
     const offSS = rpc().on("session.agentSettled", (p) => store.getState().applyAgentSettled(p));
     // W4's watching feed: settled actions into the pane chrome's ticker, in-flight acts onto the
@@ -705,7 +740,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

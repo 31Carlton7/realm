@@ -1031,13 +1031,83 @@ describe("Sign-ins tab", () => {
   });
 
   it("says plainly that a Mac without Touch ID can save but cannot fill", async () => {
-    await signIns({ credentialStatus: { available: true, canPromptTouchID: false, presenceTtlMs: 0 } });
+    await signIns({ credentialStatus: { available: true, canPromptTouchID: false, canPromptDeviceOwner: false, presenceTtlMs: 0 } });
     expect(await screen.findByRole("alert")).toHaveTextContent(/no Touch ID sensor/);
   });
 
+  it("points a Mac without Touch ID at the password rung when macOS can ask for one", async () => {
+    await signIns({ credentialStatus: { available: true, canPromptTouchID: false, canPromptDeviceOwner: true, presenceTtlMs: 0 } });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/choose Touch ID or password/);
+  });
+
+  it("drops the no-sensor alert once the profile unlocks some other way", async () => {
+    await signIns({
+      credentialStatus: { available: true, canPromptTouchID: false, canPromptDeviceOwner: true, presenceTtlMs: 0 },
+      unlockPolicies: { p1: { kind: "device-password" } },
+    });
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID or password" })).toBeChecked());
+    expect(screen.queryByText(/no Touch ID sensor/)).toBeNull();
+  });
+
   it("says plainly when macOS offers no encryption key — and does not offer a plaintext fallback", async () => {
-    await signIns({ credentialStatus: { available: false, canPromptTouchID: true, presenceTtlMs: 0 } });
+    await signIns({ credentialStatus: { available: false, canPromptTouchID: true, canPromptDeviceOwner: true, presenceTtlMs: 0 } });
     expect(await screen.findByRole("alert")).toHaveTextContent(/won't store one unencrypted/);
+  });
+
+  describe("Unlock sign-ins with", () => {
+    it("defaults to Touch ID", async () => {
+      await signIns();
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      expect(screen.getByText(/Touch ID for each fill/)).toBeInTheDocument();
+    });
+
+    it("sends a password or session rung straight to main, which asks macOS", async () => {
+      const { api } = await signIns();
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      fireEvent.click(screen.getByRole("radio", { name: "Once per session" }));
+      await waitFor(() => expect(api.calls).toContain("credentialSetUnlockPolicy:p1:session"));
+      await waitFor(() => expect(screen.getByRole("radio", { name: "8 hours" })).toBeChecked());
+    });
+
+    it("never turns on Without asking from one click: it opens the warning first", async () => {
+      // THE MUTANT: "Without asking" applied from the radio like the other rungs.
+      const { api } = await signIns();
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      fireEvent.click(screen.getByRole("radio", { name: "Without asking" }));
+      const sheet = await screen.findByRole("dialog", { name: "Fill without asking on this Mac?" });
+      expect(api.calls.some((c) => c.startsWith("credentialSetUnlockPolicy"))).toBe(false);
+      expect(sheet).toHaveTextContent(/never receives a password/);
+      expect(sheet).toHaveTextContent(/only on this Mac/);
+      expect(sheet).toHaveTextContent(/not for your personal accounts/);
+      fireEvent.click(screen.getByRole("button", { name: /Turn on for/ }));
+      await waitFor(() => expect(api.calls).toContain("credentialSetUnlockPolicy:p1:unattended"));
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Without asking" })).toBeChecked());
+    });
+
+    it("shows main's refusal in the sheet when macOS does not confirm the user, and changes nothing", async () => {
+      await signIns({ refuseUnlock: true });
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      fireEvent.click(screen.getByRole("radio", { name: "Without asking" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Turn on for/ }));
+      expect(await screen.findByText(/did not confirm it was you/)).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked();
+    });
+
+    it("turns Without asking off in one click", async () => {
+      const { api } = await signIns({ unlockPolicies: { p1: { kind: "unattended" } } });
+      fireEvent.click(await screen.findByRole("button", { name: "Ask for Touch ID again" }));
+      await waitFor(() => expect(api.calls).toContain("credentialSetUnlockPolicy:p1:touch-id"));
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+    });
+
+    it("marks the whole setting, and its confirmation, as no place for an agent", async () => {
+      const { container } = await signIns();
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      expect(container.querySelector('[data-setting="unlock-policy"]')!.closest("[data-no-agent]")).not.toBeNull();
+      fireEvent.click(screen.getByRole("radio", { name: "Without asking" }));
+      const sheet = await screen.findByRole("dialog", { name: "Fill without asking on this Mac?" });
+      expect(sheet.querySelector("[data-no-agent]")).not.toBeNull();
+    });
   });
 
   it("defaults Touch ID to Every time, and a change round-trips through main", async () => {

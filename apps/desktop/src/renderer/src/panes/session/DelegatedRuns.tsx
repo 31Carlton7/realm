@@ -202,10 +202,17 @@ function Control({ sessionId, running, harness }: {
   harness: { id: string; label: string; startedAt: number }[];
 }) {
   const sessions = useApp((s) => s.sessions);
+  const sessionStatus = useApp((s) => s.sessionStatus);
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
+  const run = useApp((s) => s.run);
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const rows = [...running].sort((a, b) => a.startedAt - b.startedAt);
   const total = rows.length + harness.length;
+  // A sub-agent of this session's waiting on a request. A peer it only asked a question of is not
+  // its to answer for, so only its own children count.
+  const waiting = rows.filter((r) => r.owned && sessionStatus[r.sessionId] === "waiting_permission");
+  const working = total - waiting.length;
   // The oldest thing in flight, whichever kind it is — "how long has this session been waiting on
   // anyone", and starting it at the newest would keep resetting it.
   const since = Math.min(...rows.map((r) => r.startedAt), ...harness.map((h) => h.startedAt));
@@ -214,15 +221,29 @@ function Control({ sessionId, running, harness }: {
   const elapsed = useElapsed(since, true);
   const count = total === 1 ? "1 agent" : `${total} agents`;
   const title = sessions[sessionId]?.title ?? "this session";
+  const needs = waiting.length > 0 ? `${waiting.length} ${waiting.length === 1 ? "needs" : "need"} you` : "";
+  const agents = (n: number) => (n === 1 ? "1 agent" : `${n} agents`);
+  const said = needs ? `${working > 0 ? `${agents(working)} working, ` : ""}${agents(waiting.length)} ${waiting.length === 1 ? "needs" : "need"} you, for ${title}` : `${count} working for ${title}`;
   return (
     <>
       {/* "working", not "waiting on": an `agent_start` the lead deliberately backgrounded is here too,
-          and that lead is not blocked on anything. */}
-      <button ref={anchor} type="button" className="agents-chip" aria-haspopup="dialog" aria-expanded={open}
-        aria-label={`${count} working for ${title}`} title={`${count} working · ${formatDuration(elapsed)}`}
-        onClick={() => setOpen((o) => !o)}>
+          and that lead is not blocked on anything. With a sub-agent waiting on a request, the chip
+          says so and goes to it — the Agents tab, on that card — rather than to the list. */}
+      <button ref={anchor} type="button" className="agents-chip" data-waiting={needs ? true : undefined}
+        aria-haspopup={needs ? undefined : "dialog"} aria-expanded={needs ? undefined : open}
+        aria-label={said} title={`${said} · ${formatDuration(elapsed)}`}
+        onClick={() => {
+          if (waiting[0]) { run(() => openAgentsTab(sessionId, { childId: waiting[0]!.sessionId })); return; }
+          setOpen((o) => !o);
+        }}>
         <Icon name="bot" size={14} />
-        <span className="agents-chip-count">{total} working</span>
+        {working > 0 && <span className="agents-chip-count">{working} working</span>}
+        {needs && (
+          <span className="agents-chip-needs">
+            {working > 0 && <span className="agents-chip-sep" aria-hidden="true">·</span>}
+            <span className="status-dot" data-status="waiting_permission" aria-hidden="true" />{needs}
+          </span>
+        )}
       </button>
       {open && <AgentsPopover anchor={anchor} sessionId={sessionId} rows={rows} harness={harness}
         since={since} elapsed={elapsed} count={count} onClose={() => setOpen(false)} />}

@@ -4,7 +4,7 @@ import { PANE_DIVIDER, PANE_MIN, allItems, sessionEvent, type Item, type Layout 
 import { PaneHost, zoneAt, type PaneHostProps } from "./PaneHost";
 import { PanelBar } from "./PanelBar";
 import { Main } from "../App";
-import { StoreContext, createAppStore, findEmptySiblingOf } from "../state/store";
+import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session } from "../state/store.test-fakes";
 import { setBrowserBridgesForTests } from "../panes/browser/browser-client";
 import { fakeBrowserBridges } from "../panes/browser/browser-bridges.test-fakes";
@@ -34,6 +34,7 @@ function renderHost(over: Partial<PaneHostProps> = {}) {
     layout: split2, items, focusedLeafId: "L1",
     onFocus: vi.fn(), onClose: vi.fn(), onSplit: vi.fn(), onDropItem: vi.fn(), onEqualize: vi.fn(),
     onCloseEmpty: vi.fn(),
+    onNewSessionHere: vi.fn(),
     ...over,
   };
   // PanelBar reads the store (rename/delete, per-kind meta), so every host render needs a provider.
@@ -110,7 +111,8 @@ describe("PaneHost", () => {
      split from or navigate. */
   it("renders the placeholder and a trash-only bar for an empty leaf", () => {
     renderHost({ layout: { type: "leaf", id: "L", itemId: null }, items: [], focusedLeafId: "L" });
-    expect(screen.getByText("Open something from the sidebar.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New session" })).toBeInTheDocument();
+    expect(screen.getByText("or drag something here from the sidebar")).toBeInTheDocument();
     const bar = document.querySelector(".panel-bar");
     expect(bar).toHaveClass("panel-bar-empty");
     expect(within(bar as HTMLElement).getByRole("button", { name: "Close this empty pane" })).toBeInTheDocument();
@@ -118,6 +120,17 @@ describe("PaneHost", () => {
     expect(bar!.querySelector(".panel-title")).toBeNull();
     expect(within(bar as HTMLElement).queryByRole("button", { name: /Split/ })).toBeNull();
     expect(within(bar as HTMLElement).queryByRole("button", { name: /Pane menu/ })).toBeNull();
+  });
+
+  it("an empty pane's New session is made in THAT pane, by leaf — not the focused one", () => {
+    // THE MUTANT: a button that makes the session wherever the focus is.
+    const withEmpty: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "A" },
+      { type: "leaf", id: "L9", itemId: null },
+    ] };
+    const { props } = renderHost({ layout: withEmpty, focusedLeafId: "L1" });
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
+    expect(props.onNewSessionHere).toHaveBeenCalledWith("L9");
   });
 
   it("the trash drops THIS leaf, by id", () => {
@@ -814,10 +827,15 @@ describe("App shell", () => {
     const solo = store.getState().layout!;
     fireEvent.click(within(panel(solo.id)).getByRole("button", { name: "Pane menu for Tab B" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Split right/ }));
-    await waitFor(() => expect(findEmptySiblingOf(store.getState().layout!, solo.id)).toBeTruthy());
+    // With room, the split is a new session beside it, focused — not an empty pane to fill.
+    const made = await waitFor(() => {
+      const it = store.getState().items.find((i) => i.kind === "session");
+      if (!it || !allItems(store.getState().layout!).includes(it.id)) throw new Error("not on screen yet");
+      return it;
+    });
     const l = store.getState().layout!; if (l.type !== "split") throw new Error();
     expect(l.children).toHaveLength(2);
-    expect(l.children[1]).toMatchObject({ type: "leaf", itemId: null });
+    expect(l.children[1]).toMatchObject({ type: "leaf", itemId: made.id });
     expect(store.getState().focusedLeafId).toBe(l.children[1]!.id);
   });
 

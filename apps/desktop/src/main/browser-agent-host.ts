@@ -5,7 +5,7 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
 import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
@@ -91,6 +91,8 @@ export type BrowserAgentHostDeps = {
   pageState(browserId: string): { url: string; title: string; loading?: boolean; error?: BrowserLoadError | null } | null;
   /** The clock a page's network quiet is measured on. A test seam; `Date.now` otherwise. */
   now?: () => number;
+  /** How long a screenshot waits for the page to paint. A test seam; `SCREENSHOT_TIMEOUT_MS` otherwise. */
+  screenshotTimeoutMs?: number;
   /**
    * The encrypted secret store (`secret-store.ts`), for the `fillCredential` op alone.
    *
@@ -179,6 +181,9 @@ const REQUESTS_MAX = 500;
  *  enough to be invisible to a person and to a twenty-step batch; long enough for the renderer to
  *  dispatch the click handler and for the CDP event to cross the debugger. */
 const CHOOSER_SETTLE_MS = 150;
+/** How long a screenshot waits for a frame. A page on screen captures in well under a second; one that
+ *  is not on screen never does, and this is how long it takes to say so. */
+const SCREENSHOT_TIMEOUT_MS = 5_000;
 
 type Attached = {
   binding: CdpBinding;
@@ -707,12 +712,12 @@ export class BrowserAgentHost {
       }
       /**
        * Download the file behind `ref`, into the directory the SERVER resolved from the space's
-       * project. The op is gated server-side like any other mutating act; what happens here is the
+       * project or folder. The op is gated server-side like any other mutating act; what happens here is the
        * arm → click → await, with the grant's lifetime bounded by this op.
        *
        * `dir` arrives from realm-server rather than being computed here because only the server knows
-       * the space's project. It is required to be absolute: this op writes to disk, and a relative
-       * path would resolve against whatever cwd Electron happens to have.
+       * the space's project and folder. It is required to be absolute: this op writes to disk, and a
+       * relative path would resolve against whatever cwd Electron happens to have.
        */
       case "download": {
         const governor = this.d.downloads;
@@ -744,7 +749,14 @@ export class BrowserAgentHost {
       }
       case "screenshot": {
         const entry = this.ensure(browserId);
-        const shot = (await entry.binding.send("Page.captureScreenshot", { format: "jpeg", quality: 70 })) as { data?: string };
+        // A view that is not on screen never paints, and the capture waits for a frame that never
+        // comes; give up while the agent can still do something else (`paneNotPaintingError`).
+        let timer: NodeJS.Timeout | undefined;
+        const unpainted = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(paneNotPaintingError(browserId))), this.d.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS);
+        });
+        const shot = (await Promise.race([entry.binding.send("Page.captureScreenshot", { format: "jpeg", quality: 70 }), unpainted])
+          .finally(() => clearTimeout(timer))) as { data?: string };
         if (!shot.data) throw new Error("screenshot produced no data");
         const failed = this.d.pageState(browserId)?.error ?? null;
         return { data: shot.data, mimeType: "image/jpeg", ...(failed ? { loadError: failed } : {}) } satisfies BrowserScreenshotResult;
@@ -860,7 +872,7 @@ export class BrowserAgentHost {
   private ensure(browserId: string): Attached {
     if (!this.d.hasView(browserId)) {
       this.attached.delete(browserId); // a cached binding whose view died
-      throw new Error(`browser ${browserId}'s pane is not open in the app — the user must open (or reopen) the browser pane before tools can drive it`);
+      throw new Error(paneNotOpenError(browserId));
     }
     // Ahead of the cache hit, so EVERY op refreshes the view's recency and not just the one that
     // attached — a long agent task in a background browser is exactly what must not be evicted.

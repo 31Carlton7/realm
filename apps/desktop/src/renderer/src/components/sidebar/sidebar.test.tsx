@@ -47,6 +47,23 @@ const section = (name: string) => screen.getByRole("region", { name });
 const head = (name: string) => within(section(name)).getByRole("button", { name: new RegExp(`^${name}( —|$)`) });
 const rowsIn = (name: string) => [...section(name).querySelectorAll(".sb-section-clip .item-title")].map((t) => t.textContent);
 
+describe("a lead whose sub-agents need you", () => {
+  it("says how many on its row and opens its Agents tab on the one that has waited longest", async () => {
+    // THE MUTANTS: no count on the row; a click that opens the lead and not the card the request is on.
+    const kid = (id: string, at: number) => session(id, "s1", { title: `Kid ${id}`, status: "waiting_permission", updatedAt: at, dispatchedBy: { kind: "agent_run", sessionId: "a" } });
+    const { store } = await mount(home({
+      items: { ...home().items, s1: [...home().items!.s1!, sessionItem("k1", "s1", "Kid k1"), sessionItem("k2", "s1", "Kid k2")] },
+      sessions: [...home().sessions!, kid("k1", 20), kid("k2", 10)],
+    }));
+    const row = await screen.findByRole("button", { name: /^Alpha, 2 sub-agents need you/ });
+    expect(row.querySelector(".item-count")).toHaveTextContent("2");
+    // Their requests are on the lead's row, not rows of their own at the top.
+    expect(screen.queryByRole("button", { name: /^Kid k\d/ })).toBeNull();
+    fireEvent.click(row);
+    await waitFor(() => expect(store.getState().agentsAsk["a"]).toMatchObject({ childId: "k2" }));
+  });
+});
+
 describe("the list", () => {
   it("is the profile's spaces as sections of one scroller — no strip, no Open, no other spaces, no Archived", async () => {
     const { container } = await mount(home());
@@ -122,6 +139,33 @@ describe("a space's section", () => {
     expect(head("Versed").querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "running");
   });
 
+  it("wears the unread mark and its count on a folded head whose only news is a finished, unread session", async () => {
+    // THE MUTANT: `TallyMarks` drawing waiting and running only — a folded space with two finished
+    // turns nobody has read says nothing at all, which is the report this answers.
+    await mount(home({
+      items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("d", "s1", "Delta")], s2: [sessionItem("b", "s2", "Wants a yes")] },
+      sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("d", "s1", { title: "Delta", seenSeq: 1, lastEventSeq: 2 }),
+        session("b", "s2", { title: "Wants a yes", status: "waiting_permission" })],
+      settings: { "ui.sidebarCollapsedSpaces": ["s1"] },
+    }));
+    await waitFor(() => expect(head("Versed")).toHaveAttribute("aria-expanded", "false"));
+    expect(head("Versed")).toHaveAccessibleName("Versed — 2 unread");
+    const tally = head("Versed").querySelector(".item-trail")!;
+    expect(within(tally as HTMLElement).getByText("2").nextElementSibling).toHaveAttribute("data-status", "unseen");
+  });
+
+  it("keeps one mark on a head: something working outranks the unread count", async () => {
+    // THE MUTANT: the unread tally drawn whatever else is showing — two counts and two dots on one head.
+    await mount(home({
+      items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("d", "s1", "Delta")], s2: [sessionItem("b", "s2", "Wants a yes")] },
+      sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("d", "s1", { title: "Delta", status: "running" }),
+        session("b", "s2", { title: "Wants a yes", status: "waiting_permission" })],
+    }));
+    await waitFor(() => expect(head("Versed")).toHaveAccessibleName("Versed — 1 running, 1 unread"));
+    const dots = [...head("Versed").querySelectorAll(".item-trail .status-dot")].map((d) => d.getAttribute("data-status"));
+    expect(dots).toEqual(["running"]);
+  });
+
   it("folds, and remembers it across a relaunch", async () => {
     const { api, store } = await mount(home());
     await waitFor(() => expect(rowsIn("Homework")).toEqual(["Wants a yes"]));
@@ -150,9 +194,12 @@ describe("a space's section", () => {
     await waitFor(() => expect(rowsIn("Homework")).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2"]));
     const more = within(section("Homework")).getByRole("button", { name: /Show more/ });
     expect(more).toHaveTextContent("Show more 2");
+    // The page last showed the archived ones; "Show more 2" counts live ones, so it lands on those.
+    act(() => store.getState().setSpaceSessionsView("s2", "archived"));
     fireEvent.click(more);
     await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s2" }));
     expect(store.getState().spacePageTab.s2).toBe("sessions");
+    expect(store.getState().spaceSessionsView.s2).toBe("active");
   });
 
   it("offers a new session in an empty space as its one row", async () => {
@@ -184,6 +231,8 @@ describe("a space's section", () => {
       await exited();
       fireEvent.click((await open()).getByRole("menuitem", { name }));
       await waitFor(() => expect(store.getState().spacePageTab.s2).toBe(tab));
+      // "Archived sessions" lands on the page's Archived filter, not on the live list.
+      if (name === "Archived sessions") expect(store.getState().spaceSessionsView.s2).toBe("archived");
     }
     // Show in Finder is offered only where the desktop bridge can reveal a folder.
     await exited();
@@ -246,6 +295,17 @@ describe("a session's row", () => {
     act(() => store.getState().applySessionStatus("a", "running"));
     expect(row().querySelectorAll(".status-dot")).toHaveLength(1);
     expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "running");
+  });
+
+  it("lifts an unread row's title, and only while unread is the mark it wears", async () => {
+    // THE MUTANT: `data-unread` keyed on `row.unread` alone — a running session that also has news
+    // would wear a heavy title beside a green dot, two marks asking to be told apart.
+    const { store } = await mount(home({ sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("b", "s2", { title: "Wants a yes", seenSeq: 4, lastEventSeq: 4 })] }));
+    const rowOf = (sec: string, name: RegExp) => within(section(sec)).getByRole("button", { name }).closest(".sb-row")!;
+    await waitFor(() => expect(rowOf("Versed", /^Alpha/)).toHaveAttribute("data-unread"));
+    expect(rowOf("Homework", /^Wants a yes/)).not.toHaveAttribute("data-unread");
+    act(() => store.getState().applySessionStatus("a", "running"));
+    expect(rowOf("Versed", /^Alpha/)).not.toHaveAttribute("data-unread");
   });
 
   it("wears a clock when a schedule started it", async () => {
@@ -404,7 +464,7 @@ describe("a session's row", () => {
     fireEvent.contextMenu(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
     const pinned = await screen.findByRole("region", { name: "Pinned" });
-    expect(within(pinned).getByRole("button", { name: "Wants a yes" })).toHaveAttribute("data-tile", "true");
+    expect(within(pinned).getByRole("button", { name: "Wants a yes in Homework — needs permission" })).toBeInTheDocument();
   });
 
   it("renames from its menu, committing on Enter", async () => {
@@ -448,6 +508,8 @@ describe("a fan-out", () => {
 });
 
 describe("Pinned", () => {
+  const pinnedRegion = () => screen.findByRole("region", { name: "Pinned" });
+
   it("holds the profile's pinned items from every one of its spaces, and opens them where they are", async () => {
     const { store } = await mount(home({
       items: {
@@ -456,9 +518,10 @@ describe("Pinned", () => {
         s3: [sessionItem("c", "s3", "Notes", { pinned: true })],
       },
     }));
-    const pinned = await screen.findByRole("region", { name: "Pinned" });
-    await waitFor(() => expect(within(pinned).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["GitHub", "Wants a yes"]));
-    fireEvent.click(within(pinned).getByRole("button", { name: "Wants a yes" }));
+    const pinned = await pinnedRegion();
+    await waitFor(() => expect([...pinned.querySelectorAll(".item-row")].map((b) => b.getAttribute("aria-label")))
+      .toEqual(["GitHub in Versed", "Wants a yes in Homework — needs permission"]));
+    fireEvent.click(within(pinned).getByRole("button", { name: /^Wants a yes/ }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
   });
 
@@ -470,8 +533,75 @@ describe("Pinned", () => {
   it("draws a pinned browser with its page's own icon", async () => {
     const ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9h";
     await mount(home({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", pinned: true, title: "GitHub", favicon: ICON })] } }));
-    expect(within(await screen.findByRole("region", { name: "Pinned" })).getByRole("button", { name: "GitHub" })
+    expect(within(await pinnedRegion()).getByRole("button", { name: /^GitHub/ })
       .querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
+  });
+
+  it("wears the state its session's row wears — running, needs you, failed, finished while you were away", async () => {
+    // THE MUTANT: a pin that draws no mark (the old tile), so a finished build says nothing from Pinned.
+    const pin = (id: string, title: string) => sessionItem(id, "s1", title, { pinned: true });
+    await mount(home({
+      items: { s1: [pin("r", "Builds"), pin("w", "Asks"), pin("e", "Broke"), pin("u", "Finished"), pin("q", "Quiet")], s2: [] },
+      sessions: [
+        session("r", "s1", { status: "running" }), session("w", "s1", { status: "waiting_permission" }), session("e", "s1", { status: "error" }),
+        session("u", "s1", { lastEventSeq: 9, seenSeq: 4 }), session("q", "s1", { lastEventSeq: 4, seenSeq: 4 }),
+      ],
+    }));
+    const pinned = await pinnedRegion();
+    const row = (title: string) => within(pinned).getByRole("button", { name: new RegExp(`^${title} in Versed`) });
+    await waitFor(() => expect(row("Builds")).toHaveAccessibleName("Builds in Versed — running"));
+    expect(row("Asks")).toHaveAccessibleName("Asks in Versed — needs permission");
+    expect(row("Broke")).toHaveAccessibleName("Broke in Versed — error");
+    expect(row("Finished")).toHaveAccessibleName("Finished in Versed — new since you were here");
+    expect(row("Quiet")).toHaveAccessibleName("Quiet in Versed");
+    const dot = (title: string) => row(title).querySelector(".status-dot")?.getAttribute("data-status") ?? null;
+    expect(["Builds", "Asks", "Broke", "Finished", "Quiet"].map(dot)).toEqual(["running", "waiting_permission", "error", "unseen", null]);
+    // Finished while away is said twice, as on the rows below: the dot, and the title lifted.
+    expect(row("Finished").closest(".item")).toHaveAttribute("data-unread");
+    expect(row("Quiet").closest(".item")).not.toHaveAttribute("data-unread");
+    // The title is the whole title, in the row's elastic column — not cut to a tile's six letters.
+    expect(row("Finished").querySelector(".item-title")).toHaveTextContent(/^Finished$/);
+  });
+
+  it("counts a lead's sub-agents that need you", async () => {
+    // THE MUTANT: the pin built from the item alone, without `agentsWaiting` — no count, and a lead
+    // whose children are stuck reads as merely running.
+    const kid = (id: string) => session(id, "s1", { title: `Kid ${id}`, status: "waiting_permission", dispatchedBy: { kind: "agent_run", sessionId: "a" } });
+    await mount(home({
+      items: { s1: [sessionItem("a", "s1", "Alpha", { pinned: true }), sessionItem("k1", "s1", "Kid k1"), sessionItem("k2", "s1", "Kid k2")] },
+      sessions: [session("a", "s1", { title: "Alpha", status: "running" }), kid("k1"), kid("k2")],
+    }));
+    const pin = await within(await pinnedRegion()).findByRole("button", { name: "Alpha in Versed, 2 sub-agents need you — running" });
+    expect(pin.querySelector(".item-count")).toHaveTextContent("2");
+  });
+
+  it("leads with what the item is: the session's agent, a page's icon, a document's glyph", async () => {
+    // THE MUTANT: every pin the same chat bubble, which is what made twelve tiles indistinguishable.
+    await mount(home({
+      items: { s1: [sessionItem("a", "s1", "Alpha", { pinned: true }), item("i-doc", "s1", { kind: "documents", refId: "d1", title: "Spec", pinned: true })], s2: [] },
+      sessions: [session("a", "s1", { title: "Alpha", agentKind: "claude" })],
+    }));
+    const pinned = await pinnedRegion();
+    await waitFor(() => expect(within(pinned).getByRole("button", { name: /^Alpha/ }).querySelector("svg[data-brand]")).toHaveAttribute("data-brand", "claude"));
+    expect(within(pinned).getByRole("button", { name: /^Spec/ }).querySelector("svg")).not.toBeNull();
+  });
+
+  it("unpins from the row, and the pin leaves", async () => {
+    // THE MUTANT: the session row's Archive in the pin's slot — a click that shelves the session.
+    await mount(home({ items: { s1: [sessionItem("a", "s1", "Alpha", { pinned: true })], s2: [] } }));
+    fireEvent.click(within(await pinnedRegion()).getByRole("button", { name: "Unpin Alpha" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Pinned" })).toBeNull());
+    // Still a session of its space, not put away.
+    expect(rowsIn("Versed")).toEqual(["Alpha"]);
+  });
+
+  it("drags into a pane like any row, carrying its item", async () => {
+    await mount(home({ items: { s1: [item("i-gh", "s1", { kind: "browser", refId: "br1", title: "GitHub", pinned: true })], s2: [] } }));
+    const row = within(await pinnedRegion()).getByRole("button", { name: /^GitHub/ }).closest(".item")!;
+    expect(row).toHaveAttribute("draggable", "true");
+    const data: Record<string, string> = {};
+    fireEvent.dragStart(row, { dataTransfer: { setData: (k: string, v: string) => { data[k] = v; }, effectAllowed: "" } });
+    expect(data["application/x-realm-item"]).toBe("i-gh");
   });
 });
 

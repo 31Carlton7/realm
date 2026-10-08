@@ -14,9 +14,11 @@ import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { EnvironmentsStore } from "../store/environments";
 import { SettingsStore } from "../store/settings";
+import { ItemsStore } from "../store/items";
+import { SessionsStore } from "../store/sessions";
 import { waitFor } from "../test-utils";
 import { createRealmAgentProvider, RUN_TOOL_NAME } from "../browsers/browser-agent";
-import { AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL_NAME } from "./agent-run";
+import { AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL_NAME, legacyTitle } from "./agent-run";
 
 /**
  * Plan 13 W1 behaviour suite — `agent_run`, driven through the REAL app (`createApp` + FakeAdapter),
@@ -79,6 +81,7 @@ async function boot(opts: {
   parentKind?: "fake" | "claude"; parentMode?: string;
   timeouts?: { baseMs: number; perTurnMs: number; pollMs: number };
   maxDepth?: number; caps?: { perParent?: number; total?: number };
+  titleGenerator?: (text: string) => Promise<string>;
 } = {}) {
   const home = tempDir("realm-ar-");
   const fake = new CaptureFake({ script: opts.script ?? CHILD_SCRIPT, delayMs: opts.delayMs ?? 5 });
@@ -88,6 +91,7 @@ async function boot(opts: {
     home, port: 0, adapters: { fake, claude: fake },
     browserAgent: { fallbackKind: "fake", timeouts: { baseMs: 5000, perActMs: 0, pollMs: 20 } },
     agentRun: { timeouts: opts.timeouts ?? { baseMs: 5000, perTurnMs: 0, pollMs: 20 }, maxDepth: opts.maxDepth, caps: opts.caps },
+    titleGenerator: opts.titleGenerator,
   });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const spacesStore = new SpacesStore(app.db, home);
@@ -112,7 +116,7 @@ describe("agent_run — the delegated session", () => {
     expect(result.isError).toBe(false);
     const child = childOf(spaceId, parentId);
     expect(child.spaceId).toBe(spaceId);
-    expect(child.title).toContain("Agent:");
+    expect(child.title).toBe("Write DONE.txt in the repo");
     const out = text(result);
     expect(out).toContain(child.id);            // the structured identity names the child
     expect(out).toContain(child.title);
@@ -145,14 +149,14 @@ describe("agent_run — the delegated session", () => {
   });
 
   it("broadcasts session.agentOpened with the child's id and item, and stages the delegation preamble", async () => {
-    const { fake, spaceId, parentId } = await boot({ parentKind: "claude" });
+    const { fake, spaceId, parentId } = await boot({ parentKind: "claude", maxDepth: 2 });
     await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "Refactor the parser" });
     expect(fake.seen).toHaveLength(1); // only the CHILD started
     const started = fake.seen[0]!;
     expect(started.systemContext).toContain("Delegated agent (Realm)");
     expect(started.systemContext).toContain("Refactor the parser");
-    // The preamble states the REMAINING budget, not a flat prohibition. A depth-1 child under the
-    // default max of 2 has one level left, and telling it otherwise would cost the whole budget.
+    // The preamble states the REMAINING budget, not a flat prohibition. A depth-1 child under a
+    // max of 2 has one level left, and telling it otherwise would cost the whole budget.
     expect(started.systemContext).toContain("only 1 level deeper");
     expect(started.systemContext).toContain("depth 1 of 2");
   });
@@ -166,28 +170,40 @@ describe("agent_run — the delegated session", () => {
     expect(fake.seen[0]!.systemContext).not.toContain("This session runs in Realm");
   });
 
-  it("tells a child that has SPENT the budget it cannot delegate — the preamble tracks depth", async () => {
-    const { fake, spaceId, parentId } = await boot({ parentKind: "claude", maxDepth: 1 });
+  it("tells a child at the production depth it cannot delegate, and that it shares the lead's mode", async () => {
+    const { fake, spaceId, parentId } = await boot({ parentKind: "claude" });
     await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "Refactor the parser" });
-    // THE MUTANT: hard-code the "you may delegate" branch and a depth-1 child under maxDepth 1 is
-    // told it may spawn agents that every server-side guard will then refuse.
-    expect(fake.seen[0]!.systemContext).toContain("cannot delegate further");
+    // THE MUTANT: hard-code the "you may delegate" branch and a depth-1 child is told it may spawn
+    // agents that every server-side guard will then refuse.
+    expect(fake.seen[0]!.systemContext).toContain("You cannot delegate: do the work yourself.");
     expect(fake.seen[0]!.systemContext).not.toContain("levels deeper");
+    expect(fake.seen[0]!.systemContext).toContain("same permission mode as the session that started you");
   });
 });
 
-describe("permission cap — min(parent, requested), bypass never granted", () => {
-  it("NEVER inherits bypassPermissions — a bypass parent's child runs default (the safety line)", async () => {
+describe("the child's mode — min(parent, requested), Full access included", () => {
+  it("a Full access lead's child is born in Full access, and the result says so", async () => {
+    // THE MUTANT: the old cap — a bypass parent's child turned into default, and every prompt it
+    // raised piled up on the user (17 of 17 children of Full access leads in the user's own data).
     const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions" });
-    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
-    expect(childOf(spaceId, parentId).permissionMode).toBe("default");
+    const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    expect(childOf(spaceId, parentId).permissionMode).toBe("bypassPermissions");
+    expect(text(result)).toContain("It runs in Full access, the same as you.");
   });
 
-  it("NEVER grants a requested bypass — it degrades to default and the result says so", async () => {
-    const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions" });
-    const result = await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go", constraints: { permissionMode: "bypassPermissions" } });
+  it("holds a requested Full access to the lead's mode, and says it was capped", async () => {
+    const { spaceId, parentId } = await boot({ parentMode: "default" });
+    const result = await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "go", constraints: { permissionMode: "bypassPermissions" } });
     expect(childOf(spaceId, parentId).permissionMode).toBe("default");
-    expect(text(result)).toContain("bypassPermissions was requested but is never granted");
+    expect(text(result)).toContain("Full access was requested; capped at your mode, Ask each time.");
+    await app.agentRuns.wait({ sessionId: parentId, spaceId }, {});
+  });
+
+  it("writes how the mode came to be on the child's record", async () => {
+    // THE MUTANT: no audit trail — nothing says why an agent is in Full access.
+    const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions" });
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go", constraints: { permissionMode: "acceptEdits" } });
+    expect(app.agentRuns.record(childOf(spaceId, parentId).id)?.mode).toEqual({ requested: "acceptEdits", granted: "acceptEdits", inherited: false });
   });
 
   it("caps a requested mode at the parent's — a default parent cannot mint an acceptEdits child", async () => {
@@ -226,6 +242,19 @@ describe("permission cap — min(parent, requested), bypass never granted", () =
 });
 
 describe("the depth budget — a wall replaced by a countdown, enforced server-side", () => {
+  it("at the production depth, a child cannot start sub-agents — only the main session orchestrates", async () => {
+    // THE MUTANT: MAX_DELEGATION_DEPTH back at 2 — every child keeps the agent_run family.
+    const { spaceId, parentId } = await boot();
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const child = childOf(spaceId, parentId);
+    expect(app.agentRuns.canDelegate(child.id)).toBe(false);
+    const provider = createRealmAgentProvider(app.browserAgents, { providerEnabled: () => true }, app.agentRuns);
+    expect(await provider.tools({ sessionId: child.id, spaceId })).toEqual([]);
+    const refused = await app.agentRuns.start({ sessionId: child.id, spaceId }, { goal: "a grandchild" });
+    expect(refused.isError).toBe(true);
+    expect(app.sessions.list(spaceId)).toHaveLength(2);
+  });
+
   it("a SPENT child lists no realm-agent tools and is refused by all three layers", async () => {
     // maxDepth 1 makes the first child a spent one, which is exactly the old depth-1 rule — so this
     // is the original recursion-guard test, re-pinned at the budget's edge instead of at depth 1.
@@ -463,6 +492,16 @@ describe("environments — named, fresh worktree, or the space primary", () => {
     expect(env.path).toBe(join(home, "worktrees", spaceId, "fix-login"));
     expect(child.cwd).toBe(env.path);
     expect(git(env.path, "rev-parse", "--abbrev-ref", "HEAD").trim()).toMatch(/fix-login/);
+  });
+
+  it("newWorktree: true names the worktree's branch after the sub-agent's title", async () => {
+    // THE MUTANT: the worktree named from the goal's first line — "realm/you-are-implementing-a-…".
+    const { spaceId, folder, parentId } = await boot();
+    initRepo(folder);
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { title: "Meta ads: Hallow", goal: "You are researching paid social.\nFind Hallow's ads", constraints: { newWorktree: true } });
+    const env = new EnvironmentsStore(app.db).get(childOf(spaceId, parentId).environmentId)!;
+    expect(env.branch).toMatch(/meta-ads-hallow$/);
+    expect(env.path).toContain("meta-ads-hallow");
   });
 
   it("newWorktree: true titles the worktree from the goal's first words", async () => {
@@ -826,3 +865,173 @@ function handleIn(result: string): string {
   expect(m, `no handle in: ${result}`).toBeTruthy();
   return m![1]!;
 }
+
+/**
+ * A lead blocked in agent_wait or agent_run says nothing on the wire unless the tool does — and
+ * Claude aborted such calls at 300 s. These pin what the delegation tools report while they wait, and
+ * what happens when the caller gives up on the call.
+ */
+describe("long delegation calls report progress and honour cancellation", () => {
+  it("agent_wait reports how many finished and names who it is still waiting on", async () => {
+    // THE MUTANT: awaitRuns called without onTick — the call is silent until it answers.
+    const { spaceId, parentId } = await boot({ script: longScript(12), delayMs: 25 });
+    const started = await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" });
+    expect(started.isError).toBe(false);
+    const child = childOf(spaceId, parentId);
+    const reports: { message: string; done?: number; total?: number }[] = [];
+    const result = await app.agentRuns.wait({ sessionId: parentId, spaceId, progress: (message, done, total) => reports.push({ message, done, total }) }, {});
+    expect(result.isError).toBe(false);
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports[0]).toEqual({ message: `0 of 1 sub-agent finished; waiting on ${child.title}`, done: 0, total: 1 });
+  });
+
+  it("agent_run reports the child by name with how long it has been working", async () => {
+    const { spaceId, parentId } = await boot({ script: longScript(12), delayMs: 25 });
+    const reports: string[] = [];
+    const result = await app.agentRuns.run({ sessionId: parentId, spaceId, progress: (m) => reports.push(m) }, { goal: "Count the files" });
+    expect(result.isError).toBe(false);
+    const child = childOf(spaceId, parentId);
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports[0]).toMatch(new RegExp(`^${child.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} working, 0:0\\d$`));
+  });
+
+  it("a cancelled agent_wait collects nothing — the next wait still gets the report", async () => {
+    // THE MUTANT: ignore the signal — the cancelled call goes on listening, and claims the report for
+    // a caller that will never read it.
+    const { spaceId, parentId } = await boot({ script: longScript(10), delayMs: 25 });
+    await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 30);
+    const cancelled = await app.agentRuns.wait({ sessionId: parentId, spaceId, signal: controller.signal }, {});
+    expect(cancelled.isError).toBe(true);
+    expect(text(cancelled)).toContain("The wait was cancelled");
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, {});
+    expect(collected.isError).toBe(false);
+    expect(text(collected)).toContain("All 1 delegated agent finished");
+  });
+
+  it("a cancelled agent_run leaves its child running, and agent_wait collects it", async () => {
+    // THE MUTANT: end the run on cancel — the child's report is then held by nobody.
+    const { spaceId, parentId } = await boot({ script: longScript(10), delayMs: 25 });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 30);
+    const cancelled = await app.agentRuns.run({ sessionId: parentId, spaceId, signal: controller.signal }, { goal: "Count the files" });
+    expect(cancelled.isError).toBe(true);
+    expect(text(cancelled)).toContain("still running");
+    expect(text(app.agentRuns.status({ sessionId: parentId, spaceId }))).toContain(`${childOf(spaceId, parentId).id}: running`);
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, {});
+    expect(text(collected)).toContain("All 1 delegated agent finished");
+  });
+});
+
+describe("the lead's mode reaches its running children", () => {
+  const script: FakeScript = [
+    { on: "quick job", emit: [{ kind: "text", text: "FINAL: quick" }] },
+    ...longScript(60),
+  ];
+
+  it("lowering the lead lowers a running child above the new mode, and nothing else", async () => {
+    // THE MUTANTS: no cascade; cascading a settled child; cascading upward (raising the lead raises
+    // a child it had lowered).
+    const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions", script, delayMs: 50 });
+    const ctx = { sessionId: parentId, spaceId };
+    // Settled but not yet collected: still in the registry, holding a report rather than a process.
+    await app.agentRuns.start(ctx, { goal: "quick job" });
+    const settled = childOf(spaceId, parentId);
+    await waitFor(() => text(app.agentRuns.status(ctx)).includes("finished (done)"));
+    await app.agentRuns.start(ctx, { goal: "long work" });
+    await app.agentRuns.start(ctx, { goal: "long read-only look", constraints: { permissionMode: "plan" } });
+    const kids = () => app.sessions.list(spaceId).filter((x) => x.id !== parentId && x.id !== settled.id);
+    const [working, planning] = [kids().find((k) => k.permissionMode === "bypassPermissions")!, kids().find((k) => k.permissionMode === "plan")!];
+
+    await app.sessions.setOptions(parentId, { permissionMode: "default" });
+    expect(app.sessions.get(working.id).permissionMode).toBe("default");
+    expect(app.sessions.get(planning.id).permissionMode).toBe("plan");
+    expect(app.sessions.get(settled.id).permissionMode).toBe("bypassPermissions");
+
+    await app.sessions.setOptions(parentId, { permissionMode: "bypassPermissions" });
+    expect(app.sessions.get(working.id).permissionMode).toBe("default");
+    await app.sessions.interrupt(parentId);
+  }, 20_000);
+});
+
+describe("the budget is working time", () => {
+  it("a child held on the user's permission past its whole budget still finishes, not times out", async () => {
+    // THE MUTANT: a fixed deadline — the child is interrupted for a wait the user caused.
+    const { spaceId, parentId } = await boot({
+      timeouts: { baseMs: 400, perTurnMs: 0, pollMs: 20 },
+      script: [{ on: "You are a delegated agent.", emit: [
+        { kind: "tool", name: "Bash", input: { command: "pnpm test" }, needsPermission: true, result: "ok" },
+        { kind: "text", text: "FINAL: tests pass" },
+      ] }],
+    });
+    const ctx = { sessionId: parentId, spaceId };
+    await app.agentRuns.start(ctx, { goal: "run the tests" });
+    const child = childOf(spaceId, parentId);
+    await waitFor(() => app.sessions.get(child.id).status === "waiting_permission");
+    await new Promise((r) => setTimeout(r, 1000));
+    const ask = app.sessions.events(child.id, 0, 500).map((e) => e.event).find((e) => e.type === "permission_request");
+    await app.sessions.respondPermission(child.id, ask!.type === "permission_request" ? ask!.payload.requestId : "", "allow");
+    const result = await app.agentRuns.wait(ctx, {});
+    expect(text(result)).toContain("All 1 delegated agent finished");
+    expect(text(result)).toContain("FINAL: tests pass");
+  }, 20_000);
+});
+
+describe("titles — the task's name, not the boilerplate", () => {
+  it("takes the caller's title, and names the child by its task when there is none", async () => {
+    // THE MUTANTS: the title argument ignored; the old "Agent: <first line>".
+    const { spaceId, parentId } = await boot();
+    const ctx = { sessionId: parentId, spaceId };
+    const started = await app.agentRuns.start(ctx, { title: "Theme migration", goal: "You are implementing a feature. Write the migration." });
+    expect(text(started)).toContain('("Theme migration")');
+    await app.agentRuns.start(ctx, { goal: "Read-only research task. Repo: /Users/c/realm. Find every caller of setOptions." });
+    const titles = app.sessions.list(spaceId).filter((x) => x.id !== parentId).map((x) => x.title).sort();
+    expect(titles).toEqual(["Find every caller of setOptions", "Theme migration"]);
+    await app.agentRuns.wait(ctx, {});
+  });
+
+  it("lets a title generator improve a name read out of the goal, and never one the caller gave", async () => {
+    // THE MUTANT: suggestTitle called whatever the caller said — the lead's own name overwritten.
+    const asked: string[] = [];
+    const { spaceId, parentId } = await boot({ titleGenerator: async (t) => { asked.push(t); return "Setter audit"; } });
+    const ctx = { sessionId: parentId, spaceId };
+    await app.agentRuns.run(ctx, { title: "Kept as given", goal: "Look at the setters." });
+    await app.agentRuns.run(ctx, { goal: "Read-only research task. Find every caller of setOptions." });
+    await waitFor(() => app.sessions.list(spaceId).some((x) => x.title === "Setter audit"));
+    expect(app.sessions.list(spaceId).filter((x) => x.id !== parentId).map((x) => x.title).sort()).toEqual(["Kept as given", "Setter audit"]);
+    expect(asked).toEqual(["Read-only research task. Find every caller of setOptions."]);
+  });
+
+  it("renames, once, the children still wearing the old generated title — never one renamed by hand", async () => {
+    // THE MUTANTS: matching on the prefix alone (a hand-renamed "Agent: mine" gets clobbered), and a
+    // repair that is not idempotent.
+    const { home, spaceId, parentId } = await boot();
+    const ctx = { sessionId: parentId, spaceId };
+    await app.agentRuns.run(ctx, { goal: "You are implementing a feature. Add the font-size picker." });
+    await app.agentRuns.run(ctx, { goal: "Read-only research task. Find the callers." });
+    const [a, b] = app.sessions.list(spaceId).filter((x) => x.id !== parentId);
+    const items = new ItemsStore(app.db);
+    const sessions = new SessionsStore(app.db);
+    // Both as a build before this one left them: the old string on the session and on its item…
+    for (const s of [a!, b!]) {
+      const old = legacyTitle("Agent: ", app.agentRuns.record(s.id)!.goal);
+      sessions.update({ id: s.id, title: old });
+      items.update({ id: items.findByRefId(s.id)!.id, title: old });
+    }
+    // …and the second renamed by hand since, which touches the item alone.
+    items.update({ id: items.findByRefId(b!.id)!.id, title: "Agent: my callers list" });
+    const before = sessions.get(b!.id)!.title;
+    await app.close();
+
+    const reboot = async () => {
+      app = await createApp({ home, port: 0, adapters: { fake: new CaptureFake({ script: CHILD_SCRIPT }) }, agentRun: { timeouts: { baseMs: 5000, perTurnMs: 0, pollMs: 20 } } });
+    };
+    await reboot();
+    expect(app.sessions.get(a!.id).title).toBe("Add the font-size picker");
+    expect(new ItemsStore(app.db).findByRefId(a!.id)!.title).toBe("Add the font-size picker");
+    expect(app.sessions.get(b!.id).title).toBe(before);
+    expect(new ItemsStore(app.db).findByRefId(b!.id)!.title).toBe("Agent: my callers list");
+    expect(app.agentRuns.retitleLegacyChildren()).toBe(0);
+  });
+});

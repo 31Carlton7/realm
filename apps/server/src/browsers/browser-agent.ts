@@ -2,14 +2,16 @@ import { z } from "zod";
 import { AGENT_SKILL_SUPPORT, BrowserAgentConstraintsSchema, type AgentKind } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { DelegationEngine } from "../delegation/engine";
+import { childPermissionMode } from "../delegation/dispatch";
 import type { AgentRunService } from "../delegation/agent-run";
-import { AGENT_RUN_FAMILY, AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL, AGENT_WAIT_TOOL_NAME } from "../delegation/agent-run";
+import { taskName } from "../delegation/dispatch";
+import { AGENT_RUN_FAMILY, AGENT_RUN_TOOL_NAME, TITLE_DESCRIPTION, legacyTitle, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL, AGENT_WAIT_TOOL_NAME } from "../delegation/agent-run";
 import type { ReviewService } from "../delegation/review";
 import { AGENT_REVIEW_TOOL, AGENT_REVIEW_TOOL_NAME } from "../delegation/review";
 import type { AskService } from "../delegation/ask";
 import { AGENT_ANSWER_TOOL, AGENT_ANSWER_TOOL_NAME, AGENT_ASK_TOOL, AGENT_ASK_TOOL_NAME, AGENT_PEERS_TOOL, AGENT_PEERS_TOOL_NAME } from "../delegation/ask";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
-import { clip, err, ok } from "../mcp/tool-result";
+import { err, ok } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
 import { BROWSER_PROVIDER_NAME } from "./agent-tools";
@@ -39,6 +41,7 @@ export type ChildRecord = {
 
 const RunArgs = z.object({
   goal: z.string().min(1).max(4000),
+  title: z.string().trim().min(1).max(40).optional(),
   constraints: BrowserAgentConstraintsSchema.optional(),
 });
 
@@ -76,7 +79,7 @@ export class BrowserAgentService {
 
   constructor(private readonly d: {
     settings: SettingsLike;
-    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt">;
+    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt" | "listAll" | "suggestTitle" | "retitleIf">;
     rpc: Pick<RpcServer, "broadcast">;
     /** The shared settle/drain + run registry (Plan 13 W1) — ONE engine instance for this service and
      *  `AgentRunService`, so one-run-per-parent and parent-interrupt-cancels span both tools. */
@@ -189,6 +192,19 @@ export class BrowserAgentService {
     if (this.childRecord(sessionId)) this.d.settings.set(childKey(sessionId), null);
   }
 
+  /** `AgentRunService.retitleLegacyChildren`, for browser-agent children — once per boot, renaming
+   *  only a child whose session and item both still read the old generated title exactly. */
+  retitleLegacyChildren(): number {
+    let renamed = 0;
+    for (const s of this.d.sessions.listAll()) {
+      if (s.dispatchedBy?.kind !== "browser_agent_run") continue;
+      const goal = this.childRecord(s.id)?.goal;
+      if (goal === undefined) continue;
+      if (this.d.sessions.retitleIf(s.id, legacyTitle("Browser agent: ", goal), taskName(goal))) renamed += 1;
+    }
+    return renamed;
+  }
+
   /* ------------------------------------- the tool itself ------------------------------------- */
 
   async run(ctx: ProviderCallContext, rawArgs: unknown): Promise<CallToolResult> {
@@ -202,13 +218,15 @@ export class BrowserAgentService {
 
     let parent;
     try { parent = this.d.sessions.get(ctx.sessionId); } catch { return err("the calling session no longer exists."); }
-    // THE SAFETY LINE: bypassPermissions is never inherited. A delegated agent does not get the
-    // parent's full access — it runs `default`, and its permission_requests surface on its own
-    // visible session for the user to answer. Every other mode (default/acceptEdits/plan) carries over.
-    const permissionMode = parent.permissionMode === "bypassPermissions" ? "default" : parent.permissionMode;
     // The child keeps the caller's agent kind when that kind can take Realm's skills injection (the
     // playbook has to reach it); otherwise it falls back (claude in production).
     const agentKind = AGENT_SKILL_SUPPORT[parent.agentKind] === "injected" ? parent.agentKind : (this.d.fallbackKind ?? "claude");
+    // The parent's mode, Full access included — the same rule as agent_run's children
+    // (`childPermissionMode`). What full access does NOT reach is the browser broker's own floor: a
+    // password field and a saved credential still ask, whatever the mode.
+    const granted = childPermissionMode(parent.permissionMode, undefined, agentKind);
+    if (!granted.ok) return err(granted.message);
+    const permissionMode = granted.mode;
     const maxActs = constraints?.maxActs ?? DEFAULT_MAX_ACTS;
     const allowedOrigins = constraints?.allowedOrigins ?? null;
 
@@ -216,7 +234,8 @@ export class BrowserAgentService {
     try {
       created = this.d.sessions.create({
         spaceId: ctx.spaceId, agentKind, projectId: null, model: null, effort: null, permissionMode,
-        title: clip(`Browser agent: ${goal.split("\n")[0]}`, 40),
+        // The task's name, as agent_run's children are named — see `taskName`.
+        title: parsed.data.title ?? taskName(goal),
         // The dispatch origin (Plan 13 W1) — the seam W2's Tasks lens reads.
         dispatchedBy: { sessionId: ctx.sessionId, kind: "browser_agent_run" },
       });
@@ -224,6 +243,7 @@ export class BrowserAgentService {
       return err(`could not create the browser-agent session: ${e instanceof Error ? e.message : String(e)}`);
     }
     const childId = created.session.id;
+    if (parsed.data.title === undefined) this.d.sessions.suggestTitle(childId, created.session.title, goal);
     // Persisted BEFORE the first send: `ensureLive` reads the toolset restriction and the policy
     // preamble off this record when it starts the adapter, so the record must exist first.
     const record: ChildRecord = { parentSessionId: ctx.sessionId, goal, allowedOrigins, maxActs };
@@ -237,7 +257,15 @@ export class BrowserAgentService {
     try {
       const fromSeq = created.session.lastEventSeq;
       await this.d.sessions.send(childId, { text: childMessage(goal), attachments: [] });
-      const settled = await this.d.engine.drain(childId, fromSeq, run, Date.now() + t.baseMs + maxActs * t.perActMs, t.pollMs);
+      // What the call says while it waits, so a long browse is never silent on the wire.
+      const working = (): void => {
+        if (!ctx.progress) return;
+        let needsYou = false;
+        try { needsYou = this.d.sessions.get(childId).status === "waiting_permission"; } catch { /* deleted; drain says so next */ }
+        const s = Math.floor((Date.now() - run.startedAt) / 1000);
+        ctx.progress(`${created.session.title} ${needsYou ? "needs you" : "working"}, ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`);
+      };
+      const settled = await this.d.engine.drain(childId, fromSeq, run, Date.now() + t.baseMs + maxActs * t.perActMs, t.pollMs, working);
       // The settle half of the `agentOpened` idiom above: the same ids, plus how the run ended. Only
       // the child's SESSION pane is named — the browser panes it opened are a different object, and
       // closing one of those destroys its page (see `closeFromLayout`).
@@ -349,11 +377,12 @@ export function createRealmAgentProvider(service: BrowserAgentService, mcp: { pr
 const RUN_TOOL: Tool = {
   name: RUN_TOOL_NAME,
   description:
-    "Delegate ONE web-browsing goal to a dedicated browser agent: a real, visible Realm session in this space, restricted to the realm-browser tools. This call blocks until the agent finishes and returns its final report plus its session id (that session's pane holds the full trace). The agent never inherits bypassPermissions — its mutating page actions prompt the user on its own session. Depth-1 only: the browser agent cannot delegate further.",
+    "Delegate ONE web-browsing goal to a dedicated browser agent: a real, visible Realm session in this space, restricted to the realm-browser tools. This call blocks until the agent finishes and returns its final report plus its session id (that session's pane holds the full trace). The agent runs in your permission mode, Full access included; a password field or a saved credential still asks the user whatever the mode. The browser agent cannot delegate further.",
   inputSchema: {
     type: "object",
     properties: {
       goal: { type: "string", description: "The browsing goal, self-contained (the agent sees only this plus its policy)." },
+      title: { type: "string", description: TITLE_DESCRIPTION },
       constraints: {
         type: "object",
         properties: {

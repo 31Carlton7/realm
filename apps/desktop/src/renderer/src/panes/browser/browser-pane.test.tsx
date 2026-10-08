@@ -710,14 +710,16 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Saved week-3.pdf to downloads/");
   });
 
-  it("a space with no project says so rather than inventing a destination", async () => {
+  it("a space whose folder is gone says so rather than inventing a destination", async () => {
     const f = await mountPane();
     f.setDownloadDir(null);
     await act(async () => { f.blockDownload(blocked()); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
 
-    expect(screen.getByRole("status")).toHaveTextContent("no project folder");
+    expect(screen.getByRole("status")).toHaveTextContent("can't be found");
     expect(f.calls.some((c) => c.startsWith("save:"))).toBe(false);
+    // The Save stays, so the user can retry rather than being stranded.
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
   it("a failed save reports main's reason", async () => {
