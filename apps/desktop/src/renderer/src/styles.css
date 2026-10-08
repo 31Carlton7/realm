@@ -816,12 +816,6 @@ kbd { font: 11px var(--font-mono); }
 /* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
 .group-label { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding: 12px 8px 4px; }
 
-.pinned-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding-bottom: 4px; }
-.tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1; border-radius: var(--r-ctl);
-  background: var(--rl-panel); color: var(--rl-text-bright); padding: 4px; min-width: 0; }
-.tile:hover { background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-panel); }
-.tile-title { font-size: 10px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
-.tile-rename { aspect-ratio: auto; grid-column: 1 / -1; padding: 0; }
 
 .item-list { display: flex; flex-direction: column; gap: 1px; }
 .item { position: relative; display: flex; align-items: center; border-radius: var(--r-ctl); min-height: 32px; font-size: 14px; }

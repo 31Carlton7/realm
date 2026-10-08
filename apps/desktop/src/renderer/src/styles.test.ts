@@ -1023,7 +1023,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        boxes whose height is fixed by something other than the text (a 44px attachment tile, a 12px
        calendar row, an SVG axis). */
     const EXEMPT = new Set([".md-cite", ".attach-ext", ".cal-month", ".cal-weekday", ".chart-tick",
-      ".summary-step-mark", ".tile-title"]);
+      ".summary-step-mark"]);
     const tooSmall = RULES
       .filter((r) => {
         const m = r.body.match(/font(?:-size)?:\s*(?:[\w-]+\s+)*?([\d.]+)px/);
@@ -1043,7 +1043,7 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        exceptions stand here too. THE mutant: put any one rule back at 12.5. */
     const LADDER = new Set([11, 12, 13, 14, 15, 18, 20, 24, 28]);
     const EXEMPT = new Set([".md-cite", ".attach-ext", ".cal-month", ".cal-weekday", ".chart-tick",
-      ".summary-step-mark", ".tile-title",
+      ".summary-step-mark",
       // A display numeral: the one figure on the usage page that is the page's subject.
       ".stat-value-hero",
       // Plan 26's readable-type redesign of Settings, the Library, Memory, Usage and first run set

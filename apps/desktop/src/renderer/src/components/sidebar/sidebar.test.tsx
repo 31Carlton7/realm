@@ -464,7 +464,7 @@ describe("a session's row", () => {
     fireEvent.contextMenu(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
     const pinned = await screen.findByRole("region", { name: "Pinned" });
-    expect(within(pinned).getByRole("button", { name: "Wants a yes" })).toHaveAttribute("data-tile", "true");
+    expect(within(pinned).getByRole("button", { name: "Wants a yes in Homework — needs permission" })).toBeInTheDocument();
   });
 
   it("renames from its menu, committing on Enter", async () => {
@@ -508,6 +508,8 @@ describe("a fan-out", () => {
 });
 
 describe("Pinned", () => {
+  const pinnedRegion = () => screen.findByRole("region", { name: "Pinned" });
+
   it("holds the profile's pinned items from every one of its spaces, and opens them where they are", async () => {
     const { store } = await mount(home({
       items: {
@@ -516,9 +518,10 @@ describe("Pinned", () => {
         s3: [sessionItem("c", "s3", "Notes", { pinned: true })],
       },
     }));
-    const pinned = await screen.findByRole("region", { name: "Pinned" });
-    await waitFor(() => expect(within(pinned).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["GitHub", "Wants a yes"]));
-    fireEvent.click(within(pinned).getByRole("button", { name: "Wants a yes" }));
+    const pinned = await pinnedRegion();
+    await waitFor(() => expect([...pinned.querySelectorAll(".item-row")].map((b) => b.getAttribute("aria-label")))
+      .toEqual(["GitHub in Versed", "Wants a yes in Homework — needs permission"]));
+    fireEvent.click(within(pinned).getByRole("button", { name: /^Wants a yes/ }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
   });
 
@@ -530,8 +533,74 @@ describe("Pinned", () => {
   it("draws a pinned browser with its page's own icon", async () => {
     const ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9h";
     await mount(home({ items: { s1: [item("i1", "s1", { kind: "browser", refId: "b1", pinned: true, title: "GitHub", favicon: ICON })] } }));
-    expect(within(await screen.findByRole("region", { name: "Pinned" })).getByRole("button", { name: "GitHub" })
+    expect(within(await pinnedRegion()).getByRole("button", { name: /^GitHub/ })
       .querySelector("img.page-icon")?.getAttribute("src")).toBe(ICON);
+  });
+
+  it("wears the state its session's row wears — running, needs you, failed, finished while you were away", async () => {
+    // THE MUTANT: a pin that draws no mark (the old tile), so a finished build says nothing from Pinned.
+    const pin = (id: string, title: string) => sessionItem(id, "s1", title, { pinned: true });
+    await mount(home({
+      items: { s1: [pin("r", "Builds"), pin("w", "Asks"), pin("e", "Broke"), pin("u", "Finished"), pin("q", "Quiet")], s2: [] },
+      sessions: [
+        session("r", "s1", { status: "running" }), session("w", "s1", { status: "waiting_permission" }), session("e", "s1", { status: "error" }),
+        session("u", "s1", { lastEventSeq: 9, seenSeq: 4 }), session("q", "s1", { lastEventSeq: 4, seenSeq: 4 }),
+      ],
+    }));
+    const pinned = await pinnedRegion();
+    const row = (title: string) => within(pinned).getByRole("button", { name: new RegExp(`^${title} in Versed`) });
+    await waitFor(() => expect(row("Builds")).toHaveAccessibleName("Builds in Versed — running"));
+    expect(row("Asks")).toHaveAccessibleName("Asks in Versed — needs permission");
+    expect(row("Broke")).toHaveAccessibleName("Broke in Versed — error");
+    expect(row("Finished")).toHaveAccessibleName("Finished in Versed — new since you were here");
+    expect(row("Quiet")).toHaveAccessibleName("Quiet in Versed");
+    const dot = (title: string) => row(title).querySelector(".status-dot")?.getAttribute("data-status") ?? null;
+    expect(["Builds", "Asks", "Broke", "Finished", "Quiet"].map(dot)).toEqual(["running", "waiting_permission", "error", "unseen", null]);
+    // Finished while away is said twice, as on the rows below: the dot, and the title lifted.
+    expect(row("Finished").closest(".item")).toHaveAttribute("data-unread");
+    expect(row("Quiet").closest(".item")).not.toHaveAttribute("data-unread");
+    // The title is the whole title, in the row's elastic column — not cut to a tile's six letters.
+    expect(row("Finished").querySelector(".item-title")).toHaveTextContent(/^Finished$/);
+  });
+
+  it("counts a lead's sub-agents that need you", async () => {
+    // THE MUTANT: the pin built from the item alone, without `agentsWaiting` — no count, and a lead
+    // whose children are stuck reads as merely running.
+    const kid = (id: string) => session(id, "s1", { title: `Kid ${id}`, status: "waiting_permission", dispatchedBy: { kind: "agent_run", sessionId: "a" } });
+    await mount(home({
+      items: { s1: [sessionItem("a", "s1", "Alpha", { pinned: true }), sessionItem("k1", "s1", "Kid k1"), sessionItem("k2", "s1", "Kid k2")] },
+      sessions: [session("a", "s1", { title: "Alpha", status: "running" }), kid("k1"), kid("k2")],
+    }));
+    const pin = await within(await pinnedRegion()).findByRole("button", { name: "Alpha in Versed, 2 sub-agents need you — running" });
+    expect(pin.querySelector(".item-count")).toHaveTextContent("2");
+  });
+
+  it("leads with what the item is: the session's agent, a page's icon, a document's glyph", async () => {
+    // THE MUTANT: every pin the same chat bubble, which is what made twelve tiles indistinguishable.
+    await mount(home({
+      items: { s1: [sessionItem("a", "s1", "Alpha", { pinned: true }), item("i-doc", "s1", { kind: "documents", refId: "d1", title: "Spec", pinned: true })], s2: [] },
+      sessions: [session("a", "s1", { title: "Alpha", agentKind: "claude" })],
+    }));
+    const pinned = await pinnedRegion();
+    await waitFor(() => expect(within(pinned).getByRole("button", { name: /^Alpha/ }).querySelector("svg[data-brand]")).toHaveAttribute("data-brand", "claude"));
+    expect(within(pinned).getByRole("button", { name: /^Spec/ }).querySelector("svg")).not.toBeNull();
+  });
+
+  it("unpins from the row, and the pin leaves", async () => {
+    // THE MUTANT: the session row's Archive in the pin's slot — a click that shelves the session.
+    await mount(home({ items: { s1: [sessionItem("a", "s1", "Alpha", { pinned: true })], s2: [] } }));
+    fireEvent.click(within(await pinnedRegion()).getByRole("button", { name: "Unpin Alpha" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Pinned" })).toBeNull());
+    // Still a session of its space, not put away.
+    expect(rowsIn("Versed")).toEqual(["Alpha"]);
+  });
+
+  it("drags into a pane like any row, carrying its item", async () => {
+    await mount(home({ items: { s1: [item("i-gh", "s1", { kind: "browser", refId: "br1", title: "GitHub", pinned: true })], s2: [] } }));
+    const row = within(await pinnedRegion()).getByRole("button", { name: /^GitHub/ }).closest(".item")!;
+    const data: Record<string, string> = {};
+    fireEvent.dragStart(row, { dataTransfer: { setData: (k: string, v: string) => { data[k] = v; }, effectAllowed: "" } });
+    expect(data["application/x-realm-item"]).toBe("i-gh");
   });
 });
 
