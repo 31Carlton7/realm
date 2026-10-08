@@ -43,6 +43,28 @@ function toolOutputFor(item: Bag): string {
   }
 }
 
+/** Codex's built-in image tool: the v2 `imageGeneration` ThreadItem, or the `Extension` form its own
+ *  rollouts record (`kind: "image_gen.generation"`). Both carry `savedPath`, `revisedPrompt` and
+ *  `result` — the picture itself as 1–1.5 MB of base64, which must never reach the session's log. */
+const isImageGeneration = (item: Bag): boolean =>
+  str(item.type) === "imageGeneration" || (str(item.type) === "Extension" && str(item.kind) === "image_gen.generation");
+
+/** The tool_call and tool_result for a finished generation, built field by field so `result` is
+ *  never carried. Emitted only on completion: the item has no path until then. */
+function imageGenerationEvents(id: string, item: Bag): SessionEvent[] {
+  const path = str(item.savedPath);
+  const prompt = str(item.revisedPrompt);
+  const failure = str(item.failure);
+  return [
+    sessionEvent("tool_call", { toolUseId: id, name: "image_generation", input: path ? { path, prompt } : { prompt }, parentToolUseId: null }),
+    sessionEvent("tool_result", {
+      toolUseId: id,
+      content: path ? `Saved ${path}` : failure || "image generation failed",
+      isError: str(item.status) !== "completed" || !path,
+    }),
+  ];
+}
+
 /** Realm's plan-step status from Codex's `TurnPlanStepStatus` — `"pending" | "inProgress" |
  *  "completed"` (`codex app-server generate-ts`, codex 0.146.0). Anything else reads as `pending`:
  *  a status Realm does not recognise must never render as work already done. */
@@ -117,6 +139,7 @@ export function createCodexMapper() {
           if (type === "agentMessage") { openText.set(id, ""); return out; }
           if (type === "reasoning") { openThought.set(id, ""); return out; }
           if (type === "plan") { openPlan.set(id, ""); return out; }
+          if (isImageGeneration(item)) return out;
           const name = toolNameFor(item);
           if (name) { openTools.add(id); out.push(sessionEvent("tool_call", { toolUseId: id, name, input: toolInputFor(item), parentToolUseId: null })); }
           return out; // userMessage starts carry no Realm event
@@ -144,6 +167,7 @@ export function createCodexMapper() {
             if (text) out.push(sessionEvent("thinking", { messageId: id, text }));
             return out;
           }
+          if (isImageGeneration(item)) return imageGenerationEvents(id, item);
           if (openTools.has(id)) {
             openTools.delete(id);
             out.push(sessionEvent("tool_result", { toolUseId: id, content: toolOutputFor(item), isError: str(item.status) !== "completed" }));
