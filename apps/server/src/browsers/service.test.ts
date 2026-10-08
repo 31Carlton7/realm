@@ -210,6 +210,21 @@ describe("browsers RPC", () => {
     c.close();
   });
 
+  it("downloadDir is the project's downloads/, else the space folder's, and nothing for a space that is not there", async () => {
+    /* The pane's Save and the agent's browser_download must write to the same place. THE mutant: the RPC
+       resolving by a different rule from the tool's, so one of them writes where nobody looks. */
+    const home = tempDir("realm-home-");
+    const app = await createApp({ home, port: 0 }); apps.push(app);
+    const c = await client(app.port);
+    const space = await makeSpace(c);
+    expect((await c.call("browsers.downloadDir", { spaceId: space.id })).result).toEqual({ dir: join(space.folderPath, "downloads") });
+    const root = tempDir("realm-proj-");
+    expect((await c.call("projects.create", { spaceId: space.id, name: "Proj", rootPath: root })).ok).toBe(true);
+    expect((await c.call("browsers.downloadDir", { spaceId: space.id })).result).toEqual({ dir: join(root, "downloads") });
+    expect((await c.call("browsers.downloadDir", { spaceId: newId() })).result).toEqual({ dir: null });
+    c.close();
+  });
+
   describe("history and the address field's suggestions (Plan 26 W7c)", () => {
     async function setup() {
       const home = tempDir("realm-home-");

@@ -2711,8 +2711,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Plan 23 W4's blocked-download bar. A ROW between the chrome and the view host, never a floating
    toast: the native view composites over anything inside its rectangle, so a toast there would be
    invisible (W2's no-overlay invariant). Its height comes out of the view's, which the pane's
-   ResizeObserver already syncs. */
-.browser-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: var(--hairline-w) solid var(--rl-hairline); background: var(--rl-hover); }
+   ResizeObserver already syncs. It has no fill of its own: it sits on the chrome's ground, like
+   `.browser-chrome` and `.browser-suggest`, so it reads as part of the toolbar track above it. */
+.browser-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: var(--hairline-w) solid var(--rl-hairline); }
 .browser-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
 .browser-notice-text strong { font-weight: var(--fw-title); color: var(--rl-text-bright); }
 /* Plan 26 W7b's find strip: the download bar's row, holding a field. A strip ABOVE the view like every

@@ -22,9 +22,12 @@ function setup(opts: {
   bridgeResults?: Record<string, unknown>;
   /** W5: stands in for `BrowserAgentService.checkMutation`. Omitted = no constraints dep at all. */
   checkMutation?: (tool: string, url?: string) => string | null;
-  /** Plan 23: the space's project root. `null` = a space with no project, which has no download
-   *  destination and must refuse. */
+  /** Plan 23: the space's project root. `null` = a space with no project, whose downloads then land
+   *  in the space's own folder. */
   projectRoot?: string | null;
+  /** The space's own folder, as `spaces.get` reports it. `null` = the space no longer exists, which is
+   *  the one case with no download destination. */
+  spaceFolder?: string | null;
   /** Plan 26: the space's folder — `browser_upload`'s default readable root. `null` = the harness
    *  cannot say where the space lives, and every path is then shown in full. */
   spaceRoot?: string | null;
@@ -66,6 +69,12 @@ function setup(opts: {
       list: (spaceId) => {
         const root = opts.projectRoot === undefined ? "/tmp/proj" : opts.projectRoot;
         return root === null ? [] : [{ id: "p1", spaceId, name: "Notes", rootPath: root, defaultBranch: "main", createdAt: 1, updatedAt: 1 }];
+      },
+    },
+    spaces: {
+      get: () => {
+        const folder = opts.spaceFolder === undefined ? "/tmp/space" : opts.spaceFolder;
+        return folder === null ? null : { folderPath: folder };
       },
     },
     browserService: {
@@ -786,13 +795,38 @@ describe("browser_download", () => {
     expect(Object.keys(sent.params).sort()).toEqual(["browserId", "dir", "ref"]);
   });
 
-  it("a space with NO project refuses, before any prompt — no invented destination", async () => {
-    const { call, calls } = setup({ projectRoot: null });
+  it("a space with NO project downloads into the space's own folder, behind the same card", async () => {
+    /* Most spaces have no project (15 of the owner's 17). The mutants: the old refusal, a fallback to
+       ~/Downloads or some Realm-owned directory, and a fallback that skips the permission gate. */
+    const { call, calls } = setup({ projectRoot: null, spaceFolder: "/Users/x/Realm/school/ee" });
+    const r = await call("browser_download", { browserId: "b1", ref: 11 });
+    expect(r.isError).toBeFalsy();
+    expect(calls.gates).toHaveLength(1);
+    expect(calls.bridge.find((b) => b.op === "download")!.params.dir).toBe("/Users/x/Realm/school/ee/downloads");
+    expect(text(r)).toContain("downloads/");
+  });
+
+  it("a project still wins over the space folder", async () => {
+    const { call, calls } = setup({ projectRoot: "/p", spaceFolder: "/s" });
+    await call("browser_download", { browserId: "b1", ref: 11 });
+    expect(calls.bridge.find((b) => b.op === "download")!.params.dir).toBe("/p/downloads");
+  });
+
+  it("a space that no longer exists refuses, before any prompt — no invented destination", async () => {
+    // Main's absolute-path guard is the only other defence against a null or relative `dir`.
+    const { call, calls } = setup({ projectRoot: null, spaceFolder: null });
     const r = await call("browser_download", { browserId: "b1", ref: 11 });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("no project");
+    expect(text(r)).toContain("no longer exists");
     expect(calls.gates).toHaveLength(0);
     expect(calls.bridge.some((b) => b.op === "download")).toBe(false);
+  });
+
+  it("the success text names downloads/ and never sends the agent looking for a project", async () => {
+    const { call } = setup({ projectRoot: null });
+    const r = await call("browser_download", { browserId: "b1", ref: 11 });
+    expect(text(r)).toContain("downloads/week-3.pdf");
+    expect(text(r)).not.toContain("project");
   });
 
   it("MUTANT 7: a page-authored filename cannot break out of the tool result's prose", async () => {
@@ -844,11 +878,18 @@ describe("browser_download", () => {
   });
 
   it("MUTANT 8: a BATCHED download repeats every validation — it does not route around the destination rule", async () => {
-    const { call, calls } = setup({ projectRoot: null });
+    const { call, calls } = setup({ projectRoot: null, spaceFolder: null });
     const r = await call("browser_batch", { actions: [{ tool: "browser_download", arguments: { browserId: "b1", ref: 11 } }] });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("no project");
+    expect(text(r)).toContain("no longer exists");
     expect(calls.bridge.some((b) => b.op === "download")).toBe(false);
+  });
+
+  it("a batched download in a space with no project lands where the plain tool's does", async () => {
+    const { call, calls } = setup({ projectRoot: null });
+    const r = await call("browser_batch", { actions: [{ tool: "browser_download", arguments: { browserId: "b1", ref: 11 } }] });
+    expect(r.isError).toBeFalsy();
+    expect(calls.bridge.find((b) => b.op === "download")!.params.dir).toBe("/tmp/space/downloads");
   });
 
   it("MUTANT 8: a batched download still honors the constraint check", async () => {

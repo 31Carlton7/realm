@@ -96,8 +96,7 @@ export type BrowserReadKind = z.infer<typeof BrowserReadKindSchema>;
  *     expired or been spent. Default-deny is the resting state of the download handler; this is what
  *     the agent sees when it stays that way.
  *   - `too_large` — a download that streamed past `DOWNLOAD_MAX_BYTES` and was cancelled mid-flight.
- *   - `no_destination` — the space has no project, so there is nowhere a download could land that any
- *     other Realm surface would show the user.
+ *   - `no_destination` — the space no longer exists, so there is nowhere a download could land.
  *
  * A refusal NEVER carries the secret, the page's own text, or anything derived from either.
  */
@@ -413,9 +412,10 @@ export const DOWNLOAD_MAX_BYTES = 100 * 1024 * 1024;
  *  cannot bank the grant for a download it fires later. */
 export const DOWNLOAD_GRANT_TTL_MS = 30_000;
 
-/** The subdirectory of the space's project root that downloads land in — a fixed name, never
- *  page-influenced and never configurable per call. Files appear here as untracked in the diff pane,
- *  which is the review the feature relies on the user actually getting. */
+/** The subdirectory downloads land in — of the space's project root, or of the space's own folder when
+ *  it has no project. A fixed name, never page-influenced and never configurable per call. Files
+ *  appear here as untracked in the diff pane, which is the review the feature relies on the user
+ *  actually getting. */
 export const DOWNLOAD_DIRNAME = "downloads";
 
 /**
@@ -436,8 +436,9 @@ export type BlockedDownload = { id: string; name: string; ts: number };
  *  made, not a history of everything a page ever tried. */
 export const BLOCKED_DOWNLOAD_TTL_MS = 5 * 60_000;
 
-/** `download` op result. `relPath` is project-relative (`downloads/<name>`), so it is directly
- *  usable by the agent's own file tools without handing it an absolute path to anywhere. */
+/** `download` op result. `relPath` is relative to the folder `downloads/` sits in (`downloads/<name>`),
+ *  so it is directly usable by the agent's own file tools without handing it an absolute path to
+ *  anywhere. */
 export type BrowserDownloadResult =
   | { ok: true; name: string; bytes: number; relPath: string }
   | { ok: false; error: string; refused?: BrowserRefusal };

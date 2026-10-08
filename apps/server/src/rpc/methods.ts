@@ -696,7 +696,7 @@ export function registerMethods(d: Deps): void {
   reg("browsers.profile", (p) => d.browsers.profileOf(p.browserId, d.profiles));
   reg("browsers.update", (p) => { d.browsers.update(p.browserId, p); return { ok: true as const }; });
   reg("browsers.close", (p) => { d.browsers.close(p.browserId); return { ok: true as const }; });
-  reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, p.spaceId) }));
+  reg("browsers.downloadDir", (p) => ({ dir: spaceDownloadDir(d.projects, d.spaces, p.spaceId) }));
   reg("browsers.screenshotDir", (p) => ({ dir: spaceScreenshotDir(d.spaces, p.spaceId) }));
   reg("browsers.suggest", (p) => ({ pages: d.browsers.suggest(p.spaceId, p.query, p.limit) }));
   reg("browsers.recent", (p) => ({ pages: d.browsers.recent(p.spaceId, p.limit) }));

@@ -59,10 +59,11 @@ export const BROWSER_PROVIDER_NAME = "realm-browser";
  */
 export type BrowserAgentToolsDeps = {
   browsers: Pick<BrowsersStore, "get" | "list">;
-  /** Plan 23: resolves a space's project, whose root is the only place a download may land. A space
-   *  with no project has no destination and `browser_download` refuses — deliberately, rather than
-   *  inventing a Realm-owned directory no other surface shows the user. */
+  /** Plan 23: resolves a space's project. Its root is where a download lands when the space has one. */
   projects: Pick<ProjectsStore, "list">;
+  /** The space's own folder, where a download lands when the space has no project (`spaceDownloadDir`).
+   *  Required, so a harness cannot quietly drop the fallback and leave most spaces unable to download. */
+  spaces: { get(id: string): { folderPath: string } | null | undefined };
   /**
    * Plan 26: the space's own folder — the default root a `browser_upload` may read from. Anything
    * outside it is still uploadable, but only with its full path quoted on the approval card, so the
@@ -261,7 +262,7 @@ const TOOLS: Tool[] = [
   {
     name: "browser_download",
     description:
-      `Download the file behind a link or button by its [ref=N], into the space project's ${DOWNLOAD_DIRNAME}/ directory. Asks the user for permission. Any file type is saved, but only from the origin the pane is already on, and only up to ${Math.round(DOWNLOAD_MAX_BYTES / 1024 / 1024)} MB. Returns the project-relative path, which you can then read with your own file tools. Batch this when fetching several files: one prompt covers the batch.`,
+      `Download the file behind a link or button by its [ref=N], into ${DOWNLOAD_DIRNAME}/ in the space's project, or in the space's own folder when it has no project. Asks the user for permission. Any file type is saved, but only from the origin the pane is already on, and only up to ${Math.round(DOWNLOAD_MAX_BYTES / 1024 / 1024)} MB. Returns the path relative to that folder, which you can then read with your own file tools. Batch this when fetching several files: one prompt covers the batch.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -879,7 +880,7 @@ async function runDownload(d: Deps, browserId: string, ref: number, dir: string)
   const result = (await d.bridge.call("download", { browserId, ref, dir })) as BrowserDownloadResult;
   if (!result.ok) return err(`download failed: ${result.error}`);
   const name = clip(result.name.replace(/\s+/g, " "), 120);
-  return ok(`Saved "${name}" (${Math.round(result.bytes / 1024)} KB) into ${DOWNLOAD_DIRNAME}/ in the space's project. Read it at the project-relative path ${clip(result.relPath, 200)}.`);
+  return ok(`Saved "${name}" (${Math.round(result.bytes / 1024)} KB) into ${DOWNLOAD_DIRNAME}/. Read it at ${clip(result.relPath, 200)}.`);
 }
 
 /**
@@ -960,18 +961,24 @@ async function describeDownload(d: Deps, browserId: string, ref: number): Promis
 }
 
 /**
- * Where downloads land for a space: the first project's root. `null` when the space has no project.
+ * Where downloads land for a space: `downloads/` in the first project's root, or, when the space has no
+ * project, in the space's own folder — the folder Documents shows, sessions run in, and
+ * `spaceScreenshotDir` already writes to. `null` only for a space that is not there.
  *
  * Exported because the USER's own downloads (Plan 23 W4, via the pane's blocked-download bar) must
  * land in exactly the same place as the agent's, resolved by exactly the same rule. Two resolvers
  * would eventually disagree, and the one that drifted would be writing files somewhere nobody looks.
  */
-export function spaceDownloadDir(projects: Pick<ProjectsStore, "list">, spaceId: string): string | null {
-  const project = projects.list(spaceId)[0];
-  return project ? join(project.rootPath, DOWNLOAD_DIRNAME) : null;
+export function spaceDownloadDir(
+  projects: Pick<ProjectsStore, "list">,
+  spaces: { get(id: string): { folderPath: string } | null | undefined },
+  spaceId: string,
+): string | null {
+  const root = projects.list(spaceId)[0]?.rootPath ?? spaces.get(spaceId)?.folderPath;
+  return root ? join(root, DOWNLOAD_DIRNAME) : null;
 }
 
-const downloadDir = (d: Deps, spaceId: string): string | null => spaceDownloadDir(d.projects, spaceId);
+const downloadDir = (d: Deps, spaceId: string): string | null => spaceDownloadDir(d.projects, d.spaces, spaceId);
 
 /**
  * Where a pane's screenshots land: the space's own folder, under `screenshots/`. Beside
@@ -984,7 +991,7 @@ export function spaceScreenshotDir(spaces: { get(id: string): { folderPath: stri
 }
 
 const noDestination =
-  "refused: this space has no project, so there is nowhere for a download to land where the user would see it. Add a project to the space first (its folder is where downloads go, and they show up in the diff pane).";
+  "refused: this space no longer exists, so there is nowhere for a download to land.";
 
 /* ---------------------------------- the observer ---------------------------------- */
 

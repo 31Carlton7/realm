@@ -841,8 +841,8 @@ export const Methods = {
     failed: z.boolean().optional() }), result: z.object({ ok: z.literal(true) }) },
   "browsers.close":  { params: z.object({ browserId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /**
-   * Where a download from this space's panes lands (Plan 23): `<project root>/downloads`, or null
-   * when the space has no project and therefore no destination any Realm surface would show.
+   * Where a download from this space's panes lands (Plan 23): `<project root>/downloads`, or
+   * `<space folder>/downloads` when the space has no project. Null only for a space that does not exist.
    *
    * The renderer needs this for the pane's blocked-download bar — the user's own downloads go to the
    * same directory the agent's do, resolved by the same server-side rule (`spaceDownloadDir`) rather

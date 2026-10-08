@@ -707,12 +707,12 @@ export class BrowserAgentHost {
       }
       /**
        * Download the file behind `ref`, into the directory the SERVER resolved from the space's
-       * project. The op is gated server-side like any other mutating act; what happens here is the
+       * project or folder. The op is gated server-side like any other mutating act; what happens here is the
        * arm → click → await, with the grant's lifetime bounded by this op.
        *
        * `dir` arrives from realm-server rather than being computed here because only the server knows
-       * the space's project. It is required to be absolute: this op writes to disk, and a relative
-       * path would resolve against whatever cwd Electron happens to have.
+       * the space's project and folder. It is required to be absolute: this op writes to disk, and a
+       * relative path would resolve against whatever cwd Electron happens to have.
        */
       case "download": {
         const governor = this.d.downloads;
