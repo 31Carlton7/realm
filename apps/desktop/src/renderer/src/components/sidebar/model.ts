@@ -104,7 +104,65 @@ export function spaceOfSession(s: SidebarState, session: Session): string {
 }
 
 /** A sub-agent a session started — listed under its lead's running-agents control, never as a row. */
-const isChild = (session: Session | undefined): boolean => !!session?.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind);
+export const isChild = (session: Pick<Session, "dispatchedBy"> | undefined): boolean => !!session?.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind);
+
+/** What `nestChildren` needs of a row: which session it is, where it lives, and who started it. */
+export type NestableRow = { id: string; spaceId: string; session: Pick<Session, "dispatchedBy"> | undefined; createdAt: number };
+
+/** A lead and the agents it started, or a session standing on its own (`agents` empty). */
+export type Nested<T> = { row: T; agents: T[] };
+
+/**
+ * Which rows are leads and which are their agents — the one definition of "lead / agent" that the
+ * sidebar, the space's Sessions page and anything else that lists sessions share.
+ *
+ * A row is an agent when its session was started by another (`isChild`) and that other is among
+ * `rows` in the same space. It goes under its TOP-MOST such ancestor, so the nest is one level deep
+ * and a grandchild sits beside its parent under the lead the person started. A child whose lead is
+ * not here — deleted, or in another space — stands at the top level as itself: dropping it would lose
+ * a session nobody put away. Fan-outs (`user-dispatch`) have no lead and are not nested.
+ *
+ * Top-level rows keep the order they came in; each lead's agents are in the order they were made.
+ */
+export function nestChildren<T extends NestableRow>(rows: readonly T[]): Nested<T>[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const leadOf = (row: T): T | null => {
+    let lead: T | null = null;
+    const seen = new Set<string>([row.id]);
+    for (let at = row; isChild(at.session);) {
+      const parent = byId.get(at.session!.dispatchedBy!.sessionId ?? "");
+      if (!parent || parent.spaceId !== row.spaceId || seen.has(parent.id)) break;
+      seen.add(parent.id);
+      lead = parent; at = parent;
+    }
+    return lead;
+  };
+  const out = new Map<string, Nested<T>>();
+  const agentsOf = new Map<string, T[]>();
+  for (const r of rows) {
+    const lead = leadOf(r);
+    if (!lead) { out.set(r.id, { row: r, agents: [] }); continue; }
+    const held = agentsOf.get(lead.id);
+    if (held) held.push(r); else agentsOf.set(lead.id, [r]);
+  }
+  for (const [id, agents] of agentsOf) out.get(id)!.agents = agents.sort((a, b) => a.createdAt - b.createdAt);
+  return [...out.values()];
+}
+
+/** The agent most of these sessions run on — the one a list of them need not keep naming. Ties go to
+ *  the agent seen first. Null for no sessions. */
+export function spaceUsualAgent(rows: readonly { session: Pick<Session, "agentKind"> | undefined }[]): Session["agentKind"] | null {
+  const counts = new Map<Session["agentKind"], number>();
+  let best: Session["agentKind"] | null = null;
+  for (const r of rows) {
+    const kind = r.session?.agentKind;
+    if (!kind) continue;
+    const n = (counts.get(kind) ?? 0) + 1;
+    counts.set(kind, n);
+    if (best === null || n > counts.get(best)!) best = kind;
+  }
+  return best;
+}
 
 /** Every live item the window knows of, each once. The window's own list carries every space of its
  *  profile (there is no room any more) and is the fresher of the two, so for those spaces it alone
@@ -126,27 +184,43 @@ export function liveItems(s: SidebarState): Item[] {
  * Every session the sidebar lists as a row, in any space of any profile.
  *
  * A row is a live session ITEM: an archived session is put away (it is on its space's page), the
- * quick chat has no item at all, and a sub-agent is its lead's business. The item's title is the
+ * quick chat has no item at all, and a sub-agent is its lead's business (`nestChildren`) — unless its
+ * lead is gone, when it is a row like any other. The item's title is the
  * row's, because a rename in the sidebar changes the item and not the session.
  */
 export function listedSessions(s: SidebarState): SessionRow[] {
+  return nestChildren(sessionRows(s)).map((n) => n.row).filter((r) => !r.item.archived);
+}
+
+/** A session item as a row, with the live facts laid over it. */
+export function sessionRowOf(s: SidebarState, item: Item): SessionRow {
+  const session = sessionOf(s, item.refId);
+  return {
+    kind: "session", id: item.refId, item, session,
+    title: item.title || session?.title || "",
+    spaceId: s.sessionSpace[item.refId] ?? item.spaceId,
+    status: s.sessionStatus[item.refId] ?? session?.status,
+    unread: session ? isUnread(session) : false,
+    scheduled: session?.dispatchedBy?.kind === "run",
+    at: s.sessionUpdatedAt[item.refId] ?? session?.updatedAt ?? item.updatedAt,
+    createdAt: session?.createdAt ?? item.createdAt,
+  };
+}
+
+/**
+ * Every session item the window holds, put away or not, each once — sub-agents included. Archived
+ * rows are here so that an agent under an archived lead stays under it rather than surfacing as a
+ * row of its own. The window's own list is trusted for its spaces, as in `liveItems`; the quick chat
+ * has no item.
+ */
+export function sessionRows(s: SidebarState): SessionRow[] {
+  const mine = new Set(s.spaces.filter((sp) => sp.profileId === s.activeProfileId).map((sp) => sp.id));
   const seen = new Set<string>();
   const out: SessionRow[] = [];
-  for (const item of liveItems(s)) {
+  for (const item of [...s.items, ...s.allItems.filter((x) => !mine.has(x.spaceId))]) {
     if (item.kind !== "session" || seen.has(item.refId) || item.refId === s.quickChatId) continue;
     seen.add(item.refId);
-    const session = sessionOf(s, item.refId);
-    if (isChild(session)) continue;
-    out.push({
-      kind: "session", id: item.refId, item, session,
-      title: item.title || session?.title || "",
-      spaceId: s.sessionSpace[item.refId] ?? item.spaceId,
-      status: s.sessionStatus[item.refId] ?? session?.status,
-      unread: session ? isUnread(session) : false,
-      scheduled: session?.dispatchedBy?.kind === "run",
-      at: s.sessionUpdatedAt[item.refId] ?? session?.updatedAt ?? item.updatedAt,
-      createdAt: session?.createdAt ?? item.createdAt,
-    });
+    out.push(sessionRowOf(s, item));
   }
   return out;
 }

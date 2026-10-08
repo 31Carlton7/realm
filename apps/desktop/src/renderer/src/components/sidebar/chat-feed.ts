@@ -64,3 +64,48 @@ export function groupByDay<T>(rows: readonly T[], at: (row: T) => number, now: n
     .sort((a, b) => b[0] - a[0])
     .map(([key, grouped]) => ({ key, label: dayLabel(key, now), rows: grouped }));
 }
+
+/** The local midnight `days` calendar days before `ts`'s — a calendar step, not 86,400,000 ms. */
+function daysBefore(ts: number, days: number): number {
+  const d = new Date(startOfLocalDay(ts));
+  d.setDate(d.getDate() - days);
+  return d.getTime();
+}
+
+/**
+ * A coarser heading than `dayLabel`, for a list that runs back for months: Today, Yesterday, This
+ * week (two to six days back), then one heading per month — "September", or "August 2025" when it is
+ * not this year. A per-day head on a month of work is a page of one-row groups.
+ *
+ * `key` is the bucket's first instant, so buckets sort newest first by it and stay stable while the
+ * label changes at midnight.
+ */
+export function bucketOf(ts: number, now: number): { key: number; label: string } {
+  const days = daysApart(ts, now);
+  if (days <= 0) return { key: startOfLocalDay(now), label: "Today" };
+  if (days === 1) return { key: daysBefore(now, 1), label: "Yesterday" };
+  if (days < 7) return { key: daysBefore(now, 6), label: "This week" };
+  const d = new Date(ts);
+  const first = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  return { key: first, label: d.toLocaleDateString(undefined, sameYear ? { month: "long" } : { month: "long", year: "numeric" }) };
+}
+
+/** `bucketOf`'s label alone. */
+export function bucketLabel(ts: number, now: number): string {
+  return bucketOf(ts, now).label;
+}
+
+/**
+ * Rows cut into `bucketOf`'s buckets by `at`, newest bucket first. Within a bucket the rows keep the
+ * order they came in, so a caller that ranked them (what needs you first) keeps its ranking.
+ */
+export function groupByBucket<T>(rows: readonly T[], at: (row: T) => number, now: number): DayGroup<T>[] {
+  const groups = new Map<number, DayGroup<T>>();
+  for (const row of rows) {
+    const { key, label } = bucketOf(at(row), now);
+    const group = groups.get(key);
+    if (group) group.rows.push(row); else groups.set(key, { key, label, rows: [row] });
+  }
+  return [...groups.values()].sort((a, b) => b.key - a.key);
+}

@@ -1620,6 +1620,9 @@ export type AppState = {
    *  space's tab — and with it another space's data fetch — onto a different space's page. Absent =
    *  "general". */
   spacePageTab: Record<string, SpacePageTab>;
+  /** Which of a space's sessions its Sessions page lists, PER SPACE — the live ones or the archived
+   *  ones — so the sidebar's "Archived sessions" can land on the archived ones. Absent = "active". */
+  spaceSessionsView: Record<string, "active" | "archived">;
   /** The profile page's tab, per PROFILE id (Plan 14 W2) — in the store, not component state, because
    *  openers land on a section ("Edit in profile" on an MCP row lands on Connections; the memory
    *  row's on Memory) whether or not the page is already open. */
@@ -2512,6 +2515,8 @@ export type AppState = {
   openSpacePage(spaceId: string, tab?: SpacePageTab): void;
   /** The page's tab, per space — see `spacePageTab`. */
   setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
+  /** The Sessions page's filter, per space — see `spaceSessionsView`. */
+  setSpaceSessionsView(spaceId: string, view: "active" | "archived"): void;
   /** Open (or focus) the ACTIVE space's profile page (Plan 14 W2) — a `profile-page` destination item
    *  (sentinel refId; the page derives its profile live from the item's space). `tab` lands the page
    *  on a section — the retargeted "Edit in profile" affordances pass one. */
@@ -4065,7 +4070,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       failover: null,
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
-      spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
+      spacePageTab: {}, spaceSessionsView: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
@@ -6968,6 +6973,7 @@ await get().refreshCustomThemes().catch(() => {});
         set({ pageOverlay: destinationTarget(kind, spaceId) });
       },
       setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
+      setSpaceSessionsView(spaceId, view) { set({ spaceSessionsView: { ...get().spaceSessionsView, [spaceId]: view } }); },
       openProfilePage(tab) {
         // The tab is keyed by PROFILE — resolved from the active space, the same vantage the page
         // renders from, so the section the opener lands on is the section the page shows.
