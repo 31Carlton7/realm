@@ -70,6 +70,11 @@ final class LiveTests: XCTestCase {
         XCTAssert(sqlite.waitForExistence(timeout: 5))
         sqlite.tap()
         app.buttons["us-east-1"].tap()
+        // Every question answered, so a sheet that answered on its way out would have something to send.
+        let token = app.textFields["Your answer"]
+        token.tap()
+        token.typeText("staging-token")
+        XCTAssert(app.navigationBars["Codex asks"].buttons["Send"].isEnabled, "the answers are complete")
         shot("question-sheet")
         // Dragging the sheet away is a way out, never an answer.
         let sheet = app.navigationBars["Codex asks"]

@@ -105,6 +105,24 @@ struct RowDrawingTests {
 }
 
 @MainActor
+@Suite("What a request card says about the answer it holds")
+struct AnswerWordsTests {
+    @Test func answersReadInTheQuestionsOrderAndASecretIsOnlyItsMark() {
+        let questions = [
+            Question(question: "Which database?", header: "", multiSelect: false, options: [QuestionOption(label: "SQLite", description: nil)]),
+            Question(question: "Token?", header: "", multiSelect: false, options: [], secret: true),
+            Question(question: "Which regions?", header: "", multiSelect: true, options: [QuestionOption(label: "eu-west-1", description: nil)]),
+        ]
+        let words = RequestCard.describe(.allow, answers: ["Which regions?": "eu-west-1", "Token?": "hunter2", "Which database?": "SQLite"],
+                                         kind: .questions(questions))
+        #expect(words == "You answered: SQLite · •••••• · eu-west-1")
+        #expect(!words.contains("hunter2"))
+        #expect(RequestCard.describe(.deny, answers: nil, kind: .questions(questions)) == "You skipped these questions.")
+        #expect(RequestCard.describe(.allow, answers: nil, kind: .plan) == "You approved the plan.")
+    }
+}
+
+@MainActor
 @Suite("The app's own type, colour and categories")
 struct AppResourceTests {
     @Test func theBundledFacesRegistered() {

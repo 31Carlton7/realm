@@ -167,14 +167,19 @@ struct RequestCard: View {
         }
     }
 
+    /// The answer given, as the card shows it while it travels: answers in the questions' order, and a
+    /// secret one only as its mark.
     static func describe(_ decision: Decision, answers: [String: String]?, kind: TranscriptRow.RequestKind) -> String {
         switch (kind, decision) {
-        case (.questions, .deny): "You skipped these questions."
-        case (.questions, _): (answers ?? [:]).sorted { $0.key < $1.key }.map(\.value).joined(separator: "; ")
-        case (.plan, .deny): "You chose to keep planning."
-        case (.plan, _): "You approved the plan."
-        case (.permission, .deny): "You denied it."
-        case (.permission, _): "You allowed it."
+        case (.questions, .deny):
+            return "You skipped these questions."
+        case (.questions(let questions), _):
+            let given = questions.compactMap { question in answers?[question.question].map { question.secret ? "••••••" : $0 } }
+            return "You answered: \(given.joined(separator: " · "))"
+        case (.plan, .deny): return "You chose to keep planning."
+        case (.plan, _): return "You approved the plan."
+        case (.permission, .deny): return "You denied it."
+        case (.permission, _): return "You allowed it."
         }
     }
 }

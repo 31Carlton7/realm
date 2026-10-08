@@ -119,14 +119,14 @@ private struct EmptyTranscript: View {
     var body: some View {
         let status = model.linkStatus
         HStack(spacing: 10) {
-            if !isLoaded && (status.kind == .connecting || status.kind == .connected) {
+            if isLoaded {
+                Text("Nothing here yet. Send the first message.")
+            } else if status.kind == .connecting || status.kind == .connected {
                 ProgressView()
                 Text(status.kind == .connected ? "Opening…" : status.words)
-            } else if isLoaded {
-                Text("Nothing here yet. Send the first message.")
             } else {
                 Image(systemName: status.symbol)
-                Text(status.kind == .connected ? "Opening…" : "\(status.words). This session shows here once your Mac is there.")
+                Text("\(status.words). This session shows here once your Mac is there.")
             }
         }
         .inter(.body)
