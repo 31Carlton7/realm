@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
 import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
-import { PANE_DIVIDER, PANE_MIN, allItems, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, ElementChipSchema, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type DevicePickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
+import { PANE_DIVIDER, PANE_MIN, allItems, findLeaf, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, ElementChipSchema, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type DevicePickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
 
@@ -970,6 +970,20 @@ describe("app store", () => {
       const order = primaryLeaves(l).map((p) => p.itemId);
       expect(order).toEqual(["i9", newItem().id, "i8"]);
       expect(findSidePane(l, "i9")).not.toBeNull();
+    });
+
+    it("⌘N and an empty pane's New session hand the new session's prompter the keyboard", async () => {
+      // THE MUTANT: the handoff kept to the split — ⌘N and the button would leave the caret behind.
+      const store = await oneSession();
+      await store.getState().newSessionInstant();
+      expect(store.getState().keyboardFor?.sessionId).toBe(newItem().refId);
+      await store.getState().splitFocused("row");
+      const empty = store.getState().focusedLeafId!;
+      await store.getState().newSessionInstant(empty);
+      const filled = findLeaf(store.getState().layout!, empty)!;
+      const made = store.getState().items.find((i) => i.id === filled.itemId)!;
+      expect(made.kind).toBe("session");
+      expect(store.getState().keyboardFor?.sessionId).toBe(made.refId);
     });
 
     it("into an empty pane fills it rather than splitting it", async () => {

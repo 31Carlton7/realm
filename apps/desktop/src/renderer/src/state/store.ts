@@ -2049,8 +2049,9 @@ export type AppState = {
    *  supplied with a target leaf, it opens there the way a dragged row would. */
   newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
-   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, adapter-default model
-   *  and permission mode. Everything else is changed on the prompter's chips afterwards. `spaceId`
+   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model last sent
+   *  on with that agent (`lastModels`, else the adapter's default) and the default permission mode;
+   *  its prompter gets the keyboard. Everything else is changed on the prompter's chips afterwards. `spaceId`
    *  names the space (a space section's own +); omitted, the current space. */
   newSessionInstant(targetLeafId?: string | null, edge?: DropEdge, spaceId?: string | null): Promise<void>;
   /** Make a fresh `git worktree` and open a session in it (W2), rather than in the space folder.
@@ -3317,6 +3318,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (!row) return;
       rememberModel(row.agentKind, row.model);
       rememberAgent(row.agentKind);
+    };
+    /** `newSession`, answering with the session it made — null when there was no space to make it in. */
+    const makeSession = async (input: Parameters<AppState["newSession"]>[0], targetLeafId: string | null, edge: DropEdge | undefined): Promise<string | null> => {
+      const { spaceId, ...rest } = input;
+      const sid = spaceFor(spaceId); if (!sid) return null;
+      const { session, itemId } = await api.createSession({ ...rest, spaceId: sid });
+      rememberAgent(rest.agentKind);
+      if (inProfile(sid)) mergeSession(session);
+      await adoptItem(sid, itemId, targetLeafId, false, edge);
+      await get().openSession(session.id);
+      return session.id;
     };
     /** What a session made with no other say is put on: the last agent, and the model last sent on it
      *  if that harness still offers it. */
@@ -5189,10 +5201,6 @@ await get().refreshCustomThemes().catch(() => {});
         const sid = spaceFor(anchor?.itemId ? get().items.find((i) => i.id === anchor.itemId)?.spaceId : null);
         if (!sid) return get().splitFocused(dir);
         await get().newSessionInstant(anchor?.id ?? null, dir === "row" ? "right" : "bottom", sid);
-        // Split from the keyboard to type in the new session: its prompter gets the keyboard.
-        const landed = get().focusedLeafId ? findLeaf(get().layout ?? emptyLayout(), get().focusedLeafId!) : null;
-        const made = landed?.itemId ? get().items.find((i) => i.id === landed.itemId && i.kind === "session") : undefined;
-        if (made) set({ keyboardFor: { sessionId: made.refId, n: (get().keyboardFor?.n ?? 0) + 1 } });
       },
       async openItemAt(itemId, leafId, edge) {
         // Self-drop: the item already occupies the target leaf. Splitting would first close the item
@@ -5742,16 +5750,12 @@ await get().refreshCustomThemes().catch(() => {});
         await api.releaseQueuedPrompt(sessionId, queuedId);
       },
       async newSession(input, targetLeafId = null, edge) {
-        const { spaceId, ...rest } = input;
-        const sid = spaceFor(spaceId); if (!sid) return;
-        const { session, itemId } = await api.createSession({ ...rest, spaceId: sid });
-        rememberAgent(rest.agentKind);
-        if (inProfile(sid)) mergeSession(session);
-        await adoptItem(sid, itemId, targetLeafId, false, edge);
-        await get().openSession(session.id);
+        await makeSession(input, targetLeafId, edge);
       },
       async newSessionInstant(targetLeafId = null, edge, spaceId = null) {
-        await get().newSession({ ...instantPick(), spaceId }, targetLeafId, edge);
+        const id = await makeSession({ ...instantPick(), spaceId }, targetLeafId, edge);
+        // Made to be typed in: ⌘N, a split, an empty pane's button — its prompter gets the keyboard.
+        if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
       },
       async newSessionInWorktree(targetLeafId = null, spaceId = null) {
         const sid = spaceFor(spaceId); if (!sid) return;
