@@ -116,7 +116,7 @@ function SubagentList({ leadId, children, loaded, flash, onOpen }: {
         {live.length > 0 && <span className="subagents-since" title="Since the oldest sub-agent still going started">{formatDuration(elapsed)}</span>}
       </h2>
       <ul className="subagents-list">
-        {ordered.map((c) => <SubagentCard key={c.session.id} child={c} leadId={leadId} flash={flash === c.session.id} onOpen={onOpen} />)}
+        {ordered.map((c) => <SubagentCard key={c.session.id} child={c} leadId={leadId} flashId={flash} onOpen={onOpen} />)}
       </ul>
     </section>
   );
@@ -179,10 +179,11 @@ const NO_BLOCKS: readonly Block[] = [];
  * The summary is the card's disclosure. A card waiting on you is open until you fold it, because the
  * request in it is the reason anyone came here; a card asked for from a transcript line opens too.
  */
-function SubagentCard({ child, leadId, flash, onOpen, nested = false }: {
-  child: DelegatedChild; leadId: string; flash: boolean; onOpen: (childId: string) => void; nested?: boolean;
+function SubagentCard({ child, leadId, flashId, onOpen, nested = false }: {
+  child: DelegatedChild; leadId: string; flashId: string | null; onOpen: (childId: string) => void; nested?: boolean;
 }) {
   const id = child.session.id;
+  const flash = flashId === id;
   const live = useApp((s) => s.sessionStatus[id]);
   const inFlight = useApp((s) => s.delegatedRuns[leadId]?.some((r) => r.sessionId === id) ?? false);
   const liveDoing = useApp((s) => s.sessionActivity[id]);
@@ -249,7 +250,7 @@ function SubagentCard({ child, leadId, flash, onOpen, nested = false }: {
       )}
       {child.children && child.children.length > 0 && (
         <ul className="subagents-list subagent-nested" aria-label={`Sub-agents ${title} started`}>
-          {child.children.map((g) => <SubagentCard key={g.session.id} child={g} leadId={id} flash={false} onOpen={onOpen} nested />)}
+          {child.children.map((g) => <SubagentCard key={g.session.id} child={g} leadId={id} flashId={flashId} onOpen={onOpen} nested />)}
         </ul>
       )}
       {open && (

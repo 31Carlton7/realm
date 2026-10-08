@@ -10,9 +10,10 @@ import { useSidebarState } from "./use-sidebar-model";
  *
  * Sessions waiting on a permission or a question, the longest-waiting first, then the ones that
  * failed — from every space and every profile, each naming its space (and its profile, when that is
- * not the one on screen). Drawn only when something is in it. It replaces the head band's "N need
- * you" pill and the Active section; working and unread are not here, they show in their spaces and
- * under Recent.
+ * not the one on screen). A sub-agent's request is not a row here: it is a count on its lead's row,
+ * answered in the lead's Agents tab (`needsYou`). Drawn only when something is in it. It replaces the
+ * head band's "N need you" pill and the Active section; working and unread are not here, they show in
+ * their spaces and under Recent.
  *
  * A row opens its session, as every row in the sidebar does. A waiting row also answers in place:
  * its disclosure unfolds the session's own request card under it — the transcript's card, through

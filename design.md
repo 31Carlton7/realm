@@ -873,7 +873,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   session by what it needed and drew the live ones as a wall and an office; it said again what those
   rows said, from a second place you had to go to, and the owner removed it (10-05). A relay beyond
   the Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
-  open condition is sent once.
+  open condition is sent once. A sub-agent's request is said on its lead's row, as a count with the
+  waiting dot, and answered on its card in the lead's Agents tab, because the person started the lead
+  and not the child; one whose lead the window does not hold keeps a Needs you row of its own.
 - Home is the way back to the work, not a page: it puts away whatever page is up and lands on the
   session that was in front, in its space — or on a fresh prompter when nothing was, as closing the
   last pane does. A control that only ever returns is not a toggle, so it is never lit and carries no

@@ -47,6 +47,23 @@ const section = (name: string) => screen.getByRole("region", { name });
 const head = (name: string) => within(section(name)).getByRole("button", { name: new RegExp(`^${name}( —|$)`) });
 const rowsIn = (name: string) => [...section(name).querySelectorAll(".sb-section-clip .item-title")].map((t) => t.textContent);
 
+describe("a lead whose sub-agents need you", () => {
+  it("says how many on its row and opens its Agents tab on the one that has waited longest", async () => {
+    // THE MUTANTS: no count on the row; a click that opens the lead and not the card the request is on.
+    const kid = (id: string, at: number) => session(id, "s1", { title: `Kid ${id}`, status: "waiting_permission", updatedAt: at, dispatchedBy: { kind: "agent_run", sessionId: "a" } });
+    const { store } = await mount(home({
+      items: { ...home().items, s1: [...home().items!.s1!, sessionItem("k1", "s1", "Kid k1"), sessionItem("k2", "s1", "Kid k2")] },
+      sessions: [...home().sessions!, kid("k1", 20), kid("k2", 10)],
+    }));
+    const row = await screen.findByRole("button", { name: /^Alpha, 2 sub-agents need you/ });
+    expect(row.querySelector(".item-count")).toHaveTextContent("2");
+    // Their requests are on the lead's row, not rows of their own at the top.
+    expect(screen.queryByRole("button", { name: /^Kid k\d/ })).toBeNull();
+    fireEvent.click(row);
+    await waitFor(() => expect(store.getState().agentsAsk["a"]).toMatchObject({ childId: "k2" }));
+  });
+});
+
 describe("the list", () => {
   it("is the profile's spaces as sections of one scroller — no strip, no Open, no other spaces, no Archived", async () => {
     const { container } = await mount(home());
