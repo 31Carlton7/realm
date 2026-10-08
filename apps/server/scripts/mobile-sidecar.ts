@@ -8,6 +8,7 @@
  * Flags: --home <dir>   scratch home (default realm-scratch/mobile/home)
  *        --relay <url>  a deployed relay; without it, wrangler dev on loopback (Simulator only)
  *        --yes          pair without asking
+ *        --no-qr        print the pairing link only (for scripts; no QR opened in Preview)
  * Commands on stdin: pair · devices · push <phoneId|all> [kind] · revoke <phoneId> · send <text> · quit
  */
 import { execFileSync } from "node:child_process";
@@ -56,10 +57,13 @@ rl.on("line", async (line) => {
   try {
     if (cmd === "pair") {
       const { url, expiresAt } = gw.openPairing();
-      const png = join(home, "remote", "pair.png");
-      execFileSync("swift", [join(repoRoot, "apps/server/scripts/lib/qr.swift"), url, png]);
-      execFileSync("open", [png]);
-      console.log(`pairing link (until ${new Date(expiresAt).toLocaleTimeString()}):\n${url}\nQR code: ${png}`);
+      console.log(`pairing link (until ${new Date(expiresAt).toLocaleTimeString()}):\n${url}`);
+      if (!process.argv.includes("--no-qr")) {
+        const png = join(home, "remote", "pair.png");
+        execFileSync("swift", [join(repoRoot, "apps/server/scripts/lib/qr.swift"), url, png]);
+        execFileSync("open", [png]);
+        console.log(`QR code: ${png}`);
+      }
     } else if (cmd === "devices") {
       for (const d of gw.devices()) console.log(`${d.phoneId}  ${d.name}  ${d.model}  last seen ${d.lastSeen ? new Date(d.lastSeen).toLocaleTimeString() : "never"}`);
     } else if (cmd === "push") {

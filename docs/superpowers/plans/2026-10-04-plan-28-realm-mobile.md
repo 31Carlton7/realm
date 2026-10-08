@@ -2,10 +2,10 @@
 
 > Numbered 28: 27 (the sidebar) is the highest on any branch. Renumber on landing if it collides.
 
-> **Status (2026-10-05): Phase 1 built on `feat/mobile-phase-1`; the real-network half waits on the
-> owner.** The four decisions below were answered by the owner on 2026-10-04. Everything that runs on
-> this Mac is built and checked — see "Phase 1 results so far" under Phases. Deploying the relay,
-> timing it over Wi-Fi and LTE, and opening a push on the iPhone need the owner's three steps.
+> **Status (2026-10-08): Phase 1 is done.** The four decisions below were answered by the owner on
+> 2026-10-04. The pipe is built on `feat/mobile-phase-1` and measured end to end, through a deployed
+> relay and on the owner's iPhone. Pushes decrypt on the device. "Phase 1 results" under Phases has the
+> numbers, the targets each one met or missed, and what Phase 2 inherits.
 
 ## What it is for
 
@@ -515,9 +515,9 @@ the Mac is opened by the extension on the iPhone.
 - resume takes ≤ 1.5 s;
 - the push opens on the device.
 
-### Phase 1 results so far (2026-10-05)
+### Phase 1 results (finished 2026-10-08)
 
-**Built.** These are four commits on `feat/mobile-phase-1`:
+**Built,** on `feat/mobile-phase-1`:
 
 - **`packages/remote`:** Noise, frames, pairing links, the `mobile.v1` schemas, and the contract,
   `PROTOCOL.md`.
@@ -583,16 +583,74 @@ the Mac is opened by the extension on the iPhone.
   Service Extension, so decryption on a device needs a real APNs push.
 - **A Mac that goes quiet is not announced.** The relay tells phones when the Mac's socket closes. A
   Mac whose socket stays open but silent, as in sleep, is reported only in `ready` and `mac` messages.
-  Phase 2 decides whether the relay should announce it.
+  Measured below; Phase 2 fixes it.
+- **Node's `ws` compresses by default, and Cloudflare accepts.** Every frame is ciphertext, which
+  cannot compress, and each one queued for zlib on libuv's thread pool. Turning `permessage-deflate`
+  off took event latency through the deployed relay from 299 ms to 32 ms at the median, and from
+  1.6 s to 40 ms at p95. `PROTOCOL.md` §3 now forbids offering it.
 
-**Still to measure.** These need the owner's three steps:
+**Real network.** The relay is deployed as `realm-relay-staging` on the owner's Cloudflare
+(`workers.dev`), holding the APNs key as a secret. The Mac side is the gateway beside a built server on
+a scratch home, using the fake agent. The phone side is the app on the owner's iPhone 17 Pro (iOS 27.2),
+paired through that relay. The TypeScript phone ran on the Mac, so its numbers are the relay path
+alone.
 
-- the relay deployed to `workers.dev`;
-- the round trip and event latency from the iPhone on Wi-Fi and on LTE;
-- resume on the device;
-- the Mac sleeping and its network pulled;
-- Durable Object CPU per thousand frames;
-- a push opened by the extension on the iPhone.
+| Measure | TypeScript phone via Cloudflare (3 runs) | iPhone, cellular (3 runs) | iPhone, steady network (1 run) |
+|---|---|---|---|
+| Handshake | 272–316 ms | 157, 1,320, 4,673 ms | 101 ms |
+| Connect, to ready | — | 334, 1,526, 4,903 ms | 347 ms |
+| Round trip | p50 83–91 ms, p95 160–361 ms | p50 102–188 ms, p95 403–1,283 ms, spikes to 3.2 s | p50 75 ms, p95 169 ms |
+| Event, server to phone | p50 32–39 ms, p95 39–122 ms | — | — |
+| Send to own row | p50 85–92 ms | p50 119–235 ms, p95 141–1,308 ms | p50 149 ms (5 sends, one at 1.1 s) |
+| Open a session | 76–95 ms (40 rows) | first row 141–960 ms | first row 204 ms |
+| Resume | 358–406 ms | — | — |
+| Mac quits, as the phone sees it | 36–47 ms | — | — |
+| Mac back, as the phone sees it | 199–249 ms | — | — |
+
+The last iPhone run looked like Wi-Fi: steady pings, only one of 50 over 300 ms. The app does not
+report its network, so that label is the owner's to confirm.
+
+**The push.** The Mac sealed it with Noise K and the relay sent it through the APNs sandbox. On the
+iPhone, the Notification Service Extension opened it and showed "Fix the flaky test — Wants to run
+`pnpm test`", on 2026-10-06 and again on 2026-10-08. Every hop between the two devices carried only
+ciphertext and the placeholder.
+
+**The relay's cost.** Cloudflare logs a relayed message at 0 ms of CPU, because it rounds to whole
+milliseconds. Across 22 sampled messages the total was 1 ms, so about 0.05 ms each: under 50 ms of CPU
+per thousand frames. A connection's setup and signature check cost about 1.1 ms. Hibernated sockets
+cost nothing between messages.
+
+**A quiet Mac** (`mobile-quiet-mac-live.ts`). The gateway was frozen with its socket open, which is
+what the relay sees of a sleeping Mac or a pulled network.
+- **The phone was never told,** not within 180 s.
+- **A request** went unanswered for 15 s.
+- **On waking,** the Mac was reachable again in 0.4 s.
+- **A Mac that closes its socket** reaches the phone in about 40 ms.
+
+**Against the pass marks:**
+
+| Mark | Result |
+|---|---|
+| No planted marker crosses the relay in the clear | **Met.** Four runs through the real Worker, about 750 frames each. |
+| Round trip p95 ≤ 250 ms on Wi-Fi | **Met** on the iPhone (169 ms) and in the last Mac run (160 ms). Missed in two Mac runs taken while this Mac was heavily loaded (253 and 361 ms). |
+| Round trip p95 ≤ 500 ms on LTE | **Missed** in two of three runs (403, 699 and 1,283 ms). The spikes are the radio's, not the relay's: the same path from the Mac holds 160 ms. |
+| Event latency p95 ≤ 300 ms on Wi-Fi | **Met** for the relay path (39 ms). The phone's send-to-row p95 rests on five samples, one an outlier: not enough to call. |
+| Resume ≤ 1.5 s | **Met** on the Mac path (0.4 s) and on the iPhone when its radio was awake (0.35 s). **Missed** on a cold cellular radio (1.5 and 4.9 s). |
+| A push opens on the device | **Met.** It decrypted on the iPhone, twice. |
+
+**What Phase 2 inherits:**
+1. **The relay announces a quiet Mac.** While any phone is connected, an alarm checks the Mac's last
+   heartbeat (sent every 20 s) and tells phones `online:false` once it is more than about 60 s old. The
+   Mac's next message clears it.
+2. **Cellular is shown honestly, not chased.** A first connection on a cold radio can take seconds.
+   The app says "Connecting…" and "Sending…" until the Mac answers, and never times out an answer the
+   person gave. A shorter heartbeat while a session is open is worth one measured try, against its
+   battery cost.
+3. **Rebase onto the 2.0 line.** Realm 2.0 shipped on 2026-10-06 and `integration/v0.6` is now
+   2.0.3, 488 commits past this branch's base. The only conflict is `pnpm-lock.yaml`, which is
+   regenerated.
+4. **Before TestFlight:** the released Xcode 27 (this Mac has 27.0 beta 6), and the App Store
+   Connect app record for `co.charmtechnologies.realm.ios`.
 
 ### Phase 2 — Watch (the first TestFlight build)
 
