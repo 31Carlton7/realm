@@ -57,6 +57,7 @@ export class DelegatedChildren {
       outcome: record?.outcome ?? null,
       report: text === null ? null : text.length > REPORT_MAX ? `${text.slice(0, REPORT_MAX - 1).trimEnd()}…` : text,
       activity: this.d.events.lastOfTypes(session.id, ACTIVITY),
+      ...(record?.stopNote ? { note: record.stopNote } : {}),
     };
   }
 

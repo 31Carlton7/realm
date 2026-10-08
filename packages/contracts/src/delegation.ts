@@ -127,6 +127,9 @@ export const DelegatedChildSchema = z.object({
   outcome: DelegationOutcomeSchema.nullable(),
   report: z.string().nullable(),
   activity: SessionEventSchema.nullable(),
+  /** Why Realm stopped this child itself — "Stopped when the session that started it went to Plan…".
+   *  Absent when nobody but the user stopped it. */
+  note: z.string().optional(),
 });
 export type DelegatedChild = z.infer<typeof DelegatedChildSchema>;
 

@@ -62,6 +62,9 @@ export type AgentChildRecord = {
    *  Full access". `requested` is absent when the caller named none. Absent on records from before
    *  children inherited their lead's mode. */
   mode?: { requested?: string; granted: string; inherited: boolean };
+  /** Why Realm stopped this child itself, when it did: said on its card and in the lead's report in
+   *  place of "stopped by the user". Absent for every child nobody but the user stopped. */
+  stopNote?: string;
 };
 
 const RunArgs = z.object({
@@ -167,6 +170,7 @@ export class AgentRunService {
       ...(settledAt !== undefined ? { settledAt } : {}),
       ...(outcome ? { outcome } : {}),
       ...(mode ? { mode } : {}),
+      ...(typeof r.stopNote === "string" ? { stopNote: r.stopNote } : {}),
     };
   }
 
@@ -327,16 +331,31 @@ export class AgentRunService {
    *
    * The engine's registry is shared, so this reaches a browser-agent child too. It skips a run the
    * lead does not own (a peer being asked a question is not its child), and one that has settled.
-   * A child on a harness Realm cannot set a mode on keeps the `default` its row already says.
+   * A child on a harness Realm cannot set a mode on keeps the `default` its row already says — unless
+   * the lead went read-only. Realm cannot hold that child to Plan or Ask, and leaving it editing under
+   * a lead the person just made read-only is the promise `childPermissionMode` refuses at spawn, so it
+   * is stopped, with the reason written where its card and the lead's report will say it.
    */
   async cascadeMode(leadId: string, mode: string): Promise<void> {
     for (const run of this.d.engine.running(leadId)) {
       if (!run.interruptOnCancel) continue;
       let child: Session;
       try { child = this.d.sessions.get(run.childSessionId); } catch { continue; }
-      if (!AGENT_SUPPORTS_PERMISSION_MODES[child.agentKind] || rank(child.permissionMode) <= rank(mode)) continue;
+      if (!AGENT_SUPPORTS_PERMISSION_MODES[child.agentKind]) {
+        if (rank(mode) === 0) await this.stopUnheld(child, mode);
+        continue;
+      }
+      if (rank(child.permissionMode) <= rank(mode)) continue;
       await this.d.sessions.setOptions(child.id, { permissionMode: mode }).catch(() => { /* deleted under us; nothing left to lower */ });
     }
+  }
+
+  /** Stop a child Realm cannot hold to `mode`, and write down why before the stop settles its run. */
+  private async stopUnheld(child: Session, mode: string): Promise<void> {
+    const stopNote = `Stopped when the session that started it went to ${modeLabel(mode)}: Realm cannot hold ${AGENT_META[child.agentKind].label} to a read-only mode.`;
+    const record = this.childRecord(child.id);
+    if (record) this.d.settings.set(childKey(child.id), { ...record, stopNote } satisfies AgentChildRecord);
+    await this.d.sessions.interrupt(child.id).catch(() => { /* deleted under us; nothing left to stop */ });
   }
 
   /* ------------------------------------- the tool itself ------------------------------------- */
@@ -467,7 +486,7 @@ export class AgentRunService {
     if (!isSpawned(spawned)) return spawned;
     try {
       const settled = await spawned.run.settled!;
-      return reportOne(settled, spawned);
+      return reportOne(settled, spawned, this.childRecord(spawned.childId)?.stopNote);
     } finally {
       this.d.engine.end(ctx.sessionId, spawned.run);
     }
@@ -515,7 +534,7 @@ export class AgentRunService {
     // watcher intact, so a wait that timed out has cost the caller nothing but the wait.
     for (const r of settledRuns) this.d.engine.end(ctx.sessionId, r);
 
-    const sections = settledRuns.map((r) => reportSection(r.done!, r.childSessionId));
+    const sections = settledRuns.map((r) => reportSection(r.done!, r.childSessionId, this.childRecord(r.childSessionId)?.stopNote));
     const stillRunning = runs.filter((r) => r.done === null).map((r) => r.childSessionId);
     const head = outcome === "timeout"
       ? `Waited ${Math.round(timeoutMs / 1000)}s; ${settledRuns.length} of ${runs.length} delegated agent${runs.length === 1 ? "" : "s"} finished. The rest are STILL RUNNING under their own budgets — this timeout gave up on listening, it did not stop them. Wait again to collect: ${stillRunning.join(", ")}.`
@@ -571,7 +590,7 @@ function modeSentence(granted: ChildMode, parentMode: string, requested: string 
 
 /** The blocking tool's whole result: the outcome sentence, the structured trail, and the fenced
  *  report. `agent_wait` builds the same thing per handle through `reportSection`. */
-function reportOne(settled: SettledRun, spawned: Spawned): CallToolResult {
+function reportOne(settled: SettledRun, spawned: Spawned, stopNote?: string): CallToolResult {
   const note = ` ${spawned.mode}`;
   const trail = trailFor(settled, spawned.childId, spawned.title, spawned.on);
   const output = fenced(settled);
@@ -582,7 +601,7 @@ function reportOne(settled: SettledRun, spawned: Spawned): CallToolResult {
       // Not a failure of the child's, and not the delegating session's cancel either: a person looked
       // at this child and stopped it. Saying so is what keeps a lead from re-running what someone
       // deliberately halted.
-      return err(`Delegated agent was stopped by the user before it finished.${trail}\n\nPartial output: ${output}`);
+      return err(`${stopNote ? `Delegated agent: ${stopNote}` : "Delegated agent was stopped by the user before it finished."}${trail}\n\nPartial output: ${output}`);
     case "interrupted":
       return err(`Delegated run cancelled: the delegating session was interrupted, so the delegated agent was stopped mid-run.${trail}\n\nPartial output: ${output}`);
     case "timeout":
@@ -596,9 +615,10 @@ function reportOne(settled: SettledRun, spawned: Spawned): CallToolResult {
 
 /** One collected handle's block inside an `agent_wait` result. Deliberately the same vocabulary as
  *  `reportOne` — an agent that learned to read one should not have to learn the other. */
-function reportSection(settled: SettledRun, childId: string): string {
+function reportSection(settled: SettledRun, childId: string, stopNote?: string): string {
   const verdict = settled.outcome === "done" ? "finished" : `did NOT finish (${statusOf(settled)})`;
-  return `## Agent ${childId} — ${verdict}\n\n${fenced(settled)}`;
+  const why = settled.outcome === "stopped" && stopNote ? `\n\n${stopNote}` : "";
+  return `## Agent ${childId} — ${verdict}${why}\n\n${fenced(settled)}`;
 }
 
 function fenced(settled: SettledRun): string {
