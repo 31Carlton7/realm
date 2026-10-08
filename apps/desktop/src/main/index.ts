@@ -912,7 +912,7 @@ ipcMain.handle("browser:save-download", async (e, browserId: string, id: string,
   if (!pane) return { ok: false, error: "the browser pane is not open" };
   // Same absolute-path requirement the agent op has: this writes to disk, and a relative path would
   // resolve against whatever cwd Electron happens to have.
-  if (!String(dir).startsWith("/")) return { ok: false, error: "this space has no project folder, so there is nowhere to save downloads" };
+  if (!String(dir).startsWith("/")) return { ok: false, error: "there is no folder to save downloads into" };
   return retryBlockedDownload(downloadGovernor, blockedDownloads, {
     browserId: String(browserId), id: String(id), dir: String(dir),
     downloadURL: (url) => pane.downloadURL(String(browserId), url),

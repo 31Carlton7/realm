@@ -323,8 +323,8 @@ async function main() {
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   const [space] = await api.call("spaces.list", {});
-  // A project, so a saved download has somewhere to go: `<project root>/downloads`, as the agent's do.
-  await api.call("projects.create", { spaceId: space.id, name: "Live", rootPath: space.folderPath });
+  // No project on purpose: most spaces have none, and a saved download must still land, in
+  // `<space folder>/downloads`, as the agent's do.
   const { session: fakeSession } = await api.call("sessions.create", { spaceId: space.id, agentKind: "fake", title: TITLE });
   await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes(${JSON.stringify(TITLE)}))`), 20_000, "session row");
   await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
@@ -521,7 +521,7 @@ async function main() {
   // Chromium reports it done, and the pane learns it was saved from that report.
   const savedNote = await until(() => evalIn(c, `[...document.querySelectorAll('.browser-notice')].map((n) => n.textContent).find((t) => t.includes("Saved notes.txt")) ?? null`), 15_000, "saved receipt").catch(() => null);
   const saved = fs.existsSync(savedPath);
-  check("…and saving it from the menu puts the file in the project's downloads/", !!savedNote && saved && fs.readFileSync(savedPath, "utf8").startsWith("Notes"), { savedNote, savedPath });
+  check("…and saving it from the menu puts the file in the space's downloads/", !!savedNote && saved && fs.readFileSync(savedPath, "utf8").startsWith("Notes"), { savedNote, savedPath });
   const showMenu = await openMenu();
   const showRows = showMenu.rows.find((r) => r.label === "Downloads")?.sub?.map((r) => r.label);
   check("then Downloads lists it as saved", JSON.stringify(showRows) === JSON.stringify(["Show notes.txt in Finder"]), showRows);

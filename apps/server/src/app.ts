@@ -1074,7 +1074,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onOfferedChange: () => { mcpGateway.notifyToolsChanged(); rpc.broadcast("mcp.changed", {}); },
   });
   mcpGateway.registerProvider(createBrowserAgentProvider({
-    browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc,
+    browsers: browsersStore, projects, spaces, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc,
     constraints: browserAgents, signIn: signInTickets, simulatorStreams: simulatorTools,
     // Laya's shadow hears every act on a page as it hears the computer's and the simulator's, and a
     // walk asks its Assist for a label nothing matches while — only while — that is open.

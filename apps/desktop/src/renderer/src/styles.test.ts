@@ -4516,3 +4516,15 @@ describe("the drawn caret (caret.ts)", () => {
     expect(rule!.body).toContain("--caret-block: rl-caret-block-blink var(--caret-tempo) step-end infinite");
   });
 });
+
+/* The user asked for the blocked-download bar to be "the same color as the bg for the search bar track"
+   above it. The chrome has no fill, so the only way to match it is to have none either. THE mutant:
+   `background: var(--rl-hover)` (or any fill) coming back on the strip. jsdom computes no colours, so
+   the pixel check is the live script's; this holds the stylesheet. */
+it("the strips above a browser view paint no fill of their own; they share the chrome's ground", () => {
+  for (const selector of [".browser-notice", ".browser-chrome"]) {
+    const bodies = RULES.filter((r) => partsOf(r).includes(selector)).map((r) => r.body);
+    expect(bodies.length, `no rule in styles.css targets \`${selector}\``).toBeGreaterThan(0);
+    for (const body of bodies) expect(body, selector).not.toMatch(/(^|;\s*)background(-color)?\s*:/);
+  }
+});
