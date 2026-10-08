@@ -4899,15 +4899,17 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-queue-item .queue-icon:hover:not(:disabled) { background: var(--surface); color: var(--rl-text-bright); }
 .composer-queue-item :is(.queue-icon, .queue-send):disabled { opacity: .45; }
 .composer-queue-item .queue-send:disabled:hover { background: transparent; color: var(--rl-text-dim); }
-/* A message being edited: the row grows to hold the field, its controls keep to the first line. */
+/* A message being edited: the row grows to hold the field, its controls keep to the field's first
+   line — each centred in a box the height of that line, so they sit where they sat at rest. */
 .composer-queue-item[data-editing] { align-items: flex-start; }
-.composer-queue-item[data-editing] > :not(.queue-edit) { margin-top: 3px; }
+.composer-queue-item[data-editing] > :is(.queue-position, .queue-held, .queue-attach, .queue-send) { display: flex; align-items: center; height: 22px; }
+.composer-queue-item[data-editing] > .queue-drop { margin-top: 2px; }
 /* The field is the row's text grown into an input: the same size and ink, wrapping instead of
    ellipsizing, and only as tall as what is typed (up to six lines, then it scrolls). */
 .composer-queue-item .queue-edit { flex: 1; min-width: 0; margin: 0; padding: 2px 6px; resize: none;
   field-sizing: content; min-height: 22px; max-height: calc(6 * 18px + 4px);
   font: inherit; font-size: 12px; line-height: 18px; color: var(--rl-text-bright);
-  background: var(--surface); border: 0; border-radius: var(--r-chip);
+  background: var(--surface); border: 0; border-radius: calc(var(--r-chip) - 5px); /* concentric with the row's 5px inset */
   box-shadow: 0 0 0 var(--hairline-w) var(--rl-line); outline: none; }
 .composer-queue-item .queue-edit:focus-visible { box-shadow: 0 0 0 var(--hairline-w) var(--rl-accent); }
 /* Says why Send now is off — the message is being written, not waiting. */
