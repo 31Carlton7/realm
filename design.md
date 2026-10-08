@@ -934,6 +934,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
   came for, hidden behind the one line that says nothing about it.
+- The lead's Agents tab is where its sub-agents are run from, not only watched: a card each, saying
+  where it stands, what it runs on, in which checkout and mode, and how much of its budget of working
+  time is spent. A card waiting on a request is open with the request in it, answered there through
+  the same call the transcript uses; any card opens its transcript, takes a message or is stopped. What
+  a sub-agent started of its own nests under it, never beside it.
 - A question is one card whichever agent or server asked it, and it says who is asking first —
   "Codex asks", "Linear's MCP server asks" — because the same question means something different from
   each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the

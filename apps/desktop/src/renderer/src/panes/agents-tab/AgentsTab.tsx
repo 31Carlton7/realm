@@ -1,17 +1,20 @@
-import { AGENT_META, sessionModeOf, type AgentKind, type DelegatedChild, type Session } from "@realm/contracts";
+import { AGENT_META, sessionModeOf, type AgentKind, type DelegatedChild, type Environment, type Session } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ScrollFades } from "../../components/ScrollFades";
+import { ScrollFades, useDissolve } from "../../components/ScrollFades";
 import { activityOf, type SessionActivity } from "../../state/session-activity";
 import { useApp, type DelegableModels } from "../../state/store";
 import type { PaneProps } from "../registry";
-import { useOpenChild } from "../session/DelegatedRuns";
+import { AnswerHere } from "../session/AnswerHere";
+import { permissionMark } from "../session/Composer";
+import { harnessSubagents, useOpenChild } from "../session/DelegatedRuns";
 import { isPlanDecision } from "../session/PlanCard";
 import { formatDuration } from "../session/tool-group";
+import type { Block } from "../session/transcript-model";
 import { useElapsed } from "../session/use-elapsed";
 import { canSend, delegationBrief, type BriefPick } from "./brief";
 import { ModelChooser, OWN } from "./ModelChooser";
-import { STATE_LABEL, isLive, modelLabel, reportSummary, subagentElapsed, subagentState, taskTitle, type SubagentState } from "./subagent-state";
+import { STATE_LABEL, childTitle, isLive, modelLabel, orchestratorOrder, reportSummary, rollup, spentMs, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
 
 /** How many models the composer offers as one-click chips before the rest are a chooser away. */
 const CHIPS = 5;
@@ -47,6 +50,15 @@ export function AgentsTab({ item, visible }: PaneProps) {
   // Both reads on mount: the list itself, and the engine's live set, which is what tells a child
   // that is about to start from one whose run is gone. Every later change arrives as a broadcast.
   useEffect(() => { run(() => refreshSubagents(leadId)); run(() => refreshDelegatedRuns(leadId)); }, [leadId, refreshSubagents, refreshDelegatedRuns, run]);
+  // And again whenever a child changes state: a wait starting or ending is what moves its spent
+  // budget from ticking to held, and only the server knows how long it was held.
+  const statuses = useApp((s) => (s.subagents[leadId] ?? NO_CHILDREN).map((c) => s.sessionStatus[c.session.id] ?? "").join(","));
+  const seenStatuses = useRef(statuses);
+  useEffect(() => {
+    if (seenStatuses.current === statuses) return;
+    seenStatuses.current = statuses;
+    run(() => refreshSubagents(leadId));
+  }, [statuses, leadId, refreshSubagents, run]);
 
   /* What the tab was opened FOR — a plan to start the composer from, or a row a transcript line
      points at. Taken once and cleared, so a remount after a space switch does not put back a plan
@@ -81,20 +93,30 @@ export function AgentsTab({ item, visible }: PaneProps) {
 function SubagentList({ leadId, children, loaded, flash, onOpen }: {
   leadId: string; children: readonly DelegatedChild[]; loaded: boolean; flash: string | null; onOpen: (childId: string) => void;
 }) {
+  const sessionStatus = useApp((s) => s.sessionStatus);
+  const runs = useApp((s) => s.delegatedRuns[leadId]);
+  const stateOf = (c: DelegatedChild) => subagentState(c, sessionStatus[c.session.id], runs?.some((r) => r.sessionId === c.session.id) ?? false);
+  const ordered = orchestratorOrder(children, stateOf);
+  const states = ordered.map(stateOf);
+  const live = ordered.filter((_, i) => isLive(states[i]!));
+  // The oldest thing still going — how long this session has had agents out.
+  const since = live.length > 0 ? Math.min(...live.map((c) => c.startedAt)) : 0;
+  const elapsed = useElapsed(since, live.length > 0);
   // Nothing until the list has answered: an empty state shown for the moment before cards arrive is
   // a claim that there are none.
   if (!loaded) return null;
   if (children.length === 0) return <SubagentsEmpty />;
   return (
     <section className="subagents-section" aria-label="Sub-agents">
-      {/* How many, and no more: each card says where it stands, and the session's bar already says
-          how many are working. */}
+      {/* Where they all stand, in words — the cards below each say their own. Not sticky: it is a
+          head, and the cards are what is read while scrolling (design.md). */}
       <h2 className="subagents-head">
         Sub-agents
-        <span className="subagents-count">{children.length}</span>
+        <span className="subagents-count">{rollup(states)}</span>
+        {live.length > 0 && <span className="subagents-since" title="Since the oldest sub-agent still going started">{formatDuration(elapsed)}</span>}
       </h2>
       <ul className="subagents-list">
-        {children.map((c) => <SubagentCard key={c.session.id} child={c} leadId={leadId} flash={flash === c.session.id} onOpen={onOpen} />)}
+        {ordered.map((c) => <SubagentCard key={c.session.id} child={c} leadId={leadId} flash={flash === c.session.id} onOpen={onOpen} />)}
       </ul>
     </section>
   );
@@ -138,37 +160,177 @@ function StateMark({ state }: { state: SubagentState }) {
   }
 }
 
-function SubagentCard({ child, leadId, flash, onOpen }: { child: DelegatedChild; leadId: string; flash: boolean; onOpen: (childId: string) => void }) {
+/** Where a child works: its worktree's branch, or the checkout it shares. Nothing where this window
+ *  holds no environment for it — a "—" would be a claim. */
+function whereLabel(env: Environment | undefined): { text: string; branch: boolean } | null {
+  if (!env) return null;
+  if (env.kind === "primary") return { text: "primary checkout", branch: false };
+  const name = env.branch ?? env.path.split("/").filter(Boolean).pop() ?? "";
+  return name ? { text: name, branch: env.branch !== null } : null;
+}
+
+const NO_BLOCKS: readonly Block[] = [];
+
+/**
+ * One sub-agent as a card of the orchestrator: where it stands, on what, where, in which mode and how
+ * much of its budget is spent, what it is doing — and, opened, its request to answer in place and
+ * what can be done about it.
+ *
+ * The summary is the card's disclosure. A card waiting on you is open until you fold it, because the
+ * request in it is the reason anyone came here; a card asked for from a transcript line opens too.
+ */
+function SubagentCard({ child, leadId, flash, onOpen, nested = false }: {
+  child: DelegatedChild; leadId: string; flash: boolean; onOpen: (childId: string) => void; nested?: boolean;
+}) {
   const id = child.session.id;
   const live = useApp((s) => s.sessionStatus[id]);
   const inFlight = useApp((s) => s.delegatedRuns[leadId]?.some((r) => r.sessionId === id) ?? false);
   const liveDoing = useApp((s) => s.sessionActivity[id]);
   const probe = useApp((s) => s.agentProbe);
+  const env = useApp((s) => s.environments[child.session.environmentId]);
+  const blocks = useApp((s) => s.transcripts[id]?.t.blocks ?? NO_BLOCKS);
   const state = subagentState(child, live, inFlight);
   const ticking = isLive(state);
   const runningFor = useElapsed(child.startedAt, ticking);
-  const elapsed = ticking ? runningFor : subagentElapsed(child, state, Date.now());
+  const now = ticking ? child.startedAt + runningFor : Date.now();
+  const elapsed = ticking ? runningFor : subagentElapsed(child, state, now);
+  const spent = spentMs(child, state, now);
   const kind = child.session.agentKind;
   const model = modelLabel(kind, child.session.model, probe);
-  const task = taskTitle(child.goal, child.session.title);
+  const title = childTitle(child);
   const doing = ticking ? latestDoing(liveDoing, child.activity) : null;
   const summary = !ticking && child.report ? reportSummary(child.report) : "";
+  const where = whereLabel(env);
+  const mode = permissionMark(child.session.permissionMode);
+  const inAgent = useMemo(() => harnessSubagents(blocks), [blocks]);
+  const brief = (child.goal ?? "").trim();
+
+  const [opened, setOpened] = useState<boolean | null>(null);
+  const open = opened ?? state === "waiting";
+  const [messaging, setMessaging] = useState(false);
   const ref = useRef<HTMLLIElement>(null);
-  useEffect(() => { if (flash) ref.current?.scrollIntoView?.({ block: "nearest" }); }, [flash]);
+  const toggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!flash) return;
+    setOpened(true);
+    ref.current?.scrollIntoView?.({ block: "nearest" });
+  }, [flash]);
+  const detailId = `subagent-detail-${id}`;
   return (
-    <li ref={ref} className="subagent" data-state={state} data-flash={flash || undefined}>
-      <button type="button" className="subagent-card" title="Open this sub-agent's transcript"
-        aria-label={`${task}. ${model} on ${AGENT_META[kind].label}. ${STATE_LABEL[state]}, ${formatDuration(elapsed)}.`}
-        onClick={() => onOpen(id)}>
+    <li ref={ref} className="subagent subagent-card" data-state={state} data-flash={flash || undefined} data-open={open || undefined} data-nested={nested || undefined}>
+      <button ref={toggle} type="button" className="subagent-summary" aria-expanded={open} aria-controls={open ? detailId : undefined}
+        aria-label={`${title}. ${model} on ${AGENT_META[kind].label}. ${STATE_LABEL[state]}, ${formatDuration(elapsed)}.`}
+        onClick={() => setOpened(!open)}>
         <span className="subagent-top">
-          <Icon name={AGENT_META[kind].icon} size={16} colored className="subagent-mark" />
-          <span className="subagent-model">{model}</span>
-          <span className="subagent-harness">{AGENT_META[kind].label}</span>
+          <span className="subagent-caret" data-open={open || undefined}><Icon name="chevronRight" size={12} /></span>
+          <span className="subagent-task">{title}</span>
           <span className="subagent-state"><StateMark state={state} />{STATE_LABEL[state]}<span className="subagent-time">{formatDuration(elapsed)}</span></span>
         </span>
-        <span className="subagent-task">{task}</span>
+        <span className="subagent-facts">
+          <Icon name={AGENT_META[kind].icon} size={14} colored className="subagent-mark" />
+          <span className="subagent-model">{model}</span>
+          <span className="subagent-harness">{AGENT_META[kind].label}</span>
+          {where && <span className="subagent-where" data-branch={where.branch || undefined} title={env?.path}>{where.text}</span>}
+          <span className="subagent-mode" title={`Runs in ${mode.label}`}><Icon name={mode.icon} size={12} />{mode.label}</span>
+          {spent !== null && child.budgetMs != null && (
+            <span className="subagent-budget" title="Working time spent of its budget. Time waiting on you is not counted.">
+              {formatDuration(spent)} of {formatDuration(child.budgetMs)}
+            </span>
+          )}
+        </span>
         {doing && <span className="subagent-doing"><Icon name={doing.icon} size={12} /><span className="subagent-doing-text">{doing.text}</span></span>}
+        {child.note && <span className="subagent-note">{child.note}</span>}
         {summary && <span className="subagent-report">{summary}</span>}
+      </button>
+      {inAgent.length > 0 && (
+        <ul className="subagent-inner" aria-label={`Sub-agents ${title} is running in the agent`}>
+          {inAgent.map((h) => <HarnessRow key={h.id} sessionId={id} row={h} onOpen={onOpen} />)}
+        </ul>
+      )}
+      {child.children && child.children.length > 0 && (
+        <ul className="subagents-list subagent-nested" aria-label={`Sub-agents ${title} started`}>
+          {child.children.map((g) => <SubagentCard key={g.session.id} child={g} leadId={id} flash={false} onOpen={onOpen} nested />)}
+        </ul>
+      )}
+      {open && (
+        <div className="subagent-detail" id={detailId}>
+          {brief && brief !== title && <Brief text={brief} />}
+          {state === "waiting" && (
+            <AnswerHere id={`subagent-ask-${id}`} session={child.session} asker={title}
+              onLeave={() => { setOpened(false); toggle.current?.focus(); }} />
+          )}
+          <div className="subagent-actions">
+            <button type="button" className="btn-quiet" onClick={() => onOpen(id)}>Open transcript</button>
+            <button type="button" className="btn-quiet" aria-expanded={messaging} onClick={() => setMessaging((v) => !v)}>Message</button>
+            {(state === "working" || state === "waiting") && <StopButton id={id} title={title} />}
+          </div>
+          {messaging && <MessageField child={child} title={title} leadId={leadId} onDone={() => setMessaging(false)} />}
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** The whole task the child was handed, capped and dissolving where it scrolls. */
+function Brief({ text }: { text: string }) {
+  const scroller = useRef<HTMLParagraphElement>(null);
+  useDissolve(scroller);
+  return <p className="subagent-goal" ref={scroller}>{text}</p>;
+}
+
+/** Stop names what it stops, and asks nothing first: a stopped sub-agent keeps its transcript, and
+ *  its lead is told a person stopped it (design.md: a confirm is owed by the object). */
+function StopButton({ id, title }: { id: string; title: string }) {
+  const interruptSession = useApp((s) => s.interruptSession);
+  const run = useApp((s) => s.run);
+  return <button type="button" className="btn-quiet" title={`Stop ${title}`} aria-label={`Stop ${title}`} onClick={() => run(() => interruptSession(id))}>Stop</button>;
+}
+
+/** A line to one sub-agent. Its placeholder says where the words go — and, once its run has ended,
+ *  that the lead may never read the reply. */
+function MessageField({ child, title, leadId, onDone }: { child: DelegatedChild; title: string; leadId: string; onDone: () => void }) {
+  const sendMessage = useApp((s) => s.sendMessage);
+  const lead = useApp((s) => s.sessions[leadId] ?? s.allSessions[leadId]);
+  const run = useApp((s) => s.run);
+  const [text, setText] = useState("");
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => { field.current?.focus(); }, []);
+  const consequence = child.outcome !== null ? ` If its run was already collected, ${lead?.title ?? "this session"} will not see the reply.` : "";
+  const send = () => {
+    const t = text.trim();
+    if (!t) return;
+    run(async () => { await sendMessage(child.session.id, t); setText(""); onDone(); });
+  };
+  return (
+    // data-no-agent: words sent in the user's name to an agent — an agent driving the window must not
+    // be able to instruct its sibling through here.
+    <div className="subagent-message" data-no-agent="message to a sub-agent">
+      <input ref={field} value={text} aria-label={`Message ${title}`} placeholder={`Goes to this agent only.${consequence}`} title={`Goes to this agent only.${consequence}`}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); send(); }
+          if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onDone(); }
+        }} />
+      <button type="button" className="btn-quiet" disabled={!text.trim()} onClick={send}>Send</button>
+    </div>
+  );
+}
+
+/** A sub-agent the CHILD's harness is running in its own process — no session behind it, so a click
+ *  shows its calls on the panel docked to the child's transcript, beside this tab. */
+function HarnessRow({ sessionId, row, onOpen }: { sessionId: string; row: { id: string; label: string; startedAt: number }; onOpen: (childId: string) => void }) {
+  const docked = useApp((s) => s.sessionDock[sessionId]);
+  const toggleSessionDock = useApp((s) => s.toggleSessionDock);
+  const elapsed = useElapsed(row.startedAt, true);
+  const watching = docked?.kind === "subagent" && docked.toolUseId === row.id;
+  return (
+    <li>
+      <button type="button" className="subagent-inner-row" aria-label={`Watch ${row.label}, in the agent`}
+        onClick={() => { onOpen(sessionId); if (!watching) toggleSessionDock(sessionId, { kind: "subagent", toolUseId: row.id }); }}>
+        <span className="status-dot" data-status="running" aria-hidden="true" />
+        <span className="subagent-inner-label">{row.label}</span>
+        <span className="subagent-inner-where">in the agent</span>
+        <span className="subagent-time">{formatDuration(elapsed)}</span>
       </button>
     </li>
   );
