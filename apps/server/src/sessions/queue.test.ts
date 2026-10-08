@@ -371,6 +371,24 @@ describe("editing a queued message", () => {
     expect(c.queues(session.id).at(-1)).toEqual([]);
   });
 
+  it("removing a held head that stopped a drain sends the message behind it", async () => {
+    // THE MUTANT: a dequeue that leaves the hold and its owed drain behind — the next message sits
+    // until some later settle that may never come.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+    const [a] = await queued(c, session.id);
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true });
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.events.some((e) => e.event === "session.status" && e.payload.sessionId === session.id && e.payload.status === "idle"));
+
+    await c.call("sessions.dequeue", { id: session.id, queuedId: a!.id });
+
+    await waitFor(() => c.userMessages(session.id).includes("second"));
+    expect(c.userMessages(session.id)).toEqual(["go", "second"]);
+  });
+
   it("marks the held message on the broadcast, and only that one", async () => {
     // THE MUTANT: `held` left off the wire, so no other window can tell the message is being edited.
     const { c, session } = await boot();
