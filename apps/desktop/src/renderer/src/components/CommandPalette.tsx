@@ -180,7 +180,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
   const dispatchDraft = useApp((s) => s.dispatchDraft);
   const drafts = useApp((s) => s.drafts);
-  const splitFocused = useApp((s) => s.splitFocused);
+  const splitNewSession = useApp((s) => s.splitNewSession);
   /* Why a split from the focused pane is not offered, read as the palette opens: the room cannot change
      while it is up. */
   const splitWhyRow = useApp((s) => s.splitRefusal("row"));
@@ -382,8 +382,8 @@ function PaletteBody({ closing }: { closing: boolean }) {
       // Unavailable while there is no room for another pane at its floor. The row keeps its name and
       // says the sentence's first clause; the whole of it — what would make room, the same words the
       // pane's menu row and the key's toast use — is the hint's tooltip.
-      { ...act("split-right", "Split right", "layout", () => run(() => splitFocused("row")), splitWhyRow ? <span title={splitWhyRow}>{brief(splitWhyRow)}</span> : kbd("pane.splitRight")), disabled: !!splitWhyRow },
-      { ...act("split-down", "Split down", "layout", () => run(() => splitFocused("col")), splitWhyCol ? <span title={splitWhyCol}>{brief(splitWhyCol)}</span> : kbd("pane.splitDown")), disabled: !!splitWhyCol },
+      { ...act("split-right", "Split right", "layout", () => run(() => splitNewSession("row")), splitWhyRow ? <span title={splitWhyRow}>{brief(splitWhyRow)}</span> : kbd("pane.splitRight")), disabled: !!splitWhyRow },
+      { ...act("split-down", "Split down", "layout", () => run(() => splitNewSession("col")), splitWhyCol ? <span title={splitWhyCol}>{brief(splitWhyCol)}</span> : kbd("pane.splitDown")), disabled: !!splitWhyCol },
       ...(closeLabel ? [act("close-pane", closeLabel, "close", () => run(() => closeInPane()), kbd("pane.close"))] : []),
       ...(focusedItem ? [
         // The pane keeps its place in the view either way — this only changes how much room it gets.
@@ -412,7 +412,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
   }, [kbd, kbdIn, spaces, activeSpaceId, plainFolder, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
-      selectSpace, revealItem, newTerminal, newBrowser, newMachine, newSimulator, newTab, showSessionTerminal, openAgentsTab, besideSession, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitFocused, splitWhyRow, splitWhyCol, closeInPane, requestRename,
+      selectSpace, revealItem, newTerminal, newBrowser, newMachine, newSimulator, newTab, showSessionTerminal, openAgentsTab, besideSession, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitNewSession, splitWhyRow, splitWhyCol, closeInPane, requestRename,
       interruptSession, jumpToPermission, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
       profiles, activeProfileId, openProfileWindow, openNewProfileSheet,
       zoomedLeaf, toggleFocusPane]);

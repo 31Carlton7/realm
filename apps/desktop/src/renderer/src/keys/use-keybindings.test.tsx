@@ -167,12 +167,41 @@ describe("useKeybindings", () => {
     expect(terminals).toBe(0);
   });
 
-  it("reads the physical key, so ⌘⇧\\ splits down rather than doing nothing", async () => {
-    const { store } = await mount();
+  it("reads the physical key, so ⌘⇧\\ splits down rather than doing nothing — with a new session in the new pane", async () => {
+    // THE MUTANT: the command left on splitFocused, which leaves the new pane empty.
+    const { api, store } = await mount();
     act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i1" }, focusedLeafId: "L1" }));
     // A US layout reports "|" here; the chord is decided by `code`, so the rule can say `mod+shift+\`.
     key({ key: "|", code: "Backslash", metaKey: true, shiftKey: true });
     await waitFor(() => { const l = store.getState().layout!; expect(l.type === "split" && l.dir).toBe("col"); });
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(2));
+    expect(made(api, "createSession")).toBe(true);
+  });
+
+  it("⌘\\ and ⌘⇧\\ split from inside a text field — the caret a split leaves in a prompter", async () => {
+    // THE MUTANT: the splits left on `!inputFocus`: the first split hands the new prompter the
+    // keyboard, and the second keystroke would do nothing.
+    const { api, store } = await mount();
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i1" }, focusedLeafId: "L1" }));
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+    input.focus();
+    key({ key: "\\", code: "Backslash", metaKey: true }, input);
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(2));
+    key({ key: "|", code: "Backslash", metaKey: true, shiftKey: true }, input);
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(3));
+    expect(api.calls.filter((c) => c.startsWith("createSession"))).toHaveLength(2);
+    input.remove();
+  });
+
+  it("⌘\\ splits right with a new session in the new pane, not an empty one", async () => {
+    // THE MUTANT: the command left on splitFocused.
+    const { api, store } = await mount();
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i1" }, focusedLeafId: "L1" }));
+    key({ key: "\\", code: "Backslash", metaKey: true });
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "split" && l.dir).toBe("row"); });
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(2));
+    expect(made(api, "createSession")).toBe(true);
   });
 
   it("gates Escape on the session actually running", async () => {
