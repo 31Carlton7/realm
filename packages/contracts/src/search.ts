@@ -47,15 +47,17 @@ export const SkillSearchHitSchema = z.object({
 });
 export type SkillSearchHit = z.infer<typeof SkillSearchHitSchema>;
 
-/** A memory-document hit: this profile's own doc, or one of its spaces' docs. Exactly one of
- *  `profileId`/`spaceId` is set — it is where Enter navigates. */
+/** A memory hit: this profile's own doc or memory repo, or one of its spaces' docs or repos. Exactly
+ *  one of `profileId`/`spaceId` is set — it is where Enter navigates. */
 export const MemorySearchHitSchema = z.object({
   scope: z.enum(["profile", "space"]),
   profileId: IdSchema.nullable(),
   spaceId: IdSchema.nullable(),
-  /** What to call the document: the space's name, or the profile's. */
+  /** What to call the document or repo: the space's name, or the profile's. */
   title: z.string(),
   snippet: SearchSnippetSchema,
+  /** For a memory repo hit, the file it is in, from the repo's root; null for a memory document. */
+  file: z.string().nullable(),
 });
 export type MemorySearchHit = z.infer<typeof MemorySearchHitSchema>;
 

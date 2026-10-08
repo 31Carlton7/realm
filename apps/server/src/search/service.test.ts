@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { sessionEvent, type SearchSnippet } from "@realm/contracts";
@@ -12,6 +12,7 @@ import { SessionsStore, SessionEventsStore } from "../store/sessions";
 import { EnvironmentsStore } from "../store/environments";
 import { SkillsService } from "../skills/service";
 import { MemoryService } from "../memory/service";
+import { MemoryRepoService } from "../memory/repo";
 import { NotFoundError } from "../store/rows";
 import { BACKFILL_CHUNK, SEARCH_BACKFILL_KEY, SearchService, ftsExpression, liveMatches, liveSnippet, parseFtsSnippet, queryTokens } from "./service";
 
@@ -25,7 +26,8 @@ function harness() {
   const scopes = { profileIdOf: (sid: string) => spaces.get(sid)?.profileId ?? null };
   const skills = new SkillsService({ home, settings, bundledDir: null, scopes });
   const memory = new MemoryService({ home, settings, environments, claudeDir: join(home, "no-claude"), scopes });
-  const search = new SearchService({ db, settings, profiles, spaces, skills, memory });
+  const memoryRepos = new MemoryRepoService({ home, settings, scopes, committerName: async () => "T", today: () => "2026-10-08" });
+  const search = new SearchService({ db, settings, profiles, spaces, skills, memory, memoryRepos });
   const sessions = new SessionsStore(db);
   const events = new SessionEventsStore(db);
   const items = new ItemsStore(db);
@@ -40,7 +42,7 @@ function harness() {
   const newSession = (spaceId: string, environmentId: string, title = "A session") =>
     sessions.create({ spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId, title });
 
-  return { home, db, profiles, spaces, settings, environments, skills, memory, search, sessions, events, items, work, school, alpha, beta, envA, envB, newSession };
+  return { home, db, profiles, spaces, settings, environments, skills, memory, memoryRepos, search, sessions, events, items, work, school, alpha, beta, envA, envB, newSession };
 }
 
 const flat = (s: SearchSnippet) => s.map((p) => p.text).join("");
@@ -162,6 +164,38 @@ describe("live sources — files are read at query time, never cached", () => {
     const r = h.search.query(h.work.id, "iguana");
     expect(r.memory).toMatchObject([{ scope: "profile", profileId: h.work.id, spaceId: null }]);
     expect(r.memory[0]!.title).toContain("Work");
+  });
+});
+
+describe("memory repos in search", () => {
+  it("finds a fact in the profile's repo and in a space's own, one hit per file, fenced to the profile", async () => {
+    const h = harness();
+    const work = { scope: "profile", id: h.work.id } as const;
+    const alphaTeam = { scope: "space", id: h.alpha.id } as const;
+    const betaTeam = { scope: "space", id: h.beta.id } as const;
+    await h.memoryRepos.create(work);
+    await h.memoryRepos.create(alphaTeam);
+    await h.memoryRepos.create(betaTeam);
+    await h.memoryRepos.edit(work, { op: "add", entry: "Prefers the okapi theme", sessionId: "S1" });
+    await h.memoryRepos.edit(work, { op: "add", entry: "Okapi theme in the editor too", file: "editor", sessionId: "S1" });
+    await h.memoryRepos.edit(alphaTeam, { op: "add", entry: "The okapi theme is the team default", file: "team", sessionId: "S1" });
+    await h.memoryRepos.edit(betaTeam, { op: "add", entry: "School okapi theme", sessionId: "S1" });
+    // THE MUTANT: leave `repoHits` out of `memory()` — what agents saved is invisible to search.
+    const r = h.search.query(h.work.id, "okapi theme").memory;
+    expect(r.map((x) => [x.scope, x.profileId ?? x.spaceId, x.file])).toEqual([
+      ["profile", h.work.id, "editor.md"], ["profile", h.work.id, "MEMORY.md"], ["space", h.alpha.id, "team.md"],
+    ]);
+    expect(r[1]!.title).toBe("Work memory repo · MEMORY.md");
+    expect(r[2]!.snippet.filter((p) => p.match).map((p) => p.text.toLowerCase())).toEqual(["okapi", "theme"]);
+    expect(h.search.query(h.school.id, "okapi").memory.map((x) => x.spaceId)).toEqual([h.beta.id]);
+  });
+
+  it("a repo folder gone from disk is no result and no failure", async () => {
+    const h = harness();
+    const work = { scope: "profile", id: h.work.id } as const;
+    const { path } = await h.memoryRepos.create(work);
+    rmSync(path, { recursive: true, force: true });
+    expect(h.search.query(h.work.id, "anything").memory).toEqual([]);
   });
 });
 

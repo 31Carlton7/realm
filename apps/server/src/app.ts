@@ -96,7 +96,7 @@ import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
-import { MemoryRepoService } from "./memory/repo";
+import { MemoryRepoService, type RepoOwner } from "./memory/repo";
 import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
@@ -925,7 +925,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ],
     toolsEnabled: (spaceId) => mcp.providerEnabled(spaceId, MEMORY_PROVIDER_NAME),
     committerName: userFirstName,
+    // Asked only whether a GitHub remote is private, before sync is turned on; never a test's network.
+    gh: ghRunner(opts.codeReview?.gh ?? "gh"),
+    // A pull or push settles in the background, after the save that started it has answered.
+    onSynced: (o) => memoryRepoChanged(o),
   });
+  /** Every space that shows a repo is told it changed: all of a profile's spaces, or the one space. */
+  const memoryRepoChanged = (o: RepoOwner): void => {
+    for (const spaceId of o.scope === "space" ? [o.id] : spaces.list(o.id).map((sp) => sp.id)) rpc.broadcast("memory.changed", { spaceId });
+  };
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam, repos: memoryRepos });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
@@ -1221,16 +1229,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
      has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
      agents, which take no per-session context. A save repaints every open memory row of the profile. */
-  mcpGateway.registerProvider(createMemoryAgentProvider({
-    repos: memoryRepos, mcp,
-    onChanged: (profileId) => { for (const sp of spaces.list(profileId)) rpc.broadcast("memory.changed", { spaceId: sp.id }); },
-  }));
+  mcpGateway.registerProvider(createMemoryAgentProvider({ repos: memoryRepos, mcp, onChanged: memoryRepoChanged }));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
   // Global search (Plan 16 W1). The service reads; the index writes live in the stores' own choke
   // points (SessionEventsStore.append, ItemsStore) so no producer can skip them.
-  const search = new SearchService({ db, settings, profiles, spaces, skills, memory });
+  const search = new SearchService({ db, settings, profiles, spaces, skills, memory, memoryRepos });
   // Model prices and context windows for the picker (public catalog, cached in `settings`). Nothing
   // depends on it: every method returns rows, and an unreachable catalog returns the stale ones.
   const modelCatalog = new ModelCatalogService({ settings });
@@ -1322,6 +1327,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
   void search.runBackfill();
+  /* Saves made while the network was down are pushed now, and what other machines pushed is pulled:
+     every synced repo, in the background, never holding up the boot. */
+  for (const p of profiles.list()) void memoryRepos.queueSync({ scope: "profile", id: p.id });
+  for (const sp of spaces.listAll()) void memoryRepos.queueSync({ scope: "space", id: sp.id });
   // The pre-v25 history reaches the Library's file index the same way, on the same terms: chunked,
   // yielding, resumable, and merely incomplete rather than wrong while it runs.
   void artifacts.runBackfill(() => false);

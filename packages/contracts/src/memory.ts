@@ -179,9 +179,24 @@ export const MEMORY_REPO_INDEX_MAX = 20_000;
 /** Cap on one entry. An entry is one line of one fact, and a paragraph is a topic file. */
 export const MEMORY_REPO_ENTRY_MAX = 2_000;
 
+/** Whose a memory repo is: a profile's (the user's own memory, inherited by its spaces) or one
+ *  space's (a team's, shared by everyone who works in that space). */
+export const MemoryRepoScopeSchema = z.enum(["profile", "space"]);
+export type MemoryRepoScope = z.infer<typeof MemoryRepoScopeSchema>;
+
 /**
- * A memory repo as one scope sees it. `scope`/`ownerId` say whose it is — a profile's, in this
- * release; per-space repos are the next one, which is why a space reads a LIST of these.
+ * Where a repo stands against the remote it syncs with. `off`: no sync (no remote, or the user has
+ * not turned it on). `synced`: nothing waiting. `queued`: commits made here are not on the remote
+ * yet — the network was down, or no push has run since the save; the next save or boot retries.
+ * `diverged`: both sides have commits the other lacks, so saving is paused until the user merges
+ * by hand — Realm never merges, rebases or forces memory.
+ */
+export const MemoryRepoSyncSchema = z.enum(["off", "synced", "queued", "diverged"]);
+export type MemoryRepoSync = z.infer<typeof MemoryRepoSyncSchema>;
+
+/**
+ * A memory repo as one scope sees it. `scope`/`ownerId` say whose it is; a space reads a LIST of
+ * these — its own repo, if it has one, then its profile's.
  *
  * `valid` is the spec's own test: `git rev-parse --show-toplevel` is the path itself and `MEMORY.md`
  * sits at the top. `reason` is why Realm will not write to it right now (not a repo, uncommitted
@@ -189,7 +204,7 @@ export const MEMORY_REPO_ENTRY_MAX = 2_000;
  */
 export const MemoryRepoStateSchema = z.object({
   path: z.string(),
-  scope: z.enum(["profile", "space"]),
+  scope: MemoryRepoScopeSchema,
   ownerId: z.string(),
   exists: z.boolean(),
   valid: z.boolean(),
@@ -200,13 +215,56 @@ export const MemoryRepoStateSchema = z.object({
   lastCommitAt: z.number().nullable(),
   lastCommitSubject: z.string().nullable(),
   remote: z.string().nullable(),
+  /** Whether Realm pulls and pushes this repo. On only after the user turned it on for a remote
+   *  Realm checked, or the user confirmed, is private. */
   pushEnabled: z.boolean(),
+  sync: MemoryRepoSyncSchema,
+  /** Commits here the remote lacks, and the other way round, as of the last fetch. */
+  ahead: z.number(),
+  behind: z.number(),
+  /** Why the last pull or push did not go through (offline, refused), or null. */
+  syncError: z.string().nullable(),
+  lastSyncAt: z.number().nullable(),
   indexChars: z.number(),
   /** Whether the space asked about uses this repo; null when no space was asked about. */
   inheritedHere: z.boolean().nullable(),
   reason: z.string().nullable(),
 });
 export type MemoryRepoState = z.infer<typeof MemoryRepoStateSchema>;
+
+/**
+ * What Realm knows about whether a repo's remote is private, before it pushes anything there.
+ * `private`/`public` come from GitHub itself (`gh api repos/:owner/:repo`); `unknown` is every other
+ * remote, or a GitHub one `gh` could not answer for — then only the user's own word turns sync on.
+ */
+export const MemoryRemoteCheckSchema = z.object({
+  remote: z.string().nullable(),
+  verdict: z.enum(["private", "public", "unknown"]),
+  detail: z.string(),
+});
+export type MemoryRemoteCheck = z.infer<typeof MemoryRemoteCheckSchema>;
+
+/** What importing the Claude memory Realm already copied would add to a repo — or, after an import,
+ *  what it did add. `entries` is the count the user is shown before anything is written. */
+export const MemoryClaudeImportSchema = z.object({
+  projects: z.number(),
+  files: z.number(),
+  entries: z.number(),
+  skipped: z.array(z.object({ file: z.string(), reason: z.string() })),
+  sha: z.string().nullable(),
+});
+export type MemoryClaudeImport = z.infer<typeof MemoryClaudeImportSchema>;
+
+/**
+ * The GitHub repository a remote URL names, or null for any other host. Covers the three spellings
+ * git accepts for GitHub — `https://github.com/o/r(.git)`, `git@github.com:o/r(.git)` and
+ * `ssh://git@github.com/o/r(.git)` — and nothing looser: a URL this does not recognize is checked by
+ * the user, never guessed at.
+ */
+export function githubRepoOf(url: string): { owner: string; repo: string } | null {
+  const m = /^(?:https?:\/\/(?:[^@/\s]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com(?::\d+)?\/)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(url.trim());
+  return m ? { owner: m[1]!, repo: m[2]! } : null;
+}
 
 /** One commit of a memory repo — what an agent remembered, and when. */
 export const MemoryRepoCommitSchema = z.object({ sha: z.string(), subject: z.string(), at: z.number() });

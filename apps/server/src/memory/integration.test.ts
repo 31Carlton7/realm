@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach, vi } from "vitest";
 import WebSocket from "ws";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
@@ -255,7 +256,7 @@ describe("memory over rpc", () => {
     const { c, spA, spB, claude, codex, cursor } = await boot();
     await c.call("memory.setProfile", { profileId: spA.profileId, doc: "PROFILE_DOC" });
     await c.call("memory.set", { spaceId: spA.id, doc: "SPACE_DOC" });
-    const made = (await c.call("memory.repo.create", { profileId: spA.profileId })).result;
+    const made = (await c.call("memory.repo.create", { scope: "profile", ownerId: spA.profileId })).result;
     expect(made).toMatchObject({ valid: true, clean: true, scope: "profile" });
     await waitFor(() => [spA.id, spB.id].every((sid) => c.events.some((e: Any) => e.event === "memory.changed" && e.payload.spaceId === sid)));
 
@@ -289,7 +290,7 @@ describe("memory over rpc", () => {
 
   it("memory.repo RPC: per-space opt-out, log, detach that leaves the folder, refusals", async () => {
     const { c, spA, spB, claude, home } = await boot();
-    const made = (await c.call("memory.repo.create", { profileId: spA.profileId })).result;
+    const made = (await c.call("memory.repo.create", { scope: "profile", ownerId: spA.profileId })).result;
     expect(made.path).toBe(join(home, "memory", "repos", `profile-${spA.profileId}`));
     expect((await c.call("memory.repo.get", { spaceId: spB.id })).result.repos).toEqual([expect.objectContaining({ path: made.path, inheritedHere: true })]);
     const off = (await c.call("memory.repo.setInherited", { spaceId: spB.id, enabled: false })).result;
@@ -299,14 +300,44 @@ describe("memory over rpc", () => {
     await startSession(c, spB.id, "claude");
     await waitFor(() => claude.starts.length === 1);
     expect(claude.starts[0]!.systemContext ?? "").not.toContain("# Memory repo");
-    expect((await c.call("memory.repo.log", { profileId: spA.profileId, limit: 5 })).result.commits).toEqual([expect.objectContaining({ subject: "Create memory repo" })]);
-    expect((await c.call("memory.repo.attach", { profileId: spA.profileId, path: spA.folderPath })).error.code).toBe("MEMORY_REPO_FORBIDDEN");
+    expect((await c.call("memory.repo.log", { scope: "profile", ownerId: spA.profileId, limit: 5 })).result.commits).toEqual([expect.objectContaining({ subject: "Create memory repo" })]);
+    expect((await c.call("memory.repo.attach", { scope: "profile", ownerId: spA.profileId, path: spA.folderPath })).error.code).toBe("MEMORY_REPO_FORBIDDEN");
     expect((await c.call("memory.repo.get", {})).error.code).toBe("BAD_PARAMS");
-    expect((await c.call("memory.repo.detach", { profileId: spA.profileId })).result).toEqual({ ok: true });
+    expect((await c.call("memory.repo.detach", { scope: "profile", ownerId: spA.profileId })).result).toEqual({ ok: true });
     expect((await c.call("memory.repo.get", { profileId: spA.profileId })).result.repos).toEqual([]);
     expect(existsSync(join(made.path, "MEMORY.md"))).toBe(true);
     // Attaching it back is the same repo, history and all.
-    expect((await c.call("memory.repo.attach", { profileId: spA.profileId, path: made.path })).result).toMatchObject({ valid: true, lastCommitSubject: "Create memory repo" });
+    expect((await c.call("memory.repo.attach", { scope: "profile", ownerId: spA.profileId, path: made.path })).result).toMatchObject({ valid: true, lastCommitSubject: "Create memory repo" });
+    c.close();
+  });
+
+  it("a space's own repo over RPC: listed first, told to that space only, injected beside the profile's", async () => {
+    const { c, spA, spB, claude, home } = await boot();
+    const prof = (await c.call("memory.repo.create", { scope: "profile", ownerId: spA.profileId })).result;
+    c.events.length = 0;
+    const team = (await c.call("memory.repo.create", { scope: "space", ownerId: spA.id })).result;
+    expect(team).toMatchObject({ scope: "space", ownerId: spA.id, path: join(home, "memory", "repos", `space-${spA.id}`), sync: "off", inheritedHere: null });
+    await waitFor(() => c.events.some((e: Any) => e.event === "memory.changed" && e.payload.spaceId === spA.id));
+    expect(c.events.some((e: Any) => e.event === "memory.changed" && e.payload.spaceId === spB.id)).toBe(false);
+    expect((await c.call("memory.repo.get", { spaceId: spA.id })).result.repos.map((r: Any) => r.scope)).toEqual(["space", "profile"]);
+    expect((await c.call("memory.repo.get", { spaceId: spB.id })).result.repos.map((r: Any) => r.scope)).toEqual(["profile"]);
+    // Sync is refused until a remote exists, and a remote Realm cannot check needs the user's word.
+    expect((await c.call("memory.repo.setSync", { scope: "space", ownerId: spA.id, enabled: true })).error.code).toBe("MEMORY_REMOTE_NONE");
+    const bare = join(home, "team.git");
+    mkdirSync(bare);
+    execFileSync("git", ["init", "-q", "--bare", bare]);
+    expect((await c.call("memory.repo.setRemote", { scope: "space", ownerId: spA.id, url: bare })).result).toMatchObject({ remote: bare, pushEnabled: false });
+    expect((await c.call("memory.repo.checkRemote", { scope: "space", ownerId: spA.id })).result).toMatchObject({ remote: bare, verdict: "unknown" });
+    expect((await c.call("memory.repo.setSync", { scope: "space", ownerId: spA.id, enabled: true })).error.code).toBe("MEMORY_REMOTE_UNCONFIRMED");
+    expect((await c.call("memory.repo.setSync", { scope: "space", ownerId: spA.id, enabled: true, confirmPrivate: true })).result.pushEnabled).toBe(true);
+    expect((await c.call("memory.repo.sync", { scope: "space", ownerId: spA.id })).result).toMatchObject({ sync: "synced" });
+    expect((await c.call("memory.repo.importClaude", { scope: "space", ownerId: spA.id, dryRun: true })).result).toMatchObject({ projects: 0, entries: 0, sha: null });
+
+    await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    const ctx = claude.starts[0]!.systemContext!;
+    expect(ctx).toContain(`# Memory repos\n\nThis session has two memory repos: the user's own at ${prof.path}, and this workspace's at ${team.path}`);
     c.close();
   });
 });
+
