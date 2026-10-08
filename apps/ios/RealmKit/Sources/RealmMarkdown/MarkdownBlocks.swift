@@ -155,8 +155,7 @@ public enum MarkdownBlocks {
         return text
     }
 
-    /// NSRegularExpression, and so its detector, is safe to match from any thread.
-    nonisolated(unsafe) static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
     /// A web address written out in the prose is a link too, as it is on the desktop. Only one spelled
     /// with its scheme: `realm.computer` alone is a name, not an address.
