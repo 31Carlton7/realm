@@ -12,12 +12,17 @@ import { useArchiveAnywhere } from "./use-sidebar-model";
 /**
  * A tally at a row's far end: how many are waiting on you and how many are working, each a count
  * with the mark the rows themselves wear — the dot keeps the far end, so a column of sections lines
- * its marks up with the session rows under them. Failures and unread are in the words (the row's
- * accessible name and tooltip); Needs you and the rows carry those marks.
+ * its marks up with the session rows under them. Unread joins them only when nothing is waiting or
+ * working, as a session row wears it only with no state to show: a folded space whose only news is a
+ * finished turn would otherwise say nothing at all. Failures are in the words (the row's accessible
+ * name and tooltip); Needs you and the rows carry that mark.
  */
 export function TallyMarks({ tally }: { tally: Tally }) {
   return (
     <>
+      {tally.unread > 0 && tally.waiting + tally.running === 0 && (
+        <span className="item-tally"><span className="item-count">{tally.unread}</span><span className="status-dot item-status" data-status="unseen" /></span>
+      )}
       {tally.waiting > 0 && (
         <span className="item-tally"><span className="item-count">{tally.waiting}</span><span className="status-dot item-status" data-status="waiting_permission" /></span>
       )}
@@ -59,7 +64,7 @@ export function SessionRowView({ row, where, nested = false, onChanged }: { row:
   const named = `${row.title}${row.scheduled ? ", from a schedule" : ""}${where ? ` in ${where}` : ""}`;
   return (
     // Every space of the profile is loaded, so any row can be dragged into the view or lit as its focus.
-    <div className="item sb-row" data-nested={nested || undefined} data-active={focused || undefined} data-actions="1"
+    <div className="item sb-row" data-nested={nested || undefined} data-active={focused || undefined} data-unread={mark?.mark === "unseen" || undefined} data-actions="1"
       data-dragging={dragging || undefined} draggable
       onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", row.item.id); e.dataTransfer.effectAllowed = "move"; setDragging(true); }}
       onDragEnd={() => setDragging(false)} onContextMenu={onContextMenu(row.item)}>

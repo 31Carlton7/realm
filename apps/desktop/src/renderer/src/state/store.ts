@@ -373,6 +373,12 @@ export type Api = {
   /** `sessions.releaseQueued` — send one queued message now. Server-side by id, so the mentions and
    *  element chips it was composed with survive; see `QueuedPrompt`. */
   releaseQueuedPrompt(id: string, queuedId: string): Promise<void>;
+  /** `sessions.holdQueued` — hold a queued message while it is edited, or let it go. Answers whether
+   *  it is now held: false when it has already gone out. */
+  holdQueuedPrompt(id: string, queuedId: string, held: boolean): Promise<boolean>;
+  /** `sessions.editQueued` — replace a queued message's text where it stands. False when it had
+   *  already gone out. */
+  editQueuedPrompt(id: string, queuedId: string, text: string): Promise<boolean>;
   sessionQueue(id: string): Promise<QueuedPrompt[]>;
   /** `limits.get` — every provider's plan quota as last reported. */
   planLimits(): Promise<PlanLimits[]>;
@@ -2020,6 +2026,14 @@ export type AppState = {
   promptTaken(n: number): void;
   dequeuePrompt(sessionId: string, queuedId: string): Promise<void>;
   releaseQueuedPrompt(sessionId: string, queuedId: string): Promise<void>;
+  /** Open a queued message for editing. It is held, so the queue will not send the old text while
+   *  the new one is typed. False when it had already gone out — there is nothing left to edit. */
+  beginQueuedEdit(sessionId: string, queuedId: string): Promise<boolean>;
+  /** Close an edit without saving: the message goes back to waiting its turn as it was. */
+  cancelQueuedEdit(sessionId: string, queuedId: string): Promise<void>;
+  /** Save an edit. A message that went out before the save is not lost: the edit lands in the
+   *  session's draft, and a toast says why. */
+  saveQueuedEdit(sessionId: string, queuedId: string, text: string): Promise<void>;
   /** Create a session, open its item in the main view, and open its transcript. It goes to
    *  `input.spaceId`, else the current space — the space of the session in focus. When `edge` is
    *  supplied with a target leaf, it opens there the way a dragged row would. */
@@ -3378,9 +3392,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "general") as ProfilePageTab);
       }
     };
-    /** Whether this session is the pane with the keyboard. The one thing the renderer knows about
-     *  attention, and the same test the notifications feed's auto-read already makes. */
+    /** Whether this session is the pane with the keyboard, in a window someone is looking at. The one
+     *  thing the renderer knows about attention. The window counts: a turn that finishes in the
+     *  focused pane of a window behind another app, or behind Realm's other window, was seen by
+     *  nobody, and it keeps its dot until the window comes back (SessionPane reads it then). */
     const isFocusedSession = (sessionId: string): boolean => {
+      if (!get().windowActive) return false;
       const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
       return focused?.kind === "session" && focused.refId === sessionId;
     };
@@ -5679,6 +5696,20 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async releaseQueuedPrompt(sessionId, queuedId) {
         await api.releaseQueuedPrompt(sessionId, queuedId);
+      },
+      beginQueuedEdit(sessionId, queuedId) {
+        return api.holdQueuedPrompt(sessionId, queuedId, true);
+      },
+      async cancelQueuedEdit(sessionId, queuedId) {
+        await api.holdQueuedPrompt(sessionId, queuedId, false);
+      },
+      async saveQueuedEdit(sessionId, queuedId, text) {
+        if (await api.editQueuedPrompt(sessionId, queuedId, text)) return;
+        // The drain beat the save. The edit is the user's writing, so it goes where a message is
+        // written — after what is already in the draft, never over it.
+        const draft = get().drafts[sessionId] ?? "";
+        get().setDraft(sessionId, draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text);
+        get().toast({ tone: "info", text: "That message had already gone out. Your edit is in the prompter." });
       },
       async newSession(input, targetLeafId = null, edge) {
         const { spaceId, ...rest } = input;

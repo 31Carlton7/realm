@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -83,6 +83,9 @@ export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): str
  *  is a command that does not exist there. */
 /** How long a steer waits for the interrupted turn to settle before sending anyway. */
 const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
+/** How long a queued message stays held for an edit with nobody saving or letting go — a window
+ *  closed mid-edit, a client that dropped. Long enough for anyone actually typing. */
+export const QUEUE_HOLD_TTL_MS = 10 * 60_000;
 
 type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
 
@@ -112,7 +115,15 @@ export class SessionService {
    * the user can look at and send — never as a queue that sends itself. Unsent text is already not
    * durable anywhere: `drafts` is renderer memory.
    */
-  private queued = new Map<string, { prompt: QueuedPrompt; msg: SendMessage }[]>();
+  private queued = new Map<string, { prompt: Omit<QueuedPrompt, "held">; msg: SendMessage }[]>();
+  /** The queued message someone is editing, per session (`sessions.holdQueued`). The drain stops at
+   *  it, and its timer lets go if nobody comes back. */
+  private queueHolds = new Map<string, { queuedId: string; timer: NodeJS.Timeout }>();
+  /** Sessions whose settle reached a held head and so did not drain: the drain is owed, and paid when
+   *  the hold lets go. A settle the user caused never owes one — Stop has to mean stop. */
+  private drainOwed = new Set<string>();
+  /** `QUEUE_HOLD_TTL_MS`, as a field so a test can wait out a hold without waiting ten minutes. */
+  queueHoldTtlMs = QUEUE_HOLD_TTL_MS;
   /** Called on the next settle of each session — see `interruptAndSettle`. */
   private settleWaiters = new Map<string, Set<() => void>>();
   /**
@@ -333,7 +344,7 @@ export class SessionService {
    * would turn an `@skill` typed during a turn into plain text for no reason the user could see.
    */
   private enqueue(id: string, msg: SendMessage): void {
-    const prompt: QueuedPrompt = { id: newId(), text: msg.text, attachments: msg.attachments, ts: Date.now() };
+    const prompt = { id: newId(), text: msg.text, attachments: msg.attachments, ts: Date.now() };
     this.queued.set(id, [...(this.queued.get(id) ?? []), { prompt, msg }]);
     this.broadcastQueue(id);
   }
@@ -399,6 +410,9 @@ export class SessionService {
   private async drainQueue(id: string): Promise<void> {
     const [next, ...rest] = this.queued.get(id) ?? [];
     if (!next) return;
+    // Being edited: it waits where it is, and so does everything behind it — sending the next one
+    // first would answer the user's messages out of the order they asked them in.
+    if (this.queueHolds.get(id)?.queuedId === next.prompt.id) { this.drainOwed.add(id); return; }
     if (rest.length === 0) this.queued.delete(id); else this.queued.set(id, rest);
     this.broadcastQueue(id);
     await this.deliver(id, next.msg);
@@ -406,7 +420,67 @@ export class SessionService {
 
   /** What this session still has waiting to go out. Read by goal mode, which stands down when the
    *  user has typed something: their message is the next turn, and the goal picks up behind it. */
-  queuedFor(id: string): { prompt: QueuedPrompt; msg: SendMessage }[] { return this.queued.get(id) ?? []; }
+  queuedFor(id: string): { prompt: Omit<QueuedPrompt, "held">; msg: SendMessage }[] { return this.queued.get(id) ?? []; }
+
+  /**
+   * Hold one queued message while it is edited, or let it go — see `sessions.holdQueued`. Answers
+   * whether it is now held: false for a let-go, and for a message that is no longer queued.
+   */
+  holdQueued(id: string, queuedId: string, held: boolean): boolean {
+    this.get(id);
+    if (!held) { this.letGoQueued(id, queuedId); return false; }
+    if (!this.queuedFor(id).some((w) => w.prompt.id === queuedId)) return false;
+    const prev = this.queueHolds.get(id);
+    if (prev) clearTimeout(prev.timer);
+    const timer = setTimeout(() => this.letGoQueued(id, queuedId), this.queueHoldTtlMs);
+    timer.unref?.();
+    this.queueHolds.set(id, { queuedId, timer });
+    this.broadcastQueue(id);
+    // The last hold wins: one moved off a head that had stopped a drain lets that drain go.
+    if (prev && prev.queuedId !== queuedId) this.payOwedDrain(id);
+    return true;
+  }
+
+  /**
+   * Replace a queued message's text where it stands, and let go of its hold — see
+   * `sessions.editQueued`. False when the message is no longer queued: the drain got there first.
+   *
+   * What the edit took out goes with it: an element chip or a named thing lives exactly as long as
+   * its `@[…]` token does (`keepLiveChips`), as in the prompter. Skill mentions need nothing here —
+   * they are re-scanned from the text at delivery (`resolveMentions`).
+   */
+  editQueued(id: string, queuedId: string, text: string, attachments?: { path: string; mime: string }[]): boolean {
+    this.get(id);
+    const w = this.queuedFor(id).find((x) => x.prompt.id === queuedId);
+    if (!w) { this.letGoQueued(id, queuedId); return false; }
+    const files = attachments ?? w.msg.attachments;
+    if (text.length === 0 && files.length === 0) throw new Error("a message needs text or at least one attachment");
+    w.msg = { ...w.msg, text, attachments: files,
+      ...(w.msg.elements ? { elements: keepLiveChips(text, w.msg.elements) } : {}),
+      ...(w.msg.mentionRefs ? { mentionRefs: keepLiveRefs(text, w.msg.mentionRefs) } : {}) };
+    w.prompt = { ...w.prompt, text, attachments: files };
+    if (this.queueHolds.get(id)?.queuedId === queuedId) this.letGoQueued(id, queuedId);
+    else this.broadcastQueue(id);
+    return true;
+  }
+
+  /** Let go of a hold, if `queuedId` is the one held, and pay the drain it stopped. */
+  private letGoQueued(id: string, queuedId: string, opts: { payDrain?: boolean } = {}): void {
+    const hold = this.queueHolds.get(id);
+    if (!hold || hold.queuedId !== queuedId) return;
+    clearTimeout(hold.timer);
+    this.queueHolds.delete(id);
+    this.broadcastQueue(id);
+    if (opts.payDrain === false) this.drainOwed.delete(id); else this.payOwedDrain(id);
+  }
+
+  /** The drain a held head stopped, run now if the session is still sitting idle. A turn in flight
+   *  will drain on its own settle, so the debt is simply dropped then. */
+  private payOwedDrain(id: string): void {
+    if (!this.drainOwed.delete(id)) return;
+    if (this.d.sessions.get(id)?.status !== "idle") return;
+    void this.drainQueue(id).catch(() => {});
+  }
 
   /** Drop a queued message before its turn comes. An id the queue no longer holds is a no-op: the
    *  drain got there first, which is a race the prompter cannot win and should not have to. */
@@ -418,6 +492,8 @@ export class SessionService {
     if (left.length === waiting.length) return;
     if (left.length === 0) this.queued.delete(id); else this.queued.set(id, left);
     this.broadcastQueue(id);
+    // Dropped while held: what was waiting behind it is next, and owed the drain it was stopping.
+    this.letGoQueued(id, queuedId);
   }
 
   /**
@@ -437,17 +513,25 @@ export class SessionService {
     if (!held) return; // the drain got there first
     const left = waiting.filter((w) => w !== held);
     if (left.length === 0) this.queued.delete(id); else this.queued.set(id, left);
+    // This message IS the next turn, so a drain its hold was stopping is not owed as well — paying it
+    // would send the one behind it at the same moment.
+    this.letGoQueued(id, queuedId, { payDrain: false });
     this.broadcastQueue(id);
     await this.send(id, held.msg, "steer");
   }
 
   queuedPrompts(id: string): QueuedPrompt[] {
     this.get(id);
-    return (this.queued.get(id) ?? []).map((w) => w.prompt);
+    return this.wireQueue(id);
+  }
+
+  private wireQueue(id: string): QueuedPrompt[] {
+    const held = this.queueHolds.get(id)?.queuedId;
+    return (this.queued.get(id) ?? []).map((w) => ({ ...w.prompt, held: w.prompt.id === held }));
   }
 
   private broadcastQueue(id: string): void {
-    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: (this.queued.get(id) ?? []).map((w) => w.prompt) });
+    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: this.wireQueue(id) });
   }
 
   /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from
@@ -873,6 +957,9 @@ export class SessionService {
     this.d.failover?.release(id);
     // Nothing left to send into. No broadcast: the session's own row is going away with it.
     this.queued.delete(id);
+    clearTimeout(this.queueHolds.get(id)?.timer);
+    this.queueHolds.delete(id);
+    this.drainOwed.delete(id);
     // …and the rewind bookkeeping. The row carrying the durable half goes below; these two are what a
     // still-draining pump could otherwise read after the session it describes has stopped existing.
     this.forkInFlight.delete(id);
@@ -1484,6 +1571,9 @@ export class SessionService {
          *
          * `void` for the same reason the summary is: this runs inside the adapter pump, and awaiting
          * a send here would hold the pump open across the next turn's first events. */
+        // A drain an earlier held settle was owed is this settle's to decide now: paid below if the
+        // turn ended on its own, and forgotten if the user stopped it.
+        this.drainOwed.delete(id);
         if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
         /* …and then the goal, if this session is pursuing one. AFTER the drain and never instead of
            it: a message the user typed during the turn is the next turn, and the goal picks up

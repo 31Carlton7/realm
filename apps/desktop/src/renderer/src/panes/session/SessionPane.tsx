@@ -12,7 +12,7 @@ import { spaceIsPlainFolder, useApp, type PickedAttachment } from "../../state/s
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
-import { Composer } from "./Composer";
+import { Composer, type QueueActions } from "./Composer";
 import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
@@ -234,6 +234,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const planLimits = useApp((s) => s.planLimits.find((r) => r.agentKind === s.sessions[id]?.agentKind) ?? null);
   const refreshSessionQueue = useApp((s) => s.refreshSessionQueue);
   const releaseQueuedPrompt = useApp((s) => s.releaseQueuedPrompt);
+  const beginQueuedEdit = useApp((s) => s.beginQueuedEdit);
+  const cancelQueuedEdit = useApp((s) => s.cancelQueuedEdit);
+  const saveQueuedEdit = useApp((s) => s.saveQueuedEdit);
   const dequeuePrompt = useApp((s) => s.dequeuePrompt);
   const retryLastTurn = useApp((s) => s.retryLastTurn);
   const rateMessage = useApp((s) => s.rateMessage);
@@ -251,14 +254,24 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const openPeek = useApp((s) => s.openPeek);
   const run = useApp((s) => s.run);
   const markSessionSeen = useApp((s) => s.markSessionSeen);
+  /* Stable, so the queue's rows are not handed a new set of callbacks on every keystroke of the draft. */
+  const queueActions = useMemo<QueueActions>(() => ({
+    onRelease: (queuedId) => run(() => releaseQueuedPrompt(id, queuedId)),
+    onDrop: (queuedId) => run(() => dequeuePrompt(id, queuedId)),
+    onBeginEdit: (queuedId) => beginQueuedEdit(id, queuedId).catch(() => false),
+    onSaveEdit: (queuedId, text) => run(() => saveQueuedEdit(id, queuedId, text)),
+    onCancelEdit: (queuedId) => run(() => cancelQueuedEdit(id, queuedId)),
+  }), [id, run, releaseQueuedPrompt, dequeuePrompt, beginQueuedEdit, saveQueuedEdit, cancelQueuedEdit]);
   const transcript = entry?.t ?? emptyTranscript();
   /* Having the pane with the keyboard IS reading it. `applySessionEvent` stamps what arrives while the
      pane is focused; this stamps what was already here when the focus did. Without it a session
      opened to read its news kept the unread ring — and its row in every list of what needs you —
      until it said something new. Unfocused, nothing: a pane restored behind another one has been
-     opened, not read. */
+     opened, not read. Nor in a window nobody is looking at — and coming back to the window is when
+     the focused pane is read, so the effect runs again then. */
   const readTo = entry?.lastSeq ?? 0;
-  useEffect(() => { if (focused && readTo > 0) void run(() => markSessionSeen(id)); }, [focused, readTo, id, markSessionSeen, run]);
+  const windowActive = useApp((s) => s.windowActive);
+  useEffect(() => { if (focused && windowActive && readTo > 0) void run(() => markSessionSeen(id)); }, [focused, windowActive, readTo, id, markSessionSeen, run]);
   // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
   // suggestion chip in the empty state can fill the draft without sending it. The pane only WRITES it;
   // the composer reads it (`DraftedComposer`), so a keystroke re-renders the composer and not this.
@@ -706,8 +719,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             mentions={mentionSources} refs={draftRefs} selectInRealm={selectInRealm}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}
-            onReleaseQueued={(queuedId) => run(() => releaseQueuedPrompt(id, queuedId))}
-            onDropQueued={(queuedId) => run(() => dequeuePrompt(id, queuedId))} />}
+            queueActions={queueActions} />}
       {/* Last child and BELOW the prompter's dock, so the glow passes under the card exactly as the
           transcript does — an affordance that blurred across the prompter would be the fade band's
           old bug wearing a different colour. Decorative: the drop is announced by what it does. */}
