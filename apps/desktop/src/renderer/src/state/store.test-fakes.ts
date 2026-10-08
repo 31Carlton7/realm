@@ -1230,7 +1230,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     createMemoryRepo: async (o) => {
       calls.push(`createMemoryRepo:${ownerKey(o)}`);
-      return repoOf(o) ?? putRepo(fakeMemoryRepo({ scope: o.scope, ownerId: o.id, path: `/realm-home/memory/repos/${o.scope}-${o.id}` }));
+      // Its first commit is made as it is created: just now, whatever the fixture's date says.
+      return repoOf(o) ?? putRepo(fakeMemoryRepo({ scope: o.scope, ownerId: o.id, path: `/realm-home/memory/repos/${o.scope}-${o.id}`, lastCommitAt: Date.now() }));
     },
     attachMemoryRepo: async (o, path) => {
       calls.push(`attachMemoryRepo:${ownerKey(o)}:${path}`);
