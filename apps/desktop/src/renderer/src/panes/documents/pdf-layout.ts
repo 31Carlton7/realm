@@ -141,4 +141,6 @@ export function anchorZoom(i: {
 const places = new Map<string, { place: PdfPlace; zoom: PdfZoom }>();
 export const rememberPdfPlace = (key: string, place: PdfPlace, zoom: PdfZoom): void => { places.set(key, { place, zoom }); };
 export const recallPdfPlace = (key: string): { place: PdfPlace; zoom: PdfZoom } | null => places.get(key) ?? null;
-export const forgetPdfPlaces = (): void => { places.clear(); };
+/** Whether each documents pane has its page strip out — the same kind of memory, per pane. */
+export const stripShown = new Map<string, boolean>();
+export const forgetPdfPlaces = (): void => { places.clear(); stripShown.clear(); };

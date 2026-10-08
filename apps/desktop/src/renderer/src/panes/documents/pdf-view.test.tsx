@@ -60,10 +60,13 @@ const DOCS_ID = "docs1";
 const ENV = "env-s1";
 const paneItem: Item = item("i1", "s1", { kind: "documents", title: "Documents", refId: DOCS_ID });
 
+/** The pane's width, which decides whether the page strip is a column or a sheet. */
+let paneWidth = 900;
 /** jsdom lays nothing out, so the viewer is given a box: the scroller 600 × 600, the head row 900. */
 function giveLayout() {
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get(this: HTMLElement) {
-    return this.classList.contains("pdf-view") ? 600 : this.classList.contains("documents-head") ? 900 : 0; } });
+    return this.classList.contains("pdf-view") ? 600 : this.classList.contains("documents-head") ? 900
+      : this.classList.contains("pdf-body") ? paneWidth : 0; } });
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get(this: HTMLElement) {
     return this.classList.contains("pdf-view") ? 600 : 0; } });
   // A page jump scrolls; jsdom has no scrolling, so it lands at once and says so.
@@ -92,7 +95,7 @@ const scrollTo = (top: number) => { const el = scroller(); el.scrollTop = top; f
 const field = () => screen.getByRole("textbox", { name: /^Page, of/ }) as HTMLInputElement;
 
 let restore: () => void;
-beforeEach(() => { listeners.clear(); opened.length = 0; next = { pages: 12 }; restore = giveLayout(); });
+beforeEach(() => { listeners.clear(); opened.length = 0; next = { pages: 12 }; paneWidth = 900; restore = giveLayout(); });
 afterEach(() => { restore(); });
 
 describe("Realm's own PDF viewer", () => {
@@ -238,6 +241,57 @@ describe("Realm's own PDF viewer", () => {
     act(() => { (document.activeElement as HTMLElement | null)?.blur(); });
     fireEvent.keyDown(window, { key: "f", metaKey: true });
     expect(screen.queryByRole("textbox", { name: "Find in PDF" })).toBeNull();
+  });
+});
+
+describe("the page strip", () => {
+  const toggle = () => screen.queryByRole("button", { name: "Show pages" });
+  const thumb = (n: number) => screen.getByRole("button", { name: `Page ${n}` });
+
+  /* THE mutant: the toggle on every file — a four-page handout gets a strip it has no use for. */
+  it("is offered only past four pages, off at first, and the page being read wears the ring", async () => {
+    next = { pages: 4 };
+    const short = renderPdf();
+    await waitFor(() => expect(field().value).toBe("1"));
+    expect(toggle()).toBeNull();
+    short.unmount();
+    next = { pages: 12 };
+    renderPdf();
+    await waitFor(() => expect(toggle()).toHaveAttribute("aria-pressed", "false"));
+    expect(screen.queryByRole("navigation", { name: "Pages" })).toBeNull();
+    fireEvent.click(toggle()!);
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("navigation", { name: "Pages" }).querySelectorAll(".pdf-thumb")).toHaveLength(12);
+    expect(thumb(1)).toHaveAttribute("aria-current", "page");
+    fireEvent.click(thumb(6));
+    await waitFor(() => expect(field().value).toBe("6"));
+    expect(thumb(6)).toHaveAttribute("aria-current", "page");
+    expect(thumb(1)).not.toHaveAttribute("aria-current");
+  });
+
+  /* THE mutant: the choice kept in the component, so a space switch puts the strip away again. */
+  it("is remembered for the pane, and ⌘⌥S toggles it from the keyboard", async () => {
+    const first = renderPdf();
+    await waitFor(() => expect(toggle()).not.toBeNull());
+    fireEvent.click(toggle()!);
+    first.unmount();
+    renderPdf();
+    await waitFor(() => expect(toggle()).toHaveAttribute("aria-pressed", "true"));
+    act(() => { scroller().focus(); });
+    fireEvent.keyDown(window, { key: "ß", code: "KeyS", metaKey: true, altKey: true });
+    expect(toggle()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  /* THE mutant: a 132px column in a 400px pane, leaving the pages a strip of their own. */
+  it("in a narrow pane is a sheet over the pages, gone after a pick", async () => {
+    paneWidth = 480;
+    renderPdf();
+    await waitFor(() => expect(toggle()).not.toBeNull());
+    fireEvent.click(toggle()!);
+    expect(screen.getByRole("navigation", { name: "Pages" })).toHaveAttribute("data-floating");
+    fireEvent.click(thumb(3));
+    await waitFor(() => expect(field().value).toBe("3"));
+    expect(screen.queryByRole("navigation", { name: "Pages" })).toBeNull();
   });
 });
 

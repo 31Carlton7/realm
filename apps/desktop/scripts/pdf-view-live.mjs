@@ -273,7 +273,7 @@ async function main() {
   await shot(c, "pdf-dark-find", { x: geom.view.x - 1, y: geom.view.y - 52, width: geom.view.w + 2, height: geom.view.h + 52 });
   await evalIn(c, `document.querySelector('.pdf-find-field').dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); true`);
   await until(() => evalIn(c, `document.querySelector('.pdf-find-count')?.textContent === '7 of 8'`), 3000, "next hit");
-  const hitPage = await evalIn(c, `[...document.querySelectorAll('.pdf-page')].indexOf(document.querySelector('.pdf-hit[data-current]')?.closest('.pdf-page')) + 1`);
+  const hitPage = await until(() => evalIn(c, `[...document.querySelectorAll('.pdf-page')].indexOf(document.querySelector('.pdf-hit[data-current]')?.closest('.pdf-page')) + 1`), 5000, "next hit marked").catch(() => 0);
   check("Return steps to the next hit, on page 35", hitPage === 35, { hitPage });
   await evalIn(c, `document.querySelector('.pdf-find-field').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); true`);
   await until(() => evalIn(c, `!document.querySelector('.pdf-find') && !document.querySelector('.pdf-hit')`), 3000, "find closed");
@@ -356,6 +356,13 @@ async function main() {
   // 6. Light.
   await openFile(c, "lecture.pdf");
   await until(async () => (await state(c)).painted >= 1, 20000, "lecture again");
+  // The page strip, beside the pages.
+  await evalIn(c, `document.querySelector('[aria-label="Show pages"]').click(); true`);
+  await until(() => evalIn(c, `document.querySelectorAll('.pdf-thumb-page[data-painted]').length >= 3`), 10000, "thumbnails painted");
+  const strip = await evalIn(c, `(() => { const s = document.querySelector('.pdf-strip').getBoundingClientRect(); const cur = document.querySelector('.pdf-thumb[aria-current="page"]');
+    return { w: s.width, floating: document.querySelector('.pdf-strip').hasAttribute('data-floating'), current: cur?.getAttribute('aria-label') }; })()`);
+  check("the page strip is a 132px column beside the pages, the current page marked", strip.w === 132 && !strip.floating && strip.current === `Page ${(await state(c)).field}`, strip);
+  await shot(c, "pdf-dark-strip", { x: cjkGeom.x - 1, y: cjkGeom.y - 52, width: cjkGeom.w + 2, height: cjkGeom.h + 52 });
   await paletteRow(c, "Theme: Light");
   await sleep(800);
   await evalIn(c, keyed);

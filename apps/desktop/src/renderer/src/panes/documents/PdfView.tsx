@@ -9,7 +9,7 @@ import { MAX_ZOOM, MIN_ZOOM, clampZoom, stepZoom, zoomLabel } from "../../compon
 import { typingIn } from "../../components/viewer/ViewerStage";
 import {
   PAD_Y, PT_TO_PX, anchorZoom, currentPage, layoutPages, pagesInReach, placeOf, recallPdfPlace, rememberPdfPlace,
-  scaleFor, scrollTopFor, type PageSize, type PdfLayout, type PdfPlace, type PdfZoom,
+  scaleFor, scrollTopFor, stripShown, type PageSize, type PdfLayout, type PdfPlace, type PdfZoom,
 } from "./pdf-layout";
 import { findInPage, findLabel, type PdfHit } from "./pdf-find";
 import { canOpenInPreview, openInPreview } from "./shown-file";
@@ -18,6 +18,10 @@ import { PdfOpenError, openPdf, type PdfDocument, type PdfLink, type PdfTextLaye
 /** How long a zoom has to hold still before the pages are drawn again at the new scale. Until then
  *  the bitmaps already drawn are stretched, so a pinch never waits on paint. */
 const REPAINT_MS = 120;
+
+/** Under this, the page strip would take the pages' room: it is put away, and its toggle shows it over
+ *  the pages as a side sheet instead. */
+const STRIP_MIN_PANE = 560;
 
 const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
@@ -286,8 +290,45 @@ export function PdfView({ documentsId, path, version, scrollKey, head, filePath 
     if (finding) for (const h of hits) { const l = m.get(h.page); if (l) l.push(h); else m.set(h.page, [h]); }
     return m;
   }, [finding, hits]);
+  // ---- the page strip ----------------------------------------------------------------------------
+  const body = useRef<HTMLDivElement>(null);
+  const [bodyW, setBodyW] = useState(0);
+  useLayoutEffect(() => {
+    const el = body.current; if (!el) return;
+    const measure = () => setBodyW(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [doc]);
+  const narrow = bodyW > 0 && bodyW < STRIP_MIN_PANE;
+  const [stripOn, setStripOn] = useState(() => stripShown.get(documentsId) ?? false);
+  /* Narrow, the strip is a sheet over the pages, opened for a pick and gone after it; the pane's own
+     preference is for when it is wide again, and the sheet never changes it. */
+  const [sheet, setSheet] = useState(false);
+  const canStrip = (doc?.pages ?? 0) > 4;
+  const toggleStrip = useCallback(() => {
+    if (narrow) { setSheet((v) => !v); return; }
+    setStripOn((v) => { stripShown.set(documentsId, !v); return !v; });
+  }, [narrow, documentsId]);
+  const strip = canStrip && (narrow ? sheet : stripOn) ? (narrow ? "sheet" : "column") : null;
+  const latestStrip = useRef(toggleStrip);
+  latestStrip.current = toggleStrip;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const pane = scroller.current?.closest(".documents-pane");
+      if (!pane || !pane.contains(document.activeElement)) return;
+      // By the key's place, not its character: ⌥S types ß.
+      if (e.code === "KeyS" && e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); latestStrip.current(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const controls = head && doc && !error ? createPortal(
     <PdfControls pages={doc.pages} page={page} onPage={(i) => goTo({ page: i, fraction: 0 })}
+      strip={canStrip ? { on: strip !== null, toggle: toggleStrip } : null}
       zoom={zoom} scale={scale} onZoom={zoomTo} head={head}
       find={finding ? { query, setQuery, label: findLabel(hit, hits.length, searching), step, close: closeFind, field: findField } : null} />,
     head) : null;
@@ -306,8 +347,12 @@ export function PdfView({ documentsId, path, version, scrollKey, head, filePath 
     );
   }
   return (
-    <>
+    <div ref={body} className="pdf-body">
       {controls}
+      {doc && strip && (
+        <PdfStrip doc={doc} sizes={sizes} page={page} floating={strip === "sheet"}
+          onPage={(i) => { goTo({ page: i, fraction: 0 }, strip === "column"); if (strip === "sheet") setSheet(false); }} />
+      )}
       {/* The scroller is focusable so a click on a page puts the keyboard in it — which is what ⌘F,
           the zoom keys and the arrow keys ask about. */}
       <div ref={scroller} className="pdf-view" role="region" aria-label={`PDF ${name}`} tabIndex={0} onScroll={onScroll}>
@@ -325,9 +370,76 @@ export function PdfView({ documentsId, path, version, scrollKey, head, filePath 
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
+
+/**
+ * The page strip: every page small, the one being read wearing the accent ring, a click going there.
+ * Its own scroller, on the pane's ground beside the pages, with no rule between them; narrow, a sheet
+ * over the pages. A thumbnail is drawn only while it is near the strip's view, and let go after.
+ */
+function PdfStrip({ doc, sizes, page, floating, onPage }: {
+  doc: PdfDocument; sizes: PageSize[]; page: number; floating: boolean; onPage: (i: number) => void;
+}) {
+  const list = useRef<HTMLDivElement>(null);
+  useDissolve(list);
+  const [near, setNear] = useState<ReadonlySet<number>>(new Set());
+  useEffect(() => {
+    const root = list.current;
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => {
+      setNear((prev) => {
+        const next = new Set(prev);
+        for (const e of entries) {
+          const i = Number((e.target as HTMLElement).dataset.index);
+          if (e.isIntersecting) next.add(i); else next.delete(i);
+        }
+        return next;
+      });
+    }, { root, rootMargin: "400px 0px" });
+    for (const el of root.querySelectorAll(".pdf-thumb")) io.observe(el);
+    return () => io.disconnect();
+  }, [sizes.length]);
+  // The current page's thumbnail stays in the strip's view as the reader moves through the file.
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>(`[data-index="${page}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [page]);
+  return (
+    <div ref={list} className="pdf-strip" data-floating={floating || undefined} role="navigation" aria-label="Pages">
+      {sizes.map((s, i) => (
+        <button key={i} type="button" className="pdf-thumb" data-index={i} aria-label={`Page ${i + 1}`}
+          aria-current={i === page ? "page" : undefined} onClick={() => onPage(i)}>
+          <PdfThumb doc={doc} index={i} size={s} live={near.has(i)} />
+          <span className="pdf-thumb-number">{i + 1}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const THUMB_W = 100;
+
+const PdfThumb = memo(function PdfThumb({ doc, index, size, live }: { doc: PdfDocument; index: number; size: PageSize; live: boolean }) {
+  const sheet = useRef<HTMLSpanElement>(null);
+  const [painted, setPainted] = useState(false);
+  const scale = THUMB_W / size.w;
+  useEffect(() => {
+    const host = sheet.current;
+    if (!live || !host) return;
+    const ctl = new AbortController();
+    const canvas = document.createElement("canvas");
+    canvas.className = "pdf-canvas";
+    doc.render(index, canvas, scale, ctl.signal).then(() => {
+      if (ctl.signal.aborted) return;
+      host.replaceChildren(canvas);
+      setPainted(true);
+    }, () => {});
+    return () => { ctl.abort(); host.replaceChildren(); setPainted(false); };
+  }, [doc, index, scale, live]);
+  return <span ref={sheet} className="pdf-thumb-page" data-painted={painted || undefined}
+    style={{ width: THUMB_W, height: Math.round(size.h * scale) }} />;
+});
 
 const NO_HITS: PdfHit[] = [];
 
@@ -451,8 +563,10 @@ const roomFor = (w: number): Room => (w >= 640 ? "full" : w >= 540 ? "noFit" : w
  * The viewer's controls, in the document's head row: the page ("3 of 42", the number a field you can
  * type in), the zoom (−, the readout, +), and the fit menu. ⌘F swaps the page for a find field.
  */
-function PdfControls({ pages, page, onPage, zoom, scale, onZoom, head, find }: {
+function PdfControls({ pages, page, onPage, strip, zoom, scale, onZoom, head, find }: {
   pages: number; page: number; onPage: (i: number) => void;
+  /** The page strip's toggle — only for a file long enough to need one. */
+  strip: { on: boolean; toggle: () => void } | null;
   zoom: PdfZoom; scale: number; onZoom: (z: PdfZoom) => void;
   head: HTMLElement; find: FindProps | null;
 }) {
@@ -479,6 +593,10 @@ function PdfControls({ pages, page, onPage, zoom, scale, onZoom, head, find }: {
 
   return (
     <span className="pdf-tools">
+      {strip && (
+        <button type="button" className="icon-btn" aria-label="Show pages" aria-pressed={strip.on} title="Show pages (⌘⌥S)"
+          onClick={strip.toggle}><Icon name="panelLeft" size={14} /></button>
+      )}
       {find ? <FindField {...find} /> : (
         <span className="pdf-tools-page">
           {room !== "least" && room !== "noSteps" && (

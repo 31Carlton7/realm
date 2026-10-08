@@ -6196,7 +6196,7 @@ select { appearance: none; padding-right: 22px;
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents — the home's lists, and the new code file's languages, included */
   .documents-picker-list, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
-  .docs-home-scroll, .code-file-languages, .pdf-view,
+  .docs-home-scroll, .code-file-languages, .pdf-view, .pdf-strip,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
   .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
@@ -8634,7 +8634,8 @@ button.cr-finding-where:hover { text-decoration: underline; }
    page and below the last, 16 between), never by rules; the numbers live in pdf-layout.ts, which
    places every page. The scroller dissolves at its ends like every reading surface, and the pages
    pass under the dissolve. */
-.pdf-view { position: relative; overflow: auto; background: var(--rl-panel); outline: none; }
+.pdf-body { position: relative; display: flex; min-height: 0; min-width: 0; background: var(--rl-panel); }
+.pdf-view { flex: 1 1 auto; min-width: 0; position: relative; overflow: auto; background: var(--rl-panel); outline: none; }
 .pdf-view:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
 .pdf-pages { position: relative; }
 /* A page not yet drawn is a sheet of the frame's tone at the page's size — no spinner, no shimmer. Once
@@ -8672,6 +8673,23 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .pdf-links { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .pdf-link { position: absolute; pointer-events: auto; border-radius: var(--r-sm); }
 .pdf-link:hover { background: color-mix(in srgb, var(--rl-accent) 12%, transparent); }
+/* The page strip: a column on the pane's own ground beside the pages, told apart by being its own
+   scroller rather than by a rule. Narrow, it is a sheet over the pages and takes a sheet's lift. */
+.pdf-strip { flex: none; width: 132px; overflow: auto; display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 24px 0; background: var(--rl-panel); }
+.pdf-strip[data-floating] { position: absolute; z-index: 3; inset: 0 auto 0 0; background: var(--surface); box-shadow: var(--shadow-overlay); }
+.pdf-thumb { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: none; background: none; }
+.pdf-thumb-page { position: relative; display: block; overflow: hidden; border-radius: var(--r-sm); background: var(--rl-frame);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+.pdf-thumb-page[data-painted] { background: #fff; box-shadow: var(--rl-object-shadow); }
+:root[data-mode="light"] .pdf-thumb-page { outline-color: rgba(0, 0, 0, 0.1); }
+/* The page being read is the selection, and selection is the accent: a ring outside the sheet,
+   changing at once as the reader moves. */
+.pdf-thumb[aria-current="page"] .pdf-thumb-page { box-shadow: 0 0 0 2px var(--rl-accent); }
+.pdf-thumb-number { font-size: 11px; line-height: 14px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.pdf-thumb[aria-current="page"] .pdf-thumb-number { color: var(--rl-text-bright); }
+.pdf-thumb:focus-visible { outline: none; }
+.pdf-thumb:focus-visible .pdf-thumb-page { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 .pdf-message { display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center;
   font-size: 13px; color: var(--rl-text-dim); background: var(--rl-panel); }
 .pdf-message p { margin: 0; max-width: 52ch; }
