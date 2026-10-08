@@ -7409,6 +7409,61 @@ select { appearance: none; padding-right: 22px;
 .ship-sha { font-size: 11px; }
 .ship-row a { display: inline-flex; align-items: center; gap: 3px; color: var(--rl-accent); text-decoration: none; }
 .ship-row a:hover { text-decoration: underline; }
+/* ——— A space's Sessions page. One-line rows on the canvas, 40px tall: the title is the row's
+   unbounded item, the state words beside it give way first, and the agents' count, the time and the
+   mark keep fixed places at the end so they line up down the list. The whole row opens its session
+   (the open button's ::before covers it); the controls on it stand above that layer. ——— */
+/* The wide measure, cut to what a row can use: past ~1100px the time is too far from the title for
+   the eye to join them. Measured with and without the rail in the page, so it stays centred. */
+.page:has(.page-content[data-wide] .space-sessions) { --page-measure: 1148px; }
+.page:has(.page-rail):has(.page-content[data-wide] .space-sessions) { --page-measure: 1348px; }
+.space-sessions-toolbar .space-sessions-new { margin-left: auto; }
+.space-sessions-count { margin-left: 4px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.space-sessions-head { margin: 20px 0 6px; padding-left: 32px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.space-sessions-group:first-of-type .space-sessions-head { margin-top: 6px; }
+.space-sessions-list, .space-sessions-children { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.space-sessions-children { margin-top: 2px; }
+.space-sessions-row { position: relative; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px; border-radius: var(--r-row); }
+.space-sessions-row[data-child] { height: 36px; }
+.space-sessions-row:hover, .space-sessions-row[data-hit] { background: var(--rl-hover); }
+.space-sessions-row:has(.space-sessions-open:focus-visible) { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+.space-sessions-gutter { flex: none; width: 16px; display: grid; place-items: center; color: var(--rl-text-faint); }
+.space-sessions-caret { position: relative; z-index: 1; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: none; background: none; color: inherit; }
+.space-sessions-open { flex: 1 1 auto; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0;
+  border: none; background: none; color: inherit; font: inherit; text-align: left; outline: none; }
+.space-sessions-open::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.space-sessions-open > svg { flex: none; }
+.space-sessions-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.space-sessions-row[data-unread] .space-sessions-title { font-weight: var(--fw-title); }
+.space-sessions-row[data-empty] .space-sessions-title { color: var(--rl-text-dim); }
+.space-sessions-snippet { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.space-sessions-snippet[data-tone="warning"] { color: var(--rl-warning); }
+.space-sessions-snippet[data-tone="danger"] { color: var(--rl-danger); }
+.space-sessions-agents { position: relative; z-index: 1; flex: none; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px;
+  border: none; border-radius: var(--r-ctl); background: none; color: var(--rl-text-dim); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; }
+.space-sessions-agents:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.space-sessions-time { flex: none; width: 64px; text-align: right; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.space-sessions-dot { flex: none; width: 12px; display: grid; place-items: center; }
+/* The time is in the secondary ink: the tertiary measured 3.35:1 on the dark canvas, under the floor
+   every ink tier has to clear (design.md, "Quiet text is text"). */
+/* A row's own controls, under the pointer or the keyboard (or while a delete waits on its second
+   ask): they take the mark's place at the far end, and the time stays. The state words give way. */
+.space-sessions-actions { position: relative; z-index: 1; flex: none; display: none; align-items: center; gap: 2px; margin-right: -4px; }
+.space-sessions-actions .btn { --btn-h: 28px; padding: 0 10px; }
+.space-sessions-row:is(:hover, :has(:focus-visible), [data-armed]) .space-sessions-actions { display: flex; }
+.space-sessions-row:is(:hover, :has(:focus-visible), [data-armed]):has(.space-sessions-actions) .space-sessions-dot { display: none; }
+.space-sessions-row .rename { flex: 1; min-width: 0; }
+.space-sessions-none { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.space-sessions-start { margin-top: 12px; }
+/* A narrow pane: the state words give way first, then the count's noun — the number stays. The
+   title keeps the slack; the time and the mark keep their places. */
+@container (max-width: 640px) {
+  .space-sessions-snippet, .space-sessions-noun { display: none; }
+  /* The search gives up width before New session gives up its line. */
+  .space-sessions-search { flex: 1 1 120px; width: auto; min-width: 0; }
+}
 /* ——— The Tasks lens: durable runs beside a detail panel. The list keeps `.page-list` metrics; the
    panel is a fixed 340px column so the list's own columns do not reflow as runs are selected. ——— */
 /* Bounded even though the tab opts out of `.page-content`'s 720px measure: the opt-out exists to fit

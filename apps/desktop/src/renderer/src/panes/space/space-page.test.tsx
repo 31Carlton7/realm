@@ -106,7 +106,7 @@ describe("SpacePage · General", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
     expect(await screen.findByRole("textbox", { name: "Space memory document" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Sessions" }));
-    expect(screen.getByText(/No sessions in this space yet/)).toBeInTheDocument();
+    expect(screen.getByText("No sessions in Versed yet.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Tasks" }));
     expect(screen.getByText(/Nothing has been dispatched here yet/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "History" }));
@@ -167,16 +167,27 @@ describe("the space's checkouts", () => {
 /* ——— New in Plan 12 W3: the page's header and its Sessions / History / Memory tabs. ——— */
 
 describe("the page header", () => {
-  it("shows the live space name, the session count, and a working New session", async () => {
-    const { store, api } = await mount({ sessions: [session("se1", "s1"), session("se2", "s1")] });
-    expect(screen.getByRole("heading", { level: 1, name: "Versed" })).toBeInTheDocument();
-    // A foreign session in the map (the transient state around a space switch): counting it is the
-    // cross-space mutant. The store normally holds only the active space's sessions, so inject it.
-    act(() => store.setState({ sessions: { ...store.getState().sessions, se9: session("se9", "s2") } }));
-    expect(screen.getByText("2 sessions")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /New session/ }));
+  it("names the section it shows, with the space beside it, and carries no session action", async () => {
+    // Mutant: the h1 stays the space's name on every tab.
+    const { store } = await mount({ sessions: [session("se1", "s1"), session("se2", "s1")] });
+    expect(screen.getByRole("heading", { level: 1, name: "General" })).toBeInTheDocument();
+    expect(document.querySelector(".page-vantage")).toHaveTextContent("Versed");
+    // A settings page no longer carries a session call to action in its head.
+    expect(document.querySelector(".page-head .btn")).toBeNull();
+    act(() => store.getState().setSpacePageTab("s1", "sessions"));
+    expect(screen.getByRole("heading", { level: 1, name: "Sessions" })).toBeInTheDocument();
+    expect(document.querySelector(".page-vantage")).toHaveTextContent("Versed");
+  });
+
+  it("starts a session in THIS space from the Sessions toolbar", async () => {
+    const { store, api } = await mount({
+      items: { s1: [item("it1", "s1", { kind: "session", title: "One", refId: "se1" })] },
+      sessions: [session("se1", "s1", { title: "One" })],
+    });
+    act(() => store.getState().setSpacePageTab("s1", "sessions"));
+    fireEvent.click(screen.getByRole("button", { name: /^New session/ }));
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("createSession:"))).toBe(true));
-    expect(Object.values(store.getState().sessions).filter((s) => s.spaceId === "s1")).toHaveLength(3);
+    expect(Object.values(store.getState().sessions).filter((s) => s.spaceId === "s1")).toHaveLength(2);
   });
 });
 
@@ -187,28 +198,32 @@ describe("the Sessions tab", () => {
       item("it2", "s1", { kind: "session", title: "Write docs", refId: "se2" }),
     ] },
     sessions: [
-      session("se1", "s1", { title: "Fix login", status: "running", createdAt: 2000 }),
-      session("se2", "s1", { title: "Write docs", status: "idle", createdAt: 1000 }),
+      session("se1", "s1", { title: "Fix login", status: "running", createdAt: 2000, lastEventSeq: 2, seenSeq: 2 }),
+      session("se2", "s1", { title: "Write docs", status: "idle", createdAt: 1000, lastEventSeq: 2, seenSeq: 2 }),
     ],
   };
 
-  it("lists only THIS space's sessions, newest first, with their status dots", async () => {
+  it("lists only THIS space's sessions, live ones first, marking only what is live", async () => {
     const { store } = await mount(data);
     // A foreign session in the map (the transient state around a space switch) must never render
-    // on this space's page — the named cross-space mutant. Injected because the store normally
-    // scopes `sessions` to the active space.
-    act(() => store.setState({ sessions: { ...store.getState().sessions, se9: session("se9", "s2", { title: "Someone else's homework", createdAt: 3000 }) } }));
+    // on this space's page — the named cross-space mutant. Injected, with an item of its own in the
+    // other space, because the store normally scopes `sessions` to the active space.
+    act(() => store.setState({
+      sessions: { ...store.getState().sessions, se9: session("se9", "s2", { title: "Someone else's homework", createdAt: 3000 }) },
+      items: [...store.getState().items, item("it9", "s2", { kind: "session", title: "Someone else's homework", refId: "se9" })],
+    }));
     fireEvent.click(screen.getByRole("radio", { name: "Sessions" }));
-    const rows = screen.getAllByRole("button", { name: /Fix login|Write docs|homework/ });
-    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Fix login — running", "Write docs — idle"]);
-    expect(rows[0]!.querySelector(".status-dot")).toHaveAttribute("data-status", "running");
+    const rows = screen.getAllByRole("button", { name: /^(Fix login|Write docs|Someone)/ });
+    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Fix login, running", "Write docs"]);
+    expect(rows[0]!.closest(".space-sessions-row")!.querySelector(".status-dot")).toHaveAttribute("data-status", "running");
+    expect(rows[1]!.closest(".space-sessions-row")!.querySelector(".status-dot")).toBeNull();
   });
 
   it("a row opens THAT session's pane — the item matched by refId, never by position", async () => {
     const { store } = await mount(data);
     fireEvent.click(screen.getByRole("radio", { name: "Sessions" }));
     // Click the SECOND row: an off-by-one (or an open of whatever is first) fails the leaf check.
-    fireEvent.click(screen.getByRole("button", { name: "Write docs — idle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Write docs" }));
     await waitFor(() => expect(JSON.stringify(store.getState().layout)).toContain('"it2"'));
     expect(store.getState().focusedLeafId).not.toBeNull();
     expect(JSON.stringify(store.getState().layout)).not.toContain('"it1"');

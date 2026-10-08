@@ -1,4 +1,4 @@
-import { AGENT_META, SPACE_COLORS, isRunTerminal, type Checkpoint, type Environment, type Run, type RunAttemptOutcome, type RunState, type Session, type Ship } from "@realm/contracts";
+import { SPACE_COLORS, isRunTerminal, type Checkpoint, type Environment, type Run, type RunAttemptOutcome, type RunState, type Ship } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { useApp, type SpacePageTab } from "../../state/store";
@@ -14,6 +14,7 @@ import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
+import { SessionsList } from "./SessionsList";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -155,53 +156,6 @@ function MemoryTab({ spaceId }: { spaceId: string }) {
       )}
       <MemoryPanel spaceId={spaceId} editorRef={editorRef} />
     </div>
-  );
-}
-
-/** The Sessions tab: this space's sessions from the existing store data, newest first; each row opens
- *  the session's pane. Status dots ride the same `sessionStatus` plumbing as the sidebar rows.
- *
- *  Archived sessions are LISTED here, tagged rather than hidden. This tab is the space's inventory —
- *  "every session in this space" — and the header count beside it says exactly that; a silent
- *  omission would make the two disagree. The sidebar is where archiving is meant to be felt. */
-function SessionsTab({ spaceId }: { spaceId: string }) {
-  const sessions = useApp((s) => s.sessions);
-  const sessionStatus = useApp((s) => s.sessionStatus);
-  const environments = useApp((s) => s.environments);
-  const items = useApp((s) => s.items);
-  const openItem = useApp((s) => s.openItem);
-  const run = useApp((s) => s.run);
-  const here = Object.values(sessions).filter((s) => s.spaceId === spaceId).sort((a, b) => b.createdAt - a.createdAt);
-  // The session's ITEM — the same object the sidebar row opens — matched by refId, never by title or
-  // position. It carries the archived flag, which lives on the item and not on the session.
-  const itemOf = (session: Session) => items.find((i) => i.kind === "session" && i.refId === session.id);
-  const open = (session: Session) => {
-    const it = itemOf(session);
-    if (it) run(() => openItem(it.id));
-  };
-  if (here.length === 0) return <p className="env-empty">No sessions in this space yet — start one with ⌘N or the button above.</p>;
-  return (
-    <ul className="page-list">
-      {here.map((s) => {
-        const status = sessionStatus[s.id];
-        const env = s.environmentId ? Object.values(environments).find((e) => e.id === s.environmentId) : undefined;
-        // aria-label replaces the row's contents, so every visible tag has to be spelled back into it.
-        const archived = itemOf(s)?.archived ?? false;
-        const label = [s.title, status && SESSION_STATUS_LABEL[status], archived && "archived"].filter(Boolean).join(" — ");
-        return (
-          <li key={s.id}>
-            <button type="button" className="page-row" aria-label={label} onClick={() => open(s)}>
-              <Icon name={AGENT_META[s.agentKind].icon} size={16} colored />
-              <span className="page-row-title">{s.title}</span>
-              {archived && <span className="status-pill" data-tone="muted">Archived</span>}
-              {env?.branch && <span className="page-row-dim"><Icon name="branch" size={12} /> {env.branch}</span>}
-              <span className="page-row-dim">{relativeTime(s.createdAt, Date.now())}</span>
-              {status && <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 
@@ -593,8 +547,7 @@ const PAGE_TABS: { id: SpacePageTab; label: string; icon: IconName }[] = [
 
 /**
  * The space PAGE (Plan 12 W3) — the space-settings sheet promoted to a pane, per the Universe
- * transcription (screenshot 4): header (glyph, name, session count, "+ New session"), tabs down a
- * left rail. This is the app's first full page pane; W4/W5/W6 (Library, Notifications, Settings)
+ * transcription (screenshot 4): a head naming the section and the space, tabs down a left rail. This is the app's first full page pane; W4/W5/W6 (Library, Notifications, Settings)
  * copy its pattern: `.page` root, `.page-head` header, `.page-rail` (~180px) of radio tabs,
  * `.page-content` column capped at ~720px.
  *
@@ -612,17 +565,15 @@ export function SpacePage({ item }: PaneProps) {
   const railStrip = useRef<HTMLFieldSetElement>(null);
   useDissolve(railStrip, "x");
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
-  const sessions = useApp((s) => s.sessions);
   const tab = useApp((s) => s.spacePageTab[spaceId] ?? "general");
   const setSpacePageTab = useApp((s) => s.setSpacePageTab);
   // A tab IS a change of what this pane shows, so it is a stop on the pane's back/forward trail.
   const navigateInPane = useApp((s) => s.navigateInPane);
-  const newSessionInstant = useApp((s) => s.newSessionInstant);
   const openSkillPage = useApp((s) => s.openSkillPage);
   const run = useApp((s) => s.run);
 
   if (!space) return <div className="pane-placeholder muted">This space no longer exists.</div>;
-  const count = Object.values(sessions).filter((s) => s.spaceId === spaceId).length;
+  const label = PAGE_TABS.find((t) => t.id === tab)?.label ?? "General";
 
   return (
     // `.page` establishes the pattern; the modifier is `space-page-pane`.
@@ -642,16 +593,13 @@ export function SpacePage({ item }: PaneProps) {
           ))}
         </fieldset>
         </PageRail>
-        <PageScroll wide={tab === "tasks"}>
+        <PageScroll wide={tab === "tasks" || tab === "sessions"}>
+          {/* The head names what the page SHOWS — the section — and the space it is seen from beside
+              it, as Settings and the Library do (design.md). Plain text: the space's colour is carried
+              by its icon in the sidebar, where a person tells spaces apart. */}
           <header className="page-head">
-            {/* Plain text. The space's colour is carried by its icon in the sidebar, which is where a
-                person looks to tell spaces apart — a coloured TITLE reads as a link or a status, and on
-                a purple space it fought the accent it was nearly the same hue as. */}
-            <div className="page-title"><h1>{space.name}</h1></div>
-            <span className="page-vantage">{count === 1 ? "1 session" : `${count} sessions`}</span>
-            <button type="button" className="btn primary" onClick={() => run(() => newSessionInstant())}>
-              <Icon name="add" size={14} /> New session
-            </button>
+            <div className="page-title"><h1>{label}</h1></div>
+            <span className="page-vantage">{space.name}</span>
           </header>
           {tab === "general" && <GeneralTab spaceId={spaceId} />}
           {tab === "memory" && <MemoryTab spaceId={spaceId} />}
@@ -672,7 +620,7 @@ export function SpacePage({ item }: PaneProps) {
           </>}
           {tab === "scripts" && <ScriptsPanel spaceId={spaceId} />}
           {tab === "sandbox" && <SandboxPanel spaceId={spaceId} />}
-          {tab === "sessions" && <SessionsTab spaceId={spaceId} />}
+          {tab === "sessions" && <SessionsList spaceId={spaceId} />}
           {tab === "tasks" && <TasksTab spaceId={spaceId} />}
           {tab === "history" && <HistoryTab spaceId={spaceId} />}
         </PageScroll>
