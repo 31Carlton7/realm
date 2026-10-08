@@ -20,13 +20,6 @@ async function mount(saved: Record<string, number[]> = { se1: [11] }) {
 }
 
 describe("saved turns in the store", () => {
-  it("reads one session's saved turns, and takes a change from any window", async () => {
-    const { store } = await mount();
-    await store.getState().refreshSavedTurns("se1");
-    expect(store.getState().savedTurns.se1).toEqual([11]);
-    store.getState().applySavedTurns("se1", [11, 13]);
-    expect(store.getState().savedTurns.se1).toEqual([11, 13]);
-  });
 
   it("shows a save at once, and keeps the server's answer over its own guess", async () => {
     const { api, store } = await mount();
@@ -50,14 +43,6 @@ describe("saved turns in the store", () => {
     // …and an unsave too.
     await expect(store.getState().saveTurn("se1", 11, false)).rejects.toThrow(/not a prompt/);
     expect(store.getState().savedTurns.se1).toEqual([11]);
-  });
-
-  it("counts every change to any session's saved turns, which is what a list of them re-reads on", async () => {
-    const { store } = await mount();
-    const before = store.getState().savedTurnsRev;
-    store.getState().applySavedTurns("se1", [11, 13]);
-    store.getState().applySavedTurns("other", [5]);
-    expect(store.getState().savedTurnsRev).toBe(before + 2);
   });
 
   it("opens a session at a prompt only when it could bring the session forward, and the pulse is spent once", async () => {

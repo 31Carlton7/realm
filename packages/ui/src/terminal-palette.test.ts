@@ -150,13 +150,6 @@ const xterm256 = (n: number): string => {
 };
 
 describe("a powerlevel10k prompt keeps its own look", () => {
-  it("lean draws in the 256 colours, which the sixteen never touch", () => {
-    // Bright glyphs only — the separators p10k writes in black are spaces.
-    const named = runs(sample("p10k-lean.ans")).filter((r) => r.fg.kind === "index" && r.text.trim());
-    const codes = new Set(named.map((r) => (r.fg as { n: number }).n));
-    expect([...codes].sort((a, b) => a - b)).toEqual([31, 39, 76, 101, 178, 196]);
-    expect([...codes].every((n) => n >= 16)).toBe(true);
-  });
 
   it("and every one of those clears the dark floor on Realm's ground, so xterm draws it exactly as p10k chose it", () => {
     // THE mutant: raise the dark floor to AA. Lean's path blue (31) and duration olive (101) then

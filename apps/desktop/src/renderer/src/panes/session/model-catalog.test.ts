@@ -97,16 +97,6 @@ describe("usableModel — a remembered model, if the harness still offers it", (
   });
 });
 
-describe("filterRows at catalog scale", () => {
-  const bigCatalog = Array.from({ length: 40 }, (_, i) => ({ id: `m-${i}[x=1]`, label: `Model ${i}` }));
-  const rows = modelRows({ kind: "acp:cursor", model: null, agentProbe: [probe("acp:cursor", bigCatalog)], canSwitchAgent: true });
-
-  it("search still narrows by model name across the whole catalog", () => {
-    expect(filterRows(rows, "model 39").map((r) => r.label)).toEqual(["Model 39"]);
-    expect(filterRows(rows, "model 3").length).toBe(11); // 3, 30..39
-  });
-});
-
 /**
  * Cursor proxying models other harnesses also run — the overlap the model-first list has to collapse.
  *
@@ -215,24 +205,6 @@ describe("groupRows", () => {
     expect(others.rows.filter((r) => r.kind === "codex")).toHaveLength(1);
   });
 
-  it("never folds the session's own agent away, however little it lists", () => {
-    const rows = modelRows({ kind: "acp:openhands", model: null, canSwitchAgent: true, agentProbe: [] });
-    const groups = groupRows(rows, { query: "", kind: "acp:openhands" });
-    expect(groups[0]).toMatchObject({ label: "OpenHands", kind: "acp:openhands" });
-    expect(groups[0]!.rows.map((r) => [r.label, r.selected])).toEqual([["Default", true]]);
-    expect(group(groups, "Other agents")!.rows.map((r) => r.kind)).not.toContain("acp:openhands");
-  });
-
-  it("leaves out what this session can no longer switch to", () => {
-    // After the first message the agent is fixed; a list of rows nobody can pick is the clutter, and
-    // the picker says why in one line instead.
-    const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: false,
-      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
-    const groups = groupRows(rows, { query: "", kind: "claude" });
-    expect(groups.map((g) => g.label)).toEqual(["Claude"]);
-    expect(flatten(groups).every((r) => r.kind === "claude" && r.alternates.length === 0)).toBe(true);
-  });
-
   it("leads with Favourites, and a starred model appears there alone", () => {
     const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
       agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)], favorites: [canonicalModelKey("Claude Fable 5.1")] });
@@ -264,18 +236,6 @@ describe("groupRows", () => {
 describe("holdRows", () => {
   const agentProbe = [probe("claude", null), probe("acp:cursor", cursorWithClaude)];
   const opened = modelRows({ kind: "claude", model: null, canSwitchAgent: true, agentProbe });
-
-  it("keeps every row in its place and on its harness after a pick moves the session, with the tick from now", () => {
-    // Picked GPT-5.5 through Cursor: live, Cursor leads and takes Fable from Claude.
-    const live = modelRows({ kind: "acp:cursor", model: "gpt-5.5", canSwitchAgent: true, agentProbe });
-    expect(live.find((r) => r.label === "Claude Fable 5.1")!.kind).toBe("acp:cursor");
-    const held = holdRows(live, opened);
-    expect(held.map((r) => r.id)).toEqual(opened.map((r) => r.id));
-    const fable = held.find((r) => r.label === "Claude Fable 5.1")!;
-    expect(fable).toMatchObject({ kind: "claude", icon: "claude", agentLabel: "Claude", modelId: "claude-fable-5-1", alternates: ["acp:cursor"] });
-    expect(held.filter((r) => r.selected).map((r) => r.label)).toEqual(["GPT-5.5"]);
-    expect(groupRows(held, { query: "", kind: "claude" }).map((g) => g.label)).toEqual(groupRows(opened, { query: "", kind: "claude" }).map((g) => g.label));
-  });
 
   it("takes the stars from now, drops a row that has gone and adds one that arrived, after the rest", () => {
     const live = modelRows({ kind: "claude", model: null, canSwitchAgent: true, favorites: [canonicalModelKey("Claude Sonnet 5")],

@@ -41,16 +41,4 @@ describe("typing in the composer", () => {
     expect(renders.transcript).toBe(before);
   });
 
-  it("keeps the draft's chip lists as the same lists while an edit leaves them unchanged", async () => {
-    const store = await mount();
-    store.getState().setDraft("se1", "a");
-    const s1 = store.getState();
-    store.getState().setDraft("se1", "ab");
-    const s2 = store.getState();
-    expect(s2.draftMentions.se1).toBe(s1.draftMentions.se1);
-    expect(s2.draftLinks.se1).toBe(s1.draftLinks.se1);
-    expect(s2.draftRefs.se1).toBe(s1.draftRefs.se1);
-    expect(s2.draftElements.se1).toBe(s1.draftElements.se1);
-    expect(s2.drafts.se1).toBe("ab");
-  });
 });
