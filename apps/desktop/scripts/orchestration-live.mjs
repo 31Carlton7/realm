@@ -21,6 +21,14 @@
  *  10. Lowering a Full access lead to Ask each time while its sub-agents work lowers them too.
  *  11. A sub-agent cannot start a sub-agent of its own: its call is refused at its gateway, and it
  *      does the work itself.
+ *  13. The Agents tab as the orchestrator: four sub-agents in every state at once — a card per child
+ *      with its model, checkout, mode and budget; the waiting ones open with their request in them;
+ *      a permission allowed and a question answered there, on the CHILD's session; Stop on a working
+ *      one, which its lead hears as stopped by the user. The pane bar's chip says how many need you
+ *      and goes to the first of them.
+ *  14. The sidebar: no Needs you row for a sub-agent whose lead is listed — the lead's row says
+ *      "N ●" instead, sorts to the top of its space, and opens its Agents tab on the first waiting
+ *      card. Captured with the tab, dark and light.
  *
  * Ports: LIVE_SERVER_PORT (8795), LIVE_CDP_PORT (9235). Screenshots go to LIVE_OUT_DIR (the system
  * temp dir unless set); the scratch home to LIVE_SCRATCH_DIR. Kills only what listens on its own ports.
@@ -286,13 +294,15 @@ async function main() {
   note("cards, one waiting", waiting);
   check("a child held on a permission says it needs you", waiting.some((x) => x.model === "GPT-6 Luna" && x.status?.startsWith("Needs you")), waiting);
   await shot(c, "5-needs-you");
-  // Answered as the person would, on the child's own session — where its prompt surfaced.
   const kids = await api.call("delegation.children", { sessionId: lead });
   const luna = kids.children.find((k) => k.session.agentKind === "codex");
   const evs = await api.call("sessions.events", { id: luna.session.id, afterSeq: 0, limit: 2000 });
-  const ask = evs.filter((e) => e.event.type === "permission_request").at(-1);
-  check("the permission prompt surfaced on the child's own session", !!ask, evs.map((e) => e.event.type));
-  await api.call("sessions.respondPermission", { id: luna.session.id, requestId: ask.event.payload.requestId, decision: "allow" });
+  check("the permission prompt surfaced on the child's own session", evs.some((e) => e.event.type === "permission_request"), evs.map((e) => e.event.type));
+  // Answered as the person would: on the waiting card, which is open with the request in it.
+  await until(() => evalIn(c, `!!document.querySelector('.subagent[data-state="waiting"] .subagent-detail .permission-card button')`), 10_000, "the request on its card");
+  check("the waiting card is open with its request, and Allow on it answers", await evalIn(c, `(() => {
+    const b = document.querySelector('.subagent[data-state="waiting"] .subagent-detail .permission-card button[data-decision="allow"]');
+    if (!b) return false; b.click(); return true; })()`));
   const done = await until(async () => { const cs = await cards(); return cs.every((x) => x.state === "done") ? cs : null; }, 60_000, "both done").catch(async (e) => { note("cards at timeout", await cards()); throw e; });
   note("cards, done", done);
   check("both children finish, and each shows its report", done.every((x) => x.status?.startsWith("Done") && (x.report ?? "").length > 20), done);
@@ -313,7 +323,10 @@ async function main() {
   await shot(c, "7-transcript");
 
   // ── 5. A card opens its child, beside the lead ─────────────────────────────────────────────
-  await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-card')].find((b) => b.textContent.includes('GPT-6 Luna')).click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-card')].find((b) => b.textContent.includes('GPT-6 Luna')).querySelector('.subagent-summary').click(); return true; })()`);
+  await sleep(200);
+  await evalIn(c, `(() => { const card = [...document.querySelectorAll('.subagent-card')].find((b) => b.textContent.includes('GPT-6 Luna'));
+    [...card.querySelectorAll('.subagent-actions button')].find((b) => b.textContent === 'Open transcript').click(); return true; })()`);
   const withChild = await until(async () => { const ps = await tabs(); return ps.some((p) => p.tabs.some((t) => t.name.startsWith("Agent: Build") && t.selected)) ? ps : null; }, 10_000, "child tab").catch(() => tabs());
   note("panes with the child open", withChild);
   check("the child's transcript opens as a tab of the same side pane", withChild.length === 2 && withChild.some((p) => p.tabs.some((t) => t.name.startsWith("Agent: Build") && t.selected)), withChild);
@@ -342,6 +355,114 @@ async function main() {
   await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(mode ?? "dark")}; return true; })()`);
 
   await modeChecks(space.id);
+  await orchestratorChecks(c, space.id);
+}
+
+/** The cards of the Agents tab on screen, top to bottom, as the person reads them. */
+const orchestratorCards = (c) => evalIn(c, `[...document.querySelectorAll('.subagents-list > li.subagent')].map((li) => ({
+  state: li.dataset.state, open: li.querySelector('.subagent-summary')?.getAttribute('aria-expanded') === 'true', flash: li.hasAttribute('data-flash'),
+  title: li.querySelector('.subagent-task')?.textContent, model: li.querySelector('.subagent-model')?.textContent, where: li.querySelector('.subagent-where')?.textContent ?? null,
+  mode: li.querySelector('.subagent-mode')?.textContent ?? null, budget: li.querySelector('.subagent-budget')?.textContent ?? null,
+  asks: li.querySelector('.sb-need-answer')?.getAttribute('aria-label') ?? null, request: !!li.querySelector('.subagent-detail .permission-card, .subagent-detail .question-card') }))`);
+/** The sidebar row of a session, by its title. */
+const sidebarRow = (c, title) => evalIn(c, `(() => { const b = [...document.querySelectorAll('.sb-section .item-row')].find((x) => x.querySelector('.item-title')?.textContent === ${JSON.stringify(title)});
+  if (!b) return null; const list = [...b.closest('.item-list, .sb-section-clip').querySelectorAll('.item-row .item-title')].map((t) => t.textContent);
+  return { label: b.getAttribute('aria-label'), count: b.querySelector('.item-count')?.textContent ?? null, index: list.indexOf(${JSON.stringify(title)}), list }; })()`);
+const needsYouRows = (c) => evalIn(c, `[...document.querySelectorAll('.sb-needs .item-row')].map((b) => b.getAttribute('aria-label'))`);
+
+async function orchestratorChecks(c, spaceId) {
+  // ── 13. The Agents tab as the orchestrator ──────────────────────────────────────────────────
+  const LEAD = "Theme work";
+  const { session } = await api.call("sessions.create", { spaceId, agentKind: "claude", model: "claude-opus-5-5", title: LEAD, permissionMode: "default" });
+  const lead = session.id;
+  await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes(${JSON.stringify(LEAD)}))`), 20_000, "the lead's row");
+  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(LEAD)})).click(); return true; })()`);
+  await sleep(800);
+  await openSideTool(c, LEAD, "Agents").catch(() => {});
+  await until(() => evalIn(c, `!!document.querySelector('.subagents')`), 10_000, "the lead's Agents tab");
+  await api.call("sessions.send", { id: lead, text: "Orchestrate the theme work.", attachments: [], mentions: [] });
+  const mixed = await until(async () => {
+    const cs = await orchestratorCards(c);
+    const n = (st) => cs.filter((x) => x.state === st).length;
+    return cs.length === 4 && n("waiting") === 2 && n("working") === 1 && n("done") === 1 ? cs : null;
+  }, 40_000, "four sub-agents in mixed states").catch(async (e) => { note("cards at timeout", await orchestratorCards(c)); throw e; });
+  note("orchestrator cards", mixed);
+  check("waiting cards come first, then working, then done", mixed.map((x) => x.state).join() === "waiting,waiting,working,done", mixed.map((x) => x.state));
+  check("a waiting card is open with its request in it, saying who asks", mixed.filter((x) => x.state === "waiting").every((x) => x.open && x.request && x.asks === `Waiting in ${x.title}`), mixed);
+  check("a card that is not waiting stays folded", mixed.filter((x) => x.state !== "waiting").every((x) => !x.open), mixed);
+  check("each card says its model, checkout and mode", mixed.every((x) => x.model && x.where && x.mode === "Ask each time"), mixed);
+  await sleep(3000);
+  const later = await orchestratorCards(c);
+  const spent = (x) => x.budget?.match(/^(\d+)s of 11m 0s$/)?.[1];
+  check("the working card's spent budget ticks, and the waiting ones' are held", Number(spent(later.find((x) => x.state === "working")) ?? 0) >= 2
+    && later.filter((x) => x.state === "waiting").every((x) => x.budget?.startsWith("<1s")), later.map((x) => [x.state, x.budget]));
+  const head = await evalIn(c, `document.querySelector('.subagents-head .subagents-count')?.textContent`);
+  check("the head rolls them up in words", head === "2 need you · 1 working · 1 done", head);
+
+  // The pane bar's chip.
+  const chip = await evalIn(c, `(() => { const b = [...document.querySelectorAll('.agents-chip')].find((x) => x.getAttribute('aria-label')?.endsWith(${JSON.stringify(`for ${LEAD}`)}));
+    return b ? { label: b.getAttribute('aria-label'), text: b.textContent } : null; })()`);
+  check("the chip says how many need you", chip?.text === "1 working·2 need you", chip);
+
+  // ── 14. The sidebar: the lead's row carries the count; Needs you has no row for the children ─
+  const row = await until(() => sidebarRow(c, LEAD), 5_000, "the lead's row");
+  const needs = await needsYouRows(c);
+  note("sidebar", { row, needs });
+  check("Needs you lists no row for a sub-agent of a listed lead", !needs.some((l) => /Run the settings|Choose the default|Agent:/.test(l ?? "")), needs);
+  check("the lead's row says 2 sub-agents need you, with the count and the dot", row.count === "2" && row.label.includes("2 sub-agents need you"), row);
+  check("the lead sorts to the top of its space", row.index === 0, row.list);
+  for (const face of ["dark", "light"]) {
+    await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(face)}; return true; })()`);
+    await sleep(500);
+    await shot(c, `13-orchestrator-${face}`);
+  }
+  await evalIn(c, `(() => { document.documentElement.dataset.mode = "dark"; return true; })()`);
+
+  // A click on the row opens the Agents tab on the card that has waited longest, lit.
+  await evalIn(c, `(() => { [...document.querySelectorAll('.sb-section .item-row')].find((x) => x.querySelector('.item-title')?.textContent === ${JSON.stringify(LEAD)}).click(); return true; })()`);
+  const lit = await until(async () => (await orchestratorCards(c)).find((x) => x.flash) ?? null, 5_000, "a lit card").catch(() => null);
+  check("the row opens the Agents tab on the first waiting card", lit?.state === "waiting" && lit.open, lit);
+  await sleep(1800);
+  // …and the chip does the same.
+  await evalIn(c, `(() => { [...document.querySelectorAll('.agents-chip')].find((x) => x.getAttribute('aria-label')?.endsWith(${JSON.stringify(`for ${LEAD}`)})).click(); return true; })()`);
+  const lit2 = await until(async () => (await orchestratorCards(c)).find((x) => x.flash) ?? null, 5_000, "a lit card from the chip").catch(() => null);
+  check("the chip opens the Agents tab on the first waiting card", lit2?.state === "waiting", lit2);
+
+  // Answer both in place: Allow on the permission, an option on the question — each on the child.
+  const kids = (await api.call("delegation.children", { sessionId: lead })).children;
+  const tests = kids.find((k) => k.goal?.startsWith("Run the settings")).session.id;
+  const theme = kids.find((k) => k.goal?.startsWith("Choose the default")).session.id;
+  const survey = kids.find((k) => k.goal?.startsWith("Survey every")).session.id;
+  check("Allow on the permission card", await evalIn(c, `(() => {
+    const b = document.querySelector('.subagent[data-state="waiting"] .subagent-detail .permission-card button[data-decision="allow"]');
+    if (!b) return false; b.click(); return true; })()`));
+  await until(async () => (await eventsOf(tests)).some((e) => e.event.type === "permission_response" && e.event.payload.decision === "allow"), 10_000, "the test run allowed on the child");
+  check("…answered the CHILD's request", true);
+  check("an option on the question card", await evalIn(c, `(() => {
+    const b = [...document.querySelectorAll('.subagent[data-state="waiting"] .subagent-detail .question-option')].find((x) => x.textContent.includes("Dark"));
+    if (!b) return false; b.click(); return true; })()`));
+  const answered = await until(async () => (await eventsOf(theme)).find((e) => e.event.type === "permission_response") ?? null, 10_000, "the question answered on the child").catch(() => null);
+  check("…answered the CHILD's question with the option picked", JSON.stringify(answered?.event.payload.answers ?? {}).includes("Dark"), answered?.event.payload);
+  const cleared = await until(async () => { const r = await sidebarRow(c, LEAD); return r && r.count === null ? r : null; }, 15_000, "the count clears").catch(() => sidebarRow(c, LEAD));
+  check("once both are answered the lead's row carries no count", cleared?.count === null, cleared);
+
+  // Stop the one still working, from its card.
+  await evalIn(c, `(() => { const li = [...document.querySelectorAll('.subagents-list > li.subagent')].find((x) => x.dataset.state === "working" && x.textContent.includes("Survey"));
+    li.querySelector('.subagent-summary').click(); return true; })()`);
+  await sleep(300);
+  await shot(c, "13-orchestrator-open-card");
+  check("Stop on the working card", await evalIn(c, `(() => { const b = document.querySelector('.subagent-actions button[aria-label^="Stop Survey"]'); if (!b) return false; b.click(); return true; })()`));
+  await leadSaid(lead, "All four sub-agents reported back.");
+  const waited = (await eventsOf(lead)).filter((e) => e.event.type === "tool_result").map((e) => e.event.payload.content).find((t) => t.includes(`## Agent ${survey}`));
+  check("the lead hears the stopped one was stopped", /did NOT finish \(stopped\)/.test(waited ?? ""), waited?.slice(0, 200));
+  const end = await orchestratorCards(c);
+  note("cards at the end", end);
+  check("the stopped card says Stopped, the rest Done", end.filter((x) => x.state === "stopped").length === 1 && end.filter((x) => x.state === "done").length === 3, end.map((x) => x.state));
+  for (const face of ["dark", "light"]) {
+    await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(face)}; return true; })()`);
+    await sleep(500);
+    await shot(c, `14-settled-${face}`);
+  }
 }
 
 /** A fresh lead in `permissionMode`, sent the "Build this with" brief over RPC; resolves with it once
