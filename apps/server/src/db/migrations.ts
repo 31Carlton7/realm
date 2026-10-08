@@ -852,11 +852,8 @@ export const migrations: string[] = [
   // stored BY NAME (`mcp.providersDisabled:<spaceId>`, a JSON array), so a space that had turned the
   // goal tools off would quietly have them back under the new name. Each such list has `goal`
   // swapped for `realm-goal`, once, and comes out sorted as `setProviderEnabled` writes it. Idempotent: a list that no longer
-  // holds `goal` is not touched, and a list that somehow holds both comes out with one. The CREATE is
-  // v1's own table, a no-op on every real home; it is there for the hand-written fixtures that stand
-  // in for one with only the tables their migration touches.
+  // holds `goal` is not touched, and a list that somehow holds both comes out with one.
   `
-  CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
   UPDATE settings SET value_json = (
     SELECT json_group_array(name) FROM (
       SELECT DISTINCT CASE WHEN value = 'goal' THEN 'realm-goal' ELSE value END AS name

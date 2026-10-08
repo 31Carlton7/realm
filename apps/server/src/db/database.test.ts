@@ -707,6 +707,7 @@ CREATE TABLE checkpoints (
   created_at INTEGER NOT NULL);
 CREATE INDEX checkpoints_environment ON checkpoints(environment_id, created_at DESC);
 CREATE INDEX checkpoints_session ON checkpoints(session_id, created_at DESC);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 /** A v32 home with a Claude session that has already run, and two checkpoints of its turns. */
@@ -826,6 +827,7 @@ CREATE TABLE browsers (id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES sp
 CREATE INDEX browsers_space ON browsers(space_id);
 CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE schedules (id TEXT PRIMARY KEY);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 /** A v34 home with two profiles and a browser pane already on a page. */
@@ -926,6 +928,7 @@ CREATE TABLE browser_history (
 CREATE INDEX browser_history_recent ON browser_history(profile_id, last_visit_at DESC);
 CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE schedules (id TEXT PRIMARY KEY);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 /** A v35 home with two profiles, a pane on a page, and that page in the history. */
@@ -1013,6 +1016,7 @@ CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NU
 CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE);
 CREATE TABLE runs (id TEXT PRIMARY KEY, dedupe_key TEXT, created_at INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE schedules (id TEXT PRIMARY KEY);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 /** A v36 home with three profiles: School (sort 1), Work (sort 0, the app's first), Home (sort 1, younger). */
@@ -1133,6 +1137,7 @@ CREATE TABLE schedules (
   updated_at INTEGER NOT NULL);
 CREATE INDEX schedules_space ON schedules(space_id, created_at);
 CREATE INDEX schedules_due ON schedules(next_run_at) WHERE enabled = 1;
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 function v37Fixture(path: string): void {
@@ -1226,6 +1231,7 @@ describe("migration v38 — a scheduled task keeps its runs", () => {
 const V38_SESSIONS_SCHEMA = `
 CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 
 function v38Fixture(path: string): void {
@@ -1302,6 +1308,7 @@ const V39_PROFILES_SCHEMA = `
 CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
   sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   browser_partition TEXT NOT NULL DEFAULT '');
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 const LIBRARY_FILES_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS library_files"));
 
@@ -1407,6 +1414,7 @@ CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
 CREATE INDEX session_events_session ON session_events(session_id, seq);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 `;
 const SAVED_TURNS_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS saved_turns"));
 
