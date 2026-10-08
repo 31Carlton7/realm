@@ -158,6 +158,17 @@ describe("a quiet Mac (§3.2)", () => {
     for (const socket of [first.socket, late]) expect(await socket.json()).toEqual({ t: "mac", online: true, lastSeen: seen + 90_000 });
   });
 
+  it("tells a pairing phone too", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { mac, macSocket } = await macWithPhones(0);
+    const window = await openWindow(macSocket, Date.now() + 5 * 60_000);
+    const seen = Date.now();
+    const pairing = await open(`/v1/pair/${mac.id}/${window}`);
+    expect(await pairing.json()).toEqual({ t: "ready", mac: { online: true, lastSeen: seen } });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await pairing.json()).toEqual({ t: "mac", online: false, lastSeen: seen });
+  });
+
   it("settles what the phones already connected were told before admitting another", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     const { mac, macSocket, phones } = await macWithPhones(2);
