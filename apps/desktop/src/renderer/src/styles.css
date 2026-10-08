@@ -10036,7 +10036,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-wait-text { min-width: 0; }
 
 .tp-feed { margin: 0; padding: 0; list-style: none; }
-.tp-feed li { display: grid; grid-template-columns: 52px 18px minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 6px 0;
+.tp-feed li { display: grid; grid-template-columns: 64px 18px minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 6px 0;
   font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
 .tp-feed time { font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .tp-feed .t-glyph { align-self: center; }

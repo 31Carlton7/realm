@@ -39,7 +39,8 @@ export function ageShort(ts: number, now = Date.now()): string {
 /** The clock time a log line was written: "14:06" today, the weekday before that. */
 export function feedTime(ts: number, now = Date.now()): string {
   const d = new Date(ts);
-  if (d.toDateString() === new Date(now).toDateString()) return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  // The transcript's clock ("4:57 AM"), not a 24-hour one beside it.
+  if (d.toDateString() === new Date(now).toDateString()) return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   return ageShort(ts, now);
 }
 
@@ -60,7 +61,8 @@ export function wakeSentence(cron: string | null): string {
   return words.replace(/^Weekdays at/, "Every weekday at");
 }
 
-/** A role's state, in a card's corner: "Working · 4m", "Next Thu 9:00", "Waiting on you". */
+/** A role's state, in a card's corner: "Working · 4m", "Next run Thu 9:00 AM", "Waiting on you" —
+ *  the words the role's sidebar row uses for the same fact. */
 export function roleStateLine(role: TeamRole, now = Date.now()): string {
   if (role.state === "working") return role.stateSince ? `Working · ${duration(now - role.stateSince)}` : "Working";
   if (role.state === "waiting") return "Waiting on you";
@@ -69,7 +71,7 @@ export function roleStateLine(role: TeamRole, now = Date.now()): string {
   if (role.cron && role.scheduleEnabled && role.nextRunAt) {
     const d = new Date(role.nextRunAt);
     const day = d.toDateString() === new Date(now).toDateString() ? "today" : d.toLocaleDateString(undefined, { weekday: "short" });
-    return `Next ${day} ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+    return `Next run ${day} ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
   }
   return "Idle";
 }

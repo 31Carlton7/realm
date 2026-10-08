@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { teamReview, teamRole } from "../../state/store.test-fakes";
-import { ageShort, duration, meter, money, reviewGroups, roleStateLine, runChip, spendLine, wakeSentence } from "./team-format";
+import { ageShort, duration, feedTime, meter, money, reviewGroups, roleStateLine, runChip, spendLine, wakeSentence } from "./team-format";
 
 const NOW = new Date(2026, 9, 8, 15, 0).getTime();
 
@@ -34,11 +34,19 @@ describe("the team's words and numbers", () => {
   it("says a role's state in a card's corner, and its clock as a sentence", () => {
     expect(roleStateLine(teamRole("r", "s", "CM", { state: "working", stateSince: NOW - 4 * 60_000 }), NOW)).toBe("Working · 4m");
     expect(roleStateLine(teamRole("r", "s", "CM", { state: "waiting" }), NOW)).toBe("Waiting on you");
+    // The sidebar row's words for the same fact: "Next run …", never a bare "Next today".
+    const at = new Date(NOW); at.setHours(23, 0, 0, 0);
+    expect(roleStateLine(teamRole("r", "s", "CM", { cron: "0 9 * * 1-5", scheduleEnabled: true, nextRunAt: at.getTime() }), at.getTime() - 60_000)).toMatch(/^Next run today 11:00\sPM$/);
     // The Scheduled page's clock, not a second one: "9:00 AM", never "09:00".
     expect(wakeSentence("0 9 * * 1-5")).toBe("Every weekday at 9:00 AM");
     expect(wakeSentence("0 8 * * 1")).toBe("Mondays at 8:00 AM");
     expect(wakeSentence("0 9 * * 1,4")).toBe("Monday, Thursday at 9:00 AM");
     expect(wakeSentence(null)).toBe("Only when you run it");
+  });
+
+  it("stamps today's activity with the app's clock, not a 24-hour one", () => {
+    const at = new Date(NOW); at.setHours(17, 4, 0, 0);
+    expect(feedTime(at.getTime(), at.getTime() + 60_000)).toMatch(/^5:04\sPM$/);
   });
 
   it("groups Review the way a person works through it, with only this week's done", () => {
