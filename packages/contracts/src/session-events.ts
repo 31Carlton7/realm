@@ -326,6 +326,26 @@ const P = {
     /** The true count when `files` was cut short at TURN_CHANGES_MAX_FILES. */
     totalFiles: z.number().int(),
   }),
+  /**
+   * The pictures and movies one turn left on disk, found by looking rather than by reading the tool
+   * calls: written when a turn that ran a tool settles.
+   *
+   * Written by the server, never by an agent. No agent writes an image with `Write` — a picture is
+   * always the side effect of something else (a shell command, a render script, the clipboard saved
+   * from osascript, a download), and often lands in a folder that is not the session's checkout. So
+   * the server walks the folders the turn could have meant (its cwd, its space's folder, every
+   * directory a tool call or the reply named) for media modified while the turn ran, and the
+   * artifacts index lists what it finds. Only for a turn that ran a tool: a turn of pure prose made
+   * nothing, and is not worth a walk.
+   */
+  files_made: z.object({
+    /** The `ts` of the status event that settled the turn: which run line this belongs to. */
+    settledAt: z.number(),
+    /** Absolute paths, newest first. */
+    files: z.array(z.object({ path: z.string(), size: z.number().int() })),
+    /** The true count when `files` was cut short at TURN_MEDIA_MAX. */
+    totalFiles: z.number().int(),
+  }),
   init: z.object({
     providerSessionId: z.string(), model: z.string(), tools: z.array(z.string()), cwd: z.string(),
     /** The instruction files the agent says it loaded — Codex `thread/start` `instructionSources`, W3's
@@ -397,6 +417,7 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("feedback"),
   variant("summary"),
   variant("turn_changes"),
+  variant("files_made"),
   variant("rate_limit"),
   variant("prompt_hint"),
 ]);
@@ -410,6 +431,12 @@ export type TurnFile = TurnChanges["files"][number];
 /** The most files one `turn_changes` event lists. A codegen turn can touch thousands, and the event is
  *  a row in the session's log for good — `totalFiles` still says how many there really were. */
 export const TURN_CHANGES_MAX_FILES = 200;
+
+/** One turn's media (`files_made`). */
+export type FilesMade = z.infer<(typeof P)["files_made"]>;
+
+/** The most files one `files_made` event lists, for the same reason as TURN_CHANGES_MAX_FILES. */
+export const TURN_MEDIA_MAX = 200;
 export type SessionEventOf<T extends SessionEventType> = Extract<SessionEvent, { type: T }>;
 export type SessionEventPayload<T extends SessionEventType> = z.infer<(typeof P)[T]>;
 
@@ -418,7 +445,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "summary", "prompt_hint", "turn_changes"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "summary", "prompt_hint", "turn_changes", "files_made"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

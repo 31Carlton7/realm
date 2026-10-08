@@ -544,6 +544,14 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "tool", name: "Bash", input: { command: "magick hero.png -modulate 100,112,94 hero-warm.png", description: "Warm the sky" }, result: "" },
       { kind: "text", paceMs: 30, text: "Warmed the sky and left the ridge as it was. The new version is `hero-warm.png`, beside the original." },
     ],
+  }, {
+    // A deck composed into ANOTHER space's folder by a shell command, the way the Versed slideshow was
+    // made: no write tool names a slide, so only the settle's sweep (sessions/turn-media.ts) finds it.
+    // Held on its permission, so a live check can put the slide on disk while the turn is open.
+    on: "Compose the deck", emit: [
+      { kind: "tool", name: "Bash", input: { command: "cd ../versed/content/decks && node compose.mjs deck v1", description: "Compose the slides" }, needsPermission: true, result: "deck/v1/01.png 1080x1920" },
+      { kind: "text", paceMs: 30, text: "Composed the first slide of the deck." },
+    ],
   }] });
   /* The fake behind real agents' NAMES, for a live check that has to show work handed across
      harnesses — a sub-agent on the real Codex would be a billed turn. Named kinds only, and only with
@@ -1011,7 +1019,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     queued: (sessionId) => sessions.queuedFor(sessionId).length > 0,
     log: (line) => console.log(line),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals, views: appViews,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
@@ -1293,6 +1301,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // The pre-v25 history reaches the Library's file index the same way, on the same terms: chunked,
   // yielding, resumable, and merely incomplete rather than wrong while it runs.
   void artifacts.runBackfill(() => false);
+  // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in
+  // the background (`SessionService.backfillTurnMedia`).
+  void sessions.backfillTurnMedia().catch((e) => console.error(`[sessions] media catch-up failed: ${e instanceof Error ? e.message : String(e)}`));
   // Copies removed from the Library while the last run was up, whose Undo went with it.
   void libraryFiles.sweep();
   terminals.restoreAll();

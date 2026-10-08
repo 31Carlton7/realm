@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
-import { findLeafOfItem, type Environment, type LibraryEntry } from "@realm/contracts";
+import { findLeafOfItem, sessionEvent, type Environment, type LibraryEntry } from "@realm/contracts";
 
 // The pane listens on the rpc singleton for file changes, which needs a real server port.
 vi.mock("../../rpc/client", () => ({ rpc: () => ({ on: () => () => {} }) }));
@@ -95,6 +95,20 @@ describe("the documents home", () => {
     expect(rowFor("scan.pdf").title).toContain("Added by you");
     await act(async () => { await store.getState().addLibraryFiles("p1", ["/Users/ada/Desktop/brief.md"]); });
     await waitFor(async () => expect(await namesIn("Library")).toEqual(["brief.md", "scan.pdf"]));
+  });
+
+  it("lists a picture the server found after the turn settled, though the transcript grew no block", async () => {
+    const artifacts = [art("a1", "lead", "notes/plan.md", 100)];
+    const { store } = await mount({ artifacts });
+    // The session's transcript, as its own pane beside this one has it loaded.
+    await act(() => store.getState().openSession("lead"));
+    expect(await namesIn("This session")).toEqual(["plan.md"]);
+    // The sweep's event lands after the settle and indexes the picture server-side.
+    artifacts.push(art("a9", "lead", "/Users/ada/Realm/work/versed/decks/v1/01.png", 500));
+    const made = { settledAt: 400, files: [{ path: "/Users/ada/Realm/work/versed/decks/v1/01.png", size: 9 }], totalFiles: 1 };
+    act(() => store.getState().applySessionEvent({ seq: 9000, sessionId: "lead", event: sessionEvent("files_made", made, 450), ephemeral: false }));
+    // THE mutant: the beat counting blocks alone, which a side-channel event never adds to.
+    await waitFor(async () => expect(await namesIn("This session")).toEqual(["01.png", "plan.md"]));
   });
 
   it("says, in a brand-new session, that the agent's files will appear here — and still lists the Library", async () => {

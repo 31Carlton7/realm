@@ -55,8 +55,12 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
   const profileId = useApp((s) => s.spaces.find((x) => x.id === spaceId)?.profileId ?? null);
   /* What the session has DONE, as two numbers: re-reading on them is what makes a file the agent just
      wrote appear without a watcher, because the transcript growing is the same event as the agent
-     having run something. The session's file browser listens the same way. */
-  const beat = useApp((s) => (sessionId ? s.transcripts[sessionId]?.t.blocks.length ?? 0 : 0));
+     having run something. The session's file browser listens the same way. The media a turn left on
+     disk (`files_made`) arrives after the settle and adds no block, so it is counted beside them. */
+  const beat = useApp((s) => {
+    const t = sessionId ? s.transcripts[sessionId]?.t : undefined;
+    return t ? t.blocks.length + Object.keys(t.made ?? {}).length : 0;
+  });
   const status = useApp((s) => (sessionId ? s.sessionStatus[sessionId] ?? null : null));
   const pending = useApp((s) => (sessionId ? s.pendingAttachments[sessionId] : undefined));
   // Files added to the Library from this window — the page over this pane, say — are asked for again.
