@@ -147,11 +147,6 @@ public struct Outbox: Sendable, Equatable {
         return Array(found.keys)
     }
 
-    /// Whether `item` is already in the transcript.
-    public func hasArrived(_ item: OutgoingItem, in transcript: Transcript) -> Bool {
-        arrivals(in: transcript, for: item.sessionId)[item.id] != nil
-    }
-
     /// Pairs a session's items with the transcript, oldest first: each message with the first row
     /// after it that holds its words and no earlier item has taken, each answer with its request.
     public func arrivals(in transcript: Transcript, for sessionId: String) -> [UUID: Arrival] {

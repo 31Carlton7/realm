@@ -57,14 +57,9 @@ public final class Courier {
                 store.setOutgoing(item.id, .failed("Not sent: it waited more than a day for your Mac."))
                 continue
             }
-            if item.state == .unconfirmed {
-                // Only a transcript fresh from this connection can say it never arrived.
-                guard let transcript = store.transcripts[sessionId], transcript.isLive else { return .unconfirmed }
-                if store.outbox.hasArrived(item, in: transcript) {
-                    store.settleOutbox(in: sessionId)
-                    continue
-                }
-            }
+            // It may already be on the Mac. Whatever arrived was settled against the transcript above and
+            // as its rows came in; only a transcript fresh from this connection can say it never did.
+            if item.state == .unconfirmed, store.transcripts[sessionId]?.isLive != true { return .unconfirmed }
             store.setOutgoing(item.id, .sending)
             do {
                 try await transport.deliver(item)
