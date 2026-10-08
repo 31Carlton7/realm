@@ -224,6 +224,8 @@ describe("teams over the wire", () => {
     const v2 = await c.must("team.review", { id });
     expect(v2).toMatchObject({ state: "waiting", version: 2, title: "3 slideshows for Nathan, v2" });
     expect(v2.previous).toHaveLength(2);
+    // The ledger names the version it sent, in a sentence — the mutant read "Sent version 2 2 items to Review".
+    expect(v2.ledger.map((l: Any) => l.text)).toContain("Sent version 2 to Review");
     expect((await c.must("team.space", { spaceId })).reviews).toHaveLength(1);
     // The note reached the session as the run's message.
     const ev = app.sessions.events(first.sessionId, 0, 500).filter((e) => e.event.type === "user_message");

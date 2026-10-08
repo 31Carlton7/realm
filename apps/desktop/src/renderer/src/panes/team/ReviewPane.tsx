@@ -153,7 +153,7 @@ function ReviewDetail({ summary }: { summary: TeamReviewSummary }) {
         </div>
         {detail.version > 1 && (
           <p className="rv-version">
-            {showPrevious ? `Version ${detail.version - 1}, before your changes.` : `Version ${detail.version}, after you asked: “${detail.note ?? "changes"}”.`}{" "}
+            {showPrevious ? `Version ${detail.version - 1}, before your changes.` : `Version ${detail.version}, after you asked: “${detail.note ?? "changes"}”${/[.!?]$/.test(detail.note ?? "") ? "" : "."}`}{" "}
             <button type="button" className="btn-quiet rv-version-toggle" onClick={() => { setShowPrevious((v) => !v); setStep(0); }}>
               {showPrevious ? `Back to version ${detail.version}` : `Show version ${detail.version - 1}`}
             </button>

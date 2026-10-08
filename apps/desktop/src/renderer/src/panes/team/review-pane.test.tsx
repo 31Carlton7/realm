@@ -24,8 +24,8 @@ const detail = (id: string, title: string, over: Partial<TeamReviewDetail> = {})
   root: "/spaces/versed", ...over,
 });
 
-async function mount() {
-  const first = detail("v1", "6 slideshows for Nathan");
+async function mount(firstOver: Partial<TeamReviewDetail> = {}) {
+  const first = detail("v1", "6 slideshows for Nathan", firstOver);
   const second = detail("v2", "Weekly check-in", { kind: "message", itemCount: 1, thumb: null });
   const api = fakeApi({
     profiles: [profile("p1", "Work")],
@@ -53,6 +53,14 @@ describe("the Review pane", () => {
     expect(byline).toHaveTextContent("made by Content Producer");
     expect(byline).toHaveTextContent("$0.84 · 6m");
     expect(document.querySelectorAll(".rv-slide")).toHaveLength(3);
+  });
+
+  it("quotes the note a version answers without doubling its full stop", async () => {
+    // THE MUTANT: a period after the closing quote of a note that already ended in one — “…posts.”.
+    await mount({ version: 2, note: "Make it warmer." });
+    const line = await screen.findByText(/Version 2, after you asked/);
+    expect(line.textContent).toContain("“Make it warmer.”");
+    expect(line.textContent).not.toContain("”.");
   });
 
   it("keeps the decision outside the scroller, so it never dissolves with the slides", async () => {

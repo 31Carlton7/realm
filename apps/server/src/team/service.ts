@@ -633,7 +633,9 @@ export class TeamService {
         const role = r.roleId ? this.d.store.role(r.roleId) : null;
         const cost = run.costUsd !== null ? `${usd(run.costUsd)}${role ? ` of its ${usd(role.runCapUsd)} run cap` : ""}` : null;
         lines.push({
-          ts: a.ts, glyph: "inbox", text: `${a.verb === "revised" ? "Sent version " + String(a.detail.version ?? "") : "Sent"} ${items ?? ""} ${items === 1 ? "item" : "items"} to Review`.replace(/\s+/g, " "),
+          ts: a.ts, glyph: "inbox",
+          text: a.verb === "revised" && a.detail.version !== undefined ? `Sent version ${String(a.detail.version)} to Review`
+            : `Sent ${items ?? ""} ${items === 1 ? "item" : "items"} to Review`.replace(/\s+/g, " "),
           detail: [role?.name, run.constraints?.model, cost].filter(Boolean).join(", ") || null,
         });
       }
