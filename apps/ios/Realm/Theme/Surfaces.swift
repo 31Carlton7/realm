@@ -13,7 +13,6 @@ enum Chrome {
 
 /// The radius ladder (design.md ▸ Shape), on the system's continuous corner.
 enum Radius {
-    static let chip: CGFloat = 6
     static let control: CGFloat = 8
     static let card: CGFloat = 12
     static let sheet: CGFloat = 16
