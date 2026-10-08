@@ -16,6 +16,9 @@
  *   5. A click on a card opens that child's transcript as a tab beside the lead.
  *   6. A click on a transcript line brings the Agents tab forward with that row lit.
  *   7. "Implement with…" on a plan opens the tab with the plan in the composer.
+ *  12. Sub-agents are named by their task: the titles the lead gave ("Dark-mode toggle", "Theme
+ *      migration") on the cards, the lines and the tabs, and a lead that gave none gets the task read
+ *      out of the goal, past its "You are implementing…" opener — never "Agent: …".
  *
  * Ports: LIVE_SERVER_PORT (8795), LIVE_CDP_PORT (9235). Screenshots go to LIVE_OUT_DIR (the system
  * temp dir unless set); the scratch home to LIVE_SCRATCH_DIR. Kills only what listens on its own ports.
@@ -272,8 +275,8 @@ async function main() {
   const cards = () => evalIn(c, `[...document.querySelectorAll('.subagent')].map((li) => ({ state: li.dataset.state, model: li.querySelector('.subagent-model')?.textContent, harness: li.querySelector('.subagent-harness')?.textContent, task: li.querySelector('.subagent-task')?.textContent, status: li.querySelector('.subagent-state')?.textContent, doing: li.querySelector('.subagent-doing')?.textContent ?? null, report: li.querySelector('.subagent-report')?.textContent ?? null }))`);
   const two = await until(async () => { const cs = await cards(); return cs.length === 2 ? cs : null; }, 20_000, "two sub-agents in the tab").catch(async (e) => { note("cards at timeout", await cards()); throw e; });
   note("cards", two);
-  check("GPT-6 Luna's child is listed on Codex, with its task", two.some((x) => x.model === "GPT-6 Luna" && x.harness === "Codex" && x.task?.startsWith("Build the dark-mode toggle")), two);
-  check("Fable resolved to the newest Fable, on Claude", two.some((x) => x.model === "Claude Fable 5.1" && x.harness === "Claude" && x.task?.startsWith("Write the migration")), two);
+  check("GPT-6 Luna's child is listed on Codex, by the title its lead gave it", two.some((x) => x.model === "GPT-6 Luna" && x.harness === "Codex" && x.task === "Dark-mode toggle"), two);
+  check("Fable resolved to the newest Fable, on Claude", two.some((x) => x.model === "Claude Fable 5.1" && x.harness === "Claude" && x.task === "Theme migration"), two);
   await until(async () => (await cards()).some((x) => x.state === "working"), 15_000, "a child working");
   await sleep(1200);
   await shot(c, "4-working");
@@ -304,19 +307,20 @@ async function main() {
   const lines = await evalIn(c, `[...document.querySelectorAll('.delegation-line .tool-row')].map((b) => b.textContent)`);
   note("transcript lines", lines);
   check("the transcript draws each as 'Subagent finished · <task>'", lines.filter((l) => l.startsWith("Subagent finished")).length === 2, lines);
+  check("…by the titles the lead gave them", lines.some((l) => l.includes("Dark-mode toggle")) && lines.some((l) => l.includes("Theme migration")), lines);
   check("…and the wait as one line that says what it collected", lines.includes("Collected 2 reports"), lines);
   await shot(c, "7-transcript");
 
   // ── 5. A card opens its child, beside the lead ─────────────────────────────────────────────
   await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-card')].find((b) => b.textContent.includes('GPT-6 Luna')).click(); return true; })()`);
-  const withChild = await until(async () => { const ps = await tabs(); return ps.some((p) => p.tabs.some((t) => t.name.startsWith("Agent: Build") && t.selected)) ? ps : null; }, 10_000, "child tab").catch(() => tabs());
+  const withChild = await until(async () => { const ps = await tabs(); return ps.some((p) => p.tabs.some((t) => t.name === "Dark-mode toggle" && t.selected)) ? ps : null; }, 10_000, "child tab").catch(() => tabs());
   note("panes with the child open", withChild);
-  check("the child's transcript opens as a tab of the same side pane", withChild.length === 2 && withChild.some((p) => p.tabs.some((t) => t.name.startsWith("Agent: Build") && t.selected)), withChild);
+  check("the child's transcript opens as a tab of the same side pane, named by its task", withChild.length === 2 && withChild.some((p) => p.tabs.some((t) => t.name === "Dark-mode toggle" && t.selected)), withChild);
   await sleep(600);
   await shot(c, "8-child");
 
   // ── 6. A transcript line brings the tab forward, with its row lit ───────────────────────────
-  await evalIn(c, `(() => { [...document.querySelectorAll('.delegation-line .tool-row')].find((b) => b.textContent.includes('Write the migration')).click(); return true; })()`);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.delegation-line .tool-row')].find((b) => b.textContent.includes('Theme migration')).click(); return true; })()`);
   const lit = await until(() => evalIn(c, `document.querySelector('.subagent[data-flash] .subagent-model')?.textContent ?? null`), 5_000, "lit row").catch(() => null);
   check("a transcript line brings the Agents tab back with its row lit", lit === "Claude Fable 5.1", lit);
   await shot(c, "9-lit-row");
@@ -334,6 +338,15 @@ async function main() {
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "light"; return true; })()`);
   await sleep(400);
   await shot(c, "11-light");
+
+  // ── 12. A lead that names nothing: the child is named by its task ───────────────────────────
+  const { session: unnamed } = await api.call("sessions.create", { spaceId: space.id, agentKind: "claude", model: "claude-opus-5-5", title: "Unnamed lead", permissionMode: "default" });
+  await api.call("sessions.send", { id: unnamed.id, text: "Hand it over unnamed, please.", attachments: [], mentions: [] });
+  await until(async () => (await api.call("sessions.events", { id: unnamed.id, afterSeq: 0, limit: 2000 })).some((e) => e.event.type === "assistant_text" && e.event.payload.text === "The font-size picker is in."), 30_000, "the unnamed lead's report");
+  const [named] = (await api.call("delegation.children", { sessionId: unnamed.id })).children;
+  check("a child its lead did not name is called by its task, past the role its goal opens with", named?.session.title === "Add the font-size picker", named?.session.title);
+  const legacy = (await api.call("sessions.list", { spaceId: space.id })).filter((x) => x.title.startsWith("Agent:"));
+  check("no sub-agent anywhere is titled \"Agent: …\"", legacy.length === 0, legacy.map((x) => x.title));
 }
 
 /** What the window's grounds are made of right now — the alphas the theme writes, and the root's
