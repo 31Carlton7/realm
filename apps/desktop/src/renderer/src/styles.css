@@ -39,7 +39,7 @@
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
-.theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
+.theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
@@ -4232,7 +4232,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    ink ("6 reads · 2 edits +31 −4"), or the call in flight while live, and any failures last, reserved
    so no width can cut them. The opened trace hangs off a solid 1px rail. */
 .tool-group { border-radius: var(--r-ctl); font-size: 12px; }
-.tool-group-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.tool-group-row { display: flex; align-items: center; gap: 4px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tool-group-summary { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tool-group-work { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -4240,6 +4240,9 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del { font: 11px var(--font-mono); }
 .tool-group-failed { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: var(--fw-label); color: var(--rl-danger); }
 .tool-group-failed-dot { color: var(--ink-3); }
+/* The head's parts are one sentence, so the gap beside each "·" is a word space, as it is inside the
+   work; only the chevron stands off it. */
+.tool-group-row > .tool-chevron { margin-left: 4px; }
 /* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
    Driven by data-working — the group's own unsettled steps — never by a demo clock. */
 .shimmer-text, .tool-group[data-working] .tool-group-summary, .composer-thinking span {
@@ -4291,6 +4294,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-panel-exit[data-bad] { color: var(--rl-danger); }
 .tool-panel-path { display: flex; font: 12px var(--font-mono); color: var(--ink-2); }
 .tool-panel-note { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-panel-label > .tool-panel-note:not(:first-child) { flex: none; }
 .tool-panel-query { color: var(--ink); }
 .tool-panel-host { flex: none; font-weight: var(--fw-title); color: var(--ink); }
 .tool-panel-prompt { padding: 0 14px 6px; font-size: 13px; line-height: 18px; color: var(--ink-2); }
@@ -4306,11 +4310,21 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-panel .code-gutter { background: none; }
 .tool-panel .matches { padding: 0 6px; }
 .tool-panel .match-file { background: none; }
+.tool-panel .match-file:has(.match-row) .match-path { border-bottom: none; }
 .tool-panel .tool-expand { margin: 2px 0 0 14px; }
 .tool-panel-text { margin: 0; padding: 0 14px 6px; font: 12px/1.6 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
   max-height: 320px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
 .tool-panel-text[data-form="prose"] { font: 13px/1.55 var(--font-ui); }
+/* The wells' shared rule (`.tool-body pre`) outranks a panel's own classes; inside a panel the panel
+   is the surface, and a code body keeps its gutter's line height or the two drift out of register. */
+.tool-panel .tool-panel-text { padding: 0 14px 6px; border-radius: 0; background: none; max-height: 320px; }
+.tool-body .code-body { padding: 8px 10px; border-radius: 0; background: none; max-height: none; font: 12px/1.65 var(--font-mono); }
 .tool-panel-text[data-error] { color: var(--rl-danger); }
+/* An edit's panel is its diff, so the diff takes the panel's grammar here: the card-rung curve and
+   fill with no ring, and a head that is chrome for the panel rather than a section ruled off it.
+   The foot keeps clear of the curve, so a changed last line never squares a painted corner. */
+.tool-body .fd-file { border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-frame); box-shadow: none; padding-bottom: 8px; }
+.tool-body .fd-head { min-height: 32px; padding: 4px 10px 0 14px; border-bottom: none; }
 /* An MCP call's arguments: the key in quiet ink, the value as what it is. */
 .tool-args { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 14px; margin: 0; padding: 0 14px 6px; }
 .tool-arg { display: contents; }
@@ -5616,6 +5630,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
 :root[data-squircle] .tool-panel,
+:root[data-squircle] .tool-body .fd-file,
 :root[data-squircle] .ui-block,
 :root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
@@ -5908,6 +5923,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .tool-panel { --sq-fill: var(--rl-frame); box-shadow: none;
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 :root[data-squircle] .tool-panel[data-tone="terminal"] { --sq-fill: var(--rl-terminal-bg); }
+:root[data-squircle] .tool-body .fd-file { --sq-fill: var(--rl-frame); box-shadow: none;
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* A drawn block is the same panel the code it replaced was, painted the same way. */
 :root[data-squircle] .ui-block { --sq-fill: var(--surface); box-shadow: none; }
 /* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */

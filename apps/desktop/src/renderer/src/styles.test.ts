@@ -1627,6 +1627,9 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     const failed = bodiesFor(".tool-group-failed").join(" ");
     expect(failed).toContain("flex: none");
     expect(failed).toContain("color: var(--rl-danger)");
+    // The head is one sentence: each "·" sits a word space from its neighbours, never a wider gap
+    // between the duration and the work than inside the work.
+    expect(bodiesFor(".tool-group-row").join(" ")).toContain("gap: 4px");
     // A free row's glyph is at its 8px padding. A step's rail is at 3, 1 wide, and its row pads 4:
     // 3 + 1 + 4 = 8, the same column — and the rail 4px left of the glyphs.
     const px = (body: string, prop: string) => Number(new RegExp(`${prop}: (\\d+)px`).exec(body)?.[1]);
@@ -1653,6 +1656,14 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     // Declaring the curve is not drawing it: the panel has to be in the rule that hands its fill to the painter.
     expect(bodiesFor(":root[data-squircle] .tool-panel").join(" ")).toContain("background: paint(rl-squircle)");
     expect(bodiesFor('.tool-panel[data-tone="terminal"]').join(" ")).toContain("var(--rl-terminal-bg)");
+    // An edit's panel is its diff, in the same grammar: painted curve, the frame's fill, no ring, and a
+    // head that is not ruled off its body.
+    const diff = bodiesFor(".tool-body .fd-file").join(" ");
+    expect(diff).toContain("border-radius: var(--r-squircle-card)");
+    expect(diff).toContain("box-shadow: none");
+    expect(bodiesFor(":root[data-squircle] .tool-body .fd-file").join(" ")).toContain("--sq-fill: var(--rl-frame)");
+    expect(bodiesFor(":root[data-squircle] .tool-body .fd-file").join(" ")).toContain("background: paint(rl-squircle)");
+    expect(bodiesFor(".tool-body .fd-head").join(" ")).toContain("border-bottom: none");
   });
 
   it("an open card's rules reach its own row and body only — the cards inside it are a sub-agent's", () => {
