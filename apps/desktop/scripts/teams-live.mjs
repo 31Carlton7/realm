@@ -12,7 +12,15 @@
  *   S3  Request changes on the email — the note reaches the run's session, and version 2 replaces it;
  *   S4  a run past its dollar cap is stopped, with the reason and the line in the log;
  *   S5  the record page draws the record, and an edit commits it under the person's name;
- *   S6  every surface in dark and light, for comparing beside the mocks.
+ *   S6  every surface in dark and light, for comparing beside the mocks;
+ *   S7  choosing who is on the team: nothing picked for you, a teammate of your own written in the role
+ *       sheet, Add teammate past the team's week and raising it, Duplicate, and Remove asking first.
+ *
+ * LIVE_SCRATCH is where the scratch home goes (default: LIVE_OUT). With LIVE_INSIDE_PROJECTS=1 the
+ * home is meant to sit inside a folder one of the spaces works in — the owner's preview, whose home was
+ * under the folder that is also a space — and the run proves the team's memory goes to the fallback
+ * folder (REALM_MEMORY_FALLBACK_DIR, LIVE_FALLBACK) and, with nowhere allowed, that the page says why
+ * and offers to choose a folder.
  *
  * Ports: LIVE_SERVER_PORT / LIVE_CDP_PORT (8809 / 9249). Screenshots go to LIVE_OUT. It touches only
  * its own scratch home, and kills only what holds its own two ports. The deck is copied, never moved.
@@ -32,7 +40,11 @@ const SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8809);
 const OUT_DIR = process.env.LIVE_OUT ?? path.join(os.tmpdir(), "realm-teams-live");
 const DECK = process.env.LIVE_DECK ?? path.join(os.homedir(), "Realm/work/versed/content/decks/forgot-it-by-lunch");
 fs.mkdirSync(OUT_DIR, { recursive: true });
-const scratch = fs.mkdtempSync(path.join(OUT_DIR, "run-"));
+const SCRATCH_ROOT = process.env.LIVE_SCRATCH ?? OUT_DIR;
+fs.mkdirSync(SCRATCH_ROOT, { recursive: true });
+const scratch = fs.mkdtempSync(path.join(SCRATCH_ROOT, "run-"));
+const INSIDE = process.env.LIVE_INSIDE_PROJECTS === "1";
+const FALLBACK = process.env.LIVE_FALLBACK ?? path.join(OUT_DIR, "memory-fallback");
 const home = path.join(scratch, "home");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let electron = null;
@@ -236,6 +248,7 @@ async function boot() {
       // Claude's name runs the script too, so onboarding's own session can never reach a real engine.
       REALM_FAKE_STANDS_IN: "claude",
       REALM_FAKE_SCRIPT: scriptFile,
+      REALM_MEMORY_FALLBACK_DIR: FALLBACK,
       LIVE_USER_DATA: path.join(scratch, "userData"),
       LIVE_MAIN: mainEntry,
     },
@@ -274,8 +287,10 @@ async function openTeamPage(c, label) {
   await until(() => evalIn(c, `!!__live.q('.sb-page-nav .page-rail')`), 8_000, "team page");
 }
 
+let liveC = null;
 async function main() {
   const c = await boot();
+  liveC = c;
   const space = await spaceOf();
   check("onboarding made Versed", !!space, space?.name);
 
@@ -286,15 +301,54 @@ async function main() {
     for (let n = 1; n <= 7; n++) fs.copyFileSync(path.join(DECK, dir, `0${n}.png`), path.join(into, dir, `0${n}.png`));
   }
 
-  /* ── S0: the Team tab, and making the team from it ─────────────────────────────────────────── */
+  /* ── S0: the Team tab, choosing who is on the team, and making it ─────────────────────────────── */
+  if (INSIDE) {
+    // One of this person's spaces works in the folder Realm's home is inside (their preview's case).
+    const p = (await api.call("profiles.list", {}))[0];
+    const projects = await api.call("spaces.create", { profileId: p.id, name: "Projects", icon: "folder" });
+    execFileSync("sqlite3", [path.join(home, "realm.db"), `UPDATE spaces SET folder_path = '${scratch.replace(/'/g, "''")}' WHERE id = '${projects.id}'`]);
+    check("S0 Realm's home is inside a space's folder", home.startsWith(scratch + path.sep), { home, space: scratch });
+  }
   await openTeamPage(c, "Make this a team…");
-  await until(() => evalIn(c, `!!__live.button('Make Versed a team')`), 8_000, "make team");
+  await until(() => evalIn(c, `!!__live.q('[data-template="researcher"]')`), 8_000, "make team");
+  const gallery = await evalIn(c, `({
+    any: __live.qa('section[aria-label="For any team"] [data-template] .tp-card-name').map((n) => n.textContent),
+    creators: __live.qa('section[aria-label="For work with creators"] .tp-card-name').map((n) => n.textContent),
+    checked: __live.qa('.tp-pick input:checked').length,
+    disabled: [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Make Versed a team')?.disabled,
+  })`);
+  check("S7 seven starters on two shelves, none picked for you", gallery.any.length === 5 && gallery.creators.join() === "Creator Manager,Content Producer" && gallery.checked === 0 && gallery.disabled === true, gallery);
   await shot(c, "00-make-team-dark");
+  for (const id of ["creator-manager", "content-producer"]) await evalIn(c, `__live.click(__live.q('[data-template="${id}"] input'))`);
+  await evalIn(c, `__live.click([...document.querySelectorAll('button.tp-card-custom')][0])`);
+  await until(() => evalIn(c, `!!__live.q('[aria-modal=true] .rmt-maker')`), 5_000, "custom sheet");
+  await evalIn(c, `(() => { const d = __live.q('[aria-modal=true]');
+    __live.set([...d.querySelectorAll('label.field')].find((l) => l.textContent.startsWith('Name')).querySelector('input'), 'Podcast Booker');
+    __live.set([...d.querySelectorAll('label.field')].find((l) => l.textContent.startsWith('What they do')).querySelector('textarea'), 'Find podcast hosts whose listeners would care about this space, and draft a short pitch to each. Send the pitches to Review; never send them yourself.');
+    const budget = [...d.querySelectorAll('label.field')].find((l) => l.textContent.startsWith('A week')).querySelector('input'); __live.set(budget, '8');
+    const mode = [...d.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === 'Mode').querySelector('select'); mode.value = 'plan'; mode.dispatchEvent(new Event('change', { bubbles: true }));
+    return true; })()`);
+  await shot(c, "04b-custom-teammate-dark");
+  await evalIn(c, `__live.click(__live.button('Add to the team', __live.q('[aria-modal=true]')))`);
+  await until(() => evalIn(c, `!__live.q('[aria-modal=true]') && !!__live.q('[data-custom]')`), 5_000, "custom card");
+  const picked = await evalIn(c, `__live.text('.tp-shares-line [role=status]')`);
+  check("S7 the shares say what the picks come to", picked === "Shares come to $53 of the team's $60 a week", picked);
+  await shot(c, "00a-make-team-picked-dark");
   await evalIn(c, `__live.click(__live.button('Make Versed a team'))`);
   await until(() => evalIn(c, `/Versed team/.test(__live.text('.page-head h1') ?? '')`), 15_000, "overview");
   let team = await api.call("team.space", { spaceId: space.id });
-  check("S0 the starters are made, each with its clock", team.roles.map((r) => `${r.name}@${r.cron}`).join(", ") === "Creator Manager@0 9 * * 1-5, Content Producer@0 9 * * 1,4", team.roles.map((r) => r.name));
+  check("S0 the starters are made, each with its clock, and the teammate written by hand", team.roles.map((r) => `${r.name}@${r.cron}`).join(", ") === "Creator Manager@0 9 * * 1-5, Content Producer@0 9 * * 1,4, Podcast Booker@null", team.roles.map((r) => r.name));
+  const booker = team.roles.find((r) => r.name === "Podcast Booker");
+  check("S7 the written teammate keeps what was written", booker?.permissionMode === "plan" && booker?.weekBudgetUsd === 8 && /podcast hosts/.test(booker?.brief ?? ""), booker && { mode: booker.permissionMode, budget: booker.weekBudgetUsd });
   check("S0 the space has its own memory repo for records", team.hasRepo === true);
+  if (INSIDE) {
+    check("S0 inside a project: the repo went to the fallback folder, not under the home", team.repoMoved === true && team.repoPath?.startsWith(FALLBACK) && !team.repoPath.startsWith(scratch), { repoPath: team.repoPath });
+    const toast = await until(() => evalIn(c, `[...document.querySelectorAll('.toast, [class*=toast]')].map((t) => t.textContent).find((t) => /team's memory is in/.test(t)) ?? null`), 5_000, "moved toast").catch(() => null);
+    check("S0 and the person is told where it went", !!toast && toast.includes(FALLBACK), toast);
+    await shot(c, "00b-repo-moved-dark");
+  } else {
+    check("S0 outside any project: the repo is under Realm's home", team.repoMoved === false && team.repoPath?.startsWith(home), { repoPath: team.repoPath });
+  }
   const cm = team.roles.find((r) => r.name === "Creator Manager");
   const cp = team.roles.find((r) => r.name === "Content Producer");
   // The fake by its own name, so its usage reports are read per turn and its dollars come out true.
@@ -322,7 +376,7 @@ async function main() {
   })`);
   check("S1 the Review row counts 2", sidebar.review === "Review — 2 waiting on you", sidebar.review);
   check("S1 each review is a Needs you row", sidebar.needs.includes("6 slideshows for Nathan") && sidebar.needs.includes("Weekly check-in to Nathan"), sidebar.needs);
-  check("S1 the Team row folds to its roles, each a Realmite", sidebar.roles.join() === "Creator Manager,Content Producer" && sidebar.realmites === 2, sidebar);
+  check("S1 the Team row folds to its roles, each a Realmite", sidebar.roles.join() === "Creator Manager,Content Producer,Podcast Booker,Add teammate" && sidebar.realmites === 3, sidebar);
 
   /* ── S2: the Review pane, and Approve ──────────────────────────────────────────────────────── */
   await evalIn(c, `__live.click(__live.named('^6 slideshows for Nathan in Versed'))`);
@@ -371,7 +425,7 @@ async function main() {
 
   /* ── the pages: Overview, a role, Creators and the record (S5) ─────────────────────────────── */
   await openTeamPage(c, "Team");
-  await until(() => evalIn(c, `__live.qa('.tp-role-card').length === 3`), 8_000, "role cards");
+  await until(() => evalIn(c, `__live.qa('.tp-role-card').length === 4`), 8_000, "role cards");
   await shot(c, "02-team-home-dark");
   await evalIn(c, `__live.click(__live.tab('Roles'))`);
   await until(() => evalIn(c, `!!__live.tab('Creator Manager')`), 5_000, "roles unfold");
@@ -398,11 +452,66 @@ async function main() {
   await until(() => evalIn(c, `__live.qa('.tp-feed li').length > 5`), 8_000, "activity");
   await shot(c, "07-activity-dark");
   await evalIn(c, `__live.click(__live.tab('Overview'))`);
-  await until(() => evalIn(c, `!!__live.button('New role')`), 5_000, "overview again");
-  await evalIn(c, `__live.click(__live.button('New role'))`);
-  await until(() => evalIn(c, `!!__live.q('.rmt-maker')`), 5_000, "role sheet");
-  await shot(c, "04-new-role-dark");
+  await until(() => evalIn(c, `!!__live.button('Add teammate')`), 5_000, "overview again");
+
+  /* ── S7: Add teammate past the week, Duplicate, Remove ─────────────────────────────────────── */
+  await evalIn(c, `__live.click(__live.button('Add teammate'))`);
+  await until(() => evalIn(c, `!!__live.q('[aria-modal=true] [data-template="researcher"]')`), 5_000, "add sheet");
+  const lit = await evalIn(c, `__live.qa('[aria-modal=true] [data-there] .tp-card-name').map((n) => n.textContent)`);
+  check("S7 the starters on the team stand lit, not offered again", lit.join() === "Growth Analyst,Creator Manager,Content Producer", lit);
+  await evalIn(c, `__live.click(__live.q('[aria-modal=true] [data-template="researcher"] input'))`);
+  const overLine = await evalIn(c, `__live.text('[aria-modal=true] .tp-shares-line [role=status]')`);
+  const held = await evalIn(c, `[...__live.q('[aria-modal=true]').querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add 1 teammate')?.disabled`);
+  check("S7 past the week, the sheet says by how much and holds Add", /\$68 of the team's \$60 a week — \$8 over/.test(overLine ?? "") && held === true, { overLine, held });
+  await shot(c, "04-add-teammates-over-dark");
+  await evalIn(c, `__live.click([...__live.q('[aria-modal=true]').querySelectorAll('button')].find((b) => /^Raise the team's week/.test(b.textContent)))`);
+  await evalIn(c, `__live.click(__live.button('Add 1 teammate', __live.q('[aria-modal=true]')))`);
+  await until(() => evalIn(c, `/Researcher/.test(__live.text('.page-head h1') ?? '')`), 8_000, "researcher page");
+  team = await api.call("team.space", { spaceId: space.id });
+  check("S7 Researcher is on the team, the week raised to fit", team.roles.some((r) => r.name === "Researcher") && team.weekBudgetUsd === 68 && team.sharesUsd === 68, { week: team.weekBudgetUsd, shares: team.sharesUsd });
+  await shot(c, "06-new-teammate-page-dark");
+  await evalIn(c, `__live.click(__live.named('^More for Researcher$'))`);
+  const menuRow = (start) => `[...document.querySelectorAll('[role=menuitem]')].find((b) => b.textContent.startsWith(${JSON.stringify(start)}))`;
+  await until(() => evalIn(c, `!!${menuRow("Duplicate")}`), 5_000, "role menu");
+  await shot(c, "06a-role-menu-dark");
+  await evalIn(c, `__live.click(${menuRow("Duplicate")})`);
+  await until(() => evalIn(c, `/Duplicate Researcher/.test(__live.q('[aria-modal=true]')?.textContent ?? '')`), 5_000, "duplicate sheet");
+  const dupName = await evalIn(c, `[...__live.q('[aria-modal=true]').querySelectorAll('label.field')].find((l) => l.textContent.startsWith('Name')).querySelector('input').value`);
+  const dupNote = await evalIn(c, `__live.text('[aria-modal=true] .tp-shares-line')`);
+  check("S7 Duplicate starts from its fields under a free name, and says the copy would pass the week", dupName === "Researcher 2" && /\$78 of the team's \$68 a week — \$10 over/.test(dupNote ?? ""), { dupName, dupNote });
+  await shot(c, "06b-duplicate-dark");
   await evalIn(c, `__live.click(__live.button('Cancel', __live.q('[aria-modal=true]')))`);
+  await evalIn(c, `__live.click(__live.button('Remove Researcher from the team…'))`);
+  await until(() => evalIn(c, `/Remove Researcher from the team\?/.test(__live.q('[aria-modal=true]')?.textContent ?? '')`), 5_000, "remove sheet");
+  await shot(c, "06c-remove-dark");
+  check("S7 Remove asked first: nothing removed yet", (await api.call("team.space", { spaceId: space.id })).roles.some((r) => r.name === "Researcher"));
+  await evalIn(c, `__live.click(__live.button('Remove Researcher', __live.q('[aria-modal=true]')))`);
+  await until(async () => !(await api.call("team.space", { spaceId: space.id })).roles.some((r) => r.name === "Researcher"), 8_000, "removed");
+  const log3 = await api.call("team.activity", { spaceId: space.id, limit: 200 });
+  check("S7 the removal is a line in the log, and the role's earlier lines stay", log3.some((a) => a.verb === "archived_role" && a.object === "Researcher") && log3.some((a) => a.verb === "made_role" && a.object === "Researcher"));
+  if (INSIDE) {
+    // Now with nowhere allowed: a space whose folder is the fallback, and a second space made a team.
+    const p = (await api.call("profiles.list", {}))[0];
+    const blocker = await api.call("spaces.create", { profileId: p.id, name: "Elsewhere", icon: "folder" });
+    fs.mkdirSync(FALLBACK, { recursive: true });
+    execFileSync("sqlite3", [path.join(home, "realm.db"), `UPDATE spaces SET folder_path = '${FALLBACK.replace(/'/g, "''")}' WHERE id = '${blocker.id}'`]);
+    const qa = await api.call("spaces.create", { profileId: p.id, name: "QA Lab", icon: "folder" });
+    await api.call("spaces.list", {});
+    await evalIn(c, `__live.click(__live.q('.sb-page-back'))`).catch(() => {});
+    await until(() => evalIn(c, `!!__live.named('^More for QA Lab$')`), 10_000, "qa lab row");
+    await evalIn(c, `__live.click(__live.named('^More for QA Lab$'))`);
+    await until(() => evalIn(c, `!!__live.button('Make this a team…')`), 5_000, "qa menu");
+    await evalIn(c, `__live.click(__live.button('Make this a team…'))`);
+    await until(() => evalIn(c, `!!__live.q('[data-template="editor"]')`), 8_000, "qa gallery");
+    await evalIn(c, `__live.click(__live.q('[data-template="editor"] input'))`);
+    await evalIn(c, `__live.click(__live.button('Make QA Lab a team'))`);
+    const refusal = await until(() => evalIn(c, `__live.q('.tp-refusal')?.textContent ?? null`), 8_000, "refusal");
+    check("S0 with nowhere allowed, the page says why and offers to choose a folder", /Choose a folder outside your projects/.test(refusal) && /Choose a folder…/.test(refusal), refusal);
+    await shot(c, "00c-memory-refused-dark");
+    execFileSync("sqlite3", [path.join(home, "realm.db"), `DELETE FROM spaces WHERE id = '${blocker.id}'`]);
+    void qa;
+    await openTeamPage(c, "Team");
+  }
 
   /* ── S6: light ─────────────────────────────────────────────────────────────────────────────── */
   await api.call("settings.set", { key: "ui.theme", value: "light" });
@@ -417,7 +526,7 @@ async function main() {
   await until(() => evalIn(c, `__live.qa('.rv-slide img').length === 7 && __live.qa('.rv-slide img').every((i) => i.complete && i.naturalWidth > 0)`), 15_000, "slides in light");
   await shot(c, "01-sidebar-and-review-light");
   await openTeamPage(c, "Team");
-  await until(() => evalIn(c, `__live.qa('.tp-role-card').length === 3`), 8_000, "cards in light");
+  await until(() => evalIn(c, `__live.qa('.tp-role-card').length >= 4`), 8_000, "cards in light");
   await shot(c, "02-team-home-light");
   await evalIn(c, `__live.click(__live.tab('Roles'))`);
   await until(() => evalIn(c, `!!__live.tab('Creator Manager')`), 5_000, "roles light");
@@ -433,15 +542,23 @@ async function main() {
   await until(() => evalIn(c, `__live.qa('.tp-feed li').length > 5`), 8_000, "activity light");
   await shot(c, "07-activity-light");
   await evalIn(c, `__live.click(__live.tab('Overview'))`);
-  await until(() => evalIn(c, `!!__live.button('New role')`), 5_000, "overview light");
-  await evalIn(c, `__live.click(__live.button('New role'))`);
-  await until(() => evalIn(c, `!!__live.q('.rmt-maker')`), 5_000, "sheet light");
-  await shot(c, "04-new-role-light");
+  await until(() => evalIn(c, `!!__live.button('Add teammate')`), 5_000, "overview light");
+  await evalIn(c, `__live.click(__live.button('Add teammate'))`);
+  await until(() => evalIn(c, `!!__live.q('[aria-modal=true] [data-template="researcher"]')`), 5_000, "add sheet light");
+  await evalIn(c, `__live.click(__live.q('[aria-modal=true] [data-template="editor"] input'))`);
+  await shot(c, "04-add-teammates-light");
+  await evalIn(c, `__live.click(__live.q('[aria-modal=true] button.tp-card-custom'))`);
+  await until(() => evalIn(c, `!!__live.q('[aria-modal=true] .rmt-maker')`), 5_000, "custom light");
+  await shot(c, "04b-custom-teammate-light");
   c.close();
 }
 
 main()
-  .catch((e) => { console.log(`FAIL harness ${e.message}`); process.exitCode = 1; })
+  .catch(async (e) => {
+    console.log(`FAIL harness ${e.message}`); process.exitCode = 1;
+    // What the window said when it stopped: its alerts and toasts, and a picture.
+    try { console.log("ALERTS", JSON.stringify(await evalIn(liveC, `[...document.querySelectorAll('[role=alert], .toast, [class*=toast]')].map((t) => t.textContent)`))); await shot(liveC, "zz-failed"); } catch { /* the window is gone */ }
+  })
   .finally(async () => {
     try { await api?.call("daemon.stop", {}); } catch {}
     try { api?.close(); } catch {}

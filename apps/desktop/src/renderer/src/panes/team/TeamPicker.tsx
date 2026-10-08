@@ -62,7 +62,7 @@ function Gallery({ team, picked, setPicked, onWrite }: {
           <div className="tp-cards">
             {ROLE_TEMPLATES.filter((t) => t.group === shelf.group).map((t) => {
               const there = onTeam.has(t.name.toLowerCase());
-              const on = there || picked.templates.includes(t.id);
+              const on = picked.templates.includes(t.id);
               const Card = there ? "div" : "label";
               return (
                 <Card key={t.id} className="tp-card tp-pick" data-on={on || undefined} data-there={there || undefined} data-template={t.id}>
@@ -78,36 +78,34 @@ function Gallery({ team, picked, setPicked, onWrite }: {
                 </Card>
               );
             })}
+            {/* A teammate of your own stands with the roles any team can use: the first shelf, where it is seen. */}
+            {shelf.group === "any" && <>
+              {picked.customs.map((r, i) => (
+                <div key={`${r.name}-${i}`} className="tp-card tp-pick" data-on="" data-custom="">
+                  <span className="tp-card-head">
+                    <span className="tp-mark"><Realmite spec={parseRealmiteSpec(r.realmite, r.name)} size={32} /></span>
+                    <span className="tp-card-name">{r.name}</span>
+                    <span className="tp-pick-acts">
+                      <button type="button" className="btn-quiet" onClick={() => onWrite(i)}>Edit</button>
+                      <button type="button" className="icon-btn" aria-label={`Take ${r.name} off the list`} title={`Take ${r.name} off the list`}
+                        onClick={() => setPicked((p) => ({ ...p, customs: p.customs.filter((_, j) => j !== i) }))}><Icon name="close" size={14} /></button>
+                    </span>
+                  </span>
+                  <span className="tp-card-line">{firstSentence(r.brief)}</span>
+                  <span className="tp-card-foot">{foot(r.cron ?? null, r.weekBudgetUsd, r.model)}</span>
+                </div>
+              ))}
+              <button type="button" className="tp-card tp-card-custom" onClick={() => onWrite(null)}>
+                <span className="tp-card-head">
+                  <span className="tp-mark tp-mark-add"><Icon name="add" size={16} /></span>
+                  <span className="tp-card-name">Custom teammate</span>
+                </span>
+                <span className="tp-card-line">Write your own: what they do, when they wake, what they may spend, and their Realmite.</span>
+              </button>
+            </>}
           </div>
         </section>
       ))}
-      <section className="tp-shelf" aria-label="Your own">
-        <h3 className="settings-head">Your own</h3>
-        <div className="tp-cards">
-          {picked.customs.map((r, i) => (
-            <div key={`${r.name}-${i}`} className="tp-card tp-pick" data-on="" data-custom="">
-              <span className="tp-card-head">
-                <span className="tp-mark"><Realmite spec={parseRealmiteSpec(r.realmite, r.name)} size={32} /></span>
-                <span className="tp-card-name">{r.name}</span>
-                <span className="tp-pick-acts">
-                  <button type="button" className="btn-quiet" onClick={() => onWrite(i)}>Edit</button>
-                  <button type="button" className="icon-btn" aria-label={`Take ${r.name} off the list`} title={`Take ${r.name} off the list`}
-                    onClick={() => setPicked((p) => ({ ...p, customs: p.customs.filter((_, j) => j !== i) }))}><Icon name="close" size={14} /></button>
-                </span>
-              </span>
-              <span className="tp-card-line">{firstSentence(r.brief)}</span>
-              <span className="tp-card-foot">{foot(r.cron ?? null, r.weekBudgetUsd, r.model)}</span>
-            </div>
-          ))}
-          <button type="button" className="tp-card tp-card-custom" onClick={() => onWrite(null)}>
-            <span className="tp-card-head">
-              <span className="tp-mark tp-mark-add"><Icon name="add" size={16} /></span>
-              <span className="tp-card-name">Custom teammate</span>
-            </span>
-            <span className="tp-card-line">Write your own: what they do, when they wake, what they may spend, and their Realmite.</span>
-          </button>
-        </div>
-      </section>
     </>
   );
 }

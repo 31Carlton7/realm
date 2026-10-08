@@ -41,8 +41,8 @@ describe("making a team: who is on it", () => {
     const any = screen.getByRole("region", { name: "For any team" });
     const creators = screen.getByRole("region", { name: "For work with creators" });
     // THE MUTANT: the creator roles on the first shelf, or preselected — a space that is not about creators handed them anyway.
-    expect([...any.querySelectorAll(".tp-card-name")].map((n) => n.textContent)).toEqual(["Researcher", "Editor", "Growth Analyst", "Community Manager", "Ops"]);
-    expect([...creators.querySelectorAll(".tp-card-name")].map((n) => n.textContent)).toEqual(["Creator Manager", "Content Producer"]);
+    expect([...any.querySelectorAll("[data-template] .tp-card-name")].map((n) => n.textContent)).toEqual(["Researcher", "Editor", "Growth Analyst", "Community Manager", "Ops"]);
+    expect([...creators.querySelectorAll("[data-template] .tp-card-name")].map((n) => n.textContent)).toEqual(["Creator Manager", "Content Producer"]);
     expect(screen.queryAllByRole("checkbox", { checked: true })).toHaveLength(0);
     expect(makeButton()).toBeDisabled();
     // No starter brief names one business.

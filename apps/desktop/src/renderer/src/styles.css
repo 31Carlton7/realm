@@ -10136,10 +10136,14 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-card-custom:hover { background: var(--rl-card); }
 .tp-mark-add { background: var(--rl-hover); color: var(--rl-text-dim); }
 .tp-picker { gap: 22px; }
-.tp-picker-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }
+.tp-picker-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
+.tp-picker-foot > .btn { flex: none; }
 .tp-picker-hint { margin-top: -10px; }
-.tp-shares-line { display: inline-flex; align-items: center; gap: 10px; margin: 0 auto 0 0; min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tp-shares-line { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 auto 0 0; min-width: 0; flex: 1 1 auto; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 .tp-shares-line[data-over] { color: var(--rl-warning); }
+/* Over, the words say it and the offer to raise takes the meter's place. */
+.tp-shares-line[data-over] .tp-meter { display: none; }
+.tp-shares-line .btn-quiet { margin-left: -7px; }
 .tp-shares-line .tp-meter-wide { width: 120px; }
 .tp-refusal { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px;
   border-radius: var(--r-panel); background: var(--orange-tint); color: var(--orange); }
