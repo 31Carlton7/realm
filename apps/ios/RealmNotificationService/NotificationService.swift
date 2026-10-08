@@ -23,6 +23,9 @@ final class NotificationService: UNNotificationServiceExtension {
               let rewritten = content.mutableCopy() as? UNMutableNotificationContent else { return nil }
         rewritten.title = payload.title
         rewritten.body = payload.body
+        // The kind names the category the app registered, which says what the moment is when
+        // previews are hidden.
+        rewritten.categoryIdentifier = payload.kind
         if let session = payload.session {
             rewritten.threadIdentifier = session
             rewritten.userInfo["session"] = session

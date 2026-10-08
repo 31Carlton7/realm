@@ -6,83 +6,89 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var model = model
-        NavigationStack(path: $model.path) {
-            Group {
-                if model.store.pairedMac == nil {
+        Group {
+            if model.store.pairedMac == nil {
+                NavigationStack {
                     PairView()
-                } else {
-                    HomeView()
                 }
-            }
-            .navigationDestination(for: Route.self) { route in
-                switch route {
-                case .session(let id): SessionView(sessionId: id)
-                case .diagnostics: DiagnosticsView()
+            } else {
+                NavigationStack(path: $model.path) {
+                    HomeView()
+                        .navigationDestination(for: Route.self) { route in
+                            switch route {
+                            case .session(let id): SessionView(sessionId: id)
+                            case .settings: SettingsView()
+                            case .diagnostics: DiagnosticsView()
+                            case .licences: LicencesView()
+                            }
+                        }
+                }
+                // A link opened while a Mac is paired pairs over the top of it.
+                .sheet(isPresented: pairingOverTheTop) {
+                    NavigationStack { PairView() }
                 }
             }
         }
+        .tint(Palette.accent)
+        .overlay(alignment: .top) { ToastView() }
+        .confirmationDialog(replaceTitle, isPresented: replacing, titleVisibility: .visible) {
+            Button("Pair") {
+                let link = model.replacingPairLink
+                model.replacingPairLink = nil
+                if let link { Task { await model.pair(with: link) } }
+            }
+            Button("Cancel", role: .cancel) { model.replacingPairLink = nil }
+        } message: {
+            Text("This iPhone will stop showing \(model.store.pairedMac?.macName ?? "this Mac")'s sessions.")
+        }
+    }
+
+    private var pairingOverTheTop: Binding<Bool> {
+        Binding(get: { model.pairing != .idle || model.pairingRequested }, set: { shown in
+            guard !shown else { return }
+            model.pairingRequested = false
+            if !model.pairing.isBusy { model.pairing = .idle }
+        })
+    }
+
+    private var replacing: Binding<Bool> {
+        Binding(get: { model.replacingPairLink != nil }, set: { if !$0 { model.replacingPairLink = nil } })
+    }
+
+    private var replaceTitle: String {
+        let name = model.replacingPairLink.flatMap { try? PairingLink.decode($0) }?.macName ?? "another Mac"
+        return "Pair with \(name)?"
     }
 }
 
-struct PairView: View {
+/// Something that happened, at the top of the screen for a few seconds: it never covers the
+/// composer, and leaves on its own.
+struct ToastView: View {
     @Environment(AppModel.self) private var model
-    @State private var link = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Form {
-            Section {
-                TextField("https://realm.computer/pair#1.…", text: $link, axis: .vertical)
-                    .lineLimit(2...6)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                    .accessibilityLabel("Pairing link")
-                Button("Pair") {
-                    Task { await model.pair(with: link) }
-                }
-                .disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.pairing.isBusy)
-            } header: {
-                Text("Pairing link")
-            } footer: {
-                Text("Paste the link your Mac shows for pairing. The link is good for a few minutes.")
-            }
-
-            switch model.pairing {
-            case .idle:
-                EmptyView()
-            case .working(let text):
-                Section {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text(text)
+        if let toast = model.toast {
+            Text(toast.text)
+                .inter(.subheadline, .label)
+                .foregroundStyle(Palette.ink)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .surface(Palette.surface, radius: Radius.panel)
+                .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                .accessibilityAddTraits(.isStaticText)
+                .task(id: toast.id) {
+                    UIAccessibility.post(notification: .announcement, argument: toast.text)
+                    try? await Task.sleep(for: .seconds(4))
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                        if model.toast?.id == toast.id { model.toast = nil }
                     }
                 }
-            case .confirmOnMac(let macName):
-                Section {
-                    Label("Confirm on your Mac", systemImage: "laptopcomputer")
-                        .font(.headline)
-                    Text("\(macName) is asking whether to pair with this iPhone.")
-                        .foregroundStyle(.secondary)
-                }
-            case .failed(let message):
-                Section {
-                    Label(message, systemImage: "exclamationmark.triangle")
-                }
-            }
+                .onTapGesture { model.toast = nil }
         }
-        .navigationTitle("Pair with your Mac")
-    }
-}
-
-struct MacStatusLabel: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let status = model.macStatus
-        Label(status.text, systemImage: status.symbol)
-            .labelStyle(.titleAndIcon)
-            .font(.subheadline)
-            .fixedSize()
-            .accessibilityLabel("Mac: \(status.text)")
     }
 }

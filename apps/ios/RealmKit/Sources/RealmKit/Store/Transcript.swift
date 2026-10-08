@@ -8,10 +8,25 @@ public struct Transcript: Sendable, Equatable {
     public var session: SessionRow?
     public var status: SessionStatus?
     public var hasMore = false
+    /// When these rows were last fresh from the Mac; nil while they are live on this connection.
+    public var savedAt: Date?
 
     public init(rows: [TranscriptRow] = []) {
         upsert(rows)
     }
+
+    public init(_ snapshot: TranscriptSnapshot, savedAt: Date) {
+        upsert(snapshot.rows)
+        session = snapshot.session
+        status = snapshot.status
+        hasMore = snapshot.hasMore
+        self.savedAt = savedAt
+    }
+
+    public var isLive: Bool { savedAt == nil }
+
+    /// The newest event these rows come from: what `session.seen` marks read up to.
+    public var lastSeq: Int { rows.map(\.seq).max() ?? 0 }
 
     public mutating func upsert(_ incoming: [TranscriptRow]) {
         for row in incoming {

@@ -422,22 +422,30 @@ public struct MobileAPI: Sendable {
         _ = try await connection.call("session.close", params: SessionID(id: id), as: Acknowledged.self)
     }
 
-    public func send(id: String, text: String, delivery: Delivery? = nil) async throws {
+    public func send(id: String, text: String, delivery: Delivery? = nil, timeout: Duration? = nil) async throws {
         struct Params: Encodable, Sendable { let id: String; let text: String; let delivery: Delivery? }
-        _ = try await connection.call("session.send", params: Params(id: id, text: text, delivery: delivery), as: Acknowledged.self)
+        _ = try await connection.call("session.send", params: Params(id: id, text: text, delivery: delivery), as: Acknowledged.self,
+                                      timeout: timeout)
     }
 
     /// `answers` maps a question's text to the chosen label; several labels for a multi-select
     /// question are joined with ", ", as the desktop's question card does.
-    public func answer(id: String, requestId: String, decision: Decision, answers: [String: String]? = nil) async throws {
+    public func answer(id: String, requestId: String, decision: Decision, answers: [String: String]? = nil,
+                       timeout: Duration? = nil) async throws {
         struct Params: Encodable, Sendable { let id: String; let requestId: String; let decision: Decision; let answers: [String: String]? }
         _ = try await connection.call("session.answer",
                                       params: Params(id: id, requestId: requestId, decision: decision, answers: answers),
-                                      as: Acknowledged.self)
+                                      as: Acknowledged.self, timeout: timeout)
     }
 
     public func stop(id: String) async throws {
         _ = try await connection.call("session.stop", params: SessionID(id: id), as: Acknowledged.self)
+    }
+
+    /// Marks the session read up to `seq`, as opening it on the Mac does. The Mac never moves it back.
+    public func seen(id: String, seq: Int) async throws {
+        struct Params: Encodable, Sendable { let id: String; let seq: Int }
+        _ = try await connection.call("session.seen", params: Params(id: id, seq: seq), as: Acknowledged.self)
     }
 
     public func createSession(spaceId: String, agent: String, text: String) async throws -> CreatedSession {

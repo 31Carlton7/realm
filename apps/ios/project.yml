@@ -9,11 +9,17 @@ settings:
     SWIFT_VERSION: "6.0"
     DEVELOPMENT_TEAM: FY9QB79VAP
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "0.1"
+    MARKETING_VERSION: "0.1.0"
+    # The release script overrides this per build; Info.plist reads it as CFBundleVersion.
     CURRENT_PROJECT_VERSION: "1"
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: complete
+  configs:
+    Debug:
+      APS_ENVIRONMENT: development
+    Release:
+      APS_ENVIRONMENT: production
 packages:
   RealmKit:
     path: RealmKit
@@ -25,6 +31,9 @@ targets:
       - path: Realm
     dependencies:
       - package: RealmKit
+        product: RealmKit
+      - package: RealmKit
+        product: RealmMarkdown
       - target: RealmNotificationService
     settings:
       base:
@@ -32,6 +41,11 @@ targets:
         PRODUCT_NAME: Realm
         INFOPLIST_FILE: Realm/Info.plist
         CODE_SIGN_ENTITLEMENTS: Realm/Realm.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # Palette.swift names the colours; generated symbols would collide with SwiftUI's red and green.
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+        ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
   RealmNotificationService:
     type: app-extension
     platform: iOS
@@ -39,12 +53,40 @@ targets:
       - path: RealmNotificationService
     dependencies:
       - package: RealmKit
+        product: RealmKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios.notifications
         PRODUCT_NAME: RealmNotificationService
         INFOPLIST_FILE: RealmNotificationService/Info.plist
         CODE_SIGN_ENTITLEMENTS: RealmNotificationService/RealmNotificationService.entitlements
+  # The app's own views, drawn and read back: hosted in the app, run with the scheme's tests.
+  RealmTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RealmTests
+    dependencies:
+      - target: Realm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Realm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Realm"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  # Against a staged Mac and relay: scripts/screens-live.mts --ui runs them, phase by phase.
+  RealmUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: RealmUITests
+    dependencies:
+      - target: Realm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Realm
 schemes:
   Realm:
     build:
@@ -53,5 +95,18 @@ schemes:
         RealmNotificationService: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - RealmTests
     archive:
       config: Release
+  RealmLive:
+    build:
+      targets:
+        Realm: all
+        RealmNotificationService: all
+    test:
+      config: Debug
+      targets:
+        - RealmUITests

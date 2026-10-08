@@ -44,11 +44,15 @@ enum DeviceInfo {
 /// Launch arguments for unattended runs in the Simulator:
 /// `-pairLink <url>` pairs on launch; `-autoDiagnostics 1` runs Diagnostics once connected and sends
 /// the results to the Mac; `-diagnosticsSession <id>` and `-diagnosticsEchoes <n>` steer that run;
-/// `-openSession <id>` opens a session once connected.
+/// `-openSession <id>` opens a session once connected; `-unattended 1` asks for no permission, so no
+/// alert is left over the screen.
 enum LaunchOptions {
     static var pairLink: String? { UserDefaults.standard.string(forKey: "pairLink") }
     static var openSession: String? { UserDefaults.standard.string(forKey: "openSession") }
     static var autoDiagnostics: Bool { UserDefaults.standard.bool(forKey: "autoDiagnostics") }
+    static var unattended: Bool { autoDiagnostics || UserDefaults.standard.bool(forKey: "unattended") }
+    /// The app is only the host of a unit-test bundle: it stays inert, with no keychain, network or prompt.
+    static var hostingUnitTests: Bool { ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil }
     static var diagnosticsSession: String? { UserDefaults.standard.string(forKey: "diagnosticsSession") }
 
     static var diagnosticsEchoes: Int? {
