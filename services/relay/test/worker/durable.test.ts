@@ -29,6 +29,15 @@ async function age(macId: string, change: (a: Attachment) => void): Promise<void
   });
 }
 
+/** When the room last heard from its Mac, and when its alarm is set for. */
+async function macAndAlarm(macId: string): Promise<{ lastSeen: number; alarm: number | null }> {
+  return runInDurableObject(room(macId), async (_, state) => {
+    const attachments = state.getWebSockets().map((ws) => ws.deserializeAttachment() as Attachment | null);
+    const mac = attachments.find((a) => a?.role === "mac" && a.authed && !a.closed)!;
+    return { lastSeen: mac.lastSeen, alarm: await state.storage.getAlarm() };
+  });
+}
+
 async function alarmAndOpenedAt(macId: string): Promise<{ alarm: number | null; openedAt: number[] }> {
   return runInDurableObject(room(macId), async (_, state) => ({
     alarm: await state.storage.getAlarm(),
@@ -93,8 +102,9 @@ describe("the auth deadline (§3.1)", () => {
 
     phone.socket.send(utf8("unaffected"));
     expect(await macSocket.binary()).toEqual(concat(fromB64u(phone.ch), utf8("unaffected")));
-    // Nothing is left waiting, so nothing needs the alarm.
-    expect((await alarmAndOpenedAt(mac.id)).alarm).toBeNull();
+    // Nothing is left waiting on auth, so the alarm is back to watching the Mac's silence.
+    const { lastSeen, alarm } = await macAndAlarm(mac.id);
+    expect(alarm).toBe(lastSeen + 60_000);
   });
 
   it("leaves a socket alone when the alarm runs before its 10 s are up, and re-arms for them", async () => {
@@ -150,6 +160,59 @@ describe("liveness (§3.2)", () => {
     macSocket.sendJson({ t: "something-newer" });
     const phone = await answeredPhone(mac, phones[0]!);
     expect(await phone.json()).toEqual({ t: "ready", mac: { online: true, lastSeen: expect.any(Number) } });
+  });
+});
+
+describe("a quiet Mac (§3.2)", () => {
+  it("is watched only while a phone is connected, from 60 s after it was last heard", async () => {
+    const { mac, macSocket, phones } = await macWithPhones(1);
+    expect((await macAndAlarm(mac.id)).alarm).toBeNull();
+    await joinPhone(mac, macSocket, phones[0]!);
+    const { lastSeen, alarm } = await macAndAlarm(mac.id);
+    expect(alarm).toBe(lastSeen + 60_000);
+  });
+
+  it("is announced by the alarm, once, and its next message announces it back", async () => {
+    const { mac, macSocket, phones } = await macWithPhones(1);
+    const phone = await joinPhone(mac, macSocket, phones[0]!);
+    await age(mac.id, (a) => {
+      if (a.role === "mac") a.lastSeen -= 61_000;
+    });
+    const { lastSeen } = await macAndAlarm(mac.id);
+    expect(await runDurableObjectAlarm(room(mac.id))).toBe(true);
+    expect(await phone.socket.json()).toEqual({ t: "mac", online: false, lastSeen });
+
+    // Still quiet: the room looks again within 10 s, and says nothing more.
+    const { alarm } = await macAndAlarm(mac.id);
+    expect(alarm).toBeGreaterThan(Date.now());
+    expect(alarm).toBeLessThanOrEqual(Date.now() + 10_000);
+    expect(await runDurableObjectAlarm(room(mac.id))).toBe(true);
+    await phone.socket.quiet();
+
+    macSocket.send(concat(fromB64u(phone.ch), utf8("back")));
+    expect(await phone.socket.json()).toEqual({ t: "mac", online: true, lastSeen: expect.any(Number) });
+    expect(await phone.socket.binary()).toEqual(utf8("back"));
+    const after = await macAndAlarm(mac.id);
+    expect(after.alarm).toBe(after.lastSeen + 60_000);
+  });
+
+  it("notices a Mac that comes back with only a heartbeat, at the alarm's next look", async () => {
+    const { mac, macSocket, phones } = await macWithPhones(1);
+    const phone = await joinPhone(mac, macSocket, phones[0]!);
+    await age(mac.id, (a) => {
+      if (a.role === "mac") a.lastSeen -= 61_000;
+    });
+    expect(await runDurableObjectAlarm(room(mac.id))).toBe(true);
+    const asleep = await phone.socket.json();
+    expect(asleep).toEqual({ t: "mac", online: false, lastSeen: expect.any(Number) });
+
+    macSocket.send("ping");
+    expect(await macSocket.text()).toBe("pong");
+    await phone.socket.quiet();
+    expect(await runDurableObjectAlarm(room(mac.id))).toBe(true);
+    const awake = await phone.socket.json();
+    expect(awake).toEqual({ t: "mac", online: true, lastSeen: expect.any(Number) });
+    expect(awake.lastSeen - asleep.lastSeen).toBeGreaterThanOrEqual(61_000);
   });
 });
 

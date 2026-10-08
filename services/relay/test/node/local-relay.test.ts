@@ -90,6 +90,91 @@ describe("liveness (§3.2)", () => {
   });
 });
 
+describe("a quiet Mac (§3.2)", () => {
+  it("tells every phone once when the Mac goes quiet, and at once when it speaks again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { mac, macSocket, phones } = await macWithPhones(2);
+    const a = await joinPhone(mac, macSocket, phones[0]!);
+    const b = await joinPhone(mac, macSocket, phones[1]!);
+    const seen = Date.now();
+
+    await vi.advanceTimersByTimeAsync(59_999);
+    await a.socket.quiet();
+    await vi.advanceTimersByTimeAsync(1);
+    for (const phone of [a, b]) expect(await phone.socket.json()).toEqual({ t: "mac", online: false, lastSeen: seen });
+
+    // The room keeps looking, and says nothing more while the Mac stays quiet.
+    await vi.advanceTimersByTimeAsync(60_000);
+    await a.socket.quiet();
+    await b.socket.quiet();
+
+    // Its next message, of any kind, is news to every phone before it reaches any of them.
+    macSocket.send(concat(fromB64u(a.ch), utf8("back")));
+    expect(await a.socket.json()).toEqual({ t: "mac", online: true, lastSeen: seen + 120_000 });
+    expect(await a.socket.binary()).toEqual(utf8("back"));
+    expect(await b.socket.json()).toEqual({ t: "mac", online: true, lastSeen: seen + 120_000 });
+
+    // And the watch starts over from that message.
+    await vi.advanceTimersByTimeAsync(59_999);
+    await b.socket.quiet();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await b.socket.json()).toEqual({ t: "mac", online: false, lastSeen: seen + 120_000 });
+  });
+
+  it("notices a Mac that wakes with only a heartbeat at its next look, within 10 s", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { mac, macSocket, phones } = await macWithPhones(1);
+    const phone = await joinPhone(mac, macSocket, phones[0]!);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await phone.socket.json()).toMatchObject({ t: "mac", online: false });
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    macSocket.send("ping");
+    expect(await macSocket.text()).toBe("pong");
+    const beat = Date.now();
+    // The heartbeat never reaches the room, so nothing changes until it looks.
+    await phone.socket.quiet();
+    await vi.advanceTimersByTimeAsync(4_999);
+    await phone.socket.quiet();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await phone.socket.json()).toEqual({ t: "mac", online: true, lastSeen: beat });
+  });
+
+  it("tells a phone that joins a quiet Mac in its ready, and not again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { mac, macSocket, phones } = await macWithPhones(2);
+    const first = await joinPhone(mac, macSocket, phones[0]!);
+    const seen = Date.now();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await first.socket.json()).toEqual({ t: "mac", online: false, lastSeen: seen });
+
+    const late = await answeredPhone(mac, phones[1]!);
+    expect(await late.json()).toEqual({ t: "ready", mac: { online: false, lastSeen: seen } });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await late.quiet();
+    await first.socket.quiet();
+
+    macSocket.sendJson({ t: "something-newer" });
+    for (const socket of [first.socket, late]) expect(await socket.json()).toEqual({ t: "mac", online: true, lastSeen: seen + 90_000 });
+  });
+
+  it("settles what the phones already connected were told before admitting another", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { mac, macSocket, phones } = await macWithPhones(2);
+    const first = await joinPhone(mac, macSocket, phones[0]!);
+    const seen = Date.now();
+    // The Mac goes quiet, and a phone arrives before the alarm has looked.
+    vi.setSystemTime(seen + 60_000);
+    const late = await answeredPhone(mac, phones[1]!);
+    expect(await late.json()).toEqual({ t: "ready", mac: { online: false, lastSeen: seen } });
+    expect(await first.socket.json()).toEqual({ t: "mac", online: false, lastSeen: seen });
+    // When the alarm does look, there is nothing left to tell.
+    await vi.advanceTimersByTimeAsync(10_000);
+    await late.quiet();
+    await first.socket.quiet();
+  });
+});
+
 describe("the pairing window (§3.2)", () => {
   it("caps a window at 10 minutes from when it was opened", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });

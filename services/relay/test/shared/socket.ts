@@ -10,6 +10,9 @@ export type WebSocketLike = {
   addEventListener(type: "message" | "close", listener: (event: { data?: unknown; code?: number; reason?: string }) => void): void;
 };
 
+/** Taken before any test can fake timers: silence is measured in real time, whatever the relay's clock. */
+const realSetTimeout = globalThis.setTimeout;
+
 /**
  * One client socket, with its frames queued so a test can read them in order whichever runtime
  * delivered them. Waiting uses one timer per wait, never the clock, so it keeps working while a
@@ -106,7 +109,7 @@ export class TestSocket {
 
   /** Fails if a frame arrives, or is already waiting, within `ms`. */
   async quiet(ms = 150): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, ms));
+    await new Promise((resolve) => realSetTimeout(resolve, ms));
     if (this.inbox.length > 0) throw new Error(`expected silence, got ${describe(this.inbox[0]!)}`);
   }
 

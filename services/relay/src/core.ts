@@ -26,6 +26,9 @@ const AUTH_TIMEOUT_MS = 10_000;
 /** The Mac counts as online while its last message or heartbeat is younger than this (§3.2). It
  *  heartbeats every 20 s, so this is three missed beats. */
 const ONLINE_WINDOW_MS = 60_000;
+/** While the Mac is quiet, how often the room looks for its heartbeat. The runtime answers a heartbeat
+ *  without waking the room, so this is how a Mac that wakes and sends nothing else is noticed. */
+const QUIET_RECHECK_MS = 10_000;
 const PAIR_WINDOW_MAX_MS = 10 * 60_000;
 const PAIR_ATTEMPTS = 5;
 const CHANNEL_BYTES = 16;
@@ -57,6 +60,8 @@ export type Attachment = {
   openedAt: number;
   /** The last message from this socket. Kept up to date for the Mac only: it is half of liveness. */
   lastSeen: number;
+  /** Set on the Mac's socket while the room has told every channel the Mac is quiet (§3.2). */
+  quiet?: boolean;
   /** Set once the relay has finished with this socket, so its close event and any message still
    *  queued behind it do nothing twice. */
   closed?: boolean;
@@ -249,6 +254,8 @@ export class RelayRoom<S> {
     }
     const window = await this.host.storage.get<PairWindow>(STORE.pair);
     if (window && window.until <= now) await this.host.storage.delete(STORE.pair);
+    const mac = this.currentMac();
+    if (mac) this.announceLiveness(...mac);
     await this.scheduleAlarm();
   }
 
@@ -301,12 +308,14 @@ export class RelayRoom<S> {
     for (const [other, oa] of this.live()) {
       if (other !== ws && oa.role === "phone" && oa.authed && oa.phoneId === a.phoneId) this.endChannel(other, oa, CLOSE.replaced, "replaced by a newer connection");
     }
+    // Read before this socket is a channel, so news it settles goes only to the phones already here.
+    const status = await this.macStatus();
     delete a.nonce;
     a.authed = true;
     a.key = key;
     a.ch = b64u(this.host.crypto.randomBytes(CHANNEL_BYTES));
     this.host.setAttachment(ws, a);
-    this.sendJson(ws, { t: "ready", mac: await this.macStatus() });
+    this.sendJson(ws, { t: "ready", mac: status });
     const mac = this.currentMac();
     if (mac) this.sendJson(mac[0], openMessage(a));
     await this.scheduleAlarm();
@@ -325,11 +334,14 @@ export class RelayRoom<S> {
       return;
     }
     await this.host.storage.put(STORE.pair, { ...window, attempts: window.attempts - 1 });
+    const status = await this.macStatus();
     attachment.authed = true;
     attachment.ch = b64u(this.host.crypto.randomBytes(CHANNEL_BYTES));
     this.host.setAttachment(ws, attachment);
-    this.sendJson(ws, { t: "ready", mac: await this.macStatus() });
+    this.sendJson(ws, { t: "ready", mac: status });
     this.sendJson(mac[0], openMessage(attachment));
+    // A channel now exists, so the Mac's silence is worth watching.
+    await this.scheduleAlarm();
   }
 
   // ── The Mac's socket (§3.2) ────────────────────────────────────────────────────────────────
@@ -337,6 +349,12 @@ export class RelayRoom<S> {
   private async fromMac(ws: S, a: Attachment, data: string | Uint8Array): Promise<void> {
     a.lastSeen = this.host.now();
     this.host.setAttachment(ws, a);
+    // A quiet Mac heard from again: every channel is told before this message reaches any of them,
+    // and the alarm goes back to watching for the next silence.
+    if (a.quiet) {
+      this.announceLiveness(ws, a);
+      await this.scheduleAlarm();
+    }
     if (typeof data !== "string") {
       if (data.byteLength < CHANNEL_BYTES) return this.endMac(ws, a, CLOSE.malformed, "binary without a channel id");
       // The relay reads the prefix and nothing after it. A channel that has closed already got its
@@ -528,25 +546,53 @@ export class RelayRoom<S> {
     return Math.max(a.lastSeen, this.host.heartbeatAt(ws) ?? 0);
   }
 
-  /** §3.2 liveness: an authenticated socket, and a message or heartbeat within the last 60 s. */
+  /**
+   * §3.2 liveness, for a `ready`: an authenticated socket, and a message or heartbeat within the last
+   * 60 s. Settles first what the channels already here were told, so the phone being admitted agrees
+   * with them and is not sent the same news again.
+   */
   private async macStatus(): Promise<{ online: boolean; lastSeen: number | null }> {
     const mac = this.currentMac();
     if (!mac) return { online: false, lastSeen: await this.storedLastSeen() };
-    const lastSeen = this.lastSeenOf(...mac);
-    return { online: this.host.now() - lastSeen < ONLINE_WINDOW_MS, lastSeen };
+    this.announceLiveness(...mac);
+    return { online: !mac[1].quiet, lastSeen: this.lastSeenOf(...mac) };
+  }
+
+  /**
+   * §3.2's quiet Mac. A sleeping Mac's socket stays open and says nothing, so no event reports it;
+   * the alarm comes and looks. Tells every channel when the Mac goes quiet or is heard again, and
+   * only on that change, so each phone hears each change once.
+   */
+  private announceLiveness(ws: S, a: Attachment): void {
+    const lastSeen = this.lastSeenOf(ws, a);
+    const quiet = this.host.now() - lastSeen >= ONLINE_WINDOW_MS;
+    if (quiet === (a.quiet === true)) return;
+    if (quiet) a.quiet = true;
+    else delete a.quiet;
+    this.host.setAttachment(ws, a);
+    for (const [phone] of this.channels()) this.sendJson(phone, { t: "mac", online: !quiet, lastSeen });
   }
 
   private async storedLastSeen(): Promise<number | null> {
     return (await this.host.storage.get<number>(STORE.lastSeen)) ?? null;
   }
 
-  /** One alarm covers every deadline: each unauthenticated socket's 10 s, and the pairing window. */
+  /**
+   * One alarm covers every deadline: each unauthenticated socket's 10 s, the pairing window, and,
+   * while any channel is open, the Mac's silence. That is the moment the Mac would go quiet, or once
+   * it has, the next look for its heartbeat. An active Mac moves that moment on with every message
+   * without rescheduling, so the alarm wakes about once a minute and finds the deadline has moved.
+   */
   private async scheduleAlarm(): Promise<void> {
     const deadlines = this.live()
       .filter(([, a]) => this.awaitingAuth(a))
       .map(([, a]) => a.openedAt + AUTH_TIMEOUT_MS);
     const window = await this.host.storage.get<PairWindow>(STORE.pair);
     if (window) deadlines.push(window.until);
+    const mac = this.currentMac();
+    if (mac && this.channels().length > 0) {
+      deadlines.push(mac[1].quiet ? this.host.now() + QUIET_RECHECK_MS : this.lastSeenOf(...mac) + ONLINE_WINDOW_MS);
+    }
     await this.host.setAlarm(deadlines.length > 0 ? Math.min(...deadlines) : null);
   }
 

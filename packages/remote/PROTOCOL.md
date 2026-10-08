@@ -165,6 +165,11 @@ socket just stops. While any phone is connected:
 - once the Mac's last message or heartbeat is more than 60 s old, every phone is sent
   `{"t":"mac","online":false,"lastSeen":<ms>}`, once;
 - the Mac's next message of any kind sends every phone `{"t":"mac","online":true,"lastSeen":<ms>}`.
+  A message does that at once. A heartbeat does it within 10 s, because the relay's runtime answers
+  heartbeats without waking the relay.
+
+A phone that connects while the Mac is quiet learns that from its `ready`, and is not sent the notice
+again.
 
 Phase 1 measured the gap this closes: a frozen Mac was never reported, not within 180 s.
 
