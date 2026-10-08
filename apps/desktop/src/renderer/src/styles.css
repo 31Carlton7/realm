@@ -9598,3 +9598,10 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
    loads on its own as the reader scrolls up toward it, so it is the keyboard's way in and a marker of
    where the drawn part begins, not a button anyone has to find. */
 .transcript-earlier { display: block; margin: 4px auto 20px; }
+
+/* Settings ▸ Sign-ins ▸ Unlock. The one rung that removes a gate keeps its tone on its ink, never as a
+   resting fill (design.md, Controls): a wash under a warning is a second warning about one setting. */
+.unlock-policy .settings-tab[data-tone="warning"] { color: var(--rl-warning); }
+.unlock-unattended-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.unlock-confirm p { margin: 0; line-height: 1.55; }
+.unlock-confirm-list { margin: 0; padding-left: 18px; list-style: disc; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; color: var(--rl-text-dim); }

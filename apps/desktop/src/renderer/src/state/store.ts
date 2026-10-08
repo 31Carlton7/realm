@@ -1,5 +1,5 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
-import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape } from "@realm/contracts";
+import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape, type UnlockPolicy, type UnlockPolicyStatus } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
@@ -140,7 +140,7 @@ export type TranscriptEntry = { lastSeq: number; t: Transcript };
 /** What main reports about the secret store itself. `available`: macOS will encrypt (no store
  *  without it). `canPromptTouchID`: this Mac can satisfy a fill — Settings says so plainly rather
  *  than letting the user enroll a password and find out at a sign-in prompt. */
-export type CredentialStatus = { available: boolean; canPromptTouchID: boolean; presenceTtlMs: number };
+export type CredentialStatus = { available: boolean; canPromptTouchID: boolean; canPromptDeviceOwner: boolean; presenceTtlMs: number };
 /** What a Share with ▸ <profile> did: copied, into the profile named, or why not. */
 export type ShareResult = { ok: true; profileName: string } | { ok: false; error: string };
 
@@ -479,6 +479,9 @@ export type Api = {
   credentialRemove(profileId: string, id: string): Promise<boolean>;
   credentialShare(profileId: string, id: string, toProfileId: string): Promise<ShareResult>;
   credentialSetPresenceTtl(ms: number): Promise<number>;
+  /** A profile's unlock policy, and the one way to change it — IPC to main, never RPC. */
+  credentialUnlockPolicy(profileId: string): Promise<UnlockPolicyStatus | null>;
+  credentialSetUnlockPolicy(profileId: string, policy: UnlockPolicy): Promise<{ ok: true; status: UnlockPolicyStatus } | { ok: false; error: string }>;
   /** The passkeys Realm holds, and the one way to forget one. No `add`: a passkey is created by a
    *  site asking for one in a pane and the user answering Touch ID. */
   passkeyList(profileId: string): Promise<Passkey[]>;
@@ -1330,6 +1333,8 @@ export type AppState = {
   /** Whose sign-ins and passkeys `credentials` and `passkeys` are — they are a profile's own, and a
    *  list read for one profile must never be shown as another's. */
   credentialsProfileId: string | null;
+  /** The loaded profile's unlock policy (`credentialsProfileId`'s), or null before it loads. */
+  unlockPolicy: UnlockPolicyStatus | null;
   /** The `mac` CLI's access, exactly as `mac doctor` reported it through main; null until the
    *  Permissions tab first asks. Never synthesised client-side: an audit that could not run comes
    *  back with every row `unknown`, which is what "we don't know" looks like. */
@@ -2579,6 +2584,9 @@ export type AppState = {
   addCredential(profileId: string, input: BrowserCredentialInput): Promise<void>;
   removeCredential(profileId: string, id: string): Promise<void>;
   setCredentialPresenceTtl(ms: number): Promise<void>;
+  /** Change how a profile's sign-ins are unlocked. Answers main's refusal in words (macOS did not
+   *  confirm the user, say) rather than throwing, so the sheet can show it where it was asked. */
+  setUnlockPolicy(profileId: string, policy: UnlockPolicy): Promise<{ ok: true } | { ok: false; error: string }>;
   removePasskey(profileId: string, id: string): Promise<void>;
   /** Share with ▸ <profile>: COPY one of `profileId`'s sign-ins (or passkeys) into `toProfileId`. The
    *  original stays, and the list shown does not change; the answer says what happened. */
@@ -4066,7 +4074,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
@@ -7087,16 +7095,21 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
       async refreshCredentials(profileId) {
-        const [credentials, credentialStatus, passkeys] = await Promise.all([
-          api.credentialList(profileId), api.credentialStatus(), api.passkeyList(profileId),
+        const [credentials, credentialStatus, passkeys, unlockPolicy] = await Promise.all([
+          api.credentialList(profileId), api.credentialStatus(), api.passkeyList(profileId), api.credentialUnlockPolicy(profileId),
         ]);
-        set({ credentials, credentialStatus, passkeys, credentialsProfileId: profileId });
+        set({ credentials, credentialStatus, passkeys, unlockPolicy, credentialsProfileId: profileId });
       },
       // Each of these re-reads rather than patching local state: main clamps the TTL and mints the
       // id, so what it returns is the truth and a locally-patched list would be a guess at it.
       async addCredential(profileId, input) { await api.credentialAdd(profileId, input); await get().refreshCredentials(profileId); },
       async removeCredential(profileId, id) { await api.credentialRemove(profileId, id); await get().refreshCredentials(profileId); },
       async setCredentialPresenceTtl(ms) { await api.credentialSetPresenceTtl(ms); set({ credentialStatus: await api.credentialStatus() }); },
+      async setUnlockPolicy(profileId, policy) {
+        const r = await api.credentialSetUnlockPolicy(profileId, policy);
+        if (r.ok && get().credentialsProfileId === profileId) set({ unlockPolicy: r.status });
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      },
       async removePasskey(profileId, id) { await api.passkeyRemove(profileId, id); await get().refreshCredentials(profileId); },
       shareCredential(profileId, id, toProfileId) { return api.credentialShare(profileId, id, toProfileId); },
       sharePasskey(profileId, id, toProfileId) { return api.passkeyShare(profileId, id, toProfileId); },
