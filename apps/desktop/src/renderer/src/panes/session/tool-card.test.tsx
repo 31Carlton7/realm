@@ -690,6 +690,14 @@ describe("the row's state reads without colour alone", () => {
     expect(document.querySelector(".tool-reason")).toHaveTextContent(/^src\/a.ts: error$/);
   });
 
+  it("a reason line that only introduces what follows carries on into it", () => {
+    // "error during build:" alone says nothing; the line after it is the error.
+    expect(failureReason("Exit code 1\nerror during build:\n[vite]: Rollup failed to resolve import")).toBe("error during build: [vite]: Rollup failed to resolve import");
+    // A colon inside a line is a colon, not a lead-in.
+    expect(failureReason("src/a.ts: error\nmore")).toBe("src/a.ts: error");
+    expect(failureReason("Failed:")).toBe("Failed:");
+  });
+
   it("an ok call draws no reason line and no state word", () => {
     render(<ToolCard sessionStatus="idle" block={tool("t1", "Bash", { command: "ls" })} />);
     expect(document.querySelector(".tool-reason")).toBeNull();

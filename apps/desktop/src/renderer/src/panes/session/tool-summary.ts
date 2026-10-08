@@ -150,11 +150,14 @@ export function statedExit(content: string): { code: number; rest: string } | nu
   return null;
 }
 
-/** The line a failed call is shown with under its row: the error's first line that says something. */
+/** The line a failed call is shown with under its row: the error's first line that says something.
+ *  A line that only introduces what follows ("error during build:") runs on into the next one, which
+ *  is where the error is. */
 export function failureReason(content: string): string {
   const text = statedExit(content)?.rest ?? content;
-  for (const line of text.split("\n")) { const t = line.trim(); if (t) return t; }
-  return "";
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const [first = "", next] = lines;
+  return first.endsWith(":") && next ? `${first} ${next}` : first;
 }
 
 export type EditStat = { add: number; del: number };
