@@ -91,6 +91,18 @@ describe("browser_agent_run — the delegated session", () => {
     expect(out).toContain("DELEGATED BROWSER AGENT");
   });
 
+  it("says who it is waiting on, and for how long, while the browse runs", async () => {
+    // THE MUTANT: drain called without its tick — a long browse goes silent and Claude aborts it.
+    const { spaceId, parentId } = await boot({ script: longScript(10), delayMs: 25 });
+    const reports: string[] = [];
+    const result = await app.browserAgents.run({ sessionId: parentId, spaceId, progress: (m) => reports.push(m) }, { goal: "Count the buttons" });
+    expect(result.isError).toBe(false);
+    const child = childOf(spaceId, parentId);
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports[0]).toMatch(/ working, 0:0\d$/);
+    expect(reports[0]!.startsWith(child.title)).toBe(true);
+  });
+
   it("holds the settle wait until the turn actually ends — the report is the LAST assistant text and the child is idle", async () => {
     const { spaceId, parentId } = await boot({ delayMs: 40 }); // two texts, 40ms apart: an early return grabs the wrong one
     const result = await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });

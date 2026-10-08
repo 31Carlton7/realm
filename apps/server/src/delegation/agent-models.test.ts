@@ -340,6 +340,25 @@ describe("the scripted agent plays an orchestration for real", () => {
     expect(result?.type === "tool_result" && result.payload).toMatchObject({ isError: false, content: expect.stringContaining("on Codex · GPT-6 Luna") });
   });
 
+  it("a scripted agent_wait hears the gateway keep it alive before the answer arrives", async () => {
+    // End to end over the real wire: the gateway's notices on the call's own stream, counted by the
+    // fake's client and said under the result. THE MUTANT: the gateway sends nothing during a call.
+    process.env.REALM_MCP_HEARTBEAT_MS = "20";
+    try {
+      const { ctx } = await boot({ leadScript: [{ on: "Build this with", emit: [
+        { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Take your time over the tests" } },
+        { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      ] }, { on: "Take your time", emit: [{ kind: "text", paceMs: 25, text: "FINAL: one two three four five six seven eight nine ten" }] }] });
+      await app.sessions.send(ctx.sessionId, { text: "Build this with a sub-agent.", attachments: [] });
+      const results = () => app.sessions.events(ctx.sessionId, 0, 500).map((e) => e.event).filter((e) => e.type === "tool_result");
+      await waitFor(() => results().length === 2);
+      const waited = results()[1];
+      expect(waited?.type === "tool_result" && waited.payload.content).toMatch(/All 1 delegated agent finished[\s\S]*\((\d+) progress notices? came before this answer\)$/);
+    } finally {
+      delete process.env.REALM_MCP_HEARTBEAT_MS;
+    }
+  });
+
   it("a stand-in answers to a real harness's name, with the catalog it was given", async () => {
     const stand = fakeStandIn(new FakeAdapter(), "codex", [{ id: "gpt-6-luna", label: "GPT-6 Luna" }]);
     expect(stand.kind).toBe("codex");

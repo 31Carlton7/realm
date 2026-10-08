@@ -16,6 +16,14 @@ export type McpServerConfig =
   | { name: string; transport: "http" | "sse"; url: string; headers: Record<string, string> };
 
 /**
+ * How long an agent's MCP client waits on one call to Realm's gateway before giving up on it. The
+ * longest call Realm makes legitimately is `agent_wait` at its one-hour maximum, so a minute past
+ * that: Realm's own answer, even a timeout, is always the one that lands. Claude takes it in
+ * milliseconds (`timeout` on the server entry), Codex in seconds (`tool_timeout_sec`).
+ */
+export const GATEWAY_TOOL_TIMEOUT_MS = 61 * 60_000;
+
+/**
  * Realm's skills library, handed to an agent **per invocation**. Nothing is ever written into
  * `~/.claude`, `~/.codex`, `~/.cursor` or `~/.agents` — the two routes below are the whole mechanism.
  *

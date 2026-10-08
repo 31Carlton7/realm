@@ -237,7 +237,15 @@ export class BrowserAgentService {
     try {
       const fromSeq = created.session.lastEventSeq;
       await this.d.sessions.send(childId, { text: childMessage(goal), attachments: [] });
-      const settled = await this.d.engine.drain(childId, fromSeq, run, Date.now() + t.baseMs + maxActs * t.perActMs, t.pollMs);
+      // What the call says while it waits, so a long browse is never silent on the wire.
+      const working = (): void => {
+        if (!ctx.progress) return;
+        let needsYou = false;
+        try { needsYou = this.d.sessions.get(childId).status === "waiting_permission"; } catch { /* deleted; drain says so next */ }
+        const s = Math.floor((Date.now() - run.startedAt) / 1000);
+        ctx.progress(`${created.session.title} ${needsYou ? "needs you" : "working"}, ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`);
+      };
+      const settled = await this.d.engine.drain(childId, fromSeq, run, Date.now() + t.baseMs + maxActs * t.perActMs, t.pollMs, working);
       // The settle half of the `agentOpened` idiom above: the same ids, plus how the run ended. Only
       // the child's SESSION pane is named — the browser panes it opened are a different object, and
       // closing one of those destroys its page (see `closeFromLayout`).

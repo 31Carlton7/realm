@@ -891,6 +891,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const appViews = new AppViews({ store: new AppViewsStore(db) });
   const appViewServer = new AppViewServer();
   const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url), views: appViews,
+    // The live check shortens the heartbeat to watch several go by in one scripted wait; nothing
+    // else sets it.
+    heartbeatMs: heartbeatOverride(),
     // A browser-agent child is only-mode (realm-browser and nothing else); an agent_run child — and
     // a reviewer child (W3) — is exclude-mode (the space's FULL surface minus the delegation
     // provider — the gateway half of depth-1: a reviewer sees neither agent tool nor agent_review).
@@ -1369,4 +1372,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
+}
+
+/** `REALM_MCP_HEARTBEAT_MS`, for live checks only: a positive whole number of milliseconds, or the
+ *  gateway's own default. */
+function heartbeatOverride(): number | undefined {
+  const ms = Number(process.env.REALM_MCP_HEARTBEAT_MS);
+  return Number.isInteger(ms) && ms > 0 ? ms : undefined;
 }
