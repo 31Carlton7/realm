@@ -1590,32 +1590,85 @@ describe("Plan 9 W1 — the BUI bridge", () => {
 
 describe("Plan 9 W2 — BUI transcript primitives", () => {
 
-  it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, muted settled checks", () => {
+  it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, a quiet lead glyph", () => {
     const shimmer = bodiesFor('.tool-group[data-working] .tool-group-summary').join(" ");
     expect(shimmer).toContain("animation: shimmer-text 1.4s linear infinite");
     expect(shimmer).toContain("background-clip: text");
     // BUI's trace rail is a solid hairline; the old dashed connector is gone.
     expect(bodiesFor(".tool-group-steps").join(" ")).toContain("border-left: var(--hairline-w) solid var(--line)");
-    // The settled check is muted ink, not green — colour stays for errors.
-    expect(bodiesFor('.tool-card[data-state="ok"] .tool-status').join(" ")).toContain("color: var(--ink-3)");
-    // The row's target is ToolChips' field-fill chip.
-    const chip = bodiesFor(".tool-summary").join(" ");
-    expect(chip).toContain("background: var(--field)");
-    expect(chip).toContain("box-shadow: var(--shadow-hairline)");
+    // The lead slot rests in quiet ink — it says what kind of act the call was, and colour stays for
+    // the states that need it: failed in danger ink, waiting in warning ink.
+    expect(bodiesFor(".tool-status").join(" ")).toContain("color: var(--ink-3)");
+    expect(bodiesFor('.tool-card[data-state="error"] > .tool-row .tool-status').join(" ")).toContain("var(--rl-danger)");
+    expect(bodiesFor('.tool-card[data-state="waiting"] > .tool-row .tool-status').join(" ")).toContain("var(--rl-warning)");
+    // The object is text, not a chip: no fill and no ring on thirty rows of a ledger. Mono only where
+    // the object IS code.
+    const object = bodiesFor(".tool-summary").join(" ");
+    expect(object).not.toContain("background");
+    expect(object).not.toContain("box-shadow");
+    expect(object).not.toContain("--font-mono");
+    expect(bodiesFor('.tool-summary[data-form="code"]').join(" ")).toContain("var(--font-mono)");
+    // The verb is bounded and the object yields first, so a long tool name never takes its width.
+    expect(bodiesFor(".tool-row > .tool-name").join(" ")).toContain("max-width: 45%");
+    expect(bodiesFor(".tool-object").join(" ")).toMatch(/flex: 1 1 auto; min-width: 0/);
+    // The meta and the state words are reserved, and say their state in ink rather than a fill.
+    expect(bodiesFor(".tool-meta").join(" ")).toContain("flex: none");
+    expect(bodiesFor('.tool-meta[data-tone="danger"]').join(" ")).toContain("color: var(--rl-danger)");
+    expect(bodiesFor('.tool-meta[data-tone="warning"]').join(" ")).toContain("color: var(--rl-warning)");
+    // "Stopped" is a state the reader must read, so it is never in the tertiary ink (3.35:1 on dark).
+    expect(bodiesFor('.tool-meta[data-tone="quiet"]').join(" ")).toContain("color: var(--ink-2)");
+    // A row is 32 tall: it is the press target, a step toward the 40px floor.
+    expect(bodiesFor(".tool-row").join(" ")).toContain("min-height: 32px");
     // Measured edit counts are the semantic green/red.
     expect(bodiesFor(".tool-stat-add").join(" ")).toContain("var(--green)");
     expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");
   });
 
-  it("an open card's head squares off against the body divider — only the card's own corners round", () => {
-    // Both radii are the control radius while collapsed: the row IS the card's whole surface, so
-    // its hover fill has to trace the card's corners exactly.
-    expect(bodiesFor(".tool-card").join(" ")).toContain("border-radius: var(--r-ctl)");
-    expect(bodiesFor(".tool-row").join(" ")).toContain("border-radius: var(--r-ctl)");
-    // Open, the bottom two stop rounding: a curve there pulls the hover fill away from the
-    // hairline and leaves a notch at each end of the divider.
-    expect(bodiesFor(".tool-card[data-open] > .tool-row").join(" "))
-      .toContain("border-radius: var(--r-ctl) var(--r-ctl) 0 0");
+  it("a run's head reserves its failures and yields its work; its steps' glyphs share the free rows' column", () => {
+    expect(bodiesFor(".tool-group-summary").join(" ")).toContain("flex: none");
+    const work = bodiesFor(".tool-group-work").join(" ");
+    expect(work).toMatch(/flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis/);
+    expect(work).toContain("color: var(--ink-3)");
+    const failed = bodiesFor(".tool-group-failed").join(" ");
+    expect(failed).toContain("flex: none");
+    expect(failed).toContain("color: var(--rl-danger)");
+    // The head is one sentence: each "·" sits a word space from its neighbours, never a wider gap
+    // between the duration and the work than inside the work.
+    expect(bodiesFor(".tool-group-row").join(" ")).toContain("gap: 4px");
+    // A free row's glyph is at its 8px padding. A step's rail is at 3, 1 wide, and its row pads 4:
+    // 3 + 1 + 4 = 8, the same column — and the rail 4px left of the glyphs.
+    const px = (body: string, prop: string) => Number(new RegExp(`${prop}: (\\d+)px`).exec(body)?.[1]);
+    const steps = bodiesFor(".tool-group-steps").join(" ");
+    expect(px(steps, "margin-left") + 1 + px(bodiesFor(".tool-group-steps > .tool-card").join(" "), "--tool-pad")).toBe(8);
+    expect(bodiesFor(".tool-row").join(" ")).toContain("padding: 4px 8px 4px var(--tool-pad, 8px)");
+    // The body and the reason line hang under the verb column wherever the row's glyph is.
+    expect(bodiesFor(".tool-body").join(" ")).toContain("calc(var(--tool-pad, 8px) + 24px)");
+    expect(bodiesFor(".tool-reason").join(" ")).toContain("calc(var(--tool-pad, 8px) + 24px)");
+  });
+
+  it("an open card is no box: the row keeps its fill and the body hangs under the verb column on the ground", () => {
+    // No panel fill and no ring round the open card — the panels inside it are the surfaces.
+    expect(RULES.filter((r) => partsOf(r).includes(".tool-card[data-open]"))).toEqual([]);
+    expect(bodiesFor(".tool-card[data-open] > .tool-row").join(" ")).toContain("background: var(--rl-hover)");
+    const body = bodiesFor(".tool-body").join(" ");
+    expect(body).toContain("padding: 6px 0 10px calc(var(--tool-pad, 8px) + 24px)"); // row padding 8 + lead 16 + gap 8
+    expect(body).not.toContain("border-top");
+    // A call's panel is a fenced block's: the card-rung curve, a fill, no ring — and painted.
+    const panel = bodiesFor(".tool-panel").join(" ");
+    expect(panel).toContain("border-radius: var(--r-squircle-card)");
+    expect(panel).not.toContain("box-shadow");
+    expect(bodiesFor(":root[data-squircle] .tool-panel").join(" ")).toContain("--sq-fill: var(--rl-frame)");
+    // Declaring the curve is not drawing it: the panel has to be in the rule that hands its fill to the painter.
+    expect(bodiesFor(":root[data-squircle] .tool-panel").join(" ")).toContain("background: paint(rl-squircle)");
+    expect(bodiesFor('.tool-panel[data-tone="terminal"]').join(" ")).toContain("var(--rl-terminal-bg)");
+    // An edit's panel is its diff, in the same grammar: painted curve, the frame's fill, no ring, and a
+    // head that is not ruled off its body.
+    const diff = bodiesFor(".tool-body .fd-file").join(" ");
+    expect(diff).toContain("border-radius: var(--r-squircle-card)");
+    expect(diff).toContain("box-shadow: none");
+    expect(bodiesFor(":root[data-squircle] .tool-body .fd-file").join(" ")).toContain("--sq-fill: var(--rl-frame)");
+    expect(bodiesFor(":root[data-squircle] .tool-body .fd-file").join(" ")).toContain("background: paint(rl-squircle)");
+    expect(bodiesFor(".tool-body .fd-head").join(" ")).toContain("border-bottom: none");
   });
 
   it("an open card's rules reach its own row and body only — the cards inside it are a sub-agent's", () => {

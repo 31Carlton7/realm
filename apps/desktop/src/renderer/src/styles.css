@@ -39,7 +39,7 @@
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
-.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
+.theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
@@ -4180,29 +4180,34 @@ button.edit-file:hover { background: var(--rl-hover); }
    off results, statuses and data attributes only. Central icons (commercial) are NOT vendored —
    Hugeicons remain — and glimm/cuelume/dialkit are omitted per the recipe's own outs. */
 
-/* Plan 9 W2 — BUI ThinkingState (coding) is the tool row's language now. Collapsed still reads as
-   a plain row on the transcript; the card only becomes a card when it opens. The row leads with the
-   status glyph (spinner → muted ink-3 check, driven by the block's real settled state), then the
-   name at 12.5/550 ink, the target as a mono field-fill chip (ToolChips' chip), measured +/− counts
-   on edits, and a trailing chevron. */
+/* A tool call's row: [lead 16] [verb] [object — yields first] [meta] [›]. Nothing in it moves when
+   the state changes. The lead slot carries the KIND of act at rest (the file's own mark for a read or
+   an edit) and the state in its place while the state is the news; the verb is a plain word for the
+   act ("Run", "Edit"), bounded; the object is what it was done to, set as what it is — a path in its
+   three parts, a command in mono, a query or a description as prose — and is the one item of
+   unbounded length, so it gives way first; the meta is reserved and says the state in a word. */
 .tool-card { border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; }
-.tool-card[data-open] { background: var(--rl-panel); box-shadow: var(--rl-edge); }
-.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
+.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px 4px var(--tool-pad, 8px); border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
-/* Open, the row is the card's head rather than a free-standing control: it keeps the card's top
-   corners and squares off against the body's divider. Rounding all four corners left the hover
-   fill curving away from the hairline at both ends — two dark notches sitting on the divider. */
-.tool-card[data-open] > .tool-row { border-radius: var(--r-ctl) var(--r-ctl) 0 0; corner-shape: squircle; }
+/* Open, the card is not a box: the row keeps its hover fill to say which call the body under it
+   belongs to, and the body hangs under the verb column on the transcript's own ground. */
+.tool-card[data-open] > .tool-row { background: var(--rl-hover); }
 .tool-chevron { color: var(--rl-text-faint); transition: transform var(--dur-base) var(--ease-in-out-strong); flex: none; margin-left: auto; }
 /* Direct children throughout: a card now contains its sub-agent's cards, and a descendant selector
    would have opening the parent rotate every chevron and unfold every body beneath it. */
 .tool-card[data-open] > .tool-row > .tool-chevron, .tool-group[data-open] > .tool-group-row > .tool-chevron { transform: rotate(90deg); }
-.tool-name { font-size: 13px; font-weight: var(--fw-label); flex: none; }
-/* An edit's target (ToolCard's `ToolFile`): the file type's mark, the directory dimmed and the name
-   bright — the edit card's own row, so the call and the turn's summary name a file one way. The path
-   gives way first; the mark and any "and 2 more" keep their width. */
+.tool-name { font-size: 13px; font-weight: var(--fw-label); flex: none; white-space: nowrap; }
+/* The verb is short by construction, but an MCP tool's own name is not: bounded, so a long one can
+   never take the object's width the way the raw `mcp__…` name used to. */
+.tool-row > .tool-name { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+.tool-object { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
+/* Who answered an MCP call, before what it was asked — the server reads as a name, not a chip. */
+.tool-server { flex: none; font-size: 13px; color: var(--ink-3); }
+.tool-server::after { content: " ·"; }
+/* A read's or an edit's object (ToolCard's `ToolFile`): the directory dimmed and the name bright —
+   the edit card's own row, so the call and the turn's summary name a file one way. The directory
+   gives way first; the name and any "and 2 more" keep their width. */
 .tool-file { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
-.tool-file-mark { flex: none; color: var(--ink-2); }
 .tool-file-path { min-width: 0; display: flex; white-space: nowrap; }
 .tool-file-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--rl-text-faint); }
 .tool-file-name { flex: none; color: var(--rl-text-bright); font-weight: var(--fw-title); }
@@ -4225,34 +4230,116 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-body-clip, .sb-section-clip, .sched-runs-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
-/* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
-   `Worked for <duration> ›` at 13/500 — shimmering (BUI's working treatment) while the run is live,
-   settled ink-2 once every step has its result — and the opened trace hangs off ThinkingState's solid
-   1px rail (the dashed connector is gone: BUI truth). */
+/* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the head is
+   `Worked for <duration>` at 13/500 — shimmering while the run is live — then the run's work in quiet
+   ink ("6 reads · 2 edits +31 −4"), or the call in flight while live, and any failures last, reserved
+   so no width can cut them. The opened trace hangs off a solid 1px rail. */
 .tool-group { border-radius: var(--r-ctl); font-size: 12px; }
-.tool-group-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.tool-group-row { display: flex; align-items: center; gap: 4px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.tool-group-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tool-group-summary { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tool-group-work { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: var(--fw-label); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del { font: 11px var(--font-mono); }
+.tool-group-failed { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: var(--fw-label); color: var(--rl-danger); }
+.tool-group-failed-dot { color: var(--ink-3); }
+/* The head's parts are one sentence, so the gap beside each "·" is a word space, as it is inside the
+   work; only the chevron stands off it. */
+.tool-group-row > .tool-chevron { margin-left: 4px; }
 /* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
    Driven by data-working — the group's own unsettled steps — never by a demo clock. */
 .shimmer-text, .tool-group[data-working] .tool-group-summary, .composer-thinking span {
   background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
   background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: shimmer-text 1.4s linear infinite; }
-.tool-group-steps { margin-left: 15px; padding-left: 12px; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+/* The rail sits 4px left of the steps' lead glyphs, and the glyphs on the same column as every other
+   row's: the rail is at 3, a step's row starts its glyph 4 past it, and 3 + 1 + 4 is a free row's 8. */
+.tool-group-steps { margin-left: 3px; padding-left: 0; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+.tool-group-steps > .tool-card { --tool-pad: 4px; }
 /* A sub-agent's ledger hangs off the Task call that spawned it. 24px sets its label under the tool
    NAME rather than under the status glyph, so the rail reads as belonging to that row. */
 .tool-group[data-subagent] { margin-left: 24px; }
-/* The target chip: ToolChips' field-fill chip — mono 11.5, hairline ring, truncating. */
-.tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2);
-  font: 12px var(--font-mono); font-variant-numeric: tabular-nums; background: var(--field); box-shadow: var(--shadow-hairline);
-  border-radius: var(--r-chip); padding: 3px 6px; }
-.tool-status { display: grid; place-items: center; width: 16px; color: var(--rl-text-faint); flex: none; }
-.tool-card[data-state="ok"] .tool-status { color: var(--ink-3); } /* BUI: the settled check is muted, not green */
-.tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
-.tool-card[data-state="running"] .tool-status { color: var(--ink-2); } /* §3: nothing running-related uses accent */
-.tool-body { border-top: var(--hairline-w) solid var(--rl-hairline); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+/* The object as text: prose by default, mono only where it IS code (a command, a glob). No fill and no
+   ring — a column of ringed chips down a ledger reads as outlines, not as a list. */
+.tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-2); }
+.tool-summary[data-form="code"] { font: 12px var(--font-mono); }
+.tool-where { color: var(--ink-3); }
+.tool-status { display: grid; place-items: center; width: 16px; height: 16px; color: var(--ink-3); flex: none; }
+.tool-status > span { display: grid; place-items: center; }
+.tool-status::after { grid-area: 1 / 1; }
+.tool-card[data-state="error"] > .tool-row .tool-status { color: var(--rl-danger); }
+.tool-card[data-state="waiting"] > .tool-row .tool-status { color: var(--rl-warning); }
+.tool-card[data-state="running"] > .tool-row .tool-status { color: var(--ink-2); } /* nothing running-related uses accent */
+/* The state in a word beside the glyph, so it never rests on colour or shape alone. Reserved: it
+   keeps its width while the object gives way. */
+.tool-meta { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
+/* A state word is read, not skipped: "Stopped" and a running call's time take the secondary ink, which
+   clears 4.5:1 on both faces where the tertiary measured 3.35:1 on dark. */
+.tool-meta[data-tone="quiet"] { color: var(--ink-2); }
+.tool-meta[data-tone="warning"] { color: var(--rl-warning); }
+.tool-meta[data-tone="danger"] { color: var(--rl-danger); }
+/* Why a call failed, under its row and outside the expander, set from the verb column. */
+.tool-reason { padding: 0 8px 4px calc(var(--tool-pad, 8px) + 24px); font-size: 12px; line-height: 16px; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
+/* Under the verb column (row padding 8 + lead 16 + gap 8), with no rule and no fill of its own: the
+   panels inside are the surfaces. */
+.tool-body { padding: 6px 0 10px calc(var(--tool-pad, 8px) + 24px); display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity var(--dur-press) ease; }
+/* One panel per call: the panel a fenced block is — the signature curve on the card rung, a fill and
+   no ring, a head of what it shows and how to copy it, unruled from the body. */
+.tool-panel { display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-frame); overflow: hidden; padding-bottom: 6px; }
+.tool-panel[data-tone="terminal"] { background: var(--rl-terminal-bg); }
+.tool-panel-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 10px 0 14px; min-width: 0; }
+.tool-panel-label { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.tool-panel-label > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tool-panel-acts { flex: none; display: flex; align-items: center; gap: 2px; }
+.tool-panel-cwd { font: 11px var(--font-mono); color: var(--ink-3); }
+.tool-panel-exit { flex: none; font: 11px var(--font-mono); color: var(--ink-3); }
+.tool-panel-exit[data-bad] { color: var(--rl-danger); }
+.tool-panel-path { display: flex; font: 12px var(--font-mono); color: var(--ink-2); }
+.tool-panel-note { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-panel-label > .tool-panel-note:not(:first-child) { flex: none; }
+.tool-panel-query { color: var(--ink); }
+.tool-panel-host { flex: none; font-weight: var(--fw-title); color: var(--ink); }
+.tool-panel-prompt { padding: 0 14px 6px; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+.tool-panel-subhead { padding-top: 6px; }
+.tool-panel-copy { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 6px; border-radius: var(--r-chip);
+  font-size: 12px; color: var(--ink-3); }
+.tool-panel-copy:hover { background: var(--rl-hover); color: var(--ink); }
+.tool-panel-copy .swap-on { color: var(--rl-success); }
+/* Inside a panel the drawn pieces give up their own fill: the panel is the surface. */
+.tool-panel .cmd-line { padding: 2px 14px 6px; }
+.tool-panel .term-out { padding: 0 14px 6px; border-radius: 0; background: none; }
+.tool-panel .code-block { border-radius: 0; background: none; }
+.tool-panel .code-gutter { background: none; }
+.tool-panel .matches { padding: 0 6px; }
+.tool-panel .match-file { background: none; }
+.tool-panel .match-file:has(.match-row) .match-path { border-bottom: none; }
+.tool-panel .tool-expand { margin: 2px 0 0 14px; }
+.tool-panel-text { margin: 0; padding: 0 14px 6px; font: 12px/1.6 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 320px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
+.tool-panel-text[data-form="prose"] { font: 13px/1.55 var(--font-ui); }
+/* The wells' shared rule (`.tool-body pre`) outranks a panel's own classes; inside a panel the panel
+   is the surface, and a code body keeps its gutter's line height or the two drift out of register. */
+.tool-panel .tool-panel-text { padding: 0 14px 6px; border-radius: 0; background: none; max-height: 320px; }
+.tool-body .code-body { padding: 8px 10px; border-radius: 0; background: none; max-height: none; font: 12px/1.65 var(--font-mono); }
+.tool-panel-text[data-error] { color: var(--rl-danger); }
+/* An edit's panel is its diff, so the diff takes the panel's grammar here: the card-rung curve and
+   fill with no ring, and a head that is chrome for the panel rather than a section ruled off it.
+   The foot keeps clear of the curve, so a changed last line never squares a painted corner. */
+.tool-body .fd-file { border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-frame); box-shadow: none; padding-bottom: 8px; }
+.tool-body .fd-head { min-height: 32px; padding: 4px 10px 0 14px; border-bottom: none; }
+/* An MCP call's arguments: the key in quiet ink, the value as what it is. */
+.tool-args { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 14px; margin: 0; padding: 0 14px 6px; }
+.tool-arg { display: contents; }
+.tool-arg dt { font-size: 12px; line-height: 18px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-arg dd { margin: 0; min-width: 0; font-size: 12px; line-height: 18px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"] { font-family: var(--font-mono); }
+/* The exact payloads, behind one quiet word under the panel. */
+.tool-raw { display: flex; flex-direction: column; gap: 8px; }
+.tool-raw-toggle { align-self: flex-start; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); font-size: 12px; color: var(--ink-3); }
+.tool-raw-toggle:hover { background: var(--rl-hover); color: var(--ink); }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ rides §6's icon swap (the shared rule down in the motion block); the tick's colour is the
    only part of it that belongs to this button. */
@@ -5571,6 +5658,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .search-field,
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
+:root[data-squircle] .tool-panel,
+:root[data-squircle] .tool-body .fd-file,
 :root[data-squircle] .ui-block,
 :root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
@@ -5859,6 +5948,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* A tool call's panel is a fenced block's panel on the card rung, painted the same way. */
+:root[data-squircle] .tool-panel { --sq-fill: var(--rl-frame); box-shadow: none;
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
+:root[data-squircle] .tool-panel[data-tone="terminal"] { --sq-fill: var(--rl-terminal-bg); }
+:root[data-squircle] .tool-body .fd-file { --sq-fill: var(--rl-frame); box-shadow: none;
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* A drawn block is the same panel the code it replaced was, painted the same way. */
 :root[data-squircle] .ui-block { --sq-fill: var(--surface); box-shadow: none; }
 /* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */
@@ -6214,7 +6309,7 @@ select { appearance: none; padding-right: 22px;
   .menu-list, .mention-list, .skill-picker-list, .mp-list, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
-  .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre, .app-view-request-well,
+  .transcript, .md pre, .msg-error pre, .tool-well, .tool-panel-text, .tool-body pre, .permission-details pre, .app-view-request-well,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display, .ui-block-scroll, .ui-diagram,
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
