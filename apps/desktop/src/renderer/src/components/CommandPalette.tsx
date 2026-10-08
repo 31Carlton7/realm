@@ -1,9 +1,8 @@
 import { Icon, THEMES, themeModes } from "@realm/ui";
 import { AGENT_META, SELECTABLE_AGENT_KINDS, chordsForCommand, displayKeyChord, emptyLayout, itemIdOfLeaf, allItems as openItemIds, type DestinationPageKind, type Item, type KeyContext, type SearchResults, type SearchSnippet } from "@realm/contracts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
-import type { StoreApi } from "zustand";
 import { centerOverComplement } from "../state/no-overlay";
-import { spaceIsPlainFolder, useApp, useBrowserRects, type AppState, type PaletteMode } from "../state/store";
+import { spaceIsPlainFolder, useApp, useBrowserRects, type PaletteMode } from "../state/store";
 import { closeIntent, type CloseIntent } from "../state/close-intent";
 import { useResolvedMode, type ThemePref } from "../theme/useTheme";
 import { ItemGlyph } from "./sidebar/ItemList";
@@ -35,23 +34,6 @@ export const PALETTE_PLACEHOLDER: Record<PaletteMode, string> = {
 
 function Snippet({ parts }: { parts: SearchSnippet }) {
   return <span className="palette-snippet">{parts.map((p, i) => p.match ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>)}</span>;
-}
-
-/** ⌘K toggles the palette. Bound separately from useGlobalHotkeys: it must fire while the palette
- *  itself is open (and its input focused), which the global guard forbids. */
-export function usePaletteHotkey(store: StoreApi<AppState>) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        const s = store.getState();
-        if (s.sheet) return; // a modal sheet owns the keyboard
-        s.setPaletteOpen(!s.paletteOpen);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [store]);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
-import { SpaceOverview, useSpacesHotkey } from "./SpaceOverview";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { SpaceOverview } from "./SpaceOverview";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, space } from "../../state/store.test-fakes";
 
@@ -166,22 +166,5 @@ describe("SpaceOverview no-overlay centering (W2)", () => {
     await withRects([{ x: 300, y: 0, width: 724, height: 768 }]);
     expect(dialog().style.width).toBe("276px"); // 300 - 2*12
     expect(parseFloat(dialog().style.left) + 276).toBeLessThanOrEqual(300);
-  });
-});
-
-describe("useSpacesHotkey (⌘⇧Space)", () => {
-  async function hotkeys() {
-    const store = createAppStore(threeSpaces());
-    await store.getState().boot();
-    renderHook(() => useSpacesHotkey(store));
-    return store;
-  }
-
-  it("opening it closes the palette — one overlay at a time", async () => {
-    const store = await hotkeys();
-    act(() => store.getState().setPaletteOpen(true));
-    fireEvent.keyDown(window, { code: "Space", key: " ", metaKey: true, shiftKey: true });
-    expect(store.getState().paletteOpen).toBe(false);
-    expect(store.getState().spacesOpen).toBe(true);
   });
 });

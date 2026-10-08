@@ -400,7 +400,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const reprobe = useCallback(() => { run(() => probeAgents(true)); }, [probeAgents, run]);
   // Sends from THIS prompter, counted so the transcript can pin to the bottom on each one. Counted
   // here rather than off the transcript's own growth because only the prompter's send carries the
-  // intent: ⌘⇧↩ dispatches the draft into a NEW session (store.dispatchDraft, bound in hotkeys.ts)
+  // intent: ⌘⇧↩ dispatches the draft into a NEW session (store.dispatchDraft, bound in the keymap, keys/)
   // and must leave this scroller exactly where the reader parked it.
   const [sends, setSends] = useState(0);
   /* A passage quoted out of the transcript, on its way to the prompter. Held HERE because the two

@@ -299,7 +299,7 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * "+", and placement clear of a browser pane's native view, which composites over anything drawn.
  *
  * Three sections. **Add** is what goes with the message or into the space: files (⌘U, bound in
- * hotkeys.ts — the hint here is visual), a folder, a part of Realm itself (Select in Realm, the
+ * the keymap in keys/ — the hint here is visual), a folder, a part of Realm itself (Select in Realm, the
  * in-app element picker — app-pick/), skills, and a goal, which arms the box with `/goal` rather
  * than opening anything. Skills opens the `SkillPicker`, which lists every skill on
  * the machine; priming the `@` popover could only ever offer the ones already on.
@@ -1084,7 +1084,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
     // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
-    // window level in hotkeys.ts — consuming it here would turn dispatch into a plain send.
+    // window level in the keymap (keys/) — consuming it here would turn dispatch into a plain send.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); send(); return; }
     // ⌫ behind and ⌦ in front of an element chip take the whole token (see `deleteChipAt` for why
     // only that kind). A collapsed selection and no modifiers: ⌥⌫ and a live selection are the user
