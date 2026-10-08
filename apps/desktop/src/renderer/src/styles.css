@@ -39,7 +39,7 @@
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
-.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
+.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary[data-form="code"], .tool-well, .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
@@ -4177,14 +4177,15 @@ button.edit-file:hover { background: var(--rl-hover); }
    off results, statuses and data attributes only. Central icons (commercial) are NOT vendored —
    Hugeicons remain — and glimm/cuelume/dialkit are omitted per the recipe's own outs. */
 
-/* Plan 9 W2 — BUI ThinkingState (coding) is the tool row's language now. Collapsed still reads as
-   a plain row on the transcript; the card only becomes a card when it opens. The row leads with the
-   status glyph (spinner → muted ink-3 check, driven by the block's real settled state), then the
-   name at 12.5/550 ink, the target as a mono field-fill chip (ToolChips' chip), measured +/− counts
-   on edits, and a trailing chevron. */
+/* A tool call's row: [lead 16] [verb] [object — yields first] [meta] [›]. Nothing in it moves when
+   the state changes. The lead slot carries the KIND of act at rest (the file's own mark for a read or
+   an edit) and the state in its place while the state is the news; the verb is a plain word for the
+   act ("Run", "Edit"), bounded; the object is what it was done to, set as what it is — a path in its
+   three parts, a command in mono, a query or a description as prose — and is the one item of
+   unbounded length, so it gives way first; the meta is reserved and says the state in a word. */
 .tool-card { border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; }
 .tool-card[data-open] { background: var(--rl-panel); box-shadow: var(--rl-edge); }
-.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
+.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
 /* Open, the row is the card's head rather than a free-standing control: it keeps the card's top
    corners and squares off against the body's divider. Rounding all four corners left the hover
@@ -4194,12 +4195,18 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* Direct children throughout: a card now contains its sub-agent's cards, and a descendant selector
    would have opening the parent rotate every chevron and unfold every body beneath it. */
 .tool-card[data-open] > .tool-row > .tool-chevron, .tool-group[data-open] > .tool-group-row > .tool-chevron { transform: rotate(90deg); }
-.tool-name { font-size: 13px; font-weight: var(--fw-label); flex: none; }
-/* An edit's target (ToolCard's `ToolFile`): the file type's mark, the directory dimmed and the name
-   bright — the edit card's own row, so the call and the turn's summary name a file one way. The path
-   gives way first; the mark and any "and 2 more" keep their width. */
+.tool-name { font-size: 13px; font-weight: var(--fw-label); flex: none; white-space: nowrap; }
+/* The verb is short by construction, but an MCP tool's own name is not: bounded, so a long one can
+   never take the object's width the way the raw `mcp__…` name used to. */
+.tool-row > .tool-name { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+.tool-object { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
+/* Who answered an MCP call, before what it was asked — the server reads as a name, not a chip. */
+.tool-server { flex: none; font-size: 13px; color: var(--ink-3); }
+.tool-server::after { content: " ·"; }
+/* A read's or an edit's object (ToolCard's `ToolFile`): the directory dimmed and the name bright —
+   the edit card's own row, so the call and the turn's summary name a file one way. The directory
+   gives way first; the name and any "and 2 more" keep their width. */
 .tool-file { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
-.tool-file-mark { flex: none; color: var(--ink-2); }
 .tool-file-path { min-width: 0; display: flex; white-space: nowrap; }
 .tool-file-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--rl-text-faint); }
 .tool-file-name { flex: none; color: var(--rl-text-bright); font-weight: var(--fw-title); }
@@ -4240,14 +4247,26 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* A sub-agent's ledger hangs off the Task call that spawned it. 24px sets its label under the tool
    NAME rather than under the status glyph, so the rail reads as belonging to that row. */
 .tool-group[data-subagent] { margin-left: 24px; }
-/* The target chip: ToolChips' field-fill chip — mono 11.5, hairline ring, truncating. */
-.tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2);
-  font: 12px var(--font-mono); font-variant-numeric: tabular-nums; background: var(--field); box-shadow: var(--shadow-hairline);
-  border-radius: var(--r-chip); padding: 3px 6px; }
-.tool-status { display: grid; place-items: center; width: 16px; color: var(--rl-text-faint); flex: none; }
-.tool-card[data-state="ok"] .tool-status { color: var(--ink-3); } /* BUI: the settled check is muted, not green */
-.tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
-.tool-card[data-state="running"] .tool-status { color: var(--ink-2); } /* §3: nothing running-related uses accent */
+/* The object as text: prose by default, mono only where it IS code (a command, a glob). No fill and no
+   ring — a column of ringed chips down a ledger reads as outlines, not as a list. */
+.tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-2); }
+.tool-summary[data-form="code"] { font: 12px var(--font-mono); }
+.tool-where { color: var(--ink-3); }
+.tool-status { display: grid; place-items: center; width: 16px; height: 16px; color: var(--ink-3); flex: none; }
+.tool-status > span { display: grid; place-items: center; }
+.tool-status::after { grid-area: 1 / 1; }
+.tool-card[data-state="error"] > .tool-row .tool-status { color: var(--rl-danger); }
+.tool-card[data-state="waiting"] > .tool-row .tool-status { color: var(--rl-warning); }
+.tool-card[data-state="running"] > .tool-row .tool-status { color: var(--ink-2); } /* nothing running-related uses accent */
+/* The state in a word beside the glyph, so it never rests on colour or shape alone. Reserved: it
+   keeps its width while the object gives way. */
+.tool-meta { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
+.tool-meta[data-tone="quiet"] { color: var(--ink-3); }
+.tool-meta[data-tone="warning"] { color: var(--rl-warning); }
+.tool-meta[data-tone="danger"] { color: var(--rl-danger); }
+/* Why a call failed, under its row and outside the expander, set from the verb column. */
+.tool-reason { padding: 0 8px 4px 32px; font-size: 12px; line-height: 16px; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
 .tool-body { border-top: var(--hairline-w) solid var(--rl-hairline); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity var(--dur-press) ease; }
 .tool-section { display: flex; flex-direction: column; }

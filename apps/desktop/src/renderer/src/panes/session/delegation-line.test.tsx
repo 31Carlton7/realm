@@ -68,7 +68,7 @@ describe("a sub-agent in its lead's transcript", () => {
 
   it("a refused call keeps its card, so the refusal's words can be read", async () => {
     await mount(start("Write the tests", { text: 'refused: "GPT-6" could mean GPT-6 Astra or GPT-6 Luna.', isError: true }), []);
-    expect(await screen.findByText("mcp__realm__realm-agent__agent_start")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "mcp__realm__realm-agent__agent_start tool call" })).toBeInTheDocument();
     expect(screen.queryByText(/^Subagent/)).toBeNull();
   });
 

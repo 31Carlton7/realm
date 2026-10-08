@@ -1587,18 +1587,33 @@ describe("Plan 9 W1 — the BUI bridge", () => {
 
 describe("Plan 9 W2 — BUI transcript primitives", () => {
 
-  it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, muted settled checks", () => {
+  it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, a quiet lead glyph", () => {
     const shimmer = bodiesFor('.tool-group[data-working] .tool-group-summary').join(" ");
     expect(shimmer).toContain("animation: shimmer-text 1.4s linear infinite");
     expect(shimmer).toContain("background-clip: text");
     // BUI's trace rail is a solid hairline; the old dashed connector is gone.
     expect(bodiesFor(".tool-group-steps").join(" ")).toContain("border-left: var(--hairline-w) solid var(--line)");
-    // The settled check is muted ink, not green — colour stays for errors.
-    expect(bodiesFor('.tool-card[data-state="ok"] .tool-status').join(" ")).toContain("color: var(--ink-3)");
-    // The row's target is ToolChips' field-fill chip.
-    const chip = bodiesFor(".tool-summary").join(" ");
-    expect(chip).toContain("background: var(--field)");
-    expect(chip).toContain("box-shadow: var(--shadow-hairline)");
+    // The lead slot rests in quiet ink — it says what kind of act the call was, and colour stays for
+    // the states that need it: failed in danger ink, waiting in warning ink.
+    expect(bodiesFor(".tool-status").join(" ")).toContain("color: var(--ink-3)");
+    expect(bodiesFor('.tool-card[data-state="error"] > .tool-row .tool-status').join(" ")).toContain("var(--rl-danger)");
+    expect(bodiesFor('.tool-card[data-state="waiting"] > .tool-row .tool-status').join(" ")).toContain("var(--rl-warning)");
+    // The object is text, not a chip: no fill and no ring on thirty rows of a ledger. Mono only where
+    // the object IS code.
+    const object = bodiesFor(".tool-summary").join(" ");
+    expect(object).not.toContain("background");
+    expect(object).not.toContain("box-shadow");
+    expect(object).not.toContain("--font-mono");
+    expect(bodiesFor('.tool-summary[data-form="code"]').join(" ")).toContain("var(--font-mono)");
+    // The verb is bounded and the object yields first, so a long tool name never takes its width.
+    expect(bodiesFor(".tool-row > .tool-name").join(" ")).toContain("max-width: 45%");
+    expect(bodiesFor(".tool-object").join(" ")).toMatch(/flex: 1 1 auto; min-width: 0/);
+    // The meta and the state words are reserved, and say their state in ink rather than a fill.
+    expect(bodiesFor(".tool-meta").join(" ")).toContain("flex: none");
+    expect(bodiesFor('.tool-meta[data-tone="danger"]').join(" ")).toContain("color: var(--rl-danger)");
+    expect(bodiesFor('.tool-meta[data-tone="warning"]').join(" ")).toContain("color: var(--rl-warning)");
+    // A row is 32 tall: it is the press target, a step toward the 40px floor.
+    expect(bodiesFor(".tool-row").join(" ")).toContain("min-height: 32px");
     // Measured edit counts are the semantic green/red.
     expect(bodiesFor(".tool-stat-add").join(" ")).toContain("var(--green)");
     expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { ToolCard, ToolCwd, ToolGroup, RESULT_CLAMP } from "./ToolCard";
-import { editStat } from "./tool-summary";
+import { editStat, failureReason, mcpParts, statedExit, toolVerb } from "./tool-summary";
 import * as summaryModule from "./tool-summary";
 import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
 import { stampLabel, stampTitle } from "./timestamps";
 import { Transcript } from "./Transcript";
-import type { Block, Transcript as TranscriptModel } from "./transcript-model";
+import { waitingToolIds, type Block, type PendingPermission, type Transcript as TranscriptModel } from "./transcript-model";
 
 const block = (content: string, isError = false): ToolBlock =>
   ({ kind: "tool", toolUseId: "t1", name: "Bash", input: { command: "ls" }, result: { content, isError }, ts: 0 });
@@ -241,7 +241,7 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
     expect(row).toHaveTextContent("Sub-agent worked for");
     // Open while the child is still working — the one thing this treatment must not do is collapse
     // live activity out of sight.
-    expect(cards().map((c) => c.querySelector(".tool-name")!.textContent)).toEqual(["Task", "Read", "Bash"]);
+    expect(cards().map((c) => c.querySelector(".tool-name")!.textContent)).toEqual(["Delegate", "Read", "Run"]);
   });
 });
 
@@ -338,7 +338,9 @@ describe("an edit's row names the file it changed, one way for every agent", () 
       input: { file_path: "/w/app/web/lib/orgs.ts", old_string: "a", new_string: "a\nb" } });
     expect(file!.querySelector(".tool-file-dir")!.textContent).toBe("web/lib/");
     expect(file!.querySelector(".tool-file-name")!.textContent).toBe("orgs.ts");
-    expect(file!.querySelector(".tool-file-mark")).not.toBeNull();
+    // The file's mark is the row's lead glyph now, drawn once rather than beside the path as well.
+    expect(document.querySelector(".tool-status [data-glyph]")).toHaveAttribute("data-glyph", "typescript");
+    expect(file!.querySelector("svg")).toBeNull();
     expect(file!.title).toBe("/w/app/web/lib/orgs.ts");
     expect(stat).toBe("+1");
     // The raw-path chip is gone for an edit: the file IS the target.
@@ -573,5 +575,153 @@ describe("when a turn finished", () => {
     const at = within(line as HTMLElement).getByTitle(stampTitle(ts));
     expect(at.textContent).toBe(stampLabel(ts, Date.now()));
     expect(at.getAttribute("datetime")).toBe(new Date(ts).toISOString());
+  });
+});
+
+/* The row's anatomy: [lead] [verb] [object] [meta] [›]. The verb is the act in a plain word, the same
+   for every agent, and the raw tool name moves to the tooltip and the accessible name. */
+describe("the row says what the act is, not what the tool is called", () => {
+  it("one verb per family of tools, whichever agent made the call", () => {
+    const cases: [string, string][] = [
+      ["Bash", "Run"], ["exec_command", "Run"],
+      ["Edit", "Edit"], ["MultiEdit", "Edit"], ["apply_patch", "Edit"], ["Write", "Write"],
+      ["Read", "Read"], ["Grep", "Search"], ["Glob", "Find files"],
+      ["WebFetch", "Fetch"], ["WebSearch", "Search web"], ["TodoWrite", "Plan"], ["Task", "Delegate"],
+      // An MCP call is its tool's own name said plainly, its server named apart.
+      ["mcp__linear__save_issue", "Save issue"], ["mcp__realm__realm-browser__browser_open", "Browser open"],
+      // A tool Realm has no word for keeps its bare name rather than gaining one it never had.
+      ["frobnicate", "frobnicate"],
+    ];
+    for (const [name, verb] of cases) expect(toolVerb(name), name).toBe(verb);
+    // An ACP agent names a call with a sentence; its stated kind is what the act was.
+    expect(toolVerb("Editing orgs.ts", "edit")).toBe("Edit");
+    expect(toolVerb("Running tests", "execute")).toBe("Run");
+  });
+
+  it("splits an MCP name into the server a person would name and its tool", () => {
+    expect(mcpParts("mcp__linear__save_issue")).toEqual({ server: "Linear", tool: "save_issue" });
+    expect(mcpParts("mcp__claude_ai_Linear__save_issue")).toEqual({ server: "Linear", tool: "save_issue" });
+    expect(mcpParts("mcp__realm__realm-browser__browser_open")).toEqual({ server: "Realm", tool: "browser_open" });
+    expect(mcpParts("Bash")).toBeNull();
+  });
+
+  it("draws the verb, the server before the object, and keeps the raw name in the title and the accessible name", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("t1", "mcp__linear__save_issue", { title: "Tool card redesign", team: "REA" })} />);
+    const row = screen.getByRole("button", { name: "mcp__linear__save_issue tool call" });
+    expect(row).toHaveAttribute("title", "mcp__linear__save_issue");
+    expect(row.querySelector(".tool-name")).toHaveTextContent(/^Save issue$/);
+    expect(row.querySelector(".tool-server")).toHaveTextContent("Linear");
+    expect(row.querySelector(".tool-summary")).toHaveTextContent("Tool card redesign");
+    // The vendor's own mark leads the row.
+    expect(row.querySelector(".tool-status [data-glyph]")).toHaveAttribute("data-glyph", "linear");
+  });
+
+  it("sets a command as code and a query as quoted prose, with where it looked", () => {
+    render(<>
+      <ToolCard sessionStatus="idle" block={tool("t1", "Bash", { command: "pnpm test\nexit" })} />
+      <ToolCard sessionStatus="idle" block={tool("t2", "Grep", { pattern: "isDelegationLine", path: "apps/desktop" })} />
+    </>);
+    const [run, search] = [...document.querySelectorAll(".tool-summary")];
+    expect(run).toHaveAttribute("data-form", "code");
+    expect(search).toHaveAttribute("data-form", "prose");
+    expect(search).toHaveTextContent("“isDelegationLine” in apps/desktop");
+  });
+
+  it("a settled call leads with what KIND of act it was — never a column of identical ticks", () => {
+    render(<>
+      <ToolCard sessionStatus="idle" block={tool("t1", "Bash", { command: "ls" })} />
+      <ToolCard sessionStatus="idle" block={tool("t2", "Grep", { pattern: "x" })} />
+      <ToolCard sessionStatus="idle" block={tool("t3", "Task", { description: "audit" })} />
+    </>);
+    const glyphs = [...document.querySelectorAll(".tool-status [data-glyph]")].map((g) => g.getAttribute("data-glyph"));
+    expect(glyphs).toEqual(["terminal", "search", "agents"]);
+    // The state layer is empty and not shown: a settled ok call carries no glyph for its state.
+    for (const status of document.querySelectorAll(".tool-status")) {
+      expect(status).not.toHaveAttribute("data-on");
+      expect(status.querySelector(".swap-on")!.childElementCount).toBe(0);
+    }
+  });
+});
+
+describe("the row's state reads without colour alone", () => {
+  const pending = (id: string, name: string, input: Record<string, unknown>): ToolBlock =>
+    ({ kind: "tool", toolUseId: id, name, input, result: null, ts: 0 });
+  const failed = (content: string): ToolBlock =>
+    ({ kind: "tool", toolUseId: "t1", name: "Bash", input: { command: "pnpm typecheck" }, result: { content, isError: true }, ts: 0 });
+
+  it("a call that never got a result says Stopped, in a word", () => {
+    render(<ToolCard sessionStatus="idle" block={pending("t1", "Bash", { command: "pnpm dev" })} />);
+    expect(document.querySelector(".tool-card")).toHaveAttribute("data-state", "none");
+    expect(document.querySelector(".tool-meta")).toHaveTextContent(/^Stopped$/);
+    expect(screen.getByRole("img", { name: "stopped" })).toBeInTheDocument();
+  });
+
+  it("a running call says how long it has been at it once that is worth reading, and not before", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(10_000);
+      render(<ToolCard sessionStatus="running" block={{ ...pending("t1", "Bash", { command: "pnpm test" }), ts: 9_000 }} />);
+      expect(document.querySelector(".tool-meta")).toBeNull(); // 1s in: a number would only flicker
+      act(() => { vi.advanceTimersByTime(13_000); });
+      expect(document.querySelector(".tool-meta")).toHaveTextContent(/^14s$/);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("a failed call shows the error's first line under its row, without opening it", () => {
+    render(<ToolCard sessionStatus="idle" block={failed("\n  src/main/index.ts(41,7): error TS2322: Type 'string' is not assignable\nmore")} />);
+    const reason = document.querySelector(".tool-reason")!;
+    expect(reason).toHaveTextContent(/^src\/main\/index.ts\(41,7\): error TS2322: Type 'string' is not assignable$/);
+    expect(reason).toHaveAttribute("title", expect.stringContaining("more"));
+    // Outside the expander: the body was never built.
+    expect(document.querySelector(".tool-body")).toBeNull();
+    expect(document.querySelector(".tool-meta")).toHaveTextContent(/^Failed$/);
+    expect(screen.getByRole("img", { name: "failed" })).toBeInTheDocument();
+  });
+
+  it("says the exit code only where the payload stated one", () => {
+    expect(statedExit("Exit code 2\nboom")).toEqual({ code: 2, rest: "boom" });
+    expect(statedExit("boom\n[exit 3]")).toEqual({ code: 3, rest: "boom" });
+    expect(statedExit("boom: exit code mentioned in passing")).toBeNull();
+    // The stated code is the meta, so the reason line skips it to the words that explain it.
+    expect(failureReason("Exit code 2\n\nsrc/a.ts: error")).toBe("src/a.ts: error");
+    render(<ToolCard sessionStatus="idle" block={failed("Exit code 2\nsrc/a.ts: error")} />);
+    expect(document.querySelector(".tool-meta")).toHaveTextContent(/^exit 2$/);
+    expect(document.querySelector(".tool-reason")).toHaveTextContent(/^src\/a.ts: error$/);
+  });
+
+  it("an ok call draws no reason line and no state word", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("t1", "Bash", { command: "ls" })} />);
+    expect(document.querySelector(".tool-reason")).toBeNull();
+    expect(document.querySelector(".tool-meta")).toBeNull();
+  });
+});
+
+describe("a call blocked on the person says Waiting for you", () => {
+  const ask = (requestId: string, toolName: string, input: Record<string, unknown>): PendingPermission => ({ requestId, toolName, input, title: toolName });
+  const open = (id: string, name: string, input: Record<string, unknown>): Block => ({ kind: "tool", toolUseId: id, name, input, result: null, ts: 0 });
+
+  it("matches each open request to the last unresolved call with the same tool and the same input", () => {
+    const blocks = [open("a", "Bash", { command: "rm -rf out" }), open("b", "Bash", { command: "ls" }), open("c", "Bash", { command: "rm -rf out" })];
+    expect(waitingToolIds(blocks, [ask("r1", "Bash", { command: "rm -rf out" })])).toEqual(["c"]);
+    // Key order is not a different input; a different command is.
+    expect(waitingToolIds([open("a", "Edit", { file_path: "/a", old_string: "x" })], [ask("r1", "Edit", { old_string: "x", file_path: "/a" })])).toEqual(["a"]);
+    expect(waitingToolIds(blocks, [ask("r1", "Bash", { command: "rm -rf build" })])).toEqual([]);
+    // A permission may name a tool bare where its call carries the MCP prefix.
+    expect(waitingToolIds([open("m", "mcp__realm__realm-simulator__simulator_tap", { x: 1 })], [ask("r1", "simulator_tap", { x: 1 })])).toEqual(["m"]);
+  });
+
+  it("the matched row says it in a word and a shield; another call keeps spinning", () => {
+    const t: TranscriptModel = {
+      blocks: [open("a", "Bash", { command: "rm -rf out" }), say("meanwhile"), open("b", "Bash", { command: "pnpm test" })],
+      pendingPermissions: [ask("r1", "Bash", { command: "rm -rf out" })],
+      usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null,
+    };
+    render(<Transcript transcript={t} sessionStatus="waiting_permission" onDecide={() => {}} />);
+    const [a, b] = cards();
+    expect(a).toHaveAttribute("data-state", "waiting");
+    expect(a!.querySelector(".tool-meta")).toHaveTextContent(/^Waiting for you$/);
+    expect(within(a!).getByRole("img", { name: "waiting for you" })).toBeInTheDocument();
+    expect(a!.querySelector(".spinner")).toBeNull();
+    expect(b).toHaveAttribute("data-state", "running");
   });
 });
