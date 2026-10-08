@@ -863,8 +863,10 @@ describe("the lead's mode reaches its running children", () => {
     // a child it had lowered).
     const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions", script, delayMs: 50 });
     const ctx = { sessionId: parentId, spaceId };
-    await app.agentRuns.run(ctx, { goal: "quick job" });
+    // Settled but not yet collected: still in the registry, holding a report rather than a process.
+    await app.agentRuns.start(ctx, { goal: "quick job" });
     const settled = childOf(spaceId, parentId);
+    await waitFor(() => text(app.agentRuns.status(ctx)).includes("finished (done)"));
     await app.agentRuns.start(ctx, { goal: "long work" });
     await app.agentRuns.start(ctx, { goal: "long read-only look", constraints: { permissionMode: "plan" } });
     const kids = () => app.sessions.list(spaceId).filter((x) => x.id !== parentId && x.id !== settled.id);
