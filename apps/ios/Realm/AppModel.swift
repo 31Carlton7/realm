@@ -46,6 +46,8 @@ final class AppModel {
     var replacingPairLink: String?
     /// What is typed in each session's composer and not sent yet: leaving a session keeps it.
     var composerDrafts: [String: String] = [:]
+    /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
+    var pairingRequested = false
     private(set) var notificationStatus: UNAuthorizationStatus = .notDetermined
     /// Goes up with every new channel. Open sessions open again, since a subscription does not
     /// outlive the channel it was made on.
@@ -89,7 +91,7 @@ final class AppModel {
     // MARK: - Launch and pairing
 
     func launch() async {
-        guard !launched else { return }
+        guard !launched, !LaunchOptions.hostingUnitTests else { return }
         launched = true
         UNUserNotificationCenter.current().setNotificationCategories(NotificationKinds.categories)
         do {
@@ -176,6 +178,7 @@ final class AppModel {
             adopt(mac)
             path = []
             pairing = .idle
+            pairingRequested = false
             connect()
             registerForPushes()
         } catch {

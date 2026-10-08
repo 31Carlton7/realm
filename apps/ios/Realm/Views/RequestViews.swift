@@ -319,6 +319,8 @@ private struct QuestionBlock: View {
             .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(option.label)
+        .accessibilityValue(option.description ?? "")
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 }

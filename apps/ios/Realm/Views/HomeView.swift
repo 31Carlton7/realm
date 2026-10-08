@@ -19,8 +19,11 @@ struct HomeView: View {
                 if let home = model.store.home {
                     if !home.needsYou.isEmpty {
                         SectionHead(title: "Needs you", symbol: "hand.raised")
+                        // A session that needs you is listed in its space too: each card has its
+                        // section's identity, or the lazy stack draws one of the two as a hole.
                         ForEach(home.needsYou) { row in
                             SessionCard(row: row, showsSpace: true)
+                                .id("needs-you/\(row.id)")
                         }
                     }
                     ForEach(home.spaces) { space in
@@ -33,6 +36,7 @@ struct HomeView: View {
                         }
                         ForEach(space.sessions) { row in
                             SessionCard(row: row, showsSpace: false)
+                                .id("\(space.id)/\(row.id)")
                         }
                         if space.more > 0 {
                             Text("\(space.more) more on your Mac")
@@ -135,10 +139,9 @@ struct SessionCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(CardButtonStyle())
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityHint("Opens the session")
-        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("session-\(row.id)")
     }
 
     private var accessibilityText: String {
@@ -221,9 +224,12 @@ struct RefusedNote: View {
             Label(reason, systemImage: "xmark.octagon")
                 .inter(.body, .medium)
                 .foregroundStyle(Palette.ink)
-            Text("Pair again from Settings ▸ Devices on your Mac.")
+            Text("To see its sessions again, make a pairing code in Settings ▸ Devices on your Mac and scan it here.")
                 .inter(.subheadline)
                 .foregroundStyle(Palette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Pair again") { model.pairingRequested = true }
+                .buttonStyle(RealmButtonStyle(primary: true))
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

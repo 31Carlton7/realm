@@ -7,6 +7,9 @@ struct SessionView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var atBottom = true
+    /// The height the transcript is seen through, between the bars: a short transcript fills it from
+    /// the bottom, so there is never less content than window to place.
+    @State private var viewport: CGFloat = 0
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
@@ -39,8 +42,14 @@ struct SessionView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                .frame(minHeight: viewport, alignment: .bottom)
             }
             .defaultScrollAnchor(.bottom)
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom
+            } action: { _, height in
+                viewport = max(0, height)
+            }
             .scrollDismissesKeyboard(.interactively)
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.visibleRect.maxY >= geometry.contentSize.height - 32
@@ -48,8 +57,13 @@ struct SessionView: View {
                 atBottom = isAtBottom
                 if isAtBottom { model.markSeen(sessionId) }
             }
-            .onChange(of: transcript.rows.last) { _, _ in
-                follow(proxy)
+            .onChange(of: transcript.rows.last) { previous, _ in
+                // The first rows land at the bottom at once; later ones follow a reader who is there.
+                if previous == nil {
+                    proxy.scrollTo(Self.bottom, anchor: .bottom)
+                } else {
+                    follow(proxy)
+                }
             }
             .onChange(of: outgoing.count) { old, new in
                 // What the person just sent is always brought into view.
@@ -314,10 +328,8 @@ private struct ToolRowView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(name), \(Self.word(state)): \(summary)")
             .accessibilityValue(open ? "Open" : "Folded")
-            .accessibilityAddTraits(.isButton)
             if open {
                 ScrollView(.horizontal) {
                     Text(detail ?? (state == .running ? "Still running." : "No output."))

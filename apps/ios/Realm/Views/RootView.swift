@@ -44,7 +44,11 @@ struct RootView: View {
     }
 
     private var pairingOverTheTop: Binding<Bool> {
-        Binding(get: { model.pairing != .idle }, set: { shown in if !shown, !model.pairing.isBusy { model.pairing = .idle } })
+        Binding(get: { model.pairing != .idle || model.pairingRequested }, set: { shown in
+            guard !shown else { return }
+            model.pairingRequested = false
+            if !model.pairing.isBusy { model.pairing = .idle }
+        })
     }
 
     private var replacing: Binding<Bool> {
