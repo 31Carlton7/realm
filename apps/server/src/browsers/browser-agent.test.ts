@@ -101,10 +101,14 @@ describe("browser_agent_run — the delegated session", () => {
     expect(result.isError).toBe(false);
   });
 
-  it("NEVER inherits bypassPermissions — a bypass parent's child runs default (the safety line)", async () => {
+  it("runs in its lead's mode, Full access included", async () => {
+    // THE MUTANT: the old cap, which turned a Full access lead's browser agent into Ask each time.
+    // What Full access does not reach is the broker's own floor — a credential fill and a password
+    // field still ask in that mode, keyed on the session's mode (permissions.test.ts "PROMPTS under
+    // bypassPermissions"), so the child is held to the same floor its lead is.
     const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions" });
     await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
-    expect(childOf(spaceId, parentId).permissionMode).toBe("default");
+    expect(childOf(spaceId, parentId).permissionMode).toBe("bypassPermissions");
   });
 
   it("carries every other permission mode over unchanged", async () => {

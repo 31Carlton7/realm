@@ -34,7 +34,9 @@ export const AgentRunConstraintsSchema = z.object({
   newWorktree: z.union([z.boolean(), z.string().min(1).max(80)]).optional(),
   /** Both read-only modes are requestable: they are the two most restrictive things a parent can ask
    *  a child to be, and leaving one out of the enum refuses the constraint outright rather than
-   *  tightening. `MODE_RANK` ranks them equal — see `agent-run.ts`. */
+   *  tightening. `MODE_RANK` ranks them equal — see `delegation/dispatch.ts`. The grant is
+   *  min(parent, requested), so `bypassPermissions` is granted only to the child of a parent already
+   *  in it, and an omitted mode is the parent's own. */
   permissionMode: z.enum(["plan", "ask", "default", "acceptEdits", "bypassPermissions"]).optional(),
   maxTurns: z.number().int().min(1).max(200).optional(),
   timeoutMs: z.number().int().min(5_000).max(3_600_000).optional(),
@@ -44,25 +46,24 @@ export type AgentRunConstraints = z.infer<typeof AgentRunConstraintsSchema>;
 
 /**
  * How deep delegation may nest. A root session (one nobody delegated) is depth 0; the child it
- * spawns is depth 1; that child's child is depth 2, and at `MAX_DELEGATION_DEPTH` the `agent_run`
- * family disappears from the toolset entirely.
+ * spawns is depth 1, and at `MAX_DELEGATION_DEPTH` the `agent_run` family disappears from the
+ * toolset entirely.
  *
- * This replaces the flat depth-1 rule. Depth-1 was never the real constraint — it was a proxy for
- * "a delegating agent must not be able to fork-bomb the machine", chosen because with one blocking
- * run per parent there was no other bound available. The actual bound now lives where it belongs, on
- * concurrency (`MAX_RUNS_PER_PARENT` and `MAX_RUNS_TOTAL` in the delegation engine), so depth can be
- * a budget instead of a wall.
+ * It is a budget rather than a wall: the bound on fork-bombing lives on concurrency
+ * (`MAX_RUNS_PER_PARENT` and `MAX_RUNS_TOTAL` in the delegation engine), and the services keep a
+ * `maxDepth` override so a deeper budget stays one constant away.
  *
- * Two is the value rather than something larger for a reason that is about legibility, not safety:
- * the human watching this has one pane per session, and a three-level tree of agents spawning agents
- * stops being something anyone can follow. The engine's total cap would hold at depth 5; the person
- * would not.
+ * One is the value because the user asked for one orchestrator per tree (2026-10-08): only the main
+ * session starts sub-agents, and every sub-agent does its own work. It is also the legible answer —
+ * the person watching has one Agents tab per lead, and a tree of agents spawning agents stops being
+ * something anyone can follow. Children of children made before this rule keep their records and
+ * still render under their parent; they simply cannot be made any more.
  *
  * Deliberately NOT applied to the other two delegated shapes. A browser-agent child and a reviewer
  * child stay depth-1: a reviewer that can spawn workers is no longer read-only in any sense the
  * human's ship decision can rely on, and that is a safety line, not a budget.
  */
-export const MAX_DELEGATION_DEPTH = 2;
+export const MAX_DELEGATION_DEPTH = 1;
 
 /**
  * How a delegated run ended — the delegation engine's settle vocabulary, stated once so the engine

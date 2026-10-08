@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AGENT_SKILL_SUPPORT, BrowserAgentConstraintsSchema, type AgentKind } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { DelegationEngine } from "../delegation/engine";
+import { childPermissionMode } from "../delegation/dispatch";
 import type { AgentRunService } from "../delegation/agent-run";
 import { AGENT_RUN_FAMILY, AGENT_RUN_TOOL_NAME, AGENT_START_TOOL_NAME, AGENT_STATUS_TOOL, AGENT_STATUS_TOOL_NAME, AGENT_WAIT_TOOL, AGENT_WAIT_TOOL_NAME } from "../delegation/agent-run";
 import type { ReviewService } from "../delegation/review";
@@ -202,13 +203,15 @@ export class BrowserAgentService {
 
     let parent;
     try { parent = this.d.sessions.get(ctx.sessionId); } catch { return err("the calling session no longer exists."); }
-    // THE SAFETY LINE: bypassPermissions is never inherited. A delegated agent does not get the
-    // parent's full access — it runs `default`, and its permission_requests surface on its own
-    // visible session for the user to answer. Every other mode (default/acceptEdits/plan) carries over.
-    const permissionMode = parent.permissionMode === "bypassPermissions" ? "default" : parent.permissionMode;
     // The child keeps the caller's agent kind when that kind can take Realm's skills injection (the
     // playbook has to reach it); otherwise it falls back (claude in production).
     const agentKind = AGENT_SKILL_SUPPORT[parent.agentKind] === "injected" ? parent.agentKind : (this.d.fallbackKind ?? "claude");
+    // The parent's mode, Full access included — the same rule as agent_run's children
+    // (`childPermissionMode`). What full access does NOT reach is the browser broker's own floor: a
+    // password field and a saved credential still ask, whatever the mode.
+    const granted = childPermissionMode(parent.permissionMode, undefined, agentKind);
+    if (!granted.ok) return err(granted.message);
+    const permissionMode = granted.mode;
     const maxActs = constraints?.maxActs ?? DEFAULT_MAX_ACTS;
     const allowedOrigins = constraints?.allowedOrigins ?? null;
 
@@ -349,7 +352,7 @@ export function createRealmAgentProvider(service: BrowserAgentService, mcp: { pr
 const RUN_TOOL: Tool = {
   name: RUN_TOOL_NAME,
   description:
-    "Delegate ONE web-browsing goal to a dedicated browser agent: a real, visible Realm session in this space, restricted to the realm-browser tools. This call blocks until the agent finishes and returns its final report plus its session id (that session's pane holds the full trace). The agent never inherits bypassPermissions — its mutating page actions prompt the user on its own session. Depth-1 only: the browser agent cannot delegate further.",
+    "Delegate ONE web-browsing goal to a dedicated browser agent: a real, visible Realm session in this space, restricted to the realm-browser tools. This call blocks until the agent finishes and returns its final report plus its session id (that session's pane holds the full trace). The agent runs in your permission mode, Full access included; a password field or a saved credential still asks the user whatever the mode. The browser agent cannot delegate further.",
   inputSchema: {
     type: "object",
     properties: {

@@ -363,6 +363,19 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "text", paceMs: 110, text: "Wrote the migration and tested it against a fixture of the previous schema. All twelve migration tests pass." },
     ],
   }, {
+    // Only the main session orchestrates: a lead hands one task to a sub-agent whose script tries to
+    // start a sub-agent of its own, through its own gateway, and is refused there.
+    on: "Nest a sub-agent", emit: [
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Try to start another agent for the copy pass" } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", text: "The sub-agent did the copy pass itself." },
+    ],
+  }, {
+    on: "Try to start another agent", emit: [
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Do the copy pass" } },
+      { kind: "text", text: "I can't start a sub-agent from here, so I did the copy pass myself." },
+    ],
+  }, {
     // An app mention gives the session computer use for that app alone. The scripted agent reaches
     // for it as a real one would — a real call through its gateway, so the scoped grant is the
     // production path — and only to LIST what is running: it clicks nothing, ever.
@@ -891,7 +904,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       const only = browserAgents?.sessionToolset(sessionId);
       if (only) return only;
       // A reviewer child, and an agent_run child that has SPENT its depth budget, lose the whole
-      // realm-agent provider here. An agent_run child that still has budget keeps it and is narrowed
+      // realm-agent provider here. With the production depth of one that is every agent_run child:
+      // only the main session orchestrates. One that still has budget (a `maxDepth` override) keeps it and is narrowed
       // to the agent_run family by the provider's own `tools()` — the coarse gateway hammer cannot
       // express "this provider, but only four of its tools", and inventing a shape that could would
       // put per-tool delegation policy in the gateway, which is exactly where it does not belong.
@@ -1035,6 +1049,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); },
       extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id),
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
+      modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
     } });
   sessionService = sessions;
   // The delegation stack (Plan 11 W5 + Plan 13 W1): ONE engine (settle/drain + one-run-per-parent,
