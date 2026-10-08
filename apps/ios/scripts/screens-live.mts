@@ -16,9 +16,16 @@
  *   send <key> <text>   a message to a staged session, from the Mac
  *   quit
  *
+ * With --ui it drives the app itself instead: it builds the RealmLive scheme's UI tests once, then
+ * runs one test per phase on the iPhone 17 Simulator — pair (the Mac holds its answer a few seconds),
+ * awake, asleep, awake again, the relay down — moving the Mac between them, and leaves each test's
+ * screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any
+ * phase fails. --phases test0_forgetThenPair,test1_awake runs only those.
+ *
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { bootServer, freePort, removeHome, repoRoot } from "../../server/scripts/lib/mobile-rig";
@@ -60,7 +67,13 @@ const port = Number(arg("relay-port") ?? (await freePort()));
 let relay = relayOn(port);
 await relay.ready;
 const rpc = await loopbackRpc({ port: server.port, token: server.token });
-const gw = new RemoteGateway({ home: server.home, relay: relay.url, rpc, macName: arg("mac") ?? "MacBook Pro", version: "2.0.3", confirm: async () => true, dev: true });
+const ui = process.argv.includes("--ui");
+// In UI runs the Mac holds its answer long enough for the phone to be seen asking for it.
+const confirmMs = Number(arg("confirm-ms") ?? (ui ? 6_000 : 0));
+const gw = new RemoteGateway({
+  home: server.home, relay: relay.url, rpc, macName: arg("mac") ?? "MacBook Pro", version: "2.0.3", dev: true,
+  confirm: async () => { await new Promise((r) => setTimeout(r, confirmMs)); return true; },
+});
 gw.start();
 
 const waitFor = async (what: string, ok: () => Promise<boolean>, ms = 20_000) => {
@@ -109,35 +122,75 @@ const MARKDOWN = [
 ].join("\n");
 
 const sessions: Record<string, string> = {};
-// Needs you: a permission, then questions.
-sessions.permission = await session(realm.id, "claude", "claude-opus-5-5", "Add the dark-mode toggle");
-await send(sessions.permission, "Build the dark-mode toggle");
-sessions.question = await session(site.id, "codex", "gpt-6-luna", "Choose the database for sign-ups");
-await send(sessions.question, "ask me");
-// A plan, prose, an error with its fix.
-sessions.plan = await session(realm.id, "claude", "claude-opus-5-5", "Rework the transcript mapper");
-await send(sessions.plan, "Make a plan for the mapper");
-sessions.markdown = await session(realm.id, "claude", "claude-sonnet-5", "Explain the relay");
-await send(sessions.markdown, MARKDOWN);
-sessions.error = await session(laya.id, "codex", "gpt-6-astra", "Train the social model");
-await send(sessions.error, "hit the limit");
-// Enough idle sessions that a space has more than Home lists.
+// Idle sessions first, so the staged ones below are the newest and Home lists them; with these the
+// Realm space has more sessions than Home shows.
 for (const [title, text] of [["Fix the flaky upload test", "Run the upload tests again"], ["Tidy the settings page", "Tighten the spacing"], ["Ship 2.0.3", "Write the release notes"], ["Audit the sign-in sheet", "Check the copy"]] as const) {
   const id = await session(realm.id, "claude", "claude-opus-5-5", title);
   await send(id, text);
   sessions[title] = id;
 }
+// An error with its fix, prose, a plan.
+sessions.error = await session(laya.id, "codex", "gpt-6-astra", "Train the social model");
+await send(sessions.error, "hit the limit");
+sessions.markdown = await session(realm.id, "claude", "claude-sonnet-5", "Explain the relay");
+await send(sessions.markdown, MARKDOWN);
+sessions.plan = await session(realm.id, "claude", "claude-opus-5-5", "Rework the transcript mapper");
+await send(sessions.plan, "Make a plan for the mapper");
+// Needs you: questions, then a permission.
+sessions.question = await session(site.id, "codex", "gpt-6-luna", "Choose the database for sign-ups");
+await send(sessions.question, "ask me");
+sessions.permission = await session(realm.id, "claude", "claude-opus-5-5", "Add the dark-mode toggle");
+await send(sessions.permission, "Build the dark-mode toggle");
 // Read up to its first event, then moved on: unread.
 const plan = await rpc.call("sessions.events", { id: sessions.plan, afterSeq: 0, limit: 1 });
 if (plan[0]) await rpc.call("sessions.markSeen", { id: sessions.plan, seq: plan[0].seq });
 await send(sessions.plan, "Carry on");
-// The permission's session last, so it is the newest in its space.
-await rpc.call("sessions.get", { id: sessions.permission });
 
 await waitFor("the relay link", async () => gw.state === "connected");
 let pairing = gw.openPairing();
 console.log(JSON.stringify({ pairLink: pairing.url, relay: relay.url, home: server.home, sessions }));
 say(`staged on ${server.home}; relay ${relay.url}. Commands: sleep · wake · relay-down · relay-up · pair · send <key> <text> · quit`);
+
+/** One xcodebuild, its output passed through; resolves to its exit code. Never spawnSync: the
+ *  gateway in this process answers the phone while the test runs. */
+const xcodebuild = (args: string[], env: Record<string, string> = {}): Promise<number> => new Promise((done) => {
+  const child = spawn("xcodebuild", args, { cwd: join(repoRoot, "apps/ios"), env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+  const keep = (b: Buffer) => { for (const line of b.toString().split("\n")) if (/(Test Case|error:|failed|passed|\*\* TEST)/.test(line)) say(line.trim()); };
+  child.stdout!.on("data", keep);
+  child.stderr!.on("data", keep);
+  child.on("exit", (code) => done(code ?? 1));
+});
+
+async function runUiTests(): Promise<boolean> {
+  const udid = arg("udid") ?? "CDA45F4D-4FDD-40A9-8259-D58BE3BEF20C";
+  const shots = arg("shots") ?? join(repoRoot, "apps/ios/.build/screenshots");
+  mkdirSync(shots, { recursive: true });
+  const common = ["-project", "Realm.xcodeproj", "-scheme", "RealmLive", "-destination", `id=${udid}`, "-derivedDataPath", ".build/DerivedData"];
+  if (await xcodebuild(["build-for-testing", ...common]) !== 0) { say("the UI tests did not build"); return false; }
+  const results: [string, boolean][] = [];
+  const only = arg("phases")?.split(",");
+  const phase = async (test: string, env: Record<string, string> = {}) => {
+    if (only && !only.includes(test)) return;
+    say(`— ${test}`);
+    const code = await xcodebuild(["test-without-building", ...common, `-only-testing:RealmUITests/LiveTests/${test}`],
+      { TEST_RUNNER_SHOTS: shots, ...env });
+    results.push([test, code === 0]);
+  };
+  await phase("test0_forgetThenPair", { TEST_RUNNER_PAIR_LINK: gw.openPairing().url });
+  await phase("test1_awake");
+  gw.stop();
+  await phase("test2_asleep");
+  gw.start();
+  await waitFor("the relay link", async () => gw.state === "connected");
+  await phase("test3_awakeAgain");
+  await relay.stop();
+  await phase("test4_relayDown");
+  relay = relayOn(port);
+  await relay.ready;
+  for (const [test, passed] of results) say(`${passed ? "passed" : "FAILED"}  ${test}`);
+  say(`screenshots in ${shots}`);
+  return results.every(([, passed]) => passed);
+}
 
 let quitting = false;
 const shutdown = async () => {
@@ -147,25 +200,36 @@ const shutdown = async () => {
   rpc.close();
   await relay.stop();
   server.stop();
-  setTimeout(() => { removeHome(server.home); process.exit(0); }, 1_000);
+  setTimeout(() => { removeHome(server.home); process.exit(process.exitCode ?? 0); }, 1_000);
 };
 process.on("SIGINT", () => void shutdown());
 process.on("SIGTERM", () => void shutdown());
 
-const rl = createInterface({ input: process.stdin });
-rl.on("line", async (line) => {
-  const [cmd, key, ...rest] = line.trim().split(/\s+/);
-  try {
-    if (cmd === "sleep") { gw.stop(); say("asleep"); }
-    else if (cmd === "wake") { gw.start(); await waitFor("the relay link", async () => gw.state === "connected"); say("awake"); }
-    else if (cmd === "relay-down") { await relay.stop(); say("relay down"); }
-    else if (cmd === "relay-up") { relay = relayOn(port); await relay.ready; say("relay up"); }
-    else if (cmd === "pair") { pairing = gw.openPairing(); console.log(JSON.stringify({ pairLink: pairing.url })); }
-    else if (cmd === "send") { await rpc.call("sessions.send", { id: sessions[key ?? ""] ?? key ?? "", text: rest.join(" ") }); say("sent"); }
-    else if (cmd === "quit") { await shutdown(); }
-    else if (cmd) say("commands: sleep · wake · relay-down · relay-up · pair · send <key> <text> · quit");
-  } catch (e) {
-    say(`error: ${(e as Error).message}`);
-  }
-});
-rl.on("close", () => void shutdown());
+/** Commands on stdin, until quit. */
+function interactive(): void {
+  const rl = createInterface({ input: process.stdin });
+  rl.on("line", async (line) => {
+    const [cmd, key, ...rest] = line.trim().split(/\s+/);
+    try {
+      if (cmd === "sleep") { gw.stop(); say("asleep"); }
+      else if (cmd === "wake") { gw.start(); await waitFor("the relay link", async () => gw.state === "connected"); say("awake"); }
+      else if (cmd === "relay-down") { await relay.stop(); say("relay down"); }
+      else if (cmd === "relay-up") { relay = relayOn(port); await relay.ready; say("relay up"); }
+      else if (cmd === "pair") { pairing = gw.openPairing(); console.log(JSON.stringify({ pairLink: pairing.url })); }
+      else if (cmd === "send") { await rpc.call("sessions.send", { id: sessions[key ?? ""] ?? key ?? "", text: rest.join(" ") }); say("sent"); }
+      else if (cmd === "quit") { await shutdown(); }
+      else if (cmd) say("commands: sleep · wake · relay-down · relay-up · pair · send <key> <text> · quit");
+    } catch (e) {
+      say(`error: ${(e as Error).message}`);
+    }
+  });
+  rl.on("close", () => void shutdown());
+}
+
+if (ui) {
+  const passed = await runUiTests();
+  process.exitCode = passed ? 0 : 1;
+  await shutdown();
+} else {
+  interactive();
+}

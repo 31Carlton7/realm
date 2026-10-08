@@ -51,6 +51,8 @@ enum LaunchOptions {
     static var openSession: String? { UserDefaults.standard.string(forKey: "openSession") }
     static var autoDiagnostics: Bool { UserDefaults.standard.bool(forKey: "autoDiagnostics") }
     static var unattended: Bool { autoDiagnostics || UserDefaults.standard.bool(forKey: "unattended") }
+    /// The app is only the host of a unit-test bundle: it stays inert, with no keychain, network or prompt.
+    static var hostingUnitTests: Bool { ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil }
     static var diagnosticsSession: String? { UserDefaults.standard.string(forKey: "diagnosticsSession") }
 
     static var diagnosticsEchoes: Int? {

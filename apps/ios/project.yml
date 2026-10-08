@@ -60,6 +60,33 @@ targets:
         PRODUCT_NAME: RealmNotificationService
         INFOPLIST_FILE: RealmNotificationService/Info.plist
         CODE_SIGN_ENTITLEMENTS: RealmNotificationService/RealmNotificationService.entitlements
+  # The app's own views, drawn and read back: hosted in the app, run with the scheme's tests.
+  RealmTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RealmTests
+    dependencies:
+      - target: Realm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Realm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Realm"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  # Against a staged Mac and relay: scripts/screens-live.mts --ui runs them, phase by phase.
+  RealmUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: RealmUITests
+    dependencies:
+      - target: Realm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Realm
 schemes:
   Realm:
     build:
@@ -68,5 +95,18 @@ schemes:
         RealmNotificationService: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - RealmTests
     archive:
       config: Release
+  RealmLive:
+    build:
+      targets:
+        Realm: all
+        RealmNotificationService: all
+    test:
+      config: Debug
+      targets:
+        - RealmUITests
