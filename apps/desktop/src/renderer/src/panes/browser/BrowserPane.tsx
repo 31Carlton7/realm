@@ -110,7 +110,7 @@ function passkeyNoticeText(notice: PasskeyNotice): string {
     case "rp_mismatch":
       return `This page asked for a passkey belonging to ${notice.rpId}. Realm refused it.`;
     case "unavailable":
-      return "This Mac has no Touch ID sensor, so Realm can't unlock a passkey.";
+      return "This Mac has no Touch ID sensor, so Realm can't unlock a passkey. Settings ▸ Sign-ins can unlock this profile with the Mac's password instead.";
   }
 }
 

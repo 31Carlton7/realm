@@ -1,7 +1,8 @@
 // Builds the macOS Swift helpers into native/bin/.
 // Skips quietly on non-mac or when swiftc is unavailable; each helper is optional and the app
 // degrades without it (ScrollPhase → timer heuristics, AxHelper → no computer-use tools,
-// PhoneScreen → a real iPhone's picture is the runner's screenshots, about one a second).
+// PhoneScreen → a real iPhone's picture is the runner's screenshots, about one a second,
+// DeviceOwner → sign-ins unlock with Touch ID only).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -15,6 +16,7 @@ const HELPERS = [
   ["ScrollPhase.swift", "scrollphase"],
   ["AxHelper.swift", "axhelper"],
   ["PhoneScreen.swift", "phonescreen"],
+  ["DeviceOwner.swift", "deviceowner"],
 ];
 
 if (process.platform !== "darwin") process.exit(0);

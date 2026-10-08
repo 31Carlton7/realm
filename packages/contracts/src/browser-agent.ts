@@ -325,12 +325,80 @@ export const GENERATED_CREDENTIAL_NOTE =
 export const CREDENTIAL_PRESENCE_TTLS = [0, 60_000, 300_000] as const;
 
 /**
+ * How a scope's saved sign-ins and passkeys are unlocked for a fill, weakest LAST.
+ *
+ *   - `touch-id` — the default everywhere: Touch ID on every fill (or inside the short window above).
+ *   - `device-password` — Touch ID, or the Mac's login password when there is no sensor or no hand on
+ *     it. The way a Mac mini with an ordinary keyboard, or one reached over Screen Sharing, can say yes.
+ *   - `session` — one Touch ID or password check unlocks the scope for `UNLOCK_SESSION_HOURS`.
+ *   - `unattended` — no check. For a profile that runs on a Mac set aside for it. Only the user turns
+ *     it on, in Settings, after macOS confirms them; it is bound to this Mac and logged on every use.
+ *
+ * Whatever the policy, the agent never receives a value: Realm types it.
+ */
+export const UNLOCK_POLICIES = ["touch-id", "device-password", "session", "unattended"] as const;
+export type UnlockPolicyKind = (typeof UNLOCK_POLICIES)[number];
+
+/** How long a `session` unlock lasts. Nothing longer than a day: a session that outlives the person who
+ *  started it is `unattended` by another name, and that one has its own warning. */
+export const UNLOCK_SESSION_HOURS = [1, 8, 24] as const;
+export type UnlockSessionHours = (typeof UNLOCK_SESSION_HOURS)[number];
+
+export type UnlockPolicy =
+  | { kind: "touch-id" }
+  | { kind: "device-password" }
+  | { kind: "session"; hours: UnlockSessionHours }
+  | { kind: "unattended" };
+
+/**
+ * What an unlock policy is set on. Today a policy belongs to a browser PROFILE, because that is what
+ * owns saved sign-ins and passkeys (Plan 27). A team will be a second kind here, keyed the same way
+ * (`unlockScopeKey`), without the store or the fill path changing shape.
+ */
+export type UnlockScope = { kind: "profile"; id: string };
+
+export function unlockScopeKey(scope: UnlockScope): string {
+  return `${scope.kind}:${scope.id}`;
+}
+
+/** What Settings is told about a scope's policy. No secret in it, and nothing an agent can write. */
+export type UnlockPolicyStatus = {
+  policy: UnlockPolicy;
+  /** When a `session` unlock is open, when it closes; null otherwise. */
+  sessionUntil: number | null;
+};
+
+export const DEFAULT_UNLOCK_POLICY: UnlockPolicy = { kind: "touch-id" };
+
+/** Normalize anything that claims to be a policy. Unknown shapes are the default, never a weaker one. */
+export function parseUnlockPolicy(v: unknown): UnlockPolicy {
+  if (typeof v !== "object" || v === null) return DEFAULT_UNLOCK_POLICY;
+  const p = v as Record<string, unknown>;
+  if (p.kind === "device-password" || p.kind === "unattended") return { kind: p.kind };
+  if (p.kind === "session" && (UNLOCK_SESSION_HOURS as readonly number[]).includes(p.hours as number)) {
+    return { kind: "session", hours: p.hours as UnlockSessionHours };
+  }
+  return DEFAULT_UNLOCK_POLICY;
+}
+
+/** How much a policy lets through without a person, for "is this change a weakening". A longer
+ *  session is weaker than a shorter one. */
+export function unlockPolicyRank(p: UnlockPolicy): number {
+  switch (p.kind) {
+    case "touch-id": return 0;
+    case "device-password": return 1;
+    case "session": return 2 + p.hours / 100;
+    case "unattended": return 3;
+  }
+}
+
+/**
  * Where saved sign-ins actually live, stated plainly because the alternative is a false sense of
  * security — the same duty `MCP_SECRET_STORAGE_NOTE` discharges for MCP keys, and the opposite
  * answer. UI copy: any surface that takes a credential has to show it.
  */
 export const CREDENTIAL_STORAGE_NOTE =
-  "Saved sign-ins are encrypted with a key held in your macOS Keychain and stored in Realm's home directory. A value is only ever decrypted inside Realm's own main process, to type it into a page you approved — it is never sent to an agent, never written to a log or transcript, and cannot be read back, by you or by anything else, once saved. Every fill needs Touch ID, so a Mac without a Touch ID sensor can store sign-ins but cannot fill them.";
+  "Saved sign-ins are encrypted with a key held in your macOS Keychain and stored in Realm's home directory. A value is only ever decrypted inside Realm's own main process, to type it into a page you approved — it is never sent to an agent, never written to a log or transcript, and cannot be read back, by you or by anything else, once saved. Every fill needs Touch ID unless you choose another way to unlock a profile's sign-ins under Security.";
 
 /** The part of a credentialed sign-in Realm cannot do for you, said once, in one place, so no
  *  surface has to invent its own wording for it. Deliberately NOT hedged: Duo/Okta push approvals

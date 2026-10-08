@@ -16,7 +16,23 @@
  * passphrase of its own.
  *
  *     { version, keyring: "<safeStorage blob>", credentials: [ { id, profileId, origin, username,
- *                                         label, createdAt, generated, sealed } ], passkeys, presenceTtlMs }
+ *                                         label, createdAt, generated, sealed } ], passkeys, presenceTtlMs,
+ *       unlock: { "profile:<id>": "<sealed policy>" } }
+ *
+ * ## How a fill is unlocked
+ *
+ * Touch ID, by default and everywhere. A profile can be given another unlock policy (`UnlockPolicy`):
+ * Touch ID or the login password, one check for a session of hours, or — for a profile that runs on
+ * a Mac set aside for it — no check at all. Three rules hold whichever it is:
+ *
+ *   - Only the user changes one, from Settings, and a change that lets more through without a person
+ *     is confirmed by macOS (Touch ID or the login password) before it is written. No tool, RPC method
+ *     or bridge op reaches `setUnlockPolicy`.
+ *   - The policy is sealed under its own keyring domain, with the scope it belongs to and the Mac it
+ *     was set on inside the seal. Editing `secrets.json` cannot forge one, moving one to another
+ *     profile opens as the default, and `unattended` copied to another Mac opens as the default.
+ *   - Every unlock writes an audit line naming the policy and how it was satisfied — including the
+ *     ones nobody was asked about, which are the ones most worth a record.
  *
  * ## A profile's own
  *
@@ -61,9 +77,10 @@ import {
   isSealed, newSecretKey, open, seal, SECRET_KEY_BYTES, type SecretDomain,
 } from "@realm/contracts/src/secret-box";
 import {
-  CREDENTIAL_PRESENCE_TTLS, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
-  normalizeOrigin, PASSKEY_NAME_MAX,
+  CREDENTIAL_PRESENCE_TTLS, DEFAULT_UNLOCK_POLICY, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
+  normalizeOrigin, PASSKEY_NAME_MAX, parseUnlockPolicy, unlockPolicyRank, unlockScopeKey,
   type BrowserCredential, type BrowserCredentialInput, type Passkey,
+  type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus, type UnlockScope,
 } from "@realm/contracts";
 
 /** The slice of Electron's `safeStorage` this needs. */
@@ -98,6 +115,28 @@ export type PasskeyAuditEntry = {
   outcome: "used" | "created" | "rp_mismatch" | "no_passkey" | "no_presence" | "error";
 };
 
+/** One line per unlock, whatever the policy. `how` is what satisfied it: a check the person answered
+ *  (`prompted`), the short Touch ID window (`window`), an open session (`session`), or nothing,
+ *  because the profile is set to fill without asking (`unattended`). `refused` is a check that failed
+ *  or was cancelled. */
+export type UnlockAuditEntry = {
+  ts: number;
+  kind: "unlock";
+  scope: string;
+  policy: UnlockPolicyKind;
+  how: "prompted" | "window" | "session" | "unattended" | "refused";
+};
+
+/** One line per attempt to change a scope's policy. `refused` is a weakening macOS did not confirm. */
+export type UnlockPolicyAuditEntry = {
+  ts: number;
+  kind: "unlock-policy";
+  scope: string;
+  from: UnlockPolicyKind;
+  to: UnlockPolicyKind;
+  outcome: "set" | "refused";
+};
+
 export type SecretStoreDeps = {
   safeStorage: SafeStorageLike;
   /** The store file's contents, or null when it does not exist yet. */
@@ -118,6 +157,25 @@ export type SecretStoreDeps = {
    * cancels, and when the check fails.
    */
   promptPresence(reason: string): Promise<boolean>;
+  /**
+   * LocalAuthentication's device-owner check: Touch ID, or the Mac's login password when there is no
+   * sensor or nobody's finger on it. What `device-password` and `session` ask, and what confirms a
+   * weakened policy. Absent, or unable to run, means those fall back to `promptPresence`.
+   *
+   * Same contract as `promptPresence`: resolves false on every failure, never throws.
+   */
+  promptDeviceOwner?(reason: string): Promise<boolean>;
+  /** Whether `promptDeviceOwner` can run here at all (a login password is set, the helper exists). */
+  canPromptDeviceOwner?(): boolean;
+  /** Whether `promptPresence` can be satisfied here (a Touch ID sensor is present and enrolled). */
+  canPromptTouchID?(): boolean;
+  /**
+   * A stable id for THIS Mac (its hardware UUID), sealed into every policy. An `unattended` policy that
+   * opens on a Mac with another id — a restored backup, a Migration Assistant copy of the home and the
+   * login Keychain — is read as the default. Null when it cannot be read: `unattended` then cannot be
+   * turned on.
+   */
+  machineId?(): string | null;
   now(): number;
   newId(): string;
   /**
@@ -175,9 +233,13 @@ type StoreFile = {
   credentials: StoredCredential[];
   passkeys: StoredPasskey[];
   presenceTtlMs: number;
+  /** Scope key (`unlockScopeKey`) → that scope's policy, sealed under the `unlock` domain. A scope
+   *  with no entry is on the default, Touch ID. Absent from files written before policies existed. */
+  unlock: Record<string, string>;
 };
 
-/** 2: every row names its profile. 1 had none — see `adopt`. */
+/** 2: every row names its profile. 1 had none — see `adopt`. Policies did not need a new version:
+ *  a file without `unlock` is every scope on the default, which is exactly what it was. */
 const FILE_VERSION = 2;
 
 /** Enrollment refused, in the user's words. Thrown to the IPC caller (the Settings UI), which is the
@@ -190,6 +252,12 @@ export class SecretStore {
   /** When the last successful presence check happened. In memory only: a TTL that survived a restart
    *  would be a TTL the user never granted in this run of the app. */
   private presenceUntil = 0;
+  /** The same window, opened by a device-owner check (password or Touch ID through LocalAuthentication).
+   *  Kept apart so a typed password never opens a window that a Touch ID–only profile would honour. */
+  private ownerUntil = 0;
+  /** Open `session` unlocks: scope key → when they close. In memory only, like the window above: a
+   *  restart asks again. */
+  private readonly sessionUntil = new Map<string, number>();
   /** Rows without a profile are on disk and still waiting for `defaultProfileId` to name one. */
   private unadopted = false;
 
@@ -328,7 +396,7 @@ export class SecretStore {
     if (!row) return { ok: false, refused: "no_credential" };
 
     const who = row.username ? `${row.username} on ${row.origin}` : row.origin;
-    if (!(await this.requirePresence(`fill your saved sign-in for ${who}`))) {
+    if (!(await this.requirePresence(profileId, `fill your saved sign-in for ${who}`))) {
       return { ok: false, refused: "no_presence" };
     }
 
@@ -376,7 +444,7 @@ export class SecretStore {
     if (!origin || !this.available) return { ok: false, refused: "no_store" };
 
     const who = input.username ? `${input.username} on ${origin}` : origin;
-    if (!(await this.requirePresence(`create and fill a new saved password for ${who}`))) {
+    if (!(await this.requirePresence(profileId, `create and fill a new saved password for ${who}`))) {
       return { ok: false, refused: "no_presence" };
     }
 
@@ -387,21 +455,165 @@ export class SecretStore {
   }
 
   /**
-   * Touch ID, unless a previous successful check is still inside the TTL. The default TTL is 0,
-   * meaning every fill prompts; the longer settings exist because one sign-in is often two fills
-   * across an SSO redirect, and prompting twice in six seconds teaches people to approve without
-   * reading — which costs more than the window does.
+   * Unlock one fill for this profile, by its policy, and write the audit line that says how.
+   *
+   * Under the default the answer is Touch ID, unless a previous successful check is still inside the
+   * TTL. The default TTL is 0, meaning every fill prompts; the longer settings exist because one
+   * sign-in is often two fills across an SSO redirect, and prompting twice in six seconds teaches
+   * people to approve without reading — which costs more than the window does.
    *
    * Passwords and passkeys share this ONE window rather than keeping a private one each. A sign-in
    * that is a fill and then a passkey assertion is the same sign-in to the person doing it, and the
    * alternative is a second timeout nobody configured and no screen mentions.
+   *
+   * The audit line is written BEFORE this resolves, so no value leaves under a policy that left no
+   * record — `unattended` least of all.
    */
-  private async requirePresence(reason: string): Promise<boolean> {
-    if (this.presenceTtlMs > 0 && this.d.now() < this.presenceUntil) return true;
-    const granted = await this.d.promptPresence(reason).catch(() => false);
-    // Only a SUCCESSFUL check opens the window; a denial does not shorten or extend an existing one.
-    if (granted && this.presenceTtlMs > 0) this.presenceUntil = this.d.now() + this.presenceTtlMs;
-    return granted;
+  private async requirePresence(profileId: string, reason: string): Promise<boolean> {
+    const scope = unlockScopeKey({ kind: "profile", id: profileId });
+    const policy = this.readPolicy(scope);
+    const how = await this.unlock(scope, policy, reason);
+    this.audit({ ts: this.d.now(), kind: "unlock", scope, policy: policy.kind, how });
+    return how !== "refused";
+  }
+
+  private async unlock(scope: string, policy: UnlockPolicy, reason: string): Promise<UnlockAuditEntry["how"]> {
+    const now = this.d.now();
+    switch (policy.kind) {
+      case "unattended":
+        return "unattended";
+      case "session": {
+        if (now < (this.sessionUntil.get(scope) ?? 0)) return "session";
+        if (!(await this.confirmOwner(reason))) return "refused";
+        this.sessionUntil.set(scope, this.d.now() + policy.hours * 3_600_000);
+        return "prompted";
+      }
+      case "device-password": {
+        // A Touch ID window satisfies a password policy (it is the stronger check); not the reverse.
+        if (this.presenceTtlMs > 0 && (now < this.presenceUntil || now < this.ownerUntil)) return "window";
+        if (!(await this.confirmOwner(reason))) return "refused";
+        if (this.presenceTtlMs > 0) this.ownerUntil = this.d.now() + this.presenceTtlMs;
+        return "prompted";
+      }
+      case "touch-id": {
+        if (this.presenceTtlMs > 0 && now < this.presenceUntil) return "window";
+        const granted = await this.d.promptPresence(reason).catch(() => false);
+        // Only a SUCCESSFUL check opens the window; a denial does not shorten or extend an existing one.
+        if (granted && this.presenceTtlMs > 0) this.presenceUntil = this.d.now() + this.presenceTtlMs;
+        return granted ? "prompted" : "refused";
+      }
+    }
+  }
+
+  /** Touch ID or the login password, through LocalAuthentication; Touch ID alone where that cannot run. */
+  private async confirmOwner(reason: string): Promise<boolean> {
+    if (this.d.promptDeviceOwner && (this.d.canPromptDeviceOwner?.() ?? false)) {
+      return this.d.promptDeviceOwner(reason).catch(() => false);
+    }
+    return this.d.promptPresence(reason).catch(() => false);
+  }
+
+  /* -------------------------------- unlock policy -------------------------------- */
+
+  unlockPolicy(scope: UnlockScope): UnlockPolicy {
+    return this.readPolicy(unlockScopeKey(scope));
+  }
+
+  unlockStatus(scope: UnlockScope): UnlockPolicyStatus {
+    const key = unlockScopeKey(scope);
+    const policy = this.readPolicy(key);
+    const until = this.sessionUntil.get(key) ?? 0;
+    return { policy, sessionUntil: policy.kind === "session" && until > this.d.now() ? until : null };
+  }
+
+  /**
+   * Whether a fill in this profile could be unlocked here at all — what the passkey broker asks before
+   * raising anything, and what Settings uses to say a fill will be refused on this Mac.
+   */
+  canUnlock(profileId: string): boolean {
+    const key = unlockScopeKey({ kind: "profile", id: profileId });
+    const policy = this.readPolicy(key);
+    if (policy.kind === "unattended") return true;
+    if (policy.kind === "session" && this.d.now() < (this.sessionUntil.get(key) ?? 0)) return true;
+    const touchId = this.d.canPromptTouchID?.() ?? true;
+    if (policy.kind === "touch-id") return touchId;
+    return touchId || (this.d.canPromptDeviceOwner?.() ?? false);
+  }
+
+  /**
+   * Set a scope's unlock policy. Reachable ONLY from Settings' IPC handler, for the reason
+   * `addCredential` is: a model that could call this would turn every gate in this file into a
+   * formality. There is no tool, no RPC method and no bridge op that lands here, and the Settings
+   * control carries `data-no-agent` so an agent driving Realm's window cannot press it either.
+   *
+   * A change that lets MORE through without a person — any step down the ladder, a longer session —
+   * is confirmed by macOS first (Touch ID or the login password). That is the guard that holds even
+   * if something did reach this method: an agent cannot answer Touch ID and does not know the
+   * password. A change that lets less through is never asked about; turning a gate back on must
+   * always be one click.
+   */
+  async setUnlockPolicy(scope: UnlockScope, requested: UnlockPolicy): Promise<{ ok: true; status: UnlockPolicyStatus } | { ok: false; error: string }> {
+    const key = unlockScopeKey(scope);
+    const policy = parseUnlockPolicy(requested);
+    if (!this.available) {
+      return { ok: false, error: "macOS is not offering Realm an encryption key right now (Keychain unavailable), so the setting was not changed." };
+    }
+    const current = this.readPolicy(key);
+    const machine = this.machine();
+    if (policy.kind === "unattended" && !machine) {
+      return { ok: false, error: "Realm could not read this Mac's hardware ID, so it cannot tie this setting to this Mac. Nothing changed." };
+    }
+    if (unlockPolicyRank(policy) > unlockPolicyRank(current)) {
+      const confirmed = await this.confirmOwner(policy.kind === "unattended"
+        ? "let agents fill saved sign-ins on this Mac without asking"
+        : "change how saved sign-ins are unlocked");
+      if (!confirmed) {
+        this.audit({ ts: this.d.now(), kind: "unlock-policy", scope: key, from: current.kind, to: policy.kind, outcome: "refused" });
+        return { ok: false, error: "macOS did not confirm it was you, so nothing changed." };
+      }
+    }
+    const file = this.load();
+    if (policy.kind === "touch-id") delete file.unlock[key];
+    else file.unlock[key] = seal(this.key("unlock"), "unlock", JSON.stringify({ scope: key, machine, policy, setAt: this.d.now() }));
+    // Any change starts over: a session opened under the old policy is not one the new one granted.
+    this.sessionUntil.delete(key);
+    this.save();
+    this.audit({ ts: this.d.now(), kind: "unlock-policy", scope: key, from: current.kind, to: policy.kind, outcome: "set" });
+    return { ok: true, status: this.unlockStatus(scope) };
+  }
+
+  /**
+   * The policy sealed for this scope, or the default. EVERY failure is the default, never a weaker
+   * policy: no entry, a keyring that will not open, a blob that does not open under the `unlock` key
+   * (hand-written, or tampered), a blob sealed for another scope (moved), or an `unattended` blob set
+   * on another Mac (copied).
+   */
+  private readPolicy(key: string): UnlockPolicy {
+    const sealed = this.load().unlock[key];
+    if (!sealed || !this.available) return DEFAULT_UNLOCK_POLICY;
+    let record: { scope?: unknown; machine?: unknown; policy?: unknown };
+    try {
+      const text = open(this.key("unlock"), "unlock", sealed);
+      if (text === null) return DEFAULT_UNLOCK_POLICY;
+      record = JSON.parse(text) as typeof record;
+    } catch {
+      return DEFAULT_UNLOCK_POLICY;
+    }
+    if (record.scope !== key) return DEFAULT_UNLOCK_POLICY;
+    const policy = parseUnlockPolicy(record.policy);
+    if (policy.kind === "unattended") {
+      const machine = this.machine();
+      if (!machine || record.machine !== machine) return DEFAULT_UNLOCK_POLICY;
+    }
+    return policy;
+  }
+
+  private machineCache: string | null | undefined;
+  private machine(): string | null {
+    if (this.machineCache === undefined) {
+      try { this.machineCache = this.d.machineId?.() ?? null; } catch { this.machineCache = null; }
+    }
+    return this.machineCache;
   }
 
   /* ---------------------------------- passkeys ---------------------------------- */
@@ -487,7 +699,7 @@ export class SecretStore {
     if (kind === "get" && rows.length === 0) return { ok: false, refused: "no_passkey" };
 
     const reason = kind === "create" ? `create a passkey for ${rpId}` : `use your passkey for ${rpId}`;
-    if (!(await this.requirePresence(reason))) return { ok: false, refused: "no_presence" };
+    if (!(await this.requirePresence(profileId, reason))) return { ok: false, refused: "no_presence" };
 
     const keys: PasskeyKeyMaterial[] = [];
     for (const row of rows) {
@@ -580,7 +792,11 @@ export class SecretStore {
     const before = file.credentials.length + file.passkeys.length;
     file.credentials = file.credentials.filter((c) => c.profileId !== profileId);
     file.passkeys = file.passkeys.filter((p) => p.profileId !== profileId);
-    if (file.credentials.length + file.passkeys.length !== before) this.save();
+    const scope = unlockScopeKey({ kind: "profile", id: profileId });
+    const hadPolicy = scope in file.unlock;
+    delete file.unlock[scope];
+    this.sessionUntil.delete(scope);
+    if (hadPolicy || file.credentials.length + file.passkeys.length !== before) this.save();
   }
 
   /* ---------------------------------- settings ---------------------------------- */
@@ -596,6 +812,7 @@ export class SecretStore {
     file.presenceTtlMs = (CREDENTIAL_PRESENCE_TTLS as readonly number[]).includes(ms) ? ms : 0;
     // A shortened window takes effect now rather than after the old one expires.
     this.presenceUntil = 0;
+    this.ownerUntil = 0;
     this.save();
     return file.presenceTtlMs;
   }
@@ -605,7 +822,7 @@ export class SecretStore {
   /** One JSONL line per fill attempt, whatever the outcome. Never throws: an unwritable log is a
    *  degraded audit trail, not a reason to fail a sign-in the user just approved with their
    *  fingerprint. */
-  audit(entry: CredentialAuditEntry | PasskeyAuditEntry): void {
+  audit(entry: CredentialAuditEntry | PasskeyAuditEntry | UnlockAuditEntry | UnlockPolicyAuditEntry): void {
     try { this.d.appendAudit(`${JSON.stringify(entry)}\n`); } catch { /* see above */ }
   }
 
@@ -703,6 +920,7 @@ export class SecretStore {
       passkeys: Array.isArray(parsed?.passkeys) ? parsed.passkeys.filter(isStoredPasskey) : [],
       presenceTtlMs: (CREDENTIAL_PRESENCE_TTLS as readonly number[]).includes(parsed?.presenceTtlMs as number)
         ? (parsed!.presenceTtlMs as number) : 0,
+      unlock: readUnlockMap(parsed?.unlock),
     };
     this.file = file;
     this.keys = this.unlockKeyring(file);
@@ -733,11 +951,11 @@ export class SecretStore {
              launch after an update, because a feature nobody had used yet wanted a third key.
              Minted and folded in beside the other two instead — the existing keys are untouched, so
              nothing sealed under them stops opening. */
-          /* `machine`, `eggs` and `passkey` were each added after this keyring's shape was settled,
-             and all three are folded in the same way and for the reason above: a missing domain is a
+          /* `machine`, `eggs`, `passkey` and `unlock` were each added after this keyring's shape was settled,
+             and each is folded in the same way and for the reason above: a missing domain is a
              key to mint, never a corrupt keyring to discard. */
           const added: Record<string, string> = {};
-          const fold = (name: "machine" | "eggs" | "passkey"): Buffer => {
+          const fold = (name: "machine" | "eggs" | "passkey" | "unlock"): Buffer => {
             const existing = Buffer.from(String(json[name] ?? ""), "base64");
             if (existing.length === SECRET_KEY_BYTES) return existing;
             const minted = newSecretKey();
@@ -747,12 +965,13 @@ export class SecretStore {
           const machine = fold("machine");
           const eggs = fold("eggs");
           const passkey = fold("passkey");
+          const unlock = fold("unlock");
           if (Object.keys(added).length > 0) {
             file.keyring = this.d.safeStorage.encryptString(JSON.stringify({ ...json, ...added })).toString("base64");
             this.file = file;
             this.save();
           }
-          return { oauth, credential, machine, eggs, passkey };
+          return { oauth, credential, machine, eggs, passkey, unlock };
         }
       } catch { /* falls through to a fresh keyring */ }
       file.credentials = [];
@@ -760,10 +979,13 @@ export class SecretStore {
       // see why. Dropped for the same reason the credentials are, and recovered the same way: by
       // registering a new passkey from the site's own settings.
       file.passkeys = [];
+      // Policies too: sealed under a key that is gone, every one would read as the default anyway,
+      // and the default is what a fresh keyring means.
+      file.unlock = {};
     }
     const keys = {
       oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey(),
-      eggs: newSecretKey(), passkey: newSecretKey(),
+      eggs: newSecretKey(), passkey: newSecretKey(), unlock: newSecretKey(),
     };
     file.keyring = this.d.safeStorage
       .encryptString(JSON.stringify({
@@ -772,6 +994,7 @@ export class SecretStore {
         machine: keys.machine.toString("base64"),
         eggs: keys.eggs.toString("base64"),
         passkey: keys.passkey.toString("base64"),
+        unlock: keys.unlock.toString("base64"),
       }))
       .toString("base64");
     this.file = file;
@@ -852,6 +1075,17 @@ function isStoredCredential(v: unknown): v is StoredCredential {
     && typeof c.label === "string" && typeof c.createdAt === "number"
     && (c.generated === undefined || typeof c.generated === "boolean")
     && typeof c.sealed === "string" && isSealed(c.sealed);
+}
+
+/** The `unlock` map as read off disk: only string keys to sealed strings survive. Anything else is
+ *  dropped, which reads as the default — the safe direction for every malformed entry. */
+function readUnlockMap(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [k, sealed] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof sealed === "string" && isSealed(sealed)) out[k] = sealed;
+  }
+  return out;
 }
 
 function isStoredPasskey(v: unknown): v is StoredPasskey {

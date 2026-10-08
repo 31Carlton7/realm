@@ -125,9 +125,10 @@ export type PasskeyBrokerDeps = {
   ): Promise<{ ok: true } | { ok: false; refused: "no_passkey" | "no_presence" }>;
   recordPasskey(paneId: string, input: PasskeyInput): void;
   notePasskeyUse(paneId: string, credentialId: string, signCount: number): void;
-  /** Whether this Mac can run the presence check at all. False means no Touch ID sensor, and the
-   *  user is told that instead of being shown a prompt that could only fail. */
-  canPromptPresence(): boolean;
+  /** Whether this pane's profile can be unlocked on this Mac at all, by its unlock policy. False means,
+   *  say, a Touch ID–only profile on a Mac with no sensor, and the user is told that instead of being
+   *  shown a prompt that could only fail. */
+  canPromptPresence(paneId: string): boolean;
   /** Tell the pane why a request did not go through, so a refused sign-in is not a silent one. */
   notify(notice: PasskeyNotice): void;
   audit(entry: PasskeyAuditEntry): void;
@@ -333,7 +334,7 @@ export class PasskeyBroker {
       await this.refuse(paneId, ask, reply, rpId, "none", "no_passkey");
       return;
     }
-    if (!this.d.canPromptPresence()) {
+    if (!this.d.canPromptPresence(paneId)) {
       await this.refuse(paneId, ask, reply, rpId, "unavailable", "no_presence");
       return;
     }

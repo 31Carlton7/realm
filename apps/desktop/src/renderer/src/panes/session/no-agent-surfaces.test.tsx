@@ -89,6 +89,19 @@ const SURFACES = [
     file: "apps/desktop/src/renderer/src/panes/app-view/ViewRequestCard.tsx",
     on: 'className="app-view-request"',
   },
+  /* How a profile's sign-ins are unlocked. An agent able to press "Without asking" would be choosing
+     to fill passwords with nobody there; main also asks macOS before any weakening, so this is the
+     first of two guards, not the only one. The confirm sheet is portalled, so it carries its own. */
+  {
+    what: "the sign-in unlock setting",
+    file: "apps/desktop/src/renderer/src/panes/settings/SettingsPage.tsx",
+    on: 'className="unlock-policy"',
+  },
+  {
+    what: "the Without asking confirmation",
+    file: "apps/desktop/src/renderer/src/panes/settings/SettingsPage.tsx",
+    on: 'className="form unlock-confirm"',
+  },
 ];
 
 describe("surfaces no agent may act in", () => {
