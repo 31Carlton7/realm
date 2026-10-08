@@ -1370,8 +1370,9 @@ function GeneralTab() {
       <h3 className="settings-head">Power</h3>
       <ul className="settings-list">
         {/* Says what it leaves alone, because "keep the Mac awake" sounds like a lit screen all night:
-            it holds only while a session is working, and the display may sleep throughout. */}
-        <li className="settings-row" data-setting="prevent-sleep" title="Realm holds macOS's app-suspension assertion only while a session is running and lets go when the last turn ends. A session waiting on your answer is not working, and does not keep the Mac up.">
+            it holds only while a session is working (or, with an iPhone paired, waiting on an answer
+            the phone can give), and the display may sleep throughout. */}
+        <li className="settings-row" data-setting="prevent-sleep" title="Realm holds macOS's app-suspension assertion only while a session is running, and lets go when the last turn ends. A session waiting on your answer keeps the Mac up only while an iPhone is paired, because you might answer from the phone.">
           <div className="settings-row-main">
             <span className="settings-row-name">Keep the Mac awake while agents work</span>
             <span className="settings-row-detail">The display still sleeps</span>
