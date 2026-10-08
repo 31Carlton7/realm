@@ -1490,3 +1490,46 @@ describe("migration v41 — saved turns", () => {
     again.close();
   });
 });
+
+describe("migration v42 — goal mode's provider renamed to realm-goal", () => {
+  /* The v3 home stands in for any home from before the rename: `settings` has not changed shape since
+     v1, and the switches are rows in it. */
+  const migrated = (rows: [string, string][]) => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v3Fixture(p);
+    const raw = new DatabaseSync(p);
+    for (const [key, value] of rows) raw.prepare("INSERT INTO settings (key, value_json) VALUES (?, ?)").run(key, value);
+    raw.close();
+    return { p, db: openDatabase(p) };
+  };
+  const read = (db: DatabaseSync, key: string) => (db.prepare("SELECT value_json AS v FROM settings WHERE key = ?").get(key) as { v: string }).v;
+
+  it("keeps a space's goal tools off under the new name, and leaves every other switch alone", () => {
+    // THE mutant is no migration: `goal` stays in the list, `realm-goal` is not in it, and a space that
+    // switched the goal tools off has them back after an upgrade.
+    const { db } = migrated([
+      ["mcp.providersDisabled:sp1", '["goal","realm-browser"]'],
+      ["mcp.providersDisabled:sp2", '["realm-docs"]'],
+      ["mcp.providersEnabled:sp1", '["goal"]'],
+      ["theme", '"goal"'],
+    ]);
+    expect(JSON.parse(read(db, "mcp.providersDisabled:sp1"))).toEqual(["realm-browser", "realm-goal"]);
+    expect(read(db, "mcp.providersDisabled:sp2")).toBe('["realm-docs"]');
+    // Only the disabled lists name providers that default on; nothing else is the rename's business.
+    expect(read(db, "mcp.providersEnabled:sp1")).toBe('["goal"]');
+    expect(read(db, "theme")).toBe('"goal"');
+    db.close();
+  });
+
+  it("is idempotent, and folds a list that already had both names into one", () => {
+    const { p, db } = migrated([["mcp.providersDisabled:sp1", '["realm-goal","goal"]']]);
+    expect(JSON.parse(read(db, "mcp.providersDisabled:sp1"))).toEqual(["realm-goal"]);
+    db.prepare("UPDATE settings SET value_json = ? WHERE key = ?").run('["realm-goal","realm-docs"]', "mcp.providersDisabled:sp1");
+    db.close();
+    const again = openDatabase(p);
+    // A list written by the running app after the upgrade is never rewritten again.
+    expect(read(again, "mcp.providersDisabled:sp1")).toBe('["realm-goal","realm-docs"]');
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.close();
+  });
+});

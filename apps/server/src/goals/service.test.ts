@@ -3,7 +3,7 @@ import { tempDir } from "@realm/test-utils";
 import { join } from "node:path";
 import { openDatabase, type Db } from "../db/database";
 import { GoalsStore } from "../store/goals";
-import { GoalService } from "./service";
+import { GoalService, MAX_GOAL_TURNS, madeNoProgress, type SettledTurn } from "./service";
 import type { Goal } from "@realm/contracts";
 
 /* The continuation loop, with the session service replaced by a list of what it was asked to send.
@@ -13,7 +13,7 @@ import type { Goal } from "@realm/contracts";
 const dbs: Db[] = [];
 afterEach(() => { for (const db of dbs.splice(0)) db.close(); });
 
-function bring(opts: { queued?: boolean } = {}) {
+function bring(opts: { queued?: boolean; closeWith?: string | null } = {}) {
   const db = openDatabase(join(tempDir("realm-goal-"), "realm.db"));
   dbs.push(db);
   // The FK is to `sessions`, which this test never creates — SQLite enforces it on write, so the row
@@ -21,15 +21,24 @@ function bring(opts: { queued?: boolean } = {}) {
   db.exec("PRAGMA foreign_keys = OFF");
   const sent: { sessionId: string; text: string; tag: string }[] = [];
   const events: (Goal | null)[] = [];
+  /** The seams back into the session service, in the order they were called. */
+  const calls: string[] = [];
   let queued = opts.queued ?? false;
   const service = new GoalService({
     rpc: { broadcast: (name: string, payload: { goal: Goal | null }) => { if (name === "goal.changed") events.push(payload.goal); } } as never,
     goals: new GoalsStore(db),
-    deliver: async (sessionId, text, tag) => { sent.push({ sessionId, text, tag }); },
+    deliver: async (sessionId, text, tag) => { calls.push(`deliver:${tag}`); sent.push({ sessionId, text, tag }); },
     queued: () => queued,
+    dropQueued: (sessionId) => { calls.push(`drop:${sessionId}`); },
+    notifyTools: async (sessionId) => { calls.push(`notify:${sessionId}`); },
+    ...(opts.closeWith !== undefined ? { closeWith: () => opts.closeWith! } : {}),
   });
-  return { service, sent, events, setQueued: (v: boolean) => { queued = v; }, db };
+  return { service, sent, events, calls, setQueued: (v: boolean) => { queued = v; }, db };
 }
+
+/** What the session service reports about a settled turn. */
+const turn = (t: Partial<SettledTurn> = {}): SettledTurn => ({ continuation: true, toolCalls: 0, wallMs: 5_000, finalText: null, ...t });
+const settle = (service: GoalService, t?: Partial<SettledTurn>) => service.onSettled("s1", { interrupted: false, turn: turn(t) });
 
 const usage = (tokens: number) => ({ costUsd: 0, inputTokens: tokens, outputTokens: 0, numTurns: 1 });
 
@@ -259,5 +268,124 @@ describe("a restart", () => {
     expect(service.get("s1")).toMatchObject({ status: "paused", note: "Realm restarted while this goal was running." });
     expect(service.get("s2")!.status).toBe("complete");
     expect(sent).toHaveLength(before);
+  });
+});
+
+describe("an agent that already has its tool list", () => {
+  it("is told the list changed before the goal's first turn, and again before a resume's", async () => {
+    /* A `/goal` typed mid-conversation reaches an agent that listed its tools long ago. THE mutant
+       notifies after `deliver` (or not at all): the turn that starts the goal is planned against the
+       old list. */
+    const { service, calls } = bring();
+    await service.start("s1", "ship it", null);
+    expect(calls).toEqual(["notify:s1", "deliver:goal-start"]);
+    service.set("s1", "paused", "You paused it.");
+    calls.length = 0;
+    await service.resume("s1");
+    expect(calls).toEqual(["notify:s1", "deliver:goal-continuation"]);
+  });
+
+  it("is told update_goal by the name it lists it under, or the reply line when it has no tool", async () => {
+    const named = bring({ closeWith: "mcp__realm__realm-goal__update_goal" });
+    await named.service.start("s1", "ship it", null);
+    await settle(named.service, { toolCalls: 3 });
+    expect(named.sent[1]!.text).toContain("`mcp__realm__realm-goal__update_goal`");
+    const bare = bring({ closeWith: null });
+    await bare.service.start("s1", "ship it", null);
+    await settle(bare.service, { toolCalls: 3 });
+    expect(bare.sent[1]!.text).toContain("GOAL COMPLETE:");
+  });
+});
+
+describe("a goal that is over while its next turn waits", () => {
+  it("throws away the queued goal turns when the agent, or the user, ends it", async () => {
+    /* A continuation can be sitting in the session's queue behind the turn that called
+       `update_goal`. THE mutant keeps it: the queue drains it after the goal is done and the loop
+       that was just closed takes another turn. */
+    const { service, calls } = bring();
+    await service.start("s1", "ship it", null);
+    calls.length = 0;
+    service.set("s1", "complete", "Released.");
+    expect(calls).toEqual(["drop:s1"]);
+  });
+
+  it("…and when the loop stops itself", async () => {
+    const { service, calls } = bring();
+    await service.start("s1", "ship it", null);
+    calls.length = 0;
+    await settle(service, { finalText: "GOAL BLOCKED: the registry is down" });
+    expect(calls).toEqual(["drop:s1"]);
+  });
+});
+
+describe("turns that make no progress", () => {
+  it("counts a turn with no tool calls, or one quick call, as no progress — and nothing busier", () => {
+    expect(madeNoProgress({ toolCalls: 0, wallMs: 600_000 })).toBe(true);
+    expect(madeNoProgress({ toolCalls: 1, wallMs: 8_000 })).toBe(true);
+    // A turn that waited on one long command did something, however little it said.
+    expect(madeNoProgress({ toolCalls: 1, wallMs: 25_000 })).toBe(false);
+    // Read, edit, test: three calls, never a stall however fast.
+    expect(madeNoProgress({ toolCalls: 3, wallMs: 2_000 })).toBe(false);
+  });
+
+  it("stops the goal as blocked after three in a row, and says why", async () => {
+    /* 2026-10-07: an agent that could not close its goal answered "nothing has changed" on every
+       continuation, five to ten seconds and zero or one call each, for hours. THE mutant raises the
+       limit past three (or never counts): the goal keeps continuing. */
+    const { service, sent } = bring();
+    await service.start("s1", "ship it", null);
+    expect(await settle(service, { continuation: false, toolCalls: 6, wallMs: 90_000 })).toBe("continued");
+    expect(await settle(service)).toBe("continued");
+    expect(await settle(service, { toolCalls: 1 })).toBe("continued");
+    expect(await settle(service)).toBe("stalled");
+    expect(service.get("s1")).toMatchObject({ status: "blocked", note: "3 turns in a row made no progress, so Realm stopped continuing this goal." });
+    // The objective, two continuations, a third continuation — and nothing after the third stall.
+    expect(sent).toHaveLength(4);
+  });
+
+  it("a turn that did work resets the count", async () => {
+    const { service } = bring();
+    await service.start("s1", "ship it", null);
+    for (const calls of [0, 0, 4, 0, 0]) expect(await settle(service, { toolCalls: calls })).toBe("continued");
+    expect(service.get("s1")!.status).toBe("active");
+  });
+
+  it("does not count the user's own turns, which reset it instead", async () => {
+    // A person's message is them steering, not the goal stalling.
+    const { service } = bring();
+    await service.start("s1", "ship it", null);
+    for (const continuation of [true, true, false, true, true]) {
+      expect(await settle(service, { continuation })).toBe("continued");
+    }
+    expect(service.get("s1")!.status).toBe("active");
+  });
+
+  it("stops a goal with no budget at the turn cap", async () => {
+    // The ceiling a goal gets when nobody gave it one. Busy turns, so only the cap can stop it.
+    const { service } = bring();
+    await service.start("s1", "ship it", null);
+    let last: string = "";
+    for (let i = 0; i < MAX_GOAL_TURNS; i++) last = await settle(service, { toolCalls: 5 });
+    expect(last).toBe("capped");
+    expect(service.get("s1")).toMatchObject({ status: "blocked", turns: MAX_GOAL_TURNS });
+    expect(service.get("s1")!.note).toContain(`${MAX_GOAL_TURNS} turns`);
+  });
+});
+
+describe("the reply line", () => {
+  it("ends the goal on a GOAL COMPLETE: line, with the agent's note", async () => {
+    /* For an agent with no `update_goal` — its space switched the tools off. THE mutant ignores the
+       line: that agent has no way left to finish, and its goal continues past done. */
+    const { service, sent } = bring();
+    await service.start("s1", "ship it", null);
+    expect(await settle(service, { toolCalls: 4, finalText: "Shipped it.\nGOAL COMPLETE: Released 1.2.0." })).toBe("closed");
+    expect(service.get("s1")).toMatchObject({ status: "complete", note: "Released 1.2.0." });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("does not end it on a sentence that only mentions the line", async () => {
+    const { service } = bring();
+    await service.start("s1", "ship it", null);
+    expect(await settle(service, { toolCalls: 4, finalText: "When it is all done I will write GOAL COMPLETE: and stop." })).toBe("continued");
   });
 });
