@@ -80,6 +80,7 @@ import type { ExecutionSandboxService } from "../sandbox/service";
 import type { LayaService } from "../laya/service";
 import type { AppViewService } from "../apps/service";
 import type { RemoteService } from "../remote/service";
+import type { Presence } from "../remote/presence";
 import { remoteSecretBox } from "../remote/secret";
 import { NotFoundError, RpcError } from "../store/rows";
 
@@ -109,8 +110,9 @@ export type Deps = {
   savedTurns: SavedTurnsStore;
   /** The files a person added to the Library themselves, copied in under the profile. */
   libraryFiles: LibraryFilesStore;
-  /** Realm Mobile (Plan 28): Settings ▸ Devices. */
+  /** Realm Mobile (Plan 28): Settings ▸ Devices, and whether the owner is at this Mac. */
   remote: RemoteService;
+  presence: Presence;
 };
 
 export function registerMethods(d: Deps): void {
@@ -910,9 +912,10 @@ export function registerMethods(d: Deps): void {
   reg("notifications.list", (p) => d.notifications.list(p));
   reg("notifications.markRead", (p) => d.notifications.markRead(p));
 
-  /* Realm Mobile (Plan 28): Settings ▸ Devices. The mobile API has no path to any of these, and each
-     refuses a phone's principal all the same: a phone must never open a pairing window, answer one,
-     or remove a phone. */
+  /* Realm Mobile (Plan 28): Settings ▸ Devices, and Electron main's report of whether the owner is at
+     this Mac. The mobile API has no path to any of these, and each refuses a phone's principal all the
+     same: a phone must never open a pairing window, answer one, remove a phone, or vouch for the
+     owner being at the Mac — which would hold its own pushes back. */
   const fromTheMac = (ctx: CallContext): void => {
     if (ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only this Mac can do that");
   };
@@ -921,6 +924,7 @@ export function registerMethods(d: Deps): void {
   reg("remote.pair.cancel", (_p, ctx) => { fromTheMac(ctx); d.remote.pairCancel(); return { ok: true as const }; });
   reg("remote.pair.answer", (p, ctx) => { fromTheMac(ctx); d.remote.pairAnswer(p.requestId, p.accept); return { ok: true as const }; });
   reg("remote.phones.remove", (p, ctx) => { fromTheMac(ctx); d.remote.removePhone(p.phoneId); return { ok: true as const }; });
+  reg("presence.set", (p, ctx) => { fromTheMac(ctx); d.presence.set(p.away); return { ok: true as const }; });
 
   // The reviewer recipe (Plan 13 W3). `request` returns the moment the reviewer session exists; the
   // verdict arrives later as `review.changed` + a `review_done` notification. Reads and dismissal go

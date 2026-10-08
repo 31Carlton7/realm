@@ -4,11 +4,12 @@ import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import { REMOTE_RELAY_KEY, type EventName, type EventPayload } from "@realm/contracts";
 import { isSealed } from "@realm/contracts/src/secret-box";
-import { generateDeviceKeys, HomeSchema, MobileCalls, MobileEvents, type Row } from "@realm/remote";
+import { fromB64u, generateDeviceKeys, HandshakeState, HomeSchema, MobileCalls, MobileEvents, PROLOGUE, type Row } from "@realm/remote";
 import { startLocalRelay, type ApnsPush, type LocalRelay } from "@realm/relay/src/node";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 import { REMOTE_IDENTITY_KEY } from "./keys";
+import { collapseId } from "./push";
 import { loopbackRpc, type RpcPort } from "./rpc-port";
 import { remoteSecretBox } from "./secret";
 import { PhoneCallError, TestPhone } from "./test-phone";
@@ -58,7 +59,7 @@ async function attachMac(app: App, key: string | null): Promise<RpcPort> {
   return rpc;
 }
 
-async function boot(o: { home?: string; relay?: LocalRelay; key?: string | null; pairTtlMs?: number } = {}): Promise<Rig> {
+async function boot(o: { home?: string; relay?: LocalRelay; key?: string | null; pairTtlMs?: number; pushHoldMs?: number } = {}): Promise<Rig> {
   // The box is module-wide, so each app here starts without a key and gets one the way the real
   // daemon does: from Electron main, when it registers.
   remoteSecretBox.setKey(null);
@@ -66,7 +67,7 @@ async function boot(o: { home?: string; relay?: LocalRelay; key?: string | null;
   const relay = o.relay ?? await startLocalRelay({ port: 0, apns: { send: async (p) => { pushes.push(p); return { ok: true, status: 200, reason: null }; } } });
   if (!o.relay) relays.push(relay);
   const home = o.home ?? tempDir("realm-remote-");
-  const app = await createApp({ home, port: 0, adapters: { fake: fake() }, remote: { dev: true, pairTtlMs: o.pairTtlMs } });
+  const app = await createApp({ home, port: 0, adapters: { fake: fake() }, remote: { dev: true, pairTtlMs: o.pairTtlMs, pushHoldMs: o.pushHoldMs } });
   const mac = await attachMac(app, o.key === undefined ? KEY : o.key);
   await mac.call("settings.set", { key: REMOTE_RELAY_KEY, value: relay.url });
   const [profile] = await mac.call("profiles.list", {});
@@ -219,7 +220,7 @@ describe("Plan 28: pairing from Settings ▸ Devices", () => {
     const r = await boot();
     const asPhone = { client: null, principal: "phone:abc" } as const;
     for (const [method, params] of [["remote.status", {}], ["remote.pair.start", {}], ["remote.pair.cancel", {}],
-      ["remote.pair.answer", { requestId: "x", accept: true }], ["remote.phones.remove", { phoneId: "x" }]] as const) {
+      ["remote.pair.answer", { requestId: "x", accept: true }], ["remote.phones.remove", { phoneId: "x" }], ["presence.set", { away: false }]] as const) {
       await expect(r.app.rpc.call(method, params, asPhone), method).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
     await expect(r.app.rpc.call("browserHost.register", { hasWindow: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -336,5 +337,57 @@ describe("Plan 28: a paired phone, in process", () => {
     // Same signing key (the relay lets it in), different X25519 key: the Mac must refuse the handshake.
     const impostor = new TestPhone({ sign: phone.keys.sign, dh: generateDeviceKeys().dh }, phone.mac);
     await expect(impostor.connect()).rejects.toThrow();
+  });
+
+  it("pushes a question to a paired phone while nobody is at the Mac, sealed so only that phone can read it", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    const token = randomBytes(32).toString("hex");
+    phone.apns(token);
+    // The relay takes one socket's messages in order, so once a ping behind it has come back, it holds
+    // the token — and a push will not answer `no-token`.
+    await phone.call("ping");
+    // Electron is attached but has never said the owner is here: that counts as away, so no hold-back.
+    await r.mac.call("sessions.send", { id, text: "ask me something" });
+    await waitFor(() => r.pushes.length > 0);
+    const [push] = r.pushes;
+    expect(push).toMatchObject({ token, macId: phone.mac!.macId, urgent: true, badge: 1 });
+    const hs = new HandshakeState({ pattern: "K", initiator: false, prologue: PROLOGUE.push(phone.mac!.macId, phone.phoneId), s: phone.keys.dh, rs: phone.mac!.macKey });
+    const sealed = JSON.parse(hs.readMessage(fromB64u(push!.blob)).toString("utf8")) as Record<string, unknown>;
+    const title = (await r.mac.call("items.listAll", {})).find((it) => it.refId === id)!.title;
+    expect(sealed).toMatchObject({ v: 1, kind: "question", title, body: "Which database?", session: id });
+    const [request] = (await r.mac.call("notifications.list", {})).notifications.filter((n) => n.category === "permission");
+    expect(push!.collapse).toBe(collapseId("permission", request!.refId!));
+    // The relay saw ciphertext: the question is nowhere in what it was handed.
+    expect(JSON.stringify(push)).not.toContain("Which database");
+    phone.close();
+  });
+
+  it("holds a push while the owner is at the Mac: answered there it never goes, left waiting it does", async () => {
+    const r = await boot({ pushHoldMs: 400 });
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    phone.apns(randomBytes(32).toString("hex"));
+    await phone.call("ping");
+    await r.mac.call("presence.set", { away: false });
+    const asked = () => nextEvent(r.mac, "session.event", (p) => p.sessionId === id && p.event.type === "permission_request");
+    const requestId = (p: EventPayload<"session.event">) => (p.event.payload as { requestId: string }).requestId;
+
+    // Answered at the Mac inside the hold: the phone never hears of it.
+    let pending = asked();
+    await r.mac.call("sessions.send", { id, text: "run it" });
+    await r.mac.call("sessions.respondPermission", { id, requestId: requestId(await pending), decision: "allow" });
+    await new Promise((res) => setTimeout(res, 800));
+    expect(r.pushes.filter((p) => p.urgent)).toEqual([]);
+
+    // Left waiting: it goes when the hold ends, and not before.
+    pending = asked();
+    await r.mac.call("sessions.send", { id, text: "run it" });
+    const second = requestId(await pending);
+    expect(r.pushes.filter((p) => p.urgent)).toEqual([]);
+    await waitFor(() => r.pushes.some((p) => p.urgent));
+    expect(r.pushes.filter((p) => p.urgent).map((p) => p.collapse)).toEqual([collapseId("permission", second)]);
+    phone.close();
   });
 });
