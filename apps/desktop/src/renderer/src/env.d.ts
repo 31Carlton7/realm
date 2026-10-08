@@ -134,6 +134,8 @@ interface Window {
       quickLook?(path: string, base?: string): Promise<void>;
       share?(path: string, at: { x: number; y: number }, base?: string): Promise<void>;
       startDrag?(path: string): void;
+      /** A PDF handed to Preview, for what Realm's viewer does not do: print, forms, signing. */
+      openInPreview?(path: string): Promise<void>;
     };
     /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
     saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedFile>;

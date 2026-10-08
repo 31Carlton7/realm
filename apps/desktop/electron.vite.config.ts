@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -31,6 +34,32 @@ const textScale = (): Plugin => ({
     return { code: scaleTextSizes(code), map: null };
   },
 });
+/** The files pdf.js reads at run time rather than imports: the Adobe CMaps a CJK PDF needs, the
+ *  standard fonts a PDF that embeds none is drawn in, and the WASM decoders for JPX and JBIG2 scans
+ *  (with their plain-JS fallbacks) and ICC colour. They are copied beside index.html under `pdfjs/`
+ *  and served from there in dev, so the renderer finds them at one relative URL either way
+ *  (panes/documents/pdf-source.ts). Without them a CJK PDF draws boxes and a scan draws nothing.
+ *  `quickjs-eval` is left out: it runs a PDF's own JavaScript, which Realm never enables. */
+const PDFJS_DIRS = ["cmaps", "standard_fonts", "wasm", "iccs"] as const;
+const pdfjsRoot = (): string => dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
+const pdfjsFiles = (): { name: string; file: string }[] => PDFJS_DIRS.flatMap((dir) =>
+  readdirSync(join(pdfjsRoot(), dir)).filter((f) => !f.startsWith("quickjs-eval"))
+    .map((f) => ({ name: `pdfjs/${dir}/${f}`, file: join(pdfjsRoot(), dir, f) })));
+const pdfjsAssets = (): Plugin => ({
+  name: "realm:pdfjs-assets",
+  configureServer(server) {
+    const files = new Map(pdfjsFiles().map((f) => [`/${f.name}`, f.file]));
+    server.middlewares.use((req, res, next) => {
+      const file = files.get((req.url ?? "").split("?")[0]!);
+      if (!file) return next();
+      res.setHeader("content-type", file.endsWith(".wasm") ? "application/wasm" : file.endsWith(".js") ? "text/javascript" : "application/octet-stream");
+      res.end(readFileSync(file));
+    });
+  },
+  generateBundle() {
+    for (const f of pdfjsFiles()) this.emitFile({ type: "asset", fileName: f.name, source: readFileSync(f.file) });
+  },
+});
 export default defineConfig({
   // __REALM_SIGNED_BUILD__ feeds the updater gate (src/main/updater.ts): true only when the build
   // env carries signing credentials — the same CSC_* vars electron-builder signs from — so a signed
@@ -39,5 +68,5 @@ export default defineConfig({
   preload: {},
   // host 127.0.0.1 so the dev-server / HMR socket matches the renderer CSP (connect-src 127.0.0.1 only)
   // Tailwind v4 runs in the renderer only (Plan 9 W1): electron-vite composes vite plugins per target.
-  renderer: { plugins: [katexWoff2Only(), textScale(), react(), tailwindcss()], server: { host: "127.0.0.1" } },
+  renderer: { plugins: [katexWoff2Only(), textScale(), pdfjsAssets(), react(), tailwindcss()], server: { host: "127.0.0.1" } },
 });

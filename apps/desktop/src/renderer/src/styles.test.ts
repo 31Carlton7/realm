@@ -1128,6 +1128,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
       // track and the knob are one box and cannot drift out of register.
       "--media-progress",
+      // A PDF page's scale (PdfView.tsx), set inline per page: pdf.js's text layer sizes every run of
+      // text from it, so the selectable text stays over the drawn glyphs at any zoom.
+      "--total-scale-factor",
       // The rubber-band's offset (rubber-band.ts): written on the scroller per wheel event and per
       // spring frame, and only while the content is past an end.
       "--rubber",
@@ -2524,6 +2527,7 @@ describe("every scroller dissolves", () => {
     ".settings-tabs": "a segmented control lying down in a narrow pane: a mask would fade the track it sits in",
     ".sched-card": "a scheduled task's card, whose own fill and rim a mask would dissolve with its rows",
     ".ql-view": "Quick Look's render on a ground of its own, which a mask would fade with the picture",
+    ".pdf-view": "a PDF's white pages, which a mask fades into the window's material as a grey band across the paper",
     ".media-viewer-canvas[data-pans]": "a zoomed picture being panned: its edges are the picture's pixels, which is what a zoom is for",
     // Editors keep their engines' scrolling, as they keep its rubber-banding (design.md).
     ".documents-rich-scroll": "the rich-text editor's page, where the caret can be on any line",
@@ -2994,6 +2998,13 @@ describe("light mode", () => {
     ["img.avatar", "paired with a light override"],
     // The picture in the media viewer, on the viewer's own ground — paired the same way.
     [".media-viewer-img", "paired with a light override"],
+    // A page of a PDF, on the pane's own ground — its outline paired the same way…
+    [".pdf-page", "paired with a light override"],
+    // …and the paper itself, white in both modes: the file is the file, never inverted for dark.
+    [".pdf-page[data-painted]", "a page of the file is white paper on both faces"],
+    // The same page small, in the page strip.
+    [".pdf-thumb-page", "paired with a light override"],
+    [".pdf-thumb-page[data-painted]", "a page of the file is white paper on both faces"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -3008,10 +3019,14 @@ describe("light mode", () => {
   });
 
   it("every literal that is half a pair really does have its other half", () => {
-    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img"]) {
+    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img", ".pdf-thumb-page"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
       expect(bodiesFor(`:root[data-mode="light"] ${sel}`).join(" "), sel).toContain("outline-color: rgba(0, 0, 0, 0.1)");
     }
+    // A PDF page is a full-pane white sheet, and on the light face 10% left it without an edge
+    // (measured by pdf-view-live.mjs): its light half is a step heavier.
+    expect(bodiesFor(".pdf-page").join(" ")).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
+    expect(bodiesFor(`:root[data-mode="light"] .pdf-page`).join(" ")).toContain("outline-color: rgba(0, 0, 0, 0.14)");
   });
 
   it("the scrims are the one colour that has to differ per mode", () => {

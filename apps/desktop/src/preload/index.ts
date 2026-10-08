@@ -135,6 +135,9 @@ contextBridge.exposeInMainWorld("realm", {
     saveCopy: (path: string): Promise<string | null> => ipcRenderer.invoke("files:save-copy", path),
     /** macOS's Quick Look panel for the file — what Space does in the Finder (main/file-actions.ts). */
     quickLook: (path: string, base?: string): Promise<void> => ipcRenderer.invoke("files:quick-look", path, base),
+    /** Hand a PDF to Preview — which prints it, fills its forms and signs it, none of which Realm's own
+     *  viewer does. Main re-gates the path and refuses anything that is not a PDF. */
+    openInPreview: (path: string): Promise<void> => ipcRenderer.invoke("files:open-in-preview", path),
     /** The system Share menu for the file, at a point in the window. */
     share: (path: string, at: { x: number; y: number }, base?: string): Promise<void> => ipcRenderer.invoke("files:share", path, at, base),
     /** Start an OS drag carrying the file. Call from a `dragstart` the renderer has cancelled. */
