@@ -666,6 +666,26 @@ what the relay sees of a sleeping Mac or a pulled network.
   Connect, then runs XcodeGen and archives Release. It exports an App Store Connect IPA and refuses to
   upload it unless it is distribution-signed, with production push and the notification extension
   inside. `asc publish testflight` then uploads it with the API key and gives it to Internal Testers.
+- **The Mac's half is merged into `feat/mobile`.**
+  - **realm-server runs Realm Mobile itself.** It calls its own RPC in process, as a named principal.
+    The Mac's identity is sealed under a new `remote` secret domain, whose key Electron main hands
+    over. Phones are kept in `remote_devices` (migration v42).
+  - **Pushes** are a third `NotificationRelay` transport, held back while the owner is at the Mac.
+    Main reports whether they are.
+  - **Live, the built server** pairs, opens a session, and pushes a question only the phone can open.
+    It also cuts off a removed phone: 10/10 checks.
+- **Settings ▸ Devices is merged.** It shows the QR sheet, asks the question in the same sheet, has
+  Remove with a confirm, and adds a Notify my iPhone row.
+  - Live against the real server half: 49/49 checks, dark and light.
+  - Vision decodes the code off the window, and it is the server's own pairing link. The TypeScript
+    phone pairs through a local relay.
+- **Keep awake.** Main's guard now also holds for a waiting session while a phone is paired. With no
+  app attached, the server holds `caffeinate -i -w <pid>` under the same rule.
+- **Phase 1's pipe, re-measured after the merge, through the deployed relay:**
+  - round trip p50 71 ms, p95 267 ms;
+  - an event, one way, p50 33 ms;
+  - "Mac back" 228 ms;
+  - the quiet-Mac notice at 60.0 s, and the back-online notice in 28 ms.
 
 ### Phase 2 — Watch (the first TestFlight build)
 
