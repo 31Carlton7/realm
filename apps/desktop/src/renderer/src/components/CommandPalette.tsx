@@ -441,7 +441,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
     }
     for (const h of r.memory) {
       out.push({
-        id: `deep-memory:${h.scope}:${h.spaceId ?? h.profileId}`, deep: true, section: "Memory", label: h.title,
+        id: `deep-memory:${h.scope}:${h.spaceId ?? h.profileId}${h.file ? `:${h.file}` : ""}`, deep: true, section: "Memory", label: h.title,
         icon: <Icon name="context" size={16} />, hint: <Snippet parts={h.snippet} />,
         run: () => run(async () => {
           if (h.scope === "profile") { openProfilePage("memory"); return; }

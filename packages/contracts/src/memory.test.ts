@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  MEMORY_REPO_INITIAL_INDEX, amrRepoSourceLink, applyMemoryEdit, formatMemoryEntry, memoryEntryProblem, memorySupportNote,
+  MEMORY_REPO_INITIAL_INDEX, amrRepoSourceLink, applyMemoryEdit, formatMemoryEntry, githubRepoOf, memoryEntryProblem, memorySupportNote,
   parseMemoryEntry, wikiLinkFor, wikiLinkTarget, withIndexLink,
 } from "./memory";
 
@@ -105,3 +105,17 @@ describe("applyMemoryEdit", () => {
     expect(amrRepoSourceLink("01ABC")).toBe("realm:session/01ABC");
   });
 });
+
+describe("githubRepoOf", () => {
+  it("reads the three spellings git accepts for a GitHub remote, and nothing looser", () => {
+    for (const url of ["https://github.com/carlton/memory.git", "https://github.com/carlton/memory", "git@github.com:carlton/memory.git", "ssh://git@github.com/carlton/memory.git", "https://token@github.com/carlton/memory/"]) {
+      expect(githubRepoOf(url)).toEqual({ owner: "carlton", repo: "memory" });
+    }
+    // THE MUTANT: match `github.com` anywhere — a look-alike host would be "checked" by asking GitHub
+    // about some other repository, and its answer trusted.
+    for (const url of ["https://github.com.evil.dev/carlton/memory", "https://notgithub.com/carlton/memory", "https://evil.dev/github.com/carlton/memory", "https://gitlab.com/carlton/memory", "/Users/me/memory.git", "git@github.com:carlton/memory/extra"]) {
+      expect(githubRepoOf(url)).toBeNull();
+    }
+  });
+});
+

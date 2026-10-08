@@ -6,6 +6,7 @@ import type { ProfilesStore } from "../store/profiles";
 import type { SpacesStore } from "../store/spaces";
 import type { SkillsService } from "../skills/service";
 import type { MemoryService } from "../memory/service";
+import type { MemoryRepoService } from "../memory/repo";
 import { NotFoundError } from "../store/rows";
 
 /** The resumable event-backfill cursor, written by migration v15 and advanced by `runBackfill`.
@@ -127,6 +128,9 @@ export class SearchService {
   constructor(private d: {
     db: Db; settings: SettingsStore; profiles: ProfilesStore; spaces: SpacesStore;
     skills: SkillsService; memory: MemoryService;
+    /** Memory repos, searched live like the documents: a repo is a folder agents and people edit
+     *  outside Realm too. Unwired, search holds documents only. */
+    memoryRepos?: Pick<MemoryRepoService, "config" | "search">;
   }) {}
 
   query(profileId: string, raw: string, limit = SEARCH_GROUP_LIMIT): SearchResults {
@@ -197,21 +201,43 @@ export class SearchService {
     return [...out.values()].slice(0, limit);
   }
 
-  /** Memory documents of this profile's world: the profile doc, then each of its spaces' docs. */
+  /** Memory of this profile's world: the profile doc and repo, then each of its spaces' doc and repo.
+   *  A repo hit is one per file — the file's first matching line — titled with the file. */
   private memory(profileId: string, tokens: string[], limit: number): MemorySearchHit[] {
     const out: MemorySearchHit[] = [];
     const profile = this.d.profiles.get(profileId);
     const profileDoc = this.d.memory.readProfileDoc(profileId);
     if (profile && liveMatches(profileDoc, tokens)) {
-      out.push({ scope: "profile", profileId, spaceId: null, title: `${profile.name} profile memory`, snippet: liveSnippet(profileDoc, tokens) });
+      out.push({ scope: "profile", profileId, spaceId: null, title: `${profile.name} profile memory`, snippet: liveSnippet(profileDoc, tokens), file: null });
     }
+    if (profile) out.push(...this.repoHits({ scope: "profile", id: profileId }, `${profile.name} memory repo`, tokens, limit));
     for (const sp of this.d.spaces.list(profileId)) {
       if (out.length >= limit) break;
       const doc = this.d.memory.readDoc(sp.id);
-      if (!liveMatches(doc, tokens)) continue;
-      out.push({ scope: "space", profileId: null, spaceId: sp.id, title: `${sp.name} memory`, snippet: liveSnippet(doc, tokens) });
+      if (liveMatches(doc, tokens)) out.push({ scope: "space", profileId: null, spaceId: sp.id, title: `${sp.name} memory`, snippet: liveSnippet(doc, tokens), file: null });
+      out.push(...this.repoHits({ scope: "space", id: sp.id }, `${sp.name} memory repo`, tokens, limit));
     }
     return out.slice(0, limit);
+  }
+
+  private repoHits(owner: { scope: "profile" | "space"; id: string }, title: string, tokens: string[], limit: number): MemorySearchHit[] {
+    const path = this.d.memoryRepos?.config(owner)?.path;
+    if (!path || tokens.length === 0) return [];
+    let hits: { path: string; line: number; text: string }[];
+    // A repo folder moved or deleted under Realm is no search result, and no reason to fail a search.
+    try { hits = this.d.memoryRepos!.search(path, tokens.join(" ")); } catch { return []; }
+    const out: MemorySearchHit[] = [];
+    const seen = new Set<string>();
+    for (const h of hits) {
+      if (seen.has(h.path)) continue;
+      seen.add(h.path);
+      out.push({
+        scope: owner.scope, profileId: owner.scope === "profile" ? owner.id : null, spaceId: owner.scope === "space" ? owner.id : null,
+        title: `${title} · ${h.path}`, snippet: liveSnippet(h.text, tokens), file: h.path,
+      });
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   /**

@@ -3,7 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useState, type RefObject } from "react";
 import { useApp } from "../../state/store";
 import { MemoryDoc } from "./MemoryDoc";
-import { InheritedMemoryRepoRow } from "./MemoryRepoRow";
+import { InheritedMemoryRepoRow, MemoryRepoRow } from "./MemoryRepoRow";
 
 /** The agents a space's memory reaches, and the ones it cannot: the channel table decides, never a
  *  list kept here. */
@@ -33,6 +33,10 @@ export function MemoryPanel({ spaceId, editorRef }: { spaceId: string;
     <div className="form settings-panel memory-panel">
       <div className="settings-row scope-doc-row"><SpaceMemoryDoc spaceId={spaceId} editorRef={editorRef} /></div>
       <MemoryReach spaceId={spaceId} />
+      {/* The space's own repo, beside the profile's it inherits: a team's, which everyone working in
+          this space reads and saves to. Its sessions get both; a save goes here unless told. */}
+      <h3 className="settings-head">This space's memory repo</h3>
+      <MemoryRepoRow owner={{ scope: "space", id: spaceId }} />
     </div>
   );
 }
@@ -66,7 +70,7 @@ export function MemoryReach({ spaceId }: { spaceId: string }) {
   const memory = useApp((s) => s.spaceMemory[spaceId]);
   const setAgentsFile = useApp((s) => s.setAgentsFile);
   const profileName = useApp((s) => s.profiles.find((p) => p.id === s.spaces.find((x) => x.id === spaceId)?.profileId)?.name ?? "The profile");
-  const repoHere = useApp((s) => (s.spaceMemoryRepos[spaceId] ?? []).some((r) => r.inheritedHere === true));
+  const repoHere = useApp((s) => (s.spaceMemoryRepos[spaceId] ?? []).some((r) => r.scope === "space" || r.inheritedHere === true));
   const run = useApp((s) => s.run);
   if (!memory) return null;
   const af = memory.agentsFile;
