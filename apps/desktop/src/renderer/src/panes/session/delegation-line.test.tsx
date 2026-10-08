@@ -17,7 +17,7 @@ const start = (goal: string, result: { text: string; isError?: boolean } | null)
 ];
 
 const child = (over: Partial<DelegatedChild> = {}): DelegatedChild => ({
-  session: session(CHILD, "s1", { agentKind: "codex", model: "gpt-6-luna", dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }),
+  session: session(CHILD, "s1", { title: "Write the tests", agentKind: "codex", model: "gpt-6-luna", dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }),
   goal: "Write the tests\n\nFor the toggle.", startedAt: 1_000, settledAt: 101_000, outcome: "done", report: "All pass.", activity: null, ...over,
 });
 
@@ -35,7 +35,7 @@ afterEach(() => cleanup());
 
 describe("a sub-agent in its lead's transcript", () => {
   it("is one quiet line — Subagent finished · its task — with the model it ran on and how long", async () => {
-    await mount(start("Write the tests\n\nFor the toggle.", { text: `Started delegated agent ${CHILD} ("Agent: Write the tests") on Codex · GPT-6 Luna.` }), [child()]);
+    await mount(start("Write the tests\n\nFor the toggle.", { text: `Started delegated agent ${CHILD} ("Write the tests") on Codex · GPT-6 Luna.` }), [child()]);
     const line = await screen.findByRole("button", { name: "Subagent finished: Write the tests, on GPT-6 Luna" });
     expect(line).toHaveTextContent("Subagent finished");
     expect(line).toHaveTextContent("1m 40s");
@@ -64,6 +64,19 @@ describe("a sub-agent in its lead's transcript", () => {
     // Mutant: find the child by the result's id alone — until agent_run returns, the line could only
     // say it is starting, about a sub-agent that is in fact waiting on the user.
     expect(await screen.findByRole("button", { name: /^Subagent waiting on you: Write the tests/ })).toBeInTheDocument();
+  });
+
+  it("names a sub-agent by its title, and by the title the call gave before the child is known", async () => {
+    // THE MUTANT: the goal's first line — "You are implementing…" on every line of a lead that opens
+    // its goals with a role.
+    const goal = "You are implementing a feature.\nAdd the toggle.";
+    const named = [sessionEvent("tool_call", { toolUseId: "t1", name: "mcp__realm__realm-agent__agent_start", input: { title: "Dark-mode toggle", goal }, parentToolUseId: null })];
+    const { store } = await mount(named, []);
+    store.setState({ sessionStatus: { [LEAD]: "running" } });
+    expect(await screen.findByRole("button", { name: /: Dark-mode toggle$/ })).toBeInTheDocument();
+    cleanup();
+    await mount(start(goal, { text: `Started delegated agent ${CHILD} ("Dark-mode toggle") on Codex · GPT-6 Luna.` }), [child({ goal, session: session(CHILD, "s1", { title: "Dark-mode toggle", agentKind: "codex", model: "gpt-6-luna", dispatchedBy: { sessionId: LEAD, kind: "agent_run" } }) })]);
+    expect(await screen.findByRole("button", { name: "Subagent finished: Dark-mode toggle, on GPT-6 Luna" })).toBeInTheDocument();
   });
 
   it("a refused call keeps its card, so the refusal's words can be read", async () => {

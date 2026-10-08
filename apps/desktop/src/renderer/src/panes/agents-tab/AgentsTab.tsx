@@ -150,7 +150,7 @@ function SubagentCard({ child, leadId, flash, onOpen }: { child: DelegatedChild;
   const elapsed = ticking ? runningFor : subagentElapsed(child, state, Date.now());
   const kind = child.session.agentKind;
   const model = modelLabel(kind, child.session.model, probe);
-  const task = taskTitle(child.goal, child.session.title);
+  const task = taskTitle(child.session.title, child.goal, "Sub-agent");
   const doing = ticking ? latestDoing(liveDoing, child.activity) : null;
   const summary = !ticking && child.report ? reportSummary(child.report) : "";
   const ref = useRef<HTMLLIElement>(null);

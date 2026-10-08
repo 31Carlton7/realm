@@ -61,8 +61,11 @@ export function modelLabel(kind: AgentKind, id: string | null, probe: readonly {
   return named?.label.replace(/\[[^\]]*\]\s*$/, "") ?? id;
 }
 
-/** The task's first line — what the row is titled with. The rest of the brief is a click away. */
-export function taskTitle(goal: string | null, fallback: string): string {
+/** What a sub-agent's row is titled with: its own title — the name its lead gave the task, or the
+ *  one Realm read out of the goal — and the goal's first line only for a child with none. The rest
+ *  of the brief is a click away. */
+export function taskTitle(title: string | null | undefined, goal: string | null, fallback: string): string {
+  if (title && title.trim() !== "") return title.trim();
   const line = (goal ?? "").split("\n").map((l) => l.trim()).find((l) => l !== "");
   return line ?? fallback;
 }
