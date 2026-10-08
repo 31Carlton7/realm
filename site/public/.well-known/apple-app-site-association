@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["FY9QB79VAP.co.charmtechnologies.realm.ios"],
+        "components": [
+          {
+            "/": "/pair",
+            "comment": "A pairing link from Realm's Settings ▸ Devices. Its secret is in the fragment, which never reaches this server."
+          }
+        ]
+      }
+    ]
+  }
+}
