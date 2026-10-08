@@ -321,6 +321,15 @@ describe("performAct — keys", () => {
     expect(keys[1]).toMatchObject({ modifiers: 4, commands: ["selectAll"] });
   });
 
+  it("gives the page focus for the press alone — without it Chrome drops Tab's move and ⌘A's command (mutant: no focus emulation)", async () => {
+    const { send, calls } = fakeSend({});
+    await performAct(send, { kind: "key", key: "Shift+Tab" });
+    const seq = calls.map((c) => (c.method === "Emulation.setFocusEmulationEnabled" ? `focus ${c.params.enabled}` : c.method));
+    expect(seq[0]).toBe("focus true");
+    expect(seq.at(-1)).toBe("focus false");
+    expect(seq.slice(1, -1).every((m) => m === "Input.dispatchKeyEvent")).toBe(true);
+  });
+
   it("refuses a key it cannot press without touching the page", async () => {
     const { send, calls } = fakeSend({});
     const result = await performAct(send, { kind: "key", key: "BrowserBack", ref: 7 });

@@ -444,8 +444,17 @@ export async function performAct(send: CdpSend, action: BrowserAction): Promise<
       case "key": {
         const resolved = resolveKeyChord(action.key, action.modifiers);
         if (!resolved.ok) return { ok: false, error: resolved.error };
-        if (action.ref !== undefined) await focusRef(send, action.ref);
-        for (const ev of chordKeyEvents(resolved.chord)) await send("Input.dispatchKeyEvent", ev);
+        // A pane the user is not typing in does not have the page focus a keyboard would give it, and
+        // without that Chrome drops what a key does beyond its events — moving the focus on Tab, the
+        // editing command of ⌘A. Focus is emulated for the press alone, so the page goes back to
+        // knowing it is not the one the user is typing in.
+        await send("Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {});
+        try {
+          if (action.ref !== undefined) await focusRef(send, action.ref);
+          for (const ev of chordKeyEvents(resolved.chord)) await send("Input.dispatchKeyEvent", ev);
+        } finally {
+          await send("Emulation.setFocusEmulationEnabled", { enabled: false }).catch(() => {});
+        }
         return { ok: true, detail: `pressed ${resolved.chord.label}` };
       }
       case "scroll": {
