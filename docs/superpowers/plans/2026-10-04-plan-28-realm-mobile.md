@@ -2,10 +2,10 @@
 
 > Numbered 28: 27 (the sidebar) is the highest on any branch. Renumber on landing if it collides.
 
-> **Status (2026-10-08): Phase 1 is done.** The four decisions below were answered by the owner on
-> 2026-10-04. The pipe is built on `feat/mobile-phase-1` and measured end to end, through a deployed
-> relay and on the owner's iPhone. Pushes decrypt on the device. "Phase 1 results" under Phases has the
-> numbers, the targets each one met or missed, and what Phase 2 inherits.
+> **Status (2026-10-08): Phase 1 is done; Phase 2 is under way on `feat/mobile`.** The four decisions
+> below were answered by the owner on 2026-10-04. The pipe is built and measured end to end, through a
+> deployed relay and on the owner's iPhone. Pushes decrypt on the device. "Phase 1 results" under
+> Phases has the numbers and what Phase 2 inherits; "Phase 2 so far" has what has landed since.
 
 ## What it is for
 
@@ -652,6 +652,21 @@ what the relay sees of a sleeping Mac or a pulled network.
 4. **Before TestFlight:** the released Xcode 27 (this Mac has 27.0 beta 6), and the App Store
    Connect app record for `co.charmtechnologies.realm.ios`.
 
+### Phase 2 so far (2026-10-08)
+
+- **Inherited 1, the quiet Mac: done, and live.** The relay's alarm now watches a connected Mac's
+  silence while any phone is connected (PROTOCOL.md §3.2). Against the deployed relay, a SIGSTOPped
+  sidecar was announced to its phone after **60.0 s** (Phase 1: not within 180 s). On SIGCONT the
+  phone heard it was back after **34 ms**, and got its first answer after 0.5 s.
+- **Inherited 3, the rebase: done.** `feat/mobile` sits on 2.0.3.
+- **Inherited 4: answered by the owner.** Upload from Xcode 27.0 beta 6 and accept the ITMS-90534
+  risk, rather than install the released Xcode now. The app record exists (see "What only the owner
+  can do").
+- **`pnpm ios:release`** is `scripts/ios-release.mjs`. It takes the next build number from App Store
+  Connect, then runs XcodeGen and archives Release. It exports an App Store Connect IPA and refuses to
+  upload it unless it is distribution-signed, with production push and the notification extension
+  inside. `asc publish testflight` then uploads it with the API key and gives it to Internal Testers.
+
 ### Phase 2 — Watch (the first TestFlight build)
 
 **What gets built:**
@@ -755,17 +770,20 @@ Each is done once. Phase 1 needs only items 2, 4 and 5.
 
 1. **Install the released Xcode 27.** This Mac has 27.0 beta 6. App Store Connect refuses builds from
    a beta Xcode unless Apple's release notes name that beta (ITMS-90534), and 27.0 shipped on
-   2026-09-14. Needed before the first TestFlight upload.
+   2026-09-14. *2026-10-08: the owner chose to try the beta first.*
 2. **An APNs key.** Create it at developer.apple.com ▸ Certificates, IDs & Profiles ▸ Keys, or name
    an existing `.p8`. It goes into the relay as a Worker secret and nowhere else.
-3. **The app record in App Store Connect:** named Realm, bundle `co.charmtechnologies.realm.ios`.
-   Xcode is already signed in to the team, so it can register the identifiers and upload.
+3. **The app record in App Store Connect.** *Done 2026-10-08 with `asc web apps create`.* The listing
+   is "Realm: Agent Workspace" because "Realm" belongs to another developer; the home screen still
+   says Realm. App id 6820452196, SKU REALM-IOS. Its internal "Internal Testers" group gets every
+   build, and the owner is in it.
 4. **`wrangler login`, once,** in a terminal pane: the Cloudflare account authorises the relay's
    deploys.
 5. **Developer Mode on the iPhone** (Settings ▸ Privacy & Security), for development builds over the
    cable.
 6. **TestFlight on the iPhone,** from Phase 2.
-7. **Later:** the relay's domain, and the export-compliance answer (standard encryption).
+7. **Later:** the relay's domain. *The export-compliance answer was given 2026-10-08:* built-in
+   encryption only (all of it is CryptoKit), so `ITSAppUsesNonExemptEncryption` is NO.
 
 ## Working beside the v2 work
 
