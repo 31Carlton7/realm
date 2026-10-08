@@ -48,6 +48,11 @@ const SCRIPT: FakeScript = [
     { kind: "call", tool: "realm-team__record_update", input: { op: "add", path: "nathan-beyenhof", section: "Deal", entry: "Password: sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789" } },
     { kind: "text", text: "Record kept." },
   ] },
+  { on: "no consent yet", emit: [
+    { kind: "call", tool: "realm-team__record_update", input: { op: "create", name: "Nathan Beyenhof" } },
+    { kind: "call", tool: "realm-team__record_update", input: { op: "add", path: "nathan-beyenhof", section: "Accounts", entry: "TikTok @versed.nathan · vault: tiktok.com/nathan" } },
+    { kind: "text", text: "Record kept." },
+  ] },
   { on: "make the slides", emit: [
     { kind: "call", tool: "realm-team__record_read", input: { path: "nathan-beyenhof" } },
     { kind: "usage", costUsd: 0.84 },
@@ -164,6 +169,19 @@ describe("teams over the wire", () => {
     expect((await c.must("team.space", { spaceId })).reviews).toEqual([]);
     const refusals = (await c.must("team.activity", { spaceId, limit: 50 })).filter((a: Any) => a.verb === "submitted");
     expect(refusals).toEqual([]);
+    c.close();
+  });
+
+  it("refuses an account whose record line says no consent:, and names what to add", async () => {
+    const { c, spaceId, roleId } = await boot();
+    await c.must("team.roleRun", { id: roleId, message: "no consent yet" });
+    await waitFor(async () => (await runsOf(c, roleId)).every(settled), { timeout: 8000 });
+    await c.must("team.roleRun", { id: roleId, message: "make the slides" });
+    await waitFor(async () => (await runsOf(c, roleId)).every(settled), { timeout: 8000 });
+    expect((await c.must("team.space", { spaceId })).reviews).toEqual([]);
+    const sid = (await runsOf(c, roleId))[0].sessionId;
+    const results = app.sessions.events(sid, 0, 500).filter((e) => e.event.type === "tool_result").map((e) => JSON.stringify(e.event.payload));
+    expect(results.some((r) => r.includes("without consent:"))).toBe(true);
     c.close();
   });
 
