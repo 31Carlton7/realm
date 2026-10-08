@@ -95,7 +95,7 @@ const SURFACES = [
   {
     what: "the sign-in unlock setting",
     file: "apps/desktop/src/renderer/src/panes/settings/SettingsPage.tsx",
-    on: 'className="unlock-policy"',
+    on: 'className="settings-row unlock-policy"',
   },
   {
     what: "the Without asking confirmation",

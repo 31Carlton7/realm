@@ -1733,8 +1733,9 @@ function UnlockPolicyRows({ profileId, profileName }: { profileId: string; profi
   }
 
   return (
-    <div className="unlock-policy" data-no-agent="sign-in unlock setting">
-      <div className="settings-row" data-stack data-setting="unlock-policy">
+    <>
+      {/* One row of the Security run, so it meshes with the rows after it; the sheet is portalled. */}
+      <div className="settings-row unlock-policy" data-stack data-setting="unlock-policy" data-no-agent="sign-in unlock setting">
         <div className="settings-row-main">
           <span className="settings-row-name">Unlock {profileName}'s sign-ins with</span>
           <span className="settings-row-desc">{status ? unlockDescription(status, profileName, Date.now()) : "Loading…"}</span>
@@ -1799,7 +1800,7 @@ function UnlockPolicyRows({ profileId, profileName }: { profileId: string; profi
           </div>
         </Sheet>
       )}
-    </div>
+    </>
   );
 }
 
