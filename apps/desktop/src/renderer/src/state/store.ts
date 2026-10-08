@@ -1907,6 +1907,11 @@ export type AppState = {
   /** An empty pane beside the focused one (beside the pane of the session whose tab is showing, from
    *  the panel), focused — refused, in a toast that says why, when there is no room for it. */
   splitFocused(dir: "row" | "col"): Promise<void>;
+  /** "Split right" / "Split down" as the key, the menu bar, the palette and the pane bar mean them: a
+   *  NEW session beside the focused pane (beside its session's pane, from the panel), in that pane's
+   *  space, focused — refused before anything is made when there is no room, so a refusal never leaves
+   *  a session behind. With no space to make one in, the empty pane `splitFocused` makes. */
+  splitNewSession(dir: "row" | "col"): Promise<void>;
   /** Drag-to-split: center replaces the leaf's item (or, on the panel, adds it as a tab); an edge
    *  opens it beside the pane on that side — refused, in a toast, when there is no room. */
   openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
@@ -5132,6 +5137,17 @@ await get().refreshCustomThemes().catch(() => {});
         const { layout, leafId } = splitEmptyInView(get().layout ?? emptyLayout(), get().focusedLeafId, dir);
         set(writeView(revealing({ ...viewNow(), layout }, leafId), { focusedLeafId: leafId }));
         await persist();
+      },
+      async splitNewSession(dir) {
+        const why = get().splitRefusal(dir);
+        if (why) { get().toast({ tone: "warning", text: why }); return; }
+        const layout = get().layout ?? emptyLayout();
+        const anchor = columnOf(layout, get().focusedLeafId) ?? primaryLeaves(layout)[0] ?? null;
+        // The anchor pane's own space: a session from another space can share the view, and what is
+        // opened beside a session belongs to that session's space.
+        const sid = spaceFor(anchor?.itemId ? get().items.find((i) => i.id === anchor.itemId)?.spaceId : null);
+        if (!sid) return get().splitFocused(dir);
+        await get().newSessionInstant(anchor?.id ?? null, dir === "row" ? "right" : "bottom", sid);
       },
       async openItemAt(itemId, leafId, edge) {
         // Self-drop: the item already occupies the target leaf. Splitting would first close the item

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
-import type { Layout } from "@realm/contracts";
+import { allItems, type Layout } from "@realm/contracts";
 import { useGlobalHotkeys } from "./hotkeys";
 import { createAppStore, neighborLeafId } from "./state/store";
 import { fakeApi, item, session } from "./state/store.test-fakes";
@@ -76,7 +76,7 @@ describe("useGlobalHotkeys", () => {
   });
 
   it("a focused terminal (xterm helper textarea) does NOT swallow global bindings: ⌘W closes, ⌘\\ splits", async () => {
-    const { store } = await mount();
+    const { api, store } = await mount();
     const two: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
       { type: "leaf", id: "L1", itemId: "A" }, { type: "leaf", id: "L2", itemId: "B" }] };
     act(() => store.setState({ layout: two, focusedLeafId: "L1", items: [item("A", "s1"), item("B", "s1")] }));
@@ -91,6 +91,9 @@ describe("useGlobalHotkeys", () => {
       const l = store.getState().layout!;
       expect(l.type === "split" && l.dir === "row" && l.children.length).toBe(2); // split fired
     });
+    // …with a new session in the new pane (THE MUTANT: the binding left on splitFocused, an empty pane).
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(2));
+    expect(api.calls).toContain("createSession:claude");
     host.remove();
   });
 

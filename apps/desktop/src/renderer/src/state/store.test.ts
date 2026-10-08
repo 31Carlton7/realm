@@ -893,6 +893,102 @@ describe("app store", () => {
     expect(store.getState().projects).toHaveLength(1);
   });
 
+  describe("splitNewSession — Split right / down makes a session, not an empty pane", () => {
+    const wide = { width: 8 * PANE_MIN.width + 7 * PANE_DIVIDER, height: 2 * PANE_MIN.height + PANE_DIVIDER };
+    /** Session se1 (item i9, space s1) alone on screen and focused. */
+    const oneSession = async () => {
+      api = fakeApi({
+        items: { s1: [item("i9", "s1", { kind: "session", title: "A", refId: "se1" }), item("i8", "s1", { kind: "session", title: "B", refId: "se2" })], s2: [item("w2", "s2", { kind: "terminal", title: "T" })] },
+        sessions: [session("se1", "s1"), session("se2", "s1")],
+      });
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await store.getState().openItem("i9");
+      store.setState({ viewRoom: wide });
+      return store;
+    };
+    const created = () => api.calls.filter((c) => c.startsWith("createSession"));
+    /** The item of the session `createSession` made last. */
+    const newItem = () => api.data.items.s1!.concat(api.data.items.s2 ?? []).find((i) => i.kind === "session" && i.id !== "i9" && i.id !== "i8")!;
+
+    it("splits right of the focused session with a NEW session, and focuses it", async () => {
+      // THE MUTANTS: calling splitFocused (an empty pane, no session), and opening without the edge
+      // (the new session REPLACES the focused one instead of standing beside it).
+      const store = await oneSession();
+      await store.getState().splitNewSession("row");
+      expect(created()).toEqual(["createSession:claude"]);
+      const l = store.getState().layout!;
+      expect(l.type === "split" && l.dir).toBe("row");
+      expect(primaryLeaves(l).map((p) => p.itemId)).toEqual(["i9", newItem().id]);
+      expect(store.getState().focusedLeafId).toBe(findLeafOfItem(l, newItem().id)!.id);
+    });
+
+    it("split down puts it below", async () => {
+      // THE MUTANT: a hard-coded "right".
+      const store = await oneSession();
+      await store.getState().splitNewSession("col");
+      const l = store.getState().layout!;
+      expect(l.type === "split" && l.dir).toBe("col");
+      expect(primaryLeaves(l).map((p) => p.itemId)).toEqual(["i9", newItem().id]);
+    });
+
+    it("a refused split says why and creates no session", async () => {
+      // THE MUTANT: create first, ask for room after — a refused split leaves an orphan session.
+      const store = await oneSession();
+      store.setState({ viewRoom: { width: PANE_MIN.width, height: PANE_MIN.height } });
+      const before = store.getState().layout;
+      await store.getState().splitNewSession("row");
+      expect(created()).toEqual([]);
+      expect(store.getState().layout).toBe(before);
+      expect(store.getState().toasts.map((t) => t.text)).toEqual([store.getState().splitRefusal("row")]);
+    });
+
+    it("is made in the anchor pane's space, not the window's current one", async () => {
+      // THE MUTANT: no spaceId, which sends the session to whichever space is current. They differ
+      // when nothing is focused: the anchor is the first pane, the current space the last one visited.
+      const store = await oneSession();
+      store.setState({ focusedLeafId: null, lastSpaceByProfile: { p1: "s2" } });
+      expect(store.getState().activeSpaceId).toBe("s2");
+      await store.getState().splitNewSession("row");
+      expect(newItem().spaceId).toBe("s1");
+      expect(primaryLeaves(store.getState().layout!).map((p) => p.itemId)).toEqual(["i9", newItem().id]);
+    });
+
+    it("from a side-panel tab, anchors on that tab's session", async () => {
+      // THE MUTANT: anchoring on the panel leaf itself — the new session would land beside whatever
+      // pane `openItemAt` reaches for, not beside the session the tab belongs to.
+      const store = await oneSession();
+      await store.getState().openItemAt("i8", findLeafOfItem(store.getState().layout!, "i9")!.id, "right"); // [se1 | se2]
+      store.getState().focusLeaf(findLeafOfItem(store.getState().layout!, "i9")!.id);
+      await store.getState().newTab(); // a tab in se1's panel, focused
+      const panelLeaf = store.getState().focusedLeafId!;
+      expect(findSidePane(store.getState().layout!, "i9")?.id).toBe(panelLeaf);
+      await store.getState().splitNewSession("row");
+      const l = store.getState().layout!;
+      const order = primaryLeaves(l).map((p) => p.itemId);
+      expect(order).toEqual(["i9", newItem().id, "i8"]);
+      expect(findSidePane(l, "i9")).not.toBeNull();
+    });
+
+    it("into an empty pane fills it rather than splitting it", async () => {
+      const store = await oneSession();
+      await store.getState().splitFocused("row"); // an empty pane, focused
+      await store.getState().splitNewSession("row");
+      expect(primaryLeaves(store.getState().layout!).map((p) => p.itemId)).toEqual(["i9", newItem().id]);
+    });
+
+    it("with no space to make a session in, still splits — an empty pane", async () => {
+      // THE MUTANT: returning on no space — the key would do nothing at all.
+      api = fakeApi({ spaces: [] });
+      const store = createAppStore(api);
+      await store.getState().boot();
+      store.setState({ viewRoom: wide, layout: leaf("E", null), focusedLeafId: "E" });
+      await store.getState().splitNewSession("row");
+      expect(created()).toEqual([]);
+      expect(primaryLeaves(store.getState().layout!)).toHaveLength(2);
+    });
+  });
+
   describe("create race: items.changed refresh lands before terminals.create resolves", () => {
     it("newTerminal after splitFocused lands the item exactly once, in the fresh leaf", async () => {
       const store = createAppStore(api);

@@ -54,11 +54,11 @@ const focusedItem = (s: AppState) => {
 };
 
 const BINDINGS: Binding[] = [
-  // ⌘\ split right / ⌘⇧\ split down. With shift, a US layout reports "|", so accept both keys and
+  // ⌘\ split right / ⌘⇧\ split down, each with a new session. With shift, a US layout reports "|", so accept both keys and
   // let shift pick the direction.
   {
     match: (e) => (e.key === "\\" || e.key === "|") && e.metaKey && !e.ctrlKey && !e.altKey,
-    run: (s, e) => s.run(() => s.splitFocused(e.shiftKey ? "col" : "row")),
+    run: (s, e) => s.run(() => s.splitNewSession(e.shiftKey ? "col" : "row")),
   },
   // ⌘1…⌘9 → nth space OF THE ACTIVE PROFILE. Indexing the whole home made the binding both
   // incomplete (spaces 10+ were unreachable) and unstable (a drag in one profile resequenced every
