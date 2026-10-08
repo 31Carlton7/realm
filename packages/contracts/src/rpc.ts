@@ -19,7 +19,7 @@ import {
 import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
-import { MEMORY_DOC_MAX, MemorySourcesSchema, MemoryStateSchema } from "./memory";
+import { MEMORY_DOC_MAX, MemoryRepoCommitSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
@@ -1369,6 +1369,24 @@ export const Methods = {
    * is a stated "nothing reaches this agent" row.
    */
   "memory.sources": { params: z.object({ sessionId: IdSchema }), result: MemorySourcesSchema },
+  /**
+   * The memory repos one scope sees: a profile's own, or — asked with a space — the ones a session in
+   * that space would use, each with `inheritedHere`. A list because a space will take more than one
+   * (a team's beside the profile's); today it holds the profile's repo or nothing.
+   */
+  "memory.repo.get": { params: z.object({ profileId: IdSchema.optional(), spaceId: IdSchema.optional() }), result: z.object({ repos: z.array(MemoryRepoStateSchema) }) },
+  /** Make the profile's memory repo — `<realmHome>/memory/repos/profile-<id>` unless a path is given.
+   *  Reuses a valid repo already there; refuses (MEMORY_REPO_NOT_EMPTY) a folder that is anything else. */
+  "memory.repo.create": { params: z.object({ profileId: IdSchema, path: z.string().min(1).optional() }), result: MemoryRepoStateSchema },
+  /** Use an existing memory repo (one the spec's skill or another agent made) as the profile's. Writes
+   *  nothing; refuses a folder that is not a repo with `MEMORY.md` at its top. */
+  "memory.repo.attach": { params: z.object({ profileId: IdSchema, path: z.string().min(1) }), result: MemoryRepoStateSchema },
+  /** Stop using the profile's memory repo. The folder and its history stay exactly where they are. */
+  "memory.repo.detach": { params: z.object({ profileId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** Per-space opt-out of the profile's memory repo: ON by default, like the profile document. */
+  "memory.repo.setInherited": { params: z.object({ spaceId: IdSchema, enabled: z.boolean() }), result: z.object({ repos: z.array(MemoryRepoStateSchema) }) },
+  /** The repo's latest commits, newest first — what agents remembered, in their own commit lines. */
+  "memory.repo.log": { params: z.object({ profileId: IdSchema, limit: z.number().int().min(1).max(100).default(20) }), result: z.object({ commits: z.array(MemoryRepoCommitSchema) }) },
 
   /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
    *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12

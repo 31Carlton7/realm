@@ -121,7 +121,7 @@ describe("the AGENTS.md opt-in", () => {
 
 const codexSources: MemorySources = {
   agent: "codex", channel: "developerInstructions", basis: "reported",
-  note: memorySupportNote("codex"), realmMemoryInjected: true,
+  note: memorySupportNote("codex"), realmMemoryInjected: true, repoIndexInjected: false,
   sources: [
     { path: "/Users/x/repo/AGENTS.md", origin: "reported", exists: true, via: "cli" },
     { path: "/Users/x/gone/AGENTS.md", origin: "reported", exists: false, via: "cli" },
@@ -129,7 +129,7 @@ const codexSources: MemorySources = {
 };
 const cursorSources: MemorySources = {
   agent: "acp:cursor", channel: "none", basis: "none",
-  note: memorySupportNote("acp:cursor"), realmMemoryInjected: false, sources: [],
+  note: memorySupportNote("acp:cursor"), realmMemoryInjected: false, repoIndexInjected: false, sources: [],
 };
 
 describe("what each agent actually loads", () => {

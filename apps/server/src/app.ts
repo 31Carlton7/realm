@@ -33,6 +33,7 @@ import { createGoalProvider } from "./goals/agent-tools";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
@@ -95,6 +96,8 @@ import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
+import { MemoryRepoService } from "./memory/repo";
+import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
@@ -526,6 +529,13 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "text", text: "Done — \"Weekly review\" runs every Friday at 4:00 PM, starting this week." },
     ],
   }, {
+    // A fact saved to the profile's memory repo through `realm-memory`, as an agent in any engine
+    // saves one — so the memory row's last commit and its Recent memories have a real one to show.
+    on: "remember I prefer tabs", emit: [
+      { kind: "call", tool: "realm-memory__memory_save", input: { entry: "Prefers tabs over spaces" } },
+      { kind: "text", text: "Saved to your memory repo: you prefer tabs over spaces." },
+    ],
+  }, {
     // A turn that leaves files behind — a note and a script written, the README edited — so the
     // documents pane beside the session has its own files to list. The tool calls are what the
     // Library's index records; the paths are relative, as an agent names files in its own checkout.
@@ -901,7 +911,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Activity keeps no masked answer: what a session was told in secret is scrubbed from its calls.
     redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text });
   gateway = mcpGateway;
-  const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam });
+  /* The profile's memory repo (Agent Memory Repo): what agents write. The memory documents stay the
+     user's standing instructions; this is the memory agents save into and read back, through the
+     `realm-memory` tools registered further down. A repo may never sit inside a space's checkout, an
+     agent's own config folder or Realm's install — the spec's first rule, and W3's read-only one. */
+  const userHome = opts.userHome ?? homedir();
+  const memoryRepos = new MemoryRepoService({
+    home: opts.home, settings, scopes: scopeSeam,
+    forbiddenRoots: () => [
+      ...spaces.listAll().flatMap((sp) => [sp.folderPath, ...environments.list(sp.id).map((e) => e.path)]).filter((p): p is string => typeof p === "string" && p !== ""),
+      ...[".claude", ".codex", ".cursor", ".agents"].map((d) => join(userHome, d)),
+      ...((process as { resourcesPath?: string }).resourcesPath ? [(process as { resourcesPath?: string }).resourcesPath!] : []),
+    ],
+    toolsEnabled: (spaceId) => mcp.providerEnabled(spaceId, MEMORY_PROVIDER_NAME),
+    committerName: userFirstName,
+  });
+  const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam, repos: memoryRepos });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
@@ -1193,6 +1218,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      because it wraps the service declared on the line above; the gateway's per-space enablement is
      what decides whether a session actually sees the tools. */
   mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp, sessions }));
+  /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
+     has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
+     agents, which take no per-session context. A save repaints every open memory row of the profile. */
+  mcpGateway.registerProvider(createMemoryAgentProvider({
+    repos: memoryRepos, mcp,
+    onChanged: (profileId) => { for (const sp of spaces.list(profileId)) rpc.broadcast("memory.changed", { spaceId: sp.id }); },
+  }));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
@@ -1257,7 +1289,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const projectSearch = new ProjectSearchService();
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles,
