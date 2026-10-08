@@ -8268,11 +8268,14 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .pairing-code { display: block; margin-bottom: 6px; border-radius: var(--r-chip);
   outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
 :root[data-mode="light"] .pairing-code { outline-color: rgba(0, 0, 0, 0.1); }
+/* The code's place once it has run out. `--field`, not `--inset`: on the light face the inset tone is a
+   step off white nobody can see, and the box has to read as the code's place on both. */
 .pair-code-gone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
-  margin-bottom: 6px; border-radius: var(--r-chip); background: var(--inset); }
+  margin-bottom: 6px; border-radius: var(--r-chip); background: var(--field); }
 .pair-code-gone p { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
 .pair-instruction { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
 .pair-expiry { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.pair-scan[data-gone] > :is(.pair-instruction, .pair-expiry) { visibility: hidden; }
 /* The two questions the page asks — pair this phone, remove that one — each name what is asked
    about, then the one sentence the answer rests on, in the reading ink rather than a lede's. */
 .pair-device { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }

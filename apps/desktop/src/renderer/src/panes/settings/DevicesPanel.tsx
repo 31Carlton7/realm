@@ -240,9 +240,11 @@ function PairSheet({ pairing, request, live, offline, starting, answering, onClo
 
   return (
     <Sheet title="Pair an iPhone" onClose={onClose} width={SHEET_WIDTH}>
-      <div className="pair-scan">
+      {/* A code that has run out leaves its footprint and its two lines' room, emptied rather than
+          taken away: the sheet holds still, and the new code lands where the button that asked for it
+          was. "Scan this" under no code would be a sentence about nothing, so the lines go blank. */}
+      <div className="pair-scan" data-gone={usable ? undefined : ""}>
         {usable ? <PairingCode code={code} /> : (
-          // The code's own footprint, so the sheet does not jump when a code runs out.
           <div className="pair-code-gone" style={{ width: codePixels(code.size), height: codePixels(code.size) }}>
             <p>{left <= 0 ? "This code has expired." : "This code no longer works."}</p>
             <button type="button" className="btn" disabled={starting} onClick={onRestart}>
@@ -252,7 +254,7 @@ function PairSheet({ pairing, request, live, offline, starting, answering, onClo
           </div>
         )}
         <p className="pair-instruction">Open Realm on your iPhone and scan this.</p>
-        {usable && <p className="pair-expiry">Expires in {clockLabel(left)}</p>}
+        <p className="pair-expiry">Expires in {clockLabel(left)}</p>
         {usable && offline && <p className="settings-hint" data-tone="warn">Can't reach the relay, so your iPhone can't use this code yet.</p>}
       </div>
     </Sheet>

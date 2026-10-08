@@ -220,6 +220,8 @@ describe("pairing", () => {
     vi.spyOn(Date, "now").mockReturnValue(later);
     expect(await screen.findByText("This code has expired.", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Pairing code" })).toBeNull();
+    // "Scan this" over no code would be a sentence about nothing: its line goes blank, keeping its room.
+    expect(document.querySelector(".pair-scan")).toHaveAttribute("data-gone");
     fireEvent.click(screen.getByRole("button", { name: "Show a new code" }));
     await waitFor(() => expect(api.calls.filter((c) => c === "startRemotePairing")).toHaveLength(2));
     expect(await screen.findByRole("img", { name: "Pairing code" })).toBeInTheDocument();
