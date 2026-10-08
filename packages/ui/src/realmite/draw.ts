@@ -368,11 +368,12 @@ function drawAccessory(spec: RealmiteSpec, g: BodyGeo, face: FaceGeo, detail: De
       const edge = top + (face.y - face.e * 1.6 - top) * 0.62;
       const hw = halfWidthAt(g, edge);
       over.push(clipped([el("rect", { class: "rmt-c-wear", x: 0, y: 0, width: 64, height: f(edge) })]));
-      /* The brim starts inside the crown and ends in a round nose, so it reads as attached at 24px. */
-      const x0 = cx + hw * 0.2, x1 = cx + hw + 5;
+      /* A visor, not a plank: it leaves the crown's edge, swells and dips toward a round nose, so it
+         reads as part of the cap at 24px and as a curve at 160. */
+      const x0 = cx + hw * 0.15, x1 = cx + hw + 6;
       over.push(el("path", {
         class: "rmt-c-wearLight",
-        d: `M${f(x0)} ${f(edge - 1.9)}L${f(x1)} ${f(edge - 1.9)}A1.9 1.9 0 0 1 ${f(x1)} ${f(edge + 1.9)}L${f(x0)} ${f(edge + 1.9)}Z`,
+        d: `M${f(x0)} ${f(edge - 1.4)}Q${f(cx + hw)} ${f(edge - 2.6)} ${f(x1)} ${f(edge - 0.4)}Q${f(x1 + 1.8)} ${f(edge + 1.4)} ${f(x1 - 0.6)} ${f(edge + 2)}Q${f(cx + hw * 0.7)} ${f(edge + 1.8)} ${f(x0)} ${f(edge + 1.6)}Z`,
       }));
       over.push(el("circle", { class: "rmt-c-wearLight", cx, cy: f(top + 0.6), r: 1.7 }));
       return;

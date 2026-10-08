@@ -71,7 +71,8 @@ function weighted<T extends string>(rand: () => number, weights: Partial<Record<
    - A drop comes to a point, so nothing sits on top of it but a sprout or a bobble.
    - Stripes run across the crown, so they are not rolled under a beanie or a cap that covers it.
    - A face plate is a lighter field behind the eyes; a single eye on it reads as a porthole.
-   - Cheeks beside one eye sit too far from it and read as two more features. */
+   - Cheeks beside one eye sit too far from it and read as two more features.
+   - The facet is the mark's wall, and only the cube has walls; on a round body it splits the face in two. */
 const ACCESSORY_WEIGHTS: Record<AccessoryId, number> = {
   none: 5, sprout: 2, bobble: 2, beanie: 2, cap: 2, horns: 2, headphones: 1.5, "cat-ears": 2, "bear-ears": 2,
 };
@@ -87,7 +88,7 @@ export function realmiteFromSeed(seed: string): RealmiteSpec {
     : ACCESSORY_WEIGHTS);
   const covered = accessory === "beanie" || accessory === "cap";
   const pattern = weighted<PatternId>(rand, {
-    none: 4, belly: 2, facet: body === "cube" ? 3 : 1.5, spots: 1.5, stripes: covered ? 0 : 1.5, faceplate: eyes === "cyclops" ? 0 : 1,
+    none: 4, belly: 2, facet: body === "cube" ? 3 : 0, spots: 1.5, stripes: covered ? 0 : 1.5, faceplate: eyes === "cyclops" ? 0 : 1,
   });
   const cheeks = eyes !== "cyclops" && rand() < 0.4;
   return { v: 1, seed, body, palette, eyes, mouth, accessory, pattern, cheeks };

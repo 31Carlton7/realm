@@ -38,6 +38,7 @@ describe("realmiteFromSeed", () => {
   it("only rolls the combinations that were kept", () => {
     for (const s of seeds(3000).map(realmiteFromSeed)) {
       if (s.body === "drop") expect(["none", "sprout", "bobble"]).toContain(s.accessory);
+      if (s.pattern === "facet") expect(s.body).toBe("cube");
       if (s.accessory === "beanie" || s.accessory === "cap") expect(s.pattern).not.toBe("stripes");
       if (s.eyes === "cyclops") {
         expect(s.pattern).not.toBe("faceplate");
