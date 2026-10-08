@@ -41,6 +41,7 @@ import {
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
 import { RealmUpdater, UPDATE_FEED_LIVE, scheduleUpdateChecks, updaterDecision } from "./updater";
+import { asarReplaced, readAsarStamp } from "./bundle-swap";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
@@ -424,6 +425,7 @@ app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
  * line (`window.realm.profileId`) so its first paint is already that profile's.
  */
 async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null) {
+  if (relaunchIfBundleReplaced()) return;
   // Where it was left (window-state.ts) — each profile window its own place. The primary display
   // first: a place that can no longer be reached is replaced by the saved size, centred there. A
   // profile window with no place yet opens just off the window it was opened from.
@@ -1293,6 +1295,25 @@ updater = new RealmUpdater({
   // at the front, which is exactly when nothing else would make the renderer ask.
   onChange: (status) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send("updates:changed", status); },
 });
+/** The archive this process loaded, stamped at launch; null under dev, which has none to swap. */
+const appAsar = join(process.resourcesPath, "app.asar");
+const launchedAsar = app.isPackaged ? readAsarStamp(appAsar) : null;
+
+/**
+ * Hand over to the Realm.app that replaced ours, if one has. Asked before anything loads a window:
+ * this process would build it from the new archive at the old one's offsets (bundle-swap.ts). The
+ * daemon is detached, not stopped — the relaunch adopts or hands it off like any other launch.
+ */
+function relaunchIfBundleReplaced(): boolean {
+  if (!launchedAsar || !asarReplaced(launchedAsar, readAsarStamp(appAsar))) return false;
+  console.warn("[update] Realm.app was replaced under this process; relaunching into the new one");
+  detachFromDaemon();
+  serverChild?.kill("SIGTERM"); // a non-daemon server dies with us, so the relaunch can have its port
+  app.relaunch();
+  app.exit(0);
+  return true;
+}
+
 ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
 ipcMain.handle("updates:download", () => updater.download());
@@ -1321,6 +1342,7 @@ const desktopNotifier = new DesktopNotifier({
   // The window used last — which is where the row id goes below, so the window raised is the one
   // that opens the row.
   focusWindow: () => {
+    if (relaunchIfBundleReplaced()) return;
     const win = windows.primary();
     // No window at all: this is the resident's own toast, and a click on it is a request to come
     // back. `reattach` recreates the window; the row id below lands once it exists.
@@ -1646,6 +1668,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
+    if (relaunchIfBundleReplaced()) return;
     const win = windows.primary();
     if (!win) return;
     if (win.isMinimized()) win.restore();
@@ -1816,6 +1839,8 @@ function goResident() {
 /** Bring a window back, optionally landing on one session — in the window showing that session's
  *  profile when one is open, else the window used last, else a new first window. */
 async function reattach(target?: { sessionId: string; spaceId: string | null }) {
+  // Even with a window up: everything it loads lazily from here on would come from the wrong file.
+  if (relaunchIfBundleReplaced()) return;
   if (process.platform === "darwin") app.dock?.show();
   const profileId = target?.spaceId ? await profileOfSpace(target.spaceId) : null;
   let win = (profileId ? windows.windowFor(profileId) : null) ?? windows.primary();
