@@ -156,6 +156,19 @@ describe("drawRealmite", () => {
     }
   });
 
+  it("holds the poses that say it: working looks aside and leans in, asleep its eyes are shut", () => {
+    for (const seed of seeds(20)) {
+      const spec = realmiteFromSeed(seed);
+      const at = (state: (typeof REALMITE_STATES)[number]) => realmiteSvg(spec, { size: 48, state, uid: "t" });
+      expect(at("idle")).not.toMatch(/class="rmt-look" transform=/);
+      expect(at("working")).toMatch(/class="rmt-look" transform="translate\([1-9]/);
+      expect(at("working")).toContain('class="rmt-pose" transform="rotate(-3');
+      expect(at("sleeping")).not.toContain("rmt-look");
+      expect(at("needs-you")).toContain("rmt-badge");
+      expect(at("idle")).not.toContain("rmt-badge");
+    }
+  });
+
   it("drops detail as it shrinks: a 16px row keeps the silhouette and the eyes", () => {
     const spec = customize(realmiteFromSeed("lod"), { mouth: "fang", pattern: "spots", cheeks: true, eyes: "shine" });
     const tiny = realmiteSvg(spec, { size: 16, uid: "t" });
