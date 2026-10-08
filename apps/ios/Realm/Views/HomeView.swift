@@ -102,24 +102,32 @@ struct SectionHead: View {
 struct SessionCard: View {
     let row: SessionRow
     let showsSpace: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
+        // At the accessibility sizes nothing shares a line with the title: each part gets the width.
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        let titleLine = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+        let detailLine = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 6))
         NavigationLink(value: Route.session(row.id)) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if row.unread {
-                        Circle()
-                            .fill(Palette.accent)
-                            .frame(width: 7, height: 7)
-                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                titleLine {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if row.unread {
+                            Circle()
+                                .fill(Palette.accent)
+                                .frame(width: 7, height: 7)
+                                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                        }
+                        Text(row.title.isEmpty ? "Untitled session" : row.title)
+                            .inter(.body, .medium)
+                            .foregroundStyle(Palette.ink)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(stacked ? 5 : 2)
                     }
-                    Text(row.title.isEmpty ? "Untitled session" : row.title)
-                        .inter(.body, .medium)
-                        .foregroundStyle(Palette.ink)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-                        .layoutPriority(1)
-                    Spacer(minLength: 8)
+                    .layoutPriority(1)
+                    if !stacked { Spacer(minLength: 8) }
                     TimelineView(.periodic(from: .now, by: 30)) { context in
                         Text(Ago.text(row.updatedAt, now: context.date))
                             .inter(.footnote)
@@ -128,10 +136,11 @@ struct SessionCard: View {
                     }
                     .fixedSize()
                 }
-                HStack(spacing: 6) {
+                detailLine {
                     StatusLabel(status: row.status)
-                        .fixedSize()
-                    SessionDetail(row: row, showsSpace: showsSpace)
+                        .fixedSize(horizontal: !stacked, vertical: false)
+                    SessionDetail(row: row, showsSpace: showsSpace, leadingDot: !stacked)
+                        .lineLimit(stacked ? 3 : 1)
                 }
             }
             .padding(.horizontal, 14)
@@ -175,19 +184,20 @@ struct StatusLabel: View {
 struct SessionDetail: View {
     let row: SessionRow
     let showsSpace: Bool
+    /// The dot that joins it to the status before it, when the two share a line.
+    var leadingDot = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.legibilityWeight) private var legibilityWeight
 
     var body: some View {
         Text(detail)
             .foregroundStyle(Palette.ink2)
-            .lineLimit(1)
             .truncationMode(.tail)
     }
 
     private var detail: AttributedString {
         let fonts = RealmFonts(dynamicTypeSize: dynamicTypeSize, boldText: legibilityWeight == .bold)
-        var words = AttributedString("· " + [showsSpace ? row.spaceName : nil, AgentNames.label(row.agent)]
+        var words = AttributedString((leadingDot ? "· " : "") + [showsSpace ? row.spaceName : nil, AgentNames.label(row.agent)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
         words.font = fonts.inter(.subheadline)
         guard let model = row.model, !model.isEmpty else { return words }

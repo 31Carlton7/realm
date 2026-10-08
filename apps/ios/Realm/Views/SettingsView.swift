@@ -13,10 +13,14 @@ struct SettingsView: View {
                 Section {
                     value("Name", mac.macName)
                     LabeledContent("State") {
-                        Label(model.linkStatus.words, systemImage: model.linkStatus.symbol)
-                            .labelStyle(.titleAndIcon)
-                            .inter(.body)
-                            .foregroundStyle(Palette.ink2)
+                        HStack(spacing: 6) {
+                            Image(systemName: model.linkStatus.symbol)
+                                .imageScale(.small)
+                            Text(model.linkStatus.words)
+                        }
+                        .inter(.body)
+                        .foregroundStyle(Palette.ink2)
+                        .accessibilityElement(children: .combine)
                     }
                     .inter(.body)
                     .listRowBackground(Palette.surface)
