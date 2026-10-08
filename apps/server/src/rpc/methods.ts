@@ -38,7 +38,7 @@ import { oauthSecretBox, type McpOauth } from "../mcp/oauth";
 import { spaceDownloadDir, spaceScreenshotDir } from "../browsers/agent-tools";
 import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
-import type { MemoryRepoService } from "../memory/repo";
+import type { MemoryRepoService, RepoOwner } from "../memory/repo";
 import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
 import type { MachineService } from "../machines/service";
@@ -594,50 +594,57 @@ export function registerMethods(d: Deps): void {
   // ground truth that belongs to that session and no other.
   reg("memory.sources", (p) => d.sessions.memorySources(p.sessionId));
 
-  // The memory repo (Agent Memory Repo): one per profile, inherited by its spaces. Every change is
-  // told to every space of the profile, the profile doc's rule, because each of their pages shows it.
-  const repoProfile = (profileId: string): void => { if (!d.profiles.get(profileId)) throw new NotFoundError("profile", profileId); };
-  const repoChanged = (profileId: string): void => { for (const sp of d.spaces.list(profileId)) rpc.broadcast("memory.changed", { spaceId: sp.id }); };
+  // Memory repos (Agent Memory Repo): one per profile, inherited by its spaces, and optionally one per
+  // space beside it (a team's). Every change is told to every space that shows the repo: all of a
+  // profile's spaces for its repo, the one space for a space's own.
+  type Owner = { scope: "profile" | "space"; ownerId: string };
+  const ownerOf = (p: Owner): RepoOwner => {
+    if (p.scope === "profile" ? !d.profiles.get(p.ownerId) : !d.spaces.get(p.ownerId)) throw new NotFoundError(p.scope, p.ownerId);
+    return { scope: p.scope, id: p.ownerId };
+  };
+  const repoChanged = (o: RepoOwner): void => {
+    const ids = o.scope === "space" ? [o.id] : d.spaces.list(o.id).map((sp) => sp.id);
+    for (const spaceId of ids) rpc.broadcast("memory.changed", { spaceId });
+  };
   const reposOfSpace = async (spaceId: string) => {
     const sp = d.spaces.get(spaceId);
     if (!sp) throw new NotFoundError("space", spaceId);
-    const st = await d.memoryRepos.state(sp.profileId, spaceId);
-    return { repos: st ? [st] : [] };
+    const own = await d.memoryRepos.state({ scope: "space", id: spaceId }, spaceId);
+    const inherited = await d.memoryRepos.state({ scope: "profile", id: sp.profileId }, spaceId);
+    return { repos: [own, inherited].filter((r): r is NonNullable<typeof r> => r !== null) };
   };
   reg("memory.repo.get", async (p) => {
     if ((p.profileId === undefined) === (p.spaceId === undefined)) throw new RpcError("BAD_PARAMS", "give exactly one of profileId or spaceId");
     if (p.spaceId !== undefined) return reposOfSpace(p.spaceId);
-    repoProfile(p.profileId!);
-    const st = await d.memoryRepos.state(p.profileId!);
+    const st = await d.memoryRepos.state(ownerOf({ scope: "profile", ownerId: p.profileId! }));
     return { repos: st ? [st] : [] };
   });
-  reg("memory.repo.create", async (p) => {
-    repoProfile(p.profileId);
-    const r = await d.memoryRepos.create(p.profileId, p.path);
-    repoChanged(p.profileId);
+  /** One repo-changing call: run it, tell every space that shows the repo, answer with its result. */
+  const changing = <T>(p: Owner, fn: (o: RepoOwner) => Promise<T> | T): Promise<T> => (async () => {
+    const o = ownerOf(p);
+    const r = await fn(o);
+    repoChanged(o);
     return r;
-  });
-  reg("memory.repo.attach", async (p) => {
-    repoProfile(p.profileId);
-    const r = await d.memoryRepos.attach(p.profileId, p.path);
-    repoChanged(p.profileId);
-    return r;
-  });
-  reg("memory.repo.detach", (p) => {
-    repoProfile(p.profileId);
-    d.memoryRepos.detach(p.profileId);
-    repoChanged(p.profileId);
-    return { ok: true as const };
-  });
+  })();
+  reg("memory.repo.create", (p) => changing(p, (o) => d.memoryRepos.create(o, p.path)));
+  reg("memory.repo.attach", (p) => changing(p, (o) => d.memoryRepos.attach(o, p.path)));
+  reg("memory.repo.detach", (p) => changing(p, (o) => { d.memoryRepos.detach(o); return { ok: true as const }; }));
   reg("memory.repo.setInherited", async (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     d.memoryRepos.setInherited(p.spaceId, p.enabled);
     rpc.broadcast("memory.changed", { spaceId: p.spaceId });
     return reposOfSpace(p.spaceId);
   });
-  reg("memory.repo.log", async (p) => {
-    repoProfile(p.profileId);
-    return { commits: await d.memoryRepos.log(p.profileId, p.limit) };
+  reg("memory.repo.log", async (p) => ({ commits: await d.memoryRepos.log(ownerOf(p), p.limit) }));
+  reg("memory.repo.setRemote", (p) => changing(p, (o) => d.memoryRepos.setRemote(o, p.url)));
+  reg("memory.repo.checkRemote", (p) => d.memoryRepos.checkRemote(ownerOf(p)));
+  reg("memory.repo.setSync", (p) => changing(p, (o) => d.memoryRepos.setSync(o, p.enabled, p.confirmPrivate === true)));
+  reg("memory.repo.sync", (p) => changing(p, (o) => d.memoryRepos.sync(o)));
+  reg("memory.repo.importClaude", async (p) => {
+    const o = ownerOf(p);
+    const r = await d.memoryRepos.importClaude(o, { dryRun: p.dryRun });
+    if (r.sha !== null) repoChanged(o);
+    return r;
   });
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));

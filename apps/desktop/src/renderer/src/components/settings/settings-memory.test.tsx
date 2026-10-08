@@ -194,3 +194,19 @@ describe("the inherited memory repo", () => {
     expect(screen.getByText("Off in this space: its sessions neither read it nor save to it.")).toBeInTheDocument();
   });
 });
+
+describe("the space's own memory repo", () => {
+  it("offers a repo of the space's own beside the profile's, and creates it for THIS space", async () => {
+    const { api } = await mount({ memoryRepos: { p1: fakeMemoryRepo() } });
+    expect(await screen.findByRole("heading", { name: "This space's memory repo" })).toBeInTheDocument();
+    expect(await screen.findByText("No repo of its own")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    // THE MUTANT: create for the profile — the team repo replaces the user's own.
+    await waitFor(() => expect(api.calls).toContain("createMemoryRepo:space:s1"));
+    expect(api.data.memoryRepos.p1).toMatchObject({ scope: "profile" });
+    expect(await screen.findByText("/realm-home/memory/repos/space-s1")).toBeInTheDocument();
+    // The inherited switch is still the profile's, and only the profile's.
+    expect(screen.getAllByRole("switch", { name: /memory repo in this space/ })).toHaveLength(1);
+  });
+});
+

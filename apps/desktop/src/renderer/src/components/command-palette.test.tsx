@@ -400,7 +400,7 @@ describe("deep search (Plan 16 W2)", () => {
       sessions: [{ sessionId: "sedeep", spaceId: "s1", title: "Login fix", seq: 5, snippet: snip("fix the ", "login", " flow") }],
       items: [{ itemId: "ideep", spaceId: "s1", itemKind: "browser" as const, title: "Auth docs", snippet: snip("", "login", " docs") }],
       skills: [{ id: "auth", name: "Auth helper", description: "does login things", snippet: snip("does ", "login", " things") }],
-      memory: [{ scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory", snippet: snip("the ", "login", " rules") }],
+      memory: [{ scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory", snippet: snip("the ", "login", " rules"), file: null }],
     } });
     fireEvent.change(input(), { target: { value: "login" } });
     await waitFor(() => expect(screen.getByRole("option", { name: /Login fix/ })).toBeInTheDocument());
@@ -432,7 +432,7 @@ describe("deep search (Plan 16 W2)", () => {
   it("a skill hit routes to the Library page; a memory hit to the space page's Memory tab", async () => {
     const { store, api } = await mount({ searchResults: { ...empty,
       skills: [{ id: "auth", name: "Auth helper", description: "does login", snippet: snip("does ", "login") }],
-      memory: [{ scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory", snippet: snip("the ", "login") }],
+      memory: [{ scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory", snippet: snip("the ", "login"), file: null }],
     } });
     act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: null }, focusedLeafId: "L1" }));
     fireEvent.change(input(), { target: { value: "login" } });
@@ -441,6 +441,28 @@ describe("deep search (Plan 16 W2)", () => {
     act(() => store.setState({ paletteOpen: true }));
     fireEvent.change(input(), { target: { value: "login" } });
     fireEvent.click(await screen.findByRole("option", { name: /Versed memory/ }));
+    await waitFor(() => expect(store.getState().spacePageTab["s1"]).toBe("memory"));
+  });
+
+  it("memory repo hits are one row per file, beside the space's document, and open the space's Memory tab", async () => {
+    const { store } = await mount({ searchResults: { ...empty,
+      memory: [
+        { scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory", snippet: snip("the ", "login"), file: null },
+        { scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory repo · MEMORY.md", snippet: snip("", "login", " via SSO"), file: "MEMORY.md" },
+        { scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory repo · auth.md", snippet: snip("", "login", " retries"), file: "auth.md" },
+      ],
+    } });
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: null }, focusedLeafId: "L1" }));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    fireEvent.change(input(), { target: { value: "login" } });
+    expect(await screen.findByRole("option", { name: /Versed memory repo · auth\.md/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Versed memory repo · MEMORY\.md/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("option", { name: /^Versed memory/ })).toHaveLength(3);
+    // THE MUTANT: key a memory row by its owner alone — three rows under one React key, which React
+    // warns about and may drop or repeat when the results change.
+    expect(errors.mock.calls.some((c) => /same key/.test(String(c[0])))).toBe(false);
+    errors.mockRestore();
+    fireEvent.click(screen.getByRole("option", { name: /Versed memory repo · auth\.md/ }));
     await waitFor(() => expect(store.getState().spacePageTab["s1"]).toBe("memory"));
   });
 

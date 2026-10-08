@@ -211,7 +211,7 @@ function LibraryMemoryTab({ spaceId }: { spaceId: string }) {
             ) : <p className="env-empty">Loading…</p>}
           </div>
           <h3 className="settings-head">Memory repo</h3>
-          <MemoryRepoRow profileId={profile.id} />
+          <MemoryRepoRow owner={{ scope: "profile", id: profile.id }} />
         </>
       )}
       <h3 className="settings-head">Each space</h3>

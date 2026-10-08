@@ -327,7 +327,7 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     const memory = new MemoryService({
       home: h.home, settings: h.settings, claudeDir: h.claudeDir, scopes: seam({ [SPACE_A]: "PA" }),
       environments: envs({ [SPACE_A]: { path: h.folderOf(SPACE_A), kind: "primary" } }),
-      repos: { indexFor: (sid) => (sid === SPACE_A ? { path: "/mem", index, truncated: true } : null) },
+      repos: { indexesFor: (sid) => (sid === SPACE_A ? [{ scope: "profile", path: "/mem", index, truncated: true }] : []) },
     });
     memory.setProfile("PA", "p".repeat(MEMORY_DOC_MAX));
     memory.set(SPACE_A, "s".repeat(MEMORY_DOC_MAX));
@@ -344,4 +344,32 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     // An agent with no channel is never told the index travelled — it did not.
     expect(memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(false);
   });
+
+  it("carries a space's own repo beside the profile's, both whole within the cap, general before specific", () => {
+    const h = harness();
+    const prof = "P".repeat(MEMORY_REPO_INDEX_MAX);
+    const team = "T".repeat(MEMORY_REPO_INDEX_MAX);
+    const memory = new MemoryService({
+      home: h.home, settings: h.settings, claudeDir: h.claudeDir, scopes: seam({ [SPACE_A]: "PA" }),
+      environments: envs({ [SPACE_A]: { path: h.folderOf(SPACE_A), kind: "primary" } }),
+      repos: { indexesFor: () => [{ scope: "space", path: "/team", index: team, truncated: false }, { scope: "profile", path: "/mine", index: prof, truncated: false }] },
+    });
+    memory.setProfile("PA", "p".repeat(MEMORY_DOC_MAX));
+    memory.set(SPACE_A, "s".repeat(MEMORY_DOC_MAX));
+    const a = ctx(memory, SPACE_A)!;
+    // THE MUTANT: count only the first index in the arithmetic — the four together run 20k past the cap.
+    const kept = MEMORY_COMBINED_MAX - MEMORY_DOC_MAX - 2 * MEMORY_REPO_INDEX_MAX;
+    expect(a).toContain("p".repeat(kept));
+    expect(a).not.toContain("p".repeat(kept + 1));
+    expect(a).toContain(prof);
+    expect(a).toContain(team);
+    expect(a).toContain("s".repeat(MEMORY_DOC_MAX));
+    expect(a).toContain("# Memory repos\n\nThis session has two memory repos: the user's own at /mine, and this workspace's at /team");
+    expect(a).toContain("ask the user when it is unclear whose it is");
+    const at = (x: string): number => a.indexOf(x);
+    expect(at("# Profile memory")).toBeLessThan(at('<memory-index repo="profile">'));
+    expect(at('<memory-index repo="profile">')).toBeLessThan(at('<memory-index repo="space">'));
+    expect(at('<memory-index repo="space">')).toBeLessThan(at("# Space memory"));
+  });
 });
+

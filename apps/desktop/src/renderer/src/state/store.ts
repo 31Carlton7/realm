@@ -19,7 +19,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemoryRepoCommit, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -600,15 +600,25 @@ export type Api = {
   /** `memory.repo.get` — a profile's memory repo, or the ones a space's sessions use (with `inheritedHere`). */
   getMemoryRepos(scope: { profileId: string } | { spaceId: string }): Promise<MemoryRepoState[]>;
   /** `memory.repo.create` — under Realm's home unless a path is given; reuses a memory repo already there. */
-  createMemoryRepo(profileId: string, path?: string): Promise<MemoryRepoState>;
+  createMemoryRepo(owner: MemoryRepoOwner, path?: string): Promise<MemoryRepoState>;
   /** `memory.repo.attach` — use an existing memory repo; refused for anything else, and writes nothing. */
-  attachMemoryRepo(profileId: string, path: string): Promise<MemoryRepoState>;
+  attachMemoryRepo(owner: MemoryRepoOwner, path: string): Promise<MemoryRepoState>;
   /** `memory.repo.detach` — the folder and its history stay where they are. */
-  detachMemoryRepo(profileId: string): Promise<void>;
+  detachMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
   /** `memory.repo.setInherited` — THIS space's opt-out of its profile's repo. */
   setMemoryRepoInherited(spaceId: string, enabled: boolean): Promise<MemoryRepoState[]>;
   /** `memory.repo.log` — the latest commits, newest first. */
-  memoryRepoLog(profileId: string, limit: number): Promise<MemoryRepoCommit[]>;
+  memoryRepoLog(owner: MemoryRepoOwner, limit: number): Promise<MemoryRepoCommit[]>;
+  /** `memory.repo.setRemote` — point `origin` at a URL; sync goes off until it is checked again. */
+  setMemoryRepoRemote(owner: MemoryRepoOwner, url: string): Promise<MemoryRepoState>;
+  /** `memory.repo.checkRemote` — whether the remote is private, as far as Realm can tell. */
+  checkMemoryRepoRemote(owner: MemoryRepoOwner): Promise<MemoryRemoteCheck>;
+  /** `memory.repo.setSync` — refused for a public remote, and for an unchecked one without the user's word. */
+  setMemoryRepoSync(owner: MemoryRepoOwner, enabled: boolean, confirmPrivate: boolean): Promise<MemoryRepoState>;
+  /** `memory.repo.sync` — pull and push now; a network failure comes back as `syncError`, not a throw. */
+  syncMemoryRepo(owner: MemoryRepoOwner): Promise<MemoryRepoState>;
+  /** `memory.repo.importClaude` — the imported Claude memory as entries; `dryRun` only counts. */
+  importClaudeMemory(owner: MemoryRepoOwner, dryRun: boolean): Promise<MemoryClaudeImport>;
   /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
    *  the list is still a renderable result. */
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
@@ -682,6 +692,10 @@ export type McpCallsFilter = { sessionId?: string; serverId?: string };
 /** `memory.getProfile`'s shape: the profile doc at its defining scope — no per-space fields, because
  *  the defining scope has none (`enabledHere` belongs to `MemoryState.profile`, a space's view). */
 export type ProfileMemoryDoc = { profileId: string; path: string; doc: string };
+/** Whose a memory repo is: a profile's, or one space's own. */
+export type MemoryRepoOwner = { scope: MemoryRepoScope; id: string };
+/** One owner's key in the per-repo maps (`memoryRepoLog`). */
+export const memoryRepoKey = (o: MemoryRepoOwner): string => `${o.scope}:${o.id}`;
 
 /** One Realm-native gateway toolset as `mcp.providers.list` reports it for a space (W4). `enabled` is
  *  the space's switch; `offered` is whether the provider can do anything on this Mac at all (`null`
@@ -1627,7 +1641,7 @@ export type AppState = {
   profileMemoryRepo: Record<string, MemoryRepoState | null>;
   /** The memory repos a space's sessions use, by space id (each with `inheritedHere`). */
   spaceMemoryRepos: Record<string, MemoryRepoState[]>;
-  /** A profile repo's latest commits, by profile id — the row's "Recent memories". */
+  /** A repo's latest commits, by `memoryRepoKey` of its owner — the row's "Recent memories". */
   memoryRepoLog: Record<string, MemoryRepoCommit[]>;
   /** Which space's Connections panel (McpSection) is mounted right now, null when none is. Set
    *  synchronously by `clearMcpServers` on mount/unmount; it is the guard that keeps a slow
@@ -2795,16 +2809,28 @@ export type AppState = {
   refreshProfileMemoryRepo(profileId: string): Promise<void>;
   /** Fetch the memory repos a space's sessions use into `spaceMemoryRepos`. */
   refreshSpaceMemoryRepos(spaceId: string): Promise<void>;
-  /** Make the profile's memory repo in its default place under Realm's home. */
-  createMemoryRepo(profileId: string): Promise<void>;
+  /** Fetch one owner's repo: the profile's into `profileMemoryRepo`, a space's with its list. */
+  refreshMemoryRepoOf(owner: MemoryRepoOwner): Promise<void>;
+  /** Make the owner's memory repo in its default place under Realm's home. */
+  createMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
   /** Ask for a folder and use the memory repo in it. Nothing happens when the picker is cancelled. */
-  attachMemoryRepo(profileId: string): Promise<void>;
-  /** Stop using the profile's repo; the folder stays. */
-  detachMemoryRepo(profileId: string): Promise<void>;
+  attachMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
+  /** Stop using the owner's repo; the folder stays. */
+  detachMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
   /** THIS space's opt-out of its profile's memory repo — never a change to the repo or the profile. */
   setMemoryRepoInherited(spaceId: string, enabled: boolean): Promise<void>;
-  /** Fetch the profile repo's latest commits into `memoryRepoLog`. */
-  refreshMemoryRepoLog(profileId: string): Promise<void>;
+  /** Fetch the repo's latest commits into `memoryRepoLog`. */
+  refreshMemoryRepoLog(owner: MemoryRepoOwner): Promise<void>;
+  /** Point the repo's `origin` at `url`. */
+  setMemoryRepoRemote(owner: MemoryRepoOwner, url: string): Promise<void>;
+  /** Whether the repo's remote is private, for the row to decide what it asks before sync. */
+  checkMemoryRepoRemote(owner: MemoryRepoOwner): Promise<MemoryRemoteCheck>;
+  /** Turn sync on (with the user's word, where Realm cannot check) or off. */
+  setMemoryRepoSync(owner: MemoryRepoOwner, enabled: boolean, confirmPrivate?: boolean): Promise<void>;
+  /** Pull and push now — the row's "Retry now". */
+  syncMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
+  /** Import the Claude memory Realm copied — `dryRun` for the preview count — answering what it adds. */
+  importClaudeMemory(owner: MemoryRepoOwner, dryRun: boolean): Promise<MemoryClaudeImport>;
   /** Narrow (or, with `null`, reset) this space's allowlist for one server. */
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
   /** Refresh one server's cached tools. Never throws for a connect failure — that lands in
@@ -3092,6 +3118,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const nextItemsSeq = (sid: string): number => { const n = (itemsFetchSeq.get(sid) ?? 0) + 1; itemsFetchSeq.set(sid, n); return n; };
     /** Bumped by every profile switch, so a response for the profile being left can never land. */
     let profileEpoch = 0;
+    /** A repo the server answered with, where its rows read it: a profile's under the profile, a
+     *  space's in that space's list, in front of the profile repo it sits beside. */
+    const putRepo = (r: MemoryRepoState): void => {
+      if (r.scope === "profile") { set({ profileMemoryRepo: { ...get().profileMemoryRepo, [r.ownerId]: r } }); return; }
+      const rest = (get().spaceMemoryRepos[r.ownerId] ?? []).filter((x) => x.scope !== "space");
+      set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [r.ownerId]: [r, ...rest] } });
+    };
     /** The ONE place the unread count is written — and therefore the one place the dock badge is
      *  pushed. Five paths change the count (boot, refresh, page, markRead, broadcast); a badge each
      *  of them had to remember separately is a badge that drifts from the pill beside it. Switched
@@ -6443,29 +6476,42 @@ await get().refreshCustomThemes().catch(() => {});
         const repos = await api.getMemoryRepos({ spaceId });
         set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [spaceId]: repos } });
       },
-      async createMemoryRepo(profileId) {
-        const repo = await api.createMemoryRepo(profileId);
-        set({ profileMemoryRepo: { ...get().profileMemoryRepo, [profileId]: repo } });
-        await get().refreshMemoryRepoLog(profileId);
+      async createMemoryRepo(owner) {
+        putRepo(await api.createMemoryRepo(owner));
+        await get().refreshMemoryRepoLog(owner);
       },
-      async attachMemoryRepo(profileId) {
+      async attachMemoryRepo(owner) {
         const path = await api.pickFolder();
         if (!path) return;
-        const repo = await api.attachMemoryRepo(profileId, path);
-        set({ profileMemoryRepo: { ...get().profileMemoryRepo, [profileId]: repo } });
-        await get().refreshMemoryRepoLog(profileId);
+        putRepo(await api.attachMemoryRepo(owner, path));
+        await get().refreshMemoryRepoLog(owner);
       },
-      async detachMemoryRepo(profileId) {
-        await api.detachMemoryRepo(profileId);
-        set({ profileMemoryRepo: { ...get().profileMemoryRepo, [profileId]: null }, memoryRepoLog: { ...get().memoryRepoLog, [profileId]: [] } });
+      async detachMemoryRepo(owner) {
+        await api.detachMemoryRepo(owner);
+        if (owner.scope === "profile") set({ profileMemoryRepo: { ...get().profileMemoryRepo, [owner.id]: null } });
+        else set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [owner.id]: (get().spaceMemoryRepos[owner.id] ?? []).filter((r) => r.scope !== "space") } });
+        set({ memoryRepoLog: { ...get().memoryRepoLog, [memoryRepoKey(owner)]: [] } });
       },
       async setMemoryRepoInherited(spaceId, enabled) {
         const repos = await api.setMemoryRepoInherited(spaceId, enabled);
         set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [spaceId]: repos } });
       },
-      async refreshMemoryRepoLog(profileId) {
-        const commits = await api.memoryRepoLog(profileId, 8);
-        set({ memoryRepoLog: { ...get().memoryRepoLog, [profileId]: commits } });
+      async refreshMemoryRepoLog(owner) {
+        const commits = await api.memoryRepoLog(owner, 8);
+        set({ memoryRepoLog: { ...get().memoryRepoLog, [memoryRepoKey(owner)]: commits } });
+      },
+      async setMemoryRepoRemote(owner, url) { putRepo(await api.setMemoryRepoRemote(owner, url)); },
+      checkMemoryRepoRemote(owner) { return api.checkMemoryRepoRemote(owner); },
+      async setMemoryRepoSync(owner, enabled, confirmPrivate = false) { putRepo(await api.setMemoryRepoSync(owner, enabled, confirmPrivate)); },
+      async syncMemoryRepo(owner) { putRepo(await api.syncMemoryRepo(owner)); },
+      async importClaudeMemory(owner, dryRun) {
+        const r = await api.importClaudeMemory(owner, dryRun);
+        if (!dryRun && r.sha !== null) await Promise.all([get().refreshMemoryRepoLog(owner), get().refreshMemoryRepoOf(owner)]);
+        return r;
+      },
+      async refreshMemoryRepoOf(owner) {
+        if (owner.scope === "profile") await get().refreshProfileMemoryRepo(owner.id);
+        else await get().refreshSpaceMemoryRepos(owner.id);
       },
       async refreshMemorySources(sessionId) {
         const sources = await api.memorySources(sessionId);

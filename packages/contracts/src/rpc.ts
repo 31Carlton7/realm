@@ -19,7 +19,7 @@ import {
 import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
-import { MEMORY_DOC_MAX, MemoryRepoCommitSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
+import { MEMORY_DOC_MAX, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
@@ -1371,22 +1371,44 @@ export const Methods = {
   "memory.sources": { params: z.object({ sessionId: IdSchema }), result: MemorySourcesSchema },
   /**
    * The memory repos one scope sees: a profile's own, or — asked with a space — the ones a session in
-   * that space would use, each with `inheritedHere`. A list because a space will take more than one
-   * (a team's beside the profile's); today it holds the profile's repo or nothing.
+   * that space would use: the space's own repo first, if it has one, then its profile's (with
+   * `inheritedHere`).
    */
   "memory.repo.get": { params: z.object({ profileId: IdSchema.optional(), spaceId: IdSchema.optional() }), result: z.object({ repos: z.array(MemoryRepoStateSchema) }) },
-  /** Make the profile's memory repo — `<realmHome>/memory/repos/profile-<id>` unless a path is given.
-   *  Reuses a valid repo already there; refuses (MEMORY_REPO_NOT_EMPTY) a folder that is anything else. */
-  "memory.repo.create": { params: z.object({ profileId: IdSchema, path: z.string().min(1).optional() }), result: MemoryRepoStateSchema },
-  /** Use an existing memory repo (one the spec's skill or another agent made) as the profile's. Writes
-   *  nothing; refuses a folder that is not a repo with `MEMORY.md` at its top. */
-  "memory.repo.attach": { params: z.object({ profileId: IdSchema, path: z.string().min(1) }), result: MemoryRepoStateSchema },
-  /** Stop using the profile's memory repo. The folder and its history stay exactly where they are. */
-  "memory.repo.detach": { params: z.object({ profileId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** Make a memory repo for its owner — `<realmHome>/memory/repos/<scope>-<id>` unless a path is
+   *  given. Reuses a valid repo already there; refuses (MEMORY_REPO_NOT_EMPTY) a folder that is
+   *  anything else. A space's repo sits beside its profile's, never instead of it. */
+  "memory.repo.create": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema, path: z.string().min(1).optional() }), result: MemoryRepoStateSchema },
+  /** Use an existing memory repo (one the spec's skill or another agent made, or a team's clone).
+   *  Writes nothing; refuses a folder that is not a repo with `MEMORY.md` at its top. */
+  "memory.repo.attach": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema, path: z.string().min(1) }), result: MemoryRepoStateSchema },
+  /** Stop using the repo. The folder and its history stay exactly where they are. */
+  "memory.repo.detach": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Per-space opt-out of the profile's memory repo: ON by default, like the profile document. */
   "memory.repo.setInherited": { params: z.object({ spaceId: IdSchema, enabled: z.boolean() }), result: z.object({ repos: z.array(MemoryRepoStateSchema) }) },
   /** The repo's latest commits, newest first — what agents remembered, in their own commit lines. */
-  "memory.repo.log": { params: z.object({ profileId: IdSchema, limit: z.number().int().min(1).max(100).default(20) }), result: z.object({ commits: z.array(MemoryRepoCommitSchema) }) },
+  "memory.repo.log": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema, limit: z.number().int().min(1).max(100).default(20) }), result: z.object({ commits: z.array(MemoryRepoCommitSchema) }) },
+  /** Point the repo's `origin` at `url`. Sync goes off: a new remote is checked again before Realm
+   *  pushes anything to it. */
+  "memory.repo.setRemote": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema, url: z.string().min(1).max(2000) }), result: MemoryRepoStateSchema },
+  /** Whether the repo's remote is private, as far as Realm can tell — asked before sync is offered. */
+  "memory.repo.checkRemote": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema }), result: MemoryRemoteCheckSchema },
+  /**
+   * Turn sync (pull fast-forward only, push after every save, never forced) on or off. On is refused
+   * for a remote GitHub says is public (MEMORY_REMOTE_PUBLIC), and for one Realm cannot check unless
+   * `confirmPrivate` carries the user's own word that it is private (MEMORY_REMOTE_UNCONFIRMED).
+   */
+  "memory.repo.setSync": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema, enabled: z.boolean(), confirmPrivate: z.boolean().optional() }), result: MemoryRepoStateSchema },
+  /** Pull and push now — the row's "Retry now". Answers with the state it leaves, never throws for
+   *  a network failure (that is `syncError`). */
+  "memory.repo.sync": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema }), result: MemoryRepoStateSchema },
+  /**
+   * The Claude CLI memory Realm already copied (`<realmHome>/memory/imported/…`) for the owner's
+   * spaces, as entries of this repo. `dryRun` counts what would be added and writes nothing — the
+   * row's preview; without it the additions land as one commit. Idempotent: what is already in the
+   * repo is never added twice, so a second run adds nothing.
+   */
+  "memory.repo.importClaude": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema, dryRun: z.boolean().default(false) }), result: MemoryClaudeImportSchema },
 
   /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
    *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12
