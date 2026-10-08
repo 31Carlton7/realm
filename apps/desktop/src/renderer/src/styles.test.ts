@@ -1631,6 +1631,8 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(panel).toContain("border-radius: var(--r-squircle-card)");
     expect(panel).not.toContain("box-shadow");
     expect(bodiesFor(":root[data-squircle] .tool-panel").join(" ")).toContain("--sq-fill: var(--rl-frame)");
+    // Declaring the curve is not drawing it: the panel has to be in the rule that hands its fill to the painter.
+    expect(bodiesFor(":root[data-squircle] .tool-panel").join(" ")).toContain("background: paint(rl-squircle)");
     expect(bodiesFor('.tool-panel[data-tone="terminal"]').join(" ")).toContain("var(--rl-terminal-bg)");
   });
 
