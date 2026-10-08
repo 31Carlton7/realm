@@ -176,6 +176,19 @@ describe("Plan 28: pairing from Settings ▸ Devices", () => {
     await waitFor(async () => (await status(r)).state === "off");
   });
 
+  it("gives a phone that holds the code nothing before the owner's yes: its pairing channel reaches no call", async () => {
+    const r = await boot();
+    const asked = nextEvent(r.mac, "remote.pairRequest");
+    const { url } = await r.mac.call("remote.pair.start", {});
+    // THE mutant: answer calls on the pairing channel. Then a photograph of the QR code is a way in,
+    // with the owner's sheet still on screen and unanswered.
+    for (const method of ["home.get", "ping"]) {
+      expect(await new TestPhone().callWhilePairing(url, method), method).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    }
+    await asked;
+    expect((await status(r)).phones).toEqual([]);
+  });
+
   it("refuses a pairing link whose secret is wrong, without asking the owner", async () => {
     const r = await boot();
     let asked = false;

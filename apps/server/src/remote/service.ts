@@ -66,6 +66,8 @@ export class RemoteService {
   private closed = false;
   /** `pair.start`s waiting on the relay: each one a reason to keep dialling (`reconcile`). */
   private opening = 0;
+  /** How to stop each of those waits, should the link it waits on be hung up first. */
+  private readonly waits = new Set<() => void>();
 
   constructor(private readonly o: RemoteServiceOptions) {
     this.keys = new MacKeys(o.settings);
@@ -94,6 +96,9 @@ export class RemoteService {
    */
   async pairStart(): Promise<PairingWindow> {
     if (this.closed) throw new RpcError("UNAVAILABLE", "Realm is shutting down");
+    // A key that has arrived since the last look may open the identity already stored. Minting over it
+    // would cut off every phone that pinned it.
+    if (!this.identity) this.unlock();
     if (!this.identity) {
       const minted = this.keys.mint();
       if (!minted) throw new RpcError("REMOTE_LOCKED", "Realm can't reach this Mac's keychain, so it can't pair a phone yet. Open Realm on this Mac, then try again.");
@@ -148,9 +153,7 @@ export class RemoteService {
 
   close(): void {
     this.closed = true;
-    const gateway = this.gateway;
-    this.gateway = null;
-    gateway?.stop();
+    this.hangUp();
     for (const r of [...this.requests.values()]) r.answer(false);
   }
 
@@ -214,16 +217,19 @@ export class RemoteService {
   private reachable(gateway: RemoteGateway): Promise<void> {
     if (gateway.state === "connected") return Promise.resolve();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        off();
-        reject(new RpcError("RELAY_UNREACHABLE", "Realm can't reach its relay, so no phone can pair right now. Check this Mac's connection, then try again."));
-      }, this.o.relayWaitMs ?? RELAY_WAIT_MS);
-      const off = gateway.onState((s) => {
-        if (s !== "connected") return;
+      const done = (err?: RpcError): void => {
         clearTimeout(timer);
         off();
-        resolve();
-      });
+        this.waits.delete(hungUp);
+        if (err) reject(err); else resolve();
+      };
+      // The app closing, or the relay setting moving, leaves nothing to wait on.
+      const hungUp = (): void => done(new RpcError("UNAVAILABLE", "Realm Mobile stopped while the window was opening. Try again."));
+      const timer = setTimeout(() => done(new RpcError("RELAY_UNREACHABLE",
+        "Realm can't reach its relay, so no phone can pair right now. Check this Mac's connection, then try again.")), this.o.relayWaitMs ?? RELAY_WAIT_MS);
+      timer.unref?.();
+      const off = gateway.onState((s) => { if (s === "connected") done(); });
+      this.waits.add(hungUp);
     });
   }
 
@@ -232,6 +238,7 @@ export class RemoteService {
     this.gateway = null;
     gateway?.stop();
     this.settleRequests();
+    for (const stop of [...this.waits]) stop();
   }
 
   /** Puts a phone in front of the owner. The gateway races the answer against the window's expiry. */

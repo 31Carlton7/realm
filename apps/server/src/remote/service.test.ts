@@ -78,6 +78,20 @@ describe("RemoteService", () => {
     expect(svc.status()).toMatchObject({ state: "off", pairing: null });
   });
 
+  it("stops waiting on the relay the moment it closes, rather than holding shutdown until the wait runs out", async () => {
+    const port = await new Promise<number>((ok) => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as AddressInfo).port; s.close(() => ok(p)); }); });
+    const r = rig({ defaultRelay: `ws://127.0.0.1:${port}` });
+    remoteSecretBox.setKey(key());
+    const svc = r.make();
+    svc.start();
+    const started = Date.now();
+    const pending = svc.pairStart();
+    // Long enough for the first dial to fail, so the link sits offline between retries when it closes.
+    setTimeout(() => svc.close(), 300);
+    await expect(pending).rejects.toMatchObject({ code: "UNAVAILABLE" });
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   it("forgets the phones of an identity its key no longer opens, rather than keeping rows that can never connect", () => {
     const r = rig({ defaultRelay: "wss://relay.example" });
     remoteSecretBox.setKey(key());
