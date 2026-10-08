@@ -178,6 +178,22 @@ describe("useKeybindings", () => {
     expect(made(api, "createSession")).toBe(true);
   });
 
+  it("⌘\\ and ⌘⇧\\ split from inside a text field — the caret a split leaves in a prompter", async () => {
+    // THE MUTANT: the splits left on `!inputFocus`: the first split hands the new prompter the
+    // keyboard, and the second keystroke would do nothing.
+    const { api, store } = await mount();
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i1" }, focusedLeafId: "L1" }));
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+    input.focus();
+    key({ key: "\\", code: "Backslash", metaKey: true }, input);
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(2));
+    key({ key: "|", code: "Backslash", metaKey: true, shiftKey: true }, input);
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(3));
+    expect(api.calls.filter((c) => c.startsWith("createSession"))).toHaveLength(2);
+    input.remove();
+  });
+
   it("⌘\\ splits right with a new session in the new pane, not an empty one", async () => {
     // THE MUTANT: the command left on splitFocused.
     const { api, store } = await mount();
