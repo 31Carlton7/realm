@@ -99,8 +99,8 @@ export function PdfView({ documentsId, path, version, scrollKey, head, filePath 
   // ---- zoom and layout ---------------------------------------------------------------------------
   const recalled = useMemo(() => recallPdfPlace(scrollKey), [scrollKey]);
   const [zoom, setZoom] = useState<PdfZoom>(recalled?.zoom ?? "width");
+  /* No dissolve on this scroller (styles.css, `.pdf-view`): over white paper the mask is a grey band. */
   const scroller = useRef<HTMLDivElement>(null);
-  useDissolve(scroller);
   const [box, setBox] = useState<PageSize>({ w: 0, h: 0 });
   useLayoutEffect(() => {
     const el = scroller.current; if (!el) return;
