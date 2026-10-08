@@ -227,6 +227,12 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".tooltip[data-instant]").join(" ")).toContain("transition: none");
   });
 
+  it("sets a record's path in mono and the words after it in the interface's face", () => {
+    // Mutant: the whole line in mono — "team memory · last changed by Carlton" read as machine output.
+    expect(bodiesFor(".tp-file").join(" ")).not.toMatch(/font-family/);
+    expect(bodiesFor(".tp-file code").join(" ")).toContain("var(--font-mono)");
+  });
+
   it("lets a role card's state yield to the role's name, not the other way round", () => {
     // Mutant: the state at its full width — the name ellipsizes beside a sentence that had room to give.
     const state = bodiesFor(".tp-card-head .tp-state").join(" ");

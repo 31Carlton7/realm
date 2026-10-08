@@ -9927,7 +9927,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .t-faint { color: var(--rl-text-faint); }
 .t-num { font-variant-numeric: tabular-nums; }
 .t-mono { font-family: var(--font-mono); font-size: 12px; }
-.t-mono, .tp-file, .tp-record-source { letter-spacing: normal; }
+.t-mono, .tp-file code, .tp-record-source { letter-spacing: normal; }
 .t-sep::before { content: "·"; margin: 0 6px; color: var(--rl-text-faint); }
 .t-glyph { flex: none; display: inline-grid; place-items: center; color: var(--rl-text-dim); }
 .t-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
@@ -10060,7 +10060,9 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-props > div:nth-child(odd):nth-child(n+3)::before { left: 16px; }
 .tp-props > div:nth-child(even):nth-child(n+3)::before { right: 16px; }
 .tp-props > .tp-prop-full { grid-column: 1 / -1; color: var(--rl-text-bright); }
-.tp-file { margin: -4px 0 0; font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--rl-text-faint); overflow-wrap: anywhere; }
+/* The path is mono; the words after it are prose and read in the interface's face (design.md §Typography). */
+.tp-file { margin: -4px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); overflow-wrap: anywhere; }
+.tp-file code { font-family: var(--font-mono); font-size: 12px; background: none; padding: 0; color: inherit; }
 
 .tp-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; }
 .tp-table th { text-align: left; font-weight: var(--fw-medium); color: var(--rl-text-dim); font-size: 12px; padding: 0 12px 6px 0; }

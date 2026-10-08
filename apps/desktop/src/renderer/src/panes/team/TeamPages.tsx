@@ -543,7 +543,7 @@ function RecordsPage({ spaceId }: { spaceId: string }) {
         <button type="button" className="btn" onClick={() => setAdding(true)}><Icon name="add" size={16} />New record</button>
       </header>
       <div className="form">
-        <p className="tp-file">creators/ · team memory · one Markdown file per person, read by every role</p>
+        <p className="tp-file"><code>creators/</code> · team memory · one Markdown file per person, read by every role</p>
         {adding && (
           <form className="tp-message tp-inline" onSubmit={(e) => { e.preventDefault(); if (name.trim()) add(); }}>
             <input className="tp-inline-field" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Their name" aria-label="The creator's name"
@@ -619,7 +619,7 @@ function RecordPage({ spaceId, path, team }: { spaceId: string; path: string; te
         )}
       </header>
       <div className="form">
-        <p className="tp-file">{rec.path} · team memory{rec.lastAuthor ? ` · last changed by ${rec.lastAuthor} ${feedTime(rec.updatedAt ?? Date.now())}` : ""}</p>
+        <p className="tp-file"><code>{rec.path}</code> · team memory{rec.lastAuthor ? ` · last changed by ${rec.lastAuthor} ${feedTime(rec.updatedAt ?? Date.now())}` : ""}</p>
         {editing ? (
           <textarea className="tp-record-source" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={`${rec.name}'s record, as Markdown`} spellCheck={false} />
         ) : parsed ? <RecordView record={parsed} spaceId={spaceId} /> : (
