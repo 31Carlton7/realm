@@ -188,7 +188,8 @@ describe("ProfilePage · Memory repo", () => {
     // THE MUTANT: create for the vantage space's id, or for another profile — the repo lands on the wrong owner.
     await waitFor(() => expect(api.calls).toContain("createMemoryRepo:p1"));
     expect(await screen.findByText("/realm-home/memory/repos/profile-p1")).toBeInTheDocument();
-    expect(screen.getByText(/^Last saved .*: Create memory repo$/)).toBeInTheDocument();
+    expect(screen.getByText("Last saved")).toBeInTheDocument();
+    expect(screen.getByText(/^Just now: Create memory repo$/)).toBeInTheDocument();
     expect(screen.getByText("Nowhere. It stays on this Mac.")).toBeInTheDocument();
     expect(screen.getByText("Recent memories")).toBeInTheDocument();
   });
@@ -210,11 +211,12 @@ describe("ProfilePage · Memory repo", () => {
     const dirty = fakeMemoryRepo({ clean: false, uncommitted: ["draft.md"], reason: "1 uncommitted change — agents save again once the repo is clean" });
     const { store } = await mount({ memoryRepos: { p1: dirty } });
     openMemory();
-    const line = await screen.findByText("1 uncommitted change — agents save again once the repo is clean.");
-    // THE MUTANT: the status line ignores `clean` — it reads "Last saved…" while every save is refused.
-    expect(line).toHaveAttribute("data-tone", "warning");
+    // THE MUTANT: the status ignores `clean` — it reads "Last saved" while every save is refused.
+    expect(await screen.findByText("Saving paused")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("1 uncommitted change — agents save again once the repo is clean.")).toBeInTheDocument();
     act(() => store.setState({ profileMemoryRepo: { p1: fakeMemoryRepo({ valid: false, reason: "the folder is gone" }) } }));
-    expect(screen.getByText("Not a memory repo: the folder is gone.")).toHaveAttribute("data-tone", "danger");
+    expect(screen.getByText("Not a memory repo")).toHaveAttribute("data-tone", "danger");
+    expect(screen.getByText("The folder is gone.")).toBeInTheDocument();
   });
 
   it("detaches this profile's repo and leaves the folder to the user", async () => {

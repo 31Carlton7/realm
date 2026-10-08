@@ -8,14 +8,23 @@ import { ago } from "../../panes/code-review/code-review-model";
  * The memory repo, as rows: the memory AGENTS write (Agent Memory Repo), beside the documents the
  * user writes. One per profile, inherited by its spaces.
  *
- * Its state is said in words rather than a dot — a repo with uncommitted changes refuses saves until
- * someone commits them, and the reason has to be readable where the repo is shown.
+ * Its state is said in words rather than a dot, as the first row's name — a repo with uncommitted
+ * changes refuses saves until someone commits them, and the reason has to be readable where the repo
+ * is shown.
  */
-export function repoStatus(r: MemoryRepoState, now = Date.now()): { text: string; tone: "danger" | "warning" | null } {
-  if (!r.valid) return { text: `Not a memory repo: ${r.reason ?? "unknown"}.`, tone: "danger" };
-  if (!r.clean) return { text: `${r.reason ?? "Uncommitted changes"}.`, tone: "warning" };
-  if (r.lastCommitAt === null) return { text: "No commits yet.", tone: null };
-  return { text: `Last saved ${ago(r.lastCommitAt, now)}: ${r.lastCommitSubject ?? ""}`, tone: null };
+export function repoStatus(r: MemoryRepoState, now = Date.now()): { name: string; text: string; sentence: string; tone: "danger" | "warning" | null } {
+  const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
+  if (!r.valid) {
+    const why = r.reason ?? "unknown";
+    return { name: "Not a memory repo", text: `${cap(why)}.`, sentence: `Not a memory repo: ${why}.`, tone: "danger" };
+  }
+  if (!r.clean) {
+    const why = r.reason ?? "uncommitted changes";
+    return { name: "Saving paused", text: `${cap(why)}.`, sentence: `Saving paused: ${why}.`, tone: "warning" };
+  }
+  if (r.lastCommitAt === null) return { name: "No commits yet", text: "", sentence: "No commits yet.", tone: null };
+  const when = ago(r.lastCommitAt, now);
+  return { name: "Last saved", text: `${cap(when)}: ${r.lastCommitSubject ?? ""}`, sentence: `Last saved ${when}: ${r.lastCommitSubject ?? ""}`, tone: null };
 }
 
 /** At the profile's own Memory page: create or attach, then the repo with its folder and history. */
@@ -57,8 +66,8 @@ export function MemoryRepoRow({ profileId }: { profileId: string }) {
     <div className="settings-group memory-repo">
       <div className="settings-row">
         <div className="settings-row-main">
-          <span className="settings-row-name">Memory repo</span>
-          <span className="settings-row-desc memory-repo-status" data-tone={status.tone ?? undefined}>{status.text}</span>
+          <span className="settings-row-name memory-repo-status" data-tone={status.tone ?? undefined}>{status.name}</span>
+          {status.text && <span className="settings-row-desc">{status.text}</span>}
         </div>
         {repo.head && <code className="memory-repo-head" title="The latest commit">{repo.head}</code>}
       </div>
@@ -121,7 +130,7 @@ export function InheritedMemoryRepoRow({ spaceId, profileName }: { spaceId: stri
             <div className="settings-row-main">
               <span className="settings-row-name">{profileName}'s memory repo</span>
               <span className="settings-row-desc memory-repo-status" data-tone={status.tone ?? undefined}>
-                {r.inheritedHere ? status.text : "Off in this space: its sessions neither read it nor save to it."}
+                {r.inheritedHere ? status.sentence : "Off in this space: its sessions neither read it nor save to it."}
               </span>
             </div>
             <input type="checkbox" role="switch" className="switch" aria-label={`Use ${profileName}'s memory repo in this space`}
