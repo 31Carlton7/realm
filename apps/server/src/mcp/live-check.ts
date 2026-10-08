@@ -70,6 +70,10 @@ function stdioCheck(row: McpServerRow, timeoutMs: number): Promise<McpTestResult
         } catch { /* not JSON: some servers log to stdout before speaking; keep listening */ }
       }
     });
+    // A command that exits before reading closes the pipe under the write, and an EPIPE with no
+    // listener is an uncaught exception, which takes the whole server down. The exit handler above
+    // already reports that command.
+    child.stdin.on("error", () => {});
     child.stdin.write(initializeRequest + "\n");
   });
 }
