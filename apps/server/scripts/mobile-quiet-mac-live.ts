@@ -12,6 +12,7 @@
  * Flags: --relay <url> (required) · --wait <seconds> to wait for an offline notice (default 180)
  */
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,7 +92,11 @@ try {
   phone.close();
   try { process.kill(sidecar.pid!, "SIGCONT"); } catch { /* gone */ }
   sidecar.stdin!.write("quit\n");
-  setTimeout(() => { try { sidecar.kill("SIGKILL"); } catch { /* gone */ } removeHome(home); }, 3_000).unref();
+  // The home goes only once the sidecar, and the server it stops on the way out, have let go of it.
+  const exited = sidecar.exitCode !== null || (await Promise.race([once(sidecar, "exit").then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 5_000))]));
+  if (!exited) { try { sidecar.kill("SIGKILL"); } catch { /* gone */ } }
+  await new Promise((r) => setTimeout(r, 1_000));
+  removeHome(home);
 }
 console.log(JSON.stringify(results));
 finish();
