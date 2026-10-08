@@ -13,10 +13,10 @@ import { sourcesFor, type Source } from "./message-sources";
 import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion } from "./QuestionCard";
-import { ToolCard, ToolCwd, ToolGroup } from "./ToolCard";
+import { ToolCard, ToolCwd, ToolGroup, ToolWaiting } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, goalTurnLabel, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { blockKey, goalTurnLabel, lastUserMessage, waitingToolIds, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
 import { EditSummary } from "./EditSummary";
@@ -99,6 +99,7 @@ const NO_APP_ICONS: Readonly<Record<string, string | null>> = {};
 const NO_SOURCES: readonly Source[] = [];
 const NO_PROMPTS: readonly TrackPrompt[] = [];
 const NO_SAVED: readonly number[] = [];
+const NO_WAITING: ReadonlySet<string> = new Set();
 
 const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
@@ -360,6 +361,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   const lastLen = lastText && "text" in lastText ? lastText.text?.length ?? 0 : 0;
   // Permission cards only make sense while the adapter is actually waiting; stale requests (crash, restart) are closed server-side.
   const permissions = sessionStatus === "waiting_permission" ? transcript.pendingPermissions : [];
+  /* The calls those requests are about, so each one's row says "Waiting for you" rather than spinning
+     like work in progress. Kept as the SAME set while the ids hold, because every streaming delta
+     rebuilds the blocks and a fresh set would re-render every card in the transcript with it. */
+  const waitingKey = permissions.length ? waitingToolIds(transcript.blocks, permissions).join("\n") : "";
+  const waiting = useMemo(() => (waitingKey ? new Set(waitingKey.split("\n")) : NO_WAITING), [waitingKey]);
   /* The newest answer in the transcript — the only message that wears an action bar.
      A bar under every finished message meant forty of them in a long session, all but one of which
      acted on something the reader had scrolled past; the copy the reader actually reaches for is
@@ -586,15 +592,21 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         <LeadSessionContext.Provider value={sessionId}>
         <div className="transcript-col">
         <ToolCwd.Provider value={cwd}>
+        <ToolWaiting.Provider value={waiting}>
         {start > 0 && (
           <button ref={earlierRef} type="button" className="btn-quiet transcript-earlier" onClick={showEarlier}>Show earlier messages</button>
         )}
-        {groupTranscript(shown, start).map((it) => {
-          if (it.kind === "group")
+        {groupTranscript(shown, start).map((it, i, items) => {
+          if (it.kind === "group") {
+            /* The turn ended on this run when nothing but its closing line (or the error that ended
+               it) follows — no word from the agent, no further call. */
+            const next = items[i + 1];
+            const endsTurn = !next || (next.kind === "block" && (next.block.kind === "run" || next.block.kind === "error"));
             // The group container itself never animates in: when a run crosses the grouping
             // threshold the cards it swallows are already on screen, and wrapping them in a fresh
             // entrance would replay motion for items the reader has been watching.
-            return <ToolGroup key={it.key} sessionStatus={sessionStatus} steps={withEnter(it.steps, isEntering)} />;
+            return <ToolGroup key={it.key} sessionStatus={sessionStatus} steps={withEnter(it.steps, isEntering)} endsTurn={endsTurn} />;
+          }
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
             case "user": return (
@@ -734,6 +746,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
         <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} />
+        </ToolWaiting.Provider>
         </ToolCwd.Provider>
         </div>
         </LeadSessionContext.Provider>

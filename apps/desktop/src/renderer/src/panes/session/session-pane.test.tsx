@@ -109,7 +109,10 @@ describe("SessionPane", () => {
     const card = tool.closest(".tool-card") as HTMLElement;
     expect(card.querySelector(".cmd-line code")).toHaveTextContent("ls -la");
     expect(screen.getAllByText(/"command": "ls -la"/).length).toBeGreaterThanOrEqual(1); // the permission card still shows the raw details
-    expect(screen.getByLabelText("running")).toBeInTheDocument(); // no result yet while the session is live
+    // No result yet, and the agent is blocked on THIS call's permission: the row says so rather than
+    // spinning like work in progress, and the decision stays in the card at the foot.
+    expect(screen.getByLabelText("waiting for you")).toBeInTheDocument();
+    expect(card.querySelector(".tool-meta")).toHaveTextContent("Waiting for you");
   });
 
   it("empty transcript is the HERO prompter: a greeting and the card, and nothing else", async () => {
@@ -417,9 +420,10 @@ describe("SessionPane", () => {
       sessionEvent("error", { message: "OAuth session expired" }),
     ]));
     expect(screen.queryByLabelText("running")).toBeNull();
-    expect(screen.getByLabelText("no result")).toBeInTheDocument();
+    expect(screen.getByLabelText("stopped")).toBeInTheDocument();
+    expect(document.querySelector(".tool-meta")).toHaveTextContent("Stopped");
     expect(screen.getByRole("alert")).toHaveTextContent("OAuth session expired");
-    expect(screen.getByText("/a/b.ts")).toBeInTheDocument();
+    expect(screen.getByTitle("/a/b.ts")).toHaveTextContent("/a/b.ts");
   });
 
   it("puts the command that fixes an auth failure under the message that reports it", async () => {
