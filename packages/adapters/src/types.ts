@@ -117,10 +117,11 @@ export interface AgentHandle {
 
 /**
  * `models` is the provider's live catalog, when the adapter has a channel to ask on: Codex answers
- * app-server `model/list`, Cursor reports `availableModels` on ACP `session/new`. `null`/absent means
- * "cannot enumerate" — Claude has no such channel (the curated static list in contracts stands in),
- * and an unavailable CLI obviously can't be asked. Never an invented list: ids here are ids the
- * provider itself handed over, verbatim.
+ * app-server `model/list`, Cursor reports `availableModels` on ACP `session/new`, Claude Code answers
+ * `supportedModels()` on a query's handshake. `null`/absent means "cannot enumerate" — an agent with
+ * no such channel, an unavailable CLI, which obviously can't be asked, or an enumeration that failed
+ * (for Claude the curated static list in contracts stands in). Never an invented list: ids here are
+ * ids the provider itself handed over, verbatim.
  */
 export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null;
   /** An agent's reasoning levels where they are a session setting (an ACP `thought_level` option), with

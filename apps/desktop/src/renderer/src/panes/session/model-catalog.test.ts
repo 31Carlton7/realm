@@ -26,6 +26,16 @@ const codexCatalog = [
   { id: "gpt-6-luna", label: "GPT-6-Luna", fastMode: true },
 ];
 
+/** Claude Code's `supportedModels()` as the probe hands it over: resolved ids, the vendor's name in
+ *  front, and the model an un-pinned session runs marked. Sonnet 5.5 is a model the curated list
+ *  never carried. */
+const claudeCatalog = [
+  { id: "claude-fable-5-1", label: "Claude Fable 5.1", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true, efforts: ["low", "medium", "high", "xhigh", "max"], fastMode: true },
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "claude-opus-4-6", label: "Claude Opus 4.6", efforts: ["low", "medium", "high", "max"] },
+];
+
 describe("modelRows with a probe catalog", () => {
   it("renders the probe's models for that kind, led by an explicit adapter-default row", () => {
     const rows = modelRows({ kind: "acp:cursor", model: null, agentProbe: [probe("acp:cursor", cursorCatalog)], canSwitchAgent: true });
@@ -64,6 +74,51 @@ describe("modelRows with a probe catalog", () => {
     // And the blocked reason still lands on the OTHER kinds only.
     expect(rows.filter((r) => r.kind === "codex").every((r) => r.blockedReason === null)).toBe(true);
     expect(rows.filter((r) => r.kind !== "codex").every((r) => r.blockedReason !== null)).toBe(true);
+  });
+});
+
+describe("a curated kind's live catalog", () => {
+  const claudeRows = (model: string | null, models: AgentProbe["models"] = claudeCatalog, favorites: string[] = []) =>
+    modelRows({ kind: "claude", model, agentProbe: [probe("claude", models)], canSwitchAgent: true, favorites }).filter((r) => r.kind === "claude");
+  const ticked = (rows: ModelRow[]) => rows.filter((r) => r.selected).map((r) => r.modelId);
+
+  it("replaces the curated list one row per model, with no default row beside them", () => {
+    const rows = claudeRows(null);
+    expect(rows.map((r) => r.modelId)).toEqual(claudeCatalog.map((m) => m.id));
+    expect(rows.some((r) => r.key === "default:claude" || r.modelId === null)).toBe(false);
+  });
+
+  it("ticks the model the catalog says an un-pinned session runs, wherever it is listed, and the chip names it", () => {
+    expect(ticked(claudeRows(null))).toEqual(["claude-opus-5-5"]);
+    expect(chipLabel("claude", null, claudeRows(null))).toBe("Opus 5.5");
+  });
+
+  it("ticks the first row where the catalog marks none, as the curated list does", () => {
+    const unmarked = claudeCatalog.map(({ id, label }) => ({ id, label }));
+    expect(ticked(claudeRows(null, unmarked))).toEqual(["claude-fable-5-1"]);
+  });
+
+  it("ticks a pinned model's own row, and never the default's as well", () => {
+    expect(ticked(claudeRows("claude-sonnet-5-5"))).toEqual(["claude-sonnet-5-5"]);
+    expect(chipLabel("claude", "claude-sonnet-5-5", claudeRows("claude-sonnet-5-5"))).toBe("Sonnet 5.5");
+  });
+
+  it("names a pinned id the catalog no longer carries by that id, and ticks nothing in its place", () => {
+    expect(ticked(claudeRows("claude-haiku-4-5"))).toEqual([]);
+    expect(chipLabel("claude", "claude-haiku-4-5", claudeRows("claude-haiku-4-5"))).toBe("claude-haiku-4-5");
+  });
+
+  it("keeps a model's key, so a star set on the curated row lights the live one", () => {
+    const key = canonicalModelKey("Claude Opus 5.5");
+    const curatedRow = modelRows({ kind: "claude", model: null, agentProbe: [], canSwitchAgent: true }).find((r) => r.modelId === "claude-opus-5-5")!;
+    expect(curatedRow.key).toBe(key);
+    expect(claudeRows(null, claudeCatalog, [key]).find((r) => r.modelId === "claude-opus-5-5")).toMatchObject({ key, favorite: true });
+  });
+
+  it("leaves a kind Realm curates nothing for on its explicit default row", () => {
+    const codex = modelRows({ kind: "codex", model: null, agentProbe: [probe("codex", codexCatalog)], canSwitchAgent: true }).filter((r) => r.kind === "codex");
+    expect(codex[0]).toMatchObject({ key: "default:codex", modelId: null, selected: true });
+    expect(codex.filter((r) => r.selected)).toHaveLength(1);
   });
 });
 
@@ -313,6 +368,19 @@ describe("effortOptions", () => {
     expect(ids(ask({ info: entry(["high", "medium", "low", "minimal"]) }))).toEqual(["low", "medium", "high"]);
     expect(ids(ask({ info: entry([]) }))).toEqual(["low", "medium", "high", "xhigh", "max"]);
     expect(ask({ info: entry(["low", "medium"]) }).defaultId).toBeNull(); // no `high` here to default to
+  });
+
+  it("takes Claude's levels from the probe's catalog before any session has said, and a session's own word over it", () => {
+    const agentProbe = [probe("claude", claudeCatalog)];
+    expect(ids(ask({ model: "claude-opus-4-6", agentProbe }))).toEqual(["low", "medium", "high", "max"]);
+    expect(ids(ask({ model: "claude-opus-4-6", agentProbe, info: entry(["low"]) }))).toEqual(["low", "medium", "high", "max"]);
+    expect(ids(ask({ model: "claude-opus-4-6", agentProbe, remembered: { "claude:claude-opus-4-6": ["low", "medium"] } }))).toEqual(["low", "medium"]);
+  });
+
+  it("reads a Claude session that pinned nothing by the model the catalog marks as its default", () => {
+    const fourLevelDefault = claudeCatalog.map((m) => ({ ...m, isDefault: m.id === "claude-opus-4-6" }));
+    expect(ids(ask({ model: null, agentProbe: [probe("claude", fourLevelDefault)] }))).toEqual(["low", "medium", "high", "max"]);
+    expect(ids(ask({ model: "claude-haiku-4-5", agentProbe: [probe("claude", claudeCatalog)] }))).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
   it("takes Codex's levels and default from the model's own catalog row, the default row's from the marked model", () => {
