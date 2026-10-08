@@ -69,6 +69,7 @@ export * from "./machine";
 export * from "./simulator";
 export * from "./simulator-input";
 export * from "./goal";
+export * from "./workspace";
 export * from "./egg-pack";
 export * from "./sandbox";
 /* A different feature that shares a word — the Seatbelt policy an agent or shell is SPAWNED under,

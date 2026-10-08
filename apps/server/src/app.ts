@@ -30,6 +30,7 @@ import { SimulatorService } from "./simulators/service";
 import { GoalService } from "./goals/service";
 import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
+import { createWorkspaceProvider } from "./workspace/agent-tools";
 import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
@@ -1167,6 +1168,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      the provider. Registered after the session service exists because the goal service it wraps
      delivers through it. */
   mcpGateway.registerProvider(createGoalProvider({ goals, mcp }));
+  /* `realm-workspace`: what is in the space, what is on screen, what the other sessions here said, and
+     the one tool that brings a closed pane back. Read from the stores and the saved view rather than
+     the DOM — the app-ui provider's own argument for why clicking is the fragile route. */
+  mcpGateway.registerProvider(createWorkspaceProvider({
+    mcp, sessions: sessionsStore, events: sessionEvents, items, spaces, profiles, settings, documents, bridge: browserBridge, rpc,
+  }));
   /* Any goal that was running when Realm last closed is parked rather than resumed. A desktop app is
      relaunched by someone opening it, sometimes days later and usually to do something else — see
      `parkOnBoot`. */

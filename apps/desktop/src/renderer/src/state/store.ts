@@ -15,6 +15,7 @@ import {
   groupsFromLayout, SpaceGroupsSchema,
   besidePane, clampPanelShare, columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type Room, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
+  SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
@@ -749,14 +750,11 @@ export type NewTabTool = "terminal" | "documents" | "agents" | "simulator" | "ma
  *  files at a line. `path` is the tab's own name for the file (`documents.openPath` answers it). */
 export type DocumentsAsk = { documentsId: string; seq: number } & ({ search: true } | { path: string; line: number });
 
-/** The space last made current — where a new session goes when no session has focus. Before Plan 27
- *  it was the room the window was in, which is why a home upgraded from rooms migrates from it. */
-export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
+/** The space last made current, and the window's view per profile — in contracts, because the
+ *  server reads both to tell an agent what is on screen (`realm-workspace`'s `workspace_state`). */
+export { SETTING_ACTIVE_SPACE, viewSettingKey };
 /** The profile the window was last on: what a window main bound to no profile opens on. */
 export const SETTING_ACTIVE_PROFILE = "ui.activeProfileId";
-/** The window's one view, per profile — its panes, their side panes, and the side panes of the
- *  sessions not on screen. Keyed by profile because a profile's spaces are the only ones it shows. */
-export const viewSettingKey = (profileId: string): string => `ui.view:${profileId}`;
 export const SETTING_THEME = "ui.theme";
 /** The palette, one key per face — a second axis from `ui.theme`'s light/dark: that says which mode,
  *  these say what the colours are in it. A key each rather than one compound value so the two faces
@@ -796,8 +794,6 @@ const SETTING_KONAMI_UNLOCKED = "ui.konamiUnlocked";
 /** Whether the sidebar is collapsed to the top rail. Persisted so a collapsed window stays
  *  collapsed across launches — the whole point of collapsing is reclaiming the column for good. */
 const SETTING_SIDEBAR_COLLAPSED = "ui.sidebarCollapsed";
-/** The side panes put away (`toggleSidePanes`): their tabs kept, the panes not drawn. */
-const SETTING_SIDE_PANES_HIDDEN = "ui.sidePanesHidden";
 /** How wide the sidebar column is, in pixels. Its own key rather than a field on the one above: the
  *  two answer different questions, and a width remembered through a collapse is what makes bringing
  *  the sidebar back restore the column the user had rather than the one Realm ships. */
