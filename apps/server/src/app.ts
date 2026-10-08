@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { GuestSpecSchema, type GuestSpec } from "@realm/contracts";
+import { GuestSpecSchema, POWER_PREVENT_SLEEP_KEY, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
@@ -102,6 +102,7 @@ import { NotificationRelay, realTransport } from "./notifications/relay";
 import { RemoteService } from "./remote/service";
 import { Presence } from "./remote/presence";
 import { PhonePushes } from "./remote/push";
+import { HeadlessKeepAwake, type HoldAwake } from "./remote/keep-awake";
 import { RemoteDevicesStore } from "./store/remote-devices";
 import { RunsStore } from "./store/runs";
 import { RunService } from "./runs/service";
@@ -648,7 +649,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  none; only `main.ts` passes the real one, so no app a test builds reaches a relay it did not name.
    *  The rest are test knobs: development builds' `debug.report`, the pairing link's scheme, the
    *  pairing window's life, and the push hold-back. */
-  remote?: { defaultRelay?: string; dev?: boolean; linkBase?: string; pairTtlMs?: number; pushHoldMs?: number };
+  remote?: { defaultRelay?: string; dev?: boolean; linkBase?: string; pairTtlMs?: number; pushHoldMs?: number; holdAwake?: HoldAwake | null };
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -1343,6 +1344,18 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   // After the socket is up, so the first `remote.changed` has somebody to reach.
   remote.start();
+  // With no Realm app attached to keep the Mac awake, the server does it itself: a daemon left running
+  // after the app quit may have a session its owner is answering from their phone.
+  const keepAwake = new HeadlessKeepAwake({
+    attached: () => browserBridge.connected,
+    wanted: () => settings.get(POWER_PREVENT_SLEEP_KEY) === true,
+    counts: () => sessions.statusCounts(),
+    phones: () => remote.status().phones.length,
+    hold: opts.remote?.holdAwake,
+  });
+  rpc.onBroadcast((event) => { if (event === "session.status" || event === "remote.changed") keepAwake.refresh(); });
+  browserBridge.onHostChange(() => keepAwake.refresh());
+  keepAwake.refresh();
   /**
    * Shut this app down.
    *
@@ -1380,6 +1393,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Before the socket closes and the database with it: a held push must not fire into either, and
     // the relay is told goodbye rather than left to notice a silence.
     phonePushes?.close();
+    keepAwake.close();
     remote.close();
     await rpc.close();
     db.close();
