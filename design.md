@@ -983,6 +983,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   Library lists every saved turn of the profile, because the Library holds what a person kept and the
   activity view is a log of what went by.
 - Never invent human-like agent presence, mood, or certainty.
+- A team role wears a Realmite (`packages/ui/src/realmite/`), at the owner's ask (10-08): a small
+  creature, generated from a seed and customisable, in place of a glyph. It is a mark, not a persona.
+  Its face reports the role's run and nothing else — idle, working, needs you, asleep — never a mood,
+  never a reaction to what was said, and no line of the interface is written in its voice: the role
+  still speaks through its transcript and its Review items, like any session. It is drawn at the
+  sizes a glyph would take (16 in a row or a log line, 32 on a card, 160 as a role page's hero),
+  nothing moves below 24px, idle breathes only from 48px, and Reduce motion stills it.
 
 ## Documents, diffs, terminals, and data
 
