@@ -291,6 +291,8 @@ describe("the refusals, and that each one has no side effect behind it", () => {
     const { spaceId, askerId, peerId } = await boot({
       script: [{ on: "NEEDS PERMISSION", emit: [{ kind: "tool", name: "Bash", input: { cmd: "rm" }, needsPermission: true, result: "ok" }] }],
     });
+    // The scripted agent, like a real one, raises no card in Full access — this peer asks each time.
+    await app!.sessions.setOptions(peerId, { permissionMode: "default" });
     await app!.sessions.send(peerId, { text: "NEEDS PERMISSION", attachments: [] });
     await waitFor(() => app!.sessions.get(peerId).status === "waiting_permission");
 
