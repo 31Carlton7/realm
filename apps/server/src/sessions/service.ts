@@ -50,6 +50,11 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
  * is — which is the only question a title in a list of ten of them answers. */
 const DEFAULT_TITLE = "New session";
+/** The settings key that says the turn-media catch-up has run on this home (`backfillTurnMedia`). */
+export const MEDIA_BACKFILL_KEY = "artifacts.mediaBackfill";
+/** How far back the catch-up looks: far enough for last week's work, near enough that the files are
+ *  likely still where the turn left them and their mtimes still the turn's. */
+export const MEDIA_BACKFILL_DAYS = 14;
 export const TITLE_MAX = 40;
 /** First line of the message, whitespace-collapsed, clipped to TITLE_MAX. */
 export function titleFromMessage(text: string): string {
@@ -1137,6 +1142,88 @@ export class SessionService {
     } catch (e) {
       console.error(`[sessions] could not look for the turn's media for ${id}: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  /**
+   * The turn-media sweep, run once over the last `days` of history: what `recordTurnMedia` would have
+   * written for each tool turn that settled before this build existed, so a deck made last week is in
+   * the documents home and the Library without making it again.
+   *
+   * Once per home, behind a settings key, and only after it finishes — a run cut short by a quit runs
+   * again, and skips every turn that already has its `files_made`. Each turn's window is rebuilt from
+   * the session's own `status` events, and its event is written with the settle's `ts`, so the Library
+   * orders it with the turn that made it. Written quietly (`setLastEventSeqQuietly`) and broadcast to
+   * nobody: an event about last week must not move a session to the top of the list or give it a dot.
+   * Oldest turn first across every session, so of two sessions whose windows both saw a file, the one
+   * that was working first claims it.
+   */
+  async backfillTurnMedia({ days = MEDIA_BACKFILL_DAYS, now = Date.now() }: { days?: number; now?: number } = {}): Promise<number> {
+    if (this.d.settings.get(MEDIA_BACKFILL_KEY) != null) return 0;
+    const since = now - days * 86_400_000;
+    const turns: { sessionId: string; start: { ts: number; seq: number }; settledAt: number; events: StoredSessionEvent[] }[] = [];
+    for (const s of this.d.sessions.listAll()) {
+      if (s.updatedAt < since) continue;
+      const before = this.d.db.prepare("SELECT MAX(seq) AS seq FROM session_events WHERE session_id = ? AND ts < ?").get(s.id, since) as { seq: number | null };
+      const log: StoredSessionEvent[] = [];
+      for (let after = before.seq ?? 0; ;) {
+        const page = this.d.events.listAfter(s.id, after, 5000);
+        log.push(...page);
+        if (page.length < 5000) break;
+        after = page.at(-1)!.seq;
+      }
+      const recorded = new Set(log.flatMap((e) => (e.event.type === "files_made" ? [e.event.payload.settledAt] : [])));
+      let live = false;
+      let open: { start: { ts: number; seq: number }; from: number; tools: boolean } | null = null;
+      for (let i = 0; i < log.length; i++) {
+        const { event } = log[i]!;
+        if (event.type === "tool_call" && open) open.tools = true;
+        if (event.type !== "status") continue;
+        const isLive = event.payload.status === "running" || event.payload.status === "waiting_permission";
+        if (isLive && !live) open = { start: { ts: event.ts, seq: log[i - 1]?.seq ?? before.seq ?? 0 }, from: i, tools: false };
+        if (!isLive && live && open) {
+          if (open.tools && !recorded.has(event.ts)) {
+            turns.push({ sessionId: s.id, start: open.start, settledAt: event.ts, events: log.slice(open.from, i) });
+          }
+          open = null;
+        }
+        live = isLive;
+      }
+    }
+    turns.sort((a, b) => a.settledAt - b.settledAt);
+    const claimed = new Set<string>();
+    let written = 0;
+    for (const turn of turns) {
+      if (this.closing) return written;
+      const s = this.d.sessions.get(turn.sessionId);
+      if (!s) continue;
+      try {
+        const roots = await turnSearchRoots({
+          cwd: s.cwd, spaceFolder: this.d.spaces.get(s.spaceId)?.folderPath ?? null,
+          events: turn.events.map((e) => e.event), home: this.d.userHome ?? homedir(),
+        });
+        const found = await sweepTurnMedia(roots, { from: turn.start.ts, to: turn.settledAt, max: TURN_MEDIA_MAX });
+        if (found.total === 0) continue;
+        const own = new Set(turn.events.flatMap((e) =>
+          artifactsFromEvent({ sessionId: s.id, spaceId: s.spaceId, seq: e.seq, ts: e.event.ts, type: e.event.type, payload: e.event.payload }).map((a) => a.path)));
+        const elsewhere = new Set((this.d.db.prepare("SELECT path FROM artifacts WHERE ts >= ? AND ts <= ? AND session_id <> ?")
+          .all(turn.start.ts - MTIME_SLACK_MS, turn.settledAt + MTIME_SLACK_MS, s.id) as { path: string }[]).map((r) => r.path));
+        const files = found.files.filter((f) => !own.has(f.path) && !elsewhere.has(f.path) && !claimed.has(f.path));
+        if (files.length === 0) continue;
+        for (const f of files) claimed.add(f.path);
+        const ev = sessionEvent("files_made", { settledAt: turn.settledAt, files, totalFiles: found.total - (found.files.length - files.length) }, turn.settledAt);
+        this.d.db.exec("BEGIN");
+        try {
+          const stored = this.d.events.append(s.id, ev);
+          this.d.sessions.setLastEventSeqQuietly(s.id, stored.seq);
+          this.d.db.exec("COMMIT");
+        } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
+        written++;
+      } catch (e) {
+        console.error(`[sessions] media catch-up skipped a turn of ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    this.d.settings.set(MEDIA_BACKFILL_KEY, { doneAt: now, days, turns: turns.length, written });
+    return written;
   }
 
   /**

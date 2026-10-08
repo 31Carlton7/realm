@@ -1301,6 +1301,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // The pre-v25 history reaches the Library's file index the same way, on the same terms: chunked,
   // yielding, resumable, and merely incomplete rather than wrong while it runs.
   void artifacts.runBackfill(() => false);
+  // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in
+  // the background (`SessionService.backfillTurnMedia`).
+  void sessions.backfillTurnMedia().catch((e) => console.error(`[sessions] media catch-up failed: ${e instanceof Error ? e.message : String(e)}`));
   // Copies removed from the Library while the last run was up, whose Undo went with it.
   void libraryFiles.sweep();
   terminals.restoreAll();

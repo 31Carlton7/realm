@@ -131,6 +131,13 @@ export class SessionsStore {
   setLastEventSeq(id: string, seq: number): void {
     this.db.prepare("UPDATE sessions SET last_event_seq = ?, updated_at = ? WHERE id = ?").run(seq, now(), id);
   }
+  /** The log grew by an event about the past (the turn-media catch-up's): its length moves, but the
+   *  session is not touched now, so it keeps its place in an activity sort — and a session read to
+   *  the end stays read to the end, rather than wearing a dot for something the user never missed. */
+  setLastEventSeqQuietly(id: string, seq: number): void {
+    this.db.prepare(`UPDATE sessions SET seen_seq = CASE WHEN seen_seq >= last_event_seq THEN ? ELSE seen_seq END,
+      last_event_seq = ? WHERE id = ?`).run(seq, seq, id);
+  }
 
   /*
    * The three conversation-rewind columns (v33).
