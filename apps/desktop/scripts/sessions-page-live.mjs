@@ -6,7 +6,8 @@
  * the built app twice on a scratch home. The first boot onboards a space and switches its session to
  * the scripted agent. Between the boots the seed space's sessions and their items are copied in from a
  * READ-ONLY database copy, with the times shifted so the newest is an hour old, so the page carries a
- * real space's shape — leads with sub-agents, archived rows, sessions nothing was sent in. The second
+ * real space's shape — leads with sub-agents, archived rows, sessions nothing was sent in — with each
+ * session's newest reply, for the line that says where it left off. The second
  * boot starts three scripted sessions (one asks, one fails, one keeps working), then measures the page
  * in both faces and drives it from the keyboard.
  *
@@ -247,7 +248,10 @@ function seed(spaceId, environmentId) {
     FROM src.sessions WHERE space_id = ${src};
     INSERT INTO items (id, space_id, kind, title, sort_order, pinned, ref_id, created_at, updated_at, archived)
     SELECT id, ${q(spaceId)}, kind, title, sort_order, 0, ref_id, created_at + ${delta}, updated_at + ${delta}, archived
-    FROM src.items WHERE kind = 'session' AND ref_id IN (SELECT id FROM src.sessions WHERE space_id = ${src});`);
+    FROM src.items WHERE kind = 'session' AND ref_id IN (SELECT id FROM src.sessions WHERE space_id = ${src});
+    INSERT INTO session_events (session_id, ts, type, payload_json)
+    SELECT session_id, ts + ${delta}, type, payload_json FROM src.session_events WHERE seq IN (
+      SELECT max(seq) FROM src.session_events WHERE type = 'assistant_text' AND session_id IN (SELECT id FROM src.sessions WHERE space_id = ${src}) GROUP BY session_id);`);
   return Number(sql(`SELECT count(*) FROM items WHERE space_id = ${q(spaceId)} AND kind = 'session'`));
 }
 
@@ -282,7 +286,9 @@ async function measure(c, mode) {
     const page = sc.closest('.page').getBoundingClientRect();
     const pane = { left: page.left, right: page.right - (sc.offsetWidth - sc.clientWidth) };
     const titles = [...document.querySelectorAll('.space-sessions-list > .space-sessions-item > .space-sessions-row .space-sessions-title')].map((t) => +t.getBoundingClientRect().left.toFixed(2));
-    const idleRead = rows.filter((r) => !r.querySelector('.space-sessions-snippet') && !r.hasAttribute('data-unread'));
+    // Idle and read: no state words in its second slot (a reply's line is not a state) and no unread mark.
+    const idleRead = rows.filter((r) => { const w = r.querySelector('.space-sessions-snippet');
+      return !r.hasAttribute('data-unread') && (!w || (!w.dataset.tone && w.textContent !== 'Working…' && !r.hasAttribute('data-empty'))); });
     return {
       heights: [...new Set(rows.map((r) => +r.getBoundingClientRect().height.toFixed(2)))],
       column: { l: +col.left.toFixed(1), r: +col.right.toFixed(1), w: +col.width.toFixed(1) }, pane: { l: +pane.left.toFixed(1), r: +pane.right.toFixed(1) },
@@ -310,6 +316,8 @@ async function measure(c, mode) {
   else note(`${mode}: no failed row on screen to measure`, null);
   const dim = await inkContrast(c, '.space-sessions-row[data-empty] .space-sessions-title');
   check(`${mode}: an empty session's dimmed title clears 4.5:1`, dim && dim.ratio >= 4.5, dim);
+  const replies = await evalIn(c, `__s.rows().filter((r) => { const t = r.querySelector('.space-sessions-snippet'); return t && !t.dataset.tone && !r.hasAttribute('data-empty') && t.textContent !== 'Working…'; }).length`);
+  check(`${mode}: rows say where they left off`, replies > 10, replies);
 }
 
 async function scrollTo(c, label) {
@@ -377,6 +385,8 @@ async function main() {
     check(`${mode}: the lead unfolds to its agents`, opened.kids === 6, opened.kids);
     await shot(c, `lead-unfolded-${mode}`, { x: opened.box.l - 8, y: opened.box.t - 90, width: opened.box.w + 16, height: opened.box.h + 180 });
     await evalIn(c, `(() => { __s.open('bible app quiz').closest('.space-sessions-row').querySelector('.space-sessions-agents').click(); return true; })()`);
+    await evalIn(c, `document.querySelector('.page-content').scrollTop = 0`);
+    await sleep(300);
     // Hover on a row: its actions.
     const hov = await evalIn(c, `__s.box(__s.rows()[1])`);
     await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: hov.l + 300, y: hov.t + hov.h / 2 });
@@ -386,6 +396,8 @@ async function main() {
     // Archived.
     await evalIn(c, `document.querySelector('.space-sessions-view input[value="archived"]').click()`);
     await sleep(500);
+    await evalIn(c, `document.querySelector('.page-content').scrollTop = 0`);
+    await sleep(300);
     await shot(c, `archived-${mode}`);
     await evalIn(c, `document.querySelector('.space-sessions-view input[value="active"]').click()`);
     // Search.
@@ -445,8 +457,8 @@ async function main() {
   check("Archived: the first ⌘⌫ asks", armed.includes("Press ⌘⌫ again"), armed.slice(0, 120));
   await shot(c, "delete-armed-light", await evalIn(c, `(() => { const b = __s.box(document.activeElement.closest('.space-sessions-row')); return { x: b.l - 8, y: b.t - 8, width: b.w + 16, height: b.h + 16 }; })()`));
   await press(c, "Backspace", true);
-  await sleep(800);
-  const gone = await evalIn(c, `__s.count('archived')`);
+  // A delete stops the session's engine first, so the count moves when the server has answered.
+  const gone = await until(async () => { const n = await evalIn(c, `__s.count('archived')`); return n === afterArchived - 1 ? n : false; }, 8_000, "delete").catch(() => afterArchived);
   check("…and the second deletes it", gone === afterArchived - 1, { afterArchived, gone });
   // → unfolds a lead to its six agents, reachable by ↓.
   await evalIn(c, `document.querySelector('.space-sessions-view input[value="active"]').click()`);
