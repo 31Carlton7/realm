@@ -2,6 +2,9 @@ import Foundation
 
 // mobile.v1, Phase 1 subset (PROTOCOL.md §8). Readers ignore fields they do not know; a row kind this
 // phone does not know decodes to `.unknown`, never to a failure.
+//
+// Everything here encodes back to the wire's own shape, so the cache on disk is read by the same
+// decoders as the Mac's answers.
 
 /// Unix milliseconds. JSON numbers decode whole or fractional.
 public typealias Millis = Double
@@ -55,7 +58,7 @@ public enum SessionStatus: Sendable, Hashable, Codable {
 }
 
 /// One session in a list.
-public struct SessionRow: Decodable, Sendable, Hashable, Identifiable {
+public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     public let id: String
     public let title: String
     public let spaceId: String
@@ -98,26 +101,53 @@ public struct SessionRow: Decodable, Sendable, Hashable, Identifiable {
         unread = (try? c.decodeIfPresent(Bool.self, forKey: .unread)) ?? false
         updatedAt = (try? c.decodeIfPresent(Millis.self, forKey: .updatedAt)) ?? 0
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(spaceId, forKey: .spaceId)
+        try c.encode(spaceName, forKey: .spaceName)
+        try c.encode(agent, forKey: .agent)
+        try c.encode(model, forKey: .model)
+        try c.encode(status, forKey: .status)
+        try c.encode(needsYou, forKey: .needsYou)
+        try c.encode(unread, forKey: .unread)
+        try c.encode(updatedAt, forKey: .updatedAt)
+    }
 }
 
-public struct QuestionOption: Decodable, Sendable, Hashable {
+public struct QuestionOption: Codable, Sendable, Hashable {
     public let label: String
     public let description: String?
+
+    public init(label: String, description: String?) {
+        self.label = label
+        self.description = description
+    }
 }
 
-public struct Question: Decodable, Sendable, Hashable {
+public struct Question: Codable, Sendable, Hashable {
     public let question: String
     public let header: String
     public let multiSelect: Bool
     public let options: [QuestionOption]
+    /// Whether an answer of the person's own is taken beside the options. The desktop's rule: yes
+    /// unless the agent said no. A Mac that does not send it means yes.
+    public let allowOther: Bool
+    /// An answer the Mac keeps only a mark of. A Mac that does not send it means no.
+    public let secret: Bool
 
-    private enum CodingKeys: String, CodingKey { case question, header, multiSelect, options }
+    private enum CodingKeys: String, CodingKey { case question, header, multiSelect, options, allowOther, secret }
 
-    public init(question: String, header: String, multiSelect: Bool, options: [QuestionOption]) {
+    public init(question: String, header: String, multiSelect: Bool, options: [QuestionOption],
+                allowOther: Bool = true, secret: Bool = false) {
         self.question = question
         self.header = header
         self.multiSelect = multiSelect
         self.options = options
+        self.allowOther = allowOther
+        self.secret = secret
     }
 
     public init(from decoder: Decoder) throws {
@@ -126,24 +156,44 @@ public struct Question: Decodable, Sendable, Hashable {
         header = (try? c.decodeIfPresent(String.self, forKey: .header)) ?? ""
         multiSelect = (try? c.decodeIfPresent(Bool.self, forKey: .multiSelect)) ?? false
         options = (try? c.decodeIfPresent([QuestionOption].self, forKey: .options)) ?? []
+        allowOther = (try? c.decodeIfPresent(Bool.self, forKey: .allowOther)) ?? true
+        secret = (try? c.decodeIfPresent(Bool.self, forKey: .secret)) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(question, forKey: .question)
+        try c.encode(header, forKey: .header)
+        try c.encode(multiSelect, forKey: .multiSelect)
+        try c.encode(options, forKey: .options)
+        try c.encode(allowOther, forKey: .allowOther)
+        try c.encode(secret, forKey: .secret)
+    }
+
+    /// A question with no options is answered in words alone.
+    public var takesText: Bool { options.isEmpty || allowOther }
+}
+
+public struct PlanStep: Codable, Sendable, Hashable {
+    public let text: String
+    public let status: String
+
+    public init(text: String, status: String) {
+        self.text = text
+        self.status = status
     }
 }
 
-public struct PlanStep: Decodable, Sendable, Hashable {
-    public let text: String
-    public let status: String
-}
-
-public enum ToolState: String, Decodable, Sendable, Hashable {
+public enum ToolState: String, Codable, Sendable, Hashable {
     case running, done, error
 }
 
-public enum RequestState: String, Decodable, Sendable, Hashable {
+public enum RequestState: String, Codable, Sendable, Hashable {
     case pending, allowed, denied
 }
 
 /// One thing in a session's transcript. `key` names it; a later row with the same key replaces it.
-public struct TranscriptRow: Decodable, Sendable, Hashable, Identifiable {
+public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
     public enum Content: Sendable, Hashable {
         case user(text: String)
         case assistant(text: String, streaming: Bool)
@@ -164,6 +214,30 @@ public struct TranscriptRow: Decodable, Sendable, Hashable, Identifiable {
         public let summary: String
         public let state: RequestState
         public let questions: [Question]?
+
+        public init(requestId: String, tool: String, title: String, summary: String, state: RequestState, questions: [Question]?) {
+            self.requestId = requestId
+            self.tool = tool
+            self.title = title
+            self.summary = summary
+            self.state = state
+            self.questions = questions
+        }
+
+        /// What the card asks for: questions to answer, a plan to approve, or a permission.
+        public var kind: RequestKind {
+            if let questions, !questions.isEmpty { return .questions(questions) }
+            if tool == "ExitPlanMode" { return .plan }
+            return .permission
+        }
+    }
+
+    public enum RequestKind: Sendable, Hashable {
+        case permission
+        /// `ExitPlanMode`: answering it is how a session leaves Plan, so it is a plan to approve, not a
+        /// permission to grant.
+        case plan
+        case questions([Question])
     }
 
     public let key: String
@@ -233,13 +307,63 @@ public struct TranscriptRow: Decodable, Sendable, Hashable, Identifiable {
             return .unknown(kind: kind, type: try? c.decodeIfPresent(String.self, forKey: .type))
         }
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(key, forKey: .key)
+        try c.encode(seq, forKey: .seq)
+        switch content {
+        case .user(let text):
+            try c.encode("user", forKey: .kind)
+            try c.encode(text, forKey: .text)
+        case .assistant(let text, let streaming):
+            try c.encode("assistant", forKey: .kind)
+            try c.encode(text, forKey: .text)
+            try c.encode(streaming, forKey: .streaming)
+        case .thinking(let text):
+            try c.encode("thinking", forKey: .kind)
+            try c.encode(text, forKey: .text)
+        case .tool(let name, let summary, let state, let detail):
+            try c.encode("tool", forKey: .kind)
+            try c.encode(name, forKey: .name)
+            try c.encode(summary, forKey: .summary)
+            try c.encode(state, forKey: .state)
+            try c.encode(detail, forKey: .detail)
+        case .request(let request):
+            try c.encode("request", forKey: .kind)
+            try c.encode(request.requestId, forKey: .requestId)
+            try c.encode(request.tool, forKey: .tool)
+            try c.encode(request.title, forKey: .title)
+            try c.encode(request.summary, forKey: .summary)
+            try c.encode(request.state, forKey: .state)
+            try c.encode(request.questions, forKey: .questions)
+        case .plan(let text, let steps):
+            try c.encode("plan", forKey: .kind)
+            try c.encode(text, forKey: .text)
+            try c.encode(steps, forKey: .steps)
+        case .notice(let text):
+            try c.encode("notice", forKey: .kind)
+            try c.encode(text, forKey: .text)
+        case .error(let text, let hint):
+            try c.encode("error", forKey: .kind)
+            try c.encode(text, forKey: .text)
+            try c.encode(hint, forKey: .hint)
+        case .unknown(let kind, let type):
+            try c.encode(kind, forKey: .kind)
+            try c.encodeIfPresent(type, forKey: .type)
+        }
+    }
 }
 
-public struct MacInfo: Decodable, Sendable, Hashable {
+public struct MacInfo: Codable, Sendable, Hashable {
     public let name: String
+
+    public init(name: String) {
+        self.name = name
+    }
 }
 
-public struct Space: Decodable, Sendable, Hashable, Identifiable {
+public struct Space: Codable, Sendable, Hashable, Identifiable {
     public let id: String
     public let name: String
     public let icon: JSONValue?
@@ -248,6 +372,15 @@ public struct Space: Decodable, Sendable, Hashable, Identifiable {
     public let more: Int
 
     private enum CodingKeys: String, CodingKey { case id, name, icon, color, sessions, more }
+
+    public init(id: String, name: String, icon: JSONValue?, color: JSONValue?, sessions: [SessionRow], more: Int) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+        self.color = color
+        self.sessions = sessions
+        self.more = more
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -258,20 +391,50 @@ public struct Space: Decodable, Sendable, Hashable, Identifiable {
         sessions = try c.decodeIfPresent([SessionRow].self, forKey: .sessions) ?? []
         more = (try? c.decodeIfPresent(Int.self, forKey: .more)) ?? 0
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encodeIfPresent(icon, forKey: .icon)
+        try c.encodeIfPresent(color, forKey: .color)
+        try c.encode(sessions, forKey: .sessions)
+        try c.encode(more, forKey: .more)
+    }
+
+    /// The space's emoji, when its icon is one (`emoji:<char>`). Other icons are Hugeicons glyphs and
+    /// pictures, which this phone does not draw yet.
+    public var emoji: String? {
+        guard let icon = icon?.stringValue, icon.hasPrefix("emoji:") else { return nil }
+        let char = String(icon.dropFirst("emoji:".count))
+        return char.isEmpty ? nil : char
+    }
 }
 
 /// `home.get`
-public struct Home: Decodable, Sendable, Hashable {
+public struct Home: Codable, Sendable, Hashable {
     public let mac: MacInfo
     public let needsYou: [SessionRow]
     public let spaces: [Space]
+
+    public init(mac: MacInfo, needsYou: [SessionRow], spaces: [Space]) {
+        self.mac = mac
+        self.needsYou = needsYou
+        self.spaces = spaces
+    }
 }
 
 /// `session.open`
-public struct OpenedSession: Decodable, Sendable, Hashable {
+public struct OpenedSession: Codable, Sendable, Hashable {
     public let session: SessionRow
     public let rows: [TranscriptRow]
     public let hasMore: Bool
+
+    public init(session: SessionRow, rows: [TranscriptRow], hasMore: Bool) {
+        self.session = session
+        self.rows = rows
+        self.hasMore = hasMore
+    }
 }
 
 /// `ping`

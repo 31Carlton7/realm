@@ -126,6 +126,7 @@ final class FakeRelay: WebSocketFactory, @unchecked Sendable {
         var pings = 0
         var methods: [String] = []
         var pushTokens: [String] = []
+        var params: [[String: JSONValue]] = []
         var seq = 100
     }
 
@@ -152,6 +153,8 @@ final class FakeRelay: WebSocketFactory, @unchecked Sendable {
     var pings: Int { state.withLock { $0.pings } }
     var methods: [String] { state.withLock { $0.methods } }
     var pushTokens: [String] { state.withLock { $0.pushTokens } }
+    /// The params of the calls the fake answers without a script of its own.
+    var params: [[String: JSONValue]] { state.withLock { $0.params } }
     var paired: [Paired] { state.withLock { $0.paired } }
     var openSockets: [FakeSocket] { state.withLock { $0.sockets.filter { !$0.isClosed } } }
 
@@ -343,6 +346,9 @@ final class FakeRelay: WebSocketFactory, @unchecked Sendable {
             let row = try! JSONEncoder().encode(["key": "u:\(seq)", "kind": "user", "text": text])
             let rowJSON = String(decoding: row, as: UTF8.self).dropLast() + #","seq":\#(seq)}"#
             sendJSON(#"{"event":"session.rows","payload":{"id":"s1","rows":[\#(rowJSON)]}}"#, on: socket)
+        case "session.seen", "session.answer":
+            state.withLock { $0.params.append(request.params ?? [:]) }
+            sendJSON(#"{"id":\#(request.id),"ok":true,"result":{"ok":true}}"#, on: socket)
         case "slow":
             break
         default:

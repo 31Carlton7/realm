@@ -84,6 +84,41 @@ struct ModelTests {
         #expect(contents[10] == .unknown(kind: "tool", type: nil))
     }
 
+    @Test func everyRowKindEncodesBackToTheWireShape() throws {
+        let opened = try Self.decode(OpenedSession.self, Self.everyKind)
+        let again = try JSONDecoder().decode(OpenedSession.self, from: try JSONEncoder().encode(opened))
+        #expect(again == opened)
+        let home = try Self.decode(Home.self, ##"{"mac":{"name":"M"},"needsYou":[],"spaces":[{"id":"sp","name":"S","icon":"emoji:🌊","color":"#112233","sessions":[\##(Self.sessionRow)],"more":2}]}"##)
+        #expect(try JSONDecoder().decode(Home.self, from: try JSONEncoder().encode(home)) == home)
+    }
+
+    @Test func aQuestionSaysWhetherItTakesWordsOfYourOwn() throws {
+        let questions = try Self.decode([Question].self, #"""
+        [{"question":"Which?","header":"H","multiSelect":false,"options":[{"label":"A"}]},
+         {"question":"Where?","header":"","multiSelect":false,"options":[{"label":"B"}],"allowOther":false},
+         {"question":"Token?","header":"","multiSelect":false,"options":[],"secret":true}]
+        """#)
+        // The desktop's rule: words of your own unless the agent said no.
+        #expect(questions.map(\.allowOther) == [true, false, true])
+        #expect(questions.map(\.secret) == [false, false, true])
+        #expect(questions.map(\.takesText) == [true, false, true])
+    }
+
+    @Test func aRequestSaysWhatItAsksFor() throws {
+        let opened = try Self.decode(OpenedSession.self, Self.everyKind)
+        guard case .request(let question) = opened.rows[4].content else {
+            Issue.record("no request row")
+            return
+        }
+        #expect(question.kind == .questions(question.questions ?? []))
+        let plan = TranscriptRow.Request(requestId: "p", tool: "ExitPlanMode", title: "Exit plan mode?", summary: "# Ship it",
+                                         state: .pending, questions: nil)
+        #expect(plan.kind == .plan)
+        let bash = TranscriptRow.Request(requestId: "b", tool: "Bash", title: "Allow Bash?", summary: "pnpm test", state: .pending,
+                                         questions: [])
+        #expect(bash.kind == .permission)
+    }
+
     @Test func answersMapQuestionsToTheirPickedLabels() {
         let questions = [
             Question(question: "Which database?", header: "Database", multiSelect: false,
