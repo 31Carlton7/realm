@@ -4,7 +4,7 @@ import { mediaUrl, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSu
 import { useDissolve } from "../../components/ScrollFades";
 import { REVIEW_GLYPH } from "../../components/sidebar/TeamRows";
 import { useApp } from "../../state/store";
-import type { PaneProps } from "../registry";
+import type { Item } from "@realm/contracts";
 import { ageShort, agoPhrase, duration, feedTime, money, reviewGroups, reviewStateLine } from "./team-format";
 
 const IMAGE = /\.(png|jpe?g|gif|webp|heic|avif)$/i;
@@ -22,7 +22,13 @@ const EMPTY: readonly TeamReviewSummary[] = [];
  * it moves to "Approved" the next time the list is opened — because a row never moves out from under
  * a press. Nothing here posts: Phase 1's Approve marks the batch ready, and the person posts it.
  */
-export function ReviewPane({ item }: PaneProps) {
+/** The bar's far end: the waiting mark, while something waits — what the Review row says, on the pane. */
+export function ReviewMeta({ item }: { item: Item }) {
+  const waiting = useApp((s) => (s.teams[item.refId]?.reviews ?? EMPTY).filter((r) => r.state === "waiting").length);
+  return waiting > 0 ? <span className="status-dot" data-status="waiting_permission" title={`${waiting} waiting for your review`} /> : null;
+}
+
+export function ReviewPane({ item }: { item: Item; visible: boolean; focused?: boolean }) {
   const spaceId = item.refId;
   const team = useApp((s) => s.teams[spaceId]);
   const root = useApp((s) => s.spaces.find((sp) => sp.id === spaceId)?.folderPath ?? null);
@@ -182,7 +188,7 @@ function ReviewDetail({ summary }: { summary: TeamReviewSummary }) {
               {detail.ledger.map((l, i) => (
                 <li key={i}>
                   <time>{feedTime(l.ts)}</time>
-                  <span className="t-glyph"><Icon name={l.glyph === "inbox" ? "review" : l.glyph === "note" ? "note" : "alarm"} size={12} /></span>
+                  <span className="t-glyph"><Icon name={l.glyph === "inbox" ? "review" : l.glyph === "note" ? "note" : l.glyph === "image" ? "image" : "alarm"} size={12} /></span>
                   <span>{l.text}{l.detail && <small> · {l.detail}</small>}</span>
                 </li>
               ))}

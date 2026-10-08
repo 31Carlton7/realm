@@ -6,6 +6,7 @@ import { SessionMeta, SessionPanelActions, useSessionMenuItems } from "./session
 import { MachineMeta, MachinePanelActions, useMachineMenuItems } from "./machine/MachineBar";
 import { TerminalMeta } from "./TerminalMeta";
 import { useDocumentsMenuItems } from "./documents/shown-file";
+import { ReviewMeta } from "./team/ReviewPane";
 
 /** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
 export type PaneProps = { item: Item; visible: boolean; focused?: boolean };
@@ -21,6 +22,7 @@ export const paneMeta: Partial<Record<Item["kind"], (p: { item: Item }) => JSX.E
   session: SessionMeta, // model label + status dot + cost, moved out of SessionPane's old header
   machine: MachineMeta,  // the state word, and the guest's live resolution in mono (Plan 25 W3)
   terminal: TerminalMeta, // "Replayed" or "Not running", and nothing at all while the pane is live
+  review: ReviewMeta, // the waiting mark while a team's batch waits for a yes
   // No simulator: its state and its controls are the device's own toolbar, over the device (SimulatorBar.tsx).
 };
 

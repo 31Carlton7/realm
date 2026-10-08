@@ -673,7 +673,7 @@ function RecordView({ record, spaceId }: { record: ParsedRecord; spaceId: string
                 <span className="t-glyph"><Icon name={ACCOUNT_GLYPH(a.channel)} size={16} /></span>
                 <div className="settings-row-main">
                   <span className="settings-row-name">{a.handle ?? a.channel}</span>
-                  <span className="settings-row-detail">{[a.handle ? a.channel : null, a.parts.vault ? `sign-in kept as ${a.parts.vault}` : null, a.parts.device ?? null, a.note].filter(Boolean).join(" · ")}</span>
+                  <span className="settings-row-detail">{[a.handle ? a.channel : null, a.parts.vault ? `sign-in kept as ${a.parts.vault}` : null, a.parts.device ?? null, a.handle ? a.note : null].filter(Boolean).join(" · ")}</span>
                 </div>
                 {a.handle
                   ? <span className="tp-chip" data-tone={consent ? "ok" : "warn"} title={consent ? `Consent: ${consent}` : "Add consent: to this line before anything is posted to it"}>{consent ? "Consented" : "No consent yet"}</span>

@@ -152,7 +152,7 @@ describe("teams over the wire", () => {
     expect(detail.recordName).toBe("Nathan Beyenhof");
     expect(detail.checks[0]).toMatchObject({ ok: true, title: "Posts as @versed.nathan on TikTok" });
     expect(detail.checks[1]).toMatchObject({ ok: true, title: "Disclosed as paid partnership" });
-    expect(detail.ledger.map((l: Any) => l.text)).toEqual(["Started by you", "Read Nathan Beyenhof", "Sent 2 items to Review"]);
+    expect(detail.ledger.map((l: Any) => l.text)).toEqual(["Started by you", "Read Nathan Beyenhof", "Laid out 3 slides", "Sent 2 items to Review"]);
     const runs = await runsOf(c, roleId);
     expect(runs[0]).toMatchObject({ state: "succeeded", reviewId: review.id, reviewState: "waiting", summary: "Sent 2 slideshows to Review." });
     expect(runs[0].costUsd).toBeCloseTo(0.84, 4);

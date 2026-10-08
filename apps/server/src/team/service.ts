@@ -370,6 +370,10 @@ export class TeamService {
   runChanged(run: Run): void {
     if (!run.roleId || this.closing) return;
     if (run.state === "running") this.arm(run);
+    // A clock's wake is the scheduler's doing, not wake()'s, so its line is written when it starts.
+    if (run.state === "running" && run.wokeOn === "schedule" && !this.d.store.activityForRun(run.id).some((l) => l.verb === "woke")) {
+      this.log(run.spaceId, `role:${run.roleId}`, "woke", this.d.store.role(run.roleId)?.name ?? null, { roleId: run.roleId, wokeOn: "schedule" }, run);
+    }
     if (isRunTerminal(run.state)) {
       const t = this.timers.get(run.id);
       if (t) { clearTimeout(t); this.timers.delete(run.id); }
@@ -618,6 +622,14 @@ export class TeamService {
         lines.push({ ts: a.ts, glyph: "note", text: `Updated ${a.object ?? "a record"}`, detail: typeof a.detail.line === "string" ? clip(a.detail.line, 90) : null });
       } else if (a.verb === "submitted" || a.verb === "revised") {
         const items = typeof a.detail.items === "number" ? a.detail.items : null;
+        const version = typeof a.detail.version === "number" ? a.detail.version : r.version;
+        const files = [...new Set(this.d.store.items(r.id, version).flatMap((i) => i.files))];
+        if (files.length > 0) {
+          const pictures = files.filter((f) => IMAGE.test(f)).length;
+          const dirs = [...new Set(files.map((f) => (f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : ".")))];
+          lines.push({ ts: a.ts, glyph: "image", text: `Laid out ${files.length} ${pictures === files.length ? "slides" : "files"}`,
+            detail: dirs.length === 1 ? `saved to ${dirs[0]}` : `in ${dirs.length} folders`, });
+        }
         const role = r.roleId ? this.d.store.role(r.roleId) : null;
         const cost = run.costUsd !== null ? `${usd(run.costUsd)}${role ? ` of its ${usd(role.runCapUsd)} run cap` : ""}` : null;
         lines.push({

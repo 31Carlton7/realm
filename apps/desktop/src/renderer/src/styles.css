@@ -10005,7 +10005,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tp-make-note { margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 .tp-make { align-items: center; }
 .tp-make .tp-make-note { margin-right: auto; }
-.tp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.tp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 12px; }
 .tp-card { padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
   display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; }
 button.tp-card:hover { border-color: var(--rl-line-strong); }
