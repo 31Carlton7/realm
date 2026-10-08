@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { createServer } from "vite";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -22,14 +23,21 @@ const out = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), "realmite-gal
 const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 fs.mkdirSync(out, { recursive: true });
 
-const vite = await createServer({ root: repoRoot, configFile: false, logLevel: "error", appType: "custom", server: { middlewareMode: true } });
-let R, T;
+const vite = await createServer({
+  root: repoRoot, configFile: false, logLevel: "error", appType: "custom", server: { middlewareMode: true }, esbuild: { jsx: "automatic" },
+});
+let R, T, M, React, Server;
 try {
   R = await vite.ssrLoadModule("/packages/ui/src/realmite/index.ts");
   T = await vite.ssrLoadModule("/packages/ui/src/themes.ts");
+  M = await vite.ssrLoadModule("/apps/desktop/src/renderer/src/components/RealmiteMaker.tsx");
 } finally {
   await vite.close();
 }
+// The desktop app's own React, which is the copy the SSR-loaded maker resolves to as well.
+const desktopRequire = createRequire(path.join(repoRoot, "apps/desktop/package.json"));
+React = desktopRequire("react");
+Server = desktopRequire("react-dom/server");
 
 const SEEDS = Array.from({ length: 48 }, (_, i) => `role-${i + 1}`);
 let uid = 0;
@@ -96,18 +104,35 @@ function partsPage(mode) {
   return page(mode, "parts", `<h1>Every part on one base</h1>${groups}`);
 }
 
+/** The maker as it would sit in a sheet, drawn by React from the real component with the app's own
+ *  stylesheet linked in (no paint worklet here, so its squircles fall back to plain rounding). */
+function makerPage(mode) {
+  const css = ["theme/tokens.css", "styles.css"].map((f) => `<link rel="stylesheet" href="file://${path.join(repoRoot, "apps/desktop/src/renderer/src", f)}">`).join("");
+  const maker = (seed, name) => Server.renderToStaticMarkup(React.createElement(M.RealmiteMaker, { spec: R.realmiteFromSeed(seed), name, onChange() {} }));
+  return page(mode, "maker", `${css}<h1>Realmite maker</h1><p>What a person sees making a team role. Every choice is the creature with that part on.</p>
+<div style="display:flex;flex-direction:column;gap:16px">
+<div style="background:var(--surface);border-radius:16px;padding:20px 24px">${maker("role-12", "Creator Manager")}</div>
+<div style="background:var(--surface);border-radius:16px;padding:20px 24px">${maker("role-21", "Content Producer")}</div></div>`);
+}
+
 const pages = [
   ["sizes", sizesPage, 1500, 940],
   ["hero", heroPage, 1700, 1700],
   ["states", statesPage, 1500, 1330],
   ["parts", partsPage, 1500, 1240],
+  ["maker", makerPage, 1100, 1060],
 ];
 
-function chrome(args, ms) {
+/** Headless Chrome with its own profile; when it is done, or past `ms`, everything that profile
+ *  started goes with it — killing the browser alone leaves its helpers running. */
+function chrome(args, ms, profile) {
   return new Promise((resolve) => {
     const p = spawn(CHROME, args, { stdio: "ignore" });
     const t = setTimeout(() => p.kill("SIGKILL"), ms);
-    p.on("exit", () => { clearTimeout(t); resolve(); });
+    p.on("exit", () => {
+      clearTimeout(t);
+      spawn("pkill", ["-f", profile], { stdio: "ignore" }).on("exit", () => resolve());
+    });
   });
 }
 
@@ -118,8 +143,55 @@ for (const mode of ["dark", "light"]) {
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), "realmite-chrome-"));
     await chrome(["--headless=new", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=2", `--window-size=${w},${h}`,
       `--user-data-dir=${profile}`, "--no-first-run", "--force-prefers-reduced-motion", "--virtual-time-budget=1500",
-      `--screenshot=${path.join(out, `${name}-${mode}.png`)}`, `file://${html}`], 40_000);
+      `--screenshot=${path.join(out, `${name}-${mode}.png`)}`, `file://${html}`], 40_000, profile);
     fs.rmSync(profile, { recursive: true, force: true });
     console.log(path.join(out, `${name}-${mode}.png`));
+  }
+}
+
+/* ── --motion: the loops run, and Reduce motion stops every one ─────────────
+   Loads the states page in a Chrome this script starts, counts the running animations over CDP,
+   then emulates prefers-reduced-motion and counts again. The mutant is the page with the media
+   rule stripped out, which must still be animating under the same emulation. */
+if (process.argv.includes("--motion")) {
+  const port = Number(process.env.REALMITE_CDP_PORT ?? 9246);
+  const statesHtml = fs.readFileSync(path.join(out, "states-dark.html"), "utf8");
+  const mutant = path.join(out, "motion-mutant.html");
+  fs.writeFileSync(mutant, statesHtml.replace(/@media \(prefers-reduced-motion:reduce\)\{[^}]*\}\}/, ""));
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "realmite-cdp-"));
+  const proc = spawn(CHROME, ["--headless=new", "--disable-gpu", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--no-first-run", "about:blank"], { stdio: "ignore" });
+  const killer = setTimeout(() => proc.kill("SIGKILL"), 60_000);
+  try {
+    let target;
+    for (let i = 0; i < 50 && !target; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      target = await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json()).then((l) => l.find((t) => t.type === "page")).catch(() => null);
+    }
+    const ws = new WebSocket(target.webSocketDebuggerUrl);
+    await new Promise((r) => ws.addEventListener("open", r, { once: true }));
+    let id = 0;
+    const send = (method, params = {}) => new Promise((resolve) => {
+      const me = ++id;
+      const on = (e) => { const m = JSON.parse(e.data); if (m.id === me) { ws.removeEventListener("message", on); resolve(m.result); } };
+      ws.addEventListener("message", on);
+      ws.send(JSON.stringify({ id: me, method, params }));
+    });
+    const count = async (file, reduce) => {
+      await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: reduce ? "reduce" : "no-preference" }] });
+      await send("Page.navigate", { url: `file://${file}` });
+      await new Promise((r) => setTimeout(r, 800));
+      const r = await send("Runtime.evaluate", { expression: "document.getAnimations().filter(a => a.playState === 'running').length", returnByValue: true });
+      return r.result.value;
+    };
+    const statesFile = path.join(out, "states-dark.html");
+    const free = await count(statesFile, false), reduced = await count(statesFile, true), mutated = await count(mutant, true);
+    console.log(`running animations — no preference: ${free}; reduced motion: ${reduced}; mutant (rule removed) under reduced motion: ${mutated}`);
+    ws.close();
+    if (!(free > 0 && reduced === 0 && mutated > 0)) process.exitCode = 1;
+  } finally {
+    clearTimeout(killer);
+    proc.kill("SIGKILL");
+    spawn("pkill", ["-f", profile], { stdio: "ignore" });
+    fs.rmSync(profile, { recursive: true, force: true });
   }
 }
