@@ -826,3 +826,61 @@ function handleIn(result: string): string {
   expect(m, `no handle in: ${result}`).toBeTruthy();
   return m![1]!;
 }
+
+/**
+ * A lead blocked in agent_wait or agent_run says nothing on the wire unless the tool does — and
+ * Claude aborted such calls at 300 s. These pin what the delegation tools report while they wait, and
+ * what happens when the caller gives up on the call.
+ */
+describe("long delegation calls report progress and honour cancellation", () => {
+  it("agent_wait reports how many finished and names who it is still waiting on", async () => {
+    // THE MUTANT: awaitRuns called without onTick — the call is silent until it answers.
+    const { spaceId, parentId } = await boot({ script: longScript(12), delayMs: 25 });
+    const started = await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" });
+    expect(started.isError).toBe(false);
+    const child = childOf(spaceId, parentId);
+    const reports: { message: string; done?: number; total?: number }[] = [];
+    const result = await app.agentRuns.wait({ sessionId: parentId, spaceId, progress: (message, done, total) => reports.push({ message, done, total }) }, {});
+    expect(result.isError).toBe(false);
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports[0]).toEqual({ message: `0 of 1 sub-agent finished; waiting on ${child.title}`, done: 0, total: 1 });
+  });
+
+  it("agent_run reports the child by name with how long it has been working", async () => {
+    const { spaceId, parentId } = await boot({ script: longScript(12), delayMs: 25 });
+    const reports: string[] = [];
+    const result = await app.agentRuns.run({ sessionId: parentId, spaceId, progress: (m) => reports.push(m) }, { goal: "Count the files" });
+    expect(result.isError).toBe(false);
+    const child = childOf(spaceId, parentId);
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports[0]).toMatch(new RegExp(`^${child.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} working, 0:0\\d$`));
+  });
+
+  it("a cancelled agent_wait collects nothing — the next wait still gets the report", async () => {
+    // THE MUTANT: ignore the signal — the cancelled call goes on listening, and claims the report for
+    // a caller that will never read it.
+    const { spaceId, parentId } = await boot({ script: longScript(10), delayMs: 25 });
+    await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "Count the files" });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 30);
+    const cancelled = await app.agentRuns.wait({ sessionId: parentId, spaceId, signal: controller.signal }, {});
+    expect(cancelled.isError).toBe(true);
+    expect(text(cancelled)).toContain("The wait was cancelled");
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, {});
+    expect(collected.isError).toBe(false);
+    expect(text(collected)).toContain("All 1 delegated agent finished");
+  });
+
+  it("a cancelled agent_run leaves its child running, and agent_wait collects it", async () => {
+    // THE MUTANT: end the run on cancel — the child's report is then held by nobody.
+    const { spaceId, parentId } = await boot({ script: longScript(10), delayMs: 25 });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 30);
+    const cancelled = await app.agentRuns.run({ sessionId: parentId, spaceId, signal: controller.signal }, { goal: "Count the files" });
+    expect(cancelled.isError).toBe(true);
+    expect(text(cancelled)).toContain("still running");
+    expect(text(app.agentRuns.status({ sessionId: parentId, spaceId }))).toContain(`${childOf(spaceId, parentId).id}: running`);
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, {});
+    expect(text(collected)).toContain("All 1 delegated agent finished");
+  });
+});
