@@ -7,6 +7,7 @@ import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } 
 import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
+import { accountTitle } from "./Composer";
 import { reduceAll } from "./transcript-model";
 import { EGG_RUN_LABELS, runLabelFor } from "./run-label";
 import { Markdown, renderMarkdown } from "./Markdown";
@@ -2427,6 +2428,50 @@ describe("under-strip (Plan 12 W1)", () => {
     const label = within(strip as HTMLElement).getByText("Carlton's M4 MacBook Pro");
     expect(label.closest("button")).toBeNull(); // display only: Realm runs agents on this Mac, full stop
     expect(label.closest(".ghost-chip")).toHaveAttribute("data-static");
+  });
+
+  describe("the account the session's agent is signed in as", () => {
+    const account = { email: "owner@example.com", organization: "Example Labs", plan: "max" };
+    const signedIn = (kind: AgentProbe["kind"], extra: Partial<AgentProbe> = {}): AgentProbe =>
+      ({ kind, available: true, version: "1", loggedIn: true, reason: null, ...extra });
+    async function mountFor(agentKind: "claude" | "codex", agentProbe: AgentProbe[]) {
+      const { envA } = twoEnvs();
+      const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", environmentId: "envA", cwd: "/tmp", agentKind })],
+        environments: { s1: [envA] }, agentProbe });
+      const store = createAppStore(api); await store.getState().boot();
+      store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+      render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+      await waitFor(() => expect(store.getState().agentsProbed).toBe(true));
+      return document.querySelector<HTMLElement>(".composer-understrip .strip-machine")!;
+    }
+
+    it("takes the machine's place on the strip, as plain text, and says the rest on its tooltip", async () => {
+      const chip = await mountFor("claude", [signedIn("claude", { account })]);
+      await waitFor(() => expect(chip).toHaveTextContent("owner@example.com"));
+      expect(chip).not.toHaveTextContent("Carlton's M4 MacBook Pro");
+      expect(chip).toHaveAttribute("data-static");
+      expect(chip.closest("button")).toBeNull();
+      expect(chip).toHaveAttribute("title", "Claude is signed in as owner@example.com (Claude Max, Example Labs). Agents run on this Mac — Carlton's M4 MacBook Pro.");
+    });
+
+    it("is the account of the agent this session runs on, never another agent's", async () => {
+      const chip = await mountFor("codex", [signedIn("claude", { account }), signedIn("codex")]);
+      expect(chip).toHaveTextContent("Carlton's M4 MacBook Pro");
+      expect(chip).not.toHaveTextContent("owner@example.com");
+      expect(chip).toHaveAttribute("title", "Agents run on this Mac — Carlton's M4 MacBook Pro");
+    });
+
+    it("leaves the machine where it was for an agent that names no account", async () => {
+      const chip = await mountFor("claude", [signedIn("claude")]);
+      expect(chip).toHaveTextContent("Carlton's M4 MacBook Pro");
+    });
+
+    it("says the plan as a person would, and leaves out an organisation that only restates the email", () => {
+      expect(accountTitle("claude", { email: "owner@example.com", organization: "owner@example.com's Organization", plan: "max" }, "Studio"))
+        .toBe("Claude is signed in as owner@example.com (Claude Max). Agents run on this Mac — Studio.");
+      expect(accountTitle("claude", { email: "owner@example.com", organization: null, plan: null }, undefined))
+        .toBe("Claude is signed in as owner@example.com.");
+    });
   });
 
   it("wears the space's colour on the workspace chip's glyph, as the face can carry it (Plan 27)", async () => {

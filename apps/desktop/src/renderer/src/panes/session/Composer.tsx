@@ -1,5 +1,5 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, planLabel, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type AgentAccount, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -401,6 +401,18 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
  *  session id, A-M9) so a suggestion chip can fill it without sending — and layout reshapes never
  *  lose it. */
 /**
+ * The account chip, spelled out: whose sign-in this session's agent runs on, the plan it draws on,
+ * and the Mac it runs on. The organisation is left out where it only restates the email, which is
+ * how a personal account's is named.
+ */
+export function accountTitle(kind: AgentKind, account: AgentAccount, machineName: string | undefined): string {
+  const organization = account.organization && !account.organization.includes(account.email) ? account.organization : null;
+  const details = [planLabel(kind, account.plan), organization].filter((d): d is string => d !== null).join(", ");
+  const who = `${AGENT_META[kind].label} is signed in as ${account.email}${details ? ` (${details})` : ""}.`;
+  return machineName ? `${who} Agents run on this Mac — ${machineName}.` : who;
+}
+
+/**
  * What the current mode MEANS for this agent — the chip title's honesty clause (Plan 14 W3).
  *
  * Claude and Codex have Realm-transmitted semantics and each is described in its OWN terms, because
@@ -589,6 +601,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
   const kind = session.agentKind;
+  const account = agentProbe.find((p) => p.kind === kind)?.account ?? null;
   // Hidden exactly like the model menu is empty when the agent has no models: an option Realm cannot
   // transmit is worse than no option at all.
   const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[kind];
@@ -1519,7 +1532,12 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           the hero→docked move — one transform on the dock (§6: 320ms) — carries it untouched. */}
       {!compact && (
       <div className="composer-understrip">
-        {machineName && (
+        {account ? (
+          <span className="ghost-chip strip-machine" data-static title={accountTitle(kind, account, machineName)}>
+            <Icon name="user" size={12} className="chip-brand" />
+            <span className="chip-label">{account.email}</span>
+          </span>
+        ) : machineName && (
           // Display only, deliberately: Realm runs agents on this Mac and no other. The selector
           // ships when remote execution does (roadmap: pairing) — no caret, no one-item dropdown.
           <span className="ghost-chip strip-machine" data-static title={`Agents run on this Mac — ${machineName}`}>

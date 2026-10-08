@@ -60,6 +60,36 @@ describe("probing the claude CLI", () => {
     expect(p.reason).toContain("claude auth login");
   });
 
+  it("passes on the account a signed-in CLI names, as it spells it", async () => {
+    const bin = stubbed(`
+      case "$1" in
+        --version) echo "2.1.281 (Claude Code)" ;;
+        auth) echo '{"loggedIn":true,"authMethod":"claude.ai","email":" owner@example.com ","orgName":"Example Labs","subscriptionType":"max"}' ;;
+      esac`);
+    expect(await probeClaude(bin)).toEqual({ available: true, version: "2.1.281 (Claude Code)", loggedIn: true, reason: null,
+      account: { email: "owner@example.com", organization: "Example Labs", plan: "max" } });
+  });
+
+  it("names the account with whatever else the CLI left out as unknown", async () => {
+    const bin = stubbed(`
+      case "$1" in
+        --version) echo "2.1.281" ;;
+        auth) echo '{"loggedIn":true,"email":"owner@example.com","orgName":"","subscriptionType":7}' ;;
+      esac`);
+    expect((await probeClaude(bin)).account).toEqual({ email: "owner@example.com", organization: null, plan: null });
+  });
+
+  it("reports no account for a sign-in that carries no email, or for a CLI that is signed out", async () => {
+    for (const status of ['{"loggedIn":true,"authMethod":"api_key","subscriptionType":"max"}', '{"loggedIn":true,"email":"   "}', '{"loggedIn":false,"email":"owner@example.com"}']) {
+      const bin = stubbed(`
+        case "$1" in
+          --version) echo "2.1.281" ;;
+          auth) echo '${status}' ;;
+        esac`);
+      expect(await probeClaude(bin), status).not.toHaveProperty("account");
+    }
+  });
+
   it("takes its word when it says so the way the real CLI does: the JSON, then exit 1", async () => {
     // What 2.1.281 printed signed out, verbatim but for the paths. A stale credentials file sits in
     // HOME, as one did on the machine this was found on: reading the exit as "no answer" sent the
