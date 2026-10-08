@@ -16,7 +16,7 @@ export const PANE_SHOW_TOOL_NAME = "pane_show";
  * same arrangement, and the same warning, as `BROWSER_READ_ONLY_TOOLS`: never add a tool that
  * changes anything.
  */
-export const WORKSPACE_READ_ONLY_TOOLS = ["workspace_state", "sessions_list", "session_read"] as const;
+export const WORKSPACE_READ_ONLY_TOOLS = ["workspace_state", "sessions_list", "session_read", "space_list"] as const;
 
 /** `pane_show` under the name the gateway lists it by — the name every "not open" refusal spells. */
 export const PANE_SHOW_WIRE_NAME = `${WORKSPACE_PROVIDER_NAME}__${PANE_SHOW_TOOL_NAME}`;

@@ -63,3 +63,26 @@ describe("a session an agent opened with session_open", () => {
     expect(store.getState().items.some((i) => i.id === "i-n")).toBe(true);
   });
 });
+
+describe("an agent's space_switch, as the window carries it out", () => {
+  function twoSpaces(): FakeApi {
+    return fakeApi({
+      spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework")],
+      items: { s1: [item("i-a", "s1", { kind: "session", refId: "a", title: "A" })], s2: [item("i-b", "s2", { kind: "session", refId: "b", title: "B" })] },
+      sessions: [session("a", "s1", { updatedAt: 3 }), session("b", "s2", { updatedAt: 2 })],
+    });
+  }
+
+  it("moves the window to the space, as the user's own switch would", async () => {
+    const store = await withA(twoSpaces());
+    expect(store.getState().activeSpaceId).toBe("s1");
+    await store.getState().applySpaceSwitchRequested({ spaceId: "s2" }, false);
+    expect(store.getState().activeSpaceId).toBe("s2");
+  });
+
+  it("stays put while the user is typing", async () => {
+    const store = await withA(twoSpaces());
+    await store.getState().applySpaceSwitchRequested({ spaceId: "s2" }, true);
+    expect(store.getState().activeSpaceId).toBe("s1");
+  });
+});

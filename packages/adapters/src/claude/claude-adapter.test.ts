@@ -888,13 +888,14 @@ describe("realm-browser allowedTools (Plan 11 W4)", () => {
       "mcp__realm__realm-workspace__workspace_state",
       "mcp__realm__realm-workspace__sessions_list",
       "mcp__realm__realm-workspace__session_read",
+      "mcp__realm__realm-workspace__space_list",
     ]);
   });
 
   it("NEVER contains a mutating tool name (the named mutant: a pre-allowed act)", () => {
     const allowed = claudeAllowedTools([gatewayEntry]);
     // `pane_show` changes what is on the user's screen: it keeps Claude's prompt where the mode has one.
-    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential", "pane_show"]) {
+    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential", "pane_show", "session_open", "space_switch"]) {
       expect(allowed.some((t) => t.endsWith(`__${mutating}`))).toBe(false);
     }
   });

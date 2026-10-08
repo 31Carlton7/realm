@@ -32,6 +32,7 @@ import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
 import { createWorkspaceProvider } from "./workspace/agent-tools";
 import { createSessionOpenTools } from "./workspace/session-open";
+import { createSpacesTools } from "./workspace/spaces";
 import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
@@ -1181,6 +1182,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       placeModel: (caller, model) => agentRunsFinal.placeModel(caller, model),
       delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id) },
     }),
+    createSpacesTools({ spaces, settings, broker: browserBroker, rpc }),
   ]));
   /* Any goal that was running when Realm last closed is parked rather than resumed. A desktop app is
      relaunched by someone opening it, sometimes days later and usually to do something else — see

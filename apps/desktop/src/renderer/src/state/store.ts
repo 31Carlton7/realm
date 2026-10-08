@@ -2503,6 +2503,10 @@ export type AppState = {
    *  on screen beside that agent's pane, on the edge it asked for — quietly, the keyboard left where it
    *  was. With the agent's pane not on screen it stays a sidebar row; with no room for a split it takes
    *  the place of the pane beside the agent's, as any open beside does. */
+  /** The `space.switchRequested` handler: an agent's approved `space_switch`, carried out as the
+   *  user's own `selectSpace` — except while they are `typing`, and in a window bound to one profile
+   *  (the first window is the one whose space the server reads back). */
+  applySpaceSwitchRequested(payload: { spaceId: string }, typing: boolean): Promise<void>;
   applySessionOpenRequested(payload: { spaceId: string; sessionId: string; itemId: string; openedBy: string; edge: "right" | "bottom" }): Promise<void>;
   /** The `session.agentSettled` handler: a delegated child that finished cleanly has its "Finished a
    *  turn" row read — its report is already in the lead's transcript. */
@@ -6935,6 +6939,11 @@ await get().refreshCustomThemes().catch(() => {});
         // child is how a fan-out filled a window with panes too narrow to read. It is listed under the
         // lead's running-agents control, and a click there previews it as a tab of the lead's side pane.
         delegatedChildren.set(sessionId, {});
+      },
+      async applySpaceSwitchRequested({ spaceId }, typing) {
+        if (typing || api.boundProfileId() !== null) return;
+        if (!get().spaces.some((sp) => sp.id === spaceId && sp.profileId === get().activeProfileId)) return;
+        await get().selectSpace(spaceId);
       },
       async applySessionOpenRequested({ spaceId, itemId, openedBy, edge }) {
         if (!inProfile(spaceId)) return;

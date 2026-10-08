@@ -2073,6 +2073,10 @@ export const Events = {
    *  pane — to the right or below (`edge`), as the user's own split would put it. Not
    *  `session.agentOpened`: that one is a delegated child, which gets no pane. Quiet, like every
    *  agent's open: the keyboard stays where the user left it. */
+  /** An agent's `space_switch`, approved: the window moves to this space as the user's own click would
+   *  move it — unless the user is typing, when it stays put. The first window answers it; one opened
+   *  for a single profile leaves it alone. The server learns the outcome from `ui.activeSpaceId`. */
+  "space.switchRequested": z.object({ spaceId: IdSchema, requestedBy: IdSchema }),
   "session.openRequested": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema, openedBy: IdSchema, edge: z.enum(["right", "bottom"]) }),
   /** A delegated child's run settled — the other half of `session.agentOpened`, carrying the same ids
    *  plus how it ended, and sent exactly once per run by the tool that opened the child
