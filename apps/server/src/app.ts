@@ -654,6 +654,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Called when a drain is accepted, so the caller can record it outside this process — `main.ts`
    *  rewrites the state file, which is what makes a mid-drain launcher wait rather than adopt. */
   onDraining?: () => void;
+  /** Where a memory repo goes when Realm's home is inside a space's folder. Unset, it is the app's
+   *  Application Support folder under `userHome` — and nowhere at all when no `userHome` is named. */
+  memoryFallbackRoot?: string;
   /** The RPC token every client must offer as its `realm.<token>` subprotocol. Undefined leaves the
    *  socket open to anything on loopback, which is what the suite's several hundred `createApp` calls
    *  want — production mints one in `main.ts` and writes it to the 0600 state file. */
@@ -1005,6 +1008,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       ...[".claude", ".codex", ".cursor", ".agents"].map((d) => join(userHome, d)),
       ...((process as { resourcesPath?: string }).resourcesPath ? [(process as { resourcesPath?: string }).resourcesPath!] : []),
     ],
+    // Realm's home kept inside a project folder that is also a space (a preview build's, say) would
+    // forbid every repo made under it; the app's own Application Support folder is the second place.
+    // Only a caller that names the machine's home gets a default there: a test never writes outside its own.
+    fallbackRoot: opts.memoryFallbackRoot ?? (opts.userHome ? join(opts.userHome, "Library", "Application Support", "Realm", "memory-repos") : undefined),
     toolsEnabled: (spaceId) => mcp.providerEnabled(spaceId, MEMORY_PROVIDER_NAME),
     committerName: userFirstName,
     // Asked only whether a GitHub remote is private, before sync is turned on; never a test's network.

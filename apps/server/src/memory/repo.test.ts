@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { MEMORY_REPO_INITIAL_INDEX } from "@realm/contracts";
@@ -86,6 +86,42 @@ describe("MemoryRepoService create / attach", () => {
     // THE MUTANT: skip the guard — memory lands in the project, which the spec forbids first of all.
     await expect(repos.create(P, join(project, "memory"))).rejects.toMatchObject({ code: "MEMORY_REPO_FORBIDDEN" });
     expect(existsSync(join(project, "memory"))).toBe(false);
+  });
+
+  it("puts a repo in the fallback root when Realm's own home is inside a space's folder, and says it moved", async () => {
+    const outer = tempDir("realm-memrepo-projects-");
+    const home = join(outer, "preview", "home");
+    mkdirSync(home, { recursive: true });
+    const fallback = join(tempDir("realm-memrepo-fallback-"), "memory-repos");
+    const settings = new SettingsStore(openDatabase(join(home, "realm.db")));
+    const repos = new MemoryRepoService({ home, settings, forbiddenRoots: () => [outer], fallbackRoot: fallback, committerName: async () => "Tester" });
+    // THE MUTANT: no second place — the default under the home is refused, and making a team dead-ends.
+    expect(repos.placeFor(P)).toEqual({ path: join(fallback, `profile-${PROFILE}`), moved: true });
+    const made = await repos.create(P);
+    expect(made.valid).toBe(true);
+    expect(realpathSync(made.path)).toBe(realpathSync(join(fallback, `profile-${PROFILE}`)));
+    expect(existsSync(join(home, "memory"))).toBe(false);
+  });
+
+  it("with nowhere allowed, refuses in words that say why and what to do", async () => {
+    const outer = tempDir("realm-memrepo-projects-");
+    const home = join(outer, "home");
+    mkdirSync(home, { recursive: true });
+    const settings = new SettingsStore(openDatabase(join(home, "realm.db")));
+    const repos = new MemoryRepoService({ home, settings, forbiddenRoots: () => [outer], fallbackRoot: join(outer, "elsewhere") });
+    expect(repos.placeFor(P)).toBeNull();
+    const err = await repos.create(P).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "MEMORY_REPO_FORBIDDEN" });
+    expect((err as Error).message).toMatch(/one of your spaces works in/);
+    expect((err as Error).message).toMatch(/Choose a folder outside your projects/);
+    // A folder the person chose outside every project is taken.
+    const chosen = join(tempDir("realm-memrepo-chosen-"), "versed-memory");
+    expect((await repos.create(P, chosen)).valid).toBe(true);
+  });
+
+  it("keeps the default under Realm's home when it is allowed", () => {
+    const { home, repos } = harness();
+    expect(repos.placeFor(P)).toEqual({ path: join(home, "memory", "repos", `profile-${PROFILE}`), moved: false });
   });
 
   it("detaches without touching the folder", async () => {
