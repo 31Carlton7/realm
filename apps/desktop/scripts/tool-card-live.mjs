@@ -359,7 +359,7 @@ async function main() {
     const contrast = await evalIn(c, `(() => ({ danger: __live.contrast(__live.card("fail1").querySelector(".tool-meta")), reason: __live.contrast(__live.card("fail1").querySelector(".tool-reason")),
       stopped: __live.contrast(__live.card("stop1").querySelector(".tool-meta")), failedHead: __live.contrast(document.querySelector(".tool-group-failed")) }))()`);
     note(`contrast ${face}`, contrast);
-    check(`the failure ink at 12px clears 4.5:1 on the ${face} ground`, contrast.danger.ratio >= 4.5 && contrast.failedHead.ratio >= 4.5, contrast);
+    check(`the failure and Stopped ink at 12px clear 4.5:1 on the ${face} ground`, contrast.danger.ratio >= 4.5 && contrast.failedHead.ratio >= 4.5 && contrast.stopped.ratio >= 4.5, contrast);
     for (const width of [1440, 760]) {
       await c.send("Emulation.setDeviceMetricsOverride", { width, height: 940, deviceScaleFactor: 2, mobile: false });
       await sleep(600);

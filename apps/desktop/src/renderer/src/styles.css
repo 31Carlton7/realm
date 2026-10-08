@@ -4270,7 +4270,9 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* The state in a word beside the glyph, so it never rests on colour or shape alone. Reserved: it
    keeps its width while the object gives way. */
 .tool-meta { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
-.tool-meta[data-tone="quiet"] { color: var(--ink-3); }
+/* A state word is read, not skipped: "Stopped" and a running call's time take the secondary ink, which
+   clears 4.5:1 on both faces where the tertiary measured 3.35:1 on dark. */
+.tool-meta[data-tone="quiet"] { color: var(--ink-2); }
 .tool-meta[data-tone="warning"] { color: var(--rl-warning); }
 .tool-meta[data-tone="danger"] { color: var(--rl-danger); }
 /* Why a call failed, under its row and outside the expander, set from the verb column. */

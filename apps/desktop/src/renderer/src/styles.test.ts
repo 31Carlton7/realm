@@ -1612,6 +1612,8 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(bodiesFor(".tool-meta").join(" ")).toContain("flex: none");
     expect(bodiesFor('.tool-meta[data-tone="danger"]').join(" ")).toContain("color: var(--rl-danger)");
     expect(bodiesFor('.tool-meta[data-tone="warning"]').join(" ")).toContain("color: var(--rl-warning)");
+    // "Stopped" is a state the reader must read, so it is never in the tertiary ink (3.35:1 on dark).
+    expect(bodiesFor('.tool-meta[data-tone="quiet"]').join(" ")).toContain("color: var(--ink-2)");
     // A row is 32 tall: it is the press target, a step toward the 40px floor.
     expect(bodiesFor(".tool-row").join(" ")).toContain("min-height: 32px");
     // Measured edit counts are the semantic green/red.
