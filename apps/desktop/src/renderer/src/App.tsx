@@ -626,6 +626,8 @@ export function App() {
     const onTyped = (e: KeyboardEvent) => { if (isEditableTarget(e.target) || (e.target instanceof HTMLElement && e.target.closest(".xterm"))) typedAt = Date.now(); };
     window.addEventListener("keydown", onTyped, true);
     const offSw = rpc().on("space.switchRequested", (p) => { const st = store.getState(); st.run(() => st.applySpaceSwitchRequested(p, Date.now() - typedAt < TYPING_QUIET_MS)); });
+    // A setting an agent changed with `settings_set`, applied in every window.
+    const offSet = rpc().on("settings.changed", (p) => store.getState().applySettingChanged(p));
     // A session an agent opened for the user with `session_open`: a pane of its own, beside that agent's.
     const offSO = rpc().on("session.openRequested", (p) => { const st = store.getState(); st.run(() => st.applySessionOpenRequested(p)); });
     // The same child's run settled. A clean finish reads its "Finished a turn" row (`applyAgentSettled`).
@@ -719,7 +721,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);

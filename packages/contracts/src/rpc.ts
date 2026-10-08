@@ -2073,6 +2073,10 @@ export const Events = {
    *  pane — to the right or below (`edge`), as the user's own split would put it. Not
    *  `session.agentOpened`: that one is a delegated child, which gets no pane. Quiet, like every
    *  agent's open: the keyboard stays where the user left it. */
+  /** An agent's `settings_set` changed one of the settings agents may change (`AGENT_SETTINGS`): every
+   *  window takes the new value as if its own Settings had set it. Only those keys — a window that
+   *  re-read any setting on this would let a stored value it never offered take effect. */
+  "settings.changed": z.object({ key: z.string(), value: z.unknown() }),
   /** An agent's `space_switch`, approved: the window moves to this space as the user's own click would
    *  move it — unless the user is typing, when it stays put. The first window answers it; one opened
    *  for a single profile leaves it alone. The server learns the outcome from `ui.activeSpaceId`. */

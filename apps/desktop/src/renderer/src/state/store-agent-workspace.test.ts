@@ -86,3 +86,20 @@ describe("an agent's space_switch, as the window carries it out", () => {
     expect(store.getState().activeSpaceId).toBe("s1");
   });
 });
+
+describe("a setting an agent changed with settings_set", () => {
+  it("takes effect in the window as its own Settings would, for the keys on the list and the values they take", async () => {
+    const store = await withA(api());
+    store.getState().applySettingChanged({ key: "ui.theme", value: "dark" });
+    expect(store.getState().themePref).toBe("dark");
+    store.getState().applySettingChanged({ key: "ui.submitKey", value: "cmdEnter" });
+    expect(store.getState().submitKey).toBe("cmdEnter");
+    store.getState().applySettingChanged({ key: "sessions.midTurnMode", value: "steer" });
+    expect(store.getState().midTurnMode).toBe("steer");
+    store.getState().applySettingChanged({ key: "ui.theme", value: "plaid" });
+    expect(store.getState().themePref).toBe("dark");
+    const before = store.getState();
+    store.getState().applySettingChanged({ key: "sessions.defaultPermissionMode", value: "bypassPermissions" });
+    expect(store.getState()).toBe(before);
+  });
+});
