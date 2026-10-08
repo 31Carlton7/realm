@@ -89,7 +89,7 @@ export function orchestratorOrder<T extends { startedAt: number }>(children: rea
 export function rollup(states: readonly SubagentState[]): string {
   const n = (...of: SubagentState[]) => states.filter((s) => of.includes(s)).length;
   return [
-    [n("waiting"), "needs you"], [n("working", "queued"), "working"], [n("done"), "done"],
+    [n("waiting"), n("waiting") === 1 ? "needs you" : "need you"], [n("working", "queued"), "working"], [n("done"), "done"],
     [n("failed", "timeout"), "failed"], [n("stopped", "cancelled"), "stopped"],
   ].filter(([k]) => (k as number) > 0).map(([k, w]) => `${k} ${w}`).join(" · ");
 }

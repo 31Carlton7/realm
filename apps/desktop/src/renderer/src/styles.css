@@ -3985,6 +3985,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagent-harness, .subagent-where, .subagent-mode, .subagent-budget { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
 .subagent-where[data-branch] { font-family: var(--font-mono); }
 .subagent-mode { display: inline-flex; align-items: center; gap: 4px; }
+/* The facts are separate things, so they read as a list rather than one run-on phrase. */
+.subagent-facts > .subagent-model ~ span:not(.subagent-budget)::before { content: "·"; margin-right: 6px; color: var(--ink-3); }
 .subagent-mode > svg { flex: none; }
 .subagent-budget { flex-shrink: 1; margin-left: auto; font-variant-numeric: tabular-nums; }
 .subagent-doing { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 16px; font-size: 12px; line-height: 16px; color: var(--ink-3); }
@@ -4001,7 +4003,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagent-nested { padding: 0 8px 8px 20px; }
 .subagent-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 10px 28px; }
 .subagent-goal { margin: 0; max-height: 160px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; font-size: 13px; line-height: 18px; color: var(--ink-2); --fade-h: 16px; --fade-top-h: 16px; }
-.sb-need-asker { margin: 0; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--ink-2); }
 .subagent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: -7px; }
 .subagent-message { display: flex; align-items: center; gap: 6px; }
 .subagent-message input { flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 9px; border: none; border-radius: var(--r-ctl); background: var(--field); color: var(--ink); font: inherit; font-size: 13px; outline: none; }

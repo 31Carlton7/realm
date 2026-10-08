@@ -93,6 +93,7 @@ describe("the orchestrator's words", () => {
 
   it("rolls the states up into words, most urgent first", () => {
     expect(rollup(["working", "waiting", "queued", "done", "timeout", "cancelled"])).toBe("1 needs you · 2 working · 1 done · 1 failed · 1 stopped");
+    expect(rollup(["waiting", "waiting"])).toBe("2 need you");
   });
 
   it("holds the spent budget while the child waits on you, and carries it forward while it works", () => {

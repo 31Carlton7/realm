@@ -243,7 +243,7 @@ describe("the orchestrator", () => {
     const { api } = await mount({ children: [...CHILDREN, asking()], runs: ["se2", "se4"], status: { se4: "waiting_permission" }, transcripts: { se4: ASK_EVENTS } });
     const head = await card(/^Dark-mode toggle\./);
     expect(head).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Dark-mode toggle asks")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Waiting in Dark-mode toggle" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     await waitFor(() => expect(api.calls).toContain("respondPermission:se4:r9:allow"));
   });

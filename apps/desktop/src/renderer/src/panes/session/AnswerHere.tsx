@@ -17,8 +17,8 @@ const NO_REQUESTS = emptyTranscript().pendingPermissions;
  */
 export function AnswerHere({ id, session, asker, onLeave }: {
   id: string; session: Session;
-  /** Who is asking, said above the cards — "Dark-mode toggle asks" — where the surface does not
-   *  already say it (design.md: a question says who asks first). */
+  /** Who is asking, for the group's accessible name — where the session's own title is not the name
+   *  the surface shows it by (a sub-agent's card is titled by its task). */
   asker?: string;
   onLeave: () => void;
 }) {
@@ -36,7 +36,6 @@ export function AnswerHere({ id, session, asker, onLeave }: {
   if (pending.length === 0) return null;
   return (
     <div className="sb-need-answer" id={id} role="group" aria-label={`Waiting in ${asker ?? session.title}`} onKeyDownCapture={onKeyDownCapture}>
-      {asker && <p className="sb-need-asker">{asker} asks</p>}
       {pending.map((p) => (
         <PendingRequest key={p.requestId} permission={p} ownsEscape={false}
           onDecide={(...decision) => run(() => respondPermission(session.id, p.requestId, ...decision))} />

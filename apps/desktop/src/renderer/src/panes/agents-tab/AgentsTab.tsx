@@ -239,7 +239,8 @@ function SubagentCard({ child, leadId, flashId, onOpen, nested = false }: {
             </span>
           )}
         </span>
-        {doing && <span className="subagent-doing"><Icon name={doing.icon} size={12} /><span className="subagent-doing-text">{doing.text}</span></span>}
+        {/* Open on a request, the request itself says what it is doing; the line would say it twice. */}
+        {doing && !(open && state === "waiting") && <span className="subagent-doing"><Icon name={doing.icon} size={12} /><span className="subagent-doing-text">{doing.text}</span></span>}
         {child.note && <span className="subagent-note">{child.note}</span>}
         {summary && <span className="subagent-report">{summary}</span>}
       </button>
