@@ -517,9 +517,11 @@ async function main() {
   check("the menu's Downloads offers to save what was blocked", JSON.stringify(dlRows) === JSON.stringify(["Save notes.txt"]), dlRows);
   await clickRow(["Downloads", "Save notes.txt"]);
   const savedPath = path.join(space.folderPath, "downloads", "notes.txt");
-  // The bar's own receipt is what says the download FINISHED: the file can be on disk a moment before
-  // Chromium reports it done, and the pane learns it was saved from that report.
-  const savedNote = await until(() => evalIn(c, `[...document.querySelectorAll('.browser-notice')].map((n) => n.textContent).find((t) => t.includes("Saved notes.txt")) ?? null`), 15_000, "saved receipt").catch(() => null);
+  // The receipt is what says the download FINISHED: the file can be on disk a moment before Chromium
+  // reports it done, and the pane learns it was saved from that report. It is a toast, and the strip
+  // that held the blocked file is gone.
+  const savedNote = await until(() => evalIn(c, `[...document.querySelectorAll('.toast-text')].map((n) => n.textContent).find((t) => t.includes("Saved notes.txt")) ?? null`), 15_000, "saved receipt").catch(() => null);
+  check("…the receipt is a toast, and no strip is left over the page", !(await evalIn(c, `[...document.querySelectorAll('.browser-notice')].some((n) => n.textContent.includes("notes.txt"))`)));
   const saved = fs.existsSync(savedPath);
   check("…and saving it from the menu puts the file in the space's downloads/", !!savedNote && saved && fs.readFileSync(savedPath, "utf8").startsWith("Notes"), { savedNote, savedPath });
   const showMenu = await openMenu();
