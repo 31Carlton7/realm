@@ -1924,13 +1924,14 @@ describe("migration — a session's activity", () => {
   });
 });
 
-describe("migrations 46–49, as the four branches that held each other's slots merged", () => {
-  it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, then sessions' activity", () => {
+describe("migrations 46–50, as the five branches that held each other's slots merged", () => {
+  it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, then act tickets", () => {
     expect(migrations.filter((m) => m.trim() === "SELECT 1;")).toEqual([]);
-    expect(migrations).toHaveLength(49);
+    expect(migrations).toHaveLength(50);
     expect(migrations[45]).toContain("CREATE TABLE IF NOT EXISTS vault_grants");
     expect(migrations[46]).toContain("CREATE TABLE IF NOT EXISTS team_handoffs");
     expect(migrations[47]).toContain("CREATE TABLE IF NOT EXISTS lab_devices");
     expect(migrations[48]).toContain("ALTER TABLE sessions ADD COLUMN activity_at");
+    expect(migrations[49]).toContain("CREATE TABLE IF NOT EXISTS team_act_tickets");
   });
 });

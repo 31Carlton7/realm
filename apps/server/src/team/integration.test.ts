@@ -189,6 +189,31 @@ describe("teams over the wire", () => {
     c.close();
   });
 
+  it("approve issues one paced ticket per post, and the ticket refuses an RPC call nobody pressed a sheet for", async () => {
+    const { c, spaceId, roleId, folder } = await boot();
+    await keepRecord(c, roleId);
+    await c.must("team.roleRun", { id: roleId, message: "make the slides" });
+    await waitFor(async () => (await c.must("team.space", { spaceId })).reviews.length === 1, { timeout: 8000 });
+    const id = (await c.must("team.space", { spaceId })).reviews[0].id;
+    await c.must("team.reviewApprove", { id });
+    const detail = await c.must("team.review", { id });
+    expect(detail.tickets).toHaveLength(2);
+    expect(detail.tickets.map((t: Any) => t.contentHash)).toEqual(detail.items.map((i: Any) => i.approvedHash));
+    expect(detail.tickets[1].slotAt - detail.tickets[0].slotAt).toBeGreaterThanOrEqual(2 * 60 * 60_000);
+    expect(detail.tickets[0]).toMatchObject({ state: "ready", consent: "contract §4", signin: "tiktok.com/nathan", adapter: { connected: false } });
+    // An agent with the daemon's token calls the method straight: no press from main, so nothing goes.
+    const r = await c.call("team.ticketPost", { id: detail.tickets[0].id });
+    expect(r.ok).toBe(false);
+    expect(r.error.message).toMatch(/Only a person's click/);
+    expect((await c.must("team.tickets", { spaceId })).every((t: Any) => t.state === "ready")).toBe(true);
+    expect((await c.must("team.activity", { spaceId, limit: 50 })).some((a: Any) => a.verb === "refused" && a.detail.why === "no_press")).toBe(true);
+    // A file changed after the yes takes the tickets back with the batch.
+    writeFileSync(join(folder, SLIDES[1]!), "png-edited");
+    await c.must("team.space", { spaceId });
+    expect(await c.must("team.tickets", { spaceId })).toEqual([]);
+    c.close();
+  });
+
   it("approve records the hash; a file changed afterwards drops the batch back to waiting", async () => {
     const { c, spaceId, roleId, folder } = await boot();
     await keepRecord(c, roleId);

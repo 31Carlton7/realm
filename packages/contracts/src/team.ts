@@ -4,6 +4,7 @@ import { parseMemoryEntry } from "./memory";
 import { RunStateSchema } from "./runs";
 import { SkillIdSchema } from "./skills";
 import { RoleGoalSchema, TeamHandoffSchema, TeamLimitsSchema } from "./team-handoffs";
+import { ActTicketSchema } from "./team-acts";
 
 /**
  * Teams (Phase 1): a space with standing roles.
@@ -324,6 +325,8 @@ export const ReviewTargetSchema = z.object({
   channel: z.string().min(1).max(40).optional(),
   /** The account it would go out as: "@versed.nathan", or an address for a message. */
   account: z.string().min(1).max(200).optional(),
+  /** Who a DM or an email goes to: "@reader", "nathan@example.com". A post has none. */
+  to: z.string().min(1).max(200).optional(),
 }).strict();
 export type ReviewTarget = z.infer<typeof ReviewTargetSchema>;
 
@@ -366,6 +369,9 @@ export const TeamReviewSummarySchema = z.object({
   account: z.string().nullable(),
   /** A file changed after it was approved, so the yes no longer covers it. */
   changedSinceApproval: z.boolean(),
+  /** Its act tickets (Phase 3): how many outward acts the yes issued, and how many went out. */
+  actsTotal: z.number().int().default(0),
+  actsDone: z.number().int().default(0),
   createdAt: z.number().int(),
   decidedAt: z.number().int().nullable(),
   updatedAt: z.number().int(),
@@ -402,6 +408,8 @@ export const TeamReviewDetailSchema = TeamReviewSummarySchema.extend({
   ledger: z.array(LedgerLineSchema),
   /** The space folder, absolute — so the renderer can show a file and reveal it in Finder. */
   root: z.string().nullable(),
+  /** One ticket per outward act, in batch order — what the post sheet presses (team-acts.ts). */
+  tickets: z.array(ActTicketSchema).default([]),
 });
 export type TeamReviewDetail = z.infer<typeof TeamReviewDetailSchema>;
 
@@ -409,7 +417,9 @@ export type TeamReviewDetail = z.infer<typeof TeamReviewDetailSchema>;
 
 export const TEAM_VERBS = ["made_team", "edited_team", "made_role", "edited_role", "archived_role", "woke", "queued", "finished", "failed", "stopped_at_cap",
   "paused", "submitted", "revised", "approved", "asked_changes", "marked_done", "dismissed", "read_record", "updated_record", "refused",
-  "handed_off", "mentioned", "goal_set", "goal_stopped", "backed_off", "edited_limits"] as const;
+  "handed_off", "mentioned", "goal_set", "goal_stopped", "backed_off", "edited_limits",
+  // Phase 3: approve → act.
+  "issued_tickets", "pressed", "acted", "act_failed", "cancelled_ticket", "held_acts", "resumed_acts"] as const;
 export type TeamVerb = (typeof TEAM_VERBS)[number];
 
 export const TeamActivitySchema = z.object({
@@ -475,6 +485,9 @@ export const TeamSpaceSchema = z.object({
   limits: TeamLimitsSchema,
   /** The newest handoffs and mentions, newest first. */
   handoffs: z.array(TeamHandoffSchema),
+  /** The kill switch: every act of this team is held, and nothing posts or sends until the person
+   *  lets it go again (team-acts.ts). */
+  actsHeld: z.boolean().default(false),
 });
 export type TeamSpace = z.infer<typeof TeamSpaceSchema>;
 

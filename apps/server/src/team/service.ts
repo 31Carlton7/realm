@@ -1,10 +1,9 @@
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink, creatorRecordTemplate,
-  isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, sessionEvent, usageDeltas, weekStart,
-  type AgentKind, type CreateRoleInput, type LedgerLine, type ReviewCheck, type ReviewKind, type ReviewTarget, type RoleRun,
+  ACT_PACING, actKindFor, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, sessionEvent, usageDeltas, weekStart,
+  type ActTicket, type AgentKind, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewKind, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
   type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type TeamRole, type TeamSpace, type UpdateRoleInput, type WokeOn,
 } from "@realm/contracts";
@@ -15,6 +14,7 @@ import type { SessionService } from "../sessions/service";
 import type { MemoryRepoService } from "../memory/repo";
 import type { RpcServer } from "../rpc/server";
 import { NotFoundError, RpcError } from "../store/rows";
+import { bytesHash, itemHash } from "./item-hash";
 import { applyRecordEdit, type RecordEdit } from "./records";
 import type { TeamExtras } from "./handoffs/service";
 import type { ItemInsert, ReviewRow, RoleRow, TeamStore } from "./store";
@@ -83,6 +83,16 @@ export class TeamService {
     rpc: Pick<RpcServer, "broadcast">;
     /** The agent a role runs on when none is named: claude in production, the fake in tests. */
     defaultKind?: AgentKind;
+    /** Approve → act (team/acts): an approval issues tickets, and a review that moves on takes back
+     *  whatever has not gone out. Absent, approving marks the batch and nothing more. */
+    acts?: {
+      issue(reviewId: string): ActTicket[];
+      cancelForReview(reviewId: string, why: string): void;
+      tickets(reviewId: string): ActTicket[];
+      counts(reviewId: string): { total: number; done: number };
+      held(spaceId: string): boolean;
+      today(kind: "post" | "dm" | "email", channel: string, account: string): { count: number; cap: number };
+    };
     /** More standing context for a role's run — the vault's names it may use (team/vault). */
     preambleExtra?: (roleId: string) => string[];
     clock?: () => number;
@@ -143,6 +153,7 @@ export class TeamService {
         limits: { teamMaxLive: this.teamMaxLive(spaceId), realmMaxUnattended: this.slots(), teamRunning: 0, realmRunning: 0, teamQueued: 0, backoff: [] },
         handoffs: [],
       }),
+      actsHeld: this.d.acts?.held(spaceId) ?? false,
     };
   }
 
@@ -412,7 +423,7 @@ export class TeamService {
       workerPreamble(`You are ${role.name}, a standing role on this space's team.\n\n${role.brief}`),
       "",
       "Team rules (Realm):",
-      "- Deliver with `review_submit` (the realm-team tools). Never send, post, sign or pay: a person approves everything in Review and posts it themselves.",
+      "- Deliver with `review_submit` (the realm-team tools). Never send, post, sign or pay: a person approves everything in Review, then presses each post or send themselves, one at a time, at Realm's paced slots. No tool lets you post, send or DM, and none ever will.",
       "- Records are Markdown files under `creators/` in the team's memory. Read them with `record_list` and `record_read`; change them with `record_update`. An account names where its sign-in is kept, never a password or key.",
       "- Save what you make inside this space's folder; Review only takes files from there.",
       `- This run stops at ${usd(role.runCapUsd)} or ${Math.round(role.runCapMs / 60_000)} minutes, whichever comes first.`,
@@ -630,6 +641,7 @@ export class TeamService {
       channels: [...new Set(items.map((i) => i.target?.channel).filter((c): c is string => !!c))],
       account: items[0]?.target?.account ?? null,
       changedSinceApproval: items.some((i) => i.approvedHash !== null && i.approvedHash !== i.contentHash),
+      ...(() => { const c = this.d.acts?.counts(r.id) ?? { total: 0, done: 0 }; return { actsTotal: c.total, actsDone: c.done }; })(),
       createdAt: r.createdAt, decidedAt: r.decidedAt, updatedAt: r.updatedAt,
     };
   }
@@ -658,6 +670,7 @@ export class TeamService {
       checks: this.checks(items, record, fresh.kind),
       ledger: this.ledger(fresh, run),
       root,
+      tickets: this.d.acts?.tickets(id) ?? [],
     };
   }
 
@@ -666,22 +679,36 @@ export class TeamService {
     const out: ReviewCheck[] = [];
     const target = items.find((i) => i.target?.account)?.target ?? null;
     if (target?.account) {
-      const acct = record ? recordAccounts(record).find((a) => a.handle?.toLowerCase() === target.account!.toLowerCase()) : null;
+      // The account on the channel it goes to: @versed.nathan on Instagram is not the TikTok one.
+      const ch = target.channel?.toLowerCase() ?? "";
+      const acct = record ? recordAccounts(record).find((a) => a.handle?.toLowerCase() === target.account!.toLowerCase()
+        && (!ch || a.channel.toLowerCase().includes(ch) || ch.includes(a.channel.toLowerCase()))) ?? null : null;
+      const verb = kind === "message" ? "Sends" : "Posts";
       out.push(acct?.parts.consent
-        ? { ok: true, title: `Posts as ${target.account}${acct.channel ? ` on ${acct.channel}` : ""}`, detail: `${record!.title}'s account, managed with their consent (${acct.parts.consent})` }
+        ? { ok: true, title: `${verb} as ${target.account}${acct.channel ? ` on ${acct.channel}` : ""}`, detail: `${record!.title}'s account, managed with their consent (${acct.parts.consent})` }
         : { ok: false, title: `${target.account} has no consent on record`, detail: "Add consent: to the account's line in the record before it is posted" });
     }
     const captions = items.map((i) => i.body ?? "").filter(Boolean);
-    if (captions.length > 0 && items.some((i) => i.target?.account)) {
+    // Paid-partnership disclosure is a post's: a DM or an email carries no platform label.
+    if (kind === "slideshows" && captions.length > 0 && items.some((i) => i.target?.account)) {
       const disclosed = captions.every((c) => /#ad\b|#sponsored\b|#paidpartnership\b|paid partnership/i.test(c));
       out.push(disclosed
         ? { ok: true, title: "Disclosed as paid partnership", detail: "Every caption says so" }
         : { ok: false, title: "No paid-partnership disclosure in the caption", detail: "Turn on the platform's paid-partnership label when you post, or add #ad" });
     }
-    // A message is sent, not posted: an email draft told to "post it from the space folder" was told nonsense.
-    out.push(kind === "message"
-      ? { ok: null, title: "Realm does not send yet", detail: "Approving marks it ready. Send it yourself, from your own account." }
-      : { ok: null, title: "Realm does not post yet", detail: "Approving marks it ready. Post it by hand from the space folder." });
+    // Today's pacing for the account, as Realm will keep it — or, for work aimed nowhere, the plain
+    // fact that a yes marks it and a person sends it. A message is sent, not posted.
+    const act = target?.account ? actKindFor(kind, target.channel) : null;
+    if (act && target?.account && target.channel && this.d.acts) {
+      const today = this.d.acts.today(act, target.channel, target.account);
+      const noun = act === "post" ? "posts" : act === "dm" ? "DMs" : "emails";
+      out.push({ ok: today.count < today.cap, title: `${today.count} of ${today.cap} ${noun} today for this account`,
+        detail: act === "post" ? "Realm spaces posts at least 2 hours apart" : `Realm spaces ${noun} at least ${Math.round(ACT_PACING[act].gapMs / 60_000)} minutes apart` });
+    } else {
+      out.push(kind === "message"
+        ? { ok: null, title: "Realm does not send this", detail: "It names no account and no one to send it to. Approving marks it ready; send it yourself." }
+        : { ok: null, title: "Realm does not post this", detail: "It names no account. Approving marks it ready; post it by hand from the space folder." });
+    }
     return out;
   }
 
@@ -729,6 +756,8 @@ export class TeamService {
     const next = this.d.store.setReviewState(id, "approved", { decided: true, note: null })!;
     const hashes = this.d.store.items(id, r.version).map((i) => i.contentHash);
     this.log(r.spaceId, "user", "approved", r.title, { reviewId: id, version: r.version, hashes });
+    // A yes issues tickets, one per outward act; it sends nothing. Each still waits for its own press.
+    this.d.acts?.issue(id);
     this.changed(r.spaceId);
     return this.summary(next);
   }
@@ -745,6 +774,7 @@ export class TeamService {
     if (r.state === "done" || r.state === "dismissed") throw new RpcError("TEAM_REVIEW_STATE", `this review is ${r.state}`);
     const next = this.d.store.setReviewState(id, "changes", { note: text, decided: true })!;
     this.log(r.spaceId, "user", "asked_changes", r.title, { reviewId: id, note: text });
+    this.d.acts?.cancelForReview(id, "you asked for changes");
     const role = r.roleId ? this.d.store.role(r.roleId) : null;
     if (role && !role.archived && role.wakeOnReview) {
       const prior = r.runId ? this.d.runs.get(r.runId)?.run ?? null : null;
@@ -769,6 +799,7 @@ export class TeamService {
     const r = this.mustReview(id);
     const next = this.d.store.setReviewState(id, "done", { decided: true })!;
     this.log(r.spaceId, "user", "marked_done", r.title, { reviewId: id });
+    this.d.acts?.cancelForReview(id, "you marked it done by hand");
     this.changed(r.spaceId);
     return this.summary(next);
   }
@@ -777,6 +808,7 @@ export class TeamService {
     const r = this.mustReview(id);
     const next = this.d.store.setReviewState(id, "dismissed", { decided: true })!;
     this.log(r.spaceId, "user", "dismissed", r.title, { reviewId: id });
+    this.d.acts?.cancelForReview(id, "you dismissed it");
     this.changed(r.spaceId);
     return this.summary(next);
   }
@@ -805,19 +837,14 @@ export class TeamService {
     if (drifted && r.state === "approved") {
       this.d.store.setReviewState(r.id, "waiting", { note: "A file changed after you approved it, so it needs your yes again." });
       this.log(r.spaceId, "realm", "refused", r.title, { reviewId: r.id, why: "changed_after_approval" });
+      this.d.acts?.cancelForReview(r.id, "a file changed after you approved it");
     }
   }
 
   /** sha256 over each file's bytes, in order, and the text: what the person saw. A file that is gone
    *  hashes as gone, so deleting one also changes the item. Cached by size and mtime. */
-  private hashItem(root: string, files: string[], body: string | null): string {
-    const h = createHash("sha256");
-    for (const f of files) {
-      h.update(`file:${f}\0`);
-      h.update(this.fileHash(join(root, f)));
-    }
-    h.update(`body:${body ?? ""}`);
-    return h.digest("hex");
+  hashItem(root: string, files: string[], body: string | null): string {
+    return itemHash(files, (f) => this.fileHash(join(root, f)), body);
   }
 
   private fileHash(abs: string): string {
@@ -825,7 +852,7 @@ export class TeamService {
     try { st = statSync(abs); } catch { return "missing"; }
     const hit = this.hashCache.get(abs);
     if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.hash;
-    const hash = createHash("sha256").update(readFileSync(abs)).digest("hex");
+    const hash = bytesHash(readFileSync(abs));
     this.hashCache.set(abs, { mtimeMs: st.mtimeMs, size: st.size, hash });
     return hash;
   }
@@ -843,6 +870,14 @@ export class TeamService {
   }
 
   /* ═══════════════════════════════ records ═══════════════════════════════ */
+
+  /** A record, parsed, by its path in the space's memory — null when it is missing or free-form. */
+  recordFor(spaceId: string, recordPath: string): ParsedRecord | null {
+    const repo = this.repoPath(spaceId);
+    if (!repo) return null;
+    const abs = join(repo, this.recordRel(recordPath));
+    return existsSync(abs) ? parseRecord(readFileSync(abs, "utf8")) : null;
+  }
 
   repoPath(spaceId: string): string | null {
     const cfg = this.d.repos.config({ scope: "space", id: spaceId });
