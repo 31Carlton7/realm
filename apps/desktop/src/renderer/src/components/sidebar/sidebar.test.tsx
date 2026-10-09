@@ -186,7 +186,7 @@ describe("a space's section", () => {
   });
 
   it("lists its sessions newest first, five of them, then Show more opens the space's page", async () => {
-    const many = Array.from({ length: 7 }, (_, i) => session(`m${i}`, "s2", { title: `Task ${i}`, updatedAt: 1000 + i }));
+    const many = Array.from({ length: 7 }, (_, i) => session(`m${i}`, "s2", { title: `Task ${i}`, activityAt: 1000 + i }));
     const { store } = await mount(home({
       items: { s1: [], s2: many.map((m) => sessionItem(m.id, "s2", m.title)) },
       sessions: many,

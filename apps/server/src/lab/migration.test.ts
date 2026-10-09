@@ -10,7 +10,8 @@ import { migrations } from "../db/migrations";
  * role, a queued run of it, an activity line and a setting. The schema is written out BY HAND as v45
  * shipped it, not replayed from `migrations` — a fixture replayed from the list agrees with any edit
  * of the list, which is the one thing a migration test exists to catch (db/database.test.ts says the
- * same). Only the tables the rows need are here; v48 reads none of the others. Opened, the upgrade
+ * same). Only the tables the rows need are here, and the two the sessions' activity migration (v49)
+ * reads on the way to the end of the chain; v48 reads none of the others. Opened, the upgrade
  * must add the table, leave every row it found alone, and be safe to meet twice.
  */
 
@@ -54,6 +55,14 @@ const V45_SCHEMA = `
     id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
     ts INTEGER NOT NULL, actor TEXT NOT NULL, run_id TEXT, session_id TEXT, verb TEXT NOT NULL,
     object TEXT, detail_json TEXT NOT NULL DEFAULT '{}');
+  CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, project_id TEXT,
+    agent_kind TEXT NOT NULL, model TEXT, effort TEXT, permission_mode TEXT NOT NULL DEFAULT 'default',
+    status TEXT NOT NULL, provider_session_id TEXT, title TEXT NOT NULL, last_event_seq INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, terminal_item_id TEXT, environment_id TEXT NOT NULL,
+    seen_seq INTEGER NOT NULL DEFAULT 0, dispatched_by_kind TEXT, dispatched_by_session_id TEXT, fast_mode INTEGER NOT NULL DEFAULT 0,
+    provider_cursor TEXT, rewind_fork_json TEXT, rewind_refusal TEXT);
+  CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
 `;
 
 function writeV45Fixture(dir: string): string {

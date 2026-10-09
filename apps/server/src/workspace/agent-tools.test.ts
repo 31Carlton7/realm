@@ -14,10 +14,12 @@ const ME = "sess-me", PEER = "sess-peer", AWAY = "sess-away";
 
 const item = (id: string, kind: Item["kind"], refId: string, extra: Partial<Item> = {}): Item =>
   ({ id, spaceId: SPACE, kind, title: id, sortOrder: 0, pinned: false, archived: false, refId, createdAt: 1, updatedAt: 1, ...extra });
-const session = (id: string, spaceId: string, updatedAt: number, extra: Partial<Session> = {}): Session => ({
+/** `activityAt` is the third argument and `updatedAt` the same for every row: "most recently active"
+ *  is when the conversation last moved, never the last write to the row. */
+const session = (id: string, spaceId: string, activityAt: number, extra: Partial<Session> = {}): Session => ({
   id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default",
   environmentId: "env1", cwd: "/work", status: "idle", providerSessionId: null, title: `title of ${id}`, lastEventSeq: 0, seenSeq: 0,
-  terminalItemId: null, dispatchedBy: null, createdAt: 1, updatedAt, ...extra,
+  terminalItemId: null, dispatchedBy: null, activityAt, createdAt: 1, updatedAt: 1, ...extra,
 } as Session);
 
 type Opts = {

@@ -28,7 +28,9 @@ CREATE TABLE team_roles (
 CREATE TABLE team_activity (
   id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, actor TEXT NOT NULL, run_id TEXT, session_id TEXT, verb TEXT NOT NULL, object TEXT,
-  detail_json TEXT NOT NULL DEFAULT '{}');
+  detail_json TEXT NOT NULL DEFAULT '{}');-- What the sessions' activity migration (v49) reads on the way to the end of the chain.
+CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
 `;
 
 function v45Home(): string {

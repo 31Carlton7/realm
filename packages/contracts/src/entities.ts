@@ -411,6 +411,14 @@ export const SessionSchema = z.object({
   /** Set when a delegation tool (or W2's dispatch gesture) created this session; null for every
    *  session the user created themselves. Recorded at creation, never rewritten. */
   dispatchedBy: DispatchedBySchema.nullable(),
+  /**
+   * When the conversation last moved: a prompt went out, or the agent answered or finished a turn.
+   * What every list of sessions is ordered by.
+   *
+   * Not `updatedAt`, which moves on every write to the row — a resume's init, a status, a cursor, a
+   * rename — and so moved a row just for being opened. Nothing a reader does moves this one.
+   */
+  activityAt: z.number().int(),
   ...Timestamps,
 });
 export type Session = z.infer<typeof SessionSchema>;
