@@ -16,6 +16,7 @@ import type { MemoryRepoService } from "../memory/repo";
 import type { RpcServer } from "../rpc/server";
 import { NotFoundError, RpcError } from "../store/rows";
 import { applyRecordEdit, type RecordEdit } from "./records";
+import type { TeamExtras } from "./handoffs/service";
 import type { ItemInsert, ReviewRow, RoleRow, TeamStore } from "./store";
 
 type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown): void };
@@ -64,6 +65,8 @@ export class TeamService {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private hashCache = new Map<string, { mtimeMs: number; size: number; hash: string }>();
   private closing = false;
+  /** Phase 4 (handoffs, mentions, goals, the back-off), attached once it is built: it needs this. */
+  private extras: TeamExtras | null = null;
 
   constructor(private readonly d: {
     store: TeamStore;
@@ -85,6 +88,13 @@ export class TeamService {
   }) {}
 
   private now(): number { return this.d.clock ? this.d.clock() : Date.now(); }
+
+  attach(extras: TeamExtras): void { this.extras = extras; }
+
+  /** What a role, or a team, spent since a moment: its runs, and its mentions' sub-agents. */
+  private spent(where: { roleId?: string; spaceId?: string }, since: number): number {
+    return this.d.runs.spentSince(where, since) + (this.extras?.spentSince(where, since) ?? 0);
+  }
   private today(): string { return this.d.today ? this.d.today() : new Date(this.now()).toISOString().slice(0, 10); }
 
   /** Boot: arm the minutes cap of every role run already going (a restart re-queues them anyway). */
@@ -118,7 +128,7 @@ export class TeamService {
       enabled: this.isTeam(spaceId),
       roles,
       reviews,
-      weekSpendUsd: round(this.d.runs.spentSince({ spaceId }, weekStart(this.now()))),
+      weekSpendUsd: round(this.spent({ spaceId }, weekStart(this.now()))),
       weekBudgetUsd: this.teamBudget(spaceId),
       hasRepo: repo !== null,
       repoPath: repo,
@@ -127,6 +137,10 @@ export class TeamService {
       formerRoles: this.d.store.roles(spaceId, true).filter((r) => r.archived).map((r) => ({ id: r.id, name: r.name, realmite: r.realmite })),
       recordCount: repo ? this.recordFiles(repo).length : 0,
       runSessionIds: this.runSessionIds(spaceId),
+      ...(this.extras?.spaceExtras(spaceId) ?? {
+        limits: { teamMaxLive: this.teamMaxLive(spaceId), realmMaxUnattended: this.slots(), teamRunning: 0, realmRunning: 0, teamQueued: 0, backoff: [] },
+        handoffs: [],
+      }),
     };
   }
 
@@ -174,6 +188,7 @@ export class TeamService {
       }, { quiet: true });
     }
     for (const r of custom) this.createRole({ ...r, spaceId }, { quiet: true });
+    this.extras?.seedEdges?.(spaceId, picked.map((t) => t.id));
     if (fresh) this.log(spaceId, "user", "made_team", null, { roles: [...picked.map((t) => t.id), ...custom.map((r) => r.name)] });
     this.changed(spaceId);
     return this.space(spaceId);
@@ -222,7 +237,9 @@ export class TeamService {
     const waitingOnPerson = running?.sessionId ? this.sessionStatus(running.sessionId) === "waiting_permission" : false;
     const latest = runs[0] ?? null;
     const pausedWhy = this.pausedWhy(r);
-    const state: TeamRole["state"] = blocked || waitingOnPerson ? "waiting" : running ? "working" : live.length > 0 ? "queued" : pausedWhy ? "paused" : "idle";
+    const extra = this.extras?.roleExtras(r) ?? { handsOffTo: [], wakeOnMention: true, goal: null, live: null };
+    const state: TeamRole["state"] = blocked || waitingOnPerson || extra.live === "waiting" ? "waiting" : running || extra.live === "working" ? "working"
+      : live.length > 0 ? "queued" : pausedWhy ? "paused" : "idle";
     const unread = latest && isRunTerminal(latest.state) && latest.sessionId ? this.sessionUnread(latest.sessionId) : false;
     return {
       id: r.id, spaceId: r.spaceId, name: r.name, brief: r.brief, realmite: r.realmite, template: r.template,
@@ -232,10 +249,11 @@ export class TeamService {
       archived: r.archived, createdAt: r.createdAt, updatedAt: r.updatedAt,
       state, stateSince: (blocked ?? running ?? live[0])?.startedAt ?? (blocked ?? running ?? live[0])?.createdAt ?? null,
       pausedWhy: state === "paused" ? pausedWhy : null,
-      weekSpendUsd: round(this.d.runs.spentSince({ roleId: r.id }, weekStart(this.now()))),
+      weekSpendUsd: round(this.spent({ roleId: r.id }, weekStart(this.now()))),
       lastRunAt: latest?.createdAt ?? null,
       latestSessionId: latest?.sessionId ?? null,
       unread,
+      handsOffTo: extra.handsOffTo, wakeOnMention: extra.wakeOnMention, goal: extra.goal,
     };
   }
 
@@ -306,7 +324,7 @@ export class TeamService {
 
   /** A role's runs as its page lists them. */
   roleRuns(roleId: string, limit = 30): RoleRun[] {
-    return this.d.runs.listForRole(roleId, limit).map((run) => {
+    const runs = this.d.runs.listForRole(roleId, limit).map((run): RoleRun => {
       const review = this.d.store.reviewForRun(run.id);
       const lines = this.d.store.activityForRun(run.id);
       const capped = lines.find((l) => l.verb === "stopped_at_cap");
@@ -314,12 +332,16 @@ export class TeamService {
       return {
         id: run.id, roleId, state: run.state, wokeOn: (run.wokeOn as WokeOn | null) ?? null,
         wokeNote: typeof woke?.detail.note === "string" ? woke.detail.note : null,
+        wokeBy: typeof woke?.detail.by === "string" ? woke.detail.by : null,
         sessionId: run.sessionId, createdAt: run.createdAt, startedAt: run.startedAt, settledAt: run.settledAt,
         costUsd: run.costUsd, summary: firstLine(run.result), error: run.error,
         stoppedAtCap: capped ? (capped.detail.cap === "time" ? "time" : "usd") : null,
         reviewId: review?.id ?? null, reviewState: review?.state ?? null,
       };
     });
+    // A mention's sub-agent is not a run, but it is work the role did: its rows sit among the runs.
+    const mentions = this.extras?.mentionRuns(roleId) ?? [];
+    return mentions.length ? [...runs, ...mentions].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit) : runs;
   }
 
   /** Run now, or a person's message: a run woken by hand. */
@@ -337,6 +359,8 @@ export class TeamService {
   /** Whether a queued role run may start now. Running runs only: a blocked one holds no execution. */
   admit(run: Run): boolean {
     if (!run.roleId) return true;
+    // An engine that said its account is at its limit takes no unattended run until the reset.
+    if (this.extras?.backoff(run.agentKind)) return false;
     const role = this.d.store.role(run.roleId);
     const running = this.d.runs.listLive().filter((r) => r.state === "running" && r.id !== run.id);
     if (running.filter((r) => r.roleId === run.roleId).length >= (role?.maxConcurrent ?? 1)) return false;
@@ -345,12 +369,12 @@ export class TeamService {
     return true;
   }
 
-  private teamMaxLive(spaceId: string): number {
+  teamMaxLive(spaceId: string): number {
     const v = this.d.settings.get(teamMaxLiveKey(spaceId));
     return typeof v === "number" && v >= 1 ? v : TEAM_DEFAULTS.teamMaxLive;
   }
 
-  private slots(): number {
+  slots(): number {
     const v = this.d.settings.get(SLOTS_KEY);
     return typeof v === "number" && v >= 1 ? v : TEAM_DEFAULTS.realmMaxUnattended;
   }
@@ -358,10 +382,10 @@ export class TeamService {
   /** Why a role's clock may not fire: its week's budget, or its team's, is spent. Null when it may. */
   pausedWhy(role: RoleRow): string | null {
     const since = weekStart(this.now());
-    if (role.weekBudgetUsd !== null && this.d.runs.spentSince({ roleId: role.id }, since) >= role.weekBudgetUsd)
+    if (role.weekBudgetUsd !== null && this.spent({ roleId: role.id }, since) >= role.weekBudgetUsd)
       return `${role.name} has spent its ${usd(role.weekBudgetUsd)} for this week`;
     const team = this.teamBudget(role.spaceId);
-    if (this.d.runs.spentSince({ spaceId: role.spaceId }, since) >= team) return `the team has spent its ${usd(team)} for this week`;
+    if (this.spent({ spaceId: role.spaceId }, since) >= team) return `the team has spent its ${usd(team)} for this week`;
     return null;
   }
 
@@ -485,15 +509,16 @@ export class TeamService {
     return round(usageDeltas(samples, series).filter((x) => x.ts >= since).reduce((s, x) => s + x.costUsd, 0));
   }
 
-  /** Every wake ends here: one run, with the role's narrowing, and a line in the log. */
-  private wake(role: RoleRow, wokeOn: WokeOn, task: string, o: { note?: string | null; sessionId?: string | null; dedupeKey?: string | null } = {}): Run {
+  /** Every wake ends here: one run, with the role's narrowing, and a line in the log. `by` names who
+   *  woke it when that was another role (a handoff). */
+  wake(role: RoleRow, wokeOn: WokeOn, task: string, o: { note?: string | null; by?: string | null; sessionId?: string | null; dedupeKey?: string | null } = {}): Run {
     const { run, created } = this.d.runs.create({
       spaceId: role.spaceId, title: role.name, goal: `${task}\n\nYour brief:\n\n${role.brief}`,
       constraints: this.constraints(role), dedupeKey: o.dedupeKey ?? null, maxAttempts: 1, deadlineAt: null,
       sessionId: o.sessionId ?? null, roleId: role.id, wokeOn,
     });
     if (created) {
-      this.log(role.spaceId, `role:${role.id}`, "woke", role.name, { roleId: role.id, wokeOn, note: o.note ?? null }, run);
+      this.log(role.spaceId, `role:${role.id}`, "woke", role.name, { roleId: role.id, wokeOn, note: o.note ?? null, ...(o.by ? { by: o.by } : {}) }, run);
       if (run.state === "queued" && !this.admit(run)) this.log(role.spaceId, "realm", "queued", role.name, { roleId: role.id }, run);
     }
     this.changed(role.spaceId);
@@ -804,7 +829,7 @@ export class TeamService {
 
   /** A file a role named, as a path relative to the space folder — refused unless it is a file that
    *  exists inside that folder, a symlink out of it included. */
-  private spaceFile(root: string, given: string): string {
+  spaceFile(root: string, given: string): string {
     const abs = isAbsolute(given) ? resolve(given) : resolve(root, given);
     const realRoot = existsSync(root) ? realpathSync(root) : root;
     let real: string;

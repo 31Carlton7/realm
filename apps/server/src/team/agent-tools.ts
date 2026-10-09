@@ -10,6 +10,8 @@ export { TEAM_PROVIDER_NAME };
 export type TeamAgentToolsDeps = {
   team: Pick<TeamService, "isTeam" | "space" | "records" | "readForAgent" | "updateForAgent" | "submit" | "reviewStatus">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
+  /** More tools on this provider (Phase 4's handoff and mention), answering null for a name not theirs. */
+  more?: { tools: Tool[]; call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult | null> };
 };
 
 const RecordListArgs = z.object({ kind: z.literal("creators").optional() }).strict();
@@ -121,7 +123,7 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
     name: TEAM_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!d.mcp.providerEnabled(ctx.spaceId, TEAM_PROVIDER_NAME) || !d.team.isTeam(ctx.spaceId)) return [];
-      return TOOLS;
+      return d.more ? [...TOOLS, ...d.more.tools] : TOOLS;
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!d.mcp.providerEnabled(ctx.spaceId, TEAM_PROVIDER_NAME))
@@ -131,7 +133,11 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
         switch (tool) {
           case "team_roles": {
             const roles = d.team.space(ctx.spaceId).roles;
-            return ok(roles.map((r) => `- ${r.name} — ${r.state}${r.cron ? ` · runs ${r.cron}` : ""}: ${firstLine(r.brief)}`).join("\n") || "No roles.");
+            const name = (id: string) => roles.find((x) => x.id === id)?.name;
+            return ok(roles.map((r) => {
+              const to = r.handsOffTo.map(name).filter(Boolean);
+              return `- ${r.name} — ${r.state}${r.cron ? ` · runs ${r.cron}` : ""}${to.length ? ` · hands off to ${to.join(", ")}` : ""}: ${firstLine(r.brief)}`;
+            }).join("\n") || "No roles.");
           }
           case "record_list": {
             const a = parseArgs(RecordListArgs, args); if ("error" in a) return a.error;
@@ -158,8 +164,11 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
             const rows = d.team.reviewStatus(ctx.spaceId, a.value.id ?? null, ctx.sessionId);
             return ok(rows.length ? rows.map(statusLine).join("\n") : "This session has sent nothing to Review.");
           }
-          default:
-            return err(`unknown tool "${tool}" — this provider has: ${TOOLS.map((t) => t.name).join(", ")}`);
+          default: {
+            const answered = await d.more?.call(ctx, tool, args);
+            if (answered) return answered;
+            return err(`unknown tool "${tool}" — this provider has: ${[...TOOLS, ...(d.more?.tools ?? [])].map((t) => t.name).join(", ")}`);
+          }
         }
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));

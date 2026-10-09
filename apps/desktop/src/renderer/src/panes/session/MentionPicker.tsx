@@ -1,5 +1,5 @@
 import type { Skill } from "@realm/contracts";
-import { Icon } from "@realm/ui";
+import { Icon, Realmite, parseRealmiteSpec } from "@realm/ui";
 import { Fragment, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { RefObject } from "react";
@@ -7,6 +7,7 @@ import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import { fileMark, type MentionRow } from "./mention-sources";
+import { realmiteState } from "../../components/sidebar/TeamRows";
 
 /**
  * The scroller inside a typed-into popover (this one and the `/` list), and what it owes the keyboard.
@@ -78,6 +79,7 @@ function RowMark({ row, appIcons }: { row: MentionRow; appIcons: Readonly<Record
     // A held 16px box while the icon is on its way, so the name beside it never shifts when it lands.
     return <span className="mention-row-mark" data-app="">{src ? <img src={src} alt="" width={16} height={16} draggable={false} /> : src === null ? <Icon name="pointer" size={14} /> : null}</span>;
   }
+  if (row.kind === "role") return <span className="mention-row-mark"><Realmite spec={parseRealmiteSpec(row.role.realmite, row.role.id)} size={16} state={realmiteState(row.role)} /></span>;
   const name = row.kind === "mac" ? "apple" : row.kind === "skill" ? "sparkles" : fileMark(row.path);
   return <span className="mention-row-mark"><Icon name={name} size={row.kind === "mac" ? 14 : 16} /></span>;
 }

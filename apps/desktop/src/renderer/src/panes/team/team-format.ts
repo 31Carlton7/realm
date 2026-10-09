@@ -1,4 +1,4 @@
-import { describeSchedule, type RoleRun, type TeamActivity, type TeamReviewSummary, type TeamRole } from "@realm/contracts";
+import { describeSchedule, type HandoffState, type RoleGoal, type RoleRun, type TeamActivity, type TeamBackoff, type TeamLimits, type TeamReviewSummary, type TeamRole } from "@realm/contracts";
 import { cadenceSentence, clockLabel } from "../schedules/schedule-model";
 
 /**
@@ -157,6 +157,9 @@ export function wokeLine(run: RoleRun): string {
   if (run.wokeOn === "schedule") return "Its schedule";
   if (run.wokeOn === "review") return "You asked for changes";
   if (run.wokeOn === "manual") return run.wokeNote ? "Your message" : "Run now";
+  if (run.wokeOn === "handoff") return run.wokeBy ? `Handoff from ${run.wokeBy}` : "A handoff";
+  if (run.wokeOn === "mention") return run.wokeBy && run.wokeBy !== "You" ? `@mention by ${run.wokeBy}` : "Your @mention";
+  if (run.wokeOn === "goal") return "Your goal";
   return "—";
 }
 
@@ -166,6 +169,8 @@ export function runChip(run: RoleRun): { tone: "ok" | "warn" | "bad" | null; wor
   if (run.state === "queued") return { tone: null, word: "Queued" };
   if (run.state === "blocked") return { tone: "warn", word: "Needs you" };
   if (run.stoppedAtCap) return { tone: "warn", word: run.stoppedAtCap === "usd" ? "Stopped at $ cap" : "Stopped at time cap" };
+  if (run.wokeOn === "goal" && run.state === "cancelled") return { tone: "warn", word: "Goal stopped" };
+  if (run.wokeOn === "goal" && run.state === "succeeded") return { tone: "ok", word: "Goal met" };
   if (run.state === "failed" || run.state === "expired") return { tone: "bad", word: "Failed" };
   if (run.state === "cancelled") return { tone: null, word: "Cancelled" };
   if (run.reviewState === "waiting" || run.reviewState === "changes") return { tone: "warn", word: "In review" };
@@ -209,7 +214,8 @@ export function activitySentence(a: TeamActivity, actorName: string): { text: st
     case "edited_role": return { text: `You changed ${a.object}`, detail: Array.isArray(d.changed) ? (d.changed as string[]).join(", ") : null };
     case "archived_role": return { text: `You removed ${a.object} from the team`, detail: "its runs and what it made stay" };
     case "edited_team": return { text: "You changed the team's week", detail: num("weekBudgetUsd") !== null ? `${money(num("weekBudgetUsd"))} a week` : null };
-    case "woke": return { text: `${actorName} woke`, detail: str("note") ? `“${str("note")}”` : d.wokeOn === "schedule" ? "on its schedule" : d.wokeOn === "review" ? "for your changes" : "when you ran it" };
+    case "woke": return { text: d.wokeOn === "handoff" && str("by") ? `${actorName} woke on ${str("by")}'s handoff` : d.wokeOn === "goal" ? `${actorName} started on its goal` : `${actorName} woke`,
+      detail: str("note") ? `“${str("note")}”` : d.wokeOn === "schedule" ? "on its schedule" : d.wokeOn === "review" ? "for your changes" : "when you ran it" };
     case "queued": return { text: `${a.object} is waiting for a free slot`, detail: null };
     case "finished": return { text: `${actorName} finished`, detail: [str("summary"), num("costUsd") !== null ? money(num("costUsd")) : null].filter(Boolean).join(" · ") || null };
     case "failed": return { text: `${actorName}'s run ended`, detail: str("summary") };
@@ -224,6 +230,58 @@ export function activitySentence(a: TeamActivity, actorName: string): { text: st
     case "read_record": return { text: `${actorName} read ${a.object}'s record`, detail: null };
     case "updated_record": return { text: `${actorName === "You" ? "You" : actorName} updated ${a.object}'s record`, detail: str("line") };
     case "refused": return { text: `${a.object} needs your yes again`, detail: "a file changed after you approved it" };
+    case "handed_off": return { text: `${actorName} handed work to ${a.object}`, detail: [str("note") ? `“${str("note")}”` : null, str("record")].filter(Boolean).join(" · ") || null };
+    case "mentioned": return { text: `${str("by") ?? "A session"} mentioned ${a.object}`, detail: str("note") ? `“${str("note")}”` : null };
+    case "goal_set": return { text: `You gave ${a.object} a goal`, detail: str("objective") ? `“${str("objective")}”` : null };
+    case "goal_stopped": return { text: `${a.object} stopped working toward its goal`, detail: str("why") };
+    case "backed_off": return d.lifted
+      ? { text: `You let ${a.object} runs go again`, detail: null }
+      : { text: `Team runs on ${a.object} wait until ${clockAt(num("until") ?? 0)}`, detail: str("why") };
+    case "edited_limits": return { text: "You changed how many runs go at once", detail: limitsChange(d) };
     default: return { text: `${actorName}: ${a.verb.replace(/_/g, " ")}${a.object ? ` ${a.object}` : ""}`, detail: null };
   }
+}
+
+const clockAt = (ts: number) => new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+function limitsChange(d: Record<string, unknown>): string | null {
+  const parts = [typeof d.teamMaxLive === "number" ? `${d.teamMaxLive} for this team` : null, typeof d.realmMaxUnattended === "number" ? `${d.realmMaxUnattended} across Realm` : null];
+  return parts.filter(Boolean).join(" · ") || null;
+}
+
+/** The plan-limit protection, in one line: "1 of 2 running for this team · 3 at most across Realm · 1 waiting". */
+export function limitsLine(l: TeamLimits): string {
+  return [
+    `${l.teamRunning} of ${l.teamMaxLive} running for this team`,
+    `${l.realmRunning} of ${l.realmMaxUnattended} unattended across Realm`,
+    l.teamQueued > 0 ? `${l.teamQueued} waiting for a slot` : null,
+  ].filter(Boolean).join(" · ");
+}
+
+/** A back-off as the overview's banner says it: whose limit, and until when. */
+export function backoffLine(b: TeamBackoff, now = Date.now()): string {
+  const d = new Date(b.until);
+  const day = d.toDateString() === new Date(now).toDateString() ? "" : `${d.toLocaleDateString(undefined, { weekday: "short" })} `;
+  return `${b.why}. Team runs on it wait until ${day}${clockAt(b.until)}.`;
+}
+
+/** A handoff's or mention's state as its line's chip says it. */
+export function handoffChip(state: HandoffState): { tone: "ok" | "warn" | "bad" | null; word: string } {
+  if (state === "queued") return { tone: null, word: "Waiting for a slot" };
+  if (state === "working") return { tone: null, word: "Working" };
+  if (state === "needs-you") return { tone: "warn", word: "Needs you" };
+  if (state === "done") return { tone: "ok", word: "Done" };
+  if (state === "stopped") return { tone: null, word: "Stopped" };
+  return { tone: "bad", word: "Failed" };
+}
+
+/** A role's goal, in the line under its objective. */
+export function goalLine(g: RoleGoal): { text: string; tone: "ok" | "warn" | null } {
+  const turns = g.turns > 0 ? ` · ${g.turns} turn${g.turns === 1 ? "" : "s"}` : "";
+  if (g.status === "queued") return { text: "Waiting for a free slot", tone: null };
+  if (g.status === "active") return { text: `Working toward it${turns}`, tone: null };
+  // A goal that ended wears its outcome as a chip beside this line, so the line says how it got there.
+  const after = g.turns > 0 ? `After ${g.turns} turn${g.turns === 1 ? "" : "s"}` : "";
+  if (g.status === "budget_limited") return { text: [after, "its budget is spent"].filter(Boolean).join(" · "), tone: "warn" };
+  return { text: [after, g.note].filter(Boolean).join(" · ") || (g.status === "complete" ? "Met" : "Stopped"), tone: g.status === "complete" ? "ok" : "warn" };
 }

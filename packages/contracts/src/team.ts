@@ -3,6 +3,7 @@ import { AgentKindSchema, IdSchema } from "./entities";
 import { parseMemoryEntry } from "./memory";
 import { RunStateSchema } from "./runs";
 import { SkillIdSchema } from "./skills";
+import { RoleGoalSchema, TeamHandoffSchema, TeamLimitsSchema } from "./team-handoffs";
 
 /**
  * Teams (Phase 1): a space with standing roles.
@@ -31,8 +32,9 @@ export const TEAM_DEFAULTS = {
 } as const;
 
 /** What woke a run. `schedule`: its clock. `review`: a person asked for changes. `manual`: Run now, or
- *  a message from the role's page. */
-export const WOKE_ON = ["schedule", "review", "manual"] as const;
+ *  a message from the role's page. `handoff`: another role passed it work. `mention`: a session named
+ *  it (that one is a sub-agent, not a run). `goal`: a person gave it a goal to work toward. */
+export const WOKE_ON = ["schedule", "review", "manual", "handoff", "mention", "goal"] as const;
 export const WokeOnSchema = z.enum(WOKE_ON);
 export type WokeOn = z.infer<typeof WokeOnSchema>;
 
@@ -87,6 +89,12 @@ export const TeamRoleSchema = z.object({
   latestSessionId: z.string().nullable(),
   /** The newest run finished and its session has not been read. */
   unread: z.boolean(),
+  /** The roles it may hand work to, by id (Phase 4). */
+  handsOffTo: z.array(z.string()),
+  /** A mention in a session wakes it as that session's sub-agent. */
+  wakeOnMention: z.boolean(),
+  /** The goal it is working toward, while one is live or was the newest. */
+  goal: RoleGoalSchema.nullable(),
 });
 export type TeamRole = z.infer<typeof TeamRoleSchema>;
 
@@ -122,8 +130,10 @@ export const RoleRunSchema = z.object({
   roleId: z.string(),
   state: RunStateSchema,
   wokeOn: WokeOnSchema.nullable(),
-  /** A person's words, for a run woken by "Request changes" or a message. */
+  /** A person's words, for a run woken by "Request changes" or a message — or the note a handoff carried. */
   wokeNote: z.string().nullable(),
+  /** Who woke it, when it was another role or a session: "Content Producer". */
+  wokeBy: z.string().nullable().optional(),
   sessionId: z.string().nullable(),
   createdAt: z.number().int(),
   startedAt: z.number().int().nullable(),
@@ -398,7 +408,8 @@ export type TeamReviewDetail = z.infer<typeof TeamReviewDetailSchema>;
 /* ────────────────────────────── activity ────────────────────────────── */
 
 export const TEAM_VERBS = ["made_team", "edited_team", "made_role", "edited_role", "archived_role", "woke", "queued", "finished", "failed", "stopped_at_cap",
-  "paused", "submitted", "revised", "approved", "asked_changes", "marked_done", "dismissed", "read_record", "updated_record", "refused"] as const;
+  "paused", "submitted", "revised", "approved", "asked_changes", "marked_done", "dismissed", "read_record", "updated_record", "refused",
+  "handed_off", "mentioned", "goal_set", "goal_stopped", "backed_off", "edited_limits"] as const;
 export type TeamVerb = (typeof TEAM_VERBS)[number];
 
 export const TeamActivitySchema = z.object({
@@ -460,6 +471,10 @@ export const TeamSpaceSchema = z.object({
   /** Sessions role runs made. Work a clock or a role starts is not work the person started, so the
    *  sidebar leaves these to the role's page (design.md, "Work a clock starts"). */
   runSessionIds: z.array(z.string()),
+  /** How many runs may go at once and how many are; any engine back-off in force. */
+  limits: TeamLimitsSchema,
+  /** The newest handoffs and mentions, newest first. */
+  handoffs: z.array(TeamHandoffSchema),
 });
 export type TeamSpace = z.infer<typeof TeamSpaceSchema>;
 

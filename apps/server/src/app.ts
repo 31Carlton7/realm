@@ -145,6 +145,9 @@ import { ExecutionSandboxService } from "./sandbox/service";
 import { machineName } from "./machine-name";
 import { userFirstName } from "./user-name";
 import { TeamService } from "./team/service";
+import { HandoffService } from "./team/handoffs/service";
+import { HandoffStore } from "./team/handoffs/store";
+import { createHandoffTools } from "./team/handoffs/agent-tools";
 import { TeamStore } from "./team/store";
 import { createTeamAgentProvider } from "./team/agent-tools";
 
@@ -961,6 +964,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let schedules: ScheduleService | null = null;
   // Teams: read back through the session-event hook and the run seams below, like `runs`.
   let team: TeamService | null = null;
+  // Teams, Phase 4: handoffs, mentions, role goals and the back-off — read through the same hooks.
+  let handoffs: HandoffService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -1142,13 +1147,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       return s && mcpGateway.realmProvidersFor(sessionId, s.spaceId).includes(GOAL_PROVIDER_NAME) ? goalToolWireName(s.agentKind) : null;
     },
     log: (line) => console.log(line),
+    // A team role's goal run settles when its goal stops, not after its first turn.
+    onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
   const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
     notifications: {
-      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); usage?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); },
+      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); usage?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); handoffs?.handleSessionEvent(session, ev); },
       probeResults: (results) => notifications.probeResults(results),
     },
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
@@ -1341,8 +1348,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // A team role's run waits for a slot, wears its role's preamble, and arms its minutes cap when it
     // starts — all decided by the team service, read through the variable assigned below.
     admit: (run) => team?.admit(run) ?? true,
-    rolePreamble: (run) => team?.rolePreamble(run) ?? null,
-    onChanged: (run) => team?.runChanged(run),
+    rolePreamble: (run) => {
+      const base = team?.rolePreamble(run) ?? null;
+      const more = handoffs?.preamble(run) ?? null;
+      return base && more ? `${base}\n${more}` : base;
+    },
+    onChanged: (run) => { team?.runChanged(run); handoffs?.runChanged(run); },
+    holdSettle: (run) => handoffs?.holdSettle(run) ?? false,
     fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind });
   // Scheduled tasks: the clock in front of the runs above. It owns a timer and they deliberately do
   // not — every fact this one acts on is a column, so a restart replays from the row rather than
@@ -1351,7 +1363,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   schedules = new ScheduleService({
     store: new SchedulesStore(db), runs, rpc,
     spaceExists: (id) => Boolean(spaces.get(id)),
-    refuse: (schedule) => team?.refuseSchedule(schedule) ?? null,
+    refuse: (schedule) => team?.refuseSchedule(schedule) ?? handoffs?.refuseSchedule(schedule) ?? null,
     // The session's sidebar row: an item, archived the way the row's own Archive does it.
     archiveSession: (sessionId, archived) => {
       const item = items.findByRefId(sessionId);
@@ -1367,15 +1379,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp, sessions }));
   /* Teams: roles whose work is the runs above, Review, records in the space's memory repo, and the
      activity log (team/service.ts). `realm-team` is listed only in a space that is a team. */
+  const teamStore = new TeamStore(db);
   team = new TeamService({
-    store: new TeamStore(db), runs, schedules, sessions, repos: memoryRepos,
+    store: teamStore, runs, schedules, sessions, repos: memoryRepos,
     rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
     spaceExists: (id) => Boolean(spaces.get(id)),
     enabledSkills: (id) => skills.list(id).skills.filter((s) => s.enabled && s.valid).map((s) => s.id),
     settings, rpc,
     defaultKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind,
   });
-  mcpGateway.registerProvider(createTeamAgentProvider({ team, mcp }));
+  handoffs = new HandoffService({
+    store: new HandoffStore(db), teamStore, team, runs, goals: { get: (id) => goals.get(id), adopt: (id, o, b) => goals.adopt(id, o, b), set: (id, st, note) => goals.set(id, st, note) },
+    agentRuns, sessions, settings, rpc,
+    rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
+  });
+  team.attach(handoffs);
+  mcpGateway.registerProvider(createTeamAgentProvider({ team, mcp, more: createHandoffTools({ handoffs, teamStore }) }));
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
      has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
      agents, which take no per-session context. A save repaints every open memory row of the profile. */
@@ -1444,7 +1463,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const projectSearch = new ProjectSearchService();
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles,
@@ -1474,6 +1493,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // this first tick, and it must not race the recovery that decides which runs are still alive.
   schedules.start();
   team.start();
+  handoffs.start();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
@@ -1521,6 +1541,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const closeApp = async (): Promise<void> => {
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
     team?.close();
+    handoffs?.close();
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
