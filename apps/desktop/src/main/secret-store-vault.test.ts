@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { PolicyStamp } from "./policy-stamp";
 import { SecretStore, type SecretStoreDeps } from "./secret-store";
 
 /**
@@ -33,7 +34,17 @@ function fakeSafeStorage() {
   };
 }
 
-type Disk = { file: string | null; audit: string[] };
+/** The Mac's Keychain stamp for a looser unlock policy (`policy-stamp.ts`). It rides on the disk, so a
+ *  second store over the same disk differs from the first only in what its test changes. */
+type Disk = { file: string | null; audit: string[]; keychain?: Map<string, number> };
+
+function fakeStamp(disk: Disk): PolicyStamp {
+  const keychain = (disk.keychain ??= new Map());
+  return {
+    read: (scope) => keychain.get(scope) ?? null,
+    bump: (scope) => { const next = (keychain.get(scope) ?? 1_000) + 1; keychain.set(scope, next); return next; },
+  };
+}
 
 function makeStore(opts: { disk?: Disk; machine?: string } = {}) {
   const disk: Disk = opts.disk ?? { file: null, audit: [] };
@@ -49,6 +60,7 @@ function makeStore(opts: { disk?: Disk; machine?: string } = {}) {
     canPromptDeviceOwner: () => true,
     canPromptTouchID: () => true,
     machineId: () => opts.machine ?? MAC,
+    policyStamp: fakeStamp(disk),
     now: () => 5_000,
     newId: () => `id-${++n}`,
     defaultProfileId: () => P,
@@ -116,7 +128,7 @@ describe("team keys", () => {
     const cred = store.addCredential(P, { origin: "https://evil.example", username: "x", label: "", value: PASSWORD });
     const file = JSON.parse(disk.file!) as { keys: { sealed: string }[]; credentials: { sealed: string }[] };
     file.credentials[0]!.sealed = file.keys[0]!.sealed;
-    const reopened = makeStore({ disk: { file: JSON.stringify(file), audit: [] } }).store;
+    const reopened = makeStore({ disk: { file: JSON.stringify(file), audit: [], keychain: disk.keychain } }).store;
     let typed: string | null = null;
     expect(await reopened.withCredentialValue(P, cred.id, async (v) => { typed = v; })).toEqual({ ok: false, refused: "no_credential" });
     expect(typed).toBeNull();
@@ -214,7 +226,7 @@ describe("a grant's use without asking", () => {
     const key = store.addKey(P, TEAM, revenuecat);
     await goUnattended(store);
     await store.setVaultAllow(P, allowArgs(key.id));
-    const elsewhere = makeStore({ disk: { file: disk.file, audit: [] }, machine: "99999999-0000-0000-0000-000000000000" }).store;
+    const elsewhere = makeStore({ disk: { file: disk.file, audit: [], keychain: disk.keychain }, machine: "99999999-0000-0000-0000-000000000000" }).store;
     expect(elsewhere.vaultAllowed(P, query(key.id))).toBe(false);
     expect(elsewhere.vaultAllows(P, TEAM)).toEqual([]);
   });
@@ -226,10 +238,10 @@ describe("a grant's use without asking", () => {
     const file = JSON.parse(disk.file!) as { allow: Record<string, string>; unlock: Record<string, string>; keys: { sealed: string }[] };
     // The profile's own sealed unlock policy, and the key's own sealed value, dressed up as allows.
     file.allow[`${key.id}|${ROLE}`] = Object.values(file.unlock)[0]!;
-    const forged = makeStore({ disk: { file: JSON.stringify(file), audit: [] } }).store;
+    const forged = makeStore({ disk: { file: JSON.stringify(file), audit: [], keychain: disk.keychain } }).store;
     expect(forged.vaultAllowed(P, query(key.id))).toBe(false);
     file.allow[`${key.id}|${ROLE}`] = file.keys[0]!.sealed;
-    expect(makeStore({ disk: { file: JSON.stringify(file), audit: [] } }).store.vaultAllowed(P, query(key.id))).toBe(false);
+    expect(makeStore({ disk: { file: JSON.stringify(file), audit: [], keychain: disk.keychain } }).store.vaultAllowed(P, query(key.id))).toBe(false);
   });
 });
 
@@ -244,7 +256,7 @@ describe("a keyring from before the vault", () => {
     delete ring["vault-key"]; delete ring["vault-allow"];
     file.keyring = Buffer.from(`kc:${JSON.stringify(ring)}`).toString("base64");
     delete file.keys; delete file.allow;
-    const later = makeStore({ disk: { file: JSON.stringify(file), audit: [] } }).store;
+    const later = makeStore({ disk: { file: JSON.stringify(file), audit: [], keychain: disk.keychain } }).store;
     let typed: string | null = null;
     expect(await later.withCredentialValue(P, cred.id, async (v) => { typed = v; })).toEqual({ ok: true });
     expect(typed).toBe(PASSWORD);
