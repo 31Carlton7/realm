@@ -910,11 +910,22 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor(".composer-hint-text").join(" ")).toContain("text-overflow: ellipsis");
   });
 
-  it("the control row's left group clips instead of wrapping — the measured collapse depends on it", () => {
+  it("the control row's left group never yields — the permission mode stays on the row at any width", () => {
     const body = bodiesFor(".composer-opts").join(" ");
     expect(body).toContain("flex-wrap: nowrap");
-    expect(body).toContain("overflow: hidden");
+    // THE mutant: the group shrinking and clipping again, which is how "Full access" vanished from
+    // narrow panes (it folded into the model menu when the clip was measured).
+    expect(body).toContain("flex: none");
+    expect(body).not.toContain("overflow: hidden");
     expect(bodiesFor(".composer-opts > *").join(" ")).toContain("flex: none");
+    // What gives instead is the model chip, whose name ellipsizes beside its harness's mark.
+    expect(bodiesFor(".composer-actions").join(" ")).toContain("min-width: 0");
+    expect(bodiesFor(".composer-actions > .model-chip").join(" ")).toContain("flex: 0 1 auto");
+    // Narrow, the mode trades its long word for its short one; nothing anywhere hides the chip itself.
+    expect(blockAfter("@container (max-width: 420px)")).toMatch(/\.perm-long \{[^}]*display: none/);
+    expect(blockAfter("@container (max-width: 420px)")).toMatch(/\.perm-short \{[^}]*display: inline/);
+    const hidesChip = RULES.filter((r) => /display: none/.test(r.body) && r.selectors.some((sel) => sel.includes("composer-opts") && !sel.includes("perm-long")));
+    expect(hidesChip).toEqual([]);
   });
 
   it("the branch name is capped by the pane it is in, never by a flat number", () => {

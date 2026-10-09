@@ -5325,11 +5325,16 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    the context chips and the effort/permission chips on the LEFT; plain-text model chip and the
    circular send on the RIGHT. */
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 12px 8px; }
-/* The left group never wraps (§3): it clips, and Composer.tsx measures scrollWidth > clientWidth to
-   collapse the permission chip into the model menu instead. Children must not shrink, or ellipsizing
-   chips would eat the overflow the measurement is looking for. */
-.composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+/* The left group never wraps and never yields: it is the "+" and the permission mode, and the mode is
+   the one chip on the row that says how much the session may do unasked — it used to fold into the
+   model menu when the row ran short, which hid "Full access" in exactly the narrow panes where a
+   reader has the least else to go on. So the row yields in a stated order instead (design.md: a row
+   whose items compete for width): the model chip's level and bolt first (both are in its tooltip),
+   then the mode's long word for its short one, and last the model's name ellipsizes — the harness's
+   mark stays beside it. The mode's glyph and word are never what gives. */
+.composer-opts { display: flex; align-items: center; gap: 4px; flex: none; flex-wrap: nowrap; }
 .composer-opts > * { flex: none; }
+.perm-short { display: none; }
 /* The branch group (§3): still one button, still the way into the diff pane.
    `--branch-reserved` is everything of FIXED width the row has to fit before the branch name gets
    any: the card's margins and padding, the "+" and mode chips, the model chip and the send button,
@@ -5406,7 +5411,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 @container (max-width: 360px) {
   .composer-git .git-branch .chip-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
-.composer-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+/* The right group is what gives, and inside it only the model chip: the send button never shrinks. */
+.composer-actions { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
+.composer-actions > .model-chip { flex: 0 1 auto; }
+.composer-actions > :not(.model-chip) { flex: none; }
+@container (max-width: 480px) { .composer-actions .model-chip :is(.chip-effort, .chip-fast) { display: none; } }
+@container (max-width: 420px) { .composer-opts .perm-long { display: none; } .composer-opts .perm-short { display: inline; } }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
 /* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).
