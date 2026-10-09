@@ -942,4 +942,34 @@ export const migrations: string[] = [
     PRIMARY KEY (secret_id, role_id));
   CREATE INDEX IF NOT EXISTS vault_grants_space ON vault_grants(space_id, role_id);
   `,
+  // v50 — act tickets (Teams Phase 3: approve → act). Numbered for the integration line, where v47–v49
+  // (handoffs, lab, activity_at) come first: at merge this goes LAST, whatever its index, and its test
+  // finds it by its text. An approved item's outward act — a post, an email, a DM — is one ticket: one
+  // account, one consequence, bound to the hash of the bytes that were approved, and given the next
+  // paced slot. `pressed_at` is the person's one click on its sheet; nothing else moves a ticket to
+  // `scheduled`. `proof_url` and `screenshot` are what it left behind (or, after a failure, the
+  // screenshot of what went wrong, with `error`). One live-or-done ticket per item: an item goes out
+  // once. `review_id` and `item_id` are plain strings, as `runs.role_id` is: reviews go only with their
+  // space, and the space's cascade takes the tickets. `team_act_holds` is the team's kill switch — a
+  // row while every act of the team is held.
+  // Nothing to backfill: no item was ever acted on by Realm before this.
+  `
+  CREATE TABLE IF NOT EXISTS team_act_tickets (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    review_id TEXT NOT NULL, item_id TEXT NOT NULL,
+    kind TEXT NOT NULL, channel TEXT NOT NULL, account TEXT NOT NULL, recipient TEXT,
+    content_hash TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'ready',
+    slot_at INTEGER NOT NULL, slot_why TEXT NOT NULL DEFAULT 'next',
+    pressed_at INTEGER, disclosure TEXT, acted_at INTEGER,
+    proof_url TEXT, screenshot TEXT, error TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE UNIQUE INDEX IF NOT EXISTS team_act_tickets_item ON team_act_tickets(item_id) WHERE state <> 'cancelled';
+  CREATE INDEX IF NOT EXISTS team_act_tickets_review ON team_act_tickets(review_id, state);
+  CREATE INDEX IF NOT EXISTS team_act_tickets_account ON team_act_tickets(kind, channel, account, slot_at);
+  CREATE INDEX IF NOT EXISTS team_act_tickets_space ON team_act_tickets(space_id, kind, slot_at);
+  CREATE TABLE IF NOT EXISTS team_act_holds (
+    space_id TEXT PRIMARY KEY REFERENCES spaces(id) ON DELETE CASCADE,
+    held_at INTEGER NOT NULL);
+  `,
 ];

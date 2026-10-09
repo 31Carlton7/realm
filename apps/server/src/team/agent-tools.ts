@@ -173,7 +173,9 @@ const STATE_WORDS: Record<string, string> = {
 };
 
 function statusLine(r: TeamReviewSummary): string {
-  return `- ${r.id} "${r.title}" — ${STATE_WORDS[r.state] ?? r.state}${r.version > 1 ? ` (version ${r.version})` : ""}${r.note ? `: ${r.note}` : ""}`;
+  // What went out is the person's doing, press by press; the role only reads where it stands.
+  const acts = r.actsTotal > 0 ? ` · ${r.actsDone} of ${r.actsTotal} sent by the person` : "";
+  return `- ${r.id} "${r.title}" — ${STATE_WORDS[r.state] ?? r.state}${acts}${r.version > 1 ? ` (version ${r.version})` : ""}${r.note ? `: ${r.note}` : ""}`;
 }
 
 const firstLine = (s: string): string => s.trim().split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? "";

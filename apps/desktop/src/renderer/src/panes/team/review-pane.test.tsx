@@ -21,7 +21,7 @@ const detail = (id: string, title: string, over: Partial<TeamReviewDetail> = {})
   previous: [], costUsd: 0.84, durationMs: 360_000, runCapUsd: 3, model: "sonnet", recordName: "Nathan Beyenhof",
   checks: [{ ok: true, title: "Posts as @versed.nathan on TikTok", detail: "managed with consent (contract §4)" }, { ok: null, title: "Realm does not post yet", detail: "Post it by hand." }],
   ledger: [{ ts: 1, glyph: "note", text: "Read Nathan Beyenhof", detail: "creators/nathan.md" }, { ts: 2, glyph: "inbox", text: "Sent 2 items to Review", detail: "Content Producer, sonnet, $0.84 of its $3 run cap" }],
-  root: "/spaces/versed", ...over,
+  root: "/spaces/versed", tickets: [], ...over,
 });
 
 async function mount(firstOver: Partial<TeamReviewDetail> = {}) {

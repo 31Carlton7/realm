@@ -101,13 +101,13 @@ export const teamRole = (id: string, spaceId: string, name: string, extra: Parti
 /** A review waiting on a person. */
 export const teamReview = (id: string, spaceId: string, title: string, extra: Partial<TeamReviewSummary> = {}): TeamReviewSummary => ({
   id, spaceId, roleId: null, roleName: null, runId: null, sessionId: null, recordPath: null, kind: "slideshows", title, state: "waiting",
-  note: null, version: 1, itemCount: 1, thumb: null, channels: [], account: null, changedSinceApproval: false, createdAt: 0, decidedAt: null, updatedAt: 0, ...extra,
+  note: null, version: 1, itemCount: 1, thumb: null, channels: [], account: null, changedSinceApproval: false, actsTotal: 0, actsDone: 0, createdAt: 0, decidedAt: null, updatedAt: 0, ...extra,
 });
 
 /** A team space: its roles and reviews. */
 export const teamSpace = (spaceId: string, roles: TeamRole[], reviews: TeamReviewSummary[] = [], extra: Partial<TeamSpace> = {}): TeamSpace => ({
   spaceId, enabled: true, roles, reviews, weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [],
-  repoPath: "/realm/memory/repos/space", repoMoved: false, sharesUsd: roles.reduce((n, r) => n + (r.weekBudgetUsd ?? 0), 0), formerRoles: [], ...extra,
+  repoPath: "/realm/memory/repos/space", repoMoved: false, sharesUsd: roles.reduce((n, r) => n + (r.weekBudgetUsd ?? 0), 0), formerRoles: [], actsHeld: false, ...extra,
 });
 
 /** A durable run. Defaults to a queued run with no attempts yet. */

@@ -151,11 +151,15 @@ import { VaultService } from "./team/vault/service";
 import { VaultStore } from "./team/vault/store";
 import { createVaultAgentProvider } from "./team/vault/agent-tools";
 import { registerVaultMethods } from "./team/vault/rpc";
+import { ActService, type TicketPress } from "./team/acts/service";
+import { ActStore } from "./team/acts/store";
+import { FakeActAdapter, NotConnectedAdapter, type ActAdapter } from "./team/acts/adapters";
+import { registerActMethods } from "./team/acts/rpc";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -661,6 +665,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Where a memory repo goes when Realm's home is inside a space's folder. Unset, it is the app's
    *  Application Support folder under `userHome` — and nowhere at all when no `userHome` is named. */
   memoryFallbackRoot?: string;
+  /** Teams Phase 3 test knobs: the platform every channel acts on, and main's answer about a press.
+   *  Production passes neither — the platform is the fake only under REALM_FAKE_ACT_ADAPTER=1 (live
+   *  checks), not connected otherwise, and a press is asked of Electron main over the bridge. */
+  acts?: { adapter?: ActAdapter; presses?: { consume(ticketId: string, contentHash: string): Promise<TicketPress> } };
   /** The RPC token every client must offer as its `realm.<token>` subprotocol. Undefined leaves the
    *  socket open to anything on loopback, which is what the suite's several hundred `createApp` calls
    *  want — production mints one in `main.ts` and writes it to the 0600 state file. */
@@ -965,6 +973,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let schedules: ScheduleService | null = null;
   // Teams: read back through the session-event hook and the run seams below, like `runs`.
   let team: TeamService | null = null;
+  let acts: ActService | null = null;
   /* The team vault (team/vault/service.ts): made beside the team below, and read lazily by the browser
      tools — a role's sign-in fill passes its grant check — which are registered before either exists. */
   let vault: VaultService | null = null;
@@ -1383,8 +1392,27 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp, sessions }));
   /* Teams: roles whose work is the runs above, Review, records in the space's memory repo, and the
      activity log (team/service.ts). `realm-team` is listed only in a space that is a team. */
+  /* Approve → act (team/acts): a yes issues one paced ticket per outward act, and each acts only on
+     the person's press on its sheet, which main holds and the bridge asks about. The platform is
+     never real in a check: REALM_FAKE_ACT_ADAPTER=1 posts nowhere and logs each act to the home. */
+  const actAdapter: ActAdapter = opts.acts?.adapter
+    ?? (process.env.REALM_FAKE_ACT_ADAPTER === "1" ? new FakeActAdapter(join(opts.home, "fake-acts.jsonl")) : new NotConnectedAdapter());
+  acts = new ActService({
+    store: new ActStore(db), team: new TeamStore(db),
+    rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
+    record: (spaceId, path) => team?.recordFor(spaceId, path) ?? null,
+    presses: opts.acts?.presses ?? {
+      consume: async (ticketId, contentHash) => {
+        if (!browserBridge.connected) return { pressed: false, label: false, slotAt: null };
+        return (await browserBridge.call("teamTicketPress", { ticketId, contentHash })) as TicketPress;
+      },
+    },
+    adapter: () => actAdapter,
+    proofDir: join(opts.home, "team-proof"),
+    rpc,
+  });
   team = new TeamService({
-    store: new TeamStore(db), runs, schedules, sessions, repos: memoryRepos,
+    store: new TeamStore(db), runs, schedules, sessions, repos: memoryRepos, acts: acts,
     rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
     spaceExists: (id) => Boolean(spaces.get(id)),
     enabledSkills: (id) => skills.list(id).skills.filter((s) => s.enabled && s.valid).map((s) => s.id),
@@ -1493,6 +1521,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
   });
   registerVaultMethods(rpc, vault, (id) => Boolean(spaces.get(id)));
+  registerActMethods(rpc, acts!, (id) => Boolean(spaces.get(id)));
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
@@ -1501,6 +1530,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // this first tick, and it must not race the recovery that decides which runs are still alive.
   schedules.start();
   team.start();
+  acts!.start();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
@@ -1548,6 +1578,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const closeApp = async (): Promise<void> => {
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
     team?.close();
+    acts?.close();
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
@@ -1578,7 +1609,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
 
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, team, codeReview, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, team, acts: acts!, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }

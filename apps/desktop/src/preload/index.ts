@@ -308,6 +308,14 @@ contextBridge.exposeInMainWorld("realm", {
    * only way a grant is let through without asking, and main asks macOS to confirm the user first;
    * `clearAllow` puts the question back and is never confirmed.
    */
+  /**
+   * A team's post sheet (`main/ticket-presses.ts`): the person's one click on "Post at …", recorded in
+   * main for realm-server to ask about. Returns whether main took it.
+   */
+  team: {
+    pressTicket: (input: { ticketId: string; contentHash: string; slotAt: number; label: boolean }): Promise<boolean> =>
+      ipcRenderer.invoke("team:press-ticket", input),
+  },
   vault: {
     list: (profileId: string, spaceId: string): Promise<{ available: boolean; secrets: VaultSecrets; allows: VaultAllow[]; profileUnattended: boolean }> =>
       ipcRenderer.invoke("vault:list", profileId, spaceId),

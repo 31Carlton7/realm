@@ -45,6 +45,7 @@ import { asarReplaced, readAsarStamp } from "./bundle-swap";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { VaultHost } from "./vault-host";
 import { registerVaultIpc } from "./vault-ipc";
+import { TicketPresses } from "./ticket-presses";
 import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-owner";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
@@ -1029,6 +1030,16 @@ registerVaultIpc({
 });
 const vaultHost = new VaultHost({ store: secrets, fetch: (input, init) => fetch(input, init), now: () => Date.now() });
 
+/** A team's post sheet: the one click that lets an act ticket go out (`ticket-presses.ts`). Taken only
+ *  from the top frame of one of Realm's own windows — not a browser pane, not a frame inside the app —
+ *  and realm-server asks for it over the bridge (`teamTicketPress`). There is no other way to make one. */
+const ticketPresses = new TicketPresses();
+ipcMain.handle("team:press-ticket", (e, input: unknown): boolean => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.webContents !== e.sender || e.senderFrame !== e.sender.mainFrame) return false;
+  return ticketPresses.press(input);
+});
+
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0] ?? null;
@@ -1801,6 +1812,11 @@ app.whenReady().then(async () => {
         if (op === "eggsKey") return Promise.resolve({ key: secrets()?.exportEggsKey() ?? null });
         // The team vault's ops need no window either: a key's request is made from main, not a pane.
         if (op.startsWith("vault")) return vaultHost.handleOp(op, params);
+        // A ticket's press: read and spent, never made, from this side.
+        if (op === "teamTicketPress") {
+          const p = params as { ticketId?: unknown; contentHash?: unknown };
+          return Promise.resolve(ticketPresses.consume(p.ticketId, p.contentHash));
+        }
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);
