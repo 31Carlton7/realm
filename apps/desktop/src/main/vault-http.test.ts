@@ -132,6 +132,15 @@ describe("performVaultHttp — the request", () => {
 });
 
 describe("scrubSecret", () => {
+  it("catches each base64 spelling of a value whose alphabets differ — padded, bare, URL-safe", () => {
+    // A value whose base64 holds + and padding, so the three spellings are three different strings.
+    const v = "sk_live_7f3a9c2e1b8d4f6~?";
+    const b64 = Buffer.from(v).toString("base64");
+    for (const form of [b64, b64.replace(/=+$/, ""), Buffer.from(v).toString("base64url")]) {
+      expect(scrubSecret(`<${form}>`, v)).toBe("<[redacted]>");
+    }
+  });
+
   it("replaces the longest form whole before a shorter one inside it", () => {
     expect(scrubSecret(`a ${Buffer.from(VALUE).toString("hex")} b`, VALUE)).toBe("a [redacted] b");
   });
