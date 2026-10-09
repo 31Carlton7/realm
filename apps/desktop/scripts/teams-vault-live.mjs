@@ -192,6 +192,16 @@ async function boot() {
   // person typing their login password, answering yes and leaving a line saying it was asked.
   fs.mkdirSync(path.join(scratch, "native/bin"), { recursive: true });
   fs.writeFileSync(path.join(scratch, "native/bin/deviceowner"), `#!/bin/bash\n[ "$1" = "can" ] && { echo yes; exit 0; }\necho "$2" >> ${JSON.stringify(ownerLog)}\nexit 0\n`, { mode: 0o755 });
+  // And `policy-stamp.ts` finds this one: the unlock policy's stamp, kept in a scratch file rather than
+  // the login Keychain. Without a stamp no looser policy can be set, so V4's "without asking" needs it.
+  const stamps = path.join(scratch, "policy-stamps");
+  fs.writeFileSync(path.join(scratch, "native/bin/policystamp"), `#!/bin/bash
+f=${JSON.stringify(stamps)}/$(printf %s "$2|$3" | shasum | cut -c1-40)
+mkdir -p ${JSON.stringify(stamps)}
+if [ "$1" = "read" ]; then [ -f "$f" ] || exit 3; cat "$f"; exit 0; fi
+if [ "$1" = "bump" ]; then n=$(( $(cat "$f" 2>/dev/null || echo 0) + 1 )); echo $n > "$f"; echo $n; exit 0; fi
+exit 2
+`, { mode: 0o755 });
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.commandLine.appendSwitch("use-mock-keychain");', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
   const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
