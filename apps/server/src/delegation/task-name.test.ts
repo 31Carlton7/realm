@@ -22,6 +22,17 @@ describe("taskName", () => {
     expect(long.endsWith("…")).toBe(true);
   });
 
+  it("clips at a word, never inside one", () => {
+    // THE mutant: the fixed-width cut, which named a sub-agent "Survey every theme hook across the rend…".
+    expect(taskName("Survey every theme hook across the renderer and list what reads the mode")).toBe("Survey every theme hook across the…");
+    // A line that ends a word exactly at the limit keeps that word.
+    expect(taskName("Check the twelve panes that draw a card and fix them")).toBe("Check the twelve panes that draw a card…");
+    // One long word (a path) has no word to stop at and is cut where it must be.
+    const path = taskName("/Users/someone/Desktop/Projects/realm/apps/desktop/src/renderer");
+    expect(path.length).toBe(40);
+    expect(path.endsWith("…")).toBe(true);
+  });
+
   it("falls back to the first line when every sentence is boilerplate", () => {
     // THE MUTANT: returning "" — a child with no title at all.
     expect(taskName("You are a careful reviewer.")).toBe("You are a careful reviewer.");

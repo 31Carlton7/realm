@@ -5,7 +5,8 @@ import { sessionEvent } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { ProfilesStore } from "./profiles";
 import { SpacesStore } from "./spaces";
-import { SessionsStore, SessionEventsStore, REPLY_LINE_MAX, replyLine } from "./sessions";
+import { SessionsStore, SessionEventsStore, REPLY_LINE_MAX, READ_MARKS_CAUGHT_UP, replyLine } from "./sessions";
+import { SettingsStore } from "./settings";
 import { EnvironmentsStore } from "./environments";
 import { NotFoundError } from "./rows";
 
@@ -152,5 +153,28 @@ describe("where each session left off", () => {
     const long = replyLine("word ".repeat(80))!;
     expect(long.length).toBe(REPLY_LINE_MAX);
     expect(long.endsWith("…")).toBe(true);
+  });
+});
+
+describe("the one-time read-mark catch-up", () => {
+  it("catches an opened session up to its last event, leaves a never-opened one at 0, and runs once per home", () => {
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const settings = new SettingsStore(db);
+    const behind = s.create(input(space.id, env.id));
+    const never = s.create(input(space.id, env.id));
+    const read = s.create(input(space.id, env.id));
+    s.update({ id: behind.id, lastEventSeq: 90 }); s.markSeen(behind.id, 40);
+    s.update({ id: never.id, lastEventSeq: 30 });
+    s.update({ id: read.id, lastEventSeq: 50 }); s.markSeen(read.id, 50);
+    // THE mutant: no catch-up — the first launch of the build that draws the dot opens onto every
+    // opened session that had been written past its stamp.
+    expect(s.catchUpReadMarksOnce(settings)).toBe(1);
+    expect(s.get(behind.id)?.seenSeq).toBe(90);
+    expect(s.get(never.id)?.seenSeq).toBe(0);
+    expect(s.get(read.id)?.seenSeq).toBe(50);
+    expect(settings.get(READ_MARKS_CAUGHT_UP)).toBe(true);
+    // Once: a session written past its mark after the upgrade is unread, as it should be.
+    s.update({ id: behind.id, lastEventSeq: 120 });
+    expect(s.catchUpReadMarksOnce(settings)).toBe(0);
+    expect(s.get(behind.id)?.seenSeq).toBe(90);
   });
 });

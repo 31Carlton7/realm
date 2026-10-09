@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { createContext, memo, useContext, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { SessionStatus } from "@realm/contracts";
 import { Spinner } from "../../components/Spinner";
 import { useDissolve } from "../../components/ScrollFades";
@@ -328,6 +328,37 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
 /** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still
  *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's
  *  first→last span — the same duration the counts line has always computed. */
+/**
+ * Draw the run's work only as wide as the parts that fit on its one line. The parts that do not fit
+ * wrap onto a line the box never shows (styles.css), but a wrapped box keeps the width it shrank to,
+ * so the reserved "1 failed" stood a gap away from the last count it followed. Measured against the
+ * group, whose width the head cannot change, so the measure never feeds itself.
+ */
+function useWorkFit(key: string) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const work = ref.current;
+    const group = work?.closest(".tool-group");
+    if (!work || !group) return;
+    const fit = () => {
+      work.style.maxWidth = "";
+      if (work.getBoundingClientRect().width === 0) return; // not laid out (a folded or hidden pane)
+      const parts = [...work.children];
+      const first = parts[0]?.getBoundingClientRect();
+      if (!first) return;
+      const shown = parts.filter((p) => Math.abs(p.getBoundingClientRect().top - first.top) < 2);
+      const right = shown[shown.length - 1]!.getBoundingClientRect().right;
+      work.style.maxWidth = `${Math.ceil(right - work.getBoundingClientRect().left)}px`;
+    };
+    fit();
+    if (typeof ResizeObserver === "undefined") return; // jsdom
+    const ro = new ResizeObserver(fit);
+    ro.observe(group);
+    return () => ro.disconnect();
+  }, [key]);
+  return ref;
+}
+
 function useWorkedFor(working: boolean, firstTs: number, settledMs: number): string {
   const elapsed = useElapsed(firstTs, working);
   return formatDuration(working ? elapsed : settledMs);
@@ -366,13 +397,14 @@ export function ToolGroup({ steps, sessionStatus, subagent = false, endsTurn = f
   // The run's first call really is its earliest: blocks arrive in order, and a sub-agent's calls
   // postdate the one that spawned them. Only the END of the span needs looking for (summarizeToolRun).
   const workedFor = useWorkedFor(working, blocks[0]!.ts, summary.durationMs);
+  const workRef = useWorkFit(working && summary.liveStep ? summary.liveStep : formatToolRun(summary));
   return (
     <div className="tool-group" data-subagent={subagent || undefined} data-open={open || undefined} data-working={working || undefined}>
       <button className="tool-group-row" aria-expanded={open} aria-label={`${blocks.length} ${subagent ? "sub-agent " : ""}tool calls`}
         title={formatToolRun(summary)} onClick={() => setManual(!open)}>
         <span className="tool-group-summary">{subagent ? "Sub-agent worked for" : "Worked for"} {workedFor}</span>
         {/* Parts in reading order, yielding from the right as the pane narrows. */}
-        <span className="tool-group-work">
+        <span className="tool-group-work" ref={workRef}>
           {(working && summary.liveStep ? [summary.liveStep] : [
             work.reads,
             work.edits && <>{work.edits}

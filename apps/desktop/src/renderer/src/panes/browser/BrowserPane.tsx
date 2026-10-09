@@ -40,7 +40,7 @@ const tickTime = (ts: number): string =>
  * blocked, say so, and offer one button whose press is consent a page could not have forged (a page
  * lives in its own `WebContentsView` and cannot reach this renderer).
  */
-function useBlockedDownloads(browserId: string, spaceId: string) {
+function useBlockedDownloads(browserId: string, spaceId: string, onSaved: (text: string) => void) {
   const [blocked, setBlocked] = useState<BlockedDownload[]>([]);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -80,7 +80,10 @@ function useBlockedDownloads(browserId: string, spaceId: string) {
       }
       const result = await host.saveDownload(browserId, entry.id, dir);
       drop(entry.id);
-      setNote(result.ok ? `Saved ${result.name} to downloads/` : result.error);
+      // A save that went through is news of something done, so it is a toast that leaves on its own
+      // (design.md); the strip is for what still waits on a press — a blocked file, a save to retry.
+      if (result.ok) onSaved(`Saved ${result.name} to downloads/`);
+      else setNote(result.error);
     } finally {
       setBusy(false);
     }
@@ -455,9 +458,9 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const showsPage = hasUrl && ready && loadError === null;
   const recent = useRecentVisits(item.spaceId, blank && visible);
   const { actions, driving } = useAgentWatch(store, browserId);
-  const downloads = useBlockedDownloads(browserId, item.spaceId);
-  const passkey = usePasskeyNotice(browserId);
   const toast = useToast(store);
+  const downloads = useBlockedDownloads(browserId, item.spaceId, (text) => toast.say(text, "check"));
+  const passkey = usePasskeyNotice(browserId);
   const picker = useElementPicker(browserId, store, toast.say);
   const annotate = useAnnotate(browserId, item.spaceId, store, toast.say);
   const find = useFindInPage(browserId, url);

@@ -2,7 +2,8 @@
 // Skips quietly on non-mac or when swiftc is unavailable; each helper is optional and the app
 // degrades without it (ScrollPhase → timer heuristics, AxHelper → no computer-use tools,
 // PhoneScreen → a real iPhone's picture is the runner's screenshots, about one a second,
-// DeviceOwner → sign-ins unlock with Touch ID only).
+// DeviceOwner → sign-ins unlock with Touch ID only, PolicyStamp → sign-ins stay on Touch ID: a
+// looser unlock policy is only honoured beside the Keychain stamp this helper keeps).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -17,6 +18,7 @@ const HELPERS = [
   ["AxHelper.swift", "axhelper"],
   ["PhoneScreen.swift", "phonescreen"],
   ["DeviceOwner.swift", "deviceowner"],
+  ["PolicyStamp.swift", "policystamp"],
 ];
 
 if (process.platform !== "darwin") process.exit(0);

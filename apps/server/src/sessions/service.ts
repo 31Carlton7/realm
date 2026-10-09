@@ -60,11 +60,17 @@ export const MEDIA_BACKFILL_KEY = "artifacts.mediaBackfill";
  *  likely still where the turn left them and their mtimes still the turn's. */
 export const MEDIA_BACKFILL_DAYS = 14;
 export const TITLE_MAX = 40;
-/** First line of the message, whitespace-collapsed, clipped to TITLE_MAX. */
+/** First line of the message, whitespace-collapsed, clipped to TITLE_MAX at a word: "Survey every
+ *  theme hook across the rend…" is a word nobody wrote. A line with no space in its back half (a
+ *  path, a URL) is cut where it has to be. */
 export function titleFromMessage(text: string): string {
   const line = text.trim().split("\n").find((l) => l.trim()) ?? "";
   const one = line.replace(/\s+/g, " ").trim();
-  return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1).trimEnd()}…` : one;
+  if (one.length <= TITLE_MAX) return one;
+  const room = one.slice(0, TITLE_MAX - 1);
+  const space = one[TITLE_MAX - 1] === " " ? room.length : room.lastIndexOf(" ");
+  const cut = space >= TITLE_MAX / 2 ? room.slice(0, space) : room;
+  return `${cut.replace(/[\s,;:.–—-]+$/, "")}…`;
 }
 
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string | null; title?: string;

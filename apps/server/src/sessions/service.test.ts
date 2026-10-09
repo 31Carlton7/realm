@@ -128,7 +128,7 @@ describe("SessionService over rpc", () => {
     const { session, itemId } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
     await c.call("sessions.send", { id: session.id, text: long });
     const title = titleFromMessage(long);
-    expect(title).toBe("Please refactor the authentication modu…"); // first line only, spaces collapsed, ≤ TITLE_MAX
+    expect(title).toBe("Please refactor the authentication…"); // first line only, spaces collapsed, ≤ TITLE_MAX, at a word
     expect(title.length).toBeLessThanOrEqual(TITLE_MAX);
     expect((await c.call("sessions.get", { id: session.id })).result.title).toBe(title);
     expect((await c.call("items.list", { spaceId: sp.id })).result.find((i: Any) => i.id === itemId).title).toBe(title);

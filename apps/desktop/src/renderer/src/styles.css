@@ -4259,8 +4259,16 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-group-row { display: flex; align-items: center; gap: 4px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tool-group-summary { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.tool-group-work { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+/* The work yields a PART at a time, from the right, never a character: an ellipsis on the whole run
+   cut "+7 −3" to "+7 -…" beside a "1 failed" that kept its width, and a count cut mid-number is a
+   different count. Each part is one unit on a single line the height of one line; a part that does
+   not fit wraps onto a second line the box does not show, and the title still says the whole run.
+   Only the FIRST part may ellipsize — it is all the row has to say when even it does not fit, as is
+   the call in flight while the run works. */
+.tool-group-work { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; height: 18px; line-height: 18px; overflow: hidden;
   font-weight: var(--fw-label); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-group-work > span { flex: none; white-space: pre; }
+.tool-group-work > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del { font: 11px var(--font-mono); }
 .tool-group-failed { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: var(--fw-label); color: var(--rl-danger); }
 .tool-group-failed-dot { color: var(--ink-3); }
@@ -4357,9 +4365,11 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-arg dt { font-size: 12px; line-height: 18px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-arg dd { margin: 0; min-width: 0; font-size: 12px; line-height: 18px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"] { font-family: var(--font-mono); }
-/* The exact payloads, behind one quiet word under the panel. */
+/* The exact payloads, behind one quiet word under the panel. The word stands on the panel's content
+   column (14px in, as its command, output and "Show all" do), not on the panel's edge, where it read
+   as a second verb under the row's. Its 6px of hover padding is taken out of that 14. */
 .tool-raw { display: flex; flex-direction: column; gap: 8px; }
-.tool-raw-toggle { align-self: flex-start; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); font-size: 12px; color: var(--ink-3); }
+.tool-raw-toggle { align-self: flex-start; padding: 2px 6px; margin-left: 8px; border-radius: var(--r-chip); font-size: 12px; color: var(--ink-3); }
 .tool-raw-toggle:hover { background: var(--rl-hover); color: var(--ink); }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ rides §6's icon swap (the shared rule down in the motion block); the tick's colour is the
@@ -4683,7 +4693,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    description line, and they separate themselves the way .permission-options' do — a hover fill on a
    rounded row, with a hairline between them as well saying the same thing twice. */
 .question-card { border-radius: var(--r-panel); padding: 16px; background: var(--surface); box-shadow: var(--shadow-card);
-  display: flex; flex-direction: column; gap: 10px; }
+  display: flex; flex-direction: column; gap: 10px; container: question-card / inline-size; }
 .question-head { display: flex; align-items: flex-start; gap: 10px; }
 .question-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: var(--fw-label); line-height: 1.4; color: var(--ink); text-wrap: balance; }
 .question-pager { display: flex; align-items: center; gap: 2px; flex: none; font-size: 11px; color: var(--rl-text-faint); }
@@ -4715,7 +4725,10 @@ button.edit-file:hover { background: var(--rl-hover); }
 .question-other-submit { flex: none; font-size: 12px; padding: 4px 12px; }
 
 .question-footer { display: flex; align-items: center; gap: 10px; margin: 2px -16px -16px; padding: 8px 16px; border-top: var(--hairline-w) solid var(--line); }
-.question-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
+/* Each hint is one unit — its key and its words — so a narrow card flows them onto a second line
+   whole instead of breaking every hint into a stacked column of keys over words. */
+.question-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; font-size: 11px; color: var(--rl-text-faint); }
+.question-hints > span { white-space: nowrap; }
 .question-hints kbd { margin-right: 3px; padding: 0 4px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 11px; }
 .question-continue { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .question-continue kbd { opacity: .7; }
@@ -4731,6 +4744,16 @@ button.edit-file:hover { background: var(--rl-hover); }
 .question-from-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .question-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
 .question-tag::before { content: "·"; margin-right: 6px; }
+/* A card too narrow for who is asking, the asker's word, the pager and the close on one line gives the
+   line up rather than its words: the asker's word goes under the name, both wrap whole, and the pager
+   and close stay at the top. Ellipsized to fit, the two read "F… · D…" — a line that names nobody. */
+@container question-card (max-width: 440px) {
+  .question-head { align-items: flex-start; }
+  .question-from { flex-wrap: wrap; row-gap: 2px; padding-top: 4px; }
+  .question-from-name { white-space: normal; overflow-wrap: anywhere; flex: 1 1 0; min-width: 0; }
+  .question-tag { flex: 1 0 100%; max-width: none; padding-left: 20px; white-space: normal; overflow-wrap: anywhere; }
+  .question-tag::before { content: none; }
+}
 .question-message, .question-detail { margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: pretty; }
 .question-detail { margin-top: -6px; }
 .question-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -4997,6 +5020,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   background: transparent; color: var(--rl-text-dim); font-size: 11px; font-weight: var(--fw-label);
   transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .composer-queue-item .queue-send:hover { background: var(--surface); color: var(--rl-text-bright); }
+.composer-queue-item .queue-send-glyph { display: none; }
+@container (max-width: 420px) {
+  .composer-queue-item .queue-send { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; }
+  .composer-queue-item .queue-send-glyph { display: block; }
+  .composer-queue-item .queue-send-label { display: none; }
+}
 .composer-queue-item .queue-drop { flex: none; display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
   color: var(--rl-text-faint); transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
@@ -5325,11 +5354,16 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    the context chips and the effort/permission chips on the LEFT; plain-text model chip and the
    circular send on the RIGHT. */
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 12px 8px; }
-/* The left group never wraps (§3): it clips, and Composer.tsx measures scrollWidth > clientWidth to
-   collapse the permission chip into the model menu instead. Children must not shrink, or ellipsizing
-   chips would eat the overflow the measurement is looking for. */
-.composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+/* The left group never wraps and never yields: it is the "+" and the permission mode, and the mode is
+   the one chip on the row that says how much the session may do unasked — it used to fold into the
+   model menu when the row ran short, which hid "Full access" in exactly the narrow panes where a
+   reader has the least else to go on. So the row yields in a stated order instead (design.md: a row
+   whose items compete for width): the model chip's level and bolt first (both are in its tooltip),
+   then the mode's long word for its short one, and last the model's name ellipsizes — the harness's
+   mark stays beside it. The mode's glyph and word are never what gives. */
+.composer-opts { display: flex; align-items: center; gap: 4px; flex: none; flex-wrap: nowrap; }
 .composer-opts > * { flex: none; }
+.perm-short { display: none; }
 /* The branch group (§3): still one button, still the way into the diff pane.
    `--branch-reserved` is everything of FIXED width the row has to fit before the branch name gets
    any: the card's margins and padding, the "+" and mode chips, the model chip and the send button,
@@ -5406,7 +5440,14 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 @container (max-width: 360px) {
   .composer-git .git-branch .chip-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
-.composer-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+/* The right group is what gives, and inside it only the model chip: the send button never shrinks. */
+.composer-actions { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
+.composer-actions > .model-chip { flex: 0 1 auto; }
+.composer-actions > :not(.model-chip) { flex: none; }
+/* Measured on the built app (Fable 5.1 at High, Ask each time): the whole row fits down to a 440px
+   pane; without the level it fits to 380 with the mode's long word, and to 328 with its short one. */
+@container (max-width: 440px) { .composer-actions .model-chip :is(.chip-effort, .chip-fast) { display: none; } }
+@container (max-width: 380px) { .composer-opts .perm-long { display: none; } .composer-opts .perm-short { display: inline; } }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
 /* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).

@@ -2,7 +2,7 @@ import {
   ACCESSORIES, BODIES, customize, EYES, Icon, MOUTHS, PALETTES, PATTERNS, randomSeed, Realmite, realmiteFromSeed, REALMITE_STATES,
   type RealmitePatch, type RealmiteSpec, type RealmiteState,
 } from "@realm/ui";
-import { useState, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 
 type Part = "body" | "palette" | "eyes" | "mouth" | "accessory" | "pattern";
 
@@ -16,6 +16,20 @@ const ROWS: { part: Part; name: string; options: [string, string][] }[] = [
   { part: "accessory", name: "Wears", options: Object.entries(ACCESSORIES) },
   { part: "pattern", name: "Pattern", options: Object.entries(PATTERNS) },
 ];
+
+/** A choice's box and the gap between choices (styles.css `.rmt-maker-option`, `.rmt-maker-options`),
+ *  and what a row's name and its gap take before the choices start. */
+const OPTION = 40, GAP = 2, NAME = 64 + 12;
+
+/**
+ * How many choices a row of `n` sets on a line, when `fit` would fit: the fewest lines it needs, with
+ * the choices spread evenly over them. Filled greedily, nine choices where eight fit left one alone
+ * on a second line — Wears read as a row and a stray.
+ */
+export function balancedColumns(n: number, fit: number): number {
+  if (fit <= 0 || n <= fit) return n;
+  return Math.ceil(n / Math.ceil(n / fit));
+}
 
 const STATE_NAMES: Record<RealmiteState, string> = { idle: "Idle", working: "Working", "needs-you": "Needs you", sleeping: "Asleep" };
 
@@ -37,6 +51,21 @@ export function RealmiteMaker({ spec, onChange, name }: { spec: RealmiteSpec; on
     setBefore(spec);
     onChange(realmiteFromSeed(randomSeed()));
   };
+
+  // How many choices fit on a line of the parts column, read off the column itself: the sheet sets
+  // its width, and a line's worth of choices is what every row balances against.
+  const parts = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState(0);
+  useLayoutEffect(() => {
+    const el = parts.current;
+    if (!el) return;
+    const measure = () => setFit(Math.max(1, Math.floor((el.getBoundingClientRect().width - NAME + GAP) / (OPTION + GAP))));
+    measure();
+    if (typeof ResizeObserver === "undefined") return; // jsdom
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   return (
     <div className="rmt-maker">
@@ -63,9 +92,9 @@ export function RealmiteMaker({ spec, onChange, name }: { spec: RealmiteSpec; on
           )}
         </div>
       </div>
-      <div className="rmt-maker-parts">
+      <div className="rmt-maker-parts" ref={parts}>
         {ROWS.map((row) => (
-          <PartRow key={row.part} spec={spec} row={row} onPick={(id) => set({ [row.part]: id })} />
+          <PartRow key={row.part} spec={spec} row={row} fit={fit} onPick={(id) => set({ [row.part]: id })} />
         ))}
         <label className="rmt-maker-row rmt-maker-toggle">
           <span className="rmt-maker-name">Cheeks</span>
@@ -76,7 +105,8 @@ export function RealmiteMaker({ spec, onChange, name }: { spec: RealmiteSpec; on
   );
 }
 
-function PartRow({ spec, row, onPick }: { spec: RealmiteSpec; row: (typeof ROWS)[number]; onPick: (id: string) => void }) {
+function PartRow({ spec, row, fit, onPick }: { spec: RealmiteSpec; row: (typeof ROWS)[number]; fit: number; onPick: (id: string) => void }) {
+  const columns = balancedColumns(row.options.length, fit);
   const current = spec[row.part];
   const ids = row.options.map(([id]) => id);
   /* One radio group, one tab stop: the arrows move the choice, as a native radio group's do. */
@@ -91,7 +121,8 @@ function PartRow({ spec, row, onPick }: { spec: RealmiteSpec; row: (typeof ROWS)
   return (
     <div className="rmt-maker-row">
       <span className="rmt-maker-name" id={`rmt-part-${row.part}`}>{row.name}</span>
-      <div className="rmt-maker-options" role="radiogroup" aria-labelledby={`rmt-part-${row.part}`} onKeyDown={onKeyDown}>
+      <div className="rmt-maker-options" role="radiogroup" aria-labelledby={`rmt-part-${row.part}`} onKeyDown={onKeyDown}
+        style={fit > 0 ? { maxWidth: columns * (OPTION + GAP) - GAP } : undefined}>
         {row.options.map(([id, label]) => {
           const on = id === current;
           return (

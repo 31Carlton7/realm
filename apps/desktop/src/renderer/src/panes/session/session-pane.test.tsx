@@ -939,32 +939,27 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
       delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
     });
 
-    it("an overflowing row folds the permission chip into the model menu instead of wrapping", async () => {
-      // Effort no longer collapses — it LIVES in the menu — so permission is the one chip left
-      // with somewhere to fold to.
+    it("a row that runs short keeps the permission chip on it — the mode is never folded away", async () => {
+      // THE mutant: the old fold, which took "Full access" off the row of every narrow pane and put it
+      // one click deep in the model menu. The row now yields its model name instead (styles.css).
       stageWidths(700, 500);
-      const { store } = await mountFresh();
-      expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
-      expect(document.querySelector(".composer-opts")).toHaveAttribute("data-collapsed");
-      // …and it lives in the model menu as a labelled group, with working handlers.
+      const { store } = await mountFresh({ permissionMode: "bypassPermissions" });
+      const chip = screen.getByRole("button", { name: "Permission mode" });
+      expect(chip).toHaveTextContent("Full access");
+      expect(chip).toHaveAttribute("data-warning");
+      expect(document.querySelector(".composer-opts")).not.toHaveAttribute("data-collapsed");
       openPicker();
-      const perms = screen.getByRole("group", { name: "Permissions" });
-      fireEvent.click(within(perms).getByRole("button", { name: "Accept edits" }));
-      await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
-      await exited();
-      // A setting on the picker's card like the rest: choosing it leaves the picker open.
-      expect(screen.getByRole("dialog", { name: "Model picker" })).not.toHaveAttribute("data-closing");
+      expect(screen.queryByRole("group", { name: "Permissions" })).toBeNull();
+      expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions");
     });
 
-    it("bypassPermissions from the collapsed menu still goes through the inline confirm (U-M7)", async () => {
+    it("the chip carries a short word for a narrow pane beside its long one, and its tooltip names the mode whole", async () => {
       stageWidths(700, 500);
-      const { api, store } = await mountFresh();
-      openPicker();
-      fireEvent.click(within(screen.getByRole("group", { name: "Permissions" })).getByRole("button", { name: "Full access" }));
-      // Nothing transmitted yet — the confirm chip on the row is still the only path in.
-      expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
-      fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
-      await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+      await mountFresh({ permissionMode: "acceptEdits" });
+      const chip = screen.getByRole("button", { name: "Permission mode" });
+      expect(chip.querySelector(".perm-long")).toHaveTextContent("Accept edits");
+      expect(chip.querySelector(".perm-short")).toHaveTextContent("Edits");
+      expect(chip).toHaveAttribute("title", "Permission mode: Accept edits");
     });
 
     it("a row that fits keeps the permission chip; the menu carries only its permanent effort track", async () => {

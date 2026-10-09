@@ -685,7 +685,9 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
   async function mountPane() {
     const f = fakeBridges();
     setBrowserBridgesForTests(f.bridges);
-    render(<BrowserPane item={browserItem()} visible focused={false} />);
+    // The receipt for a finished save is one of the window's toasts, drawn by the host beside the pane.
+    const store = createAppStore(fakeApi());
+    render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible focused={false} /><Toasts /></StoreContext.Provider>);
     await act(async () => {});
     return f;
   }
@@ -707,7 +709,10 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
 
     expect(f.calls).toContain("save:b1:bd_1:/tmp/proj/downloads");
-    expect(screen.getByRole("status")).toHaveTextContent("Saved week-3.pdf to downloads/");
+    // News of something done is a toast that leaves on its own, not a strip that waits to be closed.
+    // THE mutant: the receipt written back into the strip, which stayed above the page until closed.
+    expect(document.querySelector(".toast")).toHaveTextContent("Saved week-3.pdf to downloads/");
+    expect(document.querySelector(".browser-notice")).toBeNull();
   });
 
   it("a space whose folder is gone says so rather than inventing a destination", async () => {
