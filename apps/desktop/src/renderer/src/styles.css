@@ -8459,6 +8459,27 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .mac-group-hint { margin-top: 2px; }
 .mac-row-actions { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 1px; }
 .mac-row-actions .btn-quiet { white-space: nowrap; }
+/* Settings ▸ Lab. A check's command and a device's controls sit under the row's words, in the row:
+   breaking the card for them would read as a second list. */
+.lab-check .install-cmd, .lab-reach .install-cmd { flex-basis: 100%; margin-top: 4px; }
+.lab-inline-switch { flex-basis: 100%; display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.lab-device-glyph { flex: none; color: var(--rl-text-dim); }
+.lab-udid { font: 12px var(--font-mono); color: var(--rl-text-dim); user-select: text; }
+.lab-device-controls { display: flex; align-items: center; gap: 8px; }
+.lab-device-controls select { min-width: 0; max-width: 240px; }
+.lab-accounts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* An account is a named thing on the phone, removed as one: a chip, in the tint that holds on a card. */
+.lab-account { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 2px 0 8px; border-radius: var(--r-chip);
+  background: var(--accent-tint); color: var(--accent-ink); font-size: 13px; line-height: 18px; }
+.lab-account-handle { font: 12px var(--font-mono); }
+.lab-udid, .lab-account-handle { letter-spacing: normal; }
+.lab-account-remove { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent; color: inherit; }
+.lab-account-remove:hover { background: color-mix(in srgb, var(--rl-accent) 14%, transparent); }
+.lab-account-add { display: inline-flex; align-items: center; gap: 6px; }
+.lab-account-add .settings-text { width: 120px; height: 28px; padding: 0 9px; font: inherit; font-size: 13px;
+  border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); }
+.lab-account-add .settings-text::placeholder { color: var(--rl-text-faint); }
+.lab-account-add .settings-text:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 /* The command Realm is about to run, shown before it runs. */
 .mac-grant-cmd code { font: 12px var(--font-mono); color: var(--rl-text-bright); }
 /* Settings ▸ Computer use: one card per space — its mark, its name and its switch — and under it the
