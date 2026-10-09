@@ -352,6 +352,8 @@ export const AgentProbeRowSchema = z.object({
    *  agent's `thought_level` option, read off the probe's throwaway session — and the one it starts on. */
   efforts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
   defaultEffort: z.string().nullable().optional(),
+  /** The account the CLI says it is signed in as (`AgentAccount`), where it names one. */
+  account: z.object({ email: z.string(), organization: z.string().nullable(), plan: z.string().nullable() }).optional(),
 });
 
 /**

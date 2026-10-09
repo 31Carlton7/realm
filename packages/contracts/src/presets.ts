@@ -60,6 +60,13 @@ export type AgentModel = {
 };
 
 /**
+ * Who an agent's CLI says it is signed in as. `email` is what makes it an account at all: a sign-in
+ * the CLI names no email for — the Agent SDK says a cloud provider's carries none — reports no
+ * account. `plan` is the tier as the CLI spells it ("max"), for `planLabel` to name.
+ */
+export type AgentAccount = { email: string; organization: string | null; plan: string | null };
+
+/**
  * STATIC fallback model lists — what the picker shows for a kind when no probe has answered yet
  * (`agents.probe` results carry `models`, the live catalog, which wins whenever present).
  *

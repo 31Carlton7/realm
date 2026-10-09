@@ -7,6 +7,7 @@ import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } 
 import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
+import { accountLabel, accountTitle } from "./Composer";
 import { reduceAll } from "./transcript-model";
 import { EGG_RUN_LABELS, runLabelFor } from "./run-label";
 import { Markdown, renderMarkdown } from "./Markdown";
@@ -2427,6 +2428,91 @@ describe("under-strip (Plan 12 W1)", () => {
     const label = within(strip as HTMLElement).getByText("Carlton's M4 MacBook Pro");
     expect(label.closest("button")).toBeNull(); // display only: Realm runs agents on this Mac, full stop
     expect(label.closest(".ghost-chip")).toHaveAttribute("data-static");
+  });
+
+  describe("the account the session's agent is signed in as", () => {
+    const account = { email: "owner@example.com", organization: "Example Labs", plan: "max" };
+    const signedIn = (kind: AgentProbe["kind"], extra: Partial<AgentProbe> = {}): AgentProbe =>
+      ({ kind, available: true, version: "1", loggedIn: true, reason: null, ...extra });
+    async function mountFor(agentKind: "claude" | "codex", agentProbe: AgentProbe[]) {
+      const { envA } = twoEnvs();
+      const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", environmentId: "envA", cwd: "/tmp", agentKind })],
+        environments: { s1: [envA] }, agentProbe });
+      const store = createAppStore(api); await store.getState().boot();
+      store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+      render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+      await waitFor(() => expect(store.getState().agentsProbed).toBe(true));
+      return document.querySelector<HTMLElement>(".composer-understrip .strip-machine")!;
+    }
+
+    it("takes the machine's place on the strip, as plain text naming the organisation, and says the rest on its tooltip and to a screen reader", async () => {
+      const says = "Claude is signed in as owner@example.com (Claude Max, Example Labs). Agents run on this Mac — Carlton's M4 MacBook Pro.";
+      const chip = await mountFor("claude", [signedIn("claude", { account })]);
+      await waitFor(() => expect(chip.querySelector(".chip-label")).toHaveTextContent("Example Labs"));
+      expect(chip.querySelector(".chip-label")!.textContent).toBe("Example Labs");
+      expect(chip.querySelector(".chip-label")).toHaveAttribute("aria-hidden", "true");
+      expect(chip.querySelector(".visually-hidden")!.textContent).toBe(says);
+      expect(chip).toHaveAttribute("data-static");
+      expect(chip.closest("button")).toBeNull();
+      expect(chip).toHaveAttribute("title", says);
+    });
+
+    it("is the account of the agent this session runs on, never another agent's", async () => {
+      const chip = await mountFor("codex", [signedIn("claude", { account }), signedIn("codex")]);
+      expect(chip).toHaveTextContent("Carlton's M4 MacBook Pro");
+      expect(chip).not.toHaveTextContent("Example Labs");
+      expect(chip).not.toHaveTextContent("owner@example.com");
+      expect(chip.querySelector(".visually-hidden")).toBeNull();
+      expect(chip).toHaveAttribute("title", "Agents run on this Mac — Carlton's M4 MacBook Pro");
+    });
+
+    it("leaves the machine where it was for an agent that names no account", async () => {
+      const chip = await mountFor("claude", [signedIn("claude")]);
+      expect(chip).toHaveTextContent("Carlton's M4 MacBook Pro");
+    });
+
+    it("names the plan on the strip for a personal account, whose organisation only restates the email, and keeps the email to the tooltip", async () => {
+      const personal = { email: "owner@example.com", organization: "owner@example.com's Organization", plan: "max" };
+      const chip = await mountFor("claude", [signedIn("claude", { account: personal })]);
+      await waitFor(() => expect(chip.querySelector(".chip-label")!.textContent).toBe("Claude Max"));
+      expect(chip).toHaveAttribute("title", "Claude is signed in as owner@example.com (Claude Max). Agents run on this Mac — Carlton's M4 MacBook Pro.");
+    });
+
+    it("says the organisation first, then the plan, and the email only where the CLI names neither", () => {
+      const email = "owner@example.com";
+      expect(accountLabel("claude", { email, organization: "Example Labs", plan: "max" })).toBe("Example Labs");
+      expect(accountLabel("claude", { email, organization: "Example Labs", plan: null })).toBe("Example Labs");
+      expect(accountLabel("claude", { email, organization: "Owner Labs", plan: "max" })).toBe("Owner Labs");
+      expect(accountLabel("claude", { email, organization: null, plan: "team" })).toBe("Claude Team");
+      expect(accountLabel("codex", { email, organization: null, plan: "plus" })).toBe("Codex Plus");
+      expect(accountLabel("claude", { email, organization: "owner@example.com's Organization", plan: null })).toBe(email);
+      expect(accountLabel("claude", { email, organization: null, plan: null })).toBe(email);
+    });
+
+    it("puts no organisation on the strip that is named after an address, the account's own or another member's", () => {
+      const email = "owner@example.com";
+      expect(accountLabel("claude", { email, organization: "owner@example.com's Organization", plan: "max" })).toBe("Claude Max");
+      expect(accountLabel("claude", { email: "Owner@Example.com", organization: "owner@example.com's Organization", plan: "max" })).toBe("Claude Max");
+      expect(accountLabel("claude", { email: "member@example.com", organization: "owner@example.com's Organization", plan: "team" })).toBe("Claude Team");
+      expect(accountLabel("claude", { email, organization: "billing@example.com", plan: "enterprise" })).toBe("Claude Enterprise");
+      expect(accountLabel("claude", { email, organization: "Design @ Example", plan: "team" })).toBe("Design @ Example");
+    });
+
+    it("says the plan as a person would, and leaves out an organisation that only restates the email", () => {
+      expect(accountTitle("claude", { email: "owner@example.com", organization: "owner@example.com's Organization", plan: "max" }, "Studio"))
+        .toBe("Claude is signed in as owner@example.com (Claude Max). Agents run on this Mac — Studio.");
+      expect(accountTitle("claude", { email: "owner@example.com", organization: null, plan: null }, undefined))
+        .toBe("Claude is signed in as owner@example.com.");
+    });
+
+    it("leaves the organisation off the tooltip only where it repeats the account's own email, wherever and in whatever case", () => {
+      expect(accountTitle("claude", { email: "Owner@Example.com", organization: "owner@example.com's Organization", plan: "max" }, undefined))
+        .toBe("Claude is signed in as Owner@Example.com (Claude Max).");
+      expect(accountTitle("claude", { email: "owner@example.com", organization: "The organisation of owner@example.com", plan: "max" }, undefined))
+        .toBe("Claude is signed in as owner@example.com (Claude Max).");
+      expect(accountTitle("claude", { email: "member@example.com", organization: "owner@example.com's Organization", plan: "team" }, undefined))
+        .toBe("Claude is signed in as member@example.com (Claude Team, owner@example.com's Organization).");
+    });
   });
 
   it("wears the space's colour on the workspace chip's glyph, as the face can carry it (Plan 27)", async () => {

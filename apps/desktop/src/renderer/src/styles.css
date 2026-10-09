@@ -5425,13 +5425,15 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   border-radius: 0 0 var(--r-squircle) var(--r-squircle); corner-shape: squircle; }
 .composer-understrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
-/* What the strip drops as it narrows. The machine label goes first: Realm runs agents on this Mac
-   and no other, so at a narrow width the laptop glyph says everything the name does, and the name
-   is on the tooltip. Then the glyph itself.
+/* What the strip drops as it narrows. The first chip's label goes first. For the machine, Realm
+   runs agents on this Mac and no other, so at a narrow width the laptop glyph says everything the
+   name does. For an account, the glyph says there is one and the tooltip says whose. Either way
+   the name is on the tooltip. Then the glyph itself.
    There is no `--branch-reserved` here any more — the branch group has the over-strip above the
-   card, and with it went the only string on this row whose length was user data. What is left is a
-   machine name, a space name and a meter, so the yielding order is these two steps and nothing has
-   to be reserved against a name that is no longer beside it. */
+   card, and with it went the only string on this row with no bound on its length. What is left is
+   a machine name or an account's label, which its chip cuts at 260px, a space name and a meter, so
+   the yielding order is these two steps and nothing has to be reserved against a name that is no
+   longer beside it. */
 @container (max-width: 520px) {
   .composer-understrip .strip-machine .chip-label { display: none; }
 }
