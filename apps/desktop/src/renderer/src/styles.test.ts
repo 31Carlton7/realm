@@ -1675,7 +1675,15 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
   it("a run's head reserves its failures and yields its work; its steps' glyphs share the free rows' column", () => {
     expect(bodiesFor(".tool-group-summary").join(" ")).toContain("flex: none");
     const work = bodiesFor(".tool-group-work").join(" ");
-    expect(work).toMatch(/flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis/);
+    expect(work).toMatch(/flex: 0 1 auto; min-width: 0;/);
+    // Its parts yield whole: one visible line, the parts that do not fit wrapped off it. THE mutant is
+    // the ellipsis back on the whole run, which cut "+7 −3" mid-number at 760px.
+    expect(work).toContain("flex-wrap: wrap");
+    expect(work).toContain("overflow: hidden");
+    expect(work).not.toContain("text-overflow");
+    expect(bodiesFor(".tool-group-work > span").join(" ")).toMatch(/flex: none; white-space: pre/);
+    // …except the first, which is all the row has to say when even it does not fit.
+    expect(bodiesFor(".tool-group-work > span:first-child").join(" ")).toContain("text-overflow: ellipsis");
     expect(work).toContain("color: var(--ink-3)");
     const failed = bodiesFor(".tool-group-failed").join(" ");
     expect(failed).toContain("flex: none");
