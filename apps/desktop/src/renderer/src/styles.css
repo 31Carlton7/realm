@@ -8464,6 +8464,8 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .lab-check .install-cmd, .lab-reach .install-cmd { flex-basis: 100%; margin-top: 4px; }
 .lab-inline-switch { flex-basis: 100%; display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
 .lab-device-glyph { flex: none; color: var(--rl-text-dim); }
+/* A second list under the registry: its head stands off the card above, as a section head does. */
+.scope-group-label.lab-seen-head { margin-top: 20px; }
 .lab-udid { font: 12px var(--font-mono); color: var(--rl-text-dim); user-select: text; }
 .lab-device-controls { display: flex; align-items: center; gap: 8px; }
 .lab-device-controls select { min-width: 0; max-width: 240px; }

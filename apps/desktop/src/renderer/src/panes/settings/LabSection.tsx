@@ -202,7 +202,7 @@ function Devices() {
       )}
       {devices && devices.unregistered.length > 0 && (
         <>
-          <p className="scope-group-label">On this Mac, not in the lab</p>
+          <p className="scope-group-label lab-seen-head">On this Mac, not in the lab</p>
           <ul className="settings-list">
             {devices.unregistered.map((d) => <SeenRow key={d.udid} device={d} />)}
           </ul>
@@ -221,7 +221,8 @@ function SeenRow({ device: d }: { device: LabSeenDevice }) {
       <Icon name="simulator" size={16} className="lab-device-glyph" />
       <div className="settings-row-main">
         <span className="settings-row-name">{d.name}</span>
-        <span className="settings-row-detail">{KIND_LABEL[d.kind]} · {d.runtime}</span>
+        {/* adb names no runtime for a phone, so "Android · Android" says one word twice. */}
+        <span className="settings-row-detail">{d.runtime && d.runtime !== KIND_LABEL[d.kind] ? `${KIND_LABEL[d.kind]} · ${d.runtime}` : KIND_LABEL[d.kind]}</span>
       </div>
       <button type="button" className="btn-quiet" onClick={() => run(() => addLabDevice({ kind: d.kind, udid: d.udid, name: d.name, spaceId: null, accounts: [] }))}>Add to lab</button>
     </li>
