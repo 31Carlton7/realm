@@ -36,6 +36,7 @@ import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
 import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
+import { SetRoleHandoffsSchema, SetTeamLimitsSchema } from "./team-handoffs";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
@@ -1603,6 +1604,12 @@ export const Methods = {
   "team.vaultRevoke": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ revoked: z.boolean() }) },
   "team.vaultUses": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(50) }), result: z.array(VaultUseSchema) },
   "team.vaultAllowChanged": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ on: z.boolean() }) },
+  // Teams (Phase 4): who a role hands work to and whether a mention wakes it, a goal for a role, how
+  // many runs go at once, and lifting an engine's back-off by hand.
+  "team.roleHandoffs": { params: SetRoleHandoffsSchema, result: TeamRoleSchema },
+  "team.roleGoal": { params: z.object({ id: IdSchema, objective: z.string().trim().min(1).max(4_000) }), result: RunSchema },
+  "team.setLimits": { params: SetTeamLimitsSchema, result: TeamSpaceSchema },
+  "team.liftBackoff": { params: z.object({ agentKind: z.string().min(1).max(40) }), result: z.object({ lifted: z.boolean() }) },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),

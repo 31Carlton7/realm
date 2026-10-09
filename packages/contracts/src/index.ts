@@ -64,6 +64,7 @@ export * from "./terminal-programs";
 export * from "./schedules";
 export * from "./team";
 export * from "./vault";
+export * from "./team-handoffs";
 export * from "./failover";
 export * from "./school";
 export * from "./links";

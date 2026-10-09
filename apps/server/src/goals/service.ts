@@ -48,6 +48,9 @@ export type GoalServiceDeps = {
    *  gateway's own name. */
   closeWith?: (sessionId: string) => string | null;
   log?: (line: string) => void;
+  /** Told of every change to a session's goal, after it is written; null when it was dropped. A team
+   *  role's goal run settles off this. */
+  onChanged?: (sessionId: string, goal: Goal | null) => void;
 };
 
 /** What the session service saw of the turn that just settled, for the stall guard and the text
@@ -128,6 +131,17 @@ export class GoalService {
     return goal;
   }
 
+  /**
+   * Put a session on a goal whose first turn is already on its way — a team role's goal run sends its
+   * own first message. The row and the tools, without a second delivery.
+   */
+  adopt(sessionId: string, objective: string, tokenBudget: number | null): Goal {
+    const goal = this.d.goals.start({ sessionId, objective: objective.trim(), tokenBudget });
+    this.forgetTurns(sessionId);
+    this.publish(goal);
+    return goal;
+  }
+
   /** The user's pause, and the agent's own `blocked`/`complete`, arrive here. */
   set(sessionId: string, status: GoalStatus, note: string | null): Goal {
     const goal = this.require(sessionId);
@@ -172,6 +186,7 @@ export class GoalService {
     this.forgetTurns(sessionId);
     this.d.dropQueued?.(sessionId);
     this.d.rpc.broadcast("goal.changed", { sessionId, goal: null });
+    this.d.onChanged?.(sessionId, null);
   }
 
   /**
@@ -317,5 +332,6 @@ export class GoalService {
 
   private publish(goal: Goal): void {
     this.d.rpc.broadcast("goal.changed", { sessionId: goal.sessionId, goal });
+    this.d.onChanged?.(goal.sessionId, goal);
   }
 }

@@ -946,7 +946,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const mentionMatches = useMemo((): MentionRow[] => {
     if (!mentionToken) return [];
     const options = mentionOptions({ mac: macSkill, skills: mentionSkills, files: answers.files, cwd: mentions?.cwd ?? session.cwd,
-      library: answers.library, apps: mentions?.apps ?? [] });
+      library: answers.library, apps: mentions?.apps ?? [], roles: mentions?.roles ?? [] });
     return mentionRows(options, mentionToken.query, { accessibility: mentions?.accessibility ?? null });
   }, [mentionToken, macSkill, mentionSkills, answers, mentions, session.cwd]);
   /* The icons the list and the draft's chips are about to draw, fetched once each. Keyed on the
@@ -1438,7 +1438,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               const ref = s.kind === "element" && !link ? refOf(s.text) : null;
               const appIcon = ref?.kind === "app" ? mentions?.appIcons[ref.path] : null;
               const icon = link ? LINK_SERVICE_META[link.service].icon
-                : ref ? (ref.kind === "app" ? "pointer" : fileMark(ref.path))
+                : ref ? (ref.kind === "app" ? "pointer" : ref.kind === "role" ? "team" : fileMark(ref.path))
                 : s.kind === "element" ? "target"
                 : s.kind === "mention" || s.kind === "mention-stale" ? (s.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles") : null;
               const bracketed = s.kind === "element"; // `@[…]`, where a mention is a bare `@`

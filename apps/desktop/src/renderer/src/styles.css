@@ -10182,6 +10182,43 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
   color: var(--rl-text-dim); border: var(--hairline-w) solid var(--rl-line); }
 .tv-host[data-on] { color: var(--rl-text-bright); border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-line)); }
 
+/* Teams, Phase 4: handoffs, a role's goal, budgets and run caps, and an engine's back-off. */
+.tp-banner { display: flex; flex-direction: column; gap: 6px; }
+.tp-banner-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px 10px 14px;
+  border-radius: var(--r-panel); background: var(--orange-tint); border: var(--hairline-w) solid color-mix(in srgb, var(--orange) 22%, transparent); }
+.tp-banner-glyph { color: var(--orange); }
+.tp-banner-text { font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.tp-handoffs { margin: 0; padding: 0; list-style: none; }
+.tp-handoffs li { display: grid; grid-template-columns: 64px 48px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 0;
+  font-size: 13px; line-height: 18px; color: var(--rl-text-bright); border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-handoffs li:first-child { border-top: none; }
+.tp-handoffs time { font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.tp-handoff-pair { display: inline-flex; align-items: center; gap: 2px; color: var(--rl-text-faint); }
+.tp-handoff-text { min-width: 0; }
+.tp-handoff-text small { color: var(--rl-text-dim); font-size: 13px; }
+.tp-num-form { display: inline-flex; align-items: center; gap: 4px; }
+.tp-num-unit { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tp-num-field { width: 56px; height: 28px; padding: 0 7px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; outline: none; }
+.tp-num-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.tp-step { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.tp-step-label { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); white-space: nowrap; }
+.tp-step select { height: 28px; font-size: 13px; }
+.tp-budget-form { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; flex: none; max-width: 60%; }
+.settings-row.tp-edges-row { flex-wrap: wrap; }
+.tp-edges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 60%; }
+.tp-edge { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 6px; border-radius: var(--r-ctl); font-size: 13px; line-height: 18px;
+  color: var(--rl-text-dim); background: none; border: var(--hairline-w) solid var(--rl-line); }
+.tp-edge:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tp-edge[aria-pressed="true"] { color: var(--rl-text-bright); background: var(--rl-hover); border-color: color-mix(in srgb, var(--rl-accent) 45%, transparent); }
+.tp-goal { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px;
+  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-goal-glyph { color: var(--rl-text-dim); }
+.tp-goal-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tp-goal-objective { font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.tp-goal-line { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tp-goal-new { align-self: flex-start; }
+
 /* The Team fold's way to add one: a row like the roles above it, in the quieter ink. */
 .sb-team-add .item-title, .sb-team-add .sb-gutter { color: var(--rl-text-dim); }
 

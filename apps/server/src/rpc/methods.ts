@@ -57,6 +57,7 @@ import type { GraphifyService } from "../graphify/service";
 import type { RunService } from "../runs/service";
 import type { ScheduleService } from "../schedules/service";
 import type { TeamService } from "../team/service";
+import type { HandoffService } from "../team/handoffs/service";
 import type { ReviewService } from "../delegation/review";
 import type { CodeReviewService } from "../code-review/service";
 import type { DelegationEngine } from "../delegation/engine";
@@ -92,7 +93,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeamService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeamService; handoffs?: HandoffService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -945,6 +946,7 @@ export function registerMethods(d: Deps): void {
   // Teams. The space-scoped reads check the space; the by-id methods let the service raise
   // NotFoundError, since it loads the row anyway.
   const space = (id: string) => { if (!d.spaces.get(id)) throw new NotFoundError("space", id); return id; };
+  const handoffs = (): HandoffService => { if (!d.handoffs) throw new RpcError("UNAVAILABLE", "team handoffs are not running"); return d.handoffs; };
   reg("team.overview", () => d.team.overview());
   reg("team.space", (p) => d.team.space(space(p.spaceId)));
   reg("team.make", (p) => d.team.makeTeam(space(p.spaceId), p.templates, { roles: p.roles, ...(p.repoPath ? { repoPath: p.repoPath } : {}), ...(p.weekBudgetUsd !== undefined ? { weekBudgetUsd: p.weekBudgetUsd } : {}) }));
@@ -964,6 +966,10 @@ export function registerMethods(d: Deps): void {
   reg("team.recordWrite", (p) => d.team.writeRecord(space(p.spaceId), p.path, p.markdown));
   reg("team.recordCreate", (p) => d.team.createRecord(space(p.spaceId), p.name));
   reg("team.activity", (p) => d.team.activity(space(p.spaceId), p.limit, p.before));
+  reg("team.roleHandoffs", (p) => handoffs().setRoleHandoffs(p));
+  reg("team.roleGoal", (p) => { refuseWhileDraining("give a role a goal"); return handoffs().setGoal(p.id, p.objective); });
+  reg("team.setLimits", (p) => { handoffs().setLimits(space(p.spaceId), p); return d.team.space(p.spaceId); });
+  reg("team.liftBackoff", (p) => ({ lifted: handoffs().liftBackoff(p.agentKind) }));
 
   reg("runs.list", (p) => d.runs.list(p));
   reg("runs.get", (p) => d.runs.get(p.id));
@@ -1069,7 +1075,13 @@ export function registerMethods(d: Deps): void {
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
   // recorded by the server-side tools that create those children, never over RPC.
   reg("sessions.create", (p) => { refuseWhileDraining("start a session"); return d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }); });
-  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs: p.mentionRefs }, p.delivery); return { ok: true as const }; });
+  reg("sessions.send", async (p) => {
+    // A teammate named in the message is woken first, as this session's sub-agent, so the message the
+    // agent reads already says which sub-agent it is (`HandoffService.wakeMentioned`).
+    const mentionRefs = p.mentionRefs?.some((r) => r.kind === "role") && d.handoffs ? await d.handoffs.wakeMentioned(p.id, p.text, p.mentionRefs) : p.mentionRefs;
+    await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs }, p.delivery);
+    return { ok: true as const };
+  });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
   reg("limits.get", async () => ({ limits: d.planLimits.list() }));
   reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });

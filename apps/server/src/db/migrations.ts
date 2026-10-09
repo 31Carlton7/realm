@@ -942,4 +942,27 @@ export const migrations: string[] = [
     PRIMARY KEY (secret_id, role_id));
   CREATE INDEX IF NOT EXISTS vault_grants_space ON vault_grants(space_id, role_id);
   `,
+  // v47 — handoffs and mentions (Teams Phase 4). A role may pass work to another role along the edges
+  // `team_roles.handoffs_json` names (role ids), and a person or a session may wake a role by
+  // mentioning it, which starts it as that session's sub-agent. Both are one `team_handoffs` row: who
+  // asked (a role, or a session), who was woken, the record it is about, the note and the files
+  // passed with it, and what it started — a run for a handoff, a sub-agent session for a mention. The
+  // row's outcome is read off that run or session; `outcome`/`settled_at`/`cost_usd` are written only
+  // for a mention, whose sub-agent is not a run. `wake_on_mention` is the role page's switch. Nothing is
+  // backfilled: a role made before this hands off to nobody and answers mentions, the plan's default.
+  `
+  ALTER TABLE team_roles ADD COLUMN handoffs_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE team_roles ADD COLUMN wake_on_mention INTEGER NOT NULL DEFAULT 1;
+  CREATE TABLE IF NOT EXISTS team_handoffs (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    from_role_id TEXT, from_session_id TEXT, to_role_id TEXT NOT NULL,
+    record_path TEXT, note TEXT NOT NULL, files_json TEXT NOT NULL DEFAULT '[]',
+    run_id TEXT, session_id TEXT, outcome TEXT, cost_usd REAL,
+    created_at INTEGER NOT NULL, settled_at INTEGER);
+  CREATE INDEX IF NOT EXISTS team_handoffs_space ON team_handoffs(space_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS team_handoffs_to ON team_handoffs(to_role_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS team_handoffs_from ON team_handoffs(from_role_id, created_at DESC) WHERE from_role_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS team_handoffs_session ON team_handoffs(session_id) WHERE session_id IS NOT NULL;
+  `,
 ];

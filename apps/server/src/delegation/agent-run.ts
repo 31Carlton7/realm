@@ -586,6 +586,15 @@ export class AgentRunService {
 
   /* --------------------------------------- agent_start --------------------------------------- */
 
+  /** `agent_start` for Realm itself rather than an agent: a team role woken by a mention is started
+   *  as the mentioning session's sub-agent by exactly this path, and the answer is the child's id or
+   *  the refusal's words. */
+  async startChild(ctx: ProviderCallContext, args: { goal: string; title?: string; constraints?: AgentRunConstraints }): Promise<{ ok: true; childId: string } | { ok: false; message: string }> {
+    const spawned = await this.spawn(ctx, args, true);
+    if (!isSpawned(spawned)) return { ok: false, message: spawned.content.map((c) => (c.type === "text" ? c.text : "")).join(" ").trim() };
+    return { ok: true, childId: spawned.childId };
+  }
+
   /** Spawn one child and return its handle immediately. The run stays in the registry, settling in
    *  the background, until `agent_wait` claims it or the parent is interrupted or deleted. */
   async start(ctx: ProviderCallContext, rawArgs: unknown): Promise<CallToolResult> {

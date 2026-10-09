@@ -149,6 +149,7 @@ function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: strin
 
 /** What a named thing's chip says under the pointer: where the file is, what the app mention did. */
 function refTitle(ref: MentionRef): string {
+  if (ref.kind === "role") return ref.childId ? `${ref.label} — started as this session's sub-agent` : `${ref.label} — not started${ref.refused ? `: ${ref.refused}` : ""}`;
   return ref.kind === "app" ? `${ref.name} — computer use for this session (${ref.bundleId})` : ref.path;
 }
 
@@ -163,7 +164,7 @@ function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionI
         const ref = r.chip.kind === "element" ? byLabel.get(r.chip.label) ?? null : null;
         const appIcon = ref?.kind === "app" ? appIcons[ref.path] : null;
         const icon = r.chip.kind === "link" && r.chip.service ? LINK_SERVICE_META[r.chip.service].icon
-          : ref ? (ref.kind === "app" ? "pointer" : fileMark(ref.path))
+          : ref ? (ref.kind === "app" ? "pointer" : ref.kind === "role" ? "team" : fileMark(ref.path))
           : r.chip.kind === "element" ? "target"
           : r.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles";
         return (

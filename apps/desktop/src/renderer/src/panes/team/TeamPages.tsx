@@ -9,6 +9,7 @@ import { Sheet } from "../../components/Sheet";
 import { MODES, RoleSheet, modelLabel } from "./RoleSheet";
 import { MakeTeam } from "./TeamPicker";
 import { VaultPage } from "./VaultPage";
+import { BackoffNote, HandoffLines, HandsOffTo, MentionWake, RoleBudget, RoleGoalPanel, TeamBudget } from "./HandoffParts";
 import { REVIEW_GLYPH, realmiteState } from "../../components/sidebar/TeamRows";
 import { shortWhen } from "../schedules/schedule-model";
 import { useApp, type SpacePageTab } from "../../state/store";
@@ -113,6 +114,7 @@ function Overview({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
         <button type="button" className="btn" onClick={addTeammate}><Icon name="add" size={16} />Add teammate</button>
       </header>
       <div className="form">
+        <BackoffNote team={team} />
         {waiting.length > 0 && (
           <>
             <h3 className="settings-head">Waiting for you</h3>
@@ -135,11 +137,19 @@ function Overview({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
         <div className="tp-cards">
           {team.roles.map((r) => <RoleCard key={r.id} role={r} onOpen={() => setSpacePageTab(spaceId, `role:${r.id}`)} />)}
           <div className="tp-card tp-card-note">
-            <span className="tp-card-line">Teammates wake on a schedule, when you answer one of their reviews, or when you run them.</span>
+            <span className="tp-card-line">Teammates wake on a schedule, when you answer one of their reviews, on a handoff, on an @mention, or on a goal you give them.</span>
             <span className="tp-card-line t-num">{sharesNote(team.sharesUsd, team.weekBudgetUsd).text}.</span>
             <button type="button" className="btn-quiet tp-card-new" onClick={addTeammate}>Add teammate…</button>
           </div>
         </div>
+        {team.handoffs.length > 0 && (
+          <>
+            <h3 className="settings-head">Handoffs</h3>
+            <HandoffLines team={team} rows={team.handoffs.slice(0, 5)} />
+          </>
+        )}
+        <h3 className="settings-head">Budget</h3>
+        <TeamBudget team={team} />
         {today.length > 0 && (
           <>
             <h3 className="settings-head">Today</h3>
@@ -190,7 +200,7 @@ function Feed({ rows, team }: { rows: readonly TeamActivity[]; team: TeamSpace }
           <li key={a.id}>
             <time>{feedTime(a.ts)}</time>
             <span className="t-glyph">{role
-              ? <Realmite spec={parseRealmiteSpec(role.realmite, role.id)} size={16} />
+              ? <Realmite spec={parseRealmiteSpec(role.realmite, role.id)} size={16} {...("state" in role ? { state: realmiteState(role as TeamRole) } : {})} />
               : <Icon name={a.actor === "user" ? "user" : "activity"} size={12} />}</span>
             <span>{s.text}{s.detail && <small> · {s.detail}</small>}</span>
           </li>
@@ -240,7 +250,7 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
   const field = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { run(() => loadRoleRuns(role.id)); }, [role.id, loadRoleRuns, run]);
   useEffect(() => { if (messaging) field.current?.focus(); }, [messaging]);
-  const m = meter(role.weekSpendUsd, role.weekBudgetUsd);
+  const mine = team.handoffs.filter((h) => h.toRoleId === role.id || h.fromRoleId === role.id).slice(0, 8);
   const send = () => {
     const text = message.trim();
     run(async () => { await runRole(role.id, text || null); setMessage(""); setMessaging(false); });
@@ -285,6 +295,8 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
         )}
         <h3 className="settings-head">Brief</h3>
         <BriefEditor role={role} />
+        <h3 className="settings-head">Goal</h3>
+        <RoleGoalPanel role={role} />
         <h3 className="settings-head">Recent runs</h3>
         {!runs ? <p className="tp-empty">Loading…</p> : runs.length === 0 ? <p className="tp-empty">No runs yet. Run now starts one on its brief.</p> : (
           <table className="tp-table">
@@ -310,6 +322,12 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
             </tbody>
           </table>
         )}
+        {mine.length > 0 && (
+          <>
+            <h3 className="settings-head">Handoffs</h3>
+            <HandoffLines team={team} rows={mine} />
+          </>
+        )}
         <h3 className="settings-head">Wakes</h3>
         <ul className="settings-list">
           <li className="settings-row">
@@ -330,6 +348,7 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
             <input type="checkbox" role="switch" className="switch" checked={role.wakeOnReview} aria-label="When you answer one of its reviews, on"
               onChange={(e) => run(() => updateRole({ id: role.id, wakeOnReview: e.target.checked }).then(() => undefined))} />
           </li>
+          <MentionWake role={role} />
         </ul>
         <h3 className="settings-head">Runs on</h3>
         <ul className="settings-list">
@@ -337,13 +356,8 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
             <div className="settings-row-main"><span className="settings-row-name">Model</span></div>
             <span className="tp-chip tp-model-chip">{modelLabel(role.model)}</span>
           </li>
-          <li className="settings-row">
-            <div className="settings-row-main">
-              <span className="settings-row-name">Budget</span>
-              <span className="settings-row-detail t-num">{spendLine(role.weekSpendUsd, role.weekBudgetUsd)} · a run stops at {money(role.runCapUsd)} or {Math.round(role.runCapMs / 60_000)} minutes</span>
-            </div>
-            {m && <span className="tp-meter tp-meter-wide" data-high={m.high || undefined} role="meter" aria-valuenow={Math.round(m.pct)} aria-valuemin={0} aria-valuemax={100} aria-label="Spent this week"><i style={{ width: `${m.pct}%` }} /></span>}
-          </li>
+          <RoleBudget role={role} />
+          <HandsOffTo role={role} team={team} />
           <li className="settings-row">
             <div className="settings-row-main">
               <span className="settings-row-name">Can use</span>
