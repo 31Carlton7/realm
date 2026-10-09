@@ -719,7 +719,7 @@ export class SessionService {
     const attach: Attachment[] = [];
     const missing = new Set<string>(), withheld = new Set<string>();
     for (const r of refs) {
-      if (r.kind === "app") continue;
+      if (r.kind === "app" || r.kind === "role") continue;
       if (isSecretPath(r.path)) { withheld.add(r.path); continue; }
       let st;
       try { st = statSync(r.path); } catch { missing.add(r.path); continue; }

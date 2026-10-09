@@ -97,6 +97,10 @@ export class RunService {
     admit?: (run: Run) => boolean;
     /** The standing context a role's run wears instead of the plain unattended preamble. */
     rolePreamble?: (run: Run) => string | null;
+    /** A run whose session rests between turns of a live goal is not finished: its turn settling is
+     *  not the run settling (a team role's goal). The goal's own stop settles it, through `finish` or
+     *  `stopAtLimit`. */
+    holdSettle?: (run: Run) => boolean;
     /** Worker kind when the run named none: claude in production; tests override to the fake. */
     fallbackKind?: AgentKind;
     /** Test seam only — production leaves this alone and uses the real clock. */
@@ -307,6 +311,15 @@ export class RunService {
     return this.settle(id, "cancelled", { error: why });
   }
 
+  /** Settle a live run as done, with its report — for a run whose end something other than its
+   *  session's settle decides (a goal closed while the session rested). */
+  finish(id: string, result: string): Run {
+    const run = this.require(id);
+    if (isRunTerminal(run.state)) return run;
+    this.d.store.closeAttempt(id, "succeeded", null);
+    return this.settle(id, "succeeded", { result });
+  }
+
   /* --------------------------------------- the flow ------------------------------------------ */
 
   /** Back to `queued`, with the budget widened enough for the attempt that is about to happen. */
@@ -468,6 +481,7 @@ export class RunService {
     if (!SETTLED_FROM.has(session.status) || !SETTLED_TO.has(ev.payload.status)) return;
     const run = this.d.store.findLiveBySessionId(session.id);
     if (!run || run.state !== "running") return;
+    if (ev.payload.status === "idle" && this.d.holdSettle?.(run)) return;
 
     const finalText = this.finalTextOf(session.id);
     // A run that ran past its deadline is `expired` however the turn ended: the work is stale, and
