@@ -278,6 +278,16 @@ describe("editing a queued message", () => {
     expect(rows()[0]!.querySelector<HTMLButtonElement>(".queue-send")!.disabled).toBe(true);
   });
 
+  it("Send now keeps its name when a narrow pane draws it as the send arrow", async () => {
+    // The words hide in a narrow pane (styles.css); the arrow beside them is what stays, and the
+    // button is still "Send now" to a screen reader.
+    await mount([prompt("q1", "first")]);
+    const send = rows()[0]!.querySelector<HTMLButtonElement>(".queue-send")!;
+    expect(send).toHaveAccessibleName("Send now");
+    expect(send.querySelector(".queue-send-glyph")).not.toBeNull();
+    expect(send.querySelector(".queue-send-label")).toHaveTextContent("Send now");
+  });
+
   it("does not open a field on a message that already went out", async () => {
     const { api } = await mount([prompt("q1", "first")]);
     api.queuedPrompts.length = 0; // drained on the server, not yet broadcast

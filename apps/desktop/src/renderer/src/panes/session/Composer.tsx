@@ -234,10 +234,15 @@ function QueueRow({ kind, queued, submitKey, actions }: { kind: AgentKind; queue
                 <Icon name="edit" size={12} />
               </button>
             )}
-            <button type="button" className="queue-send" title={note} disabled={mine || elsewhere}
+            {/* Words where there is room, the send arrow where there is not: in a narrow pane the two
+                words took the width the message needed, and the row read "Then …". */}
+            <button type="button" className="queue-send" aria-label="Send now" title={note} disabled={mine || elsewhere}
               // Clicked from an open field, the field's blur has already saved; this would only race it.
               onMouseDown={(e) => { if (mine) e.preventDefault(); }}
-              onClick={() => actions.onRelease(q.id)}>Send now</button>
+              onClick={() => actions.onRelease(q.id)}>
+              <Icon name="arrowUp" size={12} className="queue-send-glyph" />
+              <span className="queue-send-label">Send now</span>
+            </button>
             <button type="button" className="queue-drop" aria-label={`Remove queued message: ${q.text}`} title="Remove"
               onMouseDown={(e) => { if (mine) e.preventDefault(); }}
               onClick={() => { if (mine) setEditing(null); actions.onDrop(q.id); }}>

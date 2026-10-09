@@ -3649,6 +3649,13 @@ describe("narrow panes", () => {
     expect(bodiesFor(".question-hints > span").join(" ")).toContain("white-space: nowrap");
   });
 
+  it("a queued message's Send now becomes the send arrow in a narrow pane, leaving the width to the message", () => {
+    const narrow = blockAfter("@container (max-width: 420px)");
+    expect(narrow).toMatch(/\.composer-queue-item \.queue-send-label \{[^}]*display: none/);
+    expect(narrow).toMatch(/\.composer-queue-item \.queue-send-glyph \{[^}]*display: block/);
+    expect(bodiesFor(".composer-queue-item .queue-send-glyph").join(" ")).toContain("display: none");
+  });
+
   it("the pane roots refuse to be sized by their content", () => {
     // The named mutant: drop `min-width: 0` and `.page` grows to the width of the 180px rail plus a
     // full row of action buttons, taking its head, rail and actions outside the panel's clip.

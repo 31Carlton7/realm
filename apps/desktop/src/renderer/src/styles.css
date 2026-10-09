@@ -5010,6 +5010,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   background: transparent; color: var(--rl-text-dim); font-size: 11px; font-weight: var(--fw-label);
   transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .composer-queue-item .queue-send:hover { background: var(--surface); color: var(--rl-text-bright); }
+.composer-queue-item .queue-send-glyph { display: none; }
+@container (max-width: 420px) {
+  .composer-queue-item .queue-send { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; }
+  .composer-queue-item .queue-send-glyph { display: block; }
+  .composer-queue-item .queue-send-label { display: none; }
+}
 .composer-queue-item .queue-drop { flex: none; display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
   color: var(--rl-text-faint); transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
