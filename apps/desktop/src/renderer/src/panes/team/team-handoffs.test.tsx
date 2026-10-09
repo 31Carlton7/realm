@@ -50,6 +50,15 @@ describe("a role's page", () => {
     await waitFor(() => expect(api.calls).toContain("teamRoleHandoffs:r2:r1:"));
   });
 
+  it("a press adds to the roles it already hands to, and a second press takes one away", async () => {
+    const editor = teamRole("r3", "s1", "Editor");
+    const { api } = await mount(base({ teams: [teamSpace("s1", [producer, manager, editor])] }), <TeamPage spaceId="s1" tab="role:r1" />);
+    const group = screen.getByRole("group", { name: "Roles Content Producer hands off to" });
+    expect(within(group).getByRole("button", { name: "Creator Manager" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(group).getByRole("button", { name: "Editor" }));
+    await waitFor(() => expect(api.calls).toContain("teamRoleHandoffs:r1:r2,r3:"));
+  });
+
   it("shows its handoffs, each Realmite wearing its role's state", async () => {
     await mount(base(), <TeamPage spaceId="s1" tab="role:r2" />);
     const line = screen.getByText("Content Producer handed work to Creator Manager").closest("li")!;
