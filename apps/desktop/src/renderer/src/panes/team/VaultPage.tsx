@@ -7,7 +7,7 @@ import { Spinner } from "../../components/Spinner";
 import { useApp } from "../../state/store";
 import { feedTime } from "./team-format";
 import { vaultClient, type VaultListing } from "./vault-client";
-import { signinTitle, useLine, vaultEntries, type VaultEntry } from "./vault-format";
+import { signinTitle, usageLine, vaultEntries, type VaultEntry } from "./vault-format";
 
 /** What an agent driving Realm's window may not press, named as `app_act`'s refusal names it. */
 const NO_AGENT = "team vault grant";
@@ -140,7 +140,7 @@ function UseTable({ uses, team }: { uses: VaultUse[]; team: TeamSpace }) {
       <tbody>
         {uses.slice(0, 12).map((u) => {
           const role = u.roleId ? team.roles.find((r) => r.id === u.roleId) ?? team.formerRoles.find((r) => r.id === u.roleId) : undefined;
-          const line = useLine(u);
+          const line = usageLine(u);
           return (
             <tr key={u.id}>
               <td className="t-dim t-num">{feedTime(u.ts)}</td>

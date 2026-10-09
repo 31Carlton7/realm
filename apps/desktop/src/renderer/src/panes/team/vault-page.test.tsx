@@ -6,7 +6,7 @@ import { fakeApi, profile, space, teamRole, teamSpace } from "../../state/store.
 import { VaultPage } from "./VaultPage";
 import { TeamRailList } from "./TeamPages";
 import { setVaultClient, type VaultClient, type VaultListing } from "./vault-client";
-import { useLine, vaultEntries, vaultSentence } from "./vault-format";
+import { usageLine, vaultEntries, vaultSentence } from "./vault-format";
 
 /**
  * The team's Vault page and its grant sheet. The mutants are named per test; the ones the page exists
@@ -194,8 +194,8 @@ describe("the team's column", () => {
 
 describe("vault-format", () => {
   it("names a use's chip by what happened", () => {
-    expect(useLine(use({ outcome: "filled", kind: "signin", secretName: "tiktok.com · nathan" })).chip).toEqual({ word: "Filled", tone: "ok" });
-    expect(useLine(use({ outcome: "refused" })).chip).toEqual({ word: "Refused", tone: "warn" });
+    expect(usageLine(use({ outcome: "filled", kind: "signin", secretName: "tiktok.com · nathan" })).chip).toEqual({ word: "Filled", tone: "ok" });
+    expect(usageLine(use({ outcome: "refused" })).chip).toEqual({ word: "Refused", tone: "warn" });
   });
 
   it("says the vault's lines in the Activity feed, and how each use was let through", () => {

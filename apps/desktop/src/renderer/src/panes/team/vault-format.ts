@@ -69,7 +69,7 @@ export function vaultEntries(
 }
 
 /** One row of Recent use, in the mock's columns: what happened, and where — or, refused, why. */
-export function useLine(u: VaultUse): { what: string; where: string; chip: { word: string; tone: "ok" | "warn" } } {
+export function usageLine(u: VaultUse): { what: string; where: string; chip: { word: string; tone: "ok" | "warn" } } {
   if (u.outcome === "refused") return { what: `Asked for ${u.secretName}`, where: u.where, chip: { word: "Refused", tone: "warn" } };
   if (u.kind === "signin") return { what: `Filled ${u.secretName}`, where: u.where, chip: { word: "Filled", tone: "ok" } };
   return { what: `${u.secretName} into one request`, where: u.where, chip: { word: "Used", tone: "ok" } };
