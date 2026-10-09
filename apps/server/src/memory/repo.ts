@@ -528,13 +528,13 @@ export class MemoryRepoService {
   }
 
   /**
-   * Pull (fast-forward only) and push, behind any save in flight. Never rejects: a failure is the
+   * Pull (fast-forward only) and push: the fetch beside any save, the rest behind it. Never rejects: a failure is the
    * repo's `syncError`, and the commits wait for the next save or boot. Resolves once it has run.
    */
   queueSync(owner: RepoOwner): Promise<void> {
     const cfg = this.config(owner);
     if (!cfg?.push) return Promise.resolve();
-    const run = this.locked(cfg.path, () => this.syncNow(cfg))
+    const run = this.syncNow(cfg)
       .catch((e) => { this.note(cfg.path, e instanceof Error ? e.message : String(e)); })
       .then(() => { this.d.onSynced?.(owner); });
     this.syncing.set(repoKey(owner), run);
@@ -553,12 +553,20 @@ export class MemoryRepoService {
     return (await this.state(owner))!;
   }
 
-  /** One pull and, if there is anything to send, one push. The caller holds the repo's lock. */
+  /**
+   * One fetch, then — holding the repo's lock — the fast-forward and, if there is anything to send,
+   * one push. The fetch is outside the lock on purpose: it moves only Realm's copy of the remote's
+   * branch, which a commit never touches, and inside it a remote that does not answer held every save
+   * made after this one for the whole sync timeout.
+   */
   private async syncNow(cfg: RepoConfig): Promise<void> {
     if ((await this.invalidReason(cfg.path)) !== null) return;
-    const pulled = await this.pull(cfg);
-    if (pulled !== "ok") return;
-    await this.push(cfg);
+    const t = await this.fetchRemote(cfg);
+    if (t === "offline") return;
+    await this.locked(cfg.path, async () => {
+      if ((await this.settle(cfg, t)) !== "ok") return;
+      await this.push(cfg);
+    });
   }
 
   /**
@@ -567,12 +575,24 @@ export class MemoryRepoService {
    * "offline" is any fetch that did not go through; the error is noted on the repo.
    */
   private async pull(cfg: RepoConfig, timeoutMs?: number): Promise<"ok" | "diverged" | "offline"> {
+    const t = await this.fetchRemote(cfg, timeoutMs);
+    return t === "offline" ? "offline" : this.settle(cfg, t);
+  }
+
+  /** The fetch half of a pull: where sync points, with Realm's copy of the remote's branch brought up
+   *  to date — or "offline", noted on the repo. */
+  private async fetchRemote(cfg: RepoConfig, timeoutMs?: number): Promise<{ remote: string; branch: string; tracking: string } | "offline"> {
     const t = await this.target(cfg);
     if (typeof t === "string") { this.note(cfg.path, t); return "offline"; }
     // The usual remote-tracking refspec, spelled out so a remote without one still fetches. Its `+`
     // moves only Realm's copy of the remote's branch; nothing here ever rewrites the remote.
     const fetched = await this.network(cfg.path, ["fetch", "-q", "--no-tags", t.remote, `+refs/heads/${t.branch}:refs/remotes/${t.remote}/${t.branch}`], timeoutMs);
     if (fetched.code !== 0 && !/couldn't find remote ref/i.test(fetched.stderr)) { this.note(cfg.path, gitReason(fetched)); return "offline"; }
+    return t;
+  }
+
+  /** The local half of a pull, after a fetch: fast-forward if only the remote moved. */
+  private async settle(cfg: RepoConfig, t: { tracking: string }): Promise<"ok" | "diverged" | "offline"> {
     const c = await this.counts(cfg.path, t);
     if (c.behind > 0 && c.ahead > 0) { this.note(cfg.path, null); return "diverged"; }
     if (c.behind > 0 && (await this.uncommitted(cfg.path)).length === 0) {
