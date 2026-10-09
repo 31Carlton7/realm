@@ -84,6 +84,20 @@ describe("making a team: who is on it", () => {
     await waitFor(() => expect(api.calls).toContain("teamMake:s2:+Podcast Booker"));
   });
 
+  it("names what a teammate runs on as the model catalog does, its aliases as the family's newest", async () => {
+    await mount(base(), <TeamPage spaceId="s2" tab="team" />);
+    fireEvent.click(screen.getByRole("button", { name: /Custom teammate/ }));
+    const sheet = await screen.findByRole("dialog", { name: "Custom teammate" });
+    const options = [...(within(sheet).getByLabelText("Model") as HTMLSelectElement).options].map((o) => o.textContent);
+    // THE mutant: the page's own short list ("Sonnet", "Opus", "Haiku"), which matched nothing the
+    // model picker says.
+    expect(options).not.toContain("Sonnet");
+    expect(options.slice(0, 3)).toEqual(["Claude Sonnet, newest", "Claude Opus, newest", "Claude Haiku, newest"]);
+    expect(options).toEqual(expect.arrayContaining(["Claude Opus 5.5", "Claude Sonnet 5", "Claude Haiku 4.5"]));
+    // A new teammate starts on the alias the starters use.
+    expect((within(sheet).getByLabelText("Model") as HTMLSelectElement).value).toBe("sonnet");
+  });
+
   it("when the team's memory can go nowhere Realm would put it, says why where the button is and lets you choose a folder", async () => {
     const message = "Realm keeps memory repos in its own folder, but that folder is inside /Users/me/Projects, which one of your spaces works in. Choose a folder outside your projects to keep it in.";
     const { api } = await mount(base({ teamMakeRefusal: { code: "MEMORY_REPO_FORBIDDEN", message } }), <TeamPage spaceId="s2" tab="team" />);

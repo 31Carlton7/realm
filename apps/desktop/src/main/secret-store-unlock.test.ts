@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { newSecretKey, seal } from "@realm/contracts/src/secret-box";
 import { SecretStore, type SecretStoreDeps } from "./secret-store";
+import type { PolicyStamp } from "./policy-stamp";
 
 /**
  * Unlock policies (Settings ▸ Sign-ins ▸ Unlock). The mutants this file is for:
@@ -31,9 +32,19 @@ function fakeSafeStorage() {
   };
 }
 
-type Disk = { file: string | null; audit: string[] };
+/** The Mac's Keychain, as the stamp helper sees it: one number per scope, set only by moving it on.
+ *  It rides on the disk, so a second store over the same disk is the same Mac after a restart. */
+type Disk = { file: string | null; audit: string[]; keychain?: Map<string, number> };
 
-function makeStore(opts: { disk?: Disk; machine?: string | null; canOwner?: boolean; canTouchId?: boolean; clock?: { now: number } } = {}) {
+function fakeStamp(disk: Disk): PolicyStamp {
+  const keychain = (disk.keychain ??= new Map());
+  return {
+    read: (scope) => keychain.get(scope) ?? null,
+    bump: (scope) => { const next = (keychain.get(scope) ?? 1_000) + 1; keychain.set(scope, next); return next; },
+  };
+}
+
+function makeStore(opts: { disk?: Disk; machine?: string | null; canOwner?: boolean; canTouchId?: boolean; clock?: { now: number }; stamp?: PolicyStamp | null } = {}) {
   const disk: Disk = opts.disk ?? { file: null, audit: [] };
   const clock = opts.clock ?? { now: 1_000_000 };
   /** Every prompt raised, as `touch:<reason>` or `owner:<reason>`; `grant` answers both. */
@@ -49,6 +60,7 @@ function makeStore(opts: { disk?: Disk; machine?: string | null; canOwner?: bool
     canPromptDeviceOwner: () => opts.canOwner ?? true,
     canPromptTouchID: () => opts.canTouchId ?? true,
     machineId: () => (opts.machine === undefined ? MAC : opts.machine),
+    policyStamp: opts.stamp === undefined ? fakeStamp(disk) : opts.stamp,
     now: () => clock.now,
     newId: () => `id-${++n}`,
     defaultProfileId: () => PERSONAL,
@@ -322,7 +334,7 @@ describe("unlock policy — what the file cannot do", () => {
     await store.setUnlockPolicy(lab, { kind: "unattended" });
     const file = JSON.parse(disk.file!) as { unlock: Record<string, string> };
     file.unlock["profile:pPersonal"] = file.unlock["profile:pLab"]!;
-    const next = makeStore({ disk: { file: JSON.stringify(file), audit: [] } });
+    const next = makeStore({ disk: { file: JSON.stringify(file), audit: [], keychain: disk.keychain } });
     expect(next.store.unlockPolicy({ kind: "profile", id: PERSONAL })).toEqual({ kind: "touch-id" });
     expect(next.store.unlockPolicy(lab)).toEqual({ kind: "unattended" });
   });
@@ -331,12 +343,58 @@ describe("unlock policy — what the file cannot do", () => {
     const here = makeStore();
     const row = here.store.addCredential(LAB, signIn);
     await here.store.setUnlockPolicy(lab, { kind: "unattended" });
-    const restarted = makeStore({ disk: { file: here.disk.file, audit: [] } });
+    const restarted = makeStore({ disk: { file: here.disk.file, audit: [], keychain: here.disk.keychain } });
     expect(restarted.store.unlockPolicy(lab)).toEqual({ kind: "unattended" });
-    const elsewhere = makeStore({ disk: { file: here.disk.file, audit: [] }, machine: "99999999-8888-7777-6666-555555555555" });
+    // Even with this Mac's Keychain carried along (Migration Assistant copies the login Keychain).
+    const elsewhere = makeStore({ disk: { file: here.disk.file, audit: [], keychain: here.disk.keychain }, machine: "99999999-8888-7777-6666-555555555555" });
     expect(elsewhere.store.unlockPolicy(lab)).toEqual({ kind: "touch-id" });
     await fill(elsewhere.store, LAB, row.id);
     expect(elsewhere.prompts.asked).toEqual(["touch:fill your saved sign-in for nathan on https://www.tiktok.com"]);
+  });
+
+  it("a copy of the file saved under Without asking and put back after the user tightened it reads as Touch ID", async () => {
+    // PR #134's residual risk: an agent with a shell saves secrets.json while the profile is on
+    // Without asking, the user tightens it, the agent puts the copy back, and the next launch reads
+    // the copy. THE mutant: a policy honoured without its stamp matching the Keychain's.
+    const here = makeStore();
+    const row = here.store.addCredential(LAB, signIn);
+    await here.store.setUnlockPolicy(lab, { kind: "unattended" });
+    const saved = here.disk.file;
+    here.prompts.asked.length = 0;
+    expect(await here.store.setUnlockPolicy(lab, { kind: "touch-id" })).toMatchObject({ ok: true });
+    expect(here.prompts.asked).toEqual([]); // tightening never asks
+    here.disk.file = saved; // put back
+    const restarted = makeStore({ disk: here.disk });
+    expect(restarted.store.unlockPolicy(lab)).toEqual({ kind: "touch-id" });
+    await fill(restarted.store, LAB, row.id);
+    expect(restarted.prompts.asked).toEqual(["touch:fill your saved sign-in for nathan on https://www.tiktok.com"]);
+  });
+
+  it("the same goes for a copy taken under one looser policy and put back under another", async () => {
+    const here = makeStore();
+    await here.store.setUnlockPolicy(lab, { kind: "unattended" });
+    const saved = here.disk.file;
+    await here.store.setUnlockPolicy(lab, { kind: "session", hours: 1 });
+    here.disk.file = saved;
+    expect(makeStore({ disk: here.disk }).store.unlockPolicy(lab)).toEqual({ kind: "touch-id" });
+  });
+
+  it("a stamp gone from the Keychain puts the profile back on Touch ID; it never loosens anything", async () => {
+    const here = makeStore();
+    await here.store.setUnlockPolicy(lab, { kind: "unattended" });
+    here.disk.keychain!.delete("profile:pLab");
+    expect(makeStore({ disk: here.disk }).store.unlockPolicy(lab)).toEqual({ kind: "touch-id" });
+  });
+
+  it("with no stamp to keep, a looser policy is refused and nothing changes; a tightening still goes through", async () => {
+    const { store, disk, prompts } = makeStore({ stamp: null });
+    const r = await store.setUnlockPolicy(lab, { kind: "unattended" });
+    expect(r).toMatchObject({ ok: false });
+    expect(store.unlockPolicy(lab)).toEqual({ kind: "touch-id" });
+    expect(policyLines(disk).at(-1)).toMatchObject({ outcome: "refused", to: "unattended" });
+    prompts.asked.length = 0;
+    expect(await store.setUnlockPolicy(lab, { kind: "touch-id" })).toMatchObject({ ok: true });
+    expect(prompts.asked).toEqual([]);
   });
 
   it("a deleted profile's policy goes with it", async () => {

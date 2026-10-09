@@ -642,7 +642,7 @@ async function longList() {
 /**
  * The owner's own session, as it was when the card would not answer them: a Claude session that has
  * RUN, on Opus 5.5 as their ⌘1 favourite, with the prompter docked under a transcript and narrow
- * enough that Permissions folds into the picker's foot. The CLI is the fake that speaks the SDK's
+ * enough to open the picker from a chip near the window's foot. The CLI is the fake that speaks the SDK's
  * protocol and answers with the real CLI's model list, so the session is live the way theirs was and
  * every change goes through the running CLI's flag layer.
  */
@@ -672,18 +672,15 @@ async function ownerReal() {
     await closePicker(c);
     const first = await send("hello");
     check("real: the session runs on the CLI, on Opus 5.5 at its default", /^Ran on claude-opus-5-5: effort high, fast off\./.test(first ?? ""), first);
-    // Narrow enough that the control row folds Permissions into the picker, as the owner's did, and
-    // short enough that the picker opens up over the prompter from a chip near the window's foot.
-    let width = 0;
-    for (const w of [900, 800, 720, 660, 600]) {
-      await c.send("Emulation.setDeviceMetricsOverride", { width: w, height: 640, deviceScaleFactor: 2, mobile: false });
-      await sleep(700);
-      width = w;
-      if (await evalIn(c, `!!document.querySelector('.composer-opts[data-collapsed]')`)) break;
-    }
-    console.log("FOLDED AT", width);
+    // Narrow, as the owner's was, and short enough that the picker opens up over the prompter from a
+    // chip near the window's foot. The permission chip stays on the row at this width — it no longer
+    // folds into the picker — so the card under the picker is the model's alone.
+    const width = 600;
+    await c.send("Emulation.setDeviceMetricsOverride", { width, height: 640, deviceScaleFactor: 2, mobile: false });
+    await sleep(700);
+    console.log("NARROW AT", width);
     check("real: the prompter is docked under the transcript", (await evalIn(c, `document.querySelector('.session-pane')?.dataset.composer`)) === "docked");
-    check("real: the control row folded Permissions away", await evalIn(c, `!!document.querySelector('.composer-opts[data-collapsed]')`));
+    check("real: the permission chip stays on the narrow row", await evalIn(c, `!!document.querySelector('.composer-opts [aria-label="Permission mode"]')`));
     const chipClosed = await box(c, CHIP);
     const composerClosed = await box(c, ".composer");
     await openPicker(c);
@@ -692,13 +689,13 @@ async function ownerReal() {
     console.log("CHIP", JSON.stringify({ closed: chipClosed, open: chipOpen, composerClosed, composerOpen,
       focus: await evalIn(c, `document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName`) }));
     let card = await runCard(c);
-    check("real: the card is drawn, with Permissions under it", cardIsDrawn(card) && await evalIn(c, `!!document.querySelector('.mp-foot .mp-seg-group[aria-label="Permissions"]')`), card);
+    check("real: the card is drawn, with no Permissions folded under it", cardIsDrawn(card) && !(await evalIn(c, `!!document.querySelector('.mp-foot .mp-seg-group[aria-label="Permissions"]')`)), card);
     // What a press at each control actually lands on.
     const hits = await evalIn(c, `(() => { const at = (x, y) => { const e = document.elementFromPoint(x, y); return e ? (e.closest('.model-picker') ? 'picker:' + (e.className || e.tagName) : 'OUTSIDE:' + (e.closest('[class]')?.className ?? e.tagName)) : null; };
       const b = (s) => document.querySelector(s)?.getBoundingClientRect();
       const mid = (r) => r && at(r.x + r.width / 2, r.y + r.height / 2);
       const dots = [...document.querySelectorAll('.mp-track-dot')].map((d) => mid(d.getBoundingClientRect()));
-      return { bolt: mid(b('.mp-bolt')), dots, perms: mid(b('.mp-foot .mp-seg-opt')) }; })()`);
+      return { bolt: mid(b('.mp-bolt')), dots, perms: mid(b('.mp-foot .mp-seg-opt')) ?? null }; })()`);
     console.log("HITS", JSON.stringify(hits));
     check("real: a press on the bolt and on every dot lands on the card", /^picker:/.test(hits.bolt ?? "") && hits.dots.every((d) => /^picker:/.test(d ?? "")), hits);
     await shootPicker(c, "real-dark-picker");

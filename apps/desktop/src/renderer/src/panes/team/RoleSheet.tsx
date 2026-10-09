@@ -1,13 +1,19 @@
 import { Icon, parseRealmiteSpec, realmiteFromSeed, randomSeed, type RealmiteSpec } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
-import { CustomRoleSchema, teamShares, TEAM_DEFAULTS, type CustomRoleInput, type TeamRole, type TeamSpace } from "@realm/contracts";
+import { AGENT_MODELS, CustomRoleSchema, teamShares, TEAM_DEFAULTS, type CustomRoleInput, type TeamRole, type TeamSpace } from "@realm/contracts";
 import { RealmiteMaker } from "../../components/RealmiteMaker";
 import { Sheet } from "../../components/Sheet";
 import { useApp } from "../../state/store";
 import { invalidIssues, plainError, roleFieldErrors, sharesNote, wakeSentence, type RoleFieldErrors } from "./team-format";
 
+/** What a role runs on, named as the model catalog names it. The starters run on an ALIAS — "sonnet"
+ *  is whichever Sonnet the Claude harness has now, so a template never pins a version that ages out —
+ *  and an alias is said as that: the family, newest. Then every model the catalog lists, by its own
+ *  name. The page once had a list of its own ("Sonnet", "Opus", "Haiku") that matched nothing the
+ *  model picker says. */
 export const MODELS: { id: string; label: string }[] = [
-  { id: "sonnet", label: "Sonnet" }, { id: "opus", label: "Opus" }, { id: "haiku", label: "Haiku" },
+  ...(["Sonnet", "Opus", "Haiku"] as const).map((family) => ({ id: family.toLowerCase(), label: `Claude ${family}, newest` })),
+  ...AGENT_MODELS.claude,
 ];
 export const modelLabel = (m: string | null) => MODELS.find((x) => x.id === m)?.label ?? m ?? "The agent's default";
 

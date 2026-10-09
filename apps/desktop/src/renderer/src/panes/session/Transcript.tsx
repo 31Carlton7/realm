@@ -68,11 +68,14 @@ const inCardOrder = (c: TurnChanges, card: TurnEdits): TurnChanges => {
   return { ...c, files: card.files.map((f) => byPath.get(f.shown)).filter((f): f is TurnChanges["files"][number] => f !== undefined) };
 };
 
-function Thinking({ text, enter }: { text: string; enter?: boolean }) {
+/** `live` is a block the agent may still be writing: the last thing in a turn that is running. Any
+ *  other says it in the past tense — an interrupted turn's open block read "Thinking…" between two
+ *  finished runs, an ellipsis promising more from a turn that had long since stopped. */
+function Thinking({ text, enter, live }: { text: string; enter?: boolean; live: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="msg-thinking" data-enter={enter || undefined}>
-      <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={12} /><span>Thinking…</span></button>
+      <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={12} /><span>{live ? "Thinking…" : "Thought"}</span></button>
       {open && <Markdown text={text} className="thinking-body" />}
     </div>
   );
@@ -645,7 +648,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}
               sources={sourcesByKey.get(key)} />;
-            case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
+            case "thinking": return <Thinking key={key} text={b.text} enter={enter} live={busy && i === items.length - 1} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
               onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} onImplementWith={onImplementWith} />;

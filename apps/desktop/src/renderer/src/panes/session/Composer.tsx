@@ -13,7 +13,7 @@ import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
 import { effortOptions, fastModeAvailability, fastModeTip, modelRows, type EffortControl, type FastMode } from "./model-catalog";
 import { SkillPicker } from "./SkillPicker";
-import { ModelPicker, type OverflowGroup } from "./ModelPicker";
+import { ModelPicker } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
 import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
@@ -234,10 +234,15 @@ function QueueRow({ kind, queued, submitKey, actions }: { kind: AgentKind; queue
                 <Icon name="edit" size={12} />
               </button>
             )}
-            <button type="button" className="queue-send" title={note} disabled={mine || elsewhere}
+            {/* Words where there is room, the send arrow where there is not: in a narrow pane the two
+                words took the width the message needed, and the row read "Then …". */}
+            <button type="button" className="queue-send" aria-label="Send now" title={note} disabled={mine || elsewhere}
               // Clicked from an open field, the field's blur has already saved; this would only race it.
               onMouseDown={(e) => { if (mine) e.preventDefault(); }}
-              onClick={() => actions.onRelease(q.id)}>Send now</button>
+              onClick={() => actions.onRelease(q.id)}>
+              <Icon name="arrowUp" size={12} className="queue-send-glyph" />
+              <span className="queue-send-label">Send now</span>
+            </button>
             <button type="button" className="queue-drop" aria-label={`Remove queued message: ${q.text}`} title="Remove"
               onMouseDown={(e) => { if (mine) e.preventDefault(); }}
               onClick={() => { if (mine) setEditing(null); actions.onDrop(q.id); }}>
@@ -311,6 +316,17 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
 }
 
 const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id)?.label ?? id;
+/** The word a narrow prompter keeps for each rung. Full access keeps its whole name: it is the rung
+ *  that takes a gate away, and the one a reader must not have to decode. */
+const PERMISSION_SHORT: Record<string, string> = { default: "Ask", acceptEdits: "Edits" };
+/** The permission chip's words, long and short, both in the DOM: the pane's own width picks one in
+ *  styles.css, so a narrow row says less and never goes without the mode. */
+function PermissionWords({ id }: { id: string }) {
+  const long = permissionLabel(id);
+  const short = PERMISSION_SHORT[id];
+  if (!short) return <>{long}</>;
+  return <><span className="perm-long">{long}</span><span className="perm-short" aria-hidden="true">{short}</span></>;
+}
 /** Each rung's mark, worn by the control and by the rung's own row in its menu, so the row you pick is
  *  the glyph the control then shows. A stored id this table does not know is drawn as `default`'s
  *  asking shield — the label beside it still prints whatever the id was. */
@@ -1299,33 +1315,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const parked = planReturn ?? "default";
   const parkedItems = buildPermissionItems(parked, (id) => onParkPermission?.(id));
 
-  // Overflow collapse (§3): the control row never wraps. When the left group cannot fit at the
-  // card's width, the permission chip folds into the model menu instead (effort already lives
-  // there permanently, so it is the only chip left with somewhere to go). Measured, not
-  // hoped: the row is nowrap/overflow-hidden with non-shrinking chips, so overflow is exactly
-  // `scrollWidth > clientWidth`. The width the un-collapsed row NEEDED is remembered so growing the
-  // pane back past it un-collapses without flip-flopping (chips removed = no overflow to observe).
-  const optsRef = useRef<HTMLDivElement>(null);
-  const [collapsed, setCollapsed] = useState(false);
-  const neededW = useRef(0);
-  useLayoutEffect(() => {
-    const el = optsRef.current; if (!el) return;
-    const measure = () => {
-      if (!collapsed && el.scrollWidth > el.clientWidth) { neededW.current = el.scrollWidth; setCollapsed(true); }
-      else if (collapsed && el.clientWidth >= neededW.current) setCollapsed(false);
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return; // jsdom
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
-  // In Plan the permission control is a read-only label (see below) and stays on the row — only
-  // the MENU collapses.
-  const overflow: OverflowGroup[] | undefined = collapsed && canSetPermissionMode && !inReadOnly
-    ? [{ label: "Permissions", items: permissionItems }]
-    : undefined;
-
   return (
     <div className="composer-dock">
       {hero && (
@@ -1521,7 +1510,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
         {drop.dropping && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
         {itemDrop.dropping && <div className="composer-drop-hint" aria-hidden="true">Drop to point this message at that session</div>}
         <div className="composer-bar">
-          <div className="composer-opts" ref={optsRef} data-collapsed={collapsed || undefined}>
+          <div className="composer-opts">
             {/* The "+" opens the add menu now (Plan 12 W1) — its Add files… reaches the SAME picker
                 through the same handler the bare attach button used to call directly. */}
             <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
@@ -1550,10 +1539,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               inReadOnly
                 ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"} icon={permissionIcon(parked)} iconSize={14} caret={false}
                     title={`${MODE_LABEL[mode]} is read-only — this is what returning to Build will restore`}
-                    label={permissionLabel(parked)} items={parkedItems} />
-                : !collapsed && <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
+                    label={<PermissionWords id={parked} />} items={parkedItems} />
+                : <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
                     icon={permissionIcon(session.permissionMode)} iconSize={14} caret={false}
-                    label={permissionLabel(session.permissionMode)} items={permissionItems} />
+                    title={`Permission mode: ${permissionLabel(session.permissionMode)}`}
+                    label={<PermissionWords id={session.permissionMode} />} items={permissionItems} />
             )}
             {confirmBypass && (
               /* data-no-agent for PermissionCard's reason: this is the other live self-grant route.
@@ -1572,7 +1562,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 harness's mark, so nothing a harness chip said is lost. */}
             <ModelPicker kind={kind} model={session.model} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
-              onPick={onPickModel} overflow={overflow} fast={fast} eggs={eggs} />
+              onPick={onPickModel} fast={fast} eggs={eggs} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's

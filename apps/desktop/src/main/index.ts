@@ -47,6 +47,7 @@ import { SecretStore, SecretStoreError } from "./secret-store";
 import { VaultHost } from "./vault-host";
 import { registerVaultIpc } from "./vault-ipc";
 import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-owner";
+import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -893,6 +894,9 @@ function secrets(): SecretStore | null {
     canPromptDeviceOwner,
     canPromptTouchID: () => process.platform === "darwin" && systemPreferences.canPromptTouchID(),
     machineId,
+    // The Keychain stamp a looser unlock policy must match, so a copy of secrets.json put back after
+    // the user tightened a policy reads as Touch ID (policy-stamp.ts).
+    policyStamp: keychainPolicyStamp(policyStampHelper(app.getAppPath(), process.resourcesPath)),
     now: () => Date.now(),
     newId,
     // Sign-ins saved before they were a profile's own belong to the profile that kept the shared

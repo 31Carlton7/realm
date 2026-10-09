@@ -910,11 +910,24 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor(".composer-hint-text").join(" ")).toContain("text-overflow: ellipsis");
   });
 
-  it("the control row's left group clips instead of wrapping — the measured collapse depends on it", () => {
+  it("the control row's left group never yields — the permission mode stays on the row at any width", () => {
     const body = bodiesFor(".composer-opts").join(" ");
     expect(body).toContain("flex-wrap: nowrap");
-    expect(body).toContain("overflow: hidden");
+    // THE mutant: the group shrinking and clipping again, which is how "Full access" vanished from
+    // narrow panes (it folded into the model menu when the clip was measured).
+    expect(body).toContain("flex: none");
+    expect(body).not.toContain("overflow: hidden");
     expect(bodiesFor(".composer-opts > *").join(" ")).toContain("flex: none");
+    // What gives instead is the model chip, whose name ellipsizes beside its harness's mark.
+    expect(bodiesFor(".composer-actions").join(" ")).toContain("min-width: 0");
+    expect(bodiesFor(".composer-actions > .model-chip").join(" ")).toContain("flex: 0 1 auto");
+    // Narrow, the mode trades its long word for its short one; nothing anywhere hides the chip itself.
+    expect(blockAfter("@container (max-width: 380px)")).toMatch(/\.perm-long \{[^}]*display: none/);
+    expect(blockAfter("@container (max-width: 380px)")).toMatch(/\.perm-short \{[^}]*display: inline/);
+    // …and the model chip's level goes before the mode's word does: a wider breakpoint.
+    expect(blockAfter("@container (max-width: 440px)")).toMatch(/\.model-chip :is\(\.chip-effort, \.chip-fast\) \{[^}]*display: none/);
+    const hidesChip = RULES.filter((r) => /display: none/.test(r.body) && r.selectors.some((sel) => sel.includes("composer-opts") && !sel.includes("perm-long")));
+    expect(hidesChip).toEqual([]);
   });
 
   it("the branch name is capped by the pane it is in, never by a flat number", () => {
@@ -1661,10 +1674,30 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");
   });
 
+  it("Show raw stands on the panel's content column, not on its edge", () => {
+    const px = (body: string, prop: string) => Number(new RegExp(`${prop}: (-?\\d+)px`).exec(body)?.[1]);
+    const toggle = bodiesFor(".tool-raw-toggle").join(" ");
+    const pad = Number(/padding: \d+px (\d+)px/.exec(toggle)?.[1]);
+    // The panel's content inset, as its command line and "Show all" take it.
+    const inset = Number(/padding: \d+px (\d+)px/.exec(bodiesFor(".tool-panel .cmd-line").join(" "))?.[1]);
+    expect(inset).toBe(14);
+    expect(Number(/margin: 2px 0 0 (\d+)px/.exec(bodiesFor(".tool-panel .tool-expand").join(" "))?.[1])).toBe(inset);
+    // THE mutant: margin-left: -6px, which put the word's ink on the panel's edge (the verb column).
+    expect(px(toggle, "margin-left") + pad).toBe(inset);
+  });
+
   it("a run's head reserves its failures and yields its work; its steps' glyphs share the free rows' column", () => {
     expect(bodiesFor(".tool-group-summary").join(" ")).toContain("flex: none");
     const work = bodiesFor(".tool-group-work").join(" ");
-    expect(work).toMatch(/flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis/);
+    expect(work).toMatch(/flex: 0 1 auto; min-width: 0;/);
+    // Its parts yield whole: one visible line, the parts that do not fit wrapped off it. THE mutant is
+    // the ellipsis back on the whole run, which cut "+7 −3" mid-number at 760px.
+    expect(work).toContain("flex-wrap: wrap");
+    expect(work).toContain("overflow: hidden");
+    expect(work).not.toContain("text-overflow");
+    expect(bodiesFor(".tool-group-work > span").join(" ")).toMatch(/flex: none; white-space: pre/);
+    // …except the first, which is all the row has to say when even it does not fit.
+    expect(bodiesFor(".tool-group-work > span:first-child").join(" ")).toContain("text-overflow: ellipsis");
     expect(work).toContain("color: var(--ink-3)");
     const failed = bodiesFor(".tool-group-failed").join(" ");
     expect(failed).toContain("flex: none");
@@ -3620,6 +3653,31 @@ describe("the page measure", () => {
  *  parts once the pane is genuinely too narrow for them. Measured against the real panes at
  *  240/340/480/560/620/640/700/900px: no element escapes its panel at any of them. */
 describe("narrow panes", () => {
+  it("a narrow question card wraps who is asking and the asker's word rather than ellipsizing both", () => {
+    // The card measures itself, so a card in the Agents tab and one in a transcript break alike.
+    expect(bodiesFor(".question-card").join(" ")).toContain("container: question-card / inline-size");
+    const narrow = blockAfter("@container question-card (max-width: 440px)");
+    // THE mutants: the name kept on one line with an ellipsis ("F…"), or the tag kept to its 40% cap
+    // beside it ("D…"). Narrow, the tag takes a line of its own and both wrap whole.
+    expect(narrow).toMatch(/\.question-from \{[^}]*flex-wrap: wrap/);
+    expect(narrow).toMatch(/\.question-from-name \{[^}]*white-space: normal/);
+    expect(narrow).toMatch(/\.question-tag \{[^}]*flex: 1 0 100%[^}]*max-width: none[^}]*white-space: normal/);
+    // A line that starts with the separator reads as a stray dot.
+    expect(narrow).toMatch(/\.question-tag::before \{[^}]*content: none/);
+  });
+
+  it("the question card's key hints flow whole onto a second line, never a column of keys over words", () => {
+    expect(bodiesFor(".question-hints").join(" ")).toContain("flex-wrap: wrap");
+    expect(bodiesFor(".question-hints > span").join(" ")).toContain("white-space: nowrap");
+  });
+
+  it("a queued message's Send now becomes the send arrow in a narrow pane, leaving the width to the message", () => {
+    const narrow = blockAfter("@container (max-width: 420px)");
+    expect(narrow).toMatch(/\.composer-queue-item \.queue-send-label \{[^}]*display: none/);
+    expect(narrow).toMatch(/\.composer-queue-item \.queue-send-glyph \{[^}]*display: block/);
+    expect(bodiesFor(".composer-queue-item .queue-send-glyph").join(" ")).toContain("display: none");
+  });
+
   it("the pane roots refuse to be sized by their content", () => {
     // The named mutant: drop `min-width: 0` and `.page` grows to the width of the 180px rail plus a
     // full row of action buttons, taking its head, rail and actions outside the panel's clip.

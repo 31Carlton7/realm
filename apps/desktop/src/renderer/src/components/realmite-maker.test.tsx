@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { PALETTES, Realmite, realmiteFromSeed, type RealmiteSpec } from "@realm/ui";
 import { useState } from "react";
-import { RealmiteMaker } from "./RealmiteMaker";
+import { balancedColumns, RealmiteMaker } from "./RealmiteMaker";
 
 afterEach(cleanup);
 
@@ -92,5 +92,29 @@ describe("RealmiteMaker", () => {
     render(<Harness start={realmiteFromSeed("states")} seen={[]} />);
     const list = screen.getByRole("list", { name: "How it looks in each state" });
     expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Idle", "Working", "Needs you", "Asleep"]);
+  });
+});
+
+describe("RealmiteMaker's rows of choices", () => {
+  it("spread a row that needs a second line evenly over both, never one choice alone below", () => {
+    // THE mutant: greedy filling — nine choices where eight fit left Wears with one on its own line.
+    expect(balancedColumns(9, 8)).toBe(5);
+    expect(balancedColumns(12, 8)).toBe(6);
+    expect(balancedColumns(7, 8)).toBe(7);
+    expect(balancedColumns(12, 5)).toBe(4);
+  });
+
+  it("caps each row at its balanced width, read off the width of the column the rows are in", () => {
+    // jsdom has no layout: the column is staged at 412px, where eight 40px choices fit beside a name.
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const width = this.classList.contains("rmt-maker-parts") ? 412 : 0;
+      return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 0, width, height: 0, toJSON: () => ({}) } as DOMRect;
+    });
+    try {
+      render(<RealmiteMaker spec={realmiteFromSeed("a")} onChange={() => {}} />);
+      const row = (name: string) => screen.getByRole("radiogroup", { name }) as HTMLElement;
+      expect(row("Wears").style.maxWidth).toBe(`${5 * 42 - 2}px`);
+      expect(row("Colour").style.maxWidth).toBe(`${6 * 42 - 2}px`);
+    } finally { spy.mockRestore(); }
   });
 });

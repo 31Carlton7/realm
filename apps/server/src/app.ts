@@ -760,6 +760,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const worktrees = new WorktreeService(opts.home);
   const sessionsStore = new SessionsStore(db);
   const settings = new SettingsStore(db);
+  sessionsStore.catchUpReadMarksOnce(settings);
   /* The Seatbelt policy an agent CLI or a shell is spawned under — one instance, shared by the two
      spawn sites (TerminalService and SessionService) so they can never resolve a space differently.
      `realmHome` is passed rather than derived: this process's REALM_HOME and `opts.home` are the same

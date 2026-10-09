@@ -26,12 +26,34 @@ const SELECT = "SELECT s.*, e.path AS cwd FROM sessions s JOIN environments e ON
 export type SessionUpdate = { id: string; status?: SessionStatus; providerSessionId?: string | null; lastEventSeq?: number; title?: string;
   model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind; fastMode?: boolean };
 
+/** Settings key: the one-time read-mark catch-up has run on this home (`catchUpReadMarksOnce`). */
+export const READ_MARKS_CAUGHT_UP = "sessions.readMarksCaughtUp";
+
 export class SessionsStore {
   constructor(private db: Db) {}
   /** Move the read mark forward. Never backwards — a stale client holding an old seq must not
    *  resurrect an unseen dot on a session somebody has already caught up on. */
   markSeen(id: string, seq: number): void {
     this.db.prepare("UPDATE sessions SET seen_seq = MAX(seen_seq, ?) WHERE id = ?").run(seq, id);
+  }
+  /**
+   * Catch every OPENED session's read mark up to where it stands, once per home (`settings` holds the
+   * fact that it has been done). The sidebar's unread dot reads `seen_seq` against `last_event_seq`,
+   * but the stamp had been written for months before anything drew it, by rules that moved under it —
+   * on the owner's own home 54 opened sessions sat behind their last event, so the first launch of the
+   * build that draws the dot opened onto a sidebar of them (Versed alone had 21). None of those marks
+   * was a claim anyone saw being made. A session never opened stays at 0, which is "never opened" and
+   * draws nothing. Returns how many sessions it caught up; 0 on every launch after the first.
+   */
+  catchUpReadMarksOnce(settings: { get(key: string): unknown; set(key: string, value: unknown): void }): number {
+    if (settings.get(READ_MARKS_CAUGHT_UP) === true) return 0;
+    this.db.exec("BEGIN");
+    try {
+      const r = this.db.prepare("UPDATE sessions SET seen_seq = last_event_seq WHERE seen_seq > 0 AND seen_seq < last_event_seq").run();
+      settings.set(READ_MARKS_CAUGHT_UP, true);
+      this.db.exec("COMMIT");
+      return Number(r.changes);
+    } catch (e) { this.db.exec("ROLLBACK"); throw e; }
   }
   list(spaceId: string): Session[] {
     return (this.db.prepare(`${SELECT} WHERE s.space_id = ? ORDER BY s.created_at`).all(spaceId) as Row[]).map(toSession);
