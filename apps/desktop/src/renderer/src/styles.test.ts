@@ -922,8 +922,10 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor(".composer-actions").join(" ")).toContain("min-width: 0");
     expect(bodiesFor(".composer-actions > .model-chip").join(" ")).toContain("flex: 0 1 auto");
     // Narrow, the mode trades its long word for its short one; nothing anywhere hides the chip itself.
-    expect(blockAfter("@container (max-width: 420px)")).toMatch(/\.perm-long \{[^}]*display: none/);
-    expect(blockAfter("@container (max-width: 420px)")).toMatch(/\.perm-short \{[^}]*display: inline/);
+    expect(blockAfter("@container (max-width: 380px)")).toMatch(/\.perm-long \{[^}]*display: none/);
+    expect(blockAfter("@container (max-width: 380px)")).toMatch(/\.perm-short \{[^}]*display: inline/);
+    // …and the model chip's level goes before the mode's word does: a wider breakpoint.
+    expect(blockAfter("@container (max-width: 440px)")).toMatch(/\.model-chip :is\(\.chip-effort, \.chip-fast\) \{[^}]*display: none/);
     const hidesChip = RULES.filter((r) => /display: none/.test(r.body) && r.selectors.some((sel) => sel.includes("composer-opts") && !sel.includes("perm-long")));
     expect(hidesChip).toEqual([]);
   });

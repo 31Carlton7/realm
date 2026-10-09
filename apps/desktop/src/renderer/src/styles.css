@@ -5444,8 +5444,10 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-actions { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
 .composer-actions > .model-chip { flex: 0 1 auto; }
 .composer-actions > :not(.model-chip) { flex: none; }
-@container (max-width: 480px) { .composer-actions .model-chip :is(.chip-effort, .chip-fast) { display: none; } }
-@container (max-width: 420px) { .composer-opts .perm-long { display: none; } .composer-opts .perm-short { display: inline; } }
+/* Measured on the built app (Fable 5.1 at High, Ask each time): the whole row fits down to a 440px
+   pane; without the level it fits to 380 with the mode's long word, and to 328 with its short one. */
+@container (max-width: 440px) { .composer-actions .model-chip :is(.chip-effort, .chip-fast) { display: none; } }
+@container (max-width: 380px) { .composer-opts .perm-long { display: none; } .composer-opts .perm-short { display: inline; } }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
 /* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).
