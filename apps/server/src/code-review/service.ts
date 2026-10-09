@@ -2,8 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   AGENT_META, AGENT_SUPPORTS_PLAN_MODE, PLAN_PERMISSION_MODE, PR_PAGE_SIZE, PR_PINS_MAX, PrReviewSchema, PrSummarySchema, REVIEW_INSTRUCTIONS_MAX, ReviewerPickSchema,
-  prKey, prName, prPinsKey, prReviewKey, prThreadKey, reviewInstructionsKey, reviewerPickKey, sameRepo,
-  type AgentKind, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrPlace, type PrRef, type PrReview,
+  prAccountKey, prKey, prName, prPinsKey, prReviewKey, prThreadKey, reviewInstructionsKey, reviewerPickKey, sameRepo,
+  type AgentKind, type FileDiff, type GhAccounts, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrPlace, type PrRef, type PrReview,
   type PrSection, type PrSummary, type ReviewInstructions, type ReviewerPick, type SubmitReview, type SubmittedReview,
 } from "@realm/contracts";
 import type { DelegationEngine } from "../delegation/engine";
@@ -40,6 +40,12 @@ export function searchQuery(text: string): string {
  *  its checks move — and a sign-in a minute too, except "not yet", which should notice the terminal
  *  the person was just sent to as soon as they come back. */
 const TTL = { status: 60_000, statusUnready: 5_000, list: 60_000, detail: 30_000, places: 30_000 } as const;
+/** A held read's key under the account it was read as: what one account may see another may not, so
+ *  nothing read as one is ever served to another. `null` — gh's own active account — is the empty
+ *  scope. Logins are case-insensitive, as GitHub's are. */
+const scoped = (account: string | null, key: string): string => `${(account ?? "").toLowerCase()}\n${key}`;
+const unscoped = (key: string): string => key.slice(key.indexOf("\n") + 1);
+
 /** Requests whose files and patches are held at once; a patch set is the big read, and a person
  *  moves between a handful of requests, not dozens. */
 const FILES_HELD = 6;
@@ -92,7 +98,20 @@ export class CodeReviewService {
   private readonly details: Held<PrDetail>;
   private readonly fileSets: Held<FileSet>;
   private readonly lines: Held<string[] | null>;
-  private status: { at: number; value: GhStatus } | null = null;
+  /** What gh last said about each account asked after, by `scoped` account. */
+  private readonly statuses = new Map<string, { at: number; value: GhStatus }>();
+  private accountsHeld: { at: number; value: GhAccounts } | null = null;
+  /** gh being asked for its accounts right now, and whether the caller who started it wanted the
+   *  list fresh. A caller that would take the held list waits on this instead, since the held list is
+   *  from before the ask, and so does one who wants it fresh while a fresh ask is under way: one
+   *  `gh auth status` answers them all. A fresh ask never waits on one that was not, and takes its
+   *  place: the list is held only from the ask that is still the one under way when it answers, so
+   *  an ask from before a fresh one, answered after it, does not put its older list back. */
+  private accountsAsked: { fresh: boolean; answer: Promise<GhAccounts> } | null = null;
+  /** Each profile's last `setAccount`, which its next one waits behind. A pick asks gh about its
+   *  account before it is stored and a take-back is stored without asking, so a take-back sent
+   *  behind a pick that was still asking would be stored first and then lost to it. */
+  private readonly picking = new Map<string, Promise<void>>();
   private placesHeld: Held<PrPlace[]>;
   /** One fetch of a request's files at a time, joined by every caller that asks while it runs. */
   private readonly loading = new Map<string, Promise<FileSet>>();
@@ -127,47 +146,121 @@ export class CodeReviewService {
     this.placesHeld = new Held(8, this.now);
   }
 
-  private gh(): GhClient {
+  /** `gh` as `account`, or as itself — its own active account — for null. */
+  private gh(account: string | null = null): GhClient {
     if (!this.d.gh) throw new RpcError("GH_MISSING", "gh is not installed on this Mac");
-    return this.d.gh;
+    return account === null ? this.d.gh : this.d.gh.as(account);
   }
 
   /* ─────────────────────────────── reads ─────────────────────────────── */
 
-  async ghStatus(force = false): Promise<GhStatus> {
+  /**
+   * Whether gh is ready, and as whom. With a profile it is asked as the account that profile picked;
+   * a profile that picked none, or whose pick gh has since signed out of, is on gh's own active
+   * account, and the answer carries no `account`.
+   */
+  async ghStatus(force = false, profileId: string | null = null): Promise<GhStatus> {
     if (!this.d.gh) return { state: "missing", login: null, reason: null };
-    const held = this.status;
+    const account = profileId ? await this.accountOf(profileId, force) : null;
+    const key = scoped(account, "");
+    const held = this.statuses.get(key);
     if (!force && held && this.now() - held.at < (held.value.state === "ready" ? TTL.status : TTL.statusUnready)) return held.value;
-    const value = await this.d.gh.status();
-    this.status = { at: this.now(), value };
+    const value: GhStatus = { ...(await this.gh(account).status()), ...(account ? { account } : {}) };
+    this.statuses.set(key, { at: this.now(), value });
     return value;
   }
 
-  async list(section: PrSection, cursor: string | null, force = false): Promise<PrPage> {
-    const key = `${section}|${cursor ?? ""}`;
+  /** The accounts gh is signed in to on github.com and the one it has active, held as long as a
+   *  sign-in is. */
+  async accounts(force = false): Promise<GhAccounts> {
+    if (!this.d.gh) return { accounts: [], active: null };
+    const under = this.accountsAsked;
+    if (under && (under.fresh || !force)) return under.answer;
+    const held = this.accountsHeld;
+    if (!force && held && this.now() - held.at < TTL.status) return held.value;
+    const asked = { fresh: force, answer: this.d.gh.accounts() };
+    this.accountsAsked = asked;
+    try {
+      const value = await asked.answer;
+      if (this.accountsAsked === asked) this.accountsHeld = { at: this.now(), value };
+      return value;
+    } finally {
+      if (this.accountsAsked === asked) this.accountsAsked = null;
+    }
+  }
+
+  /** The account `profileId` picked, as gh spells it, while gh is still signed in to it — what its
+   *  Code review runs as, and what a pull request shipped from one of its checkouts is opened as.
+   *  Null for a profile that picked none: no gh call is made, and gh's own active account stands. */
+  async accountOf(profileId: string, force = false): Promise<string | null> {
+    const picked = this.d.settings.get(prAccountKey(profileId));
+    if (typeof picked !== "string" || picked === "") return null;
+    return (await this.accounts(force)).accounts.find((a) => a.toLowerCase() === picked.toLowerCase()) ?? null;
+  }
+
+  /**
+   * Pick the account a profile's Code review runs as, or with null take the pick back and leave the
+   * profile on gh's active account. Only one gh is signed in to is kept: a pick nothing can be sent
+   * as would name an account on the page that no read or review goes out under. gh's own active
+   * account is not changed.
+   *
+   * A profile's picks are stored one behind another, in the order they were asked for, whichever
+   * window or page asked: the last one asked for is the one that stands.
+   */
+  async setAccount(profileId: string, login: string | null): Promise<GhStatus> {
+    if (!this.d.profiles.get(profileId)) throw new NotFoundError("profile", profileId);
+    const stored = (this.picking.get(profileId) ?? Promise.resolve()).then(() => this.storeAccount(profileId, login));
+    const settled = stored.then(() => {}, () => {});
+    this.picking.set(profileId, settled);
+    void settled.then(() => { if (this.picking.get(profileId) === settled) this.picking.delete(profileId); });
+    return stored;
+  }
+
+  /**
+   * Store one pick and say so. Every window is told once the profile's status under the pick is in
+   * hand, so a page that asks on hearing it is answered as the new account. A take-back asks gh who
+   * it is afresh and lets the held list of accounts go: both can be from before the pick was made,
+   * a terminal may have switched gh since, and the profile is now on whichever account gh has active.
+   */
+  private async storeAccount(profileId: string, login: string | null): Promise<GhStatus> {
+    let pick: string | null = null;
+    if (login !== null) {
+      const known = (await this.accounts(true)).accounts.find((a) => a.toLowerCase() === login.toLowerCase());
+      if (!known) throw new RpcError("GH_ACCOUNT_UNKNOWN", `gh is not signed in to GitHub as @${login}. Sign in as that account in a terminal, then pick it again.`);
+      pick = known;
+    }
+    this.d.settings.set(prAccountKey(profileId), pick);
+    if (pick === null) this.accountsHeld = null;
+    try { return await this.ghStatus(pick === null, profileId); }
+    finally { this.d.rpc.broadcast("codeReview.accountChanged", { profileId }); }
+  }
+
+  async list(section: PrSection, cursor: string | null, force = false, account: string | null = null): Promise<PrPage> {
+    const key = scoped(account, `${section}|${cursor ?? ""}`);
     const held = force ? undefined : this.lists.get(key, TTL.list);
     if (held) return held;
     // Refresh starts the list over: a later page held from before would splice an older reading on.
-    if (force && cursor === null) this.lists.clear((k) => k.startsWith(`${section}|`));
-    const page = await this.gh().search(SECTION_QUERY[section], PR_PAGE_SIZE, cursor);
+    if (force && cursor === null) this.lists.clear((k) => k.startsWith(scoped(account, `${section}|`)));
+    const page = await this.gh(account).search(SECTION_QUERY[section], PR_PAGE_SIZE, cursor);
     this.lists.set(key, page);
     return page;
   }
 
-  async search(query: string, cursor: string | null): Promise<PrPage> {
-    const key = `search:${query}|${cursor ?? ""}`;
+  async search(query: string, cursor: string | null, account: string | null = null): Promise<PrPage> {
+    const key = scoped(account, `search:${query}|${cursor ?? ""}`);
     const held = this.lists.get(key, TTL.list);
     if (held) return held;
-    const page = await this.gh().search(searchQuery(query), PR_PAGE_SIZE, cursor);
+    const page = await this.gh(account).search(searchQuery(query), PR_PAGE_SIZE, cursor);
     this.lists.set(key, page);
     return page;
   }
 
-  async detail(ref: PrRef, force = false): Promise<PrDetail> {
-    const held = force ? undefined : this.details.get(prKey(ref), TTL.detail);
+  async detail(ref: PrRef, force = false, account: string | null = null): Promise<PrDetail> {
+    const key = scoped(account, prKey(ref));
+    const held = force ? undefined : this.details.get(key, TTL.detail);
     if (held) return held;
-    const detail = await this.gh().detail(ref);
-    this.details.set(prKey(ref), detail);
+    const detail = await this.gh(account).detail(ref);
+    this.details.set(key, detail);
     return detail;
   }
 
@@ -176,23 +269,23 @@ export class CodeReviewService {
    * the old one is simply not asked for again. `headSha` names the head the page last read; when the
    * request has moved past it, the answer is the new head's files and says so in its own `headSha`.
    */
-  async files(ref: PrRef, headSha: string): Promise<PrFiles> {
-    const set = await this.fileSet(ref, headSha);
+  async files(ref: PrRef, headSha: string, account: string | null = null): Promise<PrFiles> {
+    const set = await this.fileSet(ref, headSha, account);
     return { headSha: set.headSha, files: set.raw.map((r) => r.file), total: set.raw.length, truncated: set.truncated };
   }
 
-  private async fileSet(ref: PrRef, headSha: string): Promise<FileSet> {
-    const key = `${prKey(ref)}@${headSha}`;
+  private async fileSet(ref: PrRef, headSha: string, account: string | null = null): Promise<FileSet> {
+    const key = scoped(account, `${prKey(ref)}@${headSha}`);
     const held = this.fileSets.get(key);
     if (held) return held;
     const inflight = this.loading.get(key);
     if (inflight) return inflight;
     const p = (async () => {
-      let detail = await this.detail(ref);
-      if (detail.headSha !== headSha) detail = await this.detail(ref, true);
-      const { files, truncated } = await this.gh().files(ref, detail.changedFiles);
+      let detail = await this.detail(ref, false, account);
+      if (detail.headSha !== headSha) detail = await this.detail(ref, true, account);
+      const { files, truncated } = await this.gh(account).files(ref, detail.changedFiles);
       const set: FileSet = { headSha: detail.headSha, raw: files, byPath: new Map(files.map((f) => [f.file.path, f])), parsed: new Map(), truncated };
-      this.fileSets.set(`${prKey(ref)}@${detail.headSha}`, set);
+      this.fileSets.set(scoped(account, `${prKey(ref)}@${detail.headSha}`), set);
       if (detail.headSha !== headSha) this.fileSets.set(key, set);
       return set;
     })().finally(() => this.loading.delete(key));
@@ -202,8 +295,8 @@ export class CodeReviewService {
 
   /** Patches for the named files — parsed on first ask and kept with the set. A path the request
    *  does not touch is left out rather than answered with an empty patch it never had. */
-  async patches(ref: PrRef, headSha: string, paths: string[]): Promise<FileDiff[]> {
-    const set = await this.fileSet(ref, headSha);
+  async patches(ref: PrRef, headSha: string, paths: string[], account: string | null = null): Promise<FileDiff[]> {
+    const set = await this.fileSet(ref, headSha, account);
     return paths.flatMap((path) => {
       const raw = set.byPath.get(path);
       if (!raw) return [];
@@ -213,11 +306,11 @@ export class CodeReviewService {
     });
   }
 
-  async fileLines(ref: PrRef, headSha: string, path: string): Promise<string[] | null> {
-    const key = `${prKey(ref)}@${headSha}:${path}`;
+  async fileLines(ref: PrRef, headSha: string, path: string, account: string | null = null): Promise<string[] | null> {
+    const key = scoped(account, `${prKey(ref)}@${headSha}:${path}`);
     const held = this.lines.get(key);
     if (held !== undefined) return held;
-    const lines = await this.gh().fileLines(ref, headSha, path);
+    const lines = await this.gh(account).fileLines(ref, headSha, path);
     this.lines.set(key, lines);
     return lines;
   }
@@ -231,7 +324,7 @@ export class CodeReviewService {
    */
   async submit(review: SubmitReview): Promise<SubmittedReview> {
     if (review.comments.length > 0) {
-      const set = await this.fileSet(review.ref, review.headSha);
+      const set = await this.fileSet(review.ref, review.headSha, review.account);
       if (set.headSha !== review.headSha) {
         throw new RpcError("HEAD_MOVED", "New commits landed on this pull request since you read it. Look over the changes again before submitting.");
       }
@@ -242,9 +335,9 @@ export class CodeReviewService {
         }
       }
     }
-    const posted = await this.gh().submit(review);
+    const posted = await this.gh(review.account).submit(review);
     // The request's reviews and the lists it sits in have both changed.
-    this.details.clear((k) => k === prKey(review.ref));
+    this.details.clear((k) => unscoped(k) === prKey(review.ref));
     this.lists.clear();
     return posted;
   }
@@ -353,15 +446,16 @@ export class CodeReviewService {
    * message says what is attached in one line, so the transcript keeps the person's own words.
    */
   async ask(input: { ref: PrRef; spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null; text: string;
-    fastMode?: boolean; permissionMode?: string | null; attachments?: { path: string; mime: string }[] }): Promise<{ sessionId: string; itemId: string | null }> {
+    fastMode?: boolean; permissionMode?: string | null; attachments?: { path: string; mime: string }[]; account?: string | null }): Promise<{ sessionId: string; itemId: string | null }> {
     const extra = input.attachments ?? [];
     const thread = this.thread(input.ref);
     if (thread && thread.spaceId === input.spaceId) {
       await this.d.sessions.send(thread.sessionId, { text: input.text, attachments: extra });
       return { sessionId: thread.sessionId, itemId: null };
     }
-    const detail = await this.detail(input.ref);
-    const set = await this.fileSet(input.ref, detail.headSha);
+    const account = input.account ?? null;
+    const detail = await this.detail(input.ref, false, account);
+    const set = await this.fileSet(input.ref, detail.headSha, account);
     const place = await this.placeOf(input.spaceId, input.projectId);
     const context = this.writeContext(detail, set, place);
     const { session, itemId } = this.d.sessions.create({
@@ -455,12 +549,13 @@ export class CodeReviewService {
    * card set. Returns as soon as the session exists; the findings arrive as `codeReview.reviewChanged`.
    */
   async review(input: { ref: PrRef; profileId: string; spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null;
-    fastMode?: boolean }): Promise<PrReview> {
+    fastMode?: boolean; account?: string | null }): Promise<PrReview> {
     const key = prKey(input.ref);
     requireReadOnly(input.agentKind);
     if (this.active.has(key)) throw new RpcError("REVIEW_IN_FLIGHT", "A review of this pull request is already running. Wait for its findings.");
-    const detail = await this.detail(input.ref);
-    const set = await this.fileSet(input.ref, detail.headSha);
+    const account = input.account ?? null;
+    const detail = await this.detail(input.ref, false, account);
+    const set = await this.fileSet(input.ref, detail.headSha, account);
     const prompt = reviewPrompt({ detail, files: set.raw, instructions: this.instructions(input.profileId).text });
     const { session } = this.d.sessions.create({
       spaceId: input.spaceId, agentKind: input.agentKind, projectId: input.projectId,

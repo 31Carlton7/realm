@@ -1247,7 +1247,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const imports = new ImportService({ home: opts.home, db, rpc, spaces, profiles, projects, environments,
     sessions: sessionsStore, events: sessionEvents, items, settings, memory });
   const ships = new ShipsStore(db);
-  const gitWrite = new GitWriteService({ shipLog: (entry) => {
+  const gitWrite = new GitWriteService({ ghCommand: opts.codeReview?.gh, shipLog: (entry) => {
     ships.record(entry);
     rpc.broadcast("ships.changed", { spaceId: entry.spaceId });
   } });

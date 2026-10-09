@@ -3,7 +3,7 @@ import type { Finding, PrDetail, PrFile, PrSummary } from "@realm/contracts";
 import type { AgentProbe } from "../../state/store";
 import {
   EMPTY_DRAFT, age, ago, appendPage, canSubmit, checksFact, dropComment, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact,
-  postsLine, readQuery, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerRows,
+  postsLine, readQuery, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerRows, sameLogin, sentAs,
 } from "./code-review-model";
 import { fileTree, filterFiles, treeRows } from "./file-tree";
 
@@ -146,6 +146,20 @@ describe("the review being written", () => {
       ref, headSha: "abc1234", event: "REQUEST_CHANGES", body: "  Two things.\n",
       comments: [{ path: "src/a.ts", line: 14, side: "RIGHT", body: "Carry the partial token." }],
     });
+  });
+
+  it("names the account a review goes out as only where the profile picked one", () => {
+    const d = { ...EMPTY_DRAFT, event: "APPROVE" as const, body: "LGTM" };
+    expect(reviewPayload(ref, "abc1234", d, null)).not.toHaveProperty("account");
+    expect(reviewPayload(ref, "abc1234", d, "mara")).toMatchObject({ event: "APPROVE", account: "mara" });
+    expect(sentAs(null)).toEqual({});
+    expect(sentAs("mara")).toEqual({ account: "mara" });
+  });
+
+  it("takes two spellings of a login as one account, and no login as nobody", () => {
+    expect(sameLogin("Mara", "mara")).toBe(true);
+    expect(sameLogin("mara", "mara-work")).toBe(false);
+    expect(sameLogin(null, null)).toBe(false);
   });
 
   it("says what Submit will post, and refuses an empty comment", () => {

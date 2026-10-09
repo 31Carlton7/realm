@@ -1,15 +1,17 @@
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import {
-  PR_FILES_MAX, type CheckState, type GhStatus, type PrDetail, type PrFile, type PrFileStatus, type PrPage, type PrRef, type PrState,
+  PR_FILES_MAX, type CheckState, type GhAccounts, type GhStatus, type PrDetail, type PrFile, type PrFileStatus, type PrPage, type PrRef, type PrState,
   type PrSummary, type ReviewerState, type SubmitReview, type SubmittedReview,
 } from "@realm/contracts";
 import { RpcError } from "../store/rows";
+import { GITHUB_HOST, ghAs } from "../workspace/gh-account";
 
 export type GhResult = { code: number; stdout: string; stderr: string };
 /** Running `gh` — injectable, so a suite points at a script of its own: nothing in this repository's
- *  test suite may reach GitHub. `input` is written to its stdin (a review's JSON body). */
-export type GhRun = (args: string[], opts?: { input?: string; timeoutMs?: number }) => Promise<GhResult>;
+ *  test suite may reach GitHub. `input` is written to its stdin (a review's JSON body), and `as` names
+ *  the account the call is sent as, where that is not gh's own active one (`ghAs`). */
+export type GhRun = (args: string[], opts?: { input?: string; timeoutMs?: number; as?: string }) => Promise<GhResult>;
 
 /** A read is a page of a list or one request; a minute is a long time for either to say nothing. */
 const GH_TIMEOUT_MS = 60_000;
@@ -27,7 +29,8 @@ const GH_MAX_BUFFER = 64 * 1024 * 1024;
  */
 export function ghRunner(command: string): GhRun {
   return (args, opts = {}) => new Promise((resolve, reject) => {
-    const child = execFile(command, args, {
+    const [file, argv] = opts.as === undefined ? [command, args] : ghAs(command, opts.as, args);
+    const child = execFile(file, argv, {
       cwd: tmpdir(), timeout: opts.timeoutMs ?? GH_TIMEOUT_MS, maxBuffer: GH_MAX_BUFFER, encoding: "utf8",
       env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_SPINNER_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0" },
     }, (err, stdout, stderr) => {
@@ -233,6 +236,42 @@ const FILE_TEXT_MAX = 2 * 1024 * 1024;
 export class GhClient {
   constructor(private readonly run: GhRun) {}
 
+  /** This client with every call sent as `login`, another of the accounts gh is signed in to. */
+  as(login: string): GhClient {
+    return new GhClient((args, opts) => this.run(args, { ...opts, as: login }));
+  }
+
+  /**
+   * The accounts gh is signed in to on github.com and can act as, by login, in name order — a list
+   * that does not reshuffle when a terminal switches gh's active one — and which of them that
+   * active one is: the account a call sent as nobody goes out under.
+   *
+   * Empty, with no active one, wherever there is no honest list to give: no gh; a gh older than
+   * `auth status --json` (2.81), which refuses the flag; an answer that is not the JSON; and a token
+   * in the environment (`GH_TOKEN`, `GITHUB_TOKEN`), because gh then acts as that token's account
+   * whichever is picked and has no stored token to hand over for it.
+   *
+   * An account whose token GitHub refused is left out, and is not named as the active one either:
+   * nothing can be sent as it. One gh could not check is kept — gh files a dropped network under the
+   * same `error` state, and an account it could not reach GitHub to ask about is still an account it
+   * is signed in to.
+   */
+  async accounts(): Promise<GhAccounts> {
+    const none: GhAccounts = { accounts: [], active: null };
+    const r = await this.run(["auth", "status", "--hostname", GITHUB_HOST, "--json", "hosts"]);
+    if (r.code !== 0) return none;
+    try {
+      const rows = (JSON.parse(r.stdout) as { hosts?: Record<string, unknown> }).hosts?.[GITHUB_HOST];
+      if (!Array.isArray(rows)) return none;
+      const listed = rows as { login?: unknown; active?: unknown; state?: unknown; error?: unknown; tokenSource?: unknown }[];
+      if (listed.some((a) => typeof a.tokenSource === "string" && /^(?:GH|GITHUB)_TOKEN$/.test(a.tokenSource))) return none;
+      const refused = (a: { state?: unknown; error?: unknown }) => a.state === "error" && typeof a.error === "string" && /\b401\b|bad credentials/i.test(a.error);
+      const usable = listed.flatMap((a) => (typeof a.login === "string" && a.login !== "" && !refused(a) ? [{ login: a.login, active: a.active === true }] : []));
+      const accounts = [...new Set(usable.map((a) => a.login))].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+      return { accounts, active: usable.find((a) => a.active)?.login ?? null };
+    } catch { return none; }
+  }
+
   /** Who `gh` is signed in as — `gh api user` is the one call that needs auth and answers in a
    *  single request, so its failure is the clearest reading of the three states it can be in. */
   async status(): Promise<GhStatus> {
@@ -306,7 +345,7 @@ export class GhClient {
    * length or punctuation reaches GitHub as written, with no shell or field syntax in between. Line
    * comments ride in the same request, so the review lands whole or not at all.
    */
-  async submit(review: SubmitReview): Promise<SubmittedReview> {
+  async submit(review: Omit<SubmitReview, "account">): Promise<SubmittedReview> {
     const payload = {
       commit_id: review.headSha,
       event: review.event,

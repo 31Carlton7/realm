@@ -330,6 +330,77 @@ esac`);
     } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
   });
 
+  describe("as an account", () => {
+    /** A gh that hands over a token for mara alone, and says of each request call whether it carried it. */
+    function accountGh(sent: string, tokenAsked: string): string {
+      return stubGh(`case "$1 $2" in
+  "auth token") touch ${tokenAsked}; [ "$4" = "mara" ] && [ "$6" = "github.com" ] && { echo "token-of-mara"; exit 0; }; exit 1 ;;
+  "pr view") [ "$GH_TOKEN" = "token-of-mara" ] && echo "view as mara" >> ${sent} || echo "view as gh's own" >> ${sent}; exit 1 ;;
+  "pr create") [ "$GH_TOKEN" = "token-of-mara" ] && echo "create as mara" >> ${sent} || echo "create as gh's own" >> ${sent}; echo "https://github.com/acme/widgets/pull/7"; exit 0 ;;
+esac
+exit 1`);
+    }
+    const lines = (file: string) => (existsSync(file) ? readFileSync(file, "utf8").trim().split("\n") : []);
+    const pushed = () => {
+      const repo = makeRepo(); const bare = attachGitHubLookalike(repo);
+      git(repo, "push", "-u", "origin", "main:main");
+      return { repo, bare, sent: join(bare, "sent"), tokenAsked: join(bare, "token-asked") };
+    };
+    const shipPr = { commit: false, message: "Add a thing", push: true, setUpstream: false, openPr: true } as const;
+
+    it("looks for the request and opens it as the account it is given", async () => {
+      const { repo, bare, sent, tokenAsked } = pushed();
+      try {
+        const r = await svc(accountGh(sent, tokenAsked)).ship({ cwd: repo, ...shipPr, account: "mara" });
+        expect(r.pr).toMatchObject({ state: "created", url: "https://github.com/acme/widgets/pull/7" });
+        expect(lines(sent)).toEqual(["view as mara", "create as mara"]);
+      } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+    });
+
+    it("sends both calls as gh's own account, and asks for no token, when it is given none", async () => {
+      for (const account of [undefined, null]) {
+        const { repo, bare, sent, tokenAsked } = pushed();
+        try {
+          const r = await svc(accountGh(sent, tokenAsked)).ship({ cwd: repo, ...shipPr, ...(account === undefined ? {} : { account }) });
+          expect(r.pr.state).toBe("created");
+          expect(lines(sent)).toEqual(["view as gh's own", "create as gh's own"]);
+          expect(existsSync(tokenAsked)).toBe(false);
+        } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+      }
+    });
+
+    it("opens nothing as another account when gh is no longer signed in to the one named, and says whose sign-in is missing", async () => {
+      const { repo, bare, sent, tokenAsked } = pushed();
+      try {
+        const r = await svc(accountGh(sent, tokenAsked)).ship({ cwd: repo, ...shipPr, account: "someone-gone" });
+        expect(r.pr.state).toBe("compare");
+        expect(r.pr.url).toBe("https://github.com/acme/widgets/compare/main...main?expand=1");
+        expect(r.pr.reason).toBe("gh is not signed in to GitHub as someone-gone");
+        expect(lines(sent)).toEqual([]);
+      } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+    });
+
+    it("still reads a missing gh as not installed when an account is named", async () => {
+      const { repo, bare } = pushed();
+      try {
+        const r = await svc().ship({ cwd: repo, ...shipPr, account: "mara" });
+        expect(r.pr.state).toBe("compare");
+        expect(r.pr.reason).toMatch(/gh is not installed/);
+      } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+    });
+
+    it("takes nothing in the account's name as shell", async () => {
+      const { repo, bare, sent, tokenAsked } = pushed();
+      const marker = join(bare, "injected");
+      try {
+        const r = await svc(accountGh(sent, tokenAsked)).ship({ cwd: repo, ...shipPr, account: `mara"; touch ${marker}; echo "` });
+        expect(existsSync(marker)).toBe(false);
+        expect(r.pr.state).toBe("compare");
+        expect(lines(sent)).toEqual([]);
+      } finally { rmSync(repo, { recursive: true, force: true }); rmSync(bare, { recursive: true, force: true }); }
+    });
+  });
+
   it("says so, with no URL, when the remote is not GitHub", async () => {
     const repo = makeRepo(); const bare = attachRemote(repo);
     try {

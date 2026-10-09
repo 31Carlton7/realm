@@ -4,14 +4,14 @@ import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
-  EDITOR_NAMES, resolveEditor, type OpenFilesIn, type TerminalDockEdge, } from "@realm/contracts";
+  EDITOR_NAMES, resolveEditor, type GhAccounts, type OpenFilesIn, type TerminalDockEdge, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
   type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
   CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
 import type { ThemeSeed } from "@realm/contracts";
-import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { Fragment, useCallback, useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
@@ -29,6 +29,8 @@ import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
 import { PageRail } from "../../components/page-nav";
+import { codeReview } from "../code-review/code-review-api";
+import { holdStatus, pageHeld } from "../code-review/held";
 import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, settingsTabLabel, type SettingEntry, type SettingsTab } from "./settings-index";
 
 /**
@@ -519,6 +521,142 @@ const MOTION_CHOICES: { pref: ReducedMotionPref; label: string }[] = [
 const TERMINAL_DOCK_CHOICES: { edge: TerminalDockEdge; label: string }[] = [
   { edge: "right", label: "Right" }, { edge: "bottom", label: "Bottom" },
 ];
+
+/** Why gh lists no accounts, behind the sentence that says it lists none. */
+const NO_GH_ACCOUNTS = "Realm asks gh which GitHub accounts it is signed in to. gh lists none when it is not installed, is older than 2.81, or is signed out, and when GH_TOKEN or GITHUB_TOKEN is set, because that token decides the account.";
+
+/**
+ * The GitHub account each profile's Code review reads and posts as, and its shipped pull requests
+ * are opened as, from the accounts gh is signed in to.
+ *
+ * Folded, the row says what is stored and asks gh nothing: gh checks every account it holds with
+ * GitHub when it is asked for them, and opening Settings is no reason for that. Opened, it asks,
+ * afresh, and again when the window comes back, since a terminal is where gh's accounts change, and
+ * when the server does, since nothing could be asked of gh while it was away.
+ *
+ * A profile that picked none is on whichever account gh has active, and the first option says whose
+ * that is: a setting shows the value in force. A pick naming an account gh does not list keeps its
+ * own option, marked, the way a removed editor does — signed out where gh lists others, not listed
+ * where it lists none, which is not the same thing. A profile is given a select only where there is
+ * something to choose or a pick to take back; where no profile has either, one sentence says why. A
+ * select, once drawn, stays until the row is folded: neither a later answer from gh nor taking the
+ * last pick back takes a control from under a person's hand. A row opened again draws at once from
+ * the list gh gave last time, and a select it draws from that list alone is kept only from gh's
+ * answer on. Nothing is said of a profile before its stored pick has been read, and a list gh gave
+ * is kept when a later ask fails.
+ *
+ * A row shows a pick the moment it is made. What is stored is read again once the picks on their
+ * way have all been answered, when the server is back after a break, and whenever a pick is
+ * announced from elsewhere: the Code review menu and other windows change it too. A pick that could
+ * not be stored puts the row back.
+ */
+function GitHubAccounts() {
+  const profiles = useApp((s) => s.profiles);
+  const windowActive = useApp((s) => s.windowActive);
+  const connected = useApp((s) => s.connectionState === "connected");
+  const run = useApp((s) => s.run);
+  const [open, setOpen] = useState(false);
+  const [listed, setListed] = useState<GhAccounts | null>(null);
+  const [unread, setUnread] = useState(false);
+  const [picks, setPicks] = useState<Record<string, string | null>>({});
+  const [kept, setKept] = useState<Record<string, true>>({});
+  const [heard, setHeard] = useState(false);
+  const stored = useRef<Record<string, string | null>>({});
+  const sending = useRef<Record<string, number>>({});
+  const here = useRef(true);
+  const ids = profiles.map((p) => p.id).join(",");
+
+  const show = useCallback((profileId: string, login: string | null) => setPicks((cur) => ({ ...cur, [profileId]: login })), []);
+  const read = useCallback((profileId: string) => codeReview.pickedAccount(profileId).then(
+    (login) => { stored.current[profileId] = login; if (!sending.current[profileId]) show(profileId, login); },
+    () => { if (!sending.current[profileId] && profileId in stored.current) show(profileId, stored.current[profileId]!); },
+  ), [show]);
+  const ask = useCallback((fresh: boolean) => codeReview.accounts(fresh).then(
+    (answer) => { if (here.current) { setListed(answer); setUnread(false); setHeard(true); } },
+    () => { if (here.current) setUnread(true); },
+  ), []);
+
+  useEffect(() => { here.current = true; return () => { here.current = false; }; }, []);
+  useEffect(() => { if (connected) for (const id of ids.split(",").filter(Boolean)) void read(id); }, [ids, read, connected]);
+  useEffect(() => codeReview.onAccount((p) => {
+    void read(p.profileId);
+    if (open) void ask(false);
+  }), [read, ask, open]);
+  useEffect(() => { if (open && windowActive && connected) void ask(true); }, [open, windowActive, connected, ask]);
+
+  const pick = (profileId: string, login: string | null) => run(async () => {
+    show(profileId, login);
+    sending.current[profileId] = (sending.current[profileId] ?? 0) + 1;
+    try {
+      const status = await codeReview.setAccount(profileId, login);
+      if (here.current && pageHeld.statusProfile === profileId) holdStatus(profileId, status);
+    } catch (e) {
+      void ask(true);
+      throw e;
+    } finally {
+      sending.current[profileId] = (sending.current[profileId] ?? 1) - 1;
+      await read(profileId);
+    }
+  });
+
+  const offered = listed?.accounts ?? [];
+  const none = listed !== null && offered.length === 0;
+  const hasSelect = (profileId: string) => typeof picks[profileId] === "string" || (picks[profileId] === null && (offered.length > 0 || kept[profileId] === true));
+  const drawn = profiles.filter((p) => typeof picks[p.id] === "string" || (heard && hasSelect(p.id))).map((p) => p.id).join(",");
+  useEffect(() => { for (const id of drawn.split(",").filter(Boolean)) if (!kept[id]) setKept((cur) => (cur[id] ? cur : { ...cur, [id]: true })); }, [drawn, kept]);
+  const listedAs = (login: string) => offered.find((a) => a.toLowerCase() === login.toLowerCase()) ?? null;
+  const says = (profileId: string) => (picks[profileId] === null ? "gh's active account" : `@${picks[profileId]}`);
+  const anySelect = profiles.some((p) => hasSelect(p.id));
+  const anyGone = listed !== null && profiles.some((p) => typeof picks[p.id] === "string" && listedAs(picks[p.id]!) === null);
+  const why = none ? <p title={NO_GH_ACCOUNTS}>gh lists no accounts to choose from on this Mac.</p>
+    : unread && listed === null ? <p>Realm could not ask gh for its accounts.</p> : null;
+  const account = (p: { id: string; name: string }) => {
+    const mine = picks[p.id];
+    if (mine === undefined) return <span />;
+    if (!hasSelect(p.id)) return <span className="settings-row-desc">gh's active account</span>;
+    const known = mine === null ? null : listedAs(mine);
+    const gone = mine !== null && known === null ? mine : null;
+    return (
+      <select aria-label={`GitHub account for ${p.name}`} value={known ?? gone ?? ""} onChange={(e) => pick(p.id, e.target.value === "" ? null : e.target.value)}>
+        <option value="">{listed?.active ? `gh's active account (@${listed.active})` : "gh's active account"}</option>
+        {offered.map((a) => <option key={a} value={a}>@{a}</option>)}
+        {gone && <option value={gone}>@{gone}{listed === null ? "" : none ? " — not listed" : " — signed out"}</option>}
+      </select>
+    );
+  };
+  return (
+    <div className="settings-group">
+      <details className="settings-row settings-disclosure" data-setting="github-account"
+        onToggle={(e) => { setOpen(e.currentTarget.open); setKept({}); setHeard(false); }}>
+        <summary>
+          <div className="settings-row-main">
+            <span className="settings-row-name">{profiles.length > 1 ? "Account for each profile" : "Account"}</span>
+            {!open && profiles.every((p) => p.id in picks) && (
+              <span className="settings-row-desc">{profiles.map((p) => (profiles.length > 1 ? `${p.name}: ${says(p.id)}` : says(p.id))).join(" · ")}</span>
+            )}
+          </div>
+          <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
+        </summary>
+        {open && (
+          <div className="settings-disclosure-body">
+            {why && !anySelect ? why : (
+              <>
+                {profiles.length > 1
+                  ? <div className="gh-accounts">{profiles.map((p) => <Fragment key={p.id}><span className="settings-row-name">{p.name}</span>{account(p)}</Fragment>)}</div>
+                  : profiles.map((p) => <div key={p.id} className="gh-account">{account(p)}</div>)}
+                {why}
+                <p>
+                  Realm reads pull requests, posts reviews, and opens pull requests as this account. The account gh uses in a terminal stays the same.
+                  {anyGone && " A profile whose account gh does not list uses gh's active account until it is back."}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </details>
+    </div>
+  );
+}
 
 /**
  * The editor the transcript's path menu offers, from the ones this Mac has.
@@ -1280,6 +1418,9 @@ function GeneralTab() {
           is one setting. */}
       <h3 className="settings-head">Files</h3>
       <OpenFilesInRow />
+
+      <h3 className="settings-head">GitHub</h3>
+      <GitHubAccounts />
 
       <h3 className="settings-head">Sidebar</h3>
       <ul className="settings-list">

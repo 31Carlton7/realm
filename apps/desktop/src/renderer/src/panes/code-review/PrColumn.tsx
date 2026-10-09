@@ -4,7 +4,7 @@ import { PR_SECTIONS, prKey, prName, type PrPage, type PrRef, type PrSection, ty
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useDissolve } from "../../components/ScrollFades";
 import { useApp } from "../../state/store";
-import { SECTION_LABEL, age, appendPage, readQuery, sameRef } from "./code-review-model";
+import { SECTION_LABEL, age, appendPage, readQuery, sameLogin, sameRef } from "./code-review-model";
 import { codeReview } from "./code-review-api";
 import { pageHeld, type Listed } from "./held";
 
@@ -19,12 +19,32 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
  *
  * It wears the sidebar's row anatomy, as the Scheduled page's column does: rows 8px in, the active
  * fill once chosen, nothing lit under a passing pointer.
+ *
+ * Its head says whose requests these are, beside its name: the account they are read and reviewed
+ * as, and before it the profile where there is more than one and the row has room for both. The
+ * column stands in the sidebar's place, and its name where the profile's would be. One sentence says
+ * both to a screen reader and on hover, since the row itself has room for a name and a login at most.
+ *
+ * Its menu is where the account is, as Settings is: who gh is signed in as, and — where gh is signed
+ * in to more than one — each of them to pick from, the one this profile reads, posts and ships as
+ * ticked. A pick is kept for the profile, so the ticked account can be picked too while it is only
+ * gh's active one: that keeps the profile on it when a terminal switches gh to another. With one
+ * account there is nothing to choose, and the menu names it as it always did.
  */
-export function PrColumn({ login, pins, selected, onSelect, onSignIn, onLost }: {
+export function PrColumn({ login, account, accounts, profile, pins, selected, onSelect, onAccount, onRefresh, onSignIn, onLost }: {
   login: string | null;
+  /** What the lists and searches are sent as: the profile's pick, or null for gh's own account. */
+  account: string | null;
+  /** The accounts gh is signed in to, by login. */
+  accounts: readonly string[];
+  /** The profile's name, where there is another profile to tell it from; null where there is one. */
+  profile: string | null;
   pins: PrSummary[];
   selected: PrRef | null;
   onSelect: (pr: PrRef, row: PrSummary | null) => void;
+  onAccount: (login: string) => void;
+  /** Refresh was chosen: the lists are read again here, and whatever else the page keeps with them. */
+  onRefresh: () => void;
   onSignIn: () => void;
   /** gh answered that it is gone or signed out: the page goes back to setup rather than drawing
    *  three lists that each say so. */
@@ -50,7 +70,7 @@ export function PrColumn({ login, pins, selected, onSelect, onSignIn, onLost }: 
   const load = (section: PrSection, force = false) => {
     const cur = held[section];
     if (!cur || force) put(section, { ...(cur ?? LOADING), state: cur && !force ? cur.state : "loading" });
-    codeReview.list(section, null, force).then(
+    codeReview.list(section, null, force, account).then(
       (page) => put(section, { prs: page.prs, next: page.nextCursor, state: "ready", error: null }),
       (e: unknown) => {
         put(section, { ...LOADING, state: "error", error: message(e) });
@@ -61,7 +81,7 @@ export function PrColumn({ login, pins, selected, onSelect, onSignIn, onLost }: 
   };
   const showMore = (section: PrSection) => {
     const cur = held[section]; if (!cur?.next) return;
-    codeReview.list(section, cur.next).then(
+    codeReview.list(section, cur.next, false, account).then(
       (page) => put(section, { prs: appendPage(cur.prs, page), next: page.nextCursor, state: "ready", error: null }),
       (e: unknown) => run(() => Promise.reject(e)),
     );
@@ -80,7 +100,7 @@ export function PrColumn({ login, pins, selected, onSelect, onSignIn, onLost }: 
     const words = q.query;
     setResults((cur) => (cur?.query === words ? cur : { ...LOADING, query: words }));
     const t = setTimeout(() => {
-      codeReview.search(words, null).then(
+      codeReview.search(words, null, account).then(
         (page: PrPage) => setResults((cur) => (cur?.query === words ? { prs: page.prs, next: page.nextCursor, state: "ready", error: null, query: words } : cur)),
         (e: unknown) => setResults((cur) => (cur?.query === words ? { ...LOADING, state: "error", error: message(e), query: words } : cur)),
       );
@@ -90,22 +110,40 @@ export function PrColumn({ login, pins, selected, onSelect, onSignIn, onLost }: 
   }, [q.kind === "search" ? q.query : q.kind]);
   const moreResults = () => {
     const cur = results; if (!cur?.next) return;
-    codeReview.search(cur.query, cur.next).then(
+    codeReview.search(cur.query, cur.next, account).then(
       (page) => setResults((r) => (r?.query === cur.query ? { ...r, prs: appendPage(r.prs, page), next: page.nextCursor } : r)),
       (e: unknown) => run(() => Promise.reject(e)),
     );
   };
 
   const refresh = () => {
+    onRefresh();
     for (const s of PR_SECTIONS) if (held[s]) load(s, true);
   };
+  const who: MenuItem[] = accounts.length > 1
+    ? [
+      { kind: "header", label: "GitHub account" },
+      ...accounts.map((a): MenuItem => {
+        const inUse = sameLogin(a, login);
+        const picked = sameLogin(a, account);
+        return {
+          label: `@${a}`, checked: inUse, onSelect: () => { if (!picked) onAccount(a); },
+          title: picked ? `This profile reads pull requests, posts reviews, and opens pull requests as @${a}.`
+            : inUse ? `This profile reads pull requests, posts reviews, and opens pull requests as @${a}, the account gh has active. To keep this profile on @${a} when that changes, choose it.`
+              : `Read pull requests, post reviews, and open pull requests as @${a} in this profile. The account gh uses in a terminal stays the same.`,
+        };
+      }),
+    ]
+    : [{ kind: "header", label: login ? `Signed in to GitHub as @${login}` : "GitHub" }];
   const items: MenuItem[] = [
     { label: "Refresh", icon: <Icon name="reload" size={14} />, onSelect: refresh },
     { kind: "separator" },
-    { kind: "header", label: login ? `Signed in to GitHub as @${login}` : "GitHub" },
+    ...who,
     { label: "Sign in again in a terminal…", icon: <Icon name="terminal" size={14} />, onSelect: onSignIn,
       detail: "Opens a terminal with gh auth login typed in" },
   ];
+
+  const whose = !login ? null : profile ? `Code review in the ${profile} profile reads and posts as @${login}.` : `Code review reads and posts as @${login}.`;
 
   const toggleTeam = () => {
     pageHeld.teamOpen = !teamOpen;
@@ -117,6 +155,11 @@ export function PrColumn({ login, pins, selected, onSelect, onSignIn, onLost }: 
     <nav className="cr-col" aria-label="Pull requests">
       <div className="cr-col-head">
         <h1 className="cr-col-title">Code review</h1>
+        <span className="cr-col-as" title={whose ?? undefined}>
+          {whose && <span className="visually-hidden">{whose}</span>}
+          {login && profile && <span className="cr-col-as-profile" aria-hidden="true"><span>{profile}</span><span>·</span></span>}
+          {login && <span className="cr-col-as-login" aria-hidden="true">@{login}</span>}
+        </span>
         <button ref={more} type="button" className="icon-btn" aria-label="Code review options" title="More" aria-haspopup="menu" aria-expanded={menu}
           onClick={() => setMenu((m) => !m)}><Icon name="more" size={14} /></button>
         {menu && <Menu items={items} anchorRef={more} align="right" label="Code review options" onClose={() => setMenu(false)} />}
@@ -168,7 +211,8 @@ export function PrColumn({ login, pins, selected, onSelect, onSignIn, onLost }: 
 /**
  * The column before gh has answered, the first time the page opens in a window: its head and its
  * search as the column draws them, and nothing listed yet. It stands in the sidebar's place from the
- * page's first frame, so the lists arrive under a column already there.
+ * page's first frame, so the lists arrive under a column already there. Whose requests they are is
+ * said once gh has said who is signed in; the place for it is kept, so the ⋯ stands where it will.
  */
 export function PrColumnPending() {
   return (
@@ -177,6 +221,7 @@ export function PrColumnPending() {
     <div className="cr-col" aria-hidden="true" inert>
       <div className="cr-col-head">
         <span className="cr-col-title">Code review</span>
+        <span className="cr-col-as" />
         <span className="icon-btn"><Icon name="more" size={14} /></span>
       </div>
       <div className="cr-col-search">

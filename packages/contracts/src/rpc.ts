@@ -24,7 +24,7 @@ import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
 import {
-  GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
+  GhAccountsSchema, GhLoginSchema, GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
   PR_PATCHES_PER_CALL, ReviewInstructionsSchema, ReviewerPickSchema, SubmitReviewSchema, SubmittedReviewSchema,
 } from "./code-review";
 import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
@@ -1483,6 +1483,10 @@ export const Methods = {
    * commit already made, and a second commit would be wrong. `setUpstream` is only ever true because
    * the user was shown `no-upstream` and said yes. A commit with a blank message is refused outright
    * (COMMIT_EMPTY_MESSAGE) rather than reported as an outcome: it is a mistake, not a state.
+   *
+   * The pull request is opened as the GitHub account the checkout's profile picked for Code review
+   * (`prAccountKey`), where it picked one and the ship names its `environmentId`; otherwise as gh's
+   * own active account. The push is git's, and authenticates however git is set up to.
    */
   "workspace.ship": {
     params: z.object({
@@ -1613,20 +1617,35 @@ export const Methods = {
   /* ── code review (v2): pull requests through the person's own `gh` ───────────────────────────
      Reads are cached on the server for as long as each is worth (code-review/service.ts); `force`
      skips the cache, which is what Refresh and "Check again" send. The one write is `submit`, and
-     only the page's Submit button calls it — no agent tool reaches any of these. */
-  /** Whether `gh` is installed and signed in, and as whom. */
-  "codeReview.status": { params: z.object({ force: z.boolean().default(false) }), result: GhStatusSchema },
+     only the page's Submit button calls it — no agent tool reaches any of these.
+     `account` on a read or on the write is the account to send it as — the page's own
+     `GhStatus.account` — and null is gh's own. Each account's reads are cached apart, since what
+     one may see another may not. */
+  /** Whether `gh` is installed and signed in, and as whom — for `profileId`, the account that profile
+   *  picked while gh still has it, and otherwise gh's own active account. */
+  "codeReview.status": { params: z.object({ force: z.boolean().default(false), profileId: IdSchema.nullable().default(null) }), result: GhStatusSchema },
+  /** The accounts `gh` is signed in to on github.com, by login, and the one gh has active. Empty, with
+   *  no active one, where there is no way to ask or nothing a pick could change: no gh, a gh older
+   *  than `auth status --json` (2.81), or a token in the environment, which decides the account
+   *  whatever is picked. */
+  "codeReview.accounts": { params: z.object({ force: z.boolean().default(false) }), result: GhAccountsSchema },
+  /** Pick the account a profile's Code review runs as and its shipped pull requests are opened as, or
+   *  with a null `login` take the pick back, so the profile is on gh's active account again. Refused
+   *  for a login gh is not signed in to (GH_ACCOUNT_UNKNOWN). gh's own active account does not change.
+   *  A profile's picks are stored in the order they arrive, and each is announced to every window
+   *  (`codeReview.accountChanged`). Answers with the profile's status. */
+  "codeReview.setAccount": { params: z.object({ profileId: IdSchema, login: GhLoginSchema.nullable() }), result: GhStatusSchema },
   /** One of the page's three lists, a page at a time; `cursor` is the previous page's `nextCursor`. */
-  "codeReview.list": { params: z.object({ section: PrSectionSchema, cursor: z.string().nullable().default(null), force: z.boolean().default(false) }), result: PrPageSchema },
+  "codeReview.list": { params: z.object({ section: PrSectionSchema, cursor: z.string().nullable().default(null), force: z.boolean().default(false), account: GhLoginSchema.nullable().default(null) }), result: PrPageSchema },
   /** Pull requests matching what was typed. A pasted link is not a search — the page opens it. */
-  "codeReview.search": { params: z.object({ query: z.string().trim().min(1).max(256), cursor: z.string().nullable().default(null) }), result: PrPageSchema },
-  "codeReview.detail": { params: z.object({ ref: PrRefSchema, force: z.boolean().default(false) }), result: PrDetailSchema },
+  "codeReview.search": { params: z.object({ query: z.string().trim().min(1).max(256), cursor: z.string().nullable().default(null), account: GhLoginSchema.nullable().default(null) }), result: PrPageSchema },
+  "codeReview.detail": { params: z.object({ ref: PrRefSchema, force: z.boolean().default(false), account: GhLoginSchema.nullable().default(null) }), result: PrDetailSchema },
   /** The changed files at `headSha`, without their patches — those come a screen at a time. */
-  "codeReview.files": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1) }), result: PrFilesSchema },
-  "codeReview.patches": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), paths: z.array(z.string()).min(1).max(PR_PATCHES_PER_CALL) }), result: z.object({ patches: z.array(FileDiffSchema) }) },
+  "codeReview.files": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), account: GhLoginSchema.nullable().default(null) }), result: PrFilesSchema },
+  "codeReview.patches": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), paths: z.array(z.string()).min(1).max(PR_PATCHES_PER_CALL), account: GhLoginSchema.nullable().default(null) }), result: z.object({ patches: z.array(FileDiffSchema) }) },
   /** A file's lines at `headSha`, for opening an unchanged band. Null for a file GitHub will not
    *  hand over as text (too large, binary, or gone). */
-  "codeReview.fileLines": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), path: z.string().min(1) }), result: z.object({ lines: z.array(z.string()).nullable() }) },
+  "codeReview.fileLines": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), path: z.string().min(1), account: GhLoginSchema.nullable().default(null) }), result: z.object({ lines: z.array(z.string()).nullable() }) },
   /** Post a review, exactly as composed — on the owner's click of Submit and nothing else. */
   "codeReview.submit": { params: SubmitReviewSchema, result: SubmittedReviewSchema },
   /** The profile's standing review instructions (the gear beside Review with…). */
@@ -1646,7 +1665,7 @@ export const Methods = {
    * person's to keep or discard: nothing here posts.
    */
   "codeReview.review": { params: z.object({ ref: PrRefSchema, profileId: IdSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null),
-    fastMode: z.boolean().default(false) }), result: PrReviewSchema },
+    fastMode: z.boolean().default(false), account: GhLoginSchema.nullable().default(null) }), result: PrReviewSchema },
   /** The request's latest reviewer run, or null. */
   "codeReview.reviewGet": { params: z.object({ ref: PrRefSchema }), result: z.object({ review: PrReviewSchema.nullable() }) },
   /** Every space of the profile and its projects, with the GitHub repository each checkout pushes to. */
@@ -1664,7 +1683,8 @@ export const Methods = {
      *  before there was a session to set it on. Ignored for a thread that is carried on. */
     fastMode: z.boolean().default(false), permissionMode: z.string().nullable().default(null), text: z.string().trim().min(1),
     /** Files the person attached in the prompter, beside the request's own. */
-    attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ sessionId: IdSchema, itemId: IdSchema.nullable() }) },
+    attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]),
+    account: GhLoginSchema.nullable().default(null) }), result: z.object({ sessionId: IdSchema, itemId: IdSchema.nullable() }) },
 
   /** The delegated runs this session is waiting on right now. The registry is in memory and dies
    *  with the process, so this is a read of live state, not of a table — a pane opened after a run
@@ -2112,6 +2132,10 @@ export const Events = {
   /** A pull request's reviewer run started, moved or settled (`key` is its `prKey`). The page holding
    *  it applies the payload as is. */
   "codeReview.reviewChanged": z.object({ key: z.string(), review: PrReviewSchema.nullable() }),
+  /** A profile's GitHub account was picked or taken back (`codeReview.setAccount`), from any window.
+   *  Sent once the pick is stored, so a page that asks `codeReview.status` on hearing it is answered
+   *  as the new account. It carries no login: a page asks for what it shows. */
+  "codeReview.accountChanged": z.object({ profileId: IdSchema }),
   /** The set of runs a session is waiting on changed — one began, settled, or was collected. Carries
    *  the WHOLE fresh set rather than a delta: the engine's registry is the only copy of this fact,
    *  and a renderer that had to accumulate deltas would drift out of step with it after one dropped

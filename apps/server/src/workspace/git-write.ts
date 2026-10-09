@@ -3,6 +3,7 @@ import type { CommitOutcome, PrOutcome, PushOutcome, ShipResult } from "@realm/c
 import { RpcError } from "../store/rows";
 import { assertRepoRelative, parseStatus } from "./git-diff";
 import { gitCapture, gitReason, GIT_NETWORK_TIMEOUT_MS, type GitResult, type GitRun } from "./git-exec";
+import { ghAs } from "./gh-account";
 import { parseGitHubRemote } from "./github-remote";
 
 /** Running a program that is not git — `gh`, and only `gh`. Injectable so tests point at a stub
@@ -37,6 +38,11 @@ export type ShipInput = {
    *  path, which can be registered in two spaces. Absent/null = an unattributed ship, which ships
    *  exactly as before and logs nothing. */
   log?: { environmentId: string; spaceId: string } | null;
+  /** The GitHub account the pull request is looked for and opened as: the one the checkout's profile
+   *  picked for its Code review (`prAccountKey`), resolved by the RPC layer alongside `log`. Only the
+   *  two `gh` calls of the pull request leg take it — the push is git's, and authenticates however
+   *  git is set up to. Absent/null = gh's own active account, exactly as before. */
+  account?: string | null;
 };
 
 /** What `ship` hands the log the moment its legs settle (Plan 14 W1). `pushState` is the push leg's
@@ -165,7 +171,7 @@ export class GitWriteService {
       push = canPush ? await this.doPush(root, input.setUpstream) : pushOutcome("skipped", { reason: input.push ? "the commit did not happen" : null });
       const onRemote = push.state === "pushed" || push.state === "up-to-date";
       pr = input.openPr
-        ? onRemote ? await this.doPr(root, push.remote, push.branch, input.message) : prOutcome("skipped", { reason: "the branch is not on the remote yet" })
+        ? onRemote ? await this.doPr(root, push.remote, push.branch, input.message, input.account ?? null) : prOutcome("skipped", { reason: "the branch is not on the remote yet" })
         : prOutcome("skipped", {});
       return { commit, push, pr };
     } finally {
@@ -281,20 +287,28 @@ export class GitWriteService {
    * The degraded path is the normal path for most machines, so it is not an error: no `gh`, a `gh`
    * that is not signed in, a remote that is not GitHub — each returns a URL the user can open. The
    * only state with no URL is a remote whose address we cannot turn into one, and it says so.
+   *
+   * With an `account`, both calls are sent as it (`ghAs`), so the request is opened by the account
+   * the profile reviews as rather than by whichever one gh has active. An account gh has since signed
+   * out of is the "not signed in" case: the compare URL, with a reason that names the account.
    */
-  private async doPr(root: string, remote: string | null, branch: string | null, message: string): Promise<PrOutcome> {
+  private async doPr(root: string, remote: string | null, branch: string | null, message: string, account: string | null): Promise<PrOutcome> {
     if (!remote || !branch) return prOutcome("unavailable", { reason: "no remote branch to open a request for" });
     const url = (await this.git(root, ["remote", "get-url", remote])).stdout.trim();
     const repo = parseGitHubRemote(url);
     const base = await this.defaultBase(root, remote);
 
-    const existing = await this.run(this.gh, ["pr", "view", branch, "--json", "url"], root);
+    const gh = (args: string[]): Promise<GitResult> => {
+      const [cmd, argv]: [string, string[]] = account ? ghAs(this.gh, account, args) : [this.gh, args];
+      return this.run(cmd, argv, root);
+    };
+    const existing = await gh(["pr", "view", branch, "--json", "url"]);
     if (existing.code === 0) {
       const found = /"url"\s*:\s*"([^"]+)"/.exec(existing.stdout)?.[1];
       if (found) return prOutcome("existing", { url: found });
     }
     if (existing.code !== 127) {
-      const created = await this.run(this.gh, ["pr", "create", "--head", branch, "--base", base, "--title", firstLine(message) || branch, "--body", bodyOf(message)], root);
+      const created = await gh(["pr", "create", "--head", branch, "--base", base, "--title", firstLine(message) || branch, "--body", bodyOf(message)]);
       const link = /https:\/\/\S+/.exec(created.stdout)?.[0];
       if (created.code === 0 && link) return prOutcome("created", { url: link });
       // gh failed (not signed in, no push access, base branch missing). The compare URL still works.

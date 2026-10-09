@@ -7540,6 +7540,19 @@ select { appearance: none; padding-right: 22px;
 .cr-col { flex: none; width: 300px; min-height: 0; display: flex; flex-direction: column;
   background: var(--rl-frame); border-right: var(--hairline-w) solid var(--rl-line); }
 .cr-col-head { flex: none; display: flex; align-items: center; gap: 4px; padding: var(--col-head-top) 12px 6px 24px; }
+/* Whose requests these are, beside the page's name on the head's one row and on its baseline: the
+   account they are read and reviewed as, and before it the profile's name where there is more than
+   one. The row's yielding order is stated. The page's name and the ⋯ keep their widths. The
+   profile's name gives way first, and whole: it is the second item of a wrapping line one line tall,
+   so the moment the two do not fit it sits on a second line that is clipped, where an ellipsis would
+   leave a stub of it. Then a login longer than the row loses its tail. And in a column too narrow
+   to show even the start of one, nothing is drawn, where an "@" and an ellipsis would say nothing. */
+.cr-col-head > .cr-col-title { flex: none; align-self: baseline; }
+.cr-col-as { flex: 1 1 0; min-width: 0; height: 1lh; overflow: hidden; display: flex; flex-flow: row-reverse wrap; column-gap: 5px;
+  align-self: baseline; container-type: inline-size; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); white-space: nowrap; }
+.cr-col-as-login { order: -1; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cr-col-as-profile { flex: none; display: flex; gap: 5px; }
+@container (max-width: 40px) { .cr-col-as-login, .cr-col-as-profile { display: none; } }
 .cr-col-search { position: relative; flex: none; padding: 4px 16px 6px; }
 .cr-col-search .search-field, .cr-tree-filter .search-field { width: 100%; padding-left: 30px; }
 .cr-col-search-mark { position: absolute; left: 26px; top: 50%; transform: translateY(-50%); color: var(--rl-text-faint); pointer-events: none; }
@@ -8271,6 +8284,16 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .settings-disclosure[open] .settings-disclosure-caret { rotate: 90deg; }
 .settings-disclosure-body { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px; }
 .settings-disclosure-body p { margin: 0; max-width: 72ch; font-size: 13px; line-height: 1.55; color: var(--rl-text-dim); }
+/* Each profile's GitHub account, under the row that folds them: a profile's name, then its select at
+   the row's end. Both are the person's own words, as long as they are, so the yielding order is
+   stated. The name takes what it needs up to a third of the row and is cut at its end; the select
+   takes what its longest option needs of the rest, and past that is cut inside, as a select is. */
+.gh-accounts { display: grid; grid-template-columns: fit-content(33%) minmax(0, 1fr); align-items: center; gap: 8px 12px; }
+.gh-accounts > .settings-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-accounts > select, .gh-accounts > .settings-row-desc { justify-self: end; min-width: 0; max-width: 100%; }
+/* The one profile's select stands alone, at the line's start and as wide as its longest option. A
+   login runs to 39 characters, so it is held to the row and cut inside like the others. */
+.gh-account > select { max-width: 100%; }
 /* A condition that changes what the page can do — no encryption key, no Touch ID sensor — said once,
    above everything it affects, in the state colour it is. */
 .settings-alert { padding: 10px 14px; border-radius: var(--r-panel); corner-shape: squircle;
