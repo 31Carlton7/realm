@@ -4683,7 +4683,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    description line, and they separate themselves the way .permission-options' do — a hover fill on a
    rounded row, with a hairline between them as well saying the same thing twice. */
 .question-card { border-radius: var(--r-panel); padding: 16px; background: var(--surface); box-shadow: var(--shadow-card);
-  display: flex; flex-direction: column; gap: 10px; }
+  display: flex; flex-direction: column; gap: 10px; container: question-card / inline-size; }
 .question-head { display: flex; align-items: flex-start; gap: 10px; }
 .question-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: var(--fw-label); line-height: 1.4; color: var(--ink); text-wrap: balance; }
 .question-pager { display: flex; align-items: center; gap: 2px; flex: none; font-size: 11px; color: var(--rl-text-faint); }
@@ -4715,7 +4715,10 @@ button.edit-file:hover { background: var(--rl-hover); }
 .question-other-submit { flex: none; font-size: 12px; padding: 4px 12px; }
 
 .question-footer { display: flex; align-items: center; gap: 10px; margin: 2px -16px -16px; padding: 8px 16px; border-top: var(--hairline-w) solid var(--line); }
-.question-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
+/* Each hint is one unit — its key and its words — so a narrow card flows them onto a second line
+   whole instead of breaking every hint into a stacked column of keys over words. */
+.question-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; font-size: 11px; color: var(--rl-text-faint); }
+.question-hints > span { white-space: nowrap; }
 .question-hints kbd { margin-right: 3px; padding: 0 4px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 11px; }
 .question-continue { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .question-continue kbd { opacity: .7; }
@@ -4731,6 +4734,16 @@ button.edit-file:hover { background: var(--rl-hover); }
 .question-from-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .question-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
 .question-tag::before { content: "·"; margin-right: 6px; }
+/* A card too narrow for who is asking, the asker's word, the pager and the close on one line gives the
+   line up rather than its words: the asker's word goes under the name, both wrap whole, and the pager
+   and close stay at the top. Ellipsized to fit, the two read "F… · D…" — a line that names nobody. */
+@container question-card (max-width: 440px) {
+  .question-head { align-items: flex-start; }
+  .question-from { flex-wrap: wrap; row-gap: 2px; padding-top: 4px; }
+  .question-from-name { white-space: normal; overflow-wrap: anywhere; flex: 1 1 0; min-width: 0; }
+  .question-tag { flex: 1 0 100%; max-width: none; padding-left: 20px; white-space: normal; overflow-wrap: anywhere; }
+  .question-tag::before { content: none; }
+}
 .question-message, .question-detail { margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: pretty; }
 .question-detail { margin-top: -6px; }
 .question-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }

@@ -3631,6 +3631,24 @@ describe("the page measure", () => {
  *  parts once the pane is genuinely too narrow for them. Measured against the real panes at
  *  240/340/480/560/620/640/700/900px: no element escapes its panel at any of them. */
 describe("narrow panes", () => {
+  it("a narrow question card wraps who is asking and the asker's word rather than ellipsizing both", () => {
+    // The card measures itself, so a card in the Agents tab and one in a transcript break alike.
+    expect(bodiesFor(".question-card").join(" ")).toContain("container: question-card / inline-size");
+    const narrow = blockAfter("@container question-card (max-width: 440px)");
+    // THE mutants: the name kept on one line with an ellipsis ("F…"), or the tag kept to its 40% cap
+    // beside it ("D…"). Narrow, the tag takes a line of its own and both wrap whole.
+    expect(narrow).toMatch(/\.question-from \{[^}]*flex-wrap: wrap/);
+    expect(narrow).toMatch(/\.question-from-name \{[^}]*white-space: normal/);
+    expect(narrow).toMatch(/\.question-tag \{[^}]*flex: 1 0 100%[^}]*max-width: none[^}]*white-space: normal/);
+    // A line that starts with the separator reads as a stray dot.
+    expect(narrow).toMatch(/\.question-tag::before \{[^}]*content: none/);
+  });
+
+  it("the question card's key hints flow whole onto a second line, never a column of keys over words", () => {
+    expect(bodiesFor(".question-hints").join(" ")).toContain("flex-wrap: wrap");
+    expect(bodiesFor(".question-hints > span").join(" ")).toContain("white-space: nowrap");
+  });
+
   it("the pane roots refuse to be sized by their content", () => {
     // The named mutant: drop `min-width: 0` and `.page` grows to the width of the 180px rail plus a
     // full row of action buttons, taking its head, rail and actions outside the panel's clip.
