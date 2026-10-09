@@ -69,6 +69,7 @@ function nextDayAt(t: number, hour: number): number { const d = new Date(dayStar
 function sameDayAt(t: number, hour: number): number { const d = new Date(dayStart(t)); d.setHours(hour, 0, 0, 0); return d.getTime(); }
 
 export type SlotWhy = "next" | "gap" | "account_day" | "team_day" | "window";
+const WHY_WEIGHT: Record<SlotWhy, number> = { next: 0, gap: 1, window: 2, team_day: 3, account_day: 4 };
 
 /** Whether an act at `t` keeps every rule against `others`, and the first rule it breaks. */
 export function slotProblem(act: Omit<PlannedAct, "at">, t: number, others: readonly PlannedAct[], pacing: ActPacing = ACT_PACING[act.kind]): Exclude<SlotWhy, "next"> | null {
@@ -95,7 +96,8 @@ export function planSlot(act: Omit<PlannedAct, "at">, from: number, others: read
   for (let i = 0; i < 5_000; i++) {
     const problem = slotProblem(act, t, others, pacing);
     if (problem === null) return { at: t, why };
-    if (why === "next") why = problem;
+    // The reason said is the weightiest rule that moved it: a full day over the gap that preceded it.
+    if (WHY_WEIGHT[problem] > WHY_WEIGHT[why]) why = problem;
     if (problem === "window") {
       t = new Date(t).getHours() < ACT_WINDOW.startHour ? sameDayAt(t, ACT_WINDOW.startHour) : nextDayAt(t, ACT_WINDOW.startHour);
     } else if (problem === "account_day" || problem === "team_day") {
@@ -176,7 +178,7 @@ export function slotWhyWords(why: SlotWhy, kind: ActKind): string {
   const noun = kind === "post" ? "posts" : kind === "dm" ? "DMs" : "emails";
   switch (why) {
     case "next": return "the next slot for this account";
-    case "gap": return kind === "post" ? "posts from one account go at least 2 hours apart" : `${noun} from one account go at least ${Math.round(ACT_PACING[kind].gapMs / 60_000)} minutes apart`;
+    case "gap": return kind === "post" ? "the next slot for this account, 2 hours after the one before" : `the next slot for this account, ${Math.round(ACT_PACING[kind].gapMs / 60_000)} minutes after the one before`;
     case "account_day": return `this account's ${ACT_PACING[kind].perDay} ${noun} for the day are taken`;
     case "team_day": return `the team's ${ACT_PACING[kind].teamPerDay} ${noun} for the day are taken`;
     case "window": return `Realm plans ${noun} between ${hour12(ACT_WINDOW.startHour)} and ${hour12(ACT_WINDOW.endHour)}`;

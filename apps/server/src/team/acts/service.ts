@@ -431,15 +431,20 @@ export class ActService {
     return planSlot(act, from, this.pacingOthers({ id: self ?? "", kind: act.kind }, true));
   }
 
-  /** A waiting ticket's slot, kept while it is ahead and still keeps every rule, planned again from
-   *  now when it has passed or no longer fits. */
+  /**
+   * A waiting ticket's slot, kept while it is ahead and still keeps every rule against what went out or
+   * is set to, and planned again from now when it has passed or no longer fits. Other waiting tickets'
+   * plans are not held against it here: they spread a batch when it is issued, but an act that went
+   * out a few seconds after its slot must not push every plan behind it by a whole gap. Whichever is
+   * pressed first takes the slot, and the other is planned again when it is next read.
+   */
   private refreshSlot(t: TicketRow): TicketRow {
     const act = { kind: t.kind, channel: t.channel, account: t.account, spaceId: t.spaceId };
     const now = this.now();
-    // A slot only just passed is still the one the sheet shows ("Post now"): kept as it was planned,
-    // because moving it to this instant would land it a few milliseconds inside the next post's gap.
-    if (t.slotAt >= now - ACT_SLOT_TOLERANCE_MS && slotProblem(act, t.slotAt, this.pacingOthers(t, true)) === null) return t;
-    const next = this.plan(act, now, t.id);
+    const real = this.pacingOthers(t, false);
+    // A slot only just passed is still the one the sheet shows ("Post now").
+    if (t.slotAt >= now - ACT_SLOT_TOLERANCE_MS && slotProblem(act, t.slotAt, real) === null) return t;
+    const next = planSlot(act, now, real);
     return this.d.store.update(t.id, { slotAt: next.at, slotWhy: next.why });
   }
 

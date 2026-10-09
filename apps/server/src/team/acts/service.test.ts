@@ -182,6 +182,17 @@ describe("the press", () => {
     expect(platform.calls).toHaveLength(2);
   });
 
+  it("an act that went out a few seconds late moves the next slot by those seconds, not by a whole gap", async () => {
+    const { approved, acts, press, setNow } = setup();
+    const [a, b, c] = approved("slideshows", slides(3)).tickets;
+    setNow(T0 + 5_000);
+    press(a!.id); await acts.post(a!.id); await flush();
+    // THE MUTANT: other waiting tickets' plans held against a refresh — 4 PM collides with the 6 PM
+    // plan, and the second post is pushed to 8 PM.
+    expect(acts.ticket(b!.id).slotAt).toBe(T0 + 2 * H + 5_000);
+    expect(acts.ticket(c!.id).slotAt).toBe(T0 + 4 * H);
+  });
+
   it("a slot that moved since the sheet showed it is said, and nothing goes out at a time the person did not see", async () => {
     const { approved, acts, press, platform } = setup();
     const t = approved("slideshows", slides(1)).tickets[0]!;

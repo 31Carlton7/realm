@@ -76,7 +76,8 @@ const TOOLS: Tool[] = [
     description: [
       "Send finished work to the team's Review, where a person approves it or asks for changes. This is how you deliver: nothing you make is sent, posted or signed by you.",
       "`kind`: slideshows | message | document | report. One item per piece — one slideshow, one email. An item's `files` are its slides or attachments in order (paths inside this space's folder; anything else is refused), and `body` is its caption or message text.",
-      "`target` names where it would go (`channel`: tiktok, instagram, email; `account`: @handle or the address it sends from). An item aimed at an account needs `record`, and that record's Accounts line for the account must say `consent:`.",
+      "`target` names where it would go (`channel`: tiktok, instagram, email; `account`: @handle or the address it sends from; `to`: who a DM or an email is for). An item aimed at an account needs `record`, and that record's Accounts line for the account must say `consent:`.",
+      "Once approved, each post, DM or email waits for a person to press it, one at a time, at Realm's paced slots (3 posts a day per account, 15 DMs). You cannot post or send it, and nothing you call will.",
       "If a person asked for changes and woke you, submitting again replaces that review in place as its next version.",
     ].join(" "),
     inputSchema: {
@@ -92,7 +93,7 @@ const TOOLS: Tool[] = [
             properties: {
               files: { type: "array", items: { type: "string" } },
               body: { type: "string" },
-              target: { type: "object", properties: { channel: { type: "string" }, account: { type: "string" } }, additionalProperties: false },
+              target: { type: "object", properties: { channel: { type: "string" }, account: { type: "string" }, to: { type: "string" } }, additionalProperties: false },
             },
             additionalProperties: false,
           },
