@@ -404,6 +404,8 @@ async function main() {
   check("P6 a 16th DM for today is refused at the press, and nothing is sent", !dm16.ok && /15 DMs for the day/.test(dm16.error?.message ?? "") && actsSent().length === 1, dm16.error?.message);
   const dm16After = (await api.call("team.tickets", { spaceId: space.id, reviewId: dmReview.id })).find((t) => t.id === sixteenth.id);
   check("P6 it waits for a slot tomorrow instead", dm16After.state === "ready" && !sameDay(dm16After.slotAt, today), new Date(dm16After.slotAt).toString().slice(0, 21));
+  const dmChecks = (await api.call("team.review", { id: dmReview.id })).checks.map((k) => k.title);
+  check("P6 Review checks the DMs' own account, and asks no post's disclosure of them", dmChecks[0] === "Sends as @versed.nathan on Instagram" && !dmChecks.some((t) => /disclos/i.test(t)), dmChecks);
   await openReview(c, "16 outreach DMs from Nathan's account");
   await step(c, 16);
   await openSheet(c);

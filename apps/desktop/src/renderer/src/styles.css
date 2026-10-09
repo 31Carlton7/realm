@@ -9967,8 +9967,9 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 
 .rv-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .rv-detail-scroll { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px 24px; }
-.rv-head { display: flex; align-items: flex-start; gap: 12px; }
-.rv-head-text { flex: 1; min-width: 0; }
+.rv-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+/* A long batch's stepper (sixteen DMs) goes under the title rather than squeezing it into a column. */
+.rv-head-text { flex: 1 1 320px; min-width: 0; }
 .rv-head h1 { margin: 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); letter-spacing: -0.012em; color: var(--rl-text-bright); text-wrap: balance; }
 .rv-byline { display: flex; flex-wrap: wrap; align-items: center; margin-top: 2px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .rv-byline b { font-weight: var(--fw-medium); color: var(--rl-text-bright); }

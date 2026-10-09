@@ -654,13 +654,18 @@ export class TeamService {
     const out: ReviewCheck[] = [];
     const target = items.find((i) => i.target?.account)?.target ?? null;
     if (target?.account) {
-      const acct = record ? recordAccounts(record).find((a) => a.handle?.toLowerCase() === target.account!.toLowerCase()) : null;
+      // The account on the channel it goes to: @versed.nathan on Instagram is not the TikTok one.
+      const ch = target.channel?.toLowerCase() ?? "";
+      const acct = record ? recordAccounts(record).find((a) => a.handle?.toLowerCase() === target.account!.toLowerCase()
+        && (!ch || a.channel.toLowerCase().includes(ch) || ch.includes(a.channel.toLowerCase()))) ?? null : null;
+      const verb = kind === "message" ? "Sends" : "Posts";
       out.push(acct?.parts.consent
-        ? { ok: true, title: `Posts as ${target.account}${acct.channel ? ` on ${acct.channel}` : ""}`, detail: `${record!.title}'s account, managed with their consent (${acct.parts.consent})` }
+        ? { ok: true, title: `${verb} as ${target.account}${acct.channel ? ` on ${acct.channel}` : ""}`, detail: `${record!.title}'s account, managed with their consent (${acct.parts.consent})` }
         : { ok: false, title: `${target.account} has no consent on record`, detail: "Add consent: to the account's line in the record before it is posted" });
     }
     const captions = items.map((i) => i.body ?? "").filter(Boolean);
-    if (captions.length > 0 && items.some((i) => i.target?.account)) {
+    // Paid-partnership disclosure is a post's: a DM or an email carries no platform label.
+    if (kind === "slideshows" && captions.length > 0 && items.some((i) => i.target?.account)) {
       const disclosed = captions.every((c) => /#ad\b|#sponsored\b|#paidpartnership\b|paid partnership/i.test(c));
       out.push(disclosed
         ? { ok: true, title: "Disclosed as paid partnership", detail: "Every caption says so" }
