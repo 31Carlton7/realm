@@ -37,6 +37,7 @@ import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./sc
 import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
 import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
 import { SetRoleHandoffsSchema, SetTeamLimitsSchema } from "./team-handoffs";
+import { LabAccountSchema, LabDeviceKindSchema, LabDevicesSchema, LabReadinessSchema, LabStatusSchema } from "./lab";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
@@ -1610,6 +1611,32 @@ export const Methods = {
   "team.roleGoal": { params: z.object({ id: IdSchema, objective: z.string().trim().min(1).max(4_000) }), result: RunSchema },
   "team.setLimits": { params: SetTeamLimitsSchema, result: TeamSpaceSchema },
   "team.liftBackoff": { params: z.object({ agentKind: z.string().min(1).max(40) }), result: z.object({ lifted: z.boolean() }) },
+  // The lab (Teams Phase 5, contracts/lab.ts): this Mac's readiness to be left alone, the devices on
+  // its cables, and the update window. Every change is broadcast as `lab.changed`.
+  "lab.status": { params: z.object({}).default({}), result: LabStatusSchema },
+  "lab.setEnabled": { params: z.object({ enabled: z.boolean() }), result: LabStatusSchema },
+  "lab.setUpdateWindow": { params: z.object({ hour: z.number().int().min(0).max(23), capMinutes: z.number().int().min(5).max(240) }), result: LabStatusSchema },
+  /** Read-only probes of this Mac (pmset, fdesetup, the login window, displays, disk, network). */
+  "lab.readiness": { params: z.object({}).default({}), result: LabReadinessSchema },
+  "lab.devices": { params: z.object({}).default({}), result: LabDevicesSchema },
+  /** Look for what is on the cables now, and stamp every registered device it finds as seen. */
+  "lab.deviceScan": { params: z.object({}).default({}), result: LabDevicesSchema },
+  "lab.deviceAdd": { params: z.object({
+    kind: LabDeviceKindSchema, udid: z.string().trim().min(1).max(100).nullable().default(null),
+    name: z.string().trim().min(1).max(80), spaceId: IdSchema.nullable().default(null),
+    accounts: z.array(LabAccountSchema).max(10).default([]),
+  }), result: LabDevicesSchema },
+  "lab.deviceUpdate": { params: z.object({
+    id: IdSchema, name: z.string().trim().min(1).max(80).optional(), spaceId: IdSchema.nullable().optional(),
+    accounts: z.array(LabAccountSchema).max(10).optional(),
+  }), result: LabDevicesSchema },
+  "lab.deviceRemove": { params: z.object({ id: IdSchema }), result: LabDevicesSchema },
+  /** Main: an update is downloaded and this Mac is a lab, so the window decides when it installs. */
+  "lab.updateReady": { params: z.object({ version: z.string().min(1).max(40), from: z.string().min(1).max(40) }), result: LabStatusSchema },
+  /** Open the window now rather than at its hour. */
+  "lab.updateNow": { params: z.object({}).default({}), result: LabStatusSchema },
+  /** Main, on every connect: the version it runs — how the window learns an install landed. */
+  "lab.appVersion": { params: z.object({ version: z.string().min(1).max(40) }), result: LabStatusSchema },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
@@ -2231,6 +2258,10 @@ export const Events = {
    *  already documents. */
   "schedules.changed": z.object({ spaceId: IdSchema }),
   "team.changed": z.object({ spaceId: IdSchema }),
+  /** The lab's status, devices or update window changed; a held copy is read again. */
+  "lab.changed": z.object({}),
+  /** The update window has drained: main installs the downloaded update now. */
+  "lab.install": z.object({ version: z.string() }),
   /** An environment's persisted review verdict changed (Plan 13 W3): a review settled (`review` is
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */

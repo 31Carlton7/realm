@@ -154,11 +154,15 @@ import { VaultService } from "./team/vault/service";
 import { VaultStore } from "./team/vault/store";
 import { createVaultAgentProvider } from "./team/vault/agent-tools";
 import { registerVaultMethods } from "./team/vault/rpc";
+import { LabService } from "./lab/service";
+import { LabDevicesStore } from "./lab/devices-store";
+import { registerLabMethods } from "./lab/methods";
+import { evaluate, macProbeDeps, probeFacts, runCommand } from "./lab/readiness";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -672,6 +676,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
    *  budget so suites don't wait minutes. Production callers pass neither. */
   browserAgent?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perActMs: number; pollMs: number } };
+  /** The lab's probes of this Mac, replaced in tests so a suite never reads the machine it runs on. */
+  lab?: { probe?: () => Promise<import("@realm/contracts").LabCheck[]>; hostName?: () => Promise<string | null>; now?: () => number };
   /** Plan 13 W1: the same knobs for `agent_run`. `fallbackKind` falls back to `browserAgent`'s when
    *  unset (test harnesses configure the fake once); `timeouts` shrinks the settle budget. */
   agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number }; maxDepth?: number; caps?: { perParent?: number; total?: number } };
@@ -973,6 +979,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let vault: VaultService | null = null;
   // Teams, Phase 4: handoffs, mentions, role goals and the back-off — read through the same hooks.
   let handoffs: HandoffService | null = null;
+  // The lab's update window holds team runs while an update waits to install (lab/service.ts).
+  let lab: LabService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -1363,7 +1371,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onSettled: (run) => { schedules?.runSettled(run); team?.runSettled(run); },
     // A team role's run waits for a slot, wears its role's preamble, and arms its minutes cap when it
     // starts — all decided by the team service, read through the variable assigned below.
-    admit: (run) => team?.admit(run) ?? true,
+    admit: (run) => !(lab?.holding ?? false) && (team?.admit(run) ?? true),
     rolePreamble: (run) => {
       const base = team?.rolePreamble(run) ?? null;
       const more = handoffs?.preamble(run) ?? null;
@@ -1421,6 +1429,27 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     vault, bridge: browserBridge, broker: browserBroker, mcp,
     profileOf: (id) => spaces.get(id)?.profileId ?? null, isTeam: (id) => teamFinal.isTeam(id),
   }));
+  /* The lab: this Mac's readiness, the devices on its cables, and the update window that holds team
+     runs while an update waits to install. Realm-wide — one Mac serves every team on it. */
+  lab = new LabService({
+    store: new LabDevicesStore(db), settings, rpc,
+    spaceName: (id) => spaces.get(id)?.name ?? null,
+    devices: () => simulators.devices(),
+    probe: opts.lab?.probe ?? (async () => evaluate(await probeFacts(macProbeDeps(opts.home)))),
+    hostName: opts.lab?.hostName ?? (async () => {
+      const r = await runCommand("/usr/sbin/scutil", ["--get", "LocalHostName"], 3_000);
+      return r.code === 0 && r.stdout.trim() ? `${r.stdout.trim()}.local` : null;
+    }),
+    // Work the window waits for: runs that are running, and turns in sessions no run owns.
+    busy: () => {
+      const running = runs!.listLive().filter((r) => r.state === "running");
+      const workers = new Set(running.map((r) => r.sessionId).filter(Boolean));
+      const sessionsWorking = sessionsStore.listAll().filter((s) => s.status === "running" && !workers.has(s.id) && !runs!.isWorker(s.id)).length;
+      return { runs: running.length, sessions: sessionsWorking };
+    },
+    pump: () => runs?.pump(),
+    ...(opts.lab?.now ? { now: opts.lab.now } : {}),
+  });
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
      has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
      agents, which take no per-session context. A save repaints every open memory row of the profile. */
@@ -1512,6 +1541,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
   });
   registerVaultMethods(rpc, vault, (id) => Boolean(spaces.get(id)));
+  registerLabMethods(rpc, lab);
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
@@ -1521,6 +1551,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   schedules.start();
   team.start();
   handoffs.start();
+  lab.start();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
@@ -1569,6 +1600,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
     team?.close();
     handoffs?.close();
+    lab?.close();
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
@@ -1599,7 +1631,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
 
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, team, codeReview, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, team, lab, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }

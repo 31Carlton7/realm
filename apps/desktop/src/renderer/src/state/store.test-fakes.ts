@@ -7,6 +7,7 @@ import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, Search
 import type { SavedTurn } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
 import type { RoleRun, TeamActivity, TeamRecord, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
+import type { LabCheck, LabDevices, LabSeenDevice, LabStatus } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -190,6 +191,13 @@ export type FakeData = {
   teamActivity?: Record<string, TeamActivity[]>;
   /** `team.make` refuses with this code (and message) until it is given a folder for the team's memory. */
   teamMakeRefusal?: { code: string; message: string } | null;
+  /** Settings ▸ Lab: the server's status and checks, the device registry, what a scan finds on the
+   *  cable, and main's login item (null: no main to ask). */
+  lab?: LabStatus;
+  labChecks?: LabCheck[];
+  labDevices?: LabDevices;
+  labOnCable?: LabSeenDevice[];
+  labLoginItem?: { openAtLogin: boolean | null; canSet: boolean } | null;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -554,6 +562,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     teamRecords: overrides.teamRecords ?? {},
     teamActivity: overrides.teamActivity ?? {},
     teamMakeRefusal: overrides.teamMakeRefusal ?? null,
+    lab: overrides.lab ?? { enabled: false, updateHour: 4, updateCapMinutes: 30, update: { kind: "idle" }, hostName: "lab-mini.local" },
+    labChecks: overrides.labChecks ?? [],
+    labDevices: overrides.labDevices ?? { devices: [], unregistered: [], scannedAt: null },
+    labOnCable: overrides.labOnCable ?? [],
+    labLoginItem: overrides.labLoginItem === undefined ? { openAtLogin: false, canSet: true } : overrides.labLoginItem,
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
@@ -1640,6 +1653,43 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     clearAvatar: async () => { calls.push("clearAvatar"); data.avatarPath = null; },
     // Copies, as the wire hands over: a store that kept the fake's own objects would see a mutation
     // here as no change at all.
+    labStatus: async () => { calls.push("labStatus"); return structuredClone(data.lab); },
+    labSetEnabled: async (enabled) => { calls.push(`labSetEnabled:${enabled}`); data.lab.enabled = enabled; return structuredClone(data.lab); },
+    labSetUpdateWindow: async (hour, cap) => { calls.push(`labSetUpdateWindow:${hour}:${cap}`); data.lab.updateHour = hour; data.lab.updateCapMinutes = cap; return structuredClone(data.lab); },
+    labUpdateNow: async () => { calls.push("labUpdateNow"); return structuredClone(data.lab); },
+    labReadiness: async () => { calls.push("labReadiness"); return { checks: structuredClone(data.labChecks), checkedAt: 1_000 }; },
+    labDevices: async () => { calls.push("labDevices"); return structuredClone(data.labDevices); },
+    labScan: async () => {
+      calls.push("labScan");
+      const known = new Set(data.labDevices.devices.map((d) => d.udid));
+      data.labDevices = { ...data.labDevices, unregistered: data.labOnCable.filter((d) => !known.has(d.udid)), scannedAt: 2_000 };
+      return structuredClone(data.labDevices);
+    },
+    labDeviceAdd: async (input) => {
+      calls.push(`labDeviceAdd:${input.name}:${input.spaceId ?? "-"}:${input.accounts.map((a) => `${a.service}=${a.handle}`).join(",")}`);
+      if (input.accounts.length > 3) throw new RpcError("LAB_ACCOUNTS", "A phone holds at most 3 accounts. Put the rest on another phone.");
+      data.labDevices.devices.push({ id: `0000000000000000000000DEV${data.labDevices.devices.length}`, kind: input.kind, udid: input.udid, name: input.name,
+        spaceId: input.spaceId, spaceName: data.spaces.find((sp) => sp.id === input.spaceId)?.name ?? null, accounts: input.accounts,
+        lastSeenAt: null, connected: data.labOnCable.some((d) => d.udid === input.udid), createdAt: 3_000 });
+      data.labDevices.unregistered = data.labDevices.unregistered.filter((d) => d.udid !== input.udid);
+      return structuredClone(data.labDevices);
+    },
+    labDeviceUpdate: async (patch) => {
+      calls.push(`labDeviceUpdate:${patch.id}`);
+      const d = data.labDevices.devices.find((x) => x.id === patch.id);
+      if (d) Object.assign(d, patch.name !== undefined ? { name: patch.name } : {}, patch.accounts !== undefined ? { accounts: patch.accounts } : {},
+        patch.spaceId !== undefined ? { spaceId: patch.spaceId, spaceName: data.spaces.find((sp) => sp.id === patch.spaceId)?.name ?? null } : {});
+      return structuredClone(data.labDevices);
+    },
+    labDeviceRemove: async (id) => { calls.push(`labDeviceRemove:${id}`); data.labDevices.devices = data.labDevices.devices.filter((d) => d.id !== id); return structuredClone(data.labDevices); },
+    labLoginItem: async () => { calls.push("labLoginItem"); return data.labLoginItem ? { ...data.labLoginItem } : null; },
+    labSetLoginItem: async (on) => {
+      calls.push(`labSetLoginItem:${on}`);
+      if (data.labLoginItem?.canSet) data.labLoginItem = { ...data.labLoginItem, openAtLogin: on };
+      return data.labLoginItem ? { ...data.labLoginItem } : null;
+    },
+    labOpenSettings: async (pane) => { calls.push(`labOpenSettings:${pane}`); },
+    onLabChanged: () => () => {},
     teamOverview: async () => { calls.push("teamOverview"); return structuredClone(data.teams.filter((t) => t.enabled)); },
     teamSpace: async (spaceId) => {
       calls.push(`teamSpace:${spaceId}`);

@@ -41,6 +41,7 @@ import {
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
 import { RealmUpdater, UPDATE_FEED_LIVE, scheduleUpdateChecks, updaterDecision } from "./updater";
+import { labInstall, labOnConnected, labPreapprovesRestart, labSettingsUrl, labTakesUpdate, loginItemStatus, setLoginItem, type LabUpdateDeps, type LoginItemDeps } from "./lab-host";
 import { asarReplaced, readAsarStamp } from "./bundle-swap";
 import { SecretStore, SecretStoreError } from "./secret-store";
 import { VaultHost } from "./vault-host";
@@ -1323,7 +1324,9 @@ updater = new RealmUpdater({
   version: app.getVersion(),
   decision: updaterDecision({ packaged: app.isPackaged, signed: __REALM_SIGNED_BUILD__, feedLive: UPDATE_FEED_LIVE }),
   load: async () => (await import("electron-updater")).autoUpdater,
-  onDownloaded: (version) => {
+  onDownloaded: (version) => void labTakesUpdate(labUpdate(), version).then((taken) => {
+    // On a lab the update window installs it between team runs; nobody is there for a dialog.
+    if (taken) return;
     void dialog.showMessageBox({
       type: "info",
       title: "Realm update ready",
@@ -1333,7 +1336,7 @@ updater = new RealmUpdater({
       defaultId: 0,
       cancelId: 1,
     }).then(({ response }) => { if (response === 0) updater.install(); });
-  },
+  }),
   // Pushed, not polled: a download's progress has to reach the rail's button while the window sits
   // at the front, which is exactly when nothing else would make the renderer ask.
   onChange: (status) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send("updates:changed", status); },
@@ -1356,6 +1359,33 @@ function relaunchIfBundleReplaced(): boolean {
   app.exit(0);
   return true;
 }
+
+/** What the lab's update window needs from main: the version running, the server, and the updater. */
+function labUpdate(): LabUpdateDeps {
+  return {
+    version: app.getVersion(),
+    call: (method, params) => {
+      if (!bridgeClient) return Promise.reject(new Error("Realm's server is not connected"));
+      return bridgeClient.call(method, params);
+    },
+    updater,
+    log: (line) => console.error(line),
+  };
+}
+
+/* Settings ▸ Lab: Realm's own login item — from the installed app only — and the System Settings
+   panes the checklist links to, named by a closed list (lab-host.ts). */
+const loginItem: LoginItemDeps = {
+  packaged: app.isPackaged,
+  get: () => app.getLoginItemSettings(),
+  set: (s) => app.setLoginItemSettings(s),
+};
+ipcMain.handle("lab:login-item", () => loginItemStatus(loginItem));
+ipcMain.handle("lab:set-login-item", (_e, on: unknown) => setLoginItem(loginItem, on));
+ipcMain.handle("lab:open-settings", (_e, pane: unknown) => {
+  const url = labSettingsUrl(pane);
+  if (url) void shell.openExternal(url);
+});
 
 ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
@@ -1597,7 +1627,7 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
  */
 async function handOff(running: DaemonState, why: "bundle" | "protocol"): Promise<HandoffResult> {
   const work = await daemonWork(running);
-  let decision = decideHandoff({ why, work });
+  let decision = decideHandoff({ why, work, preapproved: await labPreapprovesRestart((method, params) => callDaemon(running, method, params)) });
   if (decision.kind === "confirm") {
     const copy = handoffCopy(decision);
     const buttons = decision.keepable ? [copy.restart, copy.keep] : [copy.restart];
@@ -1779,7 +1809,7 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       port: info.port, token: info.token,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void profileDirectory.refresh(); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void profileDirectory.refresh(); void labOnConnected(labUpdate()); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
       onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
@@ -1788,6 +1818,8 @@ app.whenReady().then(async () => {
         if (event === "profiles.changed") { void profileDirectory.refresh().then(retitleWindows); return; }
         // The counts the tray shows change on exactly one event.
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); return; }
+        // The lab's update window drained the team's runs: install the update the updater holds.
+        if (event === "lab.install") { labInstall(labUpdate(), payload); return; }
         // And the resident's own toasts, for the case the renderer used to own alone: with no window
         // there is nobody to ask for one, and a toast is the whole of how anything reaches you.
         if (event === "notifications.changed") void residentToast(payload);

@@ -186,6 +186,13 @@ contextBridge.exposeInMainWorld("realm", {
    *  that raises that capability's macOS dialog and resolves the re-read audit once the user answers,
    *  so it may sit pending for as long as the dialog is up. Both take a CAPABILITY id, never a
    *  command or a URL — main validates it against mac-access.ts's closed table. */
+  /** Settings ▸ Lab: Realm's own login item (installed app only; main says whether it can be set) and
+   *  the System Settings pane a check names — a pane id, never a URL (main/lab-host.ts). */
+  lab: {
+    loginItem: (): Promise<{ openAtLogin: boolean | null; canSet: boolean }> => ipcRenderer.invoke("lab:login-item"),
+    setLoginItem: (on: boolean): Promise<{ openAtLogin: boolean | null; canSet: boolean }> => ipcRenderer.invoke("lab:set-login-item", on),
+    openSettings: (pane: string): Promise<void> => ipcRenderer.invoke("lab:open-settings", pane),
+  },
   macAccess: {
     status: (): Promise<MacAccessStatus> => ipcRenderer.invoke("mac:status"),
     grant: (id: string): Promise<MacAccessStatus> => ipcRenderer.invoke("mac:grant", id),
