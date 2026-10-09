@@ -1683,3 +1683,114 @@ describe("migrations v43–v45 — teams: roles, review, activity", () => {
     again.close();
   });
 });
+
+/**
+ * The v45 shape of what v47 touches, hand-written: `team_roles` as v43 made it (with a role in it, as a
+ * team made before handoffs would have), and `spaces`, `runs`, `schedules` as the stubs v47's table and
+ * the team tables hang off. v46 is the vault's (a parallel branch): the second fixture stamps through
+ * v46 with a vault-shaped table of its own and a grant in it, so v47 is proven to need nothing v46 made
+ * and to leave what it did make alone.
+ */
+const V45_TEAM_ROLES_SCHEMA = `
+CREATE TABLE spaces (id TEXT PRIMARY KEY);
+CREATE TABLE runs (id TEXT PRIMARY KEY, created_at INTEGER, role_id TEXT, woke_on TEXT, cost_usd REAL);
+CREATE TABLE schedules (id TEXT PRIMARY KEY, role_id TEXT);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+CREATE TABLE team_roles (
+  id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, brief TEXT NOT NULL, realmite_json TEXT NOT NULL, template TEXT,
+  agent_kind TEXT NOT NULL, model TEXT, effort TEXT,
+  permission_mode TEXT NOT NULL DEFAULT 'default',
+  skills_json TEXT NOT NULL DEFAULT '[]',
+  wake_on_review INTEGER NOT NULL DEFAULT 1,
+  week_budget_usd REAL, run_cap_usd REAL NOT NULL DEFAULT 3, run_cap_ms INTEGER NOT NULL DEFAULT 1200000,
+  max_concurrent INTEGER NOT NULL DEFAULT 1,
+  archived INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+`;
+
+/** A vault table as Phase 2's plan sketches it — what a v46 home could hold. Only its survival matters. */
+const V46_VAULT_SCHEMA = `
+CREATE TABLE vault_grants (
+  secret_id TEXT NOT NULL, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  role_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (secret_id, role_id));
+`;
+
+/** Found by what it says, so the fixtures survive a renumbering at merge. */
+const HANDOFFS_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS team_handoffs"));
+
+function teamRolesFixture(path: string, through: number, extra = ""): void {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V45_TEAM_ROLES_SCHEMA + extra);
+  for (let v = 1; v <= through; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  db.prepare("INSERT INTO spaces (id) VALUES ('sp1'), ('sp2')").run();
+  db.prepare(`INSERT INTO team_roles (id, space_id, name, brief, realmite_json, agent_kind, wake_on_review, week_budget_usd, created_at, updated_at)
+    VALUES ('R1', 'sp1', 'Content Producer', 'Make slides.', '{"seed":"cp"}', 'claude', 0, 25, 10, 20)`).run();
+  if (extra) db.prepare("INSERT INTO vault_grants (secret_id, space_id, role_id, created_at) VALUES ('S1', 'sp1', 'R1', 5)").run();
+  db.close();
+}
+
+describe("migration v47 — team handoffs and mentions", () => {
+  const cols = (db: DatabaseSync, table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  const fromV45 = () => { const p = join(tempDir("realm-db-"), "realm.db"); teamRolesFixture(p, HANDOFFS_AT - 1); return { p, db: openDatabase(p) }; };
+  const fromV46 = () => { const p = join(tempDir("realm-db-"), "realm.db"); teamRolesFixture(p, HANDOFFS_AT, V46_VAULT_SCHEMA); return { p, db: openDatabase(p) }; };
+
+  it("is appended after the vault's v46: a v45 home reaches the end of the chain and gains the table and both columns", () => {
+    expect(HANDOFFS_AT).toBeGreaterThanOrEqual(46);
+    const { db } = fromV45();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect(cols(db, "team_roles")).toEqual(expect.arrayContaining(["handoffs_json", "wake_on_mention"]));
+    expect(cols(db, "team_handoffs")).toEqual(expect.arrayContaining(["space_id", "kind", "from_role_id", "from_session_id", "to_role_id",
+      "record_path", "note", "files_json", "run_id", "session_id", "outcome", "cost_usd", "created_at", "settled_at"]));
+    db.close();
+  });
+
+  it("gives a role made before it no edges and leaves it answering mentions, and changes nothing else about it", () => {
+    /* THE mutant: a backfill that wires every role to every other, or turns mentions off. */
+    const { db } = fromV45();
+    expect(db.prepare("SELECT handoffs_json, wake_on_mention, wake_on_review, week_budget_usd, name, brief FROM team_roles").get())
+      .toEqual({ handoffs_json: "[]", wake_on_mention: 1, wake_on_review: 0, week_budget_usd: 25, name: "Content Producer", brief: "Make slides." });
+    db.close();
+  });
+
+  it("needs nothing the vault's v46 made, and leaves its rows as they were", () => {
+    const { db } = fromV46();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect(cols(db, "team_handoffs")).toContain("to_role_id");
+    expect(db.prepare("SELECT secret_id, space_id, role_id FROM vault_grants").all()).toEqual([{ secret_id: "S1", space_id: "sp1", role_id: "R1" }]);
+    db.close();
+  });
+
+  it("a team's handoffs go with its space, and only that space's", () => {
+    const { db } = fromV45();
+    for (const sp of ["sp1", "sp2"]) {
+      db.prepare("INSERT INTO team_handoffs (id, space_id, kind, to_role_id, note, created_at) VALUES (?, ?, 'handoff', 'R1', 'n', 1)").run(`H-${sp}`, sp);
+    }
+    db.prepare("DELETE FROM spaces WHERE id = 'sp1'").run();
+    expect(db.prepare("SELECT id FROM team_handoffs").all()).toEqual([{ id: "H-sp2" }]);
+    db.close();
+  });
+
+  it("lists a role's handoffs off an index, not a scan", () => {
+    const { db } = fromV45();
+    const plan = (db.prepare("EXPLAIN QUERY PLAN SELECT * FROM team_handoffs WHERE to_role_id = ? ORDER BY created_at DESC").all("R1") as { detail: string }[]).map((r) => r.detail).join(" ");
+    expect(plan).toContain("team_handoffs_to");
+    db.close();
+  });
+
+  it("is idempotent: reopening twice more re-runs nothing and keeps an edge and a handoff written since", () => {
+    const { p, db } = fromV45();
+    db.prepare(`UPDATE team_roles SET handoffs_json = '["R2"]' WHERE id = 'R1'`).run();
+    db.prepare("INSERT INTO team_handoffs (id, space_id, kind, to_role_id, note, created_at) VALUES ('H1', 'sp1', 'mention', 'R1', 'n', 1)").run();
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT handoffs_json FROM team_roles").get()).toEqual({ handoffs_json: '["R2"]' });
+    expect(again.prepare("SELECT id, kind FROM team_handoffs").all()).toEqual([{ id: "H1", kind: "mention" }]);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    again.close();
+  });
+});
