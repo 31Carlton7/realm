@@ -161,7 +161,7 @@ export const LabUpdateStateSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("idle") }),
   z.object({ kind: z.literal("waiting"), version: z.string(), from: z.string(), readyAt: z.number(), opensAt: z.number() }),
   z.object({ kind: z.literal("draining"), version: z.string(), from: z.string(), startedAt: z.number(), capAt: z.number(), running: z.number().int() }),
-  z.object({ kind: z.literal("installing"), version: z.string(), from: z.string(), at: z.number(), leftRunning: z.number().int() }),
+  z.object({ kind: z.literal("installing"), version: z.string(), from: z.string(), at: z.number(), heldSince: z.number(), leftRunning: z.number().int() }),
   z.object({ kind: z.literal("resumed"), version: z.string(), from: z.string(), at: z.number(), applied: z.boolean(), heldMs: z.number() }),
 ]);
 export type LabUpdateState = z.infer<typeof LabUpdateStateSchema>;
