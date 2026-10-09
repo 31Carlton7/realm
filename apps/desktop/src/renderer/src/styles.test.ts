@@ -1672,6 +1672,18 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");
   });
 
+  it("Show raw stands on the panel's content column, not on its edge", () => {
+    const px = (body: string, prop: string) => Number(new RegExp(`${prop}: (-?\\d+)px`).exec(body)?.[1]);
+    const toggle = bodiesFor(".tool-raw-toggle").join(" ");
+    const pad = Number(/padding: \d+px (\d+)px/.exec(toggle)?.[1]);
+    // The panel's content inset, as its command line and "Show all" take it.
+    const inset = Number(/padding: \d+px (\d+)px/.exec(bodiesFor(".tool-panel .cmd-line").join(" "))?.[1]);
+    expect(inset).toBe(14);
+    expect(Number(/margin: 2px 0 0 (\d+)px/.exec(bodiesFor(".tool-panel .tool-expand").join(" "))?.[1])).toBe(inset);
+    // THE mutant: margin-left: -6px, which put the word's ink on the panel's edge (the verb column).
+    expect(px(toggle, "margin-left") + pad).toBe(inset);
+  });
+
   it("a run's head reserves its failures and yields its work; its steps' glyphs share the free rows' column", () => {
     expect(bodiesFor(".tool-group-summary").join(" ")).toContain("flex: none");
     const work = bodiesFor(".tool-group-work").join(" ");

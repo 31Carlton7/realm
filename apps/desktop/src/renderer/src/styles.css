@@ -4365,9 +4365,11 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-arg dt { font-size: 12px; line-height: 18px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-arg dd { margin: 0; min-width: 0; font-size: 12px; line-height: 18px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
 .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"] { font-family: var(--font-mono); }
-/* The exact payloads, behind one quiet word under the panel. */
+/* The exact payloads, behind one quiet word under the panel. The word stands on the panel's content
+   column (14px in, as its command, output and "Show all" do), not on the panel's edge, where it read
+   as a second verb under the row's. Its 6px of hover padding is taken out of that 14. */
 .tool-raw { display: flex; flex-direction: column; gap: 8px; }
-.tool-raw-toggle { align-self: flex-start; padding: 2px 6px; margin-left: -6px; border-radius: var(--r-chip); font-size: 12px; color: var(--ink-3); }
+.tool-raw-toggle { align-self: flex-start; padding: 2px 6px; margin-left: 8px; border-radius: var(--r-chip); font-size: 12px; color: var(--ink-3); }
 .tool-raw-toggle:hover { background: var(--rl-hover); color: var(--ink); }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ rides §6's icon swap (the shared rule down in the motion block); the tick's colour is the
