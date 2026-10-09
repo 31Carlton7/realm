@@ -147,6 +147,10 @@ import { userFirstName } from "./user-name";
 import { TeamService } from "./team/service";
 import { TeamStore } from "./team/store";
 import { createTeamAgentProvider } from "./team/agent-tools";
+import { VaultService } from "./team/vault/service";
+import { VaultStore } from "./team/vault/store";
+import { createVaultAgentProvider } from "./team/vault/agent-tools";
+import { registerVaultMethods } from "./team/vault/rpc";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
@@ -961,6 +965,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let schedules: ScheduleService | null = null;
   // Teams: read back through the session-event hook and the run seams below, like `runs`.
   let team: TeamService | null = null;
+  /* The team vault (team/vault/service.ts): made beside the team below, and read lazily by the browser
+     tools — a role's sign-in fill passes its grant check — which are registered before either exists. */
+  let vault: VaultService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -1221,6 +1228,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     documents: { rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } } },
     // Saved sign-ins are a profile's own: the credential tools name the session's profile to main.
     profileOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
+    // A team's role fills a sign-in only under a grant, and without its card only under an allow.
+    vault: {
+      check: (ctx, secret, host) => vault ? vault.check(ctx, secret, host) : Promise.resolve({ unattended: false, roleId: null, runId: null, hosts: null }),
+      note: (ctx, use, who) => vault?.note(ctx, use, who),
+      grantedSignins: (sessionId) => {
+        const owner = vault?.roleOf(sessionId);
+        return owner ? vault!.grantsForRole(owner.role.id).filter((g) => g.kind === "signin").map((g) => g.secretId) : null;
+      },
+    },
   }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is neither a valid asker nor a valid target, because its own parent is already blocked inside
@@ -1374,8 +1390,18 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     enabledSkills: (id) => skills.list(id).skills.filter((s) => s.enabled && s.valid).map((s) => s.id),
     settings, rpc,
     defaultKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind,
+    preambleExtra: (roleId) => vault?.preambleLines(roleId) ?? [],
   });
   mcpGateway.registerProvider(createTeamAgentProvider({ team, mcp }));
+  const teamFinal = team;
+  vault = new VaultService({
+    store: new VaultStore(db), team: new TeamStore(db), runs, bridge: browserBridge,
+    profileOf: (id) => spaces.get(id)?.profileId ?? null, isTeam: (id) => teamFinal.isTeam(id), rpc,
+  });
+  mcpGateway.registerProvider(createVaultAgentProvider({
+    vault, bridge: browserBridge, broker: browserBroker, mcp,
+    profileOf: (id) => spaces.get(id)?.profileId ?? null, isTeam: (id) => teamFinal.isTeam(id),
+  }));
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
      has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
      agents, which take no per-session context. A save repaints every open memory row of the profile. */
@@ -1466,6 +1492,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       drain.tick();
     },
   });
+  registerVaultMethods(rpc, vault, (id) => Boolean(spaces.get(id)));
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.

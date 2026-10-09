@@ -926,4 +926,20 @@ export const migrations: string[] = [
   CREATE INDEX IF NOT EXISTS team_activity_space ON team_activity(space_id, ts DESC);
   CREATE INDEX IF NOT EXISTS team_activity_run ON team_activity(run_id) WHERE run_id IS NOT NULL;
   `,
+  // v46 — the team vault's grants (Teams Phase 2): which role of a team may use which secret, and
+  // where. A row is ids and names only — the secret itself stays sealed in Electron main's store, and
+  // nothing here can open it. `hosts_json` is where the role may use it: a subset of the hosts the
+  // secret is pinned to. `created_at` is part of a grant's identity, because main seals a grant's
+  // "use without asking" against it: a grant revoked and made again asks again. The role is a plain
+  // string, as `runs.role_id` is; a removed role's grants are revoked by the service, not by a cascade
+  // on an archived row. Nothing to backfill — no grant existed before this.
+  `
+  CREATE TABLE IF NOT EXISTS vault_grants (
+    secret_id TEXT NOT NULL, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    role_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL,
+    hosts_json TEXT NOT NULL DEFAULT '[]', purpose TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (secret_id, role_id));
+  CREATE INDEX IF NOT EXISTS vault_grants_space ON vault_grants(space_id, role_id);
+  `,
 ];

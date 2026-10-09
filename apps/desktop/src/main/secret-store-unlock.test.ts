@@ -382,7 +382,7 @@ describe("unlock policy — a store file from before policies", () => {
     first.store.listCredentials(LAB);
     const keyringOf = (text: string) => JSON.parse(Buffer.from(JSON.parse(text).keyring, "base64").toString("utf8").slice(3)) as Record<string, string>;
     const after = keyringOf(disk.file!);
-    expect(Object.keys(after).sort()).toEqual(["credential", "eggs", "machine", "oauth", "passkey", "unlock"]);
+    expect(Object.keys(after).sort()).toEqual(["credential", "eggs", "machine", "oauth", "passkey", "unlock", "vault-allow", "vault-key"]);
     expect(after.credential).toBe(Buffer.alloc(32, 2).toString("base64"));
     // Idempotent: a second launch mints nothing new and loses nothing.
     const written = disk.file;

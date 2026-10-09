@@ -1,5 +1,6 @@
 import { describeSchedule, type RoleRun, type TeamActivity, type TeamReviewSummary, type TeamRole } from "@realm/contracts";
 import { cadenceSentence, clockLabel } from "../schedules/schedule-model";
+import { vaultSentence } from "./vault-format";
 
 /**
  * The words and numbers the team surfaces print, pure so each is testable. Dollars are always shown
@@ -224,6 +225,6 @@ export function activitySentence(a: TeamActivity, actorName: string): { text: st
     case "read_record": return { text: `${actorName} read ${a.object}'s record`, detail: null };
     case "updated_record": return { text: `${actorName === "You" ? "You" : actorName} updated ${a.object}'s record`, detail: str("line") };
     case "refused": return { text: `${a.object} needs your yes again`, detail: "a file changed after you approved it" };
-    default: return { text: `${actorName}: ${a.verb.replace(/_/g, " ")}${a.object ? ` ${a.object}` : ""}`, detail: null };
+    default: return vaultSentence(a, actorName) ?? { text: `${actorName}: ${a.verb.replace(/_/g, " ")}${a.object ? ` ${a.object}` : ""}`, detail: null };
   }
 }

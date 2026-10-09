@@ -75,7 +75,24 @@ export const APP_HOST_OPS = [
   "appAct",
 ] as const;
 
-export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS] as const;
+/**
+ * The team vault (Teams Phase 2), answered in main without a window. Read what is missing: no op adds a
+ * secret, sets a grant's "use without asking", or returns a value. These list metadata, say whether one
+ * use may skip its card, take an allow AWAY, and make one request whose answer is already scrubbed.
+ */
+export const VAULT_HOST_OPS = [
+  /** A team's sign-ins and keys, metadata only. */
+  "vaultSecrets",
+  /** Whether a sealed allow covers this one use (secret, role, team, host, grant, this Mac) on a profile
+   *  that unlocks without asking. A yes from main is the only thing that skips the card. */
+  "vaultAllowed",
+  /** Drop a grant's allow when the grant is revoked. Only ever narrows. */
+  "vaultForgetAllow",
+  /** One HTTP request with a team's key in it, made by main; the answer is scrubbed of the value. */
+  "vaultHttp",
+] as const;
+
+export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS, ...VAULT_HOST_OPS] as const;
 /** Every op the bridge will relay, of either family. */
 export type HostOp = (typeof HOST_OPS)[number];
 

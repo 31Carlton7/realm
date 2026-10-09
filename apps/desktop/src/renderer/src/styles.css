@@ -10160,6 +10160,28 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-skill-add { width: auto; min-width: 0; flex: 1 1 140px; }
 .tp-remove-who { display: flex; align-items: center; gap: 10px; }
 
+/* ── The team's Vault (VaultPage.tsx, mock 06) ────────────────────────────────────────────────────
+   Sign-ins and keys are the settings grammar's meshed run of rows, each a button that opens who may
+   use it; the glyph sits in the gutter, the name over its detail, and the last use at the far end in
+   the quiet ink. The grant sheet groups one role's rows (may use, where, without asking) as a card. */
+.tv-row { align-items: center; }
+.tv-glyph { flex: none; width: 20px; display: grid; place-items: center; color: var(--rl-text-dim); }
+.tv-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tv-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-detail { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.tv-used { flex: none; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
+.tv-uses td.tv-where { white-space: normal; }
+.tv-who { display: inline-flex; align-items: center; gap: 6px; }
+.tv-foot { display: flex; align-items: center; gap: 8px; width: 100%; }
+.tv-grants { gap: 8px; }
+.tv-grant { display: flex; flex-direction: column; }
+.tv-grant-who { flex: none; display: grid; place-items: center; width: 32px; height: 32px; }
+.tv-hosts { flex-wrap: wrap; gap: 8px; }
+.tv-hosts .settings-row-main { flex: none; }
+.tv-host { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--r-ctl); font-size: 13px; line-height: 18px;
+  color: var(--rl-text-dim); border: var(--hairline-w) solid var(--rl-line); }
+.tv-host[data-on] { color: var(--rl-text-bright); border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-line)); }
+
 /* The Team fold's way to add one: a row like the roles above it, in the quieter ink. */
 .sb-team-add .item-title, .sb-team-add .sb-gutter { color: var(--rl-text-dim); }
 

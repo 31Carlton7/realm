@@ -27,6 +27,7 @@ import { findLabel, fold, likeliest, runPath, type ExecIO, type WalkTree } from 
 import { isOAuthConsentUrl } from "./guards";
 import { resolveUploadPaths, type ResolvedUploadFile } from "./upload-paths";
 import { observedOf, observedPage, pageRole, pageWalked, siteName, walkElementOf, walkTreeOf } from "./walk";
+import { signinName, type VaultCheck, type VaultSecretRef } from "../team/vault/service";
 
 export const BROWSER_PROVIDER_NAME = "realm-browser";
 
@@ -81,6 +82,20 @@ export type BrowserAgentToolsDeps = {
    * tools then name no profile, and main answers as for a profile with nothing saved.
    */
   profileOf?: (spaceId: string) => string | null;
+  /**
+   * The team vault (team/vault/service.ts). A team's role fills a saved sign-in only under a grant for
+   * that sign-in and its host — refused and logged otherwise — and without its card only when main
+   * says a sealed allow covers the fill. A person's own session passes with no grant and asks on its
+   * card as it always has. Every fill in a team's space is a line in the team's activity.
+   *
+   * Optional: absent, every session is a person's own, which is what this file was before teams.
+   */
+  vault?: {
+    check(ctx: { sessionId: string; spaceId: string }, secret: VaultSecretRef, host: string): Promise<VaultCheck>;
+    note(ctx: { sessionId: string; spaceId: string }, use: { secret: VaultSecretRef; host: string; how?: "card" | "unattended"; refused?: string }, who: { roleId: string | null; runId: string | null }): void;
+    /** The sign-ins a role's session holds grants for, or null for a session that is no role's. */
+    grantedSignins(sessionId: string): string[] | null;
+  };
   browserService: Pick<BrowserService, "open">;
   mcp: Pick<McpService, "providerEnabled">;
   bridge: Pick<BrowserHostBridge, "call">;
@@ -515,7 +530,9 @@ const HANDLERS: Record<string, Handler> = {
   },
 
   browser_credentials: async (d, ctx) => {
-    const rows = await listCredentials(d, ctx);
+    // A team's role is offered what it was granted, and only that: the rest are the team's to know.
+    const granted = d.vault?.grantedSignins(ctx.sessionId) ?? null;
+    const rows = (await listCredentials(d, ctx)).filter((c) => granted === null || granted.includes(c.id));
     if (rows.length === 0) {
       return ok("No saved sign-ins. The user adds their own in Realm's Settings → Sign-ins, and there is no way for you to enroll a password of theirs. What you can do is have Realm make one: browser_fill_credential with `generate` mints a password for the page a pane is on, saves it here and types it, without ever telling you the value.");
     }
@@ -562,7 +579,7 @@ const HANDLERS: Record<string, Handler> = {
         // The profile of the calling session's space, as the enrolled route sends: the new row joins
         // that profile's sign-ins, and main refuses a pane whose cookie jar is another profile's.
         const result = (await d.bridge.call("fillCredential", {
-          browserId: row.value.id, ref: args.value.ref, origin, generate, profileId: profileIdOf(d, ctx),
+          browserId: row.value.id, ref: args.value.ref, origin, generate, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId,
         })) as BrowserFillCredentialResult;
         // No screenshot on failure here either: the field may hold what was typed into it.
         if (!result.ok) return err(`no password was generated or filled: ${result.error}`);
@@ -582,21 +599,36 @@ const HANDLERS: Record<string, Handler> = {
       return err("refused: no saved sign-in has that id. browser_credentials lists what exists; the user enrolls new ones in Realm's Settings → Sign-ins.");
     }
     const title = `Fill the saved sign-in for ${credential.origin}${credential.username ? ` (${credential.username})` : ""}${credential.label ? ` — ${clip(credential.label, 40)}` : ""} into the page on ${hostOf(live?.url)}`;
+    // A team's role passes its grant first — for this sign-in, at its own origin's host — and is
+    // refused, with a line in the team's log, before any card is raised. Main still checks the live
+    // page's origin against the sign-in's before it types.
+    const secret: VaultSecretRef = { id: credential.id, kind: "signin", name: signinName(credential.origin, credential.username) };
+    const host = hostOf(credential.origin);
+    const check = d.vault ? await d.vault.check(ctx, secret, host) : null;
+    if (check && "refuse" in check) return err(check.refuse);
+    const who = { roleId: check?.roleId ?? null, runId: check?.runId ?? null };
+    const unattended = check?.unattended === true;
     // `alwaysPrompt`: this card appears for every fill in every mode, and answering "always" to it
-    // licenses nothing. See `GateOptions`.
+    // licenses nothing. See `GateOptions`. The one way past it is a grant's allow, which main sealed
+    // when the person turned it on in the Vault page; `preapproved` still refuses in a read-only mode.
     const gate = await d.broker.gate(
       ctx.sessionId, "browser_fill_credential", title,
       // The input echoed onto the permission event — the card's "what was asked for" detail. Origin,
       // username and label, exactly as the spec requires, and structurally nothing else.
       { browserId: row.value.id, ref: args.value.ref, origin: credential.origin, username: credential.username, label: credential.label },
-      "browser_fill_credential", { alwaysPrompt: true },
+      "browser_fill_credential", unattended ? { preapproved: true } : { alwaysPrompt: true },
     );
-    if (!gate.allowed) return err(gate.reason);
+    if (!gate.allowed) {
+      d.vault?.note(ctx, { secret, host, refused: gate.reason }, who);
+      return err(gate.reason);
+    }
 
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
       const result = (await d.bridge.call("fillCredential", {
-        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id, profileId: profileIdOf(d, ctx),
+        browserId: row.value.id, ref: args.value.ref, credentialId: credential.id, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId,
+        ...(who.roleId ? { roleId: who.roleId } : {}), ...(who.runId ? { runId: who.runId } : {}),
       })) as BrowserActResult;
+      d.vault?.note(ctx, result.ok ? { secret, host, how: unattended ? "unattended" : "card" } : { secret, host, refused: result.refused ?? "not filled" }, who);
       // No screenshot on failure, unlike `runAct`. A shot taken microseconds after a fill can contain
       // the filled field, and some sites render the value in plain text on the way to masking it.
       if (!result.ok) return err(`the sign-in was not filled: ${result.error}`);
@@ -1215,7 +1247,7 @@ const textOf = (r: CallToolResult): string =>
  *  one the agent could act on. */
 async function listCredentials(d: Deps, ctx: ProviderCallContext): Promise<BrowserCredential[]> {
   try {
-    const result = (await d.bridge.call("credentials", { profileId: profileIdOf(d, ctx) })) as { credentials?: BrowserCredential[] };
+    const result = (await d.bridge.call("credentials", { profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId })) as { credentials?: BrowserCredential[] };
     return Array.isArray(result?.credentials) ? result.credentials : [];
   } catch {
     return [];
