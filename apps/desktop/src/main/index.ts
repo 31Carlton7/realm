@@ -46,6 +46,7 @@ import { SecretStore, SecretStoreError } from "./secret-store";
 import { VaultHost } from "./vault-host";
 import { registerVaultIpc } from "./vault-ipc";
 import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-owner";
+import { livePresenceStandIn } from "./live-presence";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -869,6 +870,7 @@ function secrets(): SecretStore | null {
   const home = realmHome;
   const file = join(home, "secrets.json");
   const auditFile = join(home, "logs", "credential-audit.log");
+  const standIn = livePresenceStandIn({ packaged: app.isPackaged, env: process.env });
   secretStore = new SecretStore({
     safeStorage,
     readFile: () => (existsSync(file) ? readFileSync(file, "utf8") : null),
@@ -883,14 +885,15 @@ function secrets(): SecretStore | null {
     // sensor, too many failed attempts) is `false`, never a throw: the caller treats every one of
     // those as "no presence", which is the same refusal for the same reason.
     promptPresence: (reason) =>
-      process.platform === "darwin"
+      standIn ? standIn(reason)
+      : process.platform === "darwin"
         ? systemPreferences.promptTouchID(reason).then(() => true, () => false)
         : Promise.resolve(false),
     // Touch ID or the login password, for profiles whose unlock policy allows the password, and to
     // confirm the user before a policy is weakened.
     promptDeviceOwner,
     canPromptDeviceOwner,
-    canPromptTouchID: () => process.platform === "darwin" && systemPreferences.canPromptTouchID(),
+    canPromptTouchID: () => standIn !== null || (process.platform === "darwin" && systemPreferences.canPromptTouchID()),
     machineId,
     now: () => Date.now(),
     newId,
