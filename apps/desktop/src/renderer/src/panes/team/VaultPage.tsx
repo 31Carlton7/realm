@@ -197,6 +197,7 @@ function GrantSheet({ entry, team, spaceId, profileId, profileName, profileUnatt
       <Sheet title={`Let ${role.name} use ${entry.name} without asking?`} onClose={() => setConfirming(null)} width={520}
         footer={<div className="tv-foot" data-no-agent={NO_AGENT}>
           {error && <span className="tp-sheet-error" role="alert">{error}</span>}
+          <span className="diff-head-spacer" />
           <button type="button" className="btn" onClick={() => setConfirming(null)}>Cancel</button>
           <button type="button" className="btn primary" disabled={busy !== null} onClick={() => { void turnOn(); }}>
             {busy && <Spinner size={12} />}Turn on for {role.name}

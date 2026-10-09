@@ -10170,7 +10170,6 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tv-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tv-detail { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .tv-used { flex: none; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
-.tv-uses td.tv-what { white-space: normal; }
 .tv-uses td.tv-where { white-space: normal; }
 .tv-who { display: inline-flex; align-items: center; gap: 6px; }
 .tv-foot { display: flex; align-items: center; gap: 8px; width: 100%; }

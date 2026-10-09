@@ -132,6 +132,14 @@ describe("performVaultHttp — the request", () => {
 });
 
 describe("scrubSecret", () => {
+  it("catches an echo of the whole header, base64'd — which holds no base64 of the key alone", async () => {
+    // Found live: an API that base64s the Authorization header it got. The alignment moves, so the
+    // key's own base64 is not in it; only the carrier's is.
+    const h = harness(() => new Response(JSON.stringify({ b64: Buffer.from(`Bearer ${VALUE}`).toString("base64") }), { status: 200 }));
+    const r = await performVaultHttp(h.deps, req());
+    expect(r.ok && r.body).toBe(JSON.stringify({ b64: "[redacted]" }));
+  });
+
   it("catches each base64 spelling of a value whose alphabets differ — padded, bare, URL-safe", () => {
     // A value whose base64 holds + and padding, so the three spellings are three different strings.
     const v = "sk_live_7f3a9c2e1b8d4f6~?";

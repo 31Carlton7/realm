@@ -49,26 +49,34 @@ export type VaultHttpDeps = {
   timeoutMs?: number;
 };
 
+/** The spellings of one string a response is likely to quote it in: as sent, URL-encoded, inside a
+ *  JSON string, base64 (padded, bare and URL-safe) and hex. */
+function spellings(s: string): string[] {
+  const b64 = Buffer.from(s, "utf8").toString("base64");
+  return [
+    s, encodeURIComponent(s), JSON.stringify(s).slice(1, -1),
+    b64, b64.replace(/=+$/, ""), Buffer.from(s, "utf8").toString("base64url"),
+    Buffer.from(s, "utf8").toString("hex"), Buffer.from(s, "utf8").toString("hex").toUpperCase(),
+  ];
+}
+
 /**
- * Every spelling of `value` a response is likely to quote it in: as sent, URL-encoded, inside a JSON
- * string, base64 (padded, bare and URL-safe) and hex. Longest first, so a longer form is replaced
+ * Every spelling of `value`, and of every string it was sent inside (`carriers`: a header's value
+ * after substitution, the body). The second half is not decoration: base64 of "Bearer <key>" does
+ * not contain base64 of the key — the alignment moves — so an API that echoes the whole header
+ * base64'd would pass a scrub that only knew the key. Longest first, so a longer form is replaced
  * whole before a shorter one inside it could leave half of it behind.
  */
-export function secretForms(value: string): string[] {
-  const b64 = Buffer.from(value, "utf8").toString("base64");
-  const forms = [
-    value, encodeURIComponent(value), JSON.stringify(value).slice(1, -1),
-    b64, b64.replace(/=+$/, ""), Buffer.from(value, "utf8").toString("base64url"),
-    Buffer.from(value, "utf8").toString("hex"), Buffer.from(value, "utf8").toString("hex").toUpperCase(),
-  ];
+export function secretForms(value: string, carriers: readonly string[] = []): string[] {
+  const forms = [value, ...carriers.filter((c) => c.includes(value))].flatMap(spellings);
   return [...new Set(forms)].filter((f) => f.length >= SCRUB_MIN).sort((a, b) => b.length - a.length);
 }
 
-/** `text` with every form of `value` replaced. Case-sensitive except hex, which `secretForms` gives
- *  in both cases. */
-export function scrubSecret(text: string, value: string): string {
+/** `text` with every form of `value` (and of the strings it was sent in) replaced. Case-sensitive
+ *  except hex, which `secretForms` gives in both cases. */
+export function scrubSecret(text: string, value: string, carriers: readonly string[] = []): string {
   let out = text;
-  for (const form of secretForms(value)) out = out.split(form).join(REDACTED);
+  for (const form of secretForms(value, carriers)) out = out.split(form).join(REDACTED);
   return out;
 }
 
@@ -115,6 +123,10 @@ export async function performVaultHttp(d: VaultHttpDeps, req: VaultHttpRequest):
   const opened = await d.keys.withKeyValue(req.profileId, req.spaceId, req.secretId, async (value) => {
     const put = (s: string) => s.split(VAULT_PLACEHOLDER).join(value);
     const body = req.body === null ? null : put(req.body);
+    const sentHeaders = headerEntries.map(([k, v]) => [k, put(v)] as const);
+    // What the key travelled inside, so a response quoting a whole header or body is scrubbed too.
+    const carriers = [...sentHeaders.map(([, v]) => v), ...(body !== null ? [body] : [])];
+    const scrub = (t: string) => scrubSecret(t, value, carriers);
     if (body !== null && Buffer.byteLength(body, "utf8") > VAULT_HTTP_BODY_MAX) {
       result = { ok: false, refused: "error", error: `the body is over ${VAULT_HTTP_BODY_MAX} bytes` };
       return;
@@ -122,7 +134,7 @@ export async function performVaultHttp(d: VaultHttpDeps, req: VaultHttpRequest):
     try {
       const res = await d.fetch(req.url, {
         method,
-        headers: Object.fromEntries(headerEntries.map(([k, v]) => [k, put(v)])),
+        headers: Object.fromEntries(sentHeaders),
         ...(body !== null && method !== "GET" && method !== "HEAD" ? { body } : {}),
         // Never followed: a redirect is a host the gate above never saw. The agent is shown where it
         // points and may ask again, through the same gate.
@@ -130,14 +142,14 @@ export async function performVaultHttp(d: VaultHttpDeps, req: VaultHttpRequest):
         signal: AbortSignal.timeout(d.timeoutMs ?? VAULT_HTTP_TIMEOUT_MS),
       });
       const { text, cut } = await readCapped(res, VAULT_HTTP_READ_MAX);
-      const scrubbed = scrubSecret(text, value);
+      const scrubbed = scrub(text);
       const truncated = cut || scrubbed.length > VAULT_HTTP_RESPONSE_MAX;
       const location = res.headers.get("location");
       const contentType = res.headers.get("content-type");
       result = {
         ok: true, status: res.status,
-        contentType: contentType === null ? null : scrubSecret(contentType, value),
-        location: location === null ? null : scrubSecret(location, value),
+        contentType: contentType === null ? null : scrub(contentType),
+        location: location === null ? null : scrub(location),
         body: scrubbed.slice(0, VAULT_HTTP_RESPONSE_MAX), truncated,
       };
     } catch (e) {
@@ -145,7 +157,7 @@ export async function performVaultHttp(d: VaultHttpDeps, req: VaultHttpRequest):
       // request, and even that is scrubbed: an error is a string something else wrote.
       const cause = (e as { cause?: { code?: unknown } })?.cause?.code;
       const why = e instanceof Error && e.name === "TimeoutError" ? "it timed out" : typeof cause === "string" ? cause : "the connection failed";
-      result = { ok: false, refused: "error", error: scrubSecret(`the request to ${host} failed: ${why}`, value) };
+      result = { ok: false, refused: "error", error: scrub(`the request to ${host} failed: ${why}`) };
     }
   });
   if (!opened.ok) {
