@@ -1691,6 +1691,28 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     teamRecordCreate: async (spaceId, name) => { calls.push(`teamRecordCreate:${spaceId}:${name}`); throw new Error("not faked"); },
     teamActivity: async (spaceId) => { calls.push(`teamActivity:${spaceId}`); return data.teamActivity[spaceId] ?? []; },
+    teamTicketPress: async (input) => { calls.push(`teamTicketPress:${input.ticketId}:${input.slotAt}:${input.label}`); return true; },
+    teamTicketPost: async (id) => {
+      calls.push(`teamTicketPost:${id}`);
+      for (const r of Object.values(data.teamReviews)) {
+        const t = r.tickets.find((x) => x.id === id);
+        if (t) { t.state = "scheduled"; t.pressedAt = 1; return t; }
+      }
+      throw new Error("no ticket");
+    },
+    teamTicketCancel: async (id) => {
+      calls.push(`teamTicketCancel:${id}`);
+      for (const r of Object.values(data.teamReviews)) {
+        const t = r.tickets.find((x) => x.id === id);
+        if (t) { t.state = "ready"; t.pressedAt = null; return t; }
+      }
+      throw new Error("no ticket");
+    },
+    teamActsHold: async (spaceId, held) => {
+      calls.push(`teamActsHold:${spaceId}:${held}`);
+      const t = data.teams.find((x) => x.spaceId === spaceId); if (t) t.actsHeld = held;
+      return { held };
+    },
     listSchedules: async (spaceId) => { calls.push(`listSchedules:${spaceId}`); return data.schedules.filter((r) => r.spaceId === spaceId); },
     createSchedule: async (input) => {
       calls.push(`createSchedule:${input.spaceId}`);

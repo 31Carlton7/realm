@@ -1,4 +1,4 @@
-import { describeSchedule, type RoleRun, type TeamActivity, type TeamReviewSummary, type TeamRole } from "@realm/contracts";
+import { describeSchedule, type ActKind, type ActTicket, type RoleRun, type TeamActivity, type TeamReviewSummary, type TeamRole } from "@realm/contracts";
 import { cadenceSentence, clockLabel } from "../schedules/schedule-model";
 import { vaultSentence } from "./vault-format";
 
@@ -183,7 +183,10 @@ export function reviewStateLine(r: TeamReviewSummary): { text: string; dot: "wai
     return { text: r.kind === "message" && r.account ? `Sends from ${r.account}` : "Approve before anything posts", dot: "waiting" };
   }
   if (r.state === "changes") return { text: "Changes asked · the role is on it", dot: null };
-  if (r.state === "approved") return { text: "Approved by you · post it by hand", dot: null };
+  if (r.state === "approved") {
+    if (r.actsTotal > 0) return { text: `Approved by you · ${r.actsDone} of ${r.actsTotal} ${r.kind === "message" ? "sent" : "posted"}`, dot: null };
+    return { text: `Approved by you · ${r.kind === "message" ? "send it yourself" : "post it by hand"}`, dot: null };
+  }
   if (r.state === "done") return { text: "Done", dot: null };
   return { text: "Put away", dot: null };
 }
@@ -220,11 +223,92 @@ export function activitySentence(a: TeamActivity, actorName: string): { text: st
     case "revised": return { text: `${actorName} sent a new version of ${a.object}`, detail: num("version") !== null ? `version ${num("version")}` : null };
     case "approved": return { text: `You approved ${a.object}`, detail: null };
     case "asked_changes": return { text: `You asked for changes to ${a.object}`, detail: str("note") ? `“${str("note")}”` : null };
-    case "marked_done": return { text: `You marked ${a.object} done`, detail: null };
+    case "marked_done": return a.actor === "realm" ? { text: `Everything in ${a.object} went out`, detail: null } : { text: `You marked ${a.object} done`, detail: null };
     case "dismissed": return { text: `You put away ${a.object}`, detail: null };
     case "read_record": return { text: `${actorName} read ${a.object}'s record`, detail: null };
     case "updated_record": return { text: `${actorName === "You" ? "You" : actorName} updated ${a.object}'s record`, detail: str("line") };
-    case "refused": return { text: `${a.object} needs your yes again`, detail: "a file changed after you approved it" };
+    case "refused": return typeof d.ticketId === "string" ? refusedAct(a) : { text: `${a.object} needs your yes again`, detail: "a file changed after you approved it" };
+    case "issued_tickets": {
+      const n = num("tickets") ?? 0;
+      return { text: `${n} ${n === 1 ? "act" : "acts"} from ${a.object} wait for your press`, detail: "each goes out only when you press it, at its slot" };
+    }
+    case "pressed": return { text: `You set ${actPhrase(a)} for ${num("slotAt") !== null ? feedTime(num("slotAt")!) : "its slot"}`, detail: null };
+    case "acted": return { text: `${ACT_WORDS[actKindOf(a)].past} ${actPhrase(a, false)}`, detail: str("url") };
+    case "act_failed": return { text: `${actPhrase(a)} did not go out`, detail: str("error") ?? (d.why === "interrupted" ? "Realm stopped while it was going out" : null) };
+    case "cancelled_ticket": return { text: `${actPhrase(a)} was taken back`, detail: str("why") };
+    case "held_acts": return { text: "You held every post and send of the team", detail: null };
+    case "resumed_acts": return { text: "You let the team's posts and sends go", detail: "each still waits for its press" };
     default: return vaultSentence(a, actorName) ?? { text: `${actorName}: ${a.verb.replace(/_/g, " ")}${a.object ? ` ${a.object}` : ""}`, detail: null };
   }
+}
+
+/* ── approve → act ──────────────────────────────────────────────────────────────────────────────── */
+
+export const ACT_WORDS: Record<ActKind, { verb: string; past: string; noun: string; plural: string }> = {
+  post: { verb: "Post", past: "Posted", noun: "post", plural: "posts" },
+  dm: { verb: "Send", past: "Sent", noun: "DM", plural: "DMs" },
+  email: { verb: "Send", past: "Sent", noun: "email", plural: "emails" },
+};
+
+const actKindOf = (a: TeamActivity): ActKind => (a.detail.kind === "dm" || a.detail.kind === "email" ? a.detail.kind : "post");
+
+/** "a post as @versed.nathan on TikTok", "a DM to @reader from @versed.nathan". */
+function actPhrase(a: TeamActivity, article = true): string {
+  const k = actKindOf(a);
+  const d = a.detail;
+  const account = typeof d.account === "string" ? d.account : a.object ?? "";
+  const channel = typeof d.channel === "string" ? d.channel : null;
+  const to = typeof d.to === "string" ? d.to : null;
+  const head = article ? `${k === "email" ? "an" : "a"} ${ACT_WORDS[k].noun}` : "";
+  const body = k === "post" ? `as ${account}${channel ? ` on ${channel}` : ""}` : `${to ? `to ${to} ` : ""}from ${account}`;
+  return `${head} ${body}`.trim();
+}
+
+const REFUSED_WORDS: Record<string, string> = {
+  no_press: "nobody pressed its sheet in Realm's window",
+  changed_since_approval: "a file changed after you approved it",
+  no_consent: "the record names no consent for the account",
+  no_disclosure: "it discloses no paid partnership",
+  slot_moved: "its slot moved since the sheet showed it",
+  held: "the team's posts were held",
+  missed_slot: "it missed its slot while Realm was not running",
+  account_day: "the account's day was full",
+  team_day: "the team's day was full",
+  gap: "too soon after the last one",
+};
+
+function refusedAct(a: TeamActivity): { text: string; detail: string | null } {
+  const why = typeof a.detail.why === "string" ? a.detail.why : "";
+  return { text: `Realm refused ${actPhrase(a)}`, detail: REFUSED_WORDS[why] ?? (typeof a.detail.words === "string" ? a.detail.words : null) };
+}
+
+/** When a slot is, in a sentence: "now", "4:10 PM today", "8:00 AM tomorrow", "Sat at 8:00 AM". */
+export function slotPhrase(ts: number, now = Date.now()): string {
+  if (ts <= now + 30_000) return "now";
+  const time = new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const day = (t: number) => new Date(t).toDateString();
+  if (day(ts) === day(now)) return `${time} today`;
+  if (day(ts) === day(now + 86_400_000)) return `${time} tomorrow`;
+  return `${new Date(ts).toLocaleDateString(undefined, { weekday: "short" })} at ${time}`;
+}
+
+/** The sheet's button: the action and its time — "Post at 4:10 PM", "Post now", "Send tomorrow at
+ *  8:00 AM" — never "now" beside a later slot. */
+export function actButton(t: Pick<ActTicket, "kind" | "slotAt">, now = Date.now()): string {
+  const verb = ACT_WORDS[t.kind].verb;
+  const when = slotPhrase(t.slotAt, now);
+  if (when === "now") return `${verb} now`;
+  if (when.endsWith(" today")) return `${verb} at ${when.slice(0, -" today".length)}`;
+  if (when.endsWith(" tomorrow")) return `${verb} tomorrow at ${when.slice(0, -" tomorrow".length)}`;
+  return `${verb} ${when}`;
+}
+
+/** "Slideshows 2–6", "Slideshow 3", "Slideshows 2, 4 and 5": the others still waiting, by number. */
+export function othersPhrase(ords: readonly number[], noun: string): string | null {
+  if (ords.length === 0) return null;
+  const n = [...ords].sort((a, b) => a - b).map((o) => o + 1);
+  const cap = noun.charAt(0).toUpperCase() + noun.slice(1);
+  if (n.length === 1) return `${cap} ${n[0]}`;
+  const run = n.every((x, i) => i === 0 || x === n[i - 1]! + 1);
+  return `${cap}s ${run ? `${n[0]}–${n[n.length - 1]}` : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`}`;
 }

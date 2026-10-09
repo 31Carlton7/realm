@@ -10008,6 +10008,30 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
   background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none; }
 .rv-ask-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 
+/* The team's kill switch, at the head of its Review, and the line that says it is on. */
+.rv-hold { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; }
+.rv-held { display: flex; align-items: center; gap: 8px; margin: 0 10px 8px; padding: 8px 10px 8px 12px; border-radius: var(--r-row);
+  background: color-mix(in srgb, var(--rl-warning) 12%, transparent); color: var(--rl-text-bright); font-size: 13px; line-height: 18px; }
+.rv-held > svg { flex: none; color: var(--rl-warning); }
+.rv-held > span { flex: 1; min-width: 0; }
+
+/* The post sheet (mock 04): the consequence in a sentence, the facts in a card of rows, and a button
+   that says the action and its time. */
+.sheet:has(.ps) .sheet-head h3 { font-size: 18px; line-height: 24px; }
+.ps-lede { margin: 0 0 14px; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
+.ps-rows { margin: 0; padding: 0 14px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.ps-rows > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 11px 0; position: relative; }
+.ps-rows > div + div::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.ps-rows dt { font-size: 14px; line-height: 20px; color: var(--rl-text-dim); }
+.ps-rows dd { margin: 0; min-width: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.ps-rows small { font-size: 14px; color: var(--rl-text-dim); }
+.ps-clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-check { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.ps-check input { margin: 0; translate: 0 2px; }
+.ps-why { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.ps-foot { display: flex; align-items: center; gap: 8px; width: 100%; }
+.ps-foot-note { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+
 /* The team's pages, in the space page's column. */
 .page-content.tp-page { max-width: 860px; }
 .tp-lede { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-dim); max-width: 64ch; }
