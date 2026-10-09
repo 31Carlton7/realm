@@ -204,6 +204,17 @@ interface Window {
       unlockPolicy(profileId: string): Promise<import("@realm/contracts").UnlockPolicyStatus | null>;
       setUnlockPolicy(profileId: string, policy: import("@realm/contracts").UnlockPolicy): Promise<{ ok: true; status: import("@realm/contracts").UnlockPolicyStatus } | { ok: false; error: string }>;
     };
+    /** A team's Vault page (main/vault-ipc.ts). Optional like every bridge: jsdom has none. Values go
+     *  in once and never come back; `setAllow` is confirmed by macOS in main. */
+    vault?: {
+      list(profileId: string, spaceId: string): Promise<{ available: boolean; secrets: import("@realm/contracts").VaultSecrets; allows: import("@realm/contracts").VaultAllow[]; profileUnattended: boolean }>;
+      addSignin(profileId: string, spaceId: string, input: import("@realm/contracts").BrowserCredentialInput): Promise<import("@realm/contracts").BrowserCredential>;
+      addKey(profileId: string, spaceId: string, input: import("@realm/contracts").VaultKeyInput): Promise<import("@realm/contracts").VaultKey>;
+      remove(profileId: string, spaceId: string, secretId: string): Promise<boolean>;
+      setAllow(profileId: string, input: { spaceId: string; secretId: string; roleId: string; hosts: string[]; grantAt: number; roleName: string; secretName: string }):
+        Promise<{ ok: true; allow: import("@realm/contracts").VaultAllow } | { ok: false; error: string }>;
+      clearAllow(secretId: string, roleId: string): Promise<boolean>;
+    };
     /** Settings → Sign-ins, the passkey half. No `add`: a passkey is created by a site asking for one
      *  in a pane and the user answering Touch ID, so there is nothing for a person to type. */
     passkeys: {

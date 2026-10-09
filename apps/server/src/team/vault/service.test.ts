@@ -83,7 +83,7 @@ describe("grants", () => {
     await expect(h.vault.grant({ spaceId: SPACE, secretId: "k-rc", roleId: h.analyst.id, hosts: ["evil.example.com"], purpose: null }))
       .rejects.toThrow(/locked to api\.revenuecat\.com, 127\.0\.0\.1:8815; it cannot be granted for evil\.example\.com/);
     const s = await h.vault.grant({ spaceId: SPACE, secretId: "c-tiktok", roleId: h.manager.id, hosts: [], purpose: "post for Nathan" });
-    expect(s).toMatchObject({ kind: "signin", name: "www.tiktok.com · nathan", hosts: ["www.tiktok.com"], purpose: "post for Nathan" });
+    expect(s).toMatchObject({ kind: "signin", name: "tiktok.com · nathan", hosts: ["www.tiktok.com"], purpose: "post for Nathan" });
   });
 
   it("are made only for a role of this team, for a secret this team holds", async () => {
@@ -210,7 +210,7 @@ describe("the tools", () => {
     await h.vault.grant({ spaceId: SPACE, secretId: "c-tiktok", roleId: h.analyst.id, hosts: [], purpose: null });
     expect(h.vault.preambleLines(h.analyst.id).join("\n")).toBe(
       "- The team's vault: you use these by name and never see a value. API keys, through `vault_http` with {{secret}} where the key goes: "
-      + "REVENUECAT_SECRET_KEY (only to api.revenuecat.com). Sign-ins, through `browser_fill_credential`: www.tiktok.com · nathan. `vault_list` says what you hold. Anything else is refused.");
+      + "REVENUECAT_SECRET_KEY (only to api.revenuecat.com). Sign-ins, through `browser_fill_credential`: tiktok.com · nathan. `vault_list` says what you hold. Anything else is refused.");
     expect(h.vault.preambleLines(h.manager.id)).toEqual([]);
   });
 });

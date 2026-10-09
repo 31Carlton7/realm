@@ -189,9 +189,9 @@ export class VaultService {
   }
 }
 
-/** A sign-in as the vault names it: "tiktok.com · nathan". */
+/** A sign-in as the vault names it: "tiktok.com · nathan" — the host without its `www.`. */
 export function signinName(origin: string, username: string): string {
   let host = origin;
-  try { host = new URL(origin).host; } catch { /* keep it */ }
+  try { host = new URL(origin).host.replace(/^www\./, ""); } catch { /* keep it */ }
   return username ? `${host} · ${username}` : host;
 }
