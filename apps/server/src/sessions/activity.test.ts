@@ -62,6 +62,16 @@ describe("what moves a session's activity", () => {
     expect(s.activityAt).toBe(s.createdAt);
   });
 
+  it("a prompt going out, before anything comes back", async () => {
+    // A turn parked on its permission card: no reply and no settle yet, only the prompt.
+    const { c, id, get } = await boot();
+    const made = (await get()).activityAt;
+    await tick();
+    await c.call("sessions.send", { id, text: "hold" });
+    await waitFor(() => c.statuses(id).includes("waiting_permission"));
+    expect((await get()).activityAt).toBeGreaterThan(made);
+  });
+
   it("a prompt going out, and the reply it gets", async () => {
     const { c, id, get } = await boot();
     const made = (await get()).activityAt;
