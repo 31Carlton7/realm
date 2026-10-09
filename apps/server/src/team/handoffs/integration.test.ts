@@ -138,6 +138,18 @@ describe("handoffs", () => {
     c.close();
   });
 
+  it("a new team's starters hand off where their templates say", async () => {
+    const { c } = await boot();
+    const profile = new ProfilesStore(app.db).create({ name: "Q", icon: "x", color: "#000" });
+    const other = new SpacesStore(app.db, tempDir("realm-handoffs-other-")).create({ profileId: profile.id, name: "Fresh", icon: "folder" });
+    const team = await c.must("team.make", { spaceId: other.id, templates: ["content-producer", "creator-manager", "growth-analyst"] });
+    const by = (name: string) => team.roles.find((r: Any) => r.name === name);
+    expect(by("Content Producer").handsOffTo).toEqual([by("Creator Manager").id]);
+    expect(by("Creator Manager").handsOffTo).toEqual([by("Content Producer").id]);
+    expect(by("Growth Analyst").handsOffTo).toEqual([]);
+    c.close();
+  });
+
   it("starters hand off where their templates say, and a role cannot hand off to itself", async () => {
     const { c, spaceId } = await boot();
     const team = await c.must("team.make", { spaceId, templates: ["researcher", "editor"] });
