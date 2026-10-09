@@ -64,6 +64,24 @@ function v3Fixture(path: string): { spaceId: string; sessionId: string } {
   return { spaceId: "sp1", sessionId: "se1" };
 }
 
+/**
+ * The two tables the activity migration reads — `sessions.created_at`, and `session_events`' session,
+ * time and type — added where a stub below left them out. Each of those fixtures runs the chain to its
+ * END, and a real home of any version has both tables whole: a stub is missing them only because
+ * nothing it was written for read them. Columns a stub already has are left as it wrote them.
+ */
+function stubActivitySources(db: DatabaseSync): void {
+  const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
+  if (cols("sessions").length === 0) db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL DEFAULT 0)");
+  else if (!cols("sessions").includes("created_at")) db.exec("ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0");
+  if (cols("session_events").length === 0) {
+    db.exec("CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}')");
+    return;
+  }
+  if (!cols("session_events").includes("ts")) db.exec("ALTER TABLE session_events ADD COLUMN ts INTEGER NOT NULL DEFAULT 0");
+  if (!cols("session_events").includes("type")) db.exec("ALTER TABLE session_events ADD COLUMN type TEXT NOT NULL DEFAULT ''");
+}
+
 describe("database", () => {
 
   it("migrates a populated v3 database to v4, adding sessions.terminal_item_id (NULL) without touching its rows", () => {
@@ -335,6 +353,7 @@ function v8McpFixture(path: string): { serverId: string } {
   const db = new DatabaseSync(path);
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V8_MCP_SERVERS);
+  stubActivitySources(db);
   // The fixture is deliberately minimal — only the tables LATER migrations touch. v14 ALTERs
   // sessions and v15 reads items/session_events and writes settings and v17 alters spaces, so stubs of those must exist
   // for the v9..v21 replay to run; their real v1/v3 shapes are exercised by the v4/v5 fixtures above.
@@ -716,6 +735,7 @@ function v32Fixture(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V32_REWIND_SCHEMA);
+  stubActivitySources(db);
   for (let v = 1; v <= 32; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1')").run();
   db.prepare("INSERT INTO environments (id) VALUES ('env1')").run();
@@ -836,6 +856,7 @@ function v34Fixture(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V34_HISTORY_SCHEMA);
+  stubActivitySources(db);
   for (let v = 1; v <= 34; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', 0, 1, 1)");
   profile.run("p1", "Work");
@@ -937,6 +958,7 @@ function v35Fixture(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V35_FAVICON_SCHEMA);
+  stubActivitySources(db);
   for (let v = 1; v <= 35; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', 0, 1, 1)");
   profile.run("p1", "Work");
@@ -1025,6 +1047,7 @@ function v36Fixture(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V36_PROFILES_SCHEMA);
+  stubActivitySources(db);
   for (let v = 1; v <= 36; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   const profile = db.prepare("INSERT INTO profiles VALUES (?, ?, 'user', '#000000', ?, ?, 1)");
   profile.run("pSchool", "School", 1, 5);
@@ -1091,6 +1114,7 @@ describe("migration v37 — a browser partition per profile", () => {
     const db = new DatabaseSync(p);
     db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
     db.exec(V36_PROFILES_SCHEMA);
+    stubActivitySources(db);
     for (let v = 1; v <= 36; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
     db.close();
     const fresh = openDatabase(p);
@@ -1145,6 +1169,7 @@ function v37Fixture(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V37_SCHEDULED_SCHEMA);
+  stubActivitySources(db);
   for (let v = 1; v <= 37; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1')").run();
   db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json, next_run_at, last_run_at, last_run_id, last_skipped_at, created_at, updated_at)
@@ -1251,6 +1276,7 @@ function v38Fixture(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V38_SESSIONS_SCHEMA);
+  stubActivitySources(db);
   for (let v = 1; v <= 38; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Charts'), ('sess2', 'Other')").run();
   db.close();
@@ -1329,6 +1355,7 @@ function v39Fixture(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V39_PROFILES_SCHEMA);
+  stubActivitySources(db);
   for (let v = 1; v <= LIBRARY_FILES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare(`INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at, browser_partition)
     VALUES ('pWork', 'Work', 'briefcase', '#3b82f6', 0, 1, 1, 'persist:browser'), ('pHome', 'Home', 'house', '#22c55e', 1, 2, 2, 'persist:browser-pHome')`).run();
@@ -1435,6 +1462,7 @@ function v40Fixture(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V40_EVENTS_SCHEMA);
+  stubActivitySources(db);
   for (let v = 1; v <= SAVED_TURNS_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare(`INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at, browser_partition)
     VALUES ('pWork', 'Work', 'briefcase', '#3b82f6', 0, 1, 1, 'persist:browser')`).run();
@@ -1588,6 +1616,7 @@ function v42Fixture(path: string): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   db.exec(V42_TEAMS_SCHEMA);
+  stubActivitySources(db);
   for (let v = 1; v <= TEAM_ROLES_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
   db.prepare("INSERT INTO spaces (id) VALUES ('sp1'), ('sp2')").run();
   db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json, next_run_at, last_run_at, last_run_id, last_skipped_at, created_at, updated_at)
@@ -1680,6 +1709,105 @@ describe("migrations v43–v45 — teams: roles, review, activity", () => {
     // The CREATEs say IF NOT EXISTS, so the reviews and activity statements are safe to replay as written.
     expect(() => again.exec(migrations[TEAM_ROLES_AT + 1]!)).not.toThrow();
     expect(() => again.exec(migrations[TEAM_ROLES_AT + 2]!)).not.toThrow();
+    again.close();
+  });
+});
+
+/**
+ * `sessions` and `session_events` as they stand before the activity column, hand-written: every
+ * column a session row has had since v38 (fast mode, the rewind cursors, dispatch origin, the read
+ * mark), and the events table as it has been since v3. Three sessions — one that has talked, one that
+ * was only made, and one whose log holds nothing but Realm's own lines.
+ */
+const V45_SESSIONS_SCHEMA = `
+CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, project_id TEXT,
+  agent_kind TEXT NOT NULL, model TEXT, effort TEXT, permission_mode TEXT NOT NULL DEFAULT 'default',
+  status TEXT NOT NULL, provider_session_id TEXT, title TEXT NOT NULL, last_event_seq INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, terminal_item_id TEXT, environment_id TEXT NOT NULL,
+  seen_seq INTEGER NOT NULL DEFAULT 0, dispatched_by_kind TEXT, dispatched_by_session_id TEXT, fast_mode INTEGER NOT NULL DEFAULT 0,
+  provider_cursor TEXT, rewind_fork_json TEXT, rewind_refusal TEXT);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+`;
+
+/** Stamped up to the version BEFORE the activity column, found from the migration's own text so the
+ *  fixture survives a renumbering at merge time. */
+const ACTIVITY_AT = migrations.findIndex((m) => m.includes("ADD COLUMN activity_at"));
+
+function v45Fixture(path: string): void {
+  const db = new DatabaseSync(path);
+  db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  db.exec(V45_SESSIONS_SCHEMA);
+  for (let v = 1; v <= ACTIVITY_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+  const session = db.prepare(`INSERT INTO sessions (id, space_id, agent_kind, status, title, last_event_seq, created_at, updated_at, environment_id)
+    VALUES (?, 'sp1', 'claude', 'idle', ?, 0, ?, ?, 'env1')`);
+  // `updated_at` far past every event: the rows were written to after they last talked (a resume, a
+  // status, a cursor), which is exactly the time the sidebar must stop ordering by.
+  session.run("talked", "Talked", 100, 9_000);
+  session.run("made", "Only made", 200, 9_000);
+  session.run("quiet", "Realm's lines only", 300, 9_000);
+  const ev = db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, '{}')");
+  ev.run("talked", 1_000, "user_message");
+  ev.run("talked", 1_500, "assistant_text");
+  ev.run("talked", 2_000, "status");
+  ev.run("talked", 2_500, "summary");
+  ev.run("quiet", 4_000, "init");
+  ev.run("quiet", 4_100, "status");
+  db.close();
+}
+
+describe("migration — a session's activity", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    v45Fixture(p);
+    return { p, db: openDatabase(p) };
+  };
+  const activity = (db: DatabaseSync) => db.prepare("SELECT id, activity_at FROM sessions ORDER BY id").all();
+
+  it("is appended after the team tables: a home from before it reaches the end of the chain and gains the column", () => {
+    expect(ACTIVITY_AT).toBeGreaterThanOrEqual(45);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    expect((db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).map((c) => c.name)).toContain("activity_at");
+    db.close();
+  });
+
+  it("dates each session by its newest prompt or reply, else its making — never by the last write to its row", () => {
+    // THE mutants: a backfill from `updated_at` (every row would say 9000, and the order the user knew
+    // would be shuffled by whatever last touched each row), and one that counts any event (`quiet`
+    // would rise above `talked` on an init and a status).
+    const { db } = migrated();
+    expect(activity(db)).toEqual([
+      { id: "made", activity_at: 200 },
+      { id: "quiet", activity_at: 300 },
+      { id: "talked", activity_at: 1_500 },
+    ]);
+    db.close();
+  });
+
+  it("leaves every other column of a session as it found it", () => {
+    const { db } = migrated();
+    expect(db.prepare("SELECT title, created_at, updated_at, last_event_seq FROM sessions WHERE id = 'talked'").get())
+      .toEqual({ title: "Talked", created_at: 100, updated_at: 9_000, last_event_seq: 0 });
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing, and a replayed backfill never pulls back a time written since", () => {
+    const { p, db } = migrated();
+    db.prepare("UPDATE sessions SET activity_at = 7000 WHERE id = 'made'").run();
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect(again.prepare("SELECT activity_at FROM sessions WHERE id = 'made'").get()).toEqual({ activity_at: 7000 });
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    const backfill = migrations[ACTIVITY_AT]!.slice(migrations[ACTIVITY_AT]!.indexOf("UPDATE sessions"));
+    again.exec(backfill);
+    again.exec(backfill);
+    expect(activity(again)).toEqual([
+      { id: "made", activity_at: 7000 },
+      { id: "quiet", activity_at: 300 },
+      { id: "talked", activity_at: 1_500 },
+    ]);
     again.close();
   });
 });

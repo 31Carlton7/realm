@@ -1299,13 +1299,23 @@ export type AppState = TeamSlice & {
    *  this map is what lets an inactive space's strip button wear its badge. */
   sessionSpace: Record<string, string>;
   /**
-   * When each session last moved, by session id — the tiebreaker behind "Sort by activity".
+   * When each session's STATUS last moved, by session id — how long Needs you has been waiting on it.
    *
    * Kept beside `sessionSpace` rather than read off `sessions`, and for the same reason that map
-   * exists: `sessions` holds only the ACTIVE space's rows, while the strip sorts every space in the
-   * profile. Seeded from `listAllSessions` at boot and kept current by the status broadcasts.
+   * exists: `sessions` holds only the ACTIVE space's rows, while the sidebar reads every space in the
+   * profile. Seeded from `listAllSessions` at boot and kept current by the status broadcasts. Not an
+   * order: opening a session can move its status, and a row must not move for being opened.
    */
   sessionUpdatedAt: Record<string, number>;
+  /**
+   * When each session's conversation last moved, by session id (`Session.activityAt`) — what every
+   * list of sessions, and "Sort by activity", is ordered by.
+   *
+   * Seeded with `sessionUpdatedAt`, and moved by a prompt going out (stamped as it is sent, so the row
+   * comes up at once), a prompt or a reply arriving, and a turn settling. Never by selecting, reading,
+   * a status the session passes through on a resume, or any other write to its row. Never backwards.
+   */
+  sessionActivityAt: Record<string, number>;
   /**
    * Every session in the home, as a row — what the sidebar draws a session of ANOTHER profile from.
    *
@@ -3033,14 +3043,14 @@ export function spaceBadge(
 export function spaceActivity(
   sessionStatus: Record<string, SessionStatus>,
   sessionSpace: Record<string, string>,
-  sessionUpdatedAt: Record<string, number>,
+  sessionActivityAt: Record<string, number>,
   spaceId: string,
 ): number {
   let newest = 0;
   for (const [id, sid] of Object.entries(sessionSpace)) {
     if (sid !== spaceId) continue;
     if (sessionStatus[id] === "waiting_permission") return Infinity;
-    const at = sessionUpdatedAt[id];
+    const at = sessionActivityAt[id];
     if (at !== undefined && at > newest) newest = at;
   }
   return newest;
@@ -3389,8 +3399,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  quietly stale, which is the one failure a feed cannot have. A third surface adds a term. */
     const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
+    /**
+     * The write that says a session's conversation moved at `at` (`sessionActivityAt`), or undefined
+     * when it already says as much: the time only ever goes forward, so a list refetched a moment
+     * after a send cannot pull the row back under the one the send just put it above.
+     *
+     * A patch, like `logGrew` below, so it can ride a write already being made.
+     */
+    const movedAt = (id: string, at: number): Partial<AppState> | undefined =>
+      at > (get().sessionActivityAt[id] ?? 0) ? { sessionActivityAt: { ...get().sessionActivityAt, [id]: at } } : undefined;
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status },
-      sessionSpace: { ...get().sessionSpace, [s.id]: s.spaceId }, allSessions: { ...get().allSessions, [s.id]: s } });
+      sessionSpace: { ...get().sessionSpace, [s.id]: s.spaceId }, allSessions: { ...get().allSessions, [s.id]: s },
+      ...movedAt(s.id, s.activityAt) });
     /**
      * The write a persisted event owes the rows that describe its session: their `lastEventSeq`, which
      * is how far the log has been WRITTEN and so half of what the unread ring reads. Undefined when
@@ -3887,15 +3907,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (panel) set(writeView({ ...viewNow(), zoomedLeafId: panel.id }));
     };
 
-    /** The newest session of a space that has a pane to open — by the session's own `updatedAt`,
+    /** When a session item's conversation last moved (`sessionActivityAt`), else when it was made. */
+    const lastMovedAt = (item: Item): number =>
+      get().sessionActivityAt[item.refId] ?? get().sessions[item.refId]?.activityAt ?? item.createdAt;
+    /** The newest session of a space that has a pane to open — by when its conversation last moved,
      *  which is what "most recent" means to the person who last worked on it. */
     const newestSessionItem = (spaceId: string): Item | null => {
-      const sessions = get().sessions;
       let best: Item | null = null;
       let bestAt = -1;
       for (const item of get().items) {
         if (item.spaceId !== spaceId || item.kind !== "session" || item.archived) continue;
-        const at = sessions[item.refId]?.updatedAt ?? item.updatedAt;
+        const at = lastMovedAt(item);
         if (at <= bestAt) continue;
         best = item;
         bestAt = at;
@@ -4245,7 +4267,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
       spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
@@ -4404,7 +4426,7 @@ await get().refreshCustomThemes().catch(() => {});
         const layout = get().layout ?? emptyLayout();
         const shown = allItems(layout).map((itemId) => get().items.find((i) => i.id === itemId))
           .filter((i): i is Item => !!i && i.kind === "session" && i.spaceId === id && !findLeafOfItem(layout, i.id)?.tabs);
-        const newest = shown.sort((a, b) => (get().sessions[b.refId]?.updatedAt ?? 0) - (get().sessions[a.refId]?.updatedAt ?? 0))[0]
+        const newest = shown.sort((a, b) => lastMovedAt(b) - lastMovedAt(a))[0]
           ?? newestSessionItem(id);
         // Its most recent session, in the main view — focus moving there is what makes it current.
         if (newest) { await get().openItem(newest.id); return; }
@@ -4973,7 +4995,7 @@ await get().refreshCustomThemes().catch(() => {});
         // Each space's own list, not `items.listAll`: that one leaves archived rows out on purpose,
         // because the palette offers what is live.
         const lists = await Promise.all(get().spaces.map((sp) => api.listItems(sp.id).catch(() => [] as Item[])));
-        const at = (i: Item) => get().sessionUpdatedAt[i.refId] ?? i.updatedAt;
+        const at = (i: Item) => get().sessionActivityAt[i.refId] ?? i.createdAt;
         set({ archivedSessions: lists.flat().filter((i) => i.kind === "session" && i.archived).sort((a, b) => at(b) - at(a)) });
       },
       async restoreArchivedSession(itemId) {
@@ -5289,6 +5311,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
           const { [it.refId]: _ua, ...sessionUpdatedAt } = get().sessionUpdatedAt;
+          const { [it.refId]: _aa, ...sessionActivityAt } = get().sessionActivityAt;
           const { [it.refId]: _as, ...allSessions } = get().allSessions;
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _dk, ...sessionDock } = get().sessionDock;
@@ -5300,7 +5323,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
           const { [it.refId]: _drf, ...draftRefs } = get().draftRefs;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -5665,11 +5688,15 @@ await get().refreshCustomThemes().catch(() => {});
         }
         const sessionSpace = { ...get().sessionSpace };
         const sessionUpdatedAt = { ...get().sessionUpdatedAt };
+        const sessionActivityAt = { ...get().sessionActivityAt };
         const rows: Record<string, Session> = {};
         for (const [, list] of fresh) {
-          for (const se of list) { rows[se.id] = se; sessions[se.id] = se; sessionStatus[se.id] = se.status; sessionSpace[se.id] = se.spaceId; sessionUpdatedAt[se.id] = se.updatedAt; }
+          for (const se of list) {
+            rows[se.id] = se; sessions[se.id] = se; sessionStatus[se.id] = se.status; sessionSpace[se.id] = se.spaceId; sessionUpdatedAt[se.id] = se.updatedAt;
+            sessionActivityAt[se.id] = Math.max(sessionActivityAt[se.id] ?? 0, se.activityAt);
+          }
         }
-        set({ sessions: keepHeldSessions(sessions), sessionStatus, sessionSpace, sessionUpdatedAt, allSessions: { ...get().allSessions, ...rows } });
+        set({ sessions: keepHeldSessions(sessions), sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions: { ...get().allSessions, ...rows } });
       },
       listAllSessions(profileId = null) { return api.listAllSessions(profileId); },
       async refreshAllSessions() {
@@ -5678,8 +5705,12 @@ await get().refreshCustomThemes().catch(() => {});
         // are written before each session.status broadcast), so they simply overwrite.
         const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
         const sessionUpdatedAt: Record<string, number> = {}; const allSessions: Record<string, Session> = {};
-        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; allSessions[s.id] = s; }
-        set({ sessionSpace, sessionStatus, sessionUpdatedAt, allSessions });
+        const sessionActivityAt: Record<string, number> = {};
+        for (const s of all) {
+          sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; allSessions[s.id] = s;
+          sessionActivityAt[s.id] = Math.max(get().sessionActivityAt[s.id] ?? 0, s.activityAt);
+        }
+        set({ sessionSpace, sessionStatus, sessionUpdatedAt, sessionActivityAt, allSessions });
       },
       async jumpToPermission(sessionId = null) {
         const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;
@@ -5766,7 +5797,11 @@ await get().refreshCustomThemes().catch(() => {});
         /* …and the log's new length, for the rows that describe this session — another profile's as
            much as this one's (`logGrew`). Carried the same way, for the same reason. */
         const grew = !ev.ephemeral && ev.seq > 0 ? logGrew(ev.sessionId, ev.seq) : undefined;
-        const also = activity || grew ? { ...grew, ...activity } : undefined;
+        /* …and, for a prompt or a reply, the session's activity: the conversation moved, so its row
+           comes up — the server's `persist` keeps the same rule. */
+        const spoke = !ev.ephemeral && (ev.event.type === "user_message" || ev.event.type === "assistant_text")
+          ? movedAt(ev.sessionId, ev.event.ts) : undefined;
+        const also = activity || grew || spoke ? { ...grew, ...activity, ...spoke } : undefined;
         /* An auth failure the server has already re-probed and given up on. Re-read the agents here
            too, and before the transcript returns below, because the answer is about the CLI rather
            than about this session: a signed-out `claude` is signed out for every pane, including the
@@ -5834,6 +5869,11 @@ await get().refreshCustomThemes().catch(() => {});
            `Date.now()` beside the server's own `updatedAt` is not two clocks: realm-server is a
            process on this machine, so both read the same one. */
         if (prev !== status) set({ sessionUpdatedAt: { ...get().sessionUpdatedAt, [sessionId]: Date.now() } });
+        /* A turn ending is the conversation moving, even a turn that said nothing: the server stamps
+           the settle (`SessionService.onEvent`), and this is the same moment heard here. Any other
+           change — the idle a resume passes through on being opened — leaves the row where it is. */
+        const settled = (prev === "running" || prev === "waiting_permission") && status !== "running" && status !== "waiting_permission";
+        if (settled) { const moved = movedAt(sessionId, Date.now()); if (moved) set(moved); }
         // A turn just finished (or died): the working tree likely changed, so refresh git context.
         if (prev !== status && (status === "idle" || status === "error")) refreshGitFor(sessionId);
       },
@@ -5916,6 +5956,11 @@ await get().refreshCustomThemes().catch(() => {});
       async sendMessage(id, text) {
         // A delegated child the user writes to is theirs from here on — see `delegatedChildren`.
         delegatedChildren.delete(id);
+        /* The row comes to the top as the prompt goes, not when the server's echo arrives. Not while a
+           turn is in flight: the message may be queued, and a queued message moves its session when
+           it goes out (the server's `user_message`), not when it is written. */
+        const st = get().sessionStatus[id];
+        if (st !== "running" && st !== "waiting_permission") { const moved = movedAt(id, Date.now()); if (moved) set(moved); }
         const pending = get().pendingAttachments[id] ?? [];
         // What travels as `mentions` is a re-scan of the FINAL text against the recognised ids plus
         // whatever is mentionable now — read synchronously, before the prompter clears the draft (and
@@ -5971,6 +6016,7 @@ await get().refreshCustomThemes().catch(() => {});
           userDispatched: true,
         });
         if (inProfile(source.spaceId)) mergeSession(session);
+        { const moved = movedAt(session.id, Date.now()); if (moved) set(moved); }
         // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
         // surfaces the reason), exactly as a failed normal send would.
         await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? [], named);

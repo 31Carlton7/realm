@@ -1611,7 +1611,7 @@ function Attribution() {
 function ArchivedTab() {
   const archived = useApp((s) => s.archivedSessions);
   const spaces = useApp((s) => s.spaces);
-  const updatedAt = useApp((s) => s.sessionUpdatedAt);
+  const activityAt = useApp((s) => s.sessionActivityAt);
   const refreshArchivedSessions = useApp((s) => s.refreshArchivedSessions);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshArchivedSessions()); }, [run, refreshArchivedSessions]);
@@ -1624,7 +1624,7 @@ function ArchivedTab() {
         <ul className="settings-list" aria-label="Archived sessions">
           {archived.map((it) => (
             <ArchivedRow key={it.id} itemId={it.id} title={it.title} spaceName={spaceName(it.spaceId)}
-              at={updatedAt[it.refId] ?? it.updatedAt} />
+              at={activityAt[it.refId] ?? it.createdAt} />
           ))}
         </ul>
       )}

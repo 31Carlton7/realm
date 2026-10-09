@@ -1125,12 +1125,15 @@ export class SessionService {
     this.live.delete(id);
   }
 
-  /** Append + bump last_event_seq atomically. */
+  /** Append + bump last_event_seq atomically — and, for a prompt or a reply, the session's activity:
+   *  those are the conversation moving, where an init, a status or a summary is Realm keeping its
+   *  books and must not move the session's row. */
   private persist(id: string, ev: SessionEvent): StoredSessionEvent {
     this.d.db.exec("BEGIN");
     try {
       const stored = this.d.events.append(id, ev);
       this.d.sessions.setLastEventSeq(id, stored.seq);
+      if (ev.type === "user_message" || ev.type === "assistant_text") this.d.sessions.touchActivity(id, ev.ts);
       this.d.db.exec("COMMIT");
       return stored;
     } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
@@ -1751,6 +1754,9 @@ export class SessionService {
       }
       const started = settled ? this.turnStarted.get(id) : undefined;
       if (settled) this.turnStarted.delete(id);
+      // A turn ending is the conversation moving even when it said nothing (a tool-only turn, an
+      // error): the row comes up to say it is done.
+      if (settled) this.d.sessions.touchActivity(id, ev.ts);
       // A SETTLE, not any status: the transition out of a live state is the moment the transcript
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
