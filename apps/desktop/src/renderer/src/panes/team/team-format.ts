@@ -280,7 +280,8 @@ export function goalLine(g: RoleGoal): { text: string; tone: "ok" | "warn" | nul
   const turns = g.turns > 0 ? ` · ${g.turns} turn${g.turns === 1 ? "" : "s"}` : "";
   if (g.status === "queued") return { text: "Waiting for a free slot", tone: null };
   if (g.status === "active") return { text: `Working toward it${turns}`, tone: null };
-  if (g.status === "complete") return { text: `Met${turns}${g.note ? ` · ${g.note}` : ""}`, tone: "ok" };
-  if (g.status === "budget_limited") return { text: `Stopped at its budget${turns}`, tone: "warn" };
-  return { text: `Stopped${turns}${g.note ? ` · ${g.note}` : ""}`, tone: "warn" };
+  // A goal that ended wears its outcome as a chip beside this line, so the line says how it got there.
+  const after = g.turns > 0 ? `After ${g.turns} turn${g.turns === 1 ? "" : "s"}` : "";
+  if (g.status === "budget_limited") return { text: [after, "its budget is spent"].filter(Boolean).join(" · "), tone: "warn" };
+  return { text: [after, g.note].filter(Boolean).join(" · ") || (g.status === "complete" ? "Met" : "Stopped"), tone: g.status === "complete" ? "ok" : "warn" };
 }

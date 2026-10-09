@@ -338,7 +338,9 @@ export class HandoffService implements TeamExtras {
       if (r.kind !== "role") { out.push(r); continue; }
       const clean = { kind: "role" as const, label: r.label, roleId: r.roleId };
       if (!text.includes(`@[${r.label}]`)) { out.push(clean); continue; }
-      const done = await this.mention({ sessionId, spaceId }, r.roleId, text, "person");
+      // The chip's token is the prompter's grammar; the role and its log read the sentence as said.
+      const said = text.replace(/@\[([^\]]+)\]/g, "@$1");
+      const done = await this.mention({ sessionId, spaceId }, r.roleId, said, "person");
       out.push(done.ok ? { ...clean, childId: done.childId } : { ...clean, refused: clip(done.why, 400) });
     }
     return out;

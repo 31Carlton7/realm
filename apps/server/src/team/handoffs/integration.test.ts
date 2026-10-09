@@ -178,6 +178,8 @@ describe("mentions", () => {
     // The lead's own message names the sub-agent Realm started — never the id a client forged.
     const msg = app.sessions.events(session.id, 0, 50).find((e) => e.event.type === "user_message")!;
     expect((msg.event.payload as Any).refs[0]).toMatchObject({ kind: "role", childId: h.sessionId });
+    // The role reads the sentence as said, not the prompter's chip token.
+    expect(h.note).toBe("@Creator Manager when is Nathan due?");
     await waitFor(async () => (await c.must("team.space", { spaceId })).handoffs[0].state === "done", { timeout: 10_000 });
     const role = (await c.must("team.space", { spaceId })).roles.find((r: Any) => r.id === manager);
     expect(role.weekSpendUsd).toBeCloseTo(2, 4);
