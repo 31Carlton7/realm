@@ -111,6 +111,18 @@ describe("what an unlocked friend pack takes over", () => {
   });
 });
 
+describe("what a settled line may claim", () => {
+  it("never says someone else took part in the turn", () => {
+    /* The settled line is read as a record of the turn. THE mutant is "Got a second opinion", which
+       read as a second model having reviewed the work, beside a run that consulted nobody. */
+    const party = /\b(second opinion|review|consult|ask(ed|ing)? (a|an|the|someone)|group chat|team|colleague|friend|expert|human)/i;
+    for (const l of [...RUN_LABELS, ...EGG_RUN_LABELS, PLAN_RUN_LABEL]) {
+      expect(l.present, l.present).not.toMatch(party);
+      expect(l.past, l.past).not.toMatch(party);
+    }
+  });
+});
+
 /** A start time the second roll lands a friend's name on, and one it does not. */
 const NAMED_SEED = 1_756_900_000_000;
 const PLAIN_SEED = 1_756_900_000_001;
