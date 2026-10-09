@@ -199,6 +199,22 @@ describe("what the transcript says about the run", () => {
     expect(RUN_LABELS).toContain(runLabelFor(NAMED_SEED));
   });
 
+  it("a thinking block says Thinking… only while it is the live end of a running turn, and Thought after", () => {
+    const a = 1_756_900_000_000, b = 1_756_900_500_000;
+    const think = (ts: number) => ({ kind: "thinking" as const, messageId: `t${ts}`, text: "hmm", ts });
+    // An interrupted turn's open thinking block, between two finished runs. THE mutant: the fixed
+    // "Thinking…", an ellipsis promising more from a turn that stopped long ago.
+    const { rerender } = render(<Transcript sessionStatus="idle" onDecide={() => {}} transcript={model([
+      { kind: "run", ms: 4_000, startedAt: a, ts: a + 4_000 }, think(a + 5_000),
+      { kind: "run", ms: 9_000, startedAt: b, ts: b + 9_000 },
+    ])} />);
+    expect([...document.querySelectorAll(".thinking-toggle")].map((el) => el.textContent)).toEqual(["Thought"]);
+    // While the turn runs and the block is its last word, it is still being written.
+    rerender(<Transcript sessionStatus="running" onDecide={() => {}}
+      transcript={model([think(b)], { startedAt: b, waitedMs: 0, waitingSince: null })} />);
+    expect([...document.querySelectorAll(".thinking-toggle")].map((el) => el.textContent)).toEqual(["Thinking…"]);
+  });
+
   it("keeps every run's line, so a scrolled-back turn still says what it cost", () => {
     const a = 1_756_900_000_000, b = 1_756_900_500_000;
     render(<Transcript sessionStatus="idle" onDecide={() => {}} transcript={model([
