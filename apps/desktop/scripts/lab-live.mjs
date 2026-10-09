@@ -272,8 +272,10 @@ async function main() {
   check("L2 a device's team and account reach the registry", devs.devices.find((x) => x.name === "Lab iPhone 2").accounts[0].handle === "@versed.mia", devs.devices.map((d) => [d.name, d.spaceName, d.accounts.length]));
   const rows = execFileSync("sqlite3", [path.join(home, "realm.db"), "SELECT name, space_id IS NOT NULL, accounts_json FROM lab_devices ORDER BY created_at"], { encoding: "utf8" }).trim();
   check("L2 rows are in lab_devices (v48)", rows.split("\n").length === 2 && rows.includes("@versed.mia"), rows);
+  // v48 is the lab's, and the chain runs on past it (v49 is the sessions' activity): the home is at
+  // least that far, and lab_devices' row is the 48th applied.
   const version = execFileSync("sqlite3", [path.join(home, "realm.db"), "SELECT MAX(version) FROM schema_version"], { encoding: "utf8" }).trim();
-  check("L2 the scratch database is at v48", version === "48", version);
+  check("L2 the scratch database is past v48", Number(version) >= 48, version);
   await evalIn(c, scrollTo("Devices"));
   await shot(c, "03-lab-devices-dark");
 
