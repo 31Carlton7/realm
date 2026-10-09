@@ -34,6 +34,7 @@ import { GuideProgressSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
+import { ActTicketSchema } from "./team-acts";
 import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
 import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
@@ -1603,6 +1604,14 @@ export const Methods = {
   "team.vaultRevoke": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ revoked: z.boolean() }) },
   "team.vaultUses": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(50) }), result: z.array(VaultUseSchema) },
   "team.vaultAllowChanged": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ on: z.boolean() }) },
+  // Approve → act (Teams Phase 3). An approved batch's outward acts are tickets, each paced and bound
+  // to what was approved. `team.ticketPost` acts only on a press main recorded from Realm's own post
+  // sheet (`main/ticket-presses.ts`) — called by anything else, it is refused. Cancelling and holding
+  // only ever take an act back.
+  "team.tickets": { params: z.object({ spaceId: IdSchema, reviewId: IdSchema.optional() }), result: z.array(ActTicketSchema) },
+  "team.ticketPost": { params: z.object({ id: IdSchema }), result: ActTicketSchema },
+  "team.ticketCancel": { params: z.object({ id: IdSchema }), result: ActTicketSchema },
+  "team.actsHold": { params: z.object({ spaceId: IdSchema, held: z.boolean() }), result: z.object({ held: z.boolean() }) },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),

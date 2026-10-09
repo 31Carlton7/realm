@@ -1,11 +1,12 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { mediaUrl, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary } from "@realm/contracts";
+import { mediaUrl, type ActTicket, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary } from "@realm/contracts";
 import { useDissolve } from "../../components/ScrollFades";
 import { REVIEW_GLYPH } from "../../components/sidebar/TeamRows";
 import { useApp } from "../../state/store";
 import type { Item } from "@realm/contracts";
-import { ageShort, agoPhrase, duration, feedTime, money, reviewGroups, reviewStateLine } from "./team-format";
+import { ACT_WORDS, ageShort, agoPhrase, duration, feedTime, money, plainError, reviewGroups, reviewStateLine, slotPhrase } from "./team-format";
+import { POST_SHEET_NO_AGENT, PostSheet } from "./PostSheet";
 
 const IMAGE = /\.(png|jpe?g|gif|webp|heic|avif)$/i;
 const ONE: Record<TeamReviewSummary["kind"], string> = { slideshows: "slideshow", message: "message", document: "document", report: "report" };
@@ -20,7 +21,8 @@ const EMPTY: readonly TeamReviewSummary[] = [];
  *
  * A card stays where it was while the pane is open — approving one swaps its state line in place, and
  * it moves to "Approved" the next time the list is opened — because a row never moves out from under
- * a press. Nothing here posts: Phase 1's Approve marks the batch ready, and the person posts it.
+ * a press. Approve issues one ticket per post, email or DM; each goes out only on its own press, on
+ * its post sheet, at its paced slot (PostSheet.tsx).
  */
 /** The bar's far end: the waiting mark, while something waits — what the Review row says, on the pane. */
 export function ReviewMeta({ item }: { item: Item }) {
@@ -69,7 +71,9 @@ export function ReviewPane({ item }: { item: Item; visible: boolean; focused?: b
         <div className="rv-list-head">
           <h2>Review</h2>
           <span className="page-vantage">{waiting > 0 ? `${waiting} waiting` : "Nothing waiting"}</span>
+          <HoldControl spaceId={spaceId} held={team?.actsHeld ?? false} live={reviews.some((r) => r.state === "approved" && r.actsDone < r.actsTotal)} />
         </div>
+        {team?.actsHeld && <HeldNote spaceId={spaceId} />}
         <div className="rv-scroll" ref={list} onKeyDown={onKeyDown} role="list" aria-label="Reviews">
           {groups.length === 0 && <p className="rv-empty">When a role sends work for your yes, it arrives here.</p>}
           {groups.map((g) => (
@@ -110,6 +114,7 @@ const kindWord = (r: TeamReviewSummary) => (r.kind === "message" ? "email draft"
 
 function ReviewDetail({ summary }: { summary: TeamReviewSummary }) {
   const detail = useApp((s) => s.teamReviewDetail[summary.id]);
+  const held = useApp((s) => s.teams[summary.spaceId]?.actsHeld ?? false);
   const loadTeamReview = useApp((s) => s.loadTeamReview);
   const run = useApp((s) => s.run);
   // The summary moves with `team.changed`; the detail is re-read with it (team-slice.ts).
@@ -196,7 +201,7 @@ function ReviewDetail({ summary }: { summary: TeamReviewSummary }) {
           </section>
         )}
       </div>
-      <DecisionBar detail={detail} />
+      <DecisionBar detail={detail} item={item ?? null} held={held} />
     </div>
   );
 }
@@ -248,27 +253,66 @@ function Deliverable({ detail, item }: { detail: TeamReviewDetail; item: TeamRev
 const folderOf = (rel: string) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".");
 
 /**
- * The decision: a sentence of consequence, then Request changes and the one primary. Approve says
- * how many it approves; nothing is approved by accident and nothing posts. After a yes the bar offers
- * what a person does next by hand — the folder, then marking it posted.
+ * The team's kill switch, at the head of its Review: "Hold posting" stops every post and send of the
+ * team — a pressed one goes back to waiting, one going out is stopped — and nothing goes until it is
+ * let go. Offered only while something could go out, or while it is held.
  */
-function DecisionBar({ detail }: { detail: TeamReviewDetail }) {
+function HoldControl({ spaceId, held, live }: { spaceId: string; held: boolean; live: boolean }) {
+  const hold = useApp((s) => s.holdTeamActs);
+  const run = useApp((s) => s.run);
+  if (held || !live) return null;
+  return (
+    <button type="button" className="btn-quiet rv-hold" title="Stop every post, email and DM of this team until you let them go"
+      onClick={() => run(() => hold(spaceId, true))}>
+      <Icon name="pause" size={14} />Hold posting
+    </button>
+  );
+}
+
+function HeldNote({ spaceId }: { spaceId: string }) {
+  const hold = useApp((s) => s.holdTeamActs);
+  const run = useApp((s) => s.run);
+  return (
+    <div className="rv-held" role="status">
+      <Icon name="pause" size={14} />
+      <span title="Nothing posts or sends until you let it go, and then each still waits for its own press.">Posting is held for this team.</span>
+      <button type="button" className="btn" data-no-agent={POST_SHEET_NO_AGENT} onClick={() => run(() => hold(spaceId, false))}>Let go</button>
+    </div>
+  );
+}
+
+/**
+ * The decision: a sentence of consequence, then Request changes and the one primary. Approve says
+ * how many it approves; nothing is approved by accident and nothing posts. After a yes, the item being
+ * read has its ticket: "Post…" opens its sheet, a pressed one says when it goes and can be taken back,
+ * and one that went out says so with its proof. Where the platform is not connected, the bar offers
+ * what a person does by hand — the folder, then marking it posted.
+ */
+function DecisionBar({ detail, item, held }: { detail: TeamReviewDetail; item: TeamReviewItem | null; held: boolean }) {
   const decide = useApp((s) => s.decideTeamReview);
   const requestChanges = useApp((s) => s.requestTeamReviewChanges);
+  const cancelTicket = useApp((s) => s.cancelTeamTicket);
+  const openViewer = useApp((s) => s.openViewer);
   const run = useApp((s) => s.run);
   const [asking, setAsking] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sheet, setSheet] = useState<ActTicket | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => { if (asking) field.current?.focus(); }, [asking]);
-  const act = (fn: () => Promise<void>) => { setBusy(true); run(async () => { try { await fn(); } finally { setBusy(false); } }); };
+  const act = (fn: () => Promise<void>) => { setBusy(true); setError(null); run(async () => { try { await fn(); } catch (e) { setError(plainError(e)); } finally { setBusy(false); } }); };
   const n = detail.items.length;
   const reveal = window.realm?.files?.reveal;
   const send = () => { const text = note.trim(); if (!text) return; act(async () => { await requestChanges(detail.id, text); setAsking(false); setNote(""); }); };
   const pending = detail.state === "waiting" || detail.state === "changes";
+  const ticket = item ? detail.tickets.find((t) => t.itemId === item.id) ?? null : null;
+  const live = sheet ? detail.tickets.find((t) => t.id === sheet.id) ?? sheet : null;
+  const byHand = detail.state === "approved" && (!ticket || !ticket.adapter.connected);
+  const approvedAt = `Approved by you${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}.`;
   const sentence = detail.state === "changes" ? `You asked for changes${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}. ${detail.roleName ?? "The role"} is on it.`
-    : detail.state === "approved" ? `Approved by you${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}. ${detail.kind === "message" ? "Realm doesn't send yet — send it yourself." : "Realm doesn't post yet — post it by hand."}`
-    : detail.state === "done" ? "Done." : detail.note && detail.changedSinceApproval ? detail.note : detail.kind === "message" ? "Nothing sends until you approve." : "Nothing posts until you approve.";
+    : detail.state === "approved" ? approvedLine(detail, ticket, approvedAt, held)
+    : detail.state === "done" ? doneLine(ticket) : detail.note && detail.changedSinceApproval ? detail.note : detail.kind === "message" ? "Nothing sends until you approve." : "Nothing posts until you approve.";
   return (
     <div className="rv-decide-wrap">
       {asking && (
@@ -281,7 +325,7 @@ function DecisionBar({ detail }: { detail: TeamReviewDetail }) {
         </form>
       )}
       <div className="rv-decide">
-        <span className="rv-decide-note">{sentence}</span>
+        <span className="rv-decide-note">{error ?? sentence}</span>
         {pending && !asking && (
           <>
             <button type="button" className="btn" disabled={busy} onClick={() => setAsking(true)}>Request changes</button>
@@ -292,15 +336,62 @@ function DecisionBar({ detail }: { detail: TeamReviewDetail }) {
             </button>
           </>
         )}
-        {detail.state === "approved" && (
+        {detail.state === "approved" && !asking && ticket && ticket.adapter.connected && (
+          <>
+            {ticket.state === "ready" && <button type="button" className="btn" disabled={busy} onClick={() => setAsking(true)}>Request changes</button>}
+            {ticket.state === "ready" && (
+              <button type="button" className="btn primary" data-no-agent={POST_SHEET_NO_AGENT} disabled={busy || held}
+                title={held ? "Posting is held for this team" : undefined} onClick={() => setSheet(ticket)}>
+                <Icon name="send" size={16} />{ACT_WORDS[ticket.kind].verb === "Post" ? "Post…" : ticket.kind === "dm" ? "Send DM…" : "Send…"}
+              </button>
+            )}
+            {ticket.state === "scheduled" && (
+              <button type="button" className="btn" disabled={busy} onClick={() => act(() => cancelTicket(ticket))}>
+                {ticket.kind === "post" ? "Don't post" : "Don't send"}
+              </button>
+            )}
+          </>
+        )}
+        {ticket?.state === "done" && <ProofControls ticket={ticket} onShot={(path, opener) => openViewer({ files: [{ path }], index: 0, sessionId: detail.sessionId, spaceId: detail.spaceId, opener })} />}
+        {byHand && (
           <>
             {reveal && detail.root && detail.items[0]?.files[0] && (
               <button type="button" className="btn" onClick={() => { void reveal(`${detail.root}/${detail.items[0]!.files[0]}`); }}>Show in Finder</button>
             )}
-            <button type="button" className="btn" disabled={busy} onClick={() => act(() => decide(detail.id, "done"))}>Mark as posted</button>
+            <button type="button" className="btn" disabled={busy} onClick={() => act(() => decide(detail.id, "done"))}>{detail.kind === "message" ? "Mark as sent" : "Mark as posted"}</button>
           </>
         )}
       </div>
+      {live && live.state === "ready" && <PostSheet detail={detail} ticket={live} onClose={() => setSheet(null)} />}
     </div>
   );
+}
+
+/** What went out keeps its proof: the post's own page, and the screenshot taken when it went. */
+function ProofControls({ ticket, onShot }: { ticket: ActTicket; onShot: (path: string, opener: HTMLElement) => void }) {
+  return (
+    <>
+      {ticket.screenshot && <button type="button" className="btn" onClick={(e) => onShot(ticket.screenshot!, e.currentTarget)}><Icon name="image" size={16} />Screenshot</button>}
+      {ticket.proofUrl && <a className="btn" href={ticket.proofUrl} target="_blank" rel="noreferrer"><Icon name="link" size={16} />Open {ticket.kind === "post" ? "post" : "message"}</a>}
+    </>
+  );
+}
+
+function approvedLine(detail: TeamReviewDetail, t: ActTicket | null, approvedAt: string, held: boolean): string {
+  if (!t) return `${approvedAt} ${detail.kind === "message" ? "Realm doesn't send this — send it yourself." : "Realm doesn't post this — post it by hand."}`;
+  const w = ACT_WORDS[t.kind];
+  if (!t.adapter.connected) return `${approvedAt} ${t.adapter.why ?? ""}`.trim();
+  if (held && t.state !== "done") return `${approvedAt} Posting is held for this team.`;
+  switch (t.state) {
+    case "ready": return t.error ? `Not ${w.past.toLowerCase()}: ${t.error}` : `${approvedAt} Not ${w.past.toLowerCase()} yet.`;
+    case "scheduled": { const when = slotPhrase(t.slotAt); return when === "now" ? `${w.verb === "Post" ? "Posting" : "Sending"} now.` : `${w.verb}s at ${when}. You can take it back until then.`; }
+    case "acting": return `${w.verb === "Post" ? "Posting" : "Sending"} now.`;
+    case "done": return doneLine(t);
+    case "cancelled": return t.error ?? "Taken back.";
+  }
+}
+
+function doneLine(t: ActTicket | null): string {
+  if (!t || t.state !== "done" || t.actedAt === null) return "Done.";
+  return `${ACT_WORDS[t.kind].past} at ${feedTime(t.actedAt)}${t.kind === "post" ? ` as ${t.account}` : t.to ? ` to ${t.to}` : ""}.`;
 }

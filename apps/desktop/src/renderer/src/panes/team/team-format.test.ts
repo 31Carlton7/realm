@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { teamReview, teamRole } from "../../state/store.test-fakes";
-import { ageShort, duration, feedTime, meter, money, plainError, reviewGroups, roleFieldErrors, roleStateLine, runChip, sharesNote, spendLine, wakeSentence } from "./team-format";
+import type { TeamActivity } from "@realm/contracts";
+import { actButton, activitySentence, othersPhrase, reviewStateLine, slotPhrase, ageShort, duration, feedTime, meter, money, plainError, reviewGroups, roleFieldErrors, roleStateLine, runChip, sharesNote, spendLine, wakeSentence } from "./team-format";
 
 const NOW = new Date(2026, 9, 8, 15, 0).getTime();
 
@@ -86,5 +87,41 @@ describe("the team's words and numbers", () => {
     expect(runChip({ ...base, state: "succeeded", reviewState: "waiting" })).toEqual({ tone: "warn", word: "In review" });
     expect(runChip({ ...base, state: "succeeded", reviewState: "approved" })).toEqual({ tone: "ok", word: "Approved" });
     expect(runChip({ ...base, state: "cancelled", stoppedAtCap: "usd" })).toEqual({ tone: "warn", word: "Stopped at $ cap" });
+  });
+});
+
+describe("approve → act, in words", () => {
+  const at = (h: number, m = 0, d = 8) => new Date(2026, 9, d, h, m).getTime();
+  it("says a slot as the sheet's When row does, and the button as the action and its time", () => {
+    expect(slotPhrase(NOW, NOW)).toBe("now");
+    expect(slotPhrase(at(16, 10), NOW)).toMatch(/^4:10\s?PM today$/);
+    expect(slotPhrase(at(8, 0, 9), NOW)).toMatch(/^8:00\s?AM tomorrow$/);
+    // THE MUTANT: "Post now" beside a later slot.
+    expect(actButton({ kind: "post", slotAt: at(16, 10) }, NOW)).toMatch(/^Post at 4:10\s?PM$/);
+    expect(actButton({ kind: "dm", slotAt: at(8, 0, 9) }, NOW)).toMatch(/^Send tomorrow at 8:00\s?AM$/);
+    expect(actButton({ kind: "post", slotAt: NOW }, NOW)).toBe("Post now");
+  });
+
+  it("names the rest of a batch by number", () => {
+    expect(othersPhrase([1, 2, 3, 4, 5], "slideshow")).toBe("Slideshows 2–6");
+    expect(othersPhrase([2], "slideshow")).toBe("Slideshow 3");
+    expect(othersPhrase([1, 3], "slideshow")).toBe("Slideshows 2 and 4");
+    expect(othersPhrase([], "slideshow")).toBeNull();
+  });
+
+  it("counts what went out on an approved card", () => {
+    expect(reviewStateLine(teamReview("r", "s", "6 slideshows", { state: "approved", actsTotal: 6, actsDone: 0 })).text).toBe("Approved by you · 0 of 6 posted");
+    expect(reviewStateLine(teamReview("r", "s", "DMs", { kind: "message", state: "approved", actsTotal: 3, actsDone: 1 })).text).toBe("Approved by you · 1 of 3 sent");
+  });
+
+  it("writes each act's line in the log, its proof and its refusals included", () => {
+    const line = (verb: string, detail: Record<string, unknown>, actor = "realm"): TeamActivity => ({ id: "a", spaceId: "s", ts: NOW, actor, runId: null, sessionId: null, verb, object: "@versed.nathan", detail });
+    const post = { ticketId: "t", kind: "post", channel: "TikTok", account: "@versed.nathan" };
+    expect(activitySentence(line("acted", { ...post, url: "https://x.invalid/1" }), "Realm")).toEqual({ text: "Posted as @versed.nathan on TikTok", detail: "https://x.invalid/1" });
+    expect(activitySentence(line("refused", { ...post, why: "no_press" }), "Realm")).toEqual({ text: "Realm refused a post as @versed.nathan on TikTok", detail: "nobody pressed its sheet in Realm's window" });
+    expect(activitySentence(line("refused", { reviewId: "r", why: "changed_after_approval" }), "Realm").text).toBe("@versed.nathan needs your yes again");
+    expect(activitySentence(line("acted", { ticketId: "t", kind: "dm", channel: "TikTok", account: "@versed.nathan", to: "@reader" }), "Realm").text).toBe("Sent to @reader from @versed.nathan");
+    expect(activitySentence(line("held_acts", {}, "user"), "You").text).toBe("You held every post and send of the team");
+    expect(activitySentence(line("issued_tickets", { tickets: 6 }), "Realm").text).toBe("6 acts from @versed.nathan wait for your press");
   });
 });

@@ -92,7 +92,16 @@ export const VAULT_HOST_OPS = [
   "vaultHttp",
 ] as const;
 
-export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS, ...VAULT_HOST_OPS] as const;
+/**
+ * A team's act tickets (Teams Phase 3), answered in main. One op, and it only READS: whether the person
+ * pressed this ticket's button on Realm's own post sheet a moment ago — consumed as it is answered.
+ * Nothing on this side can make a press; that is the renderer's IPC to main alone.
+ */
+export const TEAM_HOST_OPS = [
+  "teamTicketPress",
+] as const;
+
+export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS, ...VAULT_HOST_OPS, ...TEAM_HOST_OPS] as const;
 /** Every op the bridge will relay, of either family. */
 export type HostOp = (typeof HOST_OPS)[number];
 

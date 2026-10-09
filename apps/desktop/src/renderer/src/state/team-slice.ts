@@ -1,5 +1,5 @@
 import type {
-  CreateRoleInput, CustomRoleInput, RoleRun, Run, TeamActivity, TeamRecord, TeamRecordSummary, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace, UpdateRoleInput,
+  ActTicket, CreateRoleInput, CustomRoleInput, RoleRun, Run, TeamActivity, TeamRecord, TeamRecordSummary, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace, UpdateRoleInput,
 } from "@realm/contracts";
 
 /** What making a team, or adding to one, can carry besides the starters: the person's own teammates,
@@ -24,6 +24,13 @@ export type TeamApi = {
   teamRecordWrite(spaceId: string, path: string, markdown: string): Promise<TeamRecord>;
   teamRecordCreate(spaceId: string, name: string): Promise<TeamRecord>;
   teamActivity(spaceId: string, limit: number): Promise<TeamActivity[]>;
+  /** The person's click on a ticket's post sheet, to Electron main (`main/ticket-presses.ts`) — false
+   *  where there is no main to take it. Never the server: a press made there would be a press any
+   *  token holder could make. */
+  teamTicketPress(input: { ticketId: string; contentHash: string; slotAt: number; label: boolean }): Promise<boolean>;
+  teamTicketPost(id: string): Promise<ActTicket>;
+  teamTicketCancel(id: string): Promise<ActTicket>;
+  teamActsHold(spaceId: string, held: boolean): Promise<{ held: boolean }>;
 };
 
 /**
@@ -59,6 +66,12 @@ export type TeamSlice = {
   selectTeamReview(spaceId: string, id: string): void;
   decideTeamReview(id: string, decision: "approve" | "done" | "dismiss"): Promise<void>;
   requestTeamReviewChanges(id: string, note: string): Promise<void>;
+  /** The post sheet's one click: the press to main, then the ticket set for its slot. Throws what the
+   *  server refused, after re-reading the review so the sheet shows the slot as it now is. */
+  postTeamTicket(ticket: ActTicket, o: { label: boolean }): Promise<void>;
+  cancelTeamTicket(ticket: ActTicket): Promise<void>;
+  /** The team's kill switch. */
+  holdTeamActs(spaceId: string, held: boolean): Promise<void>;
   loadTeamRecords(spaceId: string): Promise<void>;
   fetchTeamRecord(spaceId: string, path: string): Promise<TeamRecord>;
   writeTeamRecord(spaceId: string, path: string, markdown: string): Promise<TeamRecord>;
@@ -147,6 +160,21 @@ export function teamSlice<S extends Host & TeamSlice>(
     async requestTeamReviewChanges(id, note) {
       const r = await api.teamReviewRequestChanges(id, note);
       await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
+    },
+    async postTeamTicket(ticket, o) {
+      const reread = () => Promise.all([get().loadTeamReview(ticket.reviewId), get().refreshTeam(ticket.spaceId)]);
+      const taken = await api.teamTicketPress({ ticketId: ticket.id, contentHash: ticket.contentHash, slotAt: ticket.slotAt, label: o.label });
+      if (!taken) throw new Error("Realm's window could not take the press. Nothing went out.");
+      try { await api.teamTicketPost(ticket.id); } finally { await reread().catch(() => undefined); }
+    },
+    async cancelTeamTicket(ticket) {
+      await api.teamTicketCancel(ticket.id);
+      await Promise.all([get().loadTeamReview(ticket.reviewId), get().refreshTeam(ticket.spaceId)]);
+    },
+    async holdTeamActs(spaceId, held) {
+      await api.teamActsHold(spaceId, held);
+      const open = Object.values(get().teamReviewDetail).filter((r) => r.spaceId === spaceId).map((r) => get().loadTeamReview(r.id));
+      await Promise.all([get().refreshTeam(spaceId), ...open]);
     },
     async loadTeamRecords(spaceId) { put("teamRecords", spaceId, await api.teamRecords(spaceId)); },
     fetchTeamRecord: (spaceId, path) => api.teamRecord(spaceId, path),

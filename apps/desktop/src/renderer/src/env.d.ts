@@ -204,6 +204,11 @@ interface Window {
       unlockPolicy(profileId: string): Promise<import("@realm/contracts").UnlockPolicyStatus | null>;
       setUnlockPolicy(profileId: string, policy: import("@realm/contracts").UnlockPolicy): Promise<{ ok: true; status: import("@realm/contracts").UnlockPolicyStatus } | { ok: false; error: string }>;
     };
+    /** A team's post sheet: the one click that lets an act ticket go out (main/ticket-presses.ts).
+     *  Optional like every bridge: jsdom has none, and without it nothing can be posted. */
+    team?: {
+      pressTicket(input: { ticketId: string; contentHash: string; slotAt: number; label: boolean }): Promise<boolean>;
+    };
     /** A team's Vault page (main/vault-ipc.ts). Optional like every bridge: jsdom has none. Values go
      *  in once and never come back; `setAllow` is confirmed by macOS in main. */
     vault?: {
