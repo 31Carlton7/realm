@@ -87,11 +87,20 @@ export const GhStatusSchema = z.object({
 export type GhStatus = z.infer<typeof GhStatusSchema>;
 
 /**
+ * The accounts gh is signed in to on github.com, by login, and the one of them gh has `active` — the
+ * account a profile that picked none runs as, so a control that offers the pick can say whose that is.
+ * `active` is null wherever `accounts` is empty, and where the account gh has active is one nothing
+ * can be sent as.
+ */
+export const GhAccountsSchema = z.object({ accounts: z.array(z.string()), active: z.string().nullable() });
+export type GhAccounts = z.infer<typeof GhAccountsSchema>;
+
+/**
  * The account a profile's Code review runs as, and its shipped pull requests are opened as, once the
  * person has picked one: a login, kept per PROFILE for the reason the instructions are — work and
  * school are different people on GitHub. A login and nothing else: the token stays gh's. It holds
  * only while gh is signed in to that account; signed out of it, the profile is back on gh's active
- * account, and the pick returns when the account does.
+ * account, and the pick returns when the account does. Taken back, it is stored as null.
  */
 export const prAccountKey = (profileId: string): string => `codeReview.account:${profileId}`;
 

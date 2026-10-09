@@ -24,7 +24,7 @@ import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
 import {
-  GhLoginSchema, GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
+  GhAccountsSchema, GhLoginSchema, GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
   PR_PATCHES_PER_CALL, ReviewInstructionsSchema, ReviewerPickSchema, SubmitReviewSchema, SubmittedReviewSchema,
 } from "./code-review";
 import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
@@ -1624,13 +1624,17 @@ export const Methods = {
   /** Whether `gh` is installed and signed in, and as whom — for `profileId`, the account that profile
    *  picked while gh still has it, and otherwise gh's own active account. */
   "codeReview.status": { params: z.object({ force: z.boolean().default(false), profileId: IdSchema.nullable().default(null) }), result: GhStatusSchema },
-  /** The accounts `gh` is signed in to on github.com, by login. Empty where there is no way to ask or
-   *  nothing a pick could change: no gh, a gh older than `auth status --json` (2.81), or a token in
-   *  the environment, which decides the account whatever is picked. */
-  "codeReview.accounts": { params: z.object({ force: z.boolean().default(false) }), result: z.object({ accounts: z.array(z.string()) }) },
-  /** Pick the account a profile's Code review runs as. Refused for a login gh is not signed in to
-   *  (GH_ACCOUNT_UNKNOWN). gh's own active account does not change. Answers with the profile's status. */
-  "codeReview.setAccount": { params: z.object({ profileId: IdSchema, login: GhLoginSchema }), result: GhStatusSchema },
+  /** The accounts `gh` is signed in to on github.com, by login, and the one gh has active. Empty, with
+   *  no active one, where there is no way to ask or nothing a pick could change: no gh, a gh older
+   *  than `auth status --json` (2.81), or a token in the environment, which decides the account
+   *  whatever is picked. */
+  "codeReview.accounts": { params: z.object({ force: z.boolean().default(false) }), result: GhAccountsSchema },
+  /** Pick the account a profile's Code review runs as and its shipped pull requests are opened as, or
+   *  with a null `login` take the pick back, so the profile is on gh's active account again. Refused
+   *  for a login gh is not signed in to (GH_ACCOUNT_UNKNOWN). gh's own active account does not change.
+   *  A profile's picks are stored in the order they arrive, and each is announced to every window
+   *  (`codeReview.accountChanged`). Answers with the profile's status. */
+  "codeReview.setAccount": { params: z.object({ profileId: IdSchema, login: GhLoginSchema.nullable() }), result: GhStatusSchema },
   /** One of the page's three lists, a page at a time; `cursor` is the previous page's `nextCursor`. */
   "codeReview.list": { params: z.object({ section: PrSectionSchema, cursor: z.string().nullable().default(null), force: z.boolean().default(false), account: GhLoginSchema.nullable().default(null) }), result: PrPageSchema },
   /** Pull requests matching what was typed. A pasted link is not a search — the page opens it. */
@@ -2128,6 +2132,10 @@ export const Events = {
   /** A pull request's reviewer run started, moved or settled (`key` is its `prKey`). The page holding
    *  it applies the payload as is. */
   "codeReview.reviewChanged": z.object({ key: z.string(), review: PrReviewSchema.nullable() }),
+  /** A profile's GitHub account was picked or taken back (`codeReview.setAccount`), from any window.
+   *  Sent once the pick is stored, so a page that asks `codeReview.status` on hearing it is answered
+   *  as the new account. It carries no login: a page asks for what it shows. */
+  "codeReview.accountChanged": z.object({ profileId: IdSchema }),
   /** The set of runs a session is waiting on changed — one began, settled, or was collected. Carries
    *  the WHOLE fresh set rather than a delta: the engine's registry is the only copy of this fact,
    *  and a renderer that had to accumulate deltas would drift out of step with it after one dropped

@@ -1,4 +1,4 @@
-import type { EventPayload, MethodName, MethodParams, MethodResult } from "@realm/contracts";
+import { prAccountKey, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 import { sentAs } from "./code-review-model";
 
@@ -16,7 +16,14 @@ const call = async <M extends CodeReviewMethod>(method: M, params: MethodParams<
 export const codeReview = {
   status: (profileId: string | null, force = false) => call("codeReview.status", { force, profileId }),
   accounts: (force = false) => call("codeReview.accounts", { force }),
-  setAccount: (profileId: string, login: string) => call("codeReview.setAccount", { profileId, login }),
+  /** Null takes the profile's pick back, which leaves it on the account gh has active. */
+  setAccount: (profileId: string, login: string | null) => call("codeReview.setAccount", { profileId, login }),
+  /** The account `profileId` picked, as it is stored — kept while gh is signed out of it, which is
+   *  when `status` stops naming it and Settings still has to. Null for a profile that picked none. */
+  pickedAccount: async (profileId: string): Promise<string | null> => {
+    const { value } = await rpc().call("settings.get", { key: prAccountKey(profileId) });
+    return typeof value === "string" && value !== "" ? value : null;
+  },
   list: (section: MethodParams<"codeReview.list">["section"], cursor: string | null, force = false, account: string | null = null) =>
     call("codeReview.list", { section, cursor, force, ...sentAs(account) }),
   search: (query: string, cursor: string | null, account: string | null = null) => call("codeReview.search", { query, cursor, ...sentAs(account) }),
@@ -41,6 +48,10 @@ export const codeReview = {
   /** A request's reviewer run moved. */
   onReview: (fn: (p: EventPayload<"codeReview.reviewChanged">) => void): (() => void) => {
     try { return rpc().on("codeReview.reviewChanged", fn); } catch { return () => {}; }
+  },
+  /** A profile's account was picked or taken back, from this window or another. */
+  onAccount: (fn: (p: EventPayload<"codeReview.accountChanged">) => void): (() => void) => {
+    try { return rpc().on("codeReview.accountChanged", fn); } catch { return () => {}; }
   },
 };
 

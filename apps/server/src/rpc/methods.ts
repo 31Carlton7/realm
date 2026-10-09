@@ -908,7 +908,7 @@ export function registerMethods(d: Deps): void {
   // The Code Review page. Every read is the service's cached `gh`; `codeReview.submit` is the one
   // write, and the page's Submit button is the only thing that sends it.
   reg("codeReview.status", (p) => d.codeReview.ghStatus(p.force, p.profileId));
-  reg("codeReview.accounts", async (p) => ({ accounts: await d.codeReview.accounts(p.force) }));
+  reg("codeReview.accounts", (p) => d.codeReview.accounts(p.force));
   reg("codeReview.setAccount", (p) => d.codeReview.setAccount(p.profileId, p.login));
   reg("codeReview.list", (p) => d.codeReview.list(p.section, p.cursor, p.force, p.account));
   reg("codeReview.search", (p) => d.codeReview.search(p.query, p.cursor, p.account));

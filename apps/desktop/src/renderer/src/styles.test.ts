@@ -1478,6 +1478,34 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     for (const sel of [".sched-col-title", ".cr-col-title"]) expect(bodiesFor(sel), sel).toEqual([type[0]!.body]);
   });
 
+  it("Code review's head keeps to its one row with the account beside its name and on its baseline, and gives way in a stated order: the profile's name first and whole, then a long login's tail, then the line itself, never the page's name", () => {
+    expect(bodiesFor(".cr-col-head").join(" ")).not.toMatch(/flex-wrap|flex-flow/);
+    const name = bodiesFor(".cr-col-head > .cr-col-title").join(" ");
+    for (const want of ["flex: none", "align-self: baseline"]) expect(name, want).toContain(want);
+    const line = bodiesFor(".cr-col-as").join(" ");
+    for (const want of ["flex: 1 1 0", "min-width: 0", "height: 1lh", "overflow: hidden", "display: flex", "flex-flow: row-reverse wrap", "column-gap: 5px",
+      "align-self: baseline", "container-type: inline-size", "white-space: nowrap"]) expect(line, want).toContain(want);
+    const login = bodiesFor(".cr-col-as-login");
+    for (const want of ["order: -1", "flex: 0 1 auto", "min-width: 0", "overflow: hidden", "text-overflow: ellipsis"]) expect(login[0], want).toContain(want);
+    const profile = bodiesFor(".cr-col-as-profile");
+    for (const want of ["flex: none", "display: flex", "gap: 5px"]) expect(profile[0], want).toContain(want);
+    const floor = /@container \(max-width: (\d+)px\) \{ \.cr-col-as-login, \.cr-col-as-profile \{ display: none; \} \}/.exec(css);
+    expect(Number(floor?.[1])).toBe(40);
+  });
+
+  it("each profile's account in Settings is a row of two columns that gives way in a stated order: the name is cut at a third of the row, and the select at what is left", () => {
+    const grid = bodiesFor(".gh-accounts").join(" ");
+    for (const want of ["display: grid", "grid-template-columns: fit-content(33%) minmax(0, 1fr)", "align-items: center"]) expect(grid, want).toContain(want);
+    const name = bodiesFor(".gh-accounts > .settings-row-name").join(" ");
+    for (const want of ["min-width: 0", "overflow: hidden", "text-overflow: ellipsis", "white-space: nowrap"]) expect(name, want).toContain(want);
+    const select = bodiesFor(".gh-accounts > select").join(" ");
+    for (const want of ["justify-self: end", "min-width: 0", "max-width: 100%"]) expect(select, want).toContain(want);
+  });
+
+  it("the one profile's account in Settings, a select with no name beside it, is held to the row's width as well", () => {
+    expect(bodiesFor(".gh-account > select").join(" ")).toContain("max-width: 100%");
+  });
+
   it("the window never scrolls: the shell is clipped at its own edges, without becoming a scroller", () => {
     /* Measured live (10-05): a page rising in from 6px under its place overran the window's foot, the
        document became scrollable by those 6px, and a classic scrollbar took 15px off the whole app

@@ -42,8 +42,15 @@ describe("status — gh's three answers, and its absence", () => {
 describe("accounts — who gh is signed in to on github.com", () => {
   it("asks `gh auth status` for github.com's accounts as JSON, and lists them by name", async () => {
     const { gh, client: c } = client({ accounts: [{ login: "work-mara" }, { login: "Mara" }, { login: "carlton" }], prs: {} });
-    expect(await c.accounts()).toEqual(["carlton", "Mara", "work-mara"]);
+    expect((await c.accounts()).accounts).toEqual(["carlton", "Mara", "work-mara"]);
     expect(gh.calls().map((x) => x.args)).toEqual([["auth", "status", "--hostname", "github.com", "--json", "hosts"]]);
+  });
+
+  it("names the account gh has active, wherever it stands in the list", async () => {
+    const { client: c } = client({ accounts: [{ login: "carlton", active: false }, { login: "work-mara", active: false }, { login: "Mara", active: true }], prs: {} });
+    expect(await c.accounts()).toEqual({ accounts: ["carlton", "Mara", "work-mara"], active: "Mara" });
+    const { client: none } = client({ accounts: [{ login: "carlton", active: false }, { login: "mara", active: false }], prs: {} });
+    expect(await none.accounts()).toEqual({ accounts: ["carlton", "mara"], active: null });
   });
 
   it("leaves out an account whose token GitHub refused, and keeps one gh could not reach GitHub to check", async () => {
@@ -52,34 +59,44 @@ describe("accounts — who gh is signed in to on github.com", () => {
     const { client: c } = client({ accounts: [
       { login: "carlton" }, { login: "mara", state: "error", error: refused }, { login: "jo", state: "error", error: down }, { login: "kit", state: "timeout" },
     ], prs: {} });
-    expect(await c.accounts()).toEqual(["carlton", "jo", "kit"]);
+    expect(await c.accounts()).toEqual({ accounts: ["carlton", "jo", "kit"], active: "carlton" });
+  });
+
+  it("names no active account where the one gh has active is one nothing can be sent as", async () => {
+    const refused = "non-200 OK status code: 401 Unauthorized body: \"{\\r\\n  \\\"message\\\": \\\"Bad credentials\\\"}\"";
+    const down = "Get \"https://api.github.com/\": proxyconnect tcp: dial tcp 127.0.0.1:9: connect: connection refused";
+    const { client: c } = client({ accounts: [{ login: "mara", active: true, state: "error", error: refused }, { login: "carlton", active: false }], prs: {} });
+    expect(await c.accounts()).toEqual({ accounts: ["carlton"], active: null });
+    const { client: offline } = client({ accounts: [{ login: "mara", active: true, state: "error", error: down }, { login: "carlton", active: false }], prs: {} });
+    expect(await offline.accounts()).toEqual({ accounts: ["carlton", "mara"], active: "mara" });
   });
 
   it("lists none for a gh that predates the flag, and none where there is no gh", async () => {
     const { client: old } = client({ user: { login: "carlton" }, prs: {} });
-    expect(await old.accounts()).toEqual([]);
+    expect(await old.accounts()).toEqual({ accounts: [], active: null });
     expect(await old.status()).toMatchObject({ state: "ready", login: "carlton" });
-    expect(await new GhClient(ghRunner(join(tempDir("realm-no-gh-"), "gh"))).accounts()).toEqual([]);
+    expect(await new GhClient(ghRunner(join(tempDir("realm-no-gh-"), "gh"))).accounts()).toEqual({ accounts: [], active: null });
   });
 
   it("lists none where a token in the environment decides the account", async () => {
     const { client: c } = client({ accounts: [{ login: "ci-bot", tokenSource: "GH_TOKEN" }, { login: "carlton" }, { login: "mara" }], prs: {} });
-    expect(await c.accounts()).toEqual([]);
+    expect(await c.accounts()).toEqual({ accounts: [], active: null });
   });
 });
 
+/** A client whose every call from this process, and every answer to one, is kept: what Realm itself
+ *  ran and read, as against everything the fake `gh` was asked (`gh.calls()`). */
+const watched = (f: GhFixture) => {
+  const gh = fakeGh(f);
+  const run = ghRunner(gh.command);
+  const ran: string[][] = [];
+  const read: GhResult[] = [];
+  const c = new GhClient(async (args, opts) => { ran.push(args); const r = await run(args, opts); read.push(r); return r; });
+  return { gh, client: c, ran, read };
+};
+
 describe("as — a call sent as another of gh's accounts", () => {
   const fixture: GhFixture = { user: { login: "carlton" }, accounts: [{ login: "carlton" }, { login: "mara" }], prs: { "acme/widgets#42": pr("acme", "widgets", 42) } };
-  /** A client whose every call from this process, and every answer to one, is kept: what Realm itself
-   *  ran and read, as against everything the fake `gh` was asked (`gh.calls()`). */
-  const watched = (f: GhFixture) => {
-    const gh = fakeGh(f);
-    const run = ghRunner(gh.command);
-    const ran: string[][] = [];
-    const read: GhResult[] = [];
-    const c = new GhClient(async (args, opts) => { ran.push(args); const r = await run(args, opts); read.push(r); return r; });
-    return { gh, client: c, ran, read };
-  };
 
   it("has gh hand the account's token to the call in its environment, without the token ever reaching Realm", async () => {
     const { gh, client: c, ran, read } = watched(fixture);

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import {
   AGENT_META, AGENT_SUPPORTS_PLAN_MODE, PLAN_PERMISSION_MODE, PR_PAGE_SIZE, PR_PINS_MAX, PrReviewSchema, PrSummarySchema, REVIEW_INSTRUCTIONS_MAX, ReviewerPickSchema,
   prAccountKey, prKey, prName, prPinsKey, prReviewKey, prThreadKey, reviewInstructionsKey, reviewerPickKey, sameRepo,
-  type AgentKind, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrPlace, type PrRef, type PrReview,
+  type AgentKind, type FileDiff, type GhAccounts, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrPlace, type PrRef, type PrReview,
   type PrSection, type PrSummary, type ReviewInstructions, type ReviewerPick, type SubmitReview, type SubmittedReview,
 } from "@realm/contracts";
 import type { DelegationEngine } from "../delegation/engine";
@@ -100,7 +100,18 @@ export class CodeReviewService {
   private readonly lines: Held<string[] | null>;
   /** What gh last said about each account asked after, by `scoped` account. */
   private readonly statuses = new Map<string, { at: number; value: GhStatus }>();
-  private accountsHeld: { at: number; value: string[] } | null = null;
+  private accountsHeld: { at: number; value: GhAccounts } | null = null;
+  /** gh being asked for its accounts right now, and whether the caller who started it wanted the
+   *  list fresh. A caller that would take the held list waits on this instead, since the held list is
+   *  from before the ask, and so does one who wants it fresh while a fresh ask is under way: one
+   *  `gh auth status` answers them all. A fresh ask never waits on one that was not, and takes its
+   *  place: the list is held only from the ask that is still the one under way when it answers, so
+   *  an ask from before a fresh one, answered after it, does not put its older list back. */
+  private accountsAsked: { fresh: boolean; answer: Promise<GhAccounts> } | null = null;
+  /** Each profile's last `setAccount`, which its next one waits behind. A pick asks gh about its
+   *  account before it is stored and a take-back is stored without asking, so a take-back sent
+   *  behind a pick that was still asking would be stored first and then lost to it. */
+  private readonly picking = new Map<string, Promise<void>>();
   private placesHeld: Held<PrPlace[]>;
   /** One fetch of a request's files at a time, joined by every caller that asks while it runs. */
   private readonly loading = new Map<string, Promise<FileSet>>();
@@ -159,14 +170,23 @@ export class CodeReviewService {
     return value;
   }
 
-  /** The accounts gh is signed in to on github.com, held as long as a sign-in is. */
-  async accounts(force = false): Promise<string[]> {
-    if (!this.d.gh) return [];
+  /** The accounts gh is signed in to on github.com and the one it has active, held as long as a
+   *  sign-in is. */
+  async accounts(force = false): Promise<GhAccounts> {
+    if (!this.d.gh) return { accounts: [], active: null };
+    const under = this.accountsAsked;
+    if (under && (under.fresh || !force)) return under.answer;
     const held = this.accountsHeld;
     if (!force && held && this.now() - held.at < TTL.status) return held.value;
-    const value = await this.d.gh.accounts();
-    this.accountsHeld = { at: this.now(), value };
-    return value;
+    const asked = { fresh: force, answer: this.d.gh.accounts() };
+    this.accountsAsked = asked;
+    try {
+      const value = await asked.answer;
+      if (this.accountsAsked === asked) this.accountsHeld = { at: this.now(), value };
+      return value;
+    } finally {
+      if (this.accountsAsked === asked) this.accountsAsked = null;
+    }
   }
 
   /** The account `profileId` picked, as gh spells it, while gh is still signed in to it — what its
@@ -175,20 +195,44 @@ export class CodeReviewService {
   async accountOf(profileId: string, force = false): Promise<string | null> {
     const picked = this.d.settings.get(prAccountKey(profileId));
     if (typeof picked !== "string" || picked === "") return null;
-    return (await this.accounts(force)).find((a) => a.toLowerCase() === picked.toLowerCase()) ?? null;
+    return (await this.accounts(force)).accounts.find((a) => a.toLowerCase() === picked.toLowerCase()) ?? null;
   }
 
   /**
-   * Pick the account a profile's Code review runs as. Only one gh is signed in to is kept: a pick
-   * nothing can be sent as would name an account on the page that no read or review goes out under.
-   * gh's own active account is not changed.
+   * Pick the account a profile's Code review runs as, or with null take the pick back and leave the
+   * profile on gh's active account. Only one gh is signed in to is kept: a pick nothing can be sent
+   * as would name an account on the page that no read or review goes out under. gh's own active
+   * account is not changed.
+   *
+   * A profile's picks are stored one behind another, in the order they were asked for, whichever
+   * window or page asked: the last one asked for is the one that stands.
    */
-  async setAccount(profileId: string, login: string): Promise<GhStatus> {
+  async setAccount(profileId: string, login: string | null): Promise<GhStatus> {
     if (!this.d.profiles.get(profileId)) throw new NotFoundError("profile", profileId);
-    const known = (await this.accounts(true)).find((a) => a.toLowerCase() === login.toLowerCase());
-    if (!known) throw new RpcError("GH_ACCOUNT_UNKNOWN", `gh is not signed in to GitHub as @${login}. Sign in as that account in a terminal, then pick it again.`);
-    this.d.settings.set(prAccountKey(profileId), known);
-    return this.ghStatus(false, profileId);
+    const stored = (this.picking.get(profileId) ?? Promise.resolve()).then(() => this.storeAccount(profileId, login));
+    const settled = stored.then(() => {}, () => {});
+    this.picking.set(profileId, settled);
+    void settled.then(() => { if (this.picking.get(profileId) === settled) this.picking.delete(profileId); });
+    return stored;
+  }
+
+  /**
+   * Store one pick and say so. Every window is told once the profile's status under the pick is in
+   * hand, so a page that asks on hearing it is answered as the new account. A take-back asks gh who
+   * it is afresh and lets the held list of accounts go: both can be from before the pick was made,
+   * a terminal may have switched gh since, and the profile is now on whichever account gh has active.
+   */
+  private async storeAccount(profileId: string, login: string | null): Promise<GhStatus> {
+    let pick: string | null = null;
+    if (login !== null) {
+      const known = (await this.accounts(true)).accounts.find((a) => a.toLowerCase() === login.toLowerCase());
+      if (!known) throw new RpcError("GH_ACCOUNT_UNKNOWN", `gh is not signed in to GitHub as @${login}. Sign in as that account in a terminal, then pick it again.`);
+      pick = known;
+    }
+    this.d.settings.set(prAccountKey(profileId), pick);
+    if (pick === null) this.accountsHeld = null;
+    try { return await this.ghStatus(pick === null, profileId); }
+    finally { this.d.rpc.broadcast("codeReview.accountChanged", { profileId }); }
   }
 
   async list(section: PrSection, cursor: string | null, force = false, account: string | null = null): Promise<PrPage> {

@@ -509,6 +509,18 @@ esac
     expect(sent()).toBe("gh's own");
     c.close();
   });
+
+  it("is gh's own again once the profile's pick is taken back", async () => {
+    const { c, sent } = await bootWithGh();
+    const work = (await c.call("profiles.create", { name: "Work" })).result;
+    expect((await c.call("codeReview.setAccount", { profileId: work.id, login: "mara" })).result).toMatchObject({ account: "mara" });
+    expect((await ship(c, (await checkout(c, work.id, "Versed")).env)).result.pr.state).toBe("created");
+    expect(sent()).toBe("mara");
+    expect((await c.call("codeReview.setAccount", { profileId: work.id, login: null })).result).not.toHaveProperty("account");
+    expect((await ship(c, (await checkout(c, work.id, "Reader")).env)).result.pr.state).toBe("created");
+    expect(sent()).toBe("gh's own");
+    c.close();
+  });
 });
 
 /** The durable ship log over the wire (Plan 14 W1): attribution, listing, and the broadcast. The

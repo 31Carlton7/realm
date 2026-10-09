@@ -31,20 +31,47 @@ export function CodeReviewPage({ item }: PaneProps) {
   return <CodeReviewForProfile key={profileId ?? ""} profileId={profileId} vantage={item.spaceId} />;
 }
 
+/**
+ * One profile's page: who gh says it reads as, and under that the page, or the way to set gh up.
+ *
+ * A pick made away from this page, in Settings or in another window, is stored before it is
+ * announced, so asking on hearing of it is answered as the account that was picked. An answer asked
+ * for before a pick was heard of is not drawn: it can come back after that one, and would put the
+ * page back on the account from before.
+ *
+ * Refresh asks who is signed in as well as for the lists: a terminal may have switched gh's active
+ * account, and a profile that picked none reads and posts as whichever that is. Where the answer is
+ * that GitHub could not be reached, or the question is refused, nothing is drawn: the lists say so
+ * in place, and the request being read stays on the page.
+ */
 function CodeReviewForProfile({ profileId, vantage }: { profileId: string | null; vantage: string }) {
   const windowActive = useApp((s) => s.windowActive);
+  const profiles = useApp((s) => s.profiles);
+  const profile = profiles.length > 1 ? profiles.find((p) => p.id === profileId)?.name ?? null : null;
   // What gh said last time, so a page opened again is drawn in its first frame as it was left —
   // column and all — and asked again behind it.
   const [status, setStatus] = useState<GhStatus | null>(() => (pageHeld.statusProfile === profileId ? pageHeld.status : null));
   const [checking, setChecking] = useState(false);
 
   const answer = useCallback((s: GhStatus) => { holdStatus(profileId, s); setStatus(s); return s; }, [profileId]);
+  const picks = useRef(0);
   const check = useCallback((force: boolean) => {
     setChecking(true);
+    const heardOf = picks.current;
+    const heard = (s: GhStatus) => (heardOf === picks.current ? answer(s) : s);
     return codeReview.status(profileId, force).then(
-      answer,
-      (e: unknown): GhStatus => answer({ state: "unreachable", login: null, reason: e instanceof Error ? e.message : String(e) }),
+      heard,
+      (e: unknown): GhStatus => heard({ state: "unreachable", login: null, reason: e instanceof Error ? e.message : String(e) }),
     ).finally(() => setChecking(false));
+  }, [profileId, answer]);
+  useEffect(() => codeReview.onAccount((p) => {
+    if (p.profileId !== profileId) return;
+    picks.current += 1;
+    void check(false);
+  }), [profileId, check]);
+  const askAgain = useCallback(() => {
+    const heardOf = picks.current;
+    codeReview.status(profileId, true).then((s) => { if (heardOf === picks.current && s.state !== "unreachable") answer(s); }, () => {});
   }, [profileId, answer]);
   // The held answer first, so the page draws at once; one that says "not yet" is asked again fresh,
   // since the person may be back from the terminal it sent them to.
@@ -74,18 +101,22 @@ function CodeReviewForProfile({ profileId, vantage }: { profileId: string | null
   if (status.state !== "ready" || !profileId) {
     return <div className="page code-review-page"><Setup status={status} vantage={vantage} checking={checking} onCheck={() => void check(true)} /></div>;
   }
-  return <Ready key={(status.login ?? "").toLowerCase()} login={status.login} account={status.account ?? null} profileId={profileId} vantage={vantage}
-    onStatus={answer} onLost={() => void check(true)} />;
+  return <Ready key={(status.login ?? "").toLowerCase()} login={status.login} account={status.account ?? null} profile={profile} profileId={profileId} vantage={vantage}
+    onStatus={answer} onLost={() => void check(true)} onAsk={askAgain} />;
 }
 
-function Ready({ login, account, profileId, vantage, onStatus, onLost }: {
+function Ready({ login, account, profile, profileId, vantage, onStatus, onLost, onAsk }: {
   login: string | null;
   /** The account this profile picked, which every read and the review are sent as; null is gh's own. */
   account: string | null;
+  /** The profile's name, where there is another to tell it from; null where there is one. */
+  profile: string | null;
   profileId: string; vantage: string;
   /** gh answered about this profile again — after another account was picked for it. */
   onStatus: (status: GhStatus) => void;
   onLost: () => void;
+  /** Refresh: ask gh again who is signed in. */
+  onAsk: () => void;
 }) {
   const run = useApp((s) => s.run);
   const toast = useApp((s) => s.toast);
@@ -127,8 +158,8 @@ function Ready({ login, account, profileId, vantage, onStatus, onLost }: {
   return (
     <div className="page code-review-page">
       <PageRail label="Code review">
-        <PrColumn login={login} account={account} accounts={accounts} pins={pins} selected={selected} onSelect={(ref) => select(ref)}
-          onAccount={pickAccount} onRefresh={() => listAccounts(true)}
+        <PrColumn login={login} account={account} accounts={accounts} profile={profile} pins={pins} selected={selected} onSelect={(ref) => select(ref)}
+          onAccount={pickAccount} onRefresh={() => { listAccounts(true); onAsk(); }}
           onSignIn={() => signIn(GH_LOGIN_COMMAND)} onLost={onLost} />
       </PageRail>
       <div className="cr-main">

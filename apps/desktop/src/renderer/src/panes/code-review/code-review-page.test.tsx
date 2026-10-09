@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MODEL_EFFORTS_KEY, PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
@@ -9,6 +10,12 @@ let status: GhStatus = { state: "ready", login: "carlton", reason: null };
 let accounts: string[] = ["carlton"];
 /** Set, gh's answer about who is signed in waits on it — the moment a page has asked and not heard. */
 let statusGate: Promise<void> | null = null;
+/** Set, each question about who is signed in is answered by it, by the order it was asked in — for
+ *  answers that come back in another order than their questions went out. */
+let statusFor: ((asked: number) => Promise<GhStatus>) | null = null;
+/** What the page listens for from the server, and `tell` to say it. */
+const heard = new Map<string, Set<(payload: any) => void>>();
+const tell = (event: string, payload: unknown) => { for (const fn of [...(heard.get(event) ?? [])]) fn(payload); };
 let pages: Record<string, PrPage[]> = {};
 let detail: PrDetail;
 let review: PrReview | null = null;
@@ -16,12 +23,19 @@ let instructions = "";
 let reviewerPick: ReviewerPick | null = null;
 vi.mock("../../rpc/client", () => ({
   rpc: () => ({
-    on: () => () => {},
+    on: (event: string, fn: (payload: any) => void) => {
+      if (!heard.has(event)) heard.set(event, new Set());
+      heard.get(event)!.add(fn);
+      return () => { heard.get(event)?.delete(fn); };
+    },
     call: async (method: string, params: any) => {
       calls.push({ method, params });
       switch (method) {
-        case "codeReview.status": if (statusGate) await statusGate; return status;
-        case "codeReview.accounts": return { accounts };
+        case "codeReview.status":
+          if (statusFor) return statusFor(calls.filter((c) => c.method === "codeReview.status").length);
+          if (statusGate) await statusGate;
+          return status;
+        case "codeReview.accounts": return { accounts, active: accounts[0] ?? null };
         case "codeReview.setAccount": status = { state: "ready", login: params.login, reason: null, account: params.login }; return status;
         case "codeReview.list": return pages[params.section]![params.cursor ? 1 : 0] ?? { prs: [], nextCursor: null, total: 0 };
         case "codeReview.search": return { prs: [ROW], nextCursor: null, total: 1 };
@@ -48,10 +62,10 @@ vi.mock("../../rpc/client", () => ({
 }));
 
 import { CodeReviewPage } from "./CodeReviewPage";
-import { forgetHeld } from "./held";
+import { forgetHeld, signInSent } from "./held";
 import { exited } from "../../components/popover-exit.test-fakes";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, space, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, profile, space, type FakeData } from "../../state/store.test-fakes";
 /* The overlay draws its page through the registry, which the panes fill by side effect. */
 import "../index";
 import { PageNavProvider } from "../../components/page-nav";
@@ -90,6 +104,8 @@ beforeEach(() => {
   status = { state: "ready", login: "carlton", reason: null };
   accounts = ["carlton"];
   statusGate = null;
+  statusFor = null;
+  heard.clear();
   pages = {
     authored: [{ prs: [row(39, "Add a --json flag")], nextCursor: null, total: 1 }],
     review: [{ prs: [ROW, row(41)], nextCursor: "o2", total: 3 }, { prs: [row(40, "Pin the base image")], nextCursor: null, total: 3 }],
@@ -317,6 +333,211 @@ describe("the account a profile reviews as", () => {
     calls.length = 0;
     fireEvent.click(within(await openOptions()).getByRole("menuitem", { name: "Refresh" }));
     await waitFor(() => expect(called("codeReview.accounts").map((c) => c.params.force)).toEqual([true]));
+  });
+});
+
+describe("whose requests these are, in the column's head", () => {
+  const whose = () => document.querySelector("nav.cr-col > .cr-col-head > .cr-col-as");
+  const named = () => whose()?.querySelector(".cr-col-as-profile > :first-child")?.textContent ?? null;
+  const account = () => whose()?.querySelector(".cr-col-as-login")?.textContent ?? null;
+  const said = () => whose()?.querySelector(".visually-hidden")?.textContent ?? null;
+  const listed = () => screen.findByRole("button", { name: /^Stream the tokenizer/ });
+
+  it("names the profile and the account its requests are read and reviewed as, after the page's name and before its menu", async () => {
+    await mount();
+    await listed();
+    expect(named()).toBe("Work");
+    expect(account()).toBe("@carlton");
+    expect(whose()!.previousElementSibling).toBe(screen.getByRole("heading", { level: 1, name: "Code review" }));
+    expect(whose()!.nextElementSibling).toBe(screen.getByRole("button", { name: "Code review options" }));
+  });
+
+  it("says it in a sentence to a screen reader and on hover, and keeps the name, the dot and the login it draws from being read out as well", async () => {
+    await mount();
+    await listed();
+    expect(said()).toBe("Code review in the Work profile reads and posts as @carlton.");
+    expect(whose()).toHaveAttribute("title", "Code review in the Work profile reads and posts as @carlton.");
+    expect([...whose()!.children].map((el) => [el.className, el.getAttribute("aria-hidden")])).toEqual([["visually-hidden", null], ["cr-col-as-profile", "true"], ["cr-col-as-login", "true"]]);
+    expect([...whose()!.querySelector(".cr-col-as-profile")!.children].map((el) => el.textContent)).toEqual(["Work", "·"]);
+  });
+
+  it("names the account alone where there is one profile, with no other to tell it from", async () => {
+    await mount({ profiles: [profile("p1", "Work")] });
+    await listed();
+    expect(named()).toBeNull();
+    expect(account()).toBe("@carlton");
+    expect(said()).toBe("Code review reads and posts as @carlton.");
+    expect(whose()).toHaveAttribute("title", "Code review reads and posts as @carlton.");
+  });
+
+  it("follows a pick made from the column's menu", async () => {
+    accounts = ["carlton", "mara"];
+    await mount();
+    await listed();
+    fireEvent.click(await screen.findByRole("button", { name: "Code review options" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Code review options" })).getByRole("menuitemcheckbox", { name: "@mara" }));
+    await waitFor(() => expect(account()).toBe("@mara"));
+    expect(said()).toBe("Code review in the Work profile reads and posts as @mara.");
+  });
+
+  it("names the other profile and its own account once the window is in that profile", async () => {
+    const { store } = await mount({ spaces: [space("s1", "p1", "Versed"), space("s9", "p2", "Homework")] });
+    await listed();
+    status = { state: "ready", login: "mara", reason: null, account: "mara" };
+    await act(async () => { await store.getState().selectProfile("p2"); });
+    await waitFor(() => expect(account()).toBe("@mara"));
+    expect(named()).toBe("School");
+  });
+
+  it("says nothing where gh is ready and names nobody, with no profile left standing alone", async () => {
+    status = { state: "ready", login: null, reason: null };
+    await mount();
+    await waitFor(() => expect(document.querySelector("nav.cr-col")).not.toBeNull());
+    expect(whose()!.childElementCount).toBe(0);
+    expect(whose()).not.toHaveAttribute("title");
+  });
+
+  it("keeps its place in the head before gh has said who is signed in, and says nothing there yet", async () => {
+    let answer!: () => void;
+    statusGate = new Promise<void>((resolve) => { answer = resolve; });
+    await mount();
+    await waitFor(() => expect(called("codeReview.status")).toHaveLength(1));
+    const pending = document.querySelector(".cr-col[aria-hidden] > .cr-col-head")!;
+    expect([...pending.children].map((el) => el.className)).toEqual(["cr-col-title", "cr-col-as", "icon-btn"]);
+    expect(pending.querySelector(".cr-col-as")!.textContent).toBe("");
+    await act(async () => { answer(); });
+    await waitFor(() => expect(account()).toBe("@carlton"));
+  });
+});
+
+describe("an account picked away from the page", () => {
+  const account = () => document.querySelector("nav.cr-col .cr-col-as-login")?.textContent ?? null;
+  const listed = () => screen.findByRole("button", { name: /^Stream the tokenizer/ });
+
+  it("is followed by the page that is open: it asks who it reads as again, and reads its lists as that account", async () => {
+    await mount();
+    await listed();
+    const before = called("codeReview.status").length;
+    status = { state: "ready", login: "mara", reason: null, account: "mara" };
+    await act(async () => { tell("codeReview.accountChanged", { profileId: "p1" }); });
+    await waitFor(() => expect(account()).toBe("@mara"));
+    expect(called("codeReview.status").slice(before).map((c) => c.params)).toEqual([{ force: false, profileId: "p1" }]);
+    await waitFor(() => expect(called("codeReview.list").some((c) => c.params.account === "mara")).toBe(true));
+  });
+
+  it("leaves a page alone when the pick was for another profile", async () => {
+    await mount();
+    await listed();
+    const before = called("codeReview.status").length;
+    await act(async () => { tell("codeReview.accountChanged", { profileId: "p2" }); });
+    expect(called("codeReview.status")).toHaveLength(before);
+  });
+
+  it("stops listening when the page is put away", async () => {
+    await mount();
+    await listed();
+    cleanup();
+    expect(heard.get("codeReview.accountChanged")?.size ?? 0).toBe(0);
+  });
+
+  it("does not draw an answer it asked for before the pick, when that comes back after the one asked on hearing of it", async () => {
+    const answers: ((s: GhStatus) => void)[] = [];
+    statusFor = () => new Promise<GhStatus>((resolve) => { answers.push(resolve); });
+    await mount();
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await act(async () => { tell("codeReview.accountChanged", { profileId: "p1" }); });
+    await waitFor(() => expect(answers).toHaveLength(2));
+    await act(async () => { answers[1]!({ state: "ready", login: "mara", reason: null, account: "mara" }); });
+    await waitFor(() => expect(account()).toBe("@mara"));
+    await act(async () => { answers[0]!({ state: "ready", login: "carlton", reason: null }); });
+    expect(account()).toBe("@mara");
+  });
+
+  it("draws a fresh answer that comes back after a held one asked later, where no pick came between them", async () => {
+    signInSent();
+    const answers: { force: boolean; go: (s: GhStatus) => void }[] = [];
+    statusFor = () => new Promise<GhStatus>((resolve) => { answers.push({ force: calls.filter((c) => c.method === "codeReview.status").at(-1)!.params.force, go: resolve }); });
+    const store = createAppStore(fakeApi({}));
+    await store.getState().boot();
+    render(<StrictMode><StoreContext.Provider value={store}>
+      <CodeReviewPage item={item("cr", "s1", { kind: "code-review-page", title: "Code review", refId: PAGE_REF_IDS["code-review-page"] })} visible />
+    </StoreContext.Provider></StrictMode>);
+    await waitFor(() => expect(answers.map((a) => a.force)).toEqual([true, false]));
+    await act(async () => { answers[1]!.go({ state: "ready", login: "carlton", reason: null }); });
+    await waitFor(() => expect(account()).toBe("@carlton"));
+    await act(async () => { answers[0]!.go({ state: "ready", login: "mara", reason: null }); });
+    await waitFor(() => expect(account()).toBe("@mara"));
+  });
+
+  it("asks who is signed in again on Refresh, so the head follows a gh that a terminal switched", async () => {
+    accounts = ["carlton", "mara"];
+    await mount();
+    await listed();
+    const before = called("codeReview.status").length;
+    status = { state: "ready", login: "mara", reason: null };
+    fireEvent.click(await screen.findByRole("button", { name: "Code review options" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Code review options" })).getByRole("menuitem", { name: "Refresh" }));
+    await waitFor(() => expect(account()).toBe("@mara"));
+    expect(called("codeReview.status").slice(before).map((c) => c.params)).toEqual([{ force: true, profileId: "p1" }]);
+  });
+});
+
+describe("Refresh, with a request being read", () => {
+  const refresh = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Code review options" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Code review options" })).getByRole("menuitem", { name: "Refresh" }));
+  };
+
+  it("keeps the page and the request on it when GitHub cannot be reached: the lists say so in place", async () => {
+    await mount();
+    fireEvent.click(await screen.findByRole("button", { name: /^Stream the tokenizer/ }));
+    await screen.findByRole("heading", { level: 2, name: "Stream the tokenizer" });
+    const before = called("codeReview.status").length;
+    status = { state: "unreachable", login: null, reason: "error connecting to api.github.com" };
+    await refresh();
+    await waitFor(() => expect(called("codeReview.status").length).toBe(before + 1));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByText(/^GitHub did not answer/)).toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: "Stream the tokenizer" })).toBeInTheDocument();
+    expect(document.querySelector("nav.cr-col .cr-col-as-login")!.textContent).toBe("@carlton");
+  });
+
+  it("keeps them as well when the question itself is refused: a gh that hangs, or a socket that dropped", async () => {
+    await mount();
+    fireEvent.click(await screen.findByRole("button", { name: /^Stream the tokenizer/ }));
+    await screen.findByRole("heading", { level: 2, name: "Stream the tokenizer" });
+    const before = called("codeReview.status").length;
+    statusFor = () => Promise.reject(new Error("GitHub took too long to answer"));
+    await refresh();
+    await waitFor(() => expect(called("codeReview.status").length).toBe(before + 1));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByText(/^GitHub did not answer/)).toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: "Stream the tokenizer" })).toBeInTheDocument();
+    expect(document.querySelector("nav.cr-col .cr-col-as-login")!.textContent).toBe("@carlton");
+  });
+
+  it("does not draw what it learned when a pick was heard of since it asked", async () => {
+    accounts = ["carlton", "mara"];
+    await mount();
+    await screen.findByRole("button", { name: /^Stream the tokenizer/ });
+    const answers: ((s: GhStatus) => void)[] = [];
+    statusFor = () => new Promise<GhStatus>((resolve) => { answers.push(resolve); });
+    await refresh();
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await act(async () => { tell("codeReview.accountChanged", { profileId: "p1" }); });
+    await waitFor(() => expect(answers).toHaveLength(2));
+    await act(async () => { answers[1]!({ state: "ready", login: "mara", reason: null, account: "mara" }); });
+    await waitFor(() => expect(document.querySelector("nav.cr-col .cr-col-as-login")!.textContent).toBe("@mara"));
+    await act(async () => { answers[0]!({ state: "ready", login: "carlton", reason: null }); });
+    expect(document.querySelector("nav.cr-col .cr-col-as-login")!.textContent).toBe("@mara");
+  });
+
+  it("goes to setting gh up when gh turns out to be signed out", async () => {
+    await mount();
+    await screen.findByRole("button", { name: /^Stream the tokenizer/ });
+    status = { state: "signed-out", login: null, reason: null };
+    await refresh();
+    expect(await screen.findByRole("button", { name: "Set up GitHub" })).toBeInTheDocument();
   });
 });
 

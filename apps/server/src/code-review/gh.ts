@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import {
-  PR_FILES_MAX, type CheckState, type GhStatus, type PrDetail, type PrFile, type PrFileStatus, type PrPage, type PrRef, type PrState,
+  PR_FILES_MAX, type CheckState, type GhAccounts, type GhStatus, type PrDetail, type PrFile, type PrFileStatus, type PrPage, type PrRef, type PrState,
   type PrSummary, type ReviewerState, type SubmitReview, type SubmittedReview,
 } from "@realm/contracts";
 import { RpcError } from "../store/rows";
@@ -243,29 +243,33 @@ export class GhClient {
 
   /**
    * The accounts gh is signed in to on github.com and can act as, by login, in name order — a list
-   * that does not reshuffle when a terminal switches gh's active one.
+   * that does not reshuffle when a terminal switches gh's active one — and which of them that
+   * active one is: the account a call sent as nobody goes out under.
    *
-   * Empty wherever there is no honest list to give: no gh; a gh older than `auth status --json`
-   * (2.81), which refuses the flag; an answer that is not the JSON; and a token in the environment
-   * (`GH_TOKEN`, `GITHUB_TOKEN`), because gh then acts as that token's account whichever is picked
-   * and has no stored token to hand over for it.
+   * Empty, with no active one, wherever there is no honest list to give: no gh; a gh older than
+   * `auth status --json` (2.81), which refuses the flag; an answer that is not the JSON; and a token
+   * in the environment (`GH_TOKEN`, `GITHUB_TOKEN`), because gh then acts as that token's account
+   * whichever is picked and has no stored token to hand over for it.
    *
-   * An account whose token GitHub refused is left out: nothing can be sent as it. One gh could not
-   * check is kept — gh files a dropped network under the same `error` state, and an account it
-   * could not reach GitHub to ask about is still an account it is signed in to.
+   * An account whose token GitHub refused is left out, and is not named as the active one either:
+   * nothing can be sent as it. One gh could not check is kept — gh files a dropped network under the
+   * same `error` state, and an account it could not reach GitHub to ask about is still an account it
+   * is signed in to.
    */
-  async accounts(): Promise<string[]> {
+  async accounts(): Promise<GhAccounts> {
+    const none: GhAccounts = { accounts: [], active: null };
     const r = await this.run(["auth", "status", "--hostname", GITHUB_HOST, "--json", "hosts"]);
-    if (r.code !== 0) return [];
+    if (r.code !== 0) return none;
     try {
       const rows = (JSON.parse(r.stdout) as { hosts?: Record<string, unknown> }).hosts?.[GITHUB_HOST];
-      if (!Array.isArray(rows)) return [];
-      const accounts = rows as { login?: unknown; state?: unknown; error?: unknown; tokenSource?: unknown }[];
-      if (accounts.some((a) => typeof a.tokenSource === "string" && /^(?:GH|GITHUB)_TOKEN$/.test(a.tokenSource))) return [];
+      if (!Array.isArray(rows)) return none;
+      const listed = rows as { login?: unknown; active?: unknown; state?: unknown; error?: unknown; tokenSource?: unknown }[];
+      if (listed.some((a) => typeof a.tokenSource === "string" && /^(?:GH|GITHUB)_TOKEN$/.test(a.tokenSource))) return none;
       const refused = (a: { state?: unknown; error?: unknown }) => a.state === "error" && typeof a.error === "string" && /\b401\b|bad credentials/i.test(a.error);
-      const logins = accounts.flatMap((a) => (typeof a.login === "string" && a.login !== "" && !refused(a) ? [a.login] : []));
-      return [...new Set(logins)].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
-    } catch { return []; }
+      const usable = listed.flatMap((a) => (typeof a.login === "string" && a.login !== "" && !refused(a) ? [{ login: a.login, active: a.active === true }] : []));
+      const accounts = [...new Set(usable.map((a) => a.login))].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+      return { accounts, active: usable.find((a) => a.active)?.login ?? null };
+    } catch { return none; }
   }
 
   /** Who `gh` is signed in as — `gh api user` is the one call that needs auth and answers in a
