@@ -43,6 +43,8 @@ import {
 import { RealmUpdater, UPDATE_FEED_LIVE, scheduleUpdateChecks, updaterDecision } from "./updater";
 import { asarReplaced, readAsarStamp } from "./bundle-swap";
 import { SecretStore, SecretStoreError } from "./secret-store";
+import { VaultHost } from "./vault-host";
+import { registerVaultIpc } from "./vault-ipc";
 import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-owner";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
@@ -571,9 +573,9 @@ const agentHost = new BrowserAgentHost({
   // The fill op's only reach into the store. Passed as an object of bound methods rather than the
   // store itself, so the executor host cannot reach `exportOauthKey` or anything added later.
   secrets: {
-    listCredentials: (profileId) => secrets()?.listCredentials(profileId) ?? [],
+    listCredentials: (profileId, spaceId) => secrets()?.credentialsForSpace(profileId, spaceId) ?? [],
     getCredential: (profileId, id) => secrets()?.getCredential(profileId, id) ?? null,
-    withCredentialValue: async (profileId, id, use) => secrets()?.withCredentialValue(profileId, id, use) ?? { ok: false, refused: "no_credential" },
+    withCredentialValue: async (profileId, id, use, scope) => secrets()?.withCredentialValue(profileId, id, use, scope) ?? { ok: false, refused: "no_credential" },
     // No store means no place to keep a password, which is a different answer from "nothing is
     // enrolled" — and the only safe one, since Realm must not type a secret it cannot save.
     withGeneratedCredentialValue: async (profileId, input, use) =>
@@ -1017,6 +1019,15 @@ ipcMain.handle("credentials:set-unlock-policy", async (_e, profileId: unknown, p
   if (!owner) return { ok: false as const, error: "That profile no longer exists." };
   return store.setUnlockPolicy({ kind: "profile", id: owner.id }, parseUnlockPolicy(policy));
 });
+
+/** A team's Vault page: its secrets, and each grant's "use without asking" (`vault-ipc.ts`). Renderer
+ *  IPC only, like the unlock policy above — and main's `VaultHost` answers the server's side. */
+registerVaultIpc({
+  handle: (channel, fn) => ipcMain.handle(channel, (_e, ...args: unknown[]) => fn(...args)),
+  secrets,
+  resolveProfile: (id) => profileDirectory.resolve(profileArg(id)),
+});
+const vaultHost = new VaultHost({ store: secrets, fetch: (input, init) => fetch(input, init), now: () => Date.now() });
 
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
@@ -1788,6 +1799,8 @@ app.whenReady().then(async () => {
         if (op === "oauthKey") return Promise.resolve({ key: secrets()?.exportOauthKey() ?? null });
         if (op === "machineKey") return Promise.resolve({ key: secrets()?.exportMachineKey() ?? null });
         if (op === "eggsKey") return Promise.resolve({ key: secrets()?.exportEggsKey() ?? null });
+        // The team vault's ops need no window either: a key's request is made from main, not a pane.
+        if (op.startsWith("vault")) return vaultHost.handleOp(op, params);
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);

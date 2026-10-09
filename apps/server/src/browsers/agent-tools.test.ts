@@ -39,12 +39,14 @@ function setup(opts: {
   /** Laya's shadow, or whatever stands in for it. Omitted = no observer at all. */
   observe?: ActObserver;
   assist?: LayaAssist;
+  /** The team vault's check. Omitted = no vault at all, every session a person's own. */
+  vault?: BrowserAgentToolsDeps["vault"];
 } = {}) {
   const rows = new Map<string, Browser>();
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", favicon: "", createdAt: 1, updatedAt: 1 });
   rows.set("bX", { id: "bX", spaceId: "spaceOTHER", url: "https://other.com/", title: "Other", favicon: "", createdAt: 1, updatedAt: 1 });
 
-  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean }[], bridge: [] as { op: string; params: Record<string, unknown> }[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
+  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean; preapproved?: boolean }[], bridge: [] as { op: string; params: Record<string, unknown> }[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
   const bridgeResults: Record<string, unknown> = {
     describe: { open: true, url: "https://example.com/checkout", title: "Example", element: { role: "button", name: "Submit order", tag: "button", inputType: null } },
     snapshot: { url: "https://example.com/", title: "Example", text: '[ref=11] button "Submit order"', elementCount: 1 },
@@ -100,7 +102,7 @@ function setup(opts: {
     },
     broker: {
       gate: async (_sessionId, toolKey, title, input, toolName, gateOpts) => {
-        calls.gates.push({ toolKey, toolName, title, input, alwaysPrompt: gateOpts?.alwaysPrompt === true });
+        calls.gates.push({ toolKey, toolName, title, input, alwaysPrompt: gateOpts?.alwaysPrompt === true, ...(gateOpts?.preapproved ? { preapproved: true } : {}) });
         return opts.gate ?? { allowed: true };
       },
     },
@@ -120,6 +122,7 @@ function setup(opts: {
   if (opts.streamAt) deps.simulatorStreams = { streamAt: opts.streamAt };
   if (opts.observe) deps.observe = opts.observe;
   if (opts.assist) deps.assist = opts.assist;
+  if (opts.vault) deps.vault = opts.vault;
   // A walk waits on this clock rather than on real time: a click that changes nothing is a five-second
   // wait on a real page, and a moment here.
   const clock = { t: 0, now: () => clock.t, sleep: async (ms: number) => { clock.t += ms; } };
@@ -622,7 +625,60 @@ describe("browser_credentials / browser_fill_credential", () => {
     const { call, calls } = setup();
     await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
     const sent = calls.bridge.find((b) => b.op === "fillCredential")!;
-    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "profileId", "ref"]);
+    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "profileId", "ref", "spaceId"]);
+  });
+
+  describe("a team's role (the vault)", () => {
+    type Use = { secret: { id: string; name: string }; host: string; how?: string; refused?: string };
+    const vaultWith = (check: Awaited<ReturnType<NonNullable<BrowserAgentToolsDeps["vault"]>["check"]>>, granted: string[] | null = null) => {
+      const notes: Use[] = [];
+      const vault: NonNullable<BrowserAgentToolsDeps["vault"]> = {
+        check: async () => check,
+        note: (_ctx, use) => { notes.push(use); },
+        grantedSignins: () => granted,
+      };
+      return { vault, notes };
+    };
+
+    it("is refused without a card or a fill when it holds no grant, and the refusal is logged", async () => {
+      // THE MUTANT: a role's fill that raises the person's card anyway, or reaches main.
+      const { vault } = vaultWith({ refuse: "refused: Growth Analyst holds no grant for example.com · ada." });
+      const { call, calls } = setup({ vault });
+      const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(r.isError).toBe(true);
+      expect(text(r)).toMatch(/holds no grant/);
+      expect(calls.gates).toEqual([]);
+      expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
+    });
+
+    it("asks on its card under a grant alone, and names the team, role and run to main", async () => {
+      const { vault, notes } = vaultWith({ unattended: false, roleId: "R1", runId: "run1", hosts: ["example.com"] });
+      const { call, calls } = setup({ vault });
+      await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(calls.gates.map((g) => [g.alwaysPrompt, g.preapproved ?? false])).toEqual([[true, false]]);
+      expect(calls.bridge.find((b) => b.op === "fillCredential")!.params).toMatchObject({ spaceId: "space1", roleId: "R1", runId: "run1" });
+      expect(notes).toEqual([{ secret: { id: "cred-1", kind: "signin", name: "example.com · ada" }, host: "example.com", how: "card" }]);
+    });
+
+    it("skips the card only when the check says a sealed allow covers the fill", async () => {
+      const { vault, notes } = vaultWith({ unattended: true, roleId: "R1", runId: "run1", hosts: ["example.com"] });
+      const { call, calls } = setup({ vault });
+      await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(calls.gates.map((g) => [g.alwaysPrompt, g.preapproved ?? false])).toEqual([[false, true]]);
+      expect(notes.at(-1)).toMatchObject({ how: "unattended" });
+    });
+
+    it("lists a role only the sign-ins it was granted", async () => {
+      const { vault } = vaultWith({ unattended: false, roleId: "R1", runId: "run1", hosts: [] }, []);
+      const { call } = setup({ vault });
+      expect(text(await call("browser_credentials", {}))).not.toContain("cred-1");
+    });
+
+    it("names the session's space to main, so a team's sign-ins are offered in that team alone", async () => {
+      const { call, calls } = setup();
+      await call("browser_credentials", {});
+      expect(calls.bridge.find((b) => b.op === "credentials")!.params).toEqual({ profileId: "profile-work", spaceId: "space1" });
+    });
   });
 
   it("names the SESSION's profile to main on every credential op — sign-ins are a profile's own", async () => {

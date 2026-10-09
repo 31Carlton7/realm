@@ -35,6 +35,7 @@ import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchem
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
+import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
@@ -1593,6 +1594,15 @@ export const Methods = {
   "team.recordWrite": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200), markdown: z.string().max(100_000) }), result: TeamRecordSchema },
   "team.recordCreate": { params: z.object({ spaceId: IdSchema, name: z.string().trim().min(1).max(120) }), result: TeamRecordSchema },
   "team.activity": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(100), before: z.number().int().optional() }), result: z.array(TeamActivitySchema) },
+  // The team vault (Teams Phase 2). Grants are ids and hosts — no value is ever on this wire, and
+  // there is no method that sets a grant's "use without asking": that is the Vault page's, over
+  // renderer IPC to main, confirmed by macOS. `vaultAllowChanged` only asks main what is true, for
+  // the log.
+  "team.vaultGrants": { params: z.object({ spaceId: IdSchema }), result: z.array(VaultGrantSchema) },
+  "team.vaultGrant": { params: VaultGrantInputSchema, result: VaultGrantSchema },
+  "team.vaultRevoke": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ revoked: z.boolean() }) },
+  "team.vaultUses": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(50) }), result: z.array(VaultUseSchema) },
+  "team.vaultAllowChanged": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ on: z.boolean() }) },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),

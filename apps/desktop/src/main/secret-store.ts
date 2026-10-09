@@ -81,6 +81,7 @@ import {
   normalizeOrigin, PASSKEY_NAME_MAX, parseUnlockPolicy, unlockPolicyRank, unlockScopeKey,
   type BrowserCredential, type BrowserCredentialInput, type Passkey,
   type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus, type UnlockScope,
+  hostAllowed, normalizeVaultHost, type VaultAllow, type VaultKey, type VaultKeyInput, type VaultSecrets,
 } from "@realm/contracts";
 
 /** The slice of Electron's `safeStorage` this needs. */
@@ -102,6 +103,37 @@ export type CredentialAuditEntry = {
    *  is one thing that happened: a new sign-in for this origin now exists AND was typed into it.
    *  `no_store` is that fill refused for having nowhere to keep the password. */
   outcome: "filled" | "generated" | "origin_mismatch" | "no_credential" | "no_store" | "no_presence" | "error";
+  /** Who asked, when a team's role did (the team vault): which team, which role, which run. Absent for
+   *  a person's own session, as every line before teams was. */
+  spaceId?: string;
+  roleId?: string;
+  runId?: string;
+};
+
+/** One line per `vault_http` request a key went into, whatever became of it. The method and the host,
+ *  never the path or the body: those are the agent's to choose, and an audit that kept them would be
+ *  one place a value the agent smuggled in could end up. */
+export type VaultHttpAuditEntry = {
+  ts: number;
+  kind: "vault-http";
+  secretId: string;
+  host: string;
+  method: string;
+  outcome: "used" | "host_refused" | "no_key" | "no_presence" | "error";
+  status?: number;
+  spaceId: string;
+  roleId?: string;
+  runId?: string;
+};
+
+/** One line per change to a grant's "use without asking". `refused` is a turn-on macOS did not confirm. */
+export type VaultAllowAuditEntry = {
+  ts: number;
+  kind: "vault-allow";
+  secretId: string;
+  roleId: string;
+  spaceId: string;
+  outcome: "set" | "refused" | "cleared";
 };
 
 /** One line of the passkey audit log, written to the same file for the same reason: an auditor asks
@@ -191,6 +223,19 @@ export type SecretStoreDeps = {
  *  has not been adopted yet — see `adopt`. */
 type StoredCredential = BrowserCredential & { sealed: string; profileId?: string };
 
+/** A team's API key as it sits on disk: the value sealed under the `vault-key` domain, beside the
+ *  hosts it may be sent to. */
+type StoredKey = VaultKey & { profileId: string; sealed: string };
+
+/** What a sealed allow says, inside its seal. Every field is checked when it is read; any mismatch is
+ *  "ask", never "allow". */
+type AllowRecord = {
+  profileId: string; spaceId: string; secretId: string; roleId: string;
+  hosts: string[]; grantAt: number; machine: string; setAt: number;
+};
+
+const allowKey = (secretId: string, roleId: string): string => `${secretId}|${roleId}`;
+
 /** A passkey as it sits on disk. `sealed` is the PKCS#8 private key under the `passkey` domain;
  *  everything beside it is what the virtual authenticator needs handed back to reconstitute the
  *  credential, and `signCount` is the one field that MUST be written back after every assertion —
@@ -236,6 +281,11 @@ type StoreFile = {
   /** Scope key (`unlockScopeKey`) → that scope's policy, sealed under the `unlock` domain. A scope
    *  with no entry is on the default, Touch ID. Absent from files written before policies existed. */
   unlock: Record<string, string>;
+  /** A team's API keys (Teams Phase 2). Absent from files written before the vault. */
+  keys: StoredKey[];
+  /** `secretId|roleId` → that grant's "use without asking", sealed under `vault-allow`. Absent from
+   *  files written before the vault, which is every grant asking. */
+  allow: Record<string, string>;
 };
 
 /** 2: every row names its profile. 1 had none — see `adopt`. Policies did not need a new version:
@@ -295,7 +345,7 @@ export class SecretStore {
    * supplied, so a row minted for a lookalike page is a secret that page could have invented itself.
    * What the gate protects is the user's OWN secrets, and no caller can put one of those here.
    */
-  addCredential(profileId: string, input: BrowserCredentialInput): BrowserCredential {
+  addCredential(profileId: string, input: BrowserCredentialInput, spaceId?: string): BrowserCredential {
     if (!this.available) {
       throw new SecretStoreError("macOS is not offering Realm an encryption key right now (Keychain unavailable), so Realm will not save a sign-in. Nothing was stored.");
     }
@@ -303,13 +353,13 @@ export class SecretStore {
     if (!origin) {
       throw new SecretStoreError(`"${input.origin}" is not an http(s) address Realm can pin a sign-in to. Enter the site's address, for example https://example.com.`);
     }
-    return this.enroll(profileId, { origin, username: input.username, label: input.label, generated: false }, input.value);
+    return this.enroll(profileId, { origin, username: input.username, label: input.label, generated: false, ...(spaceId ? { spaceId } : {}) }, input.value);
   }
 
   /** Seal one value under an already-normalized origin and write the row as this profile's. The two
    *  callers that reach here are the only two routes into this file: Settings' own form, and a
    *  generated fill. */
-  private enroll(profileId: string, meta: { origin: string; username: string; label: string; generated: boolean }, value: string): BrowserCredential {
+  private enroll(profileId: string, meta: { origin: string; username: string; label: string; generated: boolean; spaceId?: string }, value: string): BrowserCredential {
     const file = this.rows();
     const row: StoredCredential = {
       id: this.d.newId(),
@@ -319,6 +369,7 @@ export class SecretStore {
       label: meta.label.trim(),
       createdAt: this.d.now(),
       generated: meta.generated,
+      ...(meta.spaceId ? { spaceId: meta.spaceId } : {}),
       sealed: seal(this.key("credential"), "credential", value),
     };
     file.credentials.push(row);
@@ -333,6 +384,7 @@ export class SecretStore {
     const before = file.credentials.length;
     file.credentials = file.credentials.filter((c) => !(c.id === id && c.profileId === profileId));
     if (file.credentials.length === before) return false;
+    this.pruneAllows(file);
     this.save();
     return true;
   }
@@ -349,7 +401,9 @@ export class SecretStore {
   shareCredential(fromProfileId: string, id: string, toProfileId: string): BrowserCredential | null {
     const file = this.rows();
     const source = this.credentialOf(fromProfileId, id);
-    if (!source || toProfileId === "" || toProfileId === fromProfileId) return null;
+    // A team's sign-in is that team's: a copy in another profile would be one no space of it could
+    // be offered, or — made the profile's own — one offered in every space. Neither is a share.
+    if (!source || source.spaceId || toProfileId === "" || toProfileId === fromProfileId) return null;
     const same = file.credentials.find((c) => c.profileId === toProfileId && c.origin === source.origin && c.username === source.username);
     // A copy says who made its value, as the original does: a Realm-made password shared into another
     // profile is still one nobody has seen, and that profile's Settings has to say so too.
@@ -389,11 +443,14 @@ export class SecretStore {
     profileId: string,
     id: string,
     use: (value: string) => Promise<void>,
+    scope: { spaceId?: string | null } = {},
   ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }> {
     // Another profile's sign-in is refused exactly as one that does not exist — and before the
-    // prompt, so a Touch ID sheet is never raised for a fill that could not have been allowed.
+    // prompt, so a Touch ID sheet is never raised for a fill that could not have been allowed. So is
+    // a team's sign-in asked for from anywhere but that team's space: a caller that names no space
+    // reaches only the profile's own.
     const row = this.credentialOf(profileId, id);
-    if (!row) return { ok: false, refused: "no_credential" };
+    if (!row || (row.spaceId !== undefined && row.spaceId !== scope.spaceId)) return { ok: false, refused: "no_credential" };
 
     const who = row.username ? `${row.username} on ${row.origin}` : row.origin;
     if (!(await this.requirePresence(profileId, `fill your saved sign-in for ${who}`))) {
@@ -616,6 +673,217 @@ export class SecretStore {
     return this.machineCache;
   }
 
+  /* --------------------------------- the team vault --------------------------------- */
+
+  /**
+   * What one team's Vault page and its server half may know: the profile's sign-ins that space is
+   * offered (the profile's own, and the team's), and the team's keys. Metadata only.
+   */
+  vaultSecrets(profileId: string, spaceId: string): VaultSecrets {
+    const file = this.rows();
+    return {
+      signins: file.credentials
+        .filter((c) => c.profileId === profileId && (c.spaceId === undefined || c.spaceId === spaceId))
+        .map((c) => ({ id: c.id, origin: c.origin, username: c.username, label: c.label, generated: c.generated === true, spaceId: c.spaceId ?? null, createdAt: c.createdAt })),
+      keys: file.keys.filter((k) => k.profileId === profileId && k.spaceId === spaceId).map(stripKey),
+    };
+  }
+
+  /** The sign-ins an agent in `spaceId` is offered: the profile's own and that team's, never another
+   *  team's. `null` is a caller that cannot say its space, and gets the profile's own alone. */
+  credentialsForSpace(profileId: string, spaceId: string | null): BrowserCredential[] {
+    return this.rows().credentials
+      .filter((c) => c.profileId === profileId && (c.spaceId === undefined || c.spaceId === spaceId))
+      .map(strip);
+  }
+
+  /**
+   * Enroll one API key the USER typed into a team's Vault page — reachable from that page's IPC
+   * handler alone, for `addCredential`'s reason: a model that could enroll a key could put a value it
+   * chose behind a host it chose. Its hosts are normalized here and must all be hosts; a key whose
+   * name the team already uses is refused rather than replaced, so a second key never quietly takes
+   * over the first one's grants.
+   */
+  addKey(profileId: string, spaceId: string, input: VaultKeyInput): VaultKey {
+    if (!this.available) {
+      throw new SecretStoreError("macOS is not offering Realm an encryption key right now (Keychain unavailable), so Realm will not save a key. Nothing was stored.");
+    }
+    const hosts = [...new Set(input.allowedHosts.map((h) => normalizeVaultHost(h)))];
+    if (hosts.length === 0 || hosts.some((h) => h === null)) {
+      throw new SecretStoreError("Each host must be a site's address, such as api.revenuecat.com — no wildcards and no paths.");
+    }
+    const file = this.rows();
+    const name = input.name.trim();
+    if (file.keys.some((k) => k.profileId === profileId && k.spaceId === spaceId && k.name === name)) {
+      throw new SecretStoreError(`This team already has a key named ${name}. Remove it first to replace it.`);
+    }
+    const row: StoredKey = {
+      id: this.d.newId(), profileId, spaceId, name, label: input.label.trim(), allowedHosts: hosts as string[],
+      createdAt: this.d.now(), sealed: seal(this.key("vault-key"), "vault-key", input.value),
+    };
+    file.keys.push(row);
+    this.save();
+    return stripKey(row);
+  }
+
+  removeKey(profileId: string, id: string): boolean {
+    const file = this.rows();
+    const before = file.keys.length;
+    file.keys = file.keys.filter((k) => !(k.id === id && k.profileId === profileId));
+    if (file.keys.length === before) return false;
+    this.pruneAllows(file);
+    this.save();
+    return true;
+  }
+
+  /**
+   * Run `use` with one key's plaintext — the vault's door out, the same shape as
+   * `withCredentialValue` and for the same reason: the value is a parameter, never a resolution.
+   *
+   * The caller has already checked the request's host against the key's before calling, so a request
+   * to a host the key is not locked to is refused without anyone being asked anything. Presence is
+   * the profile's unlock policy, exactly as for a sign-in.
+   */
+  async withKeyValue(
+    profileId: string,
+    spaceId: string,
+    id: string,
+    use: (value: string, key: VaultKey) => Promise<void>,
+  ): Promise<{ ok: true } | { ok: false; refused: "no_key" | "no_presence" }> {
+    const row = this.rows().keys.find((k) => k.id === id && k.profileId === profileId && k.spaceId === spaceId);
+    if (!row) return { ok: false, refused: "no_key" };
+    if (!(await this.requirePresence(profileId, `put the key ${row.name} into a request to ${row.allowedHosts.join(", ")}`))) {
+      return { ok: false, refused: "no_presence" };
+    }
+    const value = this.available ? open(this.key("vault-key"), "vault-key", row.sealed) : null;
+    if (value === null) return { ok: false, refused: "no_key" };
+    await use(value, stripKey(row));
+    return { ok: true };
+  }
+
+  /** One of the team's keys, by id. Metadata. */
+  getKey(profileId: string, spaceId: string, id: string): VaultKey | null {
+    const row = this.rows().keys.find((k) => k.id === id && k.profileId === profileId && k.spaceId === spaceId);
+    return row ? stripKey(row) : null;
+  }
+
+  /**
+   * Let one granted role use one secret without the session's card — the lab's switch.
+   *
+   * Reachable ONLY from the Vault page's IPC handler, for `setUnlockPolicy`'s reason, and confirmed
+   * by macOS (Touch ID or the login password) every time it is turned on: there is no tool, RPC method,
+   * bridge op or setting key that lands here, and the control carries `data-no-agent`. What it seals is
+   * narrow on purpose — this secret, this role, this team, these hosts, this grant, this Mac — and every
+   * one of those is checked again when it is read, so a grant revoked and remade, a host added later,
+   * or a copy of Realm's files on another Mac all read as "ask".
+   *
+   * `hosts` must be hosts the secret itself is pinned to: a sign-in's one origin, or a subset of a
+   * key's. An allow can narrow what a secret reaches, never widen it.
+   */
+  async setVaultAllow(profileId: string, a: { spaceId: string; secretId: string; roleId: string; hosts: string[]; grantAt: number; roleName: string; secretName: string }):
+    Promise<{ ok: true; allow: VaultAllow } | { ok: false; error: string }> {
+    if (!this.available) return { ok: false, error: "macOS is not offering Realm an encryption key right now (Keychain unavailable), so nothing changed." };
+    const machine = this.machine();
+    if (!machine) return { ok: false, error: "Realm could not read this Mac's hardware ID, so it cannot tie this to this Mac. Nothing changed." };
+    const pinned = this.pinnedHosts(profileId, a.spaceId, a.secretId);
+    if (!pinned) return { ok: false, error: "That secret is no longer in this team's vault." };
+    const hosts = [...new Set(a.hosts.map((h) => normalizeVaultHost(h)).filter((h): h is string => h !== null))];
+    if (hosts.length === 0 || hosts.some((h) => !hostAllowed(h, pinned))) {
+      return { ok: false, error: "A role can be let through only to the hosts the secret itself is locked to." };
+    }
+    const confirmed = await this.confirmOwner(`let ${a.roleName} use ${a.secretName} without asking`);
+    if (!confirmed) {
+      this.audit({ ts: this.d.now(), kind: "vault-allow", secretId: a.secretId, roleId: a.roleId, spaceId: a.spaceId, outcome: "refused" });
+      return { ok: false, error: "macOS did not confirm it was you, so nothing changed." };
+    }
+    const record: AllowRecord = {
+      profileId, spaceId: a.spaceId, secretId: a.secretId, roleId: a.roleId, hosts, grantAt: a.grantAt, machine, setAt: this.d.now(),
+    };
+    const file = this.rows();
+    file.allow[allowKey(a.secretId, a.roleId)] = seal(this.key("vault-allow"), "vault-allow", JSON.stringify(record));
+    this.save();
+    this.audit({ ts: this.d.now(), kind: "vault-allow", secretId: a.secretId, roleId: a.roleId, spaceId: a.spaceId, outcome: "set" });
+    return { ok: true, allow: toAllow(record) };
+  }
+
+  /** Back to asking. Never confirmed: putting a gate back must always be one click. */
+  clearVaultAllow(secretId: string, roleId: string): boolean {
+    const file = this.rows();
+    const k = allowKey(secretId, roleId);
+    if (!(k in file.allow)) return false;
+    const record = this.openAllow(file.allow[k]!);
+    delete file.allow[k];
+    this.save();
+    this.audit({ ts: this.d.now(), kind: "vault-allow", secretId, roleId, spaceId: record?.spaceId ?? "", outcome: "cleared" });
+    return true;
+  }
+
+  /** The team's allows, as the Vault page draws its switches. Each one opened and checked; one that
+   *  does not open, or was set on another Mac, is not listed — it would not let anything through. */
+  vaultAllows(profileId: string, spaceId: string): VaultAllow[] {
+    const machine = this.machine();
+    const out: VaultAllow[] = [];
+    for (const sealed of Object.values(this.rows().allow)) {
+      const r = this.openAllow(sealed);
+      if (r && r.profileId === profileId && r.spaceId === spaceId && machine && r.machine === machine) out.push(toAllow(r));
+    }
+    return out;
+  }
+
+  /**
+   * Whether this one use may go ahead with no card: a sealed allow for exactly this secret, role, team
+   * and grant, naming this host, set on this Mac — AND the profile's own unlock policy is "without
+   * asking". Either alone is not enough: an allow on a profile that still asks for Touch ID would take
+   * the card away and leave a fingerprint prompt nobody is there to answer.
+   */
+  vaultAllowed(profileId: string, q: { spaceId: string; secretId: string; roleId: string; host: string; grantAt: number }): boolean {
+    if (this.readPolicy(unlockScopeKey({ kind: "profile", id: profileId })).kind !== "unattended") return false;
+    const sealed = this.rows().allow[allowKey(q.secretId, q.roleId)];
+    const r = sealed ? this.openAllow(sealed) : null;
+    if (!r) return false;
+    const machine = this.machine();
+    return r.profileId === profileId && r.spaceId === q.spaceId && r.secretId === q.secretId && r.roleId === q.roleId
+      && r.grantAt === q.grantAt && machine !== null && r.machine === machine && hostAllowed(q.host, r.hosts)
+      && this.pinnedHosts(profileId, q.spaceId, q.secretId) !== null;
+  }
+
+  /** The hosts a secret is pinned to: a sign-in's origin host, a key's hosts. Null when this team
+   *  has no such secret. */
+  private pinnedHosts(profileId: string, spaceId: string, secretId: string): string[] | null {
+    const file = this.rows();
+    const key = file.keys.find((k) => k.id === secretId && k.profileId === profileId && k.spaceId === spaceId);
+    if (key) return key.allowedHosts;
+    const cred = file.credentials.find((c) => c.id === secretId && c.profileId === profileId && (c.spaceId === undefined || c.spaceId === spaceId));
+    const host = cred ? normalizeVaultHost(cred.origin) : null;
+    return host ? [host] : null;
+  }
+
+  private openAllow(sealed: string): AllowRecord | null {
+    if (!this.available) return null;
+    try {
+      const text = open(this.key("vault-allow"), "vault-allow", sealed);
+      if (text === null) return null;
+      const r = JSON.parse(text) as Partial<AllowRecord>;
+      if (typeof r.profileId !== "string" || typeof r.spaceId !== "string" || typeof r.secretId !== "string" || typeof r.roleId !== "string"
+        || !Array.isArray(r.hosts) || !r.hosts.every((h) => typeof h === "string") || typeof r.grantAt !== "number"
+        || typeof r.machine !== "string" || typeof r.setAt !== "number") return null;
+      return r as AllowRecord;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Drop allows whose secret is gone. Returns whether any went. Read by key, not by opening: the map
+   *  key names the secret, and a secret that no longer exists can let nothing through either way. */
+  private pruneAllows(file: StoreFile): boolean {
+    const ids = new Set([...file.credentials.map((c) => c.id), ...file.keys.map((k) => k.id)]);
+    let pruned = false;
+    for (const k of Object.keys(file.allow)) {
+      if (!ids.has(k.split("|")[0]!)) { delete file.allow[k]; pruned = true; }
+    }
+    return pruned;
+  }
+
   /* ---------------------------------- passkeys ---------------------------------- */
 
   /** Metadata for every passkey this profile holds. `sealed` is stripped HERE, at the boundary, for
@@ -792,11 +1060,14 @@ export class SecretStore {
     const before = file.credentials.length + file.passkeys.length;
     file.credentials = file.credentials.filter((c) => c.profileId !== profileId);
     file.passkeys = file.passkeys.filter((p) => p.profileId !== profileId);
+    const keysBefore = file.keys.length;
+    file.keys = file.keys.filter((k) => k.profileId !== profileId);
+    const pruned = this.pruneAllows(file);
     const scope = unlockScopeKey({ kind: "profile", id: profileId });
     const hadPolicy = scope in file.unlock;
     delete file.unlock[scope];
     this.sessionUntil.delete(scope);
-    if (hadPolicy || file.credentials.length + file.passkeys.length !== before) this.save();
+    if (hadPolicy || pruned || file.keys.length !== keysBefore || file.credentials.length + file.passkeys.length !== before) this.save();
   }
 
   /* ---------------------------------- settings ---------------------------------- */
@@ -822,7 +1093,7 @@ export class SecretStore {
   /** One JSONL line per fill attempt, whatever the outcome. Never throws: an unwritable log is a
    *  degraded audit trail, not a reason to fail a sign-in the user just approved with their
    *  fingerprint. */
-  audit(entry: CredentialAuditEntry | PasskeyAuditEntry | UnlockAuditEntry | UnlockPolicyAuditEntry): void {
+  audit(entry: CredentialAuditEntry | PasskeyAuditEntry | UnlockAuditEntry | UnlockPolicyAuditEntry | VaultHttpAuditEntry | VaultAllowAuditEntry): void {
     try { this.d.appendAudit(`${JSON.stringify(entry)}\n`); } catch { /* see above */ }
   }
 
@@ -921,6 +1192,8 @@ export class SecretStore {
       presenceTtlMs: (CREDENTIAL_PRESENCE_TTLS as readonly number[]).includes(parsed?.presenceTtlMs as number)
         ? (parsed!.presenceTtlMs as number) : 0,
       unlock: readUnlockMap(parsed?.unlock),
+      keys: Array.isArray(parsed?.keys) ? parsed.keys.filter(isStoredKey) : [],
+      allow: readUnlockMap(parsed?.allow),
     };
     this.file = file;
     this.keys = this.unlockKeyring(file);
@@ -955,7 +1228,7 @@ export class SecretStore {
              and each is folded in the same way and for the reason above: a missing domain is a
              key to mint, never a corrupt keyring to discard. */
           const added: Record<string, string> = {};
-          const fold = (name: "machine" | "eggs" | "passkey" | "unlock"): Buffer => {
+          const fold = (name: "machine" | "eggs" | "passkey" | "unlock" | "vault-key" | "vault-allow"): Buffer => {
             const existing = Buffer.from(String(json[name] ?? ""), "base64");
             if (existing.length === SECRET_KEY_BYTES) return existing;
             const minted = newSecretKey();
@@ -966,12 +1239,14 @@ export class SecretStore {
           const eggs = fold("eggs");
           const passkey = fold("passkey");
           const unlock = fold("unlock");
+          const vaultKey = fold("vault-key");
+          const vaultAllow = fold("vault-allow");
           if (Object.keys(added).length > 0) {
             file.keyring = this.d.safeStorage.encryptString(JSON.stringify({ ...json, ...added })).toString("base64");
             this.file = file;
             this.save();
           }
-          return { oauth, credential, machine, eggs, passkey, unlock };
+          return { oauth, credential, machine, eggs, passkey, unlock, "vault-key": vaultKey, "vault-allow": vaultAllow };
         }
       } catch { /* falls through to a fresh keyring */ }
       file.credentials = [];
@@ -982,10 +1257,14 @@ export class SecretStore {
       // Policies too: sealed under a key that is gone, every one would read as the default anyway,
       // and the default is what a fresh keyring means.
       file.unlock = {};
+      // A team's keys and its allows were sealed under keys that are gone too, and go the same way.
+      file.keys = [];
+      file.allow = {};
     }
     const keys = {
       oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey(),
       eggs: newSecretKey(), passkey: newSecretKey(), unlock: newSecretKey(),
+      "vault-key": newSecretKey(), "vault-allow": newSecretKey(),
     };
     file.keyring = this.d.safeStorage
       .encryptString(JSON.stringify({
@@ -995,6 +1274,8 @@ export class SecretStore {
         eggs: keys.eggs.toString("base64"),
         passkey: keys.passkey.toString("base64"),
         unlock: keys.unlock.toString("base64"),
+        "vault-key": keys["vault-key"].toString("base64"),
+        "vault-allow": keys["vault-allow"].toString("base64"),
       }))
       .toString("base64");
     this.file = file;
@@ -1012,7 +1293,10 @@ export class SecretStore {
  *  explicit field list rather than `{ sealed, ...rest }` so that adding a field to the stored shape
  *  cannot silently start returning it. */
 function strip(c: StoredCredential): BrowserCredential {
-  return { id: c.id, origin: c.origin, username: c.username, label: c.label, createdAt: c.createdAt, generated: c.generated === true };
+  return {
+    id: c.id, origin: c.origin, username: c.username, label: c.label, createdAt: c.createdAt, generated: c.generated === true,
+    ...(c.spaceId ? { spaceId: c.spaceId } : {}),
+  };
 }
 
 /** The character classes a generated password draws from. Punctuation is the subset that survives
@@ -1071,6 +1355,7 @@ function isStoredCredential(v: unknown): v is StoredCredential {
   // update — the same trap `unlockKeyring` documents for a missing keyring domain. A missing field
   // reads as false, which is what those rows are.
   return (c.profileId === undefined || typeof c.profileId === "string")
+    && (c.spaceId === undefined || typeof c.spaceId === "string")
     && typeof c.id === "string" && typeof c.origin === "string" && typeof c.username === "string"
     && typeof c.label === "string" && typeof c.createdAt === "number"
     && (c.generated === undefined || typeof c.generated === "boolean")
@@ -1097,4 +1382,22 @@ function isStoredPasskey(v: unknown): v is StoredPasskey {
     && (p.lastUsedAt === null || typeof p.lastUsedAt === "number")
     && typeof p.credentialId === "string" && (p.userHandle === null || typeof p.userHandle === "string")
     && typeof p.signCount === "number" && typeof p.sealed === "string" && isSealed(p.sealed);
+}
+
+/** `VaultKey` from a stored row — the projection that drops `sealed` and the owning profile. */
+function stripKey(k: StoredKey): VaultKey {
+  return { id: k.id, name: k.name, label: k.label, allowedHosts: [...k.allowedHosts], spaceId: k.spaceId, createdAt: k.createdAt };
+}
+
+function toAllow(r: AllowRecord): VaultAllow {
+  return { secretId: r.secretId, roleId: r.roleId, spaceId: r.spaceId, hosts: [...r.hosts], grantAt: r.grantAt, setAt: r.setAt };
+}
+
+function isStoredKey(v: unknown): v is StoredKey {
+  if (typeof v !== "object" || v === null) return false;
+  const k = v as Record<string, unknown>;
+  return typeof k.id === "string" && typeof k.profileId === "string" && typeof k.spaceId === "string"
+    && typeof k.name === "string" && typeof k.label === "string" && typeof k.createdAt === "number"
+    && Array.isArray(k.allowedHosts) && k.allowedHosts.every((h) => typeof h === "string")
+    && typeof k.sealed === "string" && isSealed(k.sealed);
 }

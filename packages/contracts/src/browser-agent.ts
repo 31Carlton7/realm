@@ -258,6 +258,10 @@ export type BrowserCredential = {
   label: string;
   createdAt: number;
   generated: boolean;
+  /** The team space this sign-in belongs to (the team vault, `vault.ts`). Absent is the profile's own,
+   *  as every sign-in before teams was: offered in every space of the profile. A team's is offered in
+   *  that space and no other. */
+  spaceId?: string;
 };
 
 /** Enrollment input. `value` appears HERE and in no other exported type: this schema is used only by

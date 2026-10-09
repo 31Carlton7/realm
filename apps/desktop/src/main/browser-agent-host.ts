@@ -108,12 +108,15 @@ export type BrowserAgentHostDeps = {
    * carries the profile of the calling session's space, which realm-server resolved.
    */
   secrets?: {
-    listCredentials(profileId: string): BrowserCredential[];
+    /** The sign-ins an agent in `spaceId` is offered: the profile's own and that team's (the team
+     *  vault). Null is a caller that cannot say its space, and is offered the profile's own alone. */
+    listCredentials(profileId: string, spaceId: string | null): BrowserCredential[];
     getCredential(profileId: string, id: string): BrowserCredential | null;
     withCredentialValue(
       profileId: string,
       id: string,
       use: (value: string) => Promise<void>,
+      scope: { spaceId: string | null },
     ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }>;
     /** Mint a password for an origin, keep it, and type it — the generated half of the fill op. Same
      *  callback shape as `withCredentialValue`, so this dependency cannot hand the host the password
@@ -156,6 +159,15 @@ export type BrowserAgentHostDeps = {
    */
   readFile?(path: string): Promise<Uint8Array>;
 };
+
+/** Who a fill was for, as realm-server named it: the team, its role and the role's run. Empty for a
+ *  person's own session. */
+type FillWho = { spaceId?: string; roleId?: string; runId?: string };
+function fillWho(params: Record<string, unknown>): FillWho {
+  const out: FillWho = {};
+  for (const k of ["spaceId", "roleId", "runId"] as const) if (typeof params[k] === "string" && params[k]) out[k] = params[k] as string;
+  return out;
+}
 
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
  *  refusal belongs to `act`), and an unmapped code degrades to `error` rather than inventing a row. */
@@ -618,7 +630,8 @@ export class BrowserAgentHost {
         // No profile named, no sign-ins: a call that cannot say whose it is asking for is answered as
         // a profile with nothing saved, never as somebody's.
         const profileId = typeof params.profileId === "string" ? params.profileId : "";
-        return { credentials: profileId ? this.d.secrets?.listCredentials(profileId) ?? [] : [] };
+        const spaceId = typeof params.spaceId === "string" && params.spaceId ? params.spaceId : null;
+        return { credentials: profileId ? this.d.secrets?.listCredentials(profileId, spaceId) ?? [] : [] };
       }
       /**
        * Fill a sign-in into `ref`: one the user enrolled, named by `credentialId`, or one the store
@@ -637,6 +650,10 @@ export class BrowserAgentHost {
       case "fillCredential": {
         const ref = Number(params.ref);
         const profileId = typeof params.profileId === "string" ? params.profileId : "";
+        // The calling session's space, and — for a team's role — the role and its run, as realm-server
+        // resolved them. A team's sign-in fills only in its own space; the rest is for the audit line.
+        const spaceId = typeof params.spaceId === "string" && params.spaceId ? params.spaceId : null;
+        const who = fillWho(params);
         const store = this.d.secrets;
         const generate = readGenerate(params.generate);
         let fill: CredentialFill;
@@ -658,11 +675,11 @@ export class BrowserAgentHost {
           // filled. A value that will not normalize refuses without reaching the page at all.
           const approved = normalizeOrigin(String(params.origin ?? ""));
           if (notThisProfile) {
-            this.auditFill("", approved ?? "", "no_store");
+            this.auditFill("", approved ?? "", "no_store", who);
             return { ok: false, refused: "no_store", error: "this pane belongs to another profile, so there is no store here to keep a new password in — none was generated or filled" } satisfies BrowserActResult;
           }
           if (!store || approved === null) {
-            this.auditFill("", approved ?? "", "no_store");
+            this.auditFill("", approved ?? "", "no_store", who);
             return { ok: false, refused: "no_store", error: "Realm has nowhere to keep a new password right now (macOS is not offering an encryption key), so none was generated or filled" } satisfies BrowserActResult;
           }
           origin = approved;
@@ -680,14 +697,16 @@ export class BrowserAgentHost {
           };
         } else {
           const id = String(params.credentialId ?? "");
-          const credential = notThisProfile ? null : store?.getCredential(profileId, id) ?? null;
+          const found = notThisProfile ? null : store?.getCredential(profileId, id) ?? null;
+          // Another team's sign-in is answered as one that does not exist, before anything is asked.
+          const credential = found && (found.spaceId === undefined || found.spaceId === spaceId) ? found : null;
           if (!store || !credential) {
-            this.auditFill(id, "", "no_credential");
+            this.auditFill(id, "", "no_credential", who);
             return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
           }
           credentialId = credential.id;
           origin = credential.origin;
-          fill = { origin, kind: "saved", reveal: (type) => store.withCredentialValue(profileId, credential.id, type) };
+          fill = { origin, kind: "saved", reveal: (type) => store.withCredentialValue(profileId, credential.id, type, { spaceId }) };
         }
         const entry = this.ensure(browserId);
         // No `markAct` here, unlike `act`. Every mark is drawn by evaluating script in the page, and
@@ -700,10 +719,10 @@ export class BrowserAgentHost {
         } catch {
           // Bare, like the executor's own: a thrown CDP error can carry the characters it was
           // dispatching, and nothing about it may reach a tool result.
-          this.auditFill(credentialId, origin, "error");
+          this.auditFill(credentialId, origin, "error", who);
           return { ok: false, error: `the ${generate ? "new" : "saved"} sign-in could not be typed into that field` } satisfies BrowserActResult;
         }
-        this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error");
+        this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error", who);
         // The id travels back only for a generated fill, and only as metadata: it is how the agent
         // fills this same new password into a confirm field without ever being told what it is.
         return result.ok && generate && credentialId
@@ -863,8 +882,8 @@ export class BrowserAgentHost {
 
   /** One audit line per fill attempt: timestamp, origin, credentialId, outcome — and never the
    *  value, the page's text, or the length of anything. */
-  private auditFill(credentialId: string, origin: string, outcome: CredentialAuditEntry["outcome"]): void {
-    this.d.secrets?.audit({ ts: Date.now(), origin, credentialId, outcome });
+  private auditFill(credentialId: string, origin: string, outcome: CredentialAuditEntry["outcome"], who: FillWho = {}): void {
+    this.d.secrets?.audit({ ts: Date.now(), origin, credentialId, outcome, ...who });
   }
 
   /** Get-or-create the attachment. A cached binding whose view died is dropped and re-attached —

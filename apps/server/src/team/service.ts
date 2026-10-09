@@ -80,6 +80,8 @@ export class TeamService {
     rpc: Pick<RpcServer, "broadcast">;
     /** The agent a role runs on when none is named: claude in production, the fake in tests. */
     defaultKind?: AgentKind;
+    /** More standing context for a role's run — the vault's names it may use (team/vault). */
+    preambleExtra?: (roleId: string) => string[];
     clock?: () => number;
     today?: () => string;
   }) {}
@@ -390,6 +392,7 @@ export class TeamService {
       "- Records are Markdown files under `creators/` in the team's memory. Read them with `record_list` and `record_read`; change them with `record_update`. An account names where its sign-in is kept, never a password or key.",
       "- Save what you make inside this space's folder; Review only takes files from there.",
       `- This run stops at ${usd(role.runCapUsd)} or ${Math.round(role.runCapMs / 60_000)} minutes, whichever comes first.`,
+      ...(this.d.preambleExtra?.(role.id) ?? []),
     ].join("\n");
   }
 

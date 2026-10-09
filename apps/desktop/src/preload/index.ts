@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
-import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, VaultAllow, VaultKey, VaultKeyInput, VaultSecrets, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -301,6 +301,23 @@ contextBridge.exposeInMainWorld("realm", {
     unlockPolicy: (profileId: string): Promise<UnlockPolicyStatus | null> => ipcRenderer.invoke("credentials:unlock-policy", profileId),
     setUnlockPolicy: (profileId: string, policy: UnlockPolicy): Promise<{ ok: true; status: UnlockPolicyStatus } | { ok: false; error: string }> =>
       ipcRenderer.invoke("credentials:set-unlock-policy", profileId, policy),
+  },
+  /**
+   * A team's Vault page (`main/vault-ipc.ts`). Same one-way rule as `credentials`: `addSignin` and
+   * `addKey` take a value and answer with metadata, and nothing here returns one. `setAllow` is the
+   * only way a grant is let through without asking, and main asks macOS to confirm the user first;
+   * `clearAllow` puts the question back and is never confirmed.
+   */
+  vault: {
+    list: (profileId: string, spaceId: string): Promise<{ available: boolean; secrets: VaultSecrets; allows: VaultAllow[]; profileUnattended: boolean }> =>
+      ipcRenderer.invoke("vault:list", profileId, spaceId),
+    addSignin: (profileId: string, spaceId: string, input: BrowserCredentialInput): Promise<BrowserCredential> =>
+      ipcRenderer.invoke("vault:add-signin", profileId, spaceId, input),
+    addKey: (profileId: string, spaceId: string, input: VaultKeyInput): Promise<VaultKey> => ipcRenderer.invoke("vault:add-key", profileId, spaceId, input),
+    remove: (profileId: string, spaceId: string, secretId: string): Promise<boolean> => ipcRenderer.invoke("vault:remove", profileId, spaceId, secretId),
+    setAllow: (profileId: string, input: { spaceId: string; secretId: string; roleId: string; hosts: string[]; grantAt: number; roleName: string; secretName: string }):
+      Promise<{ ok: true; allow: VaultAllow } | { ok: false; error: string }> => ipcRenderer.invoke("vault:set-allow", profileId, input),
+    clearAllow: (secretId: string, roleId: string): Promise<boolean> => ipcRenderer.invoke("vault:clear-allow", secretId, roleId),
   },
   /** Settings → Sign-ins, the passkey half. Read, forget and share only: there is no `add`, because a
    *  passkey is created by a site asking for one and the user answering Touch ID. */
