@@ -7,7 +7,7 @@ import type { GhRun } from "../code-review/gh";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
 import { gitCapture, type GitRun } from "../workspace/git-exec";
-import { MemoryRepoService } from "./repo";
+import { MemoryRepoService, SAVE_FETCH_TIMEOUT_MS } from "./repo";
 
 /*
  * Sync against a real remote: a bare repository on disk, cloned again elsewhere to stand in for the
@@ -21,10 +21,18 @@ const P = { scope: "profile", id: PROFILE } as const;
 const git = (cwd: string, ...args: string[]): string => execFileSync("git", args, { cwd, encoding: "utf8" });
 const headOf = (repo: string, ref = "HEAD"): string => git(repo, "rev-parse", ref).trim();
 
-async function synced(o: { gh?: GhRun } = {}) {
+async function synced(o: { gh?: GhRun; stall?: { on: boolean; fetchWaits: number[] } } = {}) {
   const home = tempDir("realm-memsync-");
   const calls: string[][] = [];
-  const recording: GitRun = (cwd, args, opts) => { calls.push(args); return gitCapture(cwd, args, opts); };
+  const recording: GitRun = (cwd, args, opts) => {
+    calls.push(args);
+    // A remote that never answers: the fetch runs out its timeout. Recorded rather than waited out.
+    if (o.stall?.on && args[0] === "fetch") {
+      o.stall.fetchWaits.push(opts?.timeoutMs ?? -1);
+      return Promise.reject(new Error(`timed out after ${opts?.timeoutMs}ms`));
+    }
+    return gitCapture(cwd, args, opts);
+  };
   const synced: string[] = [];
   const repos = new MemoryRepoService({
     home, settings: new SettingsStore(openDatabase(join(home, "realm.db"))), git: recording, gh: o.gh,
@@ -125,6 +133,26 @@ describe("memory repo sync — saving", () => {
     // "Retry now", or a boot: the queued commit goes.
     expect(await repos.sync(P)).toMatchObject({ sync: "synced", ahead: 0, syncError: null });
     expect(headOf(bare, "HEAD")).toBe(headOf(repo));
+  });
+
+  it("a save waits at most 5 s on a remote that does not answer, then commits here and queues the push", async () => {
+    const stall = { on: false, fetchWaits: [] as number[] };
+    const { repos, repo, bare } = await synced({ stall });
+    await repos.setRemote(P, bare);
+    await repos.setSync(P, true, true);
+    await repos.whenSynced(P);
+    stall.on = true;
+    const before = headOf(repo);
+    const r = await repos.edit(P, { op: "add", entry: "Prefers tabs", sessionId: SESSION });
+    // THE mutant: the save's fetch at the sync timeout — 20 s of a save that feels stuck.
+    expect(stall.fetchWaits[0]).toBe(SAVE_FETCH_TIMEOUT_MS);
+    expect(SAVE_FETCH_TIMEOUT_MS).toBeLessThanOrEqual(5_000);
+    expect(r.changed).toBe(true);
+    expect(headOf(repo)).not.toBe(before);
+    await repos.whenSynced(P);
+    // The background sync after the save is not someone waiting: it keeps the full timeout.
+    expect(stall.fetchWaits[1]).toBe(20_000);
+    expect((await repos.state(P))!).toMatchObject({ sync: "queued", ahead: 1 });
   });
 
   it("takes in what another machine pushed, fast-forward, before it saves on top", async () => {
