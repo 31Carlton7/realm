@@ -303,8 +303,8 @@ export class ActService {
     // At the slot it was pressed for, which `post` checked; late by at most `ACT_LATE_MS`.
     const problem = slotProblem({ kind: t.kind, channel: t.channel, account: t.account, spaceId: t.spaceId }, t.slotAt, others);
     if (problem) return back(`Not sent: ${slotWhyWords(problem, t.kind)}. Press again for the next slot.`, "refused", { why: problem });
-    const { review, problem: gone } = this.stillApproved(t);
-    if (this.d.store.ticket(t.id)?.state === "cancelled") return;
+    // The bytes are checked once the copies are staged, below — the copies are what the platform gets.
+    const { review, problem: gone } = this.stillApproved(t, false);
     if (gone || !review) return back(gone?.message ?? "the review moved on", "refused", { why: "review" });
     const consent = this.consentProblem(review, t);
     if (consent) return back(consent, "refused", { why: "no_consent" });
@@ -377,13 +377,15 @@ export class ActService {
 
   /* ═══════════════════════════ rules ═══════════════════════════ */
 
-  /** The review is still approved, at the version this ticket is for, and its bytes still hash to what
-   *  was approved. A ticket that fails the last is cancelled: a yes to one picture is not a yes to another. */
-  private stillApproved(t: TicketRow): { review: ReviewRow | null; problem: RpcError | null } {
+  /** The review is still approved, at the version this ticket is for, and (with `bytes`) its files
+   *  still hash to what was approved. A ticket that fails the last is cancelled: a yes to one picture
+   *  is not a yes to another. */
+  private stillApproved(t: TicketRow, bytes = true): { review: ReviewRow | null; problem: RpcError | null } {
     const review = this.d.team.review(t.reviewId);
     if (!review || review.state !== "approved") return { review, problem: new RpcError("TEAM_REVIEW_STATE", "this batch is no longer approved") };
     const item = this.d.team.items(t.reviewId, review.version).find((i) => i.id === t.itemId);
     if (!item) return { review, problem: new RpcError("TEAM_REVIEW_STATE", "a newer version of this batch replaced it") };
+    if (!bytes) return { review, problem: null };
     const root = this.d.rootForSpace(t.spaceId);
     const now = root ? itemHash(item.files, (f) => { const p = join(root, f); return existsSync(p) ? bytesHash(readFileSync(p)) : "missing"; }, item.body) : null;
     if (now !== t.contentHash || item.approvedHash !== t.contentHash) {
