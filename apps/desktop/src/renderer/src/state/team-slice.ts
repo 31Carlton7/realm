@@ -1,5 +1,5 @@
 import type {
-  CreateRoleInput, CustomRoleInput, RoleRun, Run, TeamActivity, TeamRecord, TeamRecordSummary, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace, UpdateRoleInput,
+  CreateRoleInput, CustomRoleInput, RoleRun, Run, SetRoleHandoffsInput, TeamActivity, TeamRecord, TeamRecordSummary, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace, UpdateRoleInput,
 } from "@realm/contracts";
 
 /** What making a team, or adding to one, can carry besides the starters: the person's own teammates,
@@ -24,6 +24,11 @@ export type TeamApi = {
   teamRecordWrite(spaceId: string, path: string, markdown: string): Promise<TeamRecord>;
   teamRecordCreate(spaceId: string, name: string): Promise<TeamRecord>;
   teamActivity(spaceId: string, limit: number): Promise<TeamActivity[]>;
+  teamRoleHandoffs(input: SetRoleHandoffsInput): Promise<TeamRole>;
+  teamRoleGoal(id: string, objective: string): Promise<Run>;
+  teamSetBudget(spaceId: string, weekBudgetUsd: number): Promise<TeamSpace>;
+  teamSetLimits(spaceId: string, o: { teamMaxLive?: number; realmMaxUnattended?: number }): Promise<TeamSpace>;
+  teamLiftBackoff(agentKind: string): Promise<void>;
 };
 
 /**
@@ -64,6 +69,14 @@ export type TeamSlice = {
   writeTeamRecord(spaceId: string, path: string, markdown: string): Promise<TeamRecord>;
   createTeamRecord(spaceId: string, name: string): Promise<TeamRecord>;
   loadTeamActivity(spaceId: string): Promise<void>;
+  /** Who a role hands work to, and whether a mention wakes it. */
+  setRoleHandoffs(input: SetRoleHandoffsInput): Promise<void>;
+  /** Give a role a goal: one run on the goal loop. */
+  giveRoleGoal(id: string, objective: string): Promise<Run>;
+  setTeamBudget(spaceId: string, weekBudgetUsd: number): Promise<void>;
+  setTeamLimits(spaceId: string, o: { teamMaxLive?: number; realmMaxUnattended?: number }): Promise<void>;
+  /** "Try now": end an engine's back-off before its reset. */
+  liftTeamBackoff(spaceId: string, agentKind: string): Promise<void>;
   hydrateTeamFolds(): Promise<void>;
   setTeamFolded(spaceId: string, folded: boolean): Promise<void>;
 };
@@ -161,6 +174,21 @@ export function teamSlice<S extends Host & TeamSlice>(
       return rec;
     },
     async loadTeamActivity(spaceId) { put("teamActivity", spaceId, await api.teamActivity(spaceId, TEAM_ACTIVITY_PAGE)); },
+    async setRoleHandoffs(input) {
+      const role = await api.teamRoleHandoffs(input);
+      await get().refreshTeam(role.spaceId);
+    },
+    async giveRoleGoal(id, objective) {
+      const run = await api.teamRoleGoal(id, objective);
+      await Promise.all([get().refreshTeam(run.spaceId), get().loadRoleRuns(id)]);
+      return run;
+    },
+    async setTeamBudget(spaceId, weekBudgetUsd) { put("teams", spaceId, await api.teamSetBudget(spaceId, weekBudgetUsd)); },
+    async setTeamLimits(spaceId, o) { put("teams", spaceId, await api.teamSetLimits(spaceId, o)); },
+    async liftTeamBackoff(spaceId, agentKind) {
+      await api.teamLiftBackoff(agentKind);
+      await get().refreshTeam(spaceId);
+    },
     async hydrateTeamFolds() {
       const v = await api.getSetting("ui.sidebarTeamFolded");
       set({ sidebarTeamFolded: Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [] });

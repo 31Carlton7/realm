@@ -95,7 +95,8 @@ export const teamRole = (id: string, spaceId: string, name: string, extra: Parti
   id, spaceId, name, brief: `${name}'s brief.`, realmite: { seed: id }, template: null, agentKind: "claude", model: "sonnet", effort: null,
   permissionMode: "default", skills: [], scheduleId: null, cron: null, scheduleEnabled: false, nextRunAt: null, wakeOnReview: true,
   weekBudgetUsd: null, runCapUsd: 3, runCapMs: 1_200_000, maxConcurrent: 1, archived: false, createdAt: 0, updatedAt: 0,
-  state: "idle", stateSince: null, pausedWhy: null, weekSpendUsd: 0, lastRunAt: null, latestSessionId: null, unread: false, ...extra,
+  state: "idle", stateSince: null, pausedWhy: null, weekSpendUsd: 0, lastRunAt: null, latestSessionId: null, unread: false,
+  handsOffTo: [], wakeOnMention: true, goal: null, ...extra,
 });
 
 /** A review waiting on a person. */
@@ -107,7 +108,8 @@ export const teamReview = (id: string, spaceId: string, title: string, extra: Pa
 /** A team space: its roles and reviews. */
 export const teamSpace = (spaceId: string, roles: TeamRole[], reviews: TeamReviewSummary[] = [], extra: Partial<TeamSpace> = {}): TeamSpace => ({
   spaceId, enabled: true, roles, reviews, weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [],
-  repoPath: "/realm/memory/repos/space", repoMoved: false, sharesUsd: roles.reduce((n, r) => n + (r.weekBudgetUsd ?? 0), 0), formerRoles: [], ...extra,
+  repoPath: "/realm/memory/repos/space", repoMoved: false, sharesUsd: roles.reduce((n, r) => n + (r.weekBudgetUsd ?? 0), 0), formerRoles: [],
+  limits: { teamMaxLive: 2, realmMaxUnattended: 3, teamRunning: 0, realmRunning: 0, teamQueued: 0, backoff: [] }, handoffs: [], ...extra,
 });
 
 /** A durable run. Defaults to a queued run with no attempts yet. */
@@ -1691,6 +1693,21 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     teamRecordCreate: async (spaceId, name) => { calls.push(`teamRecordCreate:${spaceId}:${name}`); throw new Error("not faked"); },
     teamActivity: async (spaceId) => { calls.push(`teamActivity:${spaceId}`); return data.teamActivity[spaceId] ?? []; },
+    teamRoleHandoffs: async (input) => {
+      calls.push(`teamRoleHandoffs:${input.id}:${(input.handsOffTo ?? []).join(",")}:${input.wakeOnMention ?? ""}`);
+      for (const t of data.teams) { const r = t.roles.find((x) => x.id === input.id); if (r) { Object.assign(r, input); return r; } }
+      throw new Error("no role");
+    },
+    teamRoleGoal: async (id, objective) => { calls.push(`teamRoleGoal:${id}:${objective}`); throw new Error("not faked"); },
+    teamSetBudget: async (spaceId, weekBudgetUsd) => {
+      calls.push(`teamSetBudget:${spaceId}:${weekBudgetUsd}`);
+      const t = data.teams.find((x) => x.spaceId === spaceId)!; t.weekBudgetUsd = weekBudgetUsd; return t;
+    },
+    teamSetLimits: async (spaceId, o) => {
+      calls.push(`teamSetLimits:${spaceId}:${o.teamMaxLive ?? ""}:${o.realmMaxUnattended ?? ""}`);
+      const t = data.teams.find((x) => x.spaceId === spaceId)!; Object.assign(t.limits, o); return t;
+    },
+    teamLiftBackoff: async (kind) => { calls.push(`teamLiftBackoff:${kind}`); for (const t of data.teams) t.limits.backoff = []; },
     listSchedules: async (spaceId) => { calls.push(`listSchedules:${spaceId}`); return data.schedules.filter((r) => r.spaceId === spaceId); },
     createSchedule: async (input) => {
       calls.push(`createSchedule:${input.spaceId}`);

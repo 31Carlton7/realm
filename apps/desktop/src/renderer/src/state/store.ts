@@ -6438,7 +6438,8 @@ await get().refreshCustomThemes().catch(() => {});
       addMentionRef(sessionId, ref, candidates) {
         const current = get().draftRefs[sessionId] ?? [];
         // The same thing named twice is one entry under one label — the second token is the same chip.
-        const same = current.find((r) => r.kind === ref.kind && (r.kind === "app" ? r.bundleId === (ref as { bundleId?: string }).bundleId : r.path === (ref as { path?: string }).path));
+        const same = current.find((r) => r.kind === ref.kind && (r.kind === "app" ? r.bundleId === (ref as { bundleId?: string }).bundleId
+          : r.kind === "role" ? r.roleId === (ref as { roleId?: string }).roleId : r.path === (ref as { path?: string }).path));
         if (same) return same.label;
         const taken = [...current, ...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? [])].map((c) => c.label);
         const label = mentionRefLabel(candidates, taken);
