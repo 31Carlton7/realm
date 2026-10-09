@@ -1,5 +1,5 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, planLabel, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type AgentAccount, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -390,6 +390,39 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   );
 }
 
+/** An address inside a name. A personal account's organisation is named after its email, and one
+ *  that nobody has renamed keeps the address of whoever made it. */
+const ADDRESS = /\S@\S/;
+
+/** The organisation an account is signed in under, where its name says more than the account's own
+ *  email does: a personal account's is named after that email, in whatever case, and only repeats it. */
+const organizationOf = (account: AgentAccount): string | null =>
+  account.organization && !account.organization.toLowerCase().includes(account.email.toLowerCase()) ? account.organization : null;
+
+/**
+ * What the account chip says, in a word or two: the organisation the sign-in belongs to; where it
+ * has none of its own, the plan; and where the CLI names neither, the email. An organisation named
+ * after an address, the account's own or another member's, counts as none here: the strip is on
+ * screen all session, and an address is not put there while there is anything else to say. So an
+ * organisation tells one sign-in from another, a personal account says only its plan, and the
+ * email is said on the tooltip.
+ */
+export function accountLabel(kind: AgentKind, account: AgentAccount): string {
+  const organization = account.organization !== null && !ADDRESS.test(account.organization) ? account.organization : null;
+  return organization ?? planLabel(kind, account.plan) ?? account.email;
+}
+
+/**
+ * The account chip, spelled out: whose sign-in this session's agent runs on, the plan it draws on,
+ * and the Mac it runs on. The organisation is left out where it only restates the email. It is the
+ * chip's tooltip, and what the chip says to a screen reader in place of its label.
+ */
+export function accountTitle(kind: AgentKind, account: AgentAccount, machineName: string | undefined): string {
+  const details = [planLabel(kind, account.plan), organizationOf(account)].filter((d): d is string => d !== null).join(", ");
+  const who = `${AGENT_META[kind].label} is signed in as ${account.email}${details ? ` (${details})` : ""}.`;
+  return machineName ? `${who} Agents run on this Mac — ${machineName}.` : who;
+}
+
 /** The prompter (design-language §4): one floating card, two states. `hero` centers it at ~38%
  *  viewport height with the greeting above and suggestion chips below (both absolutely positioned
  *  around the card so the hero→docked move is one element transitioning transform, §6: 320ms).
@@ -589,6 +622,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
   const kind = session.agentKind;
+  const account = agentProbe.find((p) => p.kind === kind)?.account ?? null;
+  const accountSays = account ? accountTitle(kind, account, machineName) : null;
   // Hidden exactly like the model menu is empty when the agent has no models: an option Realm cannot
   // transmit is worse than no option at all.
   const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[kind];
@@ -1519,7 +1554,13 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           the hero→docked move — one transform on the dock (§6: 320ms) — carries it untouched. */}
       {!compact && (
       <div className="composer-understrip">
-        {machineName && (
+        {account && accountSays ? (
+          <span className="ghost-chip strip-machine" data-static title={accountSays}>
+            <Icon name="user" size={12} className="chip-brand" />
+            <span className="visually-hidden">{accountSays}</span>
+            <span className="chip-label" aria-hidden="true">{accountLabel(kind, account)}</span>
+          </span>
+        ) : machineName && (
           // Display only, deliberately: Realm runs agents on this Mac and no other. The selector
           // ships when remote execution does (roadmap: pairing) — no caret, no one-item dropdown.
           <span className="ghost-chip strip-machine" data-static title={`Agents run on this Mac — ${machineName}`}>
@@ -1530,8 +1571,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
         <ChipMenu ariaLabel="Workspace" icon={envIcon} tint={spaceTint} label={envLabel} items={envItems}
           title={canSwitchAgent ? `Workspace: ${envLabel}` : `Workspace: ${envLabel} — a session's checkout can only change before its first message`} />
         {/* The branch group is NOT here any more — it has the over-strip above the card (see there
-            for why). What is left is standing context: the machine, the workspace, and the meter.
-            None of it is user data of unbounded length now, so nothing on this row has to yield. */}
+            for why). What is left is standing context: the machine or the account, the workspace, and
+            the meter. An account's label is the one string here whose length is a person's own, and
+            its chip cuts it at the chip's own width, so nothing on this row has to yield to it. */}
         <div className="understrip-end">
           {status === "running" && <div className="composer-thinking"><span>Thinking…</span></div>}
           <SessionUsage usage={usage} contextWindow={contextWindow} />

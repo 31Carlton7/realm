@@ -3,12 +3,23 @@ import { promisify } from "node:util";
 import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { homedir } from "node:os";
+import type { AgentAccount } from "@realm/contracts";
 
 const run = promisify(execFile);
 
-/** What `claude auth status --json` answers with. Only the field this file acts on is named; the
- *  command also reports the account, org and plan, which are none of Realm's business here. */
-type AuthStatus = { loggedIn?: unknown };
+/** What `claude auth status --json` answers with, as far as this file reads it: whether the CLI is
+ *  signed in, and who as. The command reports more — the config directory, the API provider — which
+ *  is none of Realm's business here. */
+type AuthStatus = { loggedIn?: unknown; email?: unknown; orgName?: unknown; subscriptionType?: unknown };
+
+const stated = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+
+/** The account a signed-in CLI names, or undefined where it names no email: an account with no
+ *  identity is not one to show. */
+function accountOf(status: AuthStatus): AgentAccount | undefined {
+  const email = stated(status.email);
+  return email === null ? undefined : { email, organization: stated(status.orgName), plan: stated(status.subscriptionType) };
+}
 
 /** Where to look for `claude`. Both are seams for the suite; production passes neither. */
 export type ClaudeLookup = {
@@ -114,7 +125,7 @@ async function locate(bin: string | undefined, o: ClaudeLookup): Promise<Located
  * is signed out, and telling a signed-in user to log in again is the one wrong answer that costs
  * them something.
  */
-async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.ProcessEnv): Promise<{ loggedIn: boolean | null; reason: string | null }> {
+async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.ProcessEnv): Promise<{ loggedIn: boolean | null; reason: string | null; account?: AgentAccount }> {
   try {
     // `--json` explicitly, though it is the default today: `--text` exists, so the default is a
     // choice the CLI could revisit, and a parse of the human-readable form would answer `null`.
@@ -128,7 +139,7 @@ async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.Proce
     );
     const parsed = JSON.parse(stdout) as AuthStatus;
     if (typeof parsed.loggedIn !== "boolean") return { loggedIn: null, reason: "unknown (auth status said nothing about it)" };
-    if (parsed.loggedIn) return { loggedIn: true, reason: null };
+    if (parsed.loggedIn) { const account = accountOf(parsed); return { loggedIn: true, reason: null, ...(account ? { account } : {}) }; }
     // Realm's own copy has no `claude` on PATH behind it, so the usual advice would send someone to
     // a terminal to type a command that is not there. The sign-in that works is Realm's.
     return bundled
@@ -150,11 +161,14 @@ async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.Proce
  * has a session", not that the session's access token is unexpired this second — that only the next
  * request can settle, which is what `failover.ts` re-probes for after an auth failure.
  *
+ * `account` is who the CLI says that sign-in is, where it names an email — its own statement, passed
+ * on so a session can say whose plan it runs on.
+ *
  * `bin` probes exactly that file and nothing else; without it the probe looks the way `locate` does.
  * The version is reported as printed whichever copy answered — Realm's own prints
  * `2.1.281 (Claude Code)` like any other, and it is the version every session really runs.
  */
-export async function probeClaude(bin?: string, o: ClaudeLookup = {}): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null }> {
+export async function probeClaude(bin?: string, o: ClaudeLookup = {}): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; account?: AgentAccount }> {
   const found = await locate(bin, o);
   if (!found.ok) return { available: false, version: null, loggedIn: null, reason: found.reason };
   return { available: true, version: found.version, ...(await claudeAuthStatus(found.bin, found.bundled, o.env ?? process.env)) };

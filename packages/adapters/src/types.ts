@@ -1,4 +1,4 @@
-import type { AgentKind, AgentModel, AskAnswers, SessionEvent } from "@realm/contracts";
+import type { AgentAccount, AgentKind, AgentModel, AskAnswers, SessionEvent } from "@realm/contracts";
 
 /**
  * One MCP server on its way to an agent.
@@ -125,7 +125,10 @@ export interface AgentHandle {
 export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null;
   /** An agent's reasoning levels where they are a session setting (an ACP `thought_level` option), with
    *  the one it starts on. Absent where the agent offers none, or was not asked. */
-  efforts?: { id: string; label: string }[]; defaultEffort?: string | null };
+  efforts?: { id: string; label: string }[]; defaultEffort?: string | null;
+  /** Who the CLI says it is signed in as, where it names an account. Absent is "not stated", which
+   *  is every agent whose CLI has no such answer and every sign-in that carries no email. */
+  account?: AgentAccount };
 
 export interface AgentAdapter {
   readonly kind: AgentKind;
