@@ -926,4 +926,19 @@ export const migrations: string[] = [
   CREATE INDEX IF NOT EXISTS team_activity_space ON team_activity(space_id, ts DESC);
   CREATE INDEX IF NOT EXISTS team_activity_run ON team_activity(run_id) WHERE run_id IS NOT NULL;
   `,
+  // v46 — when a session's conversation last moved: `sessions.activity_at`, what the sidebar and every
+  // other list of sessions is ordered by. `updated_at` moves on every write to the row — a resume's
+  // init, a status, a cursor, a rename — so ordering by it moved a session for being opened. This
+  // moves only when a prompt goes out or the agent answers or finishes a turn (`SessionService`).
+  //
+  // Backfilled from the log: the newest prompt or reply each session has, else when it was made — the
+  // two moments the column will record from here on, read back rather than invented. Safe to meet
+  // twice: the version table keeps the ALTER from re-running, and the backfill only ever moves a time
+  // forward, so a replay cannot pull a session back from a time written since.
+  `
+  ALTER TABLE sessions ADD COLUMN activity_at INTEGER NOT NULL DEFAULT 0;
+  UPDATE sessions SET activity_at = MAX(activity_at, COALESCE(
+    (SELECT MAX(ev.ts) FROM session_events ev WHERE ev.session_id = sessions.id AND ev.type IN ('user_message', 'assistant_text')),
+    created_at));
+  `,
 ];

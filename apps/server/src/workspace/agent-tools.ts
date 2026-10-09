@@ -263,7 +263,7 @@ const HANDLERS: Record<string, Handler> = {
     const rows = d.sessions.list(ctx.spaceId)
       .map((s) => ({ s, item: d.items.findByRefId(s.id) }))
       .filter(({ item }) => includeArchived || !item?.archived)
-      .sort((x, y) => y.s.updatedAt - x.s.updatedAt);
+      .sort((x, y) => y.s.activityAt - x.s.activityAt);
     if (rows.length === 0) return ok("No sessions in this space.");
     const page = rows.slice(offset, offset + limit);
     if (page.length === 0) return ok(`This space has ${rows.length} session${rows.length === 1 ? "" : "s"}, so there is nothing at offset ${offset}.`);
@@ -271,7 +271,7 @@ const HANDLERS: Record<string, Handler> = {
     for (const { s, item } of page) {
       const by = s.dispatchedBy ? `, started by ${s.dispatchedBy.kind}${s.dispatchedBy.sessionId ? ` from ${s.dispatchedBy.sessionId}` : ""}` : "";
       const flags = [s.id === ctx.sessionId ? "you" : null, item?.archived ? "archived" : null].filter(Boolean);
-      lines.push(`- ${s.id} "${s.title}" — ${s.agentKind}${s.model ? ` (${s.model})` : ""}, ${s.status}, last active ${stamp(s.updatedAt)}${by}${flags.length ? ` [${flags.join(", ")}]` : ""}`);
+      lines.push(`- ${s.id} "${s.title}" — ${s.agentKind}${s.model ? ` (${s.model})` : ""}, ${s.status}, last active ${stamp(s.activityAt)}${by}${flags.length ? ` [${flags.join(", ")}]` : ""}`);
     }
     if (offset + page.length < rows.length) lines.push(`More: call sessions_list with offset ${offset + page.length}.`);
     lines.push("session_read reads any of them.");

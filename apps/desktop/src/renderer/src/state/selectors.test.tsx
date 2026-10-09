@@ -16,8 +16,8 @@ function home() {
       s2: [item("b", "s2", { kind: "session", refId: "sb" }), item("c", "s2", { kind: "session", refId: "sc", pinned: true })],
       s9: [item("z", "s9", { kind: "session", refId: "sz", pinned: true })],
     },
-    sessions: [session("sa", "s1", { updatedAt: 1 }), session("sb", "s2", { updatedAt: 5 }), session("sc", "s2", { updatedAt: 9 }),
-      session("so", "s1", { updatedAt: 99 }), session("sz", "s9", { updatedAt: 50 })],
+    sessions: [session("sa", "s1", { activityAt: 1 }), session("sb", "s2", { activityAt: 5 }), session("sc", "s2", { activityAt: 9 }),
+      session("so", "s1", { activityAt: 99 }), session("sz", "s9", { activityAt: 50 })],
   });
 }
 
@@ -37,9 +37,13 @@ describe("the sidebar's selectors", () => {
     expect(sections.map((x) => x.sessions.map((i) => i.id))).toEqual([["c", "b"], ["a"]]);
   });
 
-  it("re-sorts a section when a session moves — a status change is activity", async () => {
+  it("re-sorts a section when a session's turn ends, and not for a status passed through on the way", async () => {
     const { store } = await booted();
+    store.getState().applySessionStatus("sb", "ended");
+    store.getState().applySessionStatus("sb", "idle");
+    expect(sessionsBySpace(store.getState())[0]!.sessions.map((i) => i.id)).toEqual(["c", "b"]);
     store.getState().applySessionStatus("sb", "running");
+    store.getState().applySessionStatus("sb", "idle");
     expect(sessionsBySpace(store.getState())[0]!.sessions.map((i) => i.id)).toEqual(["b", "c"]);
   });
 

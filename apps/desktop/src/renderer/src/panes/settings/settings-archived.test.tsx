@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { PAGE_REF_IDS } from "@realm/contracts";
 import { SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 
 const pageItem = item("set-s1", "s1", { kind: "settings-page", title: "Settings", refId: PAGE_REF_IDS["settings-page"] });
 
@@ -17,9 +17,13 @@ const ITEMS = {
   ],
   s2: [item("a2", "s2", { kind: "session", title: "Trim the transcript", archived: true, refId: "se-a2", updatedAt: 3_000 })],
 };
+/** The sessions behind them, dated by when each conversation last moved — the order the page reads.
+ *  The importer's row was written to last (its item was archived later), and still sorts below. */
+const SESSIONS = [session("se-a1", "s1", { activityAt: 1_000, updatedAt: 8_000 }), session("se-l1", "s1", { activityAt: 9_000 }),
+  session("se-a2", "s2", { activityAt: 3_000 })];
 
 async function archived(overrides: FakeData = {}) {
-  const api = fakeApi({ items: structuredClone(ITEMS), ...overrides });
+  const api = fakeApi({ items: structuredClone(ITEMS), sessions: structuredClone(SESSIONS), ...overrides });
   const store = createAppStore(api);
   await store.getState().boot();
   render(<StoreContext.Provider value={store}><SettingsPage item={pageItem} visible /></StoreContext.Provider>);

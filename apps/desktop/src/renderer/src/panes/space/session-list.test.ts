@@ -25,18 +25,19 @@ function seed(rows: Seed[]): SidebarState {
   const sessionStatus: Record<string, SessionStatus> = {};
   const sessionSpace: Record<string, string> = {};
   const sessionUpdatedAt: Record<string, number> = {};
+  const sessionActivityAt: Record<string, number> = {};
   for (const r of rows) {
     const sp = r.space ?? "v";
     const at = r.at ?? NOW() - HOUR;
-    allSessions[r.id] = session(r.id, sp, { title: r.title ?? r.id, status: r.status ?? "idle", updatedAt: at, createdAt: r.created ?? at,
+    allSessions[r.id] = session(r.id, sp, { title: r.title ?? r.id, status: r.status ?? "idle", updatedAt: at, activityAt: at, createdAt: r.created ?? at,
       dispatchedBy: r.by ?? null, agentKind: r.agent ?? "claude", lastEventSeq: r.seq ?? 4, seenSeq: r.seen ?? r.seq ?? 4 });
-    sessionStatus[r.id] = r.status ?? "idle"; sessionSpace[r.id] = sp; sessionUpdatedAt[r.id] = at;
+    sessionStatus[r.id] = r.status ?? "idle"; sessionSpace[r.id] = sp; sessionUpdatedAt[r.id] = at; sessionActivityAt[r.id] = at;
     items.push(item(`i-${r.id}`, sp, { kind: "session", refId: r.id, title: r.title ?? r.id, archived: r.archived ?? false }));
   }
   return {
     spaces: [space("v", "p1", "Versed"), space("o", "p1", "Other")], profiles: [profile("p1", "Work")],
     activeProfileId: "p1", activeSpaceId: "v", items, allItems: items.filter((i) => !i.archived),
-    sessions: {}, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId: null, teams: {},
+    sessions: {}, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId: null, teams: {},
   };
 }
 
@@ -145,15 +146,16 @@ describe("grouping", () => {
     expect(p.groups.map((g) => g.label)).toEqual(["Today", "Yesterday", "This week", "September", "August"]);
   });
 
-  it("within a group: needs you, then running, then unread, then the rest", () => {
-    // Mutant: sort by time only — the newest idle row would come first.
+  it("within a group: needs you, then running, then the rest by last activity — unread or not", () => {
+    // Mutant: sort by time only — the newest idle row would come first. And the other way: unread as
+    // a rank, which moves a row the moment it is opened and read.
     const p = spaceSessionPage(seed([
       { id: "idle", at: NOW() - 1 * HOUR },
       { id: "unread", at: NOW() - 2 * HOUR, seq: 9, seen: 3 },
       { id: "running", status: "running", at: NOW() - 3 * HOUR },
       { id: "waiting", status: "waiting_permission", at: NOW() - 4 * HOUR },
     ]), "v", "active", "", NOW());
-    expect(ids(p.groups[0]!.rows)).toEqual(["waiting", "running", "unread", "idle"]);
+    expect(ids(p.groups[0]!.rows)).toEqual(["waiting", "running", "idle", "unread"]);
   });
 });
 

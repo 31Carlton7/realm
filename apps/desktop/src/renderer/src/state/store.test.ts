@@ -86,7 +86,7 @@ describe("app store", () => {
       spaces: [space("s1", "p1", "Versed", { layout: leaf("L1", "a") }), space("s2", "p1", "Homework")],
       items: { s1: [item("a", "s1", { kind: "session", refId: "sa" })],
         s2: [item("old", "s2", { kind: "session", refId: "so" }), item("new", "s2", { kind: "session", refId: "sn" }), item("t", "s2")] },
-      sessions: [session("sa", "s1", { updatedAt: 5 }), session("so", "s2", { updatedAt: 1 }), session("sn", "s2", { updatedAt: 9 })],
+      sessions: [session("sa", "s1", { activityAt: 5 }), session("so", "s2", { activityAt: 1, updatedAt: 99 }), session("sn", "s2", { activityAt: 9 })],
     }));
     await store.getState().boot();
     await store.getState().selectSpace("s2");

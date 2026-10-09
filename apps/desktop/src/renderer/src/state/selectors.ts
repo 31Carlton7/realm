@@ -13,11 +13,11 @@ import { pageHidesSidebar } from "./page-item";
 /** One space of the window's profile and its sessions, newest first. */
 export type SpaceSessions = { space: Space; sessions: Item[] };
 
-type SessionClock = Pick<AppState, "sessionUpdatedAt" | "sessions">;
+type SessionClock = Pick<AppState, "sessionActivityAt" | "sessions">;
 
-/** When a session last moved: the live clock a status change stamps, else its row's. */
+/** When a session's conversation last moved (`sessionActivityAt`), else its row's, else its making. */
 function movedAt(s: SessionClock, item: Item): number {
-  return s.sessionUpdatedAt[item.refId] ?? s.sessions[item.refId]?.updatedAt ?? item.updatedAt;
+  return s.sessionActivityAt[item.refId] ?? s.sessions[item.refId]?.activityAt ?? item.createdAt;
 }
 
 /** The active profile's spaces, in their own sort order. */
@@ -27,7 +27,7 @@ function profileSpaces(s: Pick<AppState, "spaces" | "activeProfileId">): Space[]
 
 /** Every space of the active profile, in its sort order, each with its session items newest first.
  *  Archived sessions are left out: they belong to the space's own page, not the list. */
-export function sessionsBySpace(s: Pick<AppState, "spaces" | "activeProfileId" | "items" | "sessions" | "sessionUpdatedAt">): SpaceSessions[] {
+export function sessionsBySpace(s: Pick<AppState, "spaces" | "activeProfileId" | "items" | "sessions" | "sessionActivityAt">): SpaceSessions[] {
   return profileSpaces(s).map((space) => ({
     space,
     sessions: s.items.filter((i) => i.spaceId === space.id && i.kind === "session" && !i.archived)
@@ -55,9 +55,9 @@ export function useSessionsBySpace(): SpaceSessions[] {
   const activeProfileId = useApp((s) => s.activeProfileId);
   const items = useApp((s) => s.items);
   const sessions = useApp((s) => s.sessions);
-  const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
-  return useMemo(() => sessionsBySpace({ spaces, activeProfileId, items, sessions, sessionUpdatedAt }),
-    [spaces, activeProfileId, items, sessions, sessionUpdatedAt]);
+  const sessionActivityAt = useApp((s) => s.sessionActivityAt);
+  return useMemo(() => sessionsBySpace({ spaces, activeProfileId, items, sessions, sessionActivityAt }),
+    [spaces, activeProfileId, items, sessions, sessionActivityAt]);
 }
 
 export function usePinnedItems(): Item[] {

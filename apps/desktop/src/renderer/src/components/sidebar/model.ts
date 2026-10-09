@@ -29,7 +29,10 @@ export type SidebarState = {
   allSessions: Readonly<Record<string, Session>>;
   sessionStatus: Readonly<Record<string, SessionStatus>>;
   sessionSpace: Readonly<Record<string, string>>;
+  /** When each session's status last moved: how long Needs you has waited. Never an order. */
   sessionUpdatedAt: Readonly<Record<string, number>>;
+  /** When each session's conversation last moved (`AppState.sessionActivityAt`): the order. */
+  sessionActivityAt: Readonly<Record<string, number>>;
   /** The quick chat's session, which belongs to no list. */
   quickChatId: string | null;
   /** Every team space's snapshot (`team.overview`), by space id. Absent for a space with no team. */
@@ -62,7 +65,8 @@ export type SessionRow = {
   unread: boolean;
   /** Started by a schedule (a durable run's session). */
   scheduled: boolean;
-  /** When it last moved, live. */
+  /** When its conversation last moved — a prompt, a reply, a turn ending — live. What rows are
+   *  ordered by; selecting or reading a session leaves it alone. */
   at: number;
   createdAt: number;
   /** How many of its sub-agents are waiting on a request, and the one that has waited longest — said
@@ -307,7 +311,7 @@ export function sessionRowOf(s: SidebarState, item: Item, waiting: ReturnType<ty
     status: s.sessionStatus[item.refId] ?? session?.status,
     unread: session ? isUnread(session) : false,
     scheduled: session?.dispatchedBy?.kind === "run",
-    at: s.sessionUpdatedAt[item.refId] ?? session?.updatedAt ?? item.updatedAt,
+    at: s.sessionActivityAt[item.refId] ?? session?.activityAt ?? item.createdAt,
     createdAt: session?.createdAt ?? item.createdAt,
     agentsWaiting: waiting.get(item.refId)?.count ?? 0,
     firstWaiting: waiting.get(item.refId)?.first ?? null,
@@ -378,19 +382,21 @@ const fanOutCandidate = (r: SessionRow): boolean =>
   r.session?.dispatchedBy?.kind === "user-dispatch" && r.session.dispatchedBy.sessionId === null;
 
 /**
- * How much a row asks for a look: waiting on you or failed, then working, then something new, then
- * the rest. A section shows what needs you before what is merely recent — a session working for an
- * hour last moved when it started, and ordering by that alone would bury it under "Show more".
+ * How much a row asks for a look: waiting on you or failed, then working, then the rest. A section
+ * shows what needs you before what is merely recent — a session working for an hour last moved when
+ * it started, and ordering by that alone would bury it under "Show more".
+ *
+ * Unread is NOT a rank. Opening a session reads it, and a rank that reading changes is a row that
+ * jumps away from under the click that selected it; the ring on the row says it is unread.
  */
 export function attentionRank(r: ListRow): number {
   if (r.kind === "fan-out") {
     const t = r.tally;
-    return t.waiting + t.failed > 0 ? 0 : t.running > 0 ? 1 : t.unread > 0 ? 2 : 3;
+    return t.waiting + t.failed > 0 ? 0 : t.running > 0 ? 1 : 2;
   }
   // A lead whose sub-agents wait is waiting on you too: the request is answered from it.
   if (r.status === "waiting_permission" || r.status === "error" || r.agentsWaiting > 0) return 0;
-  if (r.status === "running") return 1;
-  return r.unread ? 2 : 3;
+  return r.status === "running" ? 1 : 2;
 }
 
 /**
@@ -526,10 +532,10 @@ export function pinnedItems(s: SidebarState, spaces: readonly Space[]): Item[] {
  * first, then whichever moved most recently (`spaceActivity`). A sorted copy: turning the setting
  * off lands on the hand-made order, untouched.
  */
-export function orderSpaces(spaces: readonly Space[], byActivity: boolean, s: Pick<SidebarState, "sessionStatus" | "sessionSpace" | "sessionUpdatedAt">): Space[] {
+export function orderSpaces(spaces: readonly Space[], byActivity: boolean, s: Pick<SidebarState, "sessionStatus" | "sessionSpace" | "sessionActivityAt">): Space[] {
   if (!byActivity) return [...spaces];
   const score = (id: string) => spaceActivity(s.sessionStatus as Record<string, SessionStatus>, s.sessionSpace as Record<string, string>,
-    s.sessionUpdatedAt as Record<string, number>, id);
+    s.sessionActivityAt as Record<string, number>, id);
   return [...spaces].sort((a, b) => score(b.id) - score(a.id));
 }
 

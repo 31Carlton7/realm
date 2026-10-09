@@ -5,14 +5,14 @@ import { NotFoundError, RpcError, now } from "./rows";
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null; fast_mode: number;
   permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number; seen_seq: number;
   terminal_item_id: string | null; dispatched_by_kind: DispatchKind | null; dispatched_by_session_id: string | null;
-  provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; created_at: number; updated_at: number };
+  provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; activity_at: number; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
   fastMode: r.fast_mode === 1,
   permissionMode: r.permission_mode, environmentId: r.environment_id, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
   lastEventSeq: r.last_event_seq, seenSeq: r.seen_seq, terminalItemId: r.terminal_item_id,
   dispatchedBy: r.dispatched_by_kind ? { kind: r.dispatched_by_kind, sessionId: r.dispatched_by_session_id } : null,
-  createdAt: r.created_at, updatedAt: r.updated_at,
+  activityAt: r.activity_at, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 /**
@@ -75,10 +75,10 @@ export class SessionsStore {
     // header another; there is no reading of that which is not a bug.
     if (env.space_id !== input.spaceId) throw new RpcError("ENVIRONMENT_WRONG_SPACE", "that environment belongs to another space");
     const id = newId(); const t = now();
-    this.db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, environment_id, status, provider_session_id, title, last_event_seq, dispatched_by_kind, dispatched_by_session_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, 0, ?, ?, ?, ?)`)
+    this.db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, environment_id, status, provider_session_id, title, last_event_seq, dispatched_by_kind, dispatched_by_session_id, activity_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, 0, ?, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.projectId, input.agentKind, input.model, input.effort, input.permissionMode, input.environmentId, input.title,
-        input.dispatchedBy?.kind ?? null, input.dispatchedBy?.sessionId ?? null, t, t);
+        input.dispatchedBy?.kind ?? null, input.dispatchedBy?.sessionId ?? null, t, t, t);
     return this.get(id)!;
   }
   update(input: SessionUpdate): Session {
@@ -130,6 +130,12 @@ export class SessionsStore {
   /** Hot path (every persisted event): touch only the seq column. */
   setLastEventSeq(id: string, seq: number): void {
     this.db.prepare("UPDATE sessions SET last_event_seq = ?, updated_at = ? WHERE id = ?").run(seq, now(), id);
+  }
+  /** The conversation moved at `at` — a prompt went out, or the agent answered or finished a turn
+   *  (`SessionService`). The only writer of `activity_at` after `create`, and never backwards: an
+   *  event dated earlier than one already counted does not move the session down. */
+  touchActivity(id: string, at: number): void {
+    this.db.prepare("UPDATE sessions SET activity_at = MAX(activity_at, ?) WHERE id = ?").run(at, id);
   }
   /** The log grew by an event about the past (the turn-media catch-up's): its length moves, but the
    *  session is not touched now, so it keeps its place in an activity sort — and a session read to
