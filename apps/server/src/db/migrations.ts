@@ -926,4 +926,25 @@ export const migrations: string[] = [
   CREATE INDEX IF NOT EXISTS team_activity_space ON team_activity(space_id, ts DESC);
   CREATE INDEX IF NOT EXISTS team_activity_run ON team_activity(run_id) WHERE run_id IS NOT NULL;
   `,
+  // v46 — RESERVED for the team vault (feat/teams-vault). A no-op here so the lab's devices can take
+  // v48 without depending on either table; replaced by the vault's own migration when the two merge.
+  `SELECT 1;`,
+  // v47 — RESERVED for team handoffs (feat/teams-handoffs), on the same terms as v46.
+  `SELECT 1;`,
+  // v48 — the lab's devices (Teams Phase 5): the real iPhones, simulators and Android phones attached
+  // to the Mac a team's work runs on, which team each serves, the accounts it holds, and when a scan
+  // last saw it on the cable. `udid` is how a scan matches a row and is unique where it is known; a
+  // device written down before it was ever plugged in has none. `space_id` is the team it serves and
+  // falls back to none when that space is deleted, because the phone is still on the desk.
+  // `accounts_json` names accounts (service and handle) and never a password — those are the vault's.
+  // Nothing references another Phase's table, and nothing is backfilled.
+  `
+  CREATE TABLE IF NOT EXISTS lab_devices (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, udid TEXT, name TEXT NOT NULL,
+    space_id TEXT REFERENCES spaces(id) ON DELETE SET NULL,
+    accounts_json TEXT NOT NULL DEFAULT '[]',
+    last_seen_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE UNIQUE INDEX IF NOT EXISTS lab_devices_udid ON lab_devices(udid) WHERE udid IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS lab_devices_space ON lab_devices(space_id) WHERE space_id IS NOT NULL;
+  `,
 ];

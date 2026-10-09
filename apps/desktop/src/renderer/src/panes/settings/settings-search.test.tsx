@@ -47,7 +47,7 @@ describe("the rail is grouped", () => {
       ["You", ["General", "Appearance", "Keys", "Notifications"]],
       ["Engines", ["Engines", "Usage"]],
       ["Browser", ["Sign-ins"]],
-      ["Computer", ["Permissions", "Computer use"]],
+      ["Computer", ["Permissions", "Computer use", "Lab"]],
       ["Data", ["Import", "Archived"]],
     ]);
   });
