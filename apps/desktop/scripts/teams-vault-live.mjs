@@ -18,6 +18,9 @@
  *   V7  the Vault page, the grant sheet and the warning, dark and light, for comparing with mock 06;
  *   V8  turning it off is one click, and the card is back.
  *
+ * Touch ID is stood in for too: with REALM_LIVE_PRESENCE_LOG set (honoured only in an unpackaged harness,
+ * see live-presence.ts), each ask is a line in that log, answered yes, and no prompt reaches the screen.
+ *
  * `--use-mock-keychain`, so no Keychain item is read or written. Ports: LIVE_SERVER_PORT / LIVE_CDP_PORT
  * (8815 / 9255), and LIVE_ECHO_PORT (8897) for the stand-in API, all refused if taken and reaped by port.
  * Screenshots go to LIVE_OUT.
@@ -176,6 +179,8 @@ const SCRIPT = [
 
 const ownerLog = path.join(scratch, "owner-asks.log");
 const ownerAsks = () => (fs.existsSync(ownerLog) ? fs.readFileSync(ownerLog, "utf8").trim().split("\n").filter(Boolean) : []);
+const presenceLog = path.join(scratch, "presence-asks.log");
+const presenceAsks = () => (fs.existsSync(presenceLog) ? fs.readFileSync(presenceLog, "utf8").trim().split("\n").filter(Boolean) : []);
 
 async function boot() {
   for (const p of [CDP_PORT, SERVER_PORT, OTHER_PORT]) if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);
@@ -194,7 +199,7 @@ async function boot() {
     env: {
       ...process.env, REALM_HOME: home, REALM_HTML_MENUS: "1", REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), REALM_ENABLE_FAKE_AGENT: "1",
-      REALM_FAKE_STANDS_IN: "claude", REALM_FAKE_SCRIPT: scriptFile,
+      REALM_FAKE_STANDS_IN: "claude", REALM_FAKE_SCRIPT: scriptFile, REALM_LIVE_PRESENCE_LOG: presenceLog,
       LIVE_USER_DATA: path.join(scratch, "userData"), LIVE_MAIN: mainEntry,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -305,6 +310,7 @@ async function main() {
   check("V3 vault_list told the role its names only", listed.includes("REVENUECAT_SECRET_KEY") && listed.includes("POSTHOG_PERSONAL_KEY") && !listed.includes("VERCEL_TOKEN") && !listed.includes("tiktok"), listed);
   let uses = await api.call("team.vaultUses", { spaceId: space.id });
   check("V3 the use is a line in the log, on its card", uses[0]?.outcome === "used" && uses[0]?.how === "card" && uses[0]?.roleId === ga.id && uses[0]?.status === 200, uses[0]);
+  check("V3 the allowed card asked for Touch ID (the stand-in answered)", presenceAsks().length === 1, presenceAsks());
 
   /* ── V4: use without asking ──────────────────────────────────────────────────────────────────── */
   await evalIn(c, `__live.click(__live.named('^Growth Analyst uses REVENUECAT_SECRET_KEY without asking$'))`);
@@ -321,7 +327,9 @@ async function main() {
   await runRole(ga.id, "Tuesday: pull the numbers again.", { expectCard: true });
   const set = await ipc(`return window.realm.credentials.setUnlockPolicy(${P}, { kind: "unattended" });`);
   check("V4 the profile now unlocks without asking (macOS asked)", set.ok === true && ownerAsks().length === 2, set);
+  const presenceBefore = presenceAsks().length;
   await runRole(ga.id, "Wednesday: pull the numbers once more.", { expectCard: false });
+  check("V4 without asking, Touch ID was not asked either", presenceAsks().length === presenceBefore, presenceAsks().slice(presenceBefore));
   uses = await api.call("team.vaultUses", { spaceId: space.id });
   check("V4 that use is logged as without asking", uses[0]?.how === "unattended" && uses[0]?.outcome === "used" && received.length === 3, { how: uses[0]?.how, calls: received.length });
 
