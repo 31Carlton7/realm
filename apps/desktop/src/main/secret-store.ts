@@ -31,6 +31,11 @@
  *   - The policy is sealed under its own keyring domain, with the scope it belongs to and the Mac it
  *     was set on inside the seal. Editing `secrets.json` cannot forge one, moving one to another
  *     profile opens as the default, and `unattended` copied to another Mac opens as the default.
+ *   - A looser policy also carries the scope's stamp (`policy-stamp.ts`), a number kept in the
+ *     Keychain and moved on by every change, tightening included. The seal cannot stop a copy of the
+ *     file saved under "Without asking" being put back after the user tightened it; the stamp can,
+ *     because the copy carries the number it was sealed with and the Keychain has moved on. A
+ *     restored file, a missing stamp or no stamp helper all read as the default.
  *   - Every unlock writes an audit line naming the policy and how it was satisfied — including the
  *     ones nobody was asked about, which are the ones most worth a record.
  *
@@ -73,6 +78,7 @@
  * or broadcasts one.
  */
 import { randomInt } from "node:crypto";
+import type { PolicyStamp } from "./policy-stamp";
 import {
   isSealed, newSecretKey, open, seal, SECRET_KEY_BYTES, type SecretDomain,
 } from "@realm/contracts/src/secret-box";
@@ -176,6 +182,11 @@ export type SecretStoreDeps = {
    * turned on.
    */
   machineId?(): string | null;
+  /**
+   * The Keychain stamp a looser policy must match (`policy-stamp.ts`). Absent or null — not a Mac,
+   * no helper — means no looser policy can be kept: every scope stays on the default.
+   */
+  policyStamp?: PolicyStamp | null;
   now(): number;
   newId(): string;
   /**
@@ -258,6 +269,9 @@ export class SecretStore {
   /** Open `session` unlocks: scope key → when they close. In memory only, like the window above: a
    *  restart asks again. */
   private readonly sessionUntil = new Map<string, number>();
+  /** Each scope's Keychain stamp as last read or moved by this process. Read once per launch: a file
+   *  put back while Realm runs is not read again until the next launch, which is when it is judged. */
+  private readonly stamps = new Map<string, number | null | "unreadable">();
   /** Rows without a profile are on disk and still waiting for `defaultProfileId` to name one. */
   private unadopted = false;
 
@@ -572,9 +586,21 @@ export class SecretStore {
         return { ok: false, error: "macOS did not confirm it was you, so nothing changed." };
       }
     }
+    /* The stamp moves on with EVERY change, a tightening included and before the file is written:
+       that is what makes a copy of the file saved under the old policy read as Touch ID when it is
+       put back. A stamp that will not move keeps a looser policy from being set at all — and never
+       holds up a tightening, which must always be one click. */
+    let gen: number | null = null;
+    try { gen = this.d.policyStamp?.bump(key) ?? null; } catch { gen = null; }
+    this.stamps.delete(key);
+    if (gen !== null) this.stamps.set(key, gen);
+    if (gen === null && policy.kind !== "touch-id") {
+      this.audit({ ts: this.d.now(), kind: "unlock-policy", scope: key, from: current.kind, to: policy.kind, outcome: "refused" });
+      return { ok: false, error: "Realm could not keep a record of this setting in your Keychain, so nothing changed." };
+    }
     const file = this.load();
     if (policy.kind === "touch-id") delete file.unlock[key];
-    else file.unlock[key] = seal(this.key("unlock"), "unlock", JSON.stringify({ scope: key, machine, policy, setAt: this.d.now() }));
+    else file.unlock[key] = seal(this.key("unlock"), "unlock", JSON.stringify({ scope: key, machine, policy, setAt: this.d.now(), gen }));
     // Any change starts over: a session opened under the old policy is not one the new one granted.
     this.sessionUntil.delete(key);
     this.save();
@@ -585,13 +611,14 @@ export class SecretStore {
   /**
    * The policy sealed for this scope, or the default. EVERY failure is the default, never a weaker
    * policy: no entry, a keyring that will not open, a blob that does not open under the `unlock` key
-   * (hand-written, or tampered), a blob sealed for another scope (moved), or an `unattended` blob set
-   * on another Mac (copied).
+   * (hand-written, or tampered), a blob sealed for another scope (moved), an `unattended` blob set
+   * on another Mac (copied), or a blob whose stamp is not the Keychain's (put back from an older copy
+   * of the file, or sealed before stamps existed).
    */
   private readPolicy(key: string): UnlockPolicy {
     const sealed = this.load().unlock[key];
     if (!sealed || !this.available) return DEFAULT_UNLOCK_POLICY;
-    let record: { scope?: unknown; machine?: unknown; policy?: unknown };
+    let record: { scope?: unknown; machine?: unknown; policy?: unknown; gen?: unknown };
     try {
       const text = open(this.key("unlock"), "unlock", sealed);
       if (text === null) return DEFAULT_UNLOCK_POLICY;
@@ -605,7 +632,20 @@ export class SecretStore {
       const machine = this.machine();
       if (!machine || record.machine !== machine) return DEFAULT_UNLOCK_POLICY;
     }
+    if (policy.kind !== DEFAULT_UNLOCK_POLICY.kind) {
+      const stamp = this.stampOf(key);
+      if (typeof stamp !== "number" || record.gen !== stamp) return DEFAULT_UNLOCK_POLICY;
+    }
     return policy;
+  }
+
+  private stampOf(key: string): number | null | "unreadable" {
+    if (!this.stamps.has(key)) {
+      let stamp: number | null | "unreadable";
+      try { stamp = this.d.policyStamp?.read(key) ?? null; } catch { stamp = "unreadable"; }
+      this.stamps.set(key, stamp);
+    }
+    return this.stamps.get(key)!;
   }
 
   private machineCache: string | null | undefined;

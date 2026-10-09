@@ -145,8 +145,13 @@ app.whenReady().then(async () => {
     const touchAsks = [];
     const audit = path.join(process.env.LIVE_HOME, "logs", "credential-audit.log");
     const file = path.join(process.env.LIVE_HOME, "secrets.json");
+    // The Keychain stamp a looser policy must match, kept in memory here: this check promises to
+    // leave the Keychain untouched, and the stamp's real Keychain behaviour is policy-stamp.test.ts's.
+    const stamps = new Map();
+    const policyStamp = { read: (scope) => stamps.get(scope) ?? null, bump: (scope) => { const n = (stamps.get(scope) ?? 1000) + 1; stamps.set(scope, n); return n; } };
     const deps = (machineId) => ({
       safeStorage,
+      policyStamp,
       readFile: () => (fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null),
       writeFile: (t) => fs.writeFileSync(file, t, { mode: 0o600 }),
       appendAudit: (l) => { fs.mkdirSync(path.dirname(audit), { recursive: true }); fs.appendFileSync(audit, l); },
