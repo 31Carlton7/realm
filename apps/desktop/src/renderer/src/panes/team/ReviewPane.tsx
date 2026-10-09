@@ -275,7 +275,7 @@ function HeldNote({ spaceId }: { spaceId: string }) {
   return (
     <div className="rv-held" role="status">
       <Icon name="pause" size={14} />
-      <span>Posting is held. Nothing goes out until you let it go, and then each still waits for its press.</span>
+      <span title="Nothing posts or sends until you let it go, and then each still waits for its own press.">Posting is held for this team.</span>
       <button type="button" className="btn" data-no-agent={POST_SHEET_NO_AGENT} onClick={() => run(() => hold(spaceId, false))}>Let go</button>
     </div>
   );

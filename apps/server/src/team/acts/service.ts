@@ -254,13 +254,15 @@ export class ActService {
       for (const t of this.d.store.forSpace(spaceId)) {
         if (t.state === "scheduled") {
           this.clearTimer(t.id);
-          this.d.store.transition(t.id, "scheduled", { state: "ready", pressedAt: null, error: "Held with the rest of the team's posts. Press again once posting is let go." });
+          this.d.store.transition(t.id, "scheduled", { state: "ready", pressedAt: null, error: HELD });
         }
         if (t.state === "acting") this.inflight.get(t.id)?.abort();
       }
       this.d.team.appendActivity({ spaceId, actor: "user", verb: "held_acts", object: null, detail: {} });
     } else {
       this.d.store.release(spaceId);
+      // The hold's own note goes with it; each ticket still waits for its press.
+      for (const t of this.d.store.forSpace(spaceId)) if (t.state === "ready" && t.error === HELD) this.d.store.update(t.id, { error: null });
       this.d.team.appendActivity({ spaceId, actor: "user", verb: "resumed_acts", object: null, detail: {} });
     }
     this.changed(spaceId);
@@ -471,6 +473,8 @@ export class ActService {
 
   private changed(spaceId: string): void { this.d.rpc.broadcast("team.changed", { spaceId }); }
 }
+
+const HELD = "Held with the rest of the team's posts. Press again once posting is let go.";
 
 function startOfDay(t: number): number { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
 

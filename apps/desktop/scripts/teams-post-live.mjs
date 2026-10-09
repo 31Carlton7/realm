@@ -321,7 +321,7 @@ async function main() {
   check("P2 the sheet asks the question", sheet2.title === "Post slideshow 2 to TikTok?", sheet2.title);
   check("P2 it names the consequence before the button", /^Realm posts it from Lab iPhone 2, signed in as Nathan Beyenhof's managed account\. It cannot be taken back from Realm; delete it on TikTok\.$/.test(sheet2.lede ?? ""), sheet2.lede);
   check("P2 account, device, slot, caption, disclosure and sign-in", sheet2.rows.Account === "@versed.nathan · TikTok" && sheet2.rows.From === "Lab iPhone 2"
-    && /· the next slot for this account(, 2 hours after the one before)?$/.test(sheet2.rows.When ?? "") && /^you read it this morning/.test(sheet2.rows.Caption ?? "")
+    && /· the next slot for this account$/.test(sheet2.rows.When ?? "") && /^you read it this morning/.test(sheet2.rows.Caption ?? "")
     && sheet2.rows.Disclosure === "Paid partnership · #ad in the caption" && /the agent never receives it$/.test(sheet2.rows["Sign-in"] ?? ""), sheet2.rows);
   check("P2 the button says the action and the time, not 'now'", /^Post at \d{1,2}:\d{2}\s?[AP]M$|^Post tomorrow at /.test(sheet2.button ?? ""), sheet2.button);
   check("P2 the sheet and its button are out of an agent's reach (data-no-agent)", sheet2.guarded);

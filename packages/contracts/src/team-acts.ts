@@ -178,7 +178,8 @@ export function slotWhyWords(why: SlotWhy, kind: ActKind): string {
   const noun = kind === "post" ? "posts" : kind === "dm" ? "DMs" : "emails";
   switch (why) {
     case "next": return "the next slot for this account";
-    case "gap": return kind === "post" ? "the next slot for this account, 2 hours after the one before" : `the next slot for this account, ${Math.round(ACT_PACING[kind].gapMs / 60_000)} minutes after the one before`;
+    // The gap is what makes a slot the NEXT one; the sheet's Before-it-can-post says how long it is.
+    case "gap": return "the next slot for this account";
     case "account_day": return `this account's ${ACT_PACING[kind].perDay} ${noun} for the day are taken`;
     case "team_day": return `the team's ${ACT_PACING[kind].teamPerDay} ${noun} for the day are taken`;
     case "window": return `Realm plans ${noun} between ${hour12(ACT_WINDOW.startHour)} and ${hour12(ACT_WINDOW.endHour)}`;

@@ -302,6 +302,7 @@ describe("the guardrails", () => {
     acts.hold("S1", false);
     await flush();
     expect(platform.calls).toHaveLength(1);
+    expect(acts.ticket(b!.id).error).toBeNull();
     press(b!.id);
     await acts.post(b!.id); await flush();
     expect(platform.calls).toHaveLength(2);

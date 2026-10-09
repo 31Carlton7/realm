@@ -210,7 +210,7 @@ describe("the kill switch", () => {
     store.setState({ teams: { ...store.getState().teams, s1: { ...store.getState().teams["s1"]!, reviews: store.getState().teams["s1"]!.reviews.map((r) => r.id === "v1" ? { ...r, state: "approved", actsTotal: 1, actsDone: 0 } : r) } } });
     fireEvent.click(await screen.findByRole("button", { name: /Hold posting/ }));
     await waitFor(() => expect(api.calls).toContain("teamActsHold:s1:true"));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Posting is held."));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Posting is held for this team."));
     expect(screen.queryByRole("button", { name: /Hold posting/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Post…" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Let go" }));
