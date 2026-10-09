@@ -156,6 +156,12 @@ interface Window {
     /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` runs `mac doctor`,
      *  which never prompts; `grant` deliberately DOES — it runs the one read-only command that
      *  raises that capability's macOS dialog, so it stays pending while the dialog is up. */
+    /** Settings ▸ Lab (main/lab-host.ts). */
+    lab?: {
+      loginItem(): Promise<{ openAtLogin: boolean | null; canSet: boolean }>;
+      setLoginItem(on: boolean): Promise<{ openAtLogin: boolean | null; canSet: boolean }>;
+      openSettings(pane: string): Promise<void>;
+    };
     macAccess: {
       status(): Promise<MacAccessStatus>;
       grant(id: string): Promise<MacAccessStatus>;
