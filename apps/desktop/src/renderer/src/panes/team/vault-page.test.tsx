@@ -187,7 +187,7 @@ describe("the team's column", () => {
     const team = teamSpace(S, [ANALYST]);
     const store = createAppStore(fakeApi({ profiles: [profile("p1", "Work")], spaces: [space(S, "p1", "Versed")], teams: [team] }));
     render(<StoreContext.Provider value={store}><TeamRailList spaceId={S} team={team} tab="vault" pick={() => undefined} /></StoreContext.Provider>);
-    expect(screen.getAllByRole("radio").map((r) => r.closest("label")!.textContent?.replace(/\d+$/, ""))).toEqual(["Overview", "Creators", "Roles", "Vault", "Activity"]);
+    expect(screen.getAllByRole("radio").map((r) => r.closest("label")!.textContent?.replace(/\d+$/, ""))).toEqual(["Overview", "Creators", "Roles", "Policies", "Vault", "Activity"]);
     expect(screen.getByRole("radio", { name: "Vault" })).toBeChecked();
   });
 });
