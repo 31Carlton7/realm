@@ -61,17 +61,20 @@ describe("a legacy item's act, by its action or its target", () => {
         const want = actKindFor(label, target.channel);
         const before = item({ target, body: "x" });
         const after = item({ target, body: "x", action: backfill(label, target) });
-        // THE MUTANT: `send` mapped to a DM on an email channel, or a missing channel read as a post.
+        // THE MUTANT: a missing channel read as a post, or a channel's case breaking the email rule.
         expect(itemActKind(label, before), `${label} ${JSON.stringify(target)}`).toBe(want);
         if (target.account) expect(itemActKind(label, after), `${label} ${JSON.stringify(target)} backfilled`).toBe(want);
       }
     }
   });
 
-  it("keeps the target's channel as written, and reads a new action's channel off its connector", () => {
+  it("keeps the target's channel as written, reads a new action's channel off its connector, and sends email on an email channel", () => {
+    // THE MUTANT: `send` read as a DM whatever the channel, or the target's case lost to the connector's.
     expect(itemTarget(item({ target: { channel: "TikTok", account: "@a" }, action: { connector: "channel:tiktok", verb: "post", account: "@a" } }))).toEqual({ channel: "TikTok", account: "@a" });
     expect(itemTarget(item({ action: { connector: "channel:instagram", verb: "dm", account: "@a", to: "@b" } }))).toEqual({ channel: "instagram", account: "@a", to: "@b" });
     expect(itemActKind("posts", item({ action: { connector: "channel:tiktok", verb: "post", account: "@a" } }))).toBe("post");
+    expect(itemActKind("replies", item({ action: { connector: "channel:email", verb: "send", account: "me@x.co", to: "d@y.co" } }))).toBe("email");
+    expect(itemActKind("replies", item({ action: { connector: "channel:instagram", verb: "send", account: "@a", to: "@b" } }))).toBe("dm");
   });
 
   it("makes no channel act of a connector's tool — that is a later PR's executor", () => {
