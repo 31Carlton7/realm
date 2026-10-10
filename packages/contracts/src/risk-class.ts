@@ -198,15 +198,15 @@ export function toolWords(name: string): string[] {
 
 /**
  * The verb floor (§4.2): a tool whose name says it sends, pays or destroys is never classed below
- * `reversible-external` by a server's annotations or the vendor table. `message`, `order` and
- * `release` count only as the first word, where they are verbs — `message_user` sends, `get_message`
- * and `get_release` read.
+ * `reversible-external` by a server's annotations or the vendor table. `message`, `email`, `order` and
+ * `release` count only as the first word, where they are verbs — `message_user` and `email_contact`
+ * send, `get_message` and `get_release` read.
  */
 const FLOOR_ANYWHERE = new Set([
   "send", "reply", "forward", "post", "publish", "tweet", "dm", "invite", "share", "pay", "charge", "refund",
   "transfer", "purchase", "buy", "delete", "remove", "destroy", "trash", "merge", "deploy", "submit",
 ]);
-const FLOOR_FIRST = new Set(["message", "order", "release"]);
+const FLOOR_FIRST = new Set(["message", "email", "order", "release"]);
 
 /** The word that puts this tool under the floor, or null. */
 export function floorWord(tool: string): string | null {

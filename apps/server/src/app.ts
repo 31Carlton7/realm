@@ -162,6 +162,9 @@ import { ActService, type TicketPress } from "./team/acts/service";
 import { ActStore } from "./team/acts/store";
 import { FakeActAdapter, NotConnectedAdapter, type ActAdapter } from "./team/acts/adapters";
 import { registerActMethods } from "./team/acts/rpc";
+import { PoliciesService } from "./team/policies/service";
+import { registerPolicyMethods } from "./team/policies/rpc";
+import { ToolClassesStore } from "./team/policies/tool-classes";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
@@ -1572,6 +1575,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerVaultMethods(rpc, vault, (id) => Boolean(spaces.get(id)));
   registerLabMethods(rpc, lab);
   registerActMethods(rpc, acts!, (id) => Boolean(spaces.get(id)));
+  registerPolicyMethods(rpc, new PoliciesService({
+    profileIdOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
+    realmProviders: (spaceId) => mcpGateway.realmProvidersFor("", spaceId),
+    serverIds: (spaceId) => mcp.effectiveServerIds(spaceId),
+    server: (id) => mcpServersStore.get(id),
+    allowedTools: (spaceId, id) => mcp.allowedTools(spaceId, id),
+    liveTools: (id) => mcpHub.tools(id),
+    overrides: new ToolClassesStore(db),
+  }), (id) => Boolean(spaces.get(id)));
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.

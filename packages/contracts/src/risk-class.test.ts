@@ -32,11 +32,13 @@ describe("the verb floor", () => {
     expect(server("payInvoice", { readOnlyHint: true })).toMatchObject({ floor: "pay" });
   });
 
-  it("splits a name on _, - and camelCase, and counts message, order and release only as the first word", () => {
+  it("splits a name on _, - and camelCase, and counts message, email, order and release only as the first word", () => {
     expect(floorWord("send_message")).toBe("send");
     expect(floorWord("notion-share-page")).toBe("share");
     expect(floorWord("mergePullRequest")).toBe("merge");
     expect(floorWord("message_user")).toBe("message");
+    expect(floorWord("email_contact")).toBe("email");
+    expect(floorWord("get_email")).toBeNull();
     expect(floorWord("get_message")).toBeNull();
     expect(floorWord("get_release")).toBeNull();
     expect(floorWord("sender_profile")).toBeNull();

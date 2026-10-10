@@ -1927,7 +1927,8 @@ describe("migration — a session's activity", () => {
 describe("migrations 46–50, as the five branches that held each other's slots merged", () => {
   it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, then act tickets", () => {
     expect(migrations.filter((m) => m.trim() === "SELECT 1;")).toEqual([]);
-    expect(migrations).toHaveLength(50);
+    // The dynamic-Teams migrations follow from v51.
+    expect(migrations.length).toBeGreaterThanOrEqual(50);
     expect(migrations[45]).toContain("CREATE TABLE IF NOT EXISTS vault_grants");
     expect(migrations[46]).toContain("CREATE TABLE IF NOT EXISTS team_handoffs");
     expect(migrations[47]).toContain("CREATE TABLE IF NOT EXISTS lab_devices");
