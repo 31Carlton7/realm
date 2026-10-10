@@ -52,7 +52,7 @@ describe("nothing an agent can call fires an act ticket", () => {
     const names = (dir: string) => sourceFiles(dir)
       .flatMap((f) => [...readFileSync(f, "utf8").matchAll(/\bname:\s*"([a-z]+_[a-z_]+)"/g)].map((m) => m[1]!));
     // THE MUTANT: a `review_act` or `ticket_post` tool on the team's provider.
-    expect(names("apps/server/src/team").sort()).toEqual(["record_list", "record_read", "record_update", "review_status", "review_submit", "team_roles", "vault_http", "vault_list"]);
+    expect(names("apps/server/src/team").sort()).toEqual(["record_list", "record_read", "record_types", "record_update", "review_status", "review_submit", "team_roles", "vault_http", "vault_list"]);
     expect(names("apps/server/src").filter((n) => /ticket|publish|^post_|_post$|send_dm|^dm_|_dm$|social/i.test(n))).toEqual([]);
   });
 
