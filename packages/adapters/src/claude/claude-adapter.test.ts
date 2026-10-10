@@ -871,7 +871,7 @@ describe("claudeMcpServers", () => {
  * prompt on top of Realm's broker — which deliberately lets read-only browser tools run free.
  * `allowedTools` pre-allows exactly the read-only set; mutating tools stay double-gated on purpose.
  */
-describe("realm-browser allowedTools (Plan 11 W4)", () => {
+describe("read-only gateway allowedTools (Plan 11 W4)", () => {
   const gatewayEntry = { name: "realm", transport: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: "Bearer t" } };
 
   it("expands to exactly the read-only tools under the gateway's server name — nothing more", () => {
@@ -884,12 +884,19 @@ describe("realm-browser allowedTools (Plan 11 W4)", () => {
       // for a value, so a promptless call discloses nothing but the origin/username/label the USER
       // typed into Settings. The FILL is a different tool and is deliberately absent below.
       "mcp__realm__realm-browser__browser_credentials",
+      // The rest of REALM_READ_ONLY_TOOLS, the list the gateway marks read-only for Codex.
+      "mcp__realm__realm-agent__agent_peers",
+      "mcp__realm__realm-agent__agent_status",
+      "mcp__realm__realm-schedule__schedule_list",
+      "mcp__realm__realm-docs__docs_search",
+      "mcp__realm__goal__goal_status",
     ]);
   });
 
   it("NEVER contains a mutating tool name (the named mutant: a pre-allowed act)", () => {
     const allowed = claudeAllowedTools([gatewayEntry]);
-    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential"]) {
+    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential",
+      "agent_run", "agent_start", "agent_ask", "schedule_create", "docs_open", "update_goal"]) {
       expect(allowed.some((t) => t.endsWith(`__${mutating}`))).toBe(false);
     }
   });
