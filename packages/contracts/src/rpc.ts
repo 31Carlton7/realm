@@ -33,6 +33,7 @@ import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
+import { CLAUDE_DIR_MAX, ClaudeDirSchema } from "./claude-home";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
@@ -335,6 +336,10 @@ export const AgentSignInSchema = z.object({
   state: z.enum(["starting", "browser", "code", "done", "failed", "cancelled"]),
   url: z.string().nullable(),
   detail: z.string().nullable(),
+  /** The Claude config folder the login lands in, where a profile names one. Absent for the default
+   *  folder and for every other agent. A page that shows one folder's sign-in reads it to tell its
+   *  own from one started for another profile. */
+  home: z.string().optional(),
 });
 export type AgentSignIn = z.infer<typeof AgentSignInSchema>;
 
@@ -352,6 +357,15 @@ export const AgentProbeRowSchema = z.object({
    *  agent's `thought_level` option, read off the probe's throwaway session — and the one it starts on. */
   efforts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
   defaultEffort: z.string().nullable().optional(),
+  /** The account the CLI says it is signed in as (`AgentAccount`), where it names one. */
+  account: z.object({ email: z.string(), organization: z.string().nullable(), plan: z.string().nullable() }).optional(),
+  /** The Claude config folder this row was asked about, where a profile or a session names one, and
+   *  null for the default folder. Stamped by the server, and absent on every other agent's row. */
+  home: z.string().nullable().optional(),
+  /** `home` is not a directory now, so the CLI was not asked and the row reads as signed out. Nothing
+   *  can sign in there: Claude Code makes a folder it is pointed at, which is the folder Realm
+   *  refuses to make. Absent wherever that is not so. */
+  homeMissing: z.boolean().optional(),
 });
 
 /**
@@ -1044,8 +1058,11 @@ export const Methods = {
    * Start signing `kind` in with no space (`AgentSignInSchema`). Answers at once with the sign-in's
    * first state; every later one arrives as `agentSignIn.changed`. A second start for the same agent
    * replaces the first, which is reported `cancelled`. Refuses an agent with no login command.
+   *
+   * With `profileId`, a Claude sign-in lands in the config folder that profile names, and is
+   * refused where that folder is missing. Left out, it lands in the default folder.
    */
-  "agentSignIn.start": { params: z.object({ kind: AgentKindSchema }), result: AgentSignInSchema },
+  "agentSignIn.start": { params: z.object({ kind: AgentKindSchema, profileId: IdSchema.optional() }), result: AgentSignInSchema },
   /** Type a code the sign-in page showed back into the CLI that asked for it, and press Return. */
   "agentSignIn.code": { params: z.object({ id: z.string(), code: z.string().min(1).max(4096) }), result: z.object({ ok: z.literal(true) }) },
   /** Stop a sign-in that is still running. Idempotent: a finished one is left as it finished. */
@@ -1381,7 +1398,10 @@ export const Methods = {
     /** When the last window went away, or null while one is attached. The notifications page reads it
      *  to draw a "While you were away" line: with a daemon running headless, "what happened since I
      *  stopped looking" is a question the app can now actually answer. */
-    detachedSince: z.number().nullable() }) },
+    detachedSince: z.number().nullable(),
+    /** The person's home folder, so a window can write a path under it the way a person does
+     *  (`tildePath`). Display only. Absent from a server that predates it. */
+    userHome: z.string().optional() }) },
 
   /**
    * What the daemon is doing, for the app that is attached to it.
@@ -1811,14 +1831,30 @@ export const Methods = {
   "laya.stopRecording": { params: z.object({}), result: LayaStatusSchema },
   /** Every recording and every screen it kept, gone. */
   "laya.deleteRecordings": { params: z.object({}), result: LayaStatusSchema },
-  "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(AgentProbeRowSchema) },
+  /**
+   * Every agent as a probe found it. With `profileId`, Claude's row answers for the Claude config
+   * folder that profile names (`agents.claudeDir`), since each folder holds its own sign-in; the
+   * other rows are the same for every profile. Without one, Claude's row is the default folder's.
+   */
+  "agents.probe": { params: z.object({ force: z.boolean().default(false), profileId: IdSchema.optional() }), result: z.array(AgentProbeRowSchema) },
   /**
    * One agent's probe, fresh, for a screen that leads with one or two agents and must not wait on
    * the slowest of all of them — `agents.probe` answers when every adapter has, and an ACP agent's
    * model listing can take half a minute. The row also replaces that agent's in the cache
    * `agents.probe` serves. `null` for a kind with no adapter registered.
+   *
+   * Claude's row is for one config folder: the one `sessionId`'s conversation runs under where a
+   * session is named, else the one `profileId` names, else the default one. A session's folder is
+   * not always its profile's, since a conversation stays in the folder it began in. `force: false`
+   * answers from what the server last learned where that is recent, which is what a pane asks for
+   * each time it is shown.
    */
-  "agents.probeOne": { params: z.object({ kind: AgentKindSchema }), result: AgentProbeRowSchema.nullable() },
+  "agents.probeOne": { params: z.object({ kind: AgentKindSchema, profileId: IdSchema.optional(), sessionId: IdSchema.optional(), force: z.boolean().default(true) }), result: AgentProbeRowSchema.nullable() },
+  /** The Claude config folder a profile names for its sessions, and the folder in force. */
+  "agents.claudeDir": { params: z.object({ profileId: IdSchema }), result: ClaudeDirSchema },
+  /** Name a profile's Claude config folder, or with null go back to the default one. Refused, by
+   *  name, for a path Claude Code could not run under. Nothing is created. */
+  "agents.setClaudeDir": { params: z.object({ profileId: IdSchema, dir: z.string().max(CLAUDE_DIR_MAX).nullable() }), result: ClaudeDirSchema },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
   /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
   /** Every session Realm holds, or every session in ONE profile. Scoped by the server's space→profile
@@ -1973,6 +2009,9 @@ export const Events = {
   /** A space-less agent sign-in moved (`AgentSignInSchema`). Broadcast: the first run in any window
    *  may be the one watching. */
   "agentSignIn.changed": AgentSignInSchema,
+  /** A profile's Claude config folder was named or given back (`agents.setClaudeDir`), from any
+   *  window. Carries the new answer, so a page that shows it need not ask again. */
+  "agents.claudeDirChanged": ClaudeDirSchema.extend({ profileId: IdSchema }),
   /** Laya's status changed: an install step moved, the runtime came up or went down, a row was
    *  logged, the log was deleted. Carries the whole status, which is small. */
   "laya.changed": LayaStatusSchema,

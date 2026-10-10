@@ -420,7 +420,7 @@ const HANDLERS: Record<string, Handler> = {
     );
     if (!gate.allowed) return err(gate.reason);
 
-    const started = await d.signIn.start(ctx.spaceId, args.value.kind);
+    const started = await d.signIn.start(ctx.spaceId, args.value.kind, ctx.sessionId);
     if (!started.ok) return err(started.reason);
     // A tool call wants the whole outcome, so it waits for the half a button does not — see
     // `SignInStart.settled`.

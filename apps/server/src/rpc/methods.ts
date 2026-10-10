@@ -1,4 +1,4 @@
-import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@realm/contracts";
+import { DAEMON_PROTOCOL, Methods, type ClaudeDir, type MethodName, type MethodResult } from "@realm/contracts";
 import type { z } from "zod";
 import type { RpcServer } from "./server";
 import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
@@ -80,6 +80,7 @@ import type { ExecutionSandboxService } from "../sandbox/service";
 import type { LayaService } from "../laya/service";
 import type { AppViewService } from "../apps/service";
 import { NotFoundError, RpcError } from "../store/rows";
+import type { ClaudeHomes } from "../agents/claude-homes";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
 type Params<M extends MethodName> = z.infer<(typeof Methods)[M]["params"]>;
@@ -107,7 +108,25 @@ export type Deps = {
   savedTurns: SavedTurnsStore;
   /** The files a person added to the Library themselves, copied in under the profile. */
   libraryFiles: LibraryFilesStore;
+  /** Which Claude config folder each profile's sessions run under. */
+  claudeHomes: ClaudeHomes;
 };
+
+/**
+ * A profile's folder answer as a client is handed it, by `agents.claudeDir`, by
+ * `agents.setClaudeDir` and in the event that write broadcasts.
+ *
+ * `ClaudeHomes` says a folder besides the default one is in use (`anyNamed`) from what is stored:
+ * the folders profiles name and the folders conversations are noted under. A process is started
+ * under a folder before its conversation is noted there, so the answer says a folder is in use
+ * where either what is stored or a running process says so
+ * (`SessionService.runsUnderNamedFolder`). Without that, a profile that gave its folder back while
+ * its first message was on the way would tell every window that no folder is in use, with a
+ * conversation starting under one.
+ */
+function withRunningFolders(answer: ClaudeDir, sessions: Pick<SessionService, "runsUnderNamedFolder">): ClaudeDir {
+  return { ...answer, anyNamed: answer.anyNamed || sessions.runsUnderNamedFolder() };
+}
 
 export function registerMethods(d: Deps): void {
   /**
@@ -126,7 +145,7 @@ export function registerMethods(d: Deps): void {
   const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
     rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
 
-  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince }));
+  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince, userHome: d.claudeHomes.userHome }));
 
   /* The daemon, as seen by the app attached to it. `daemon.stop` signals THIS process rather than
      reaching for a close handle, because that is the same path an external `pnpm daemon:stop`, the
@@ -216,6 +235,7 @@ export function registerMethods(d: Deps): void {
       await d.sessions.deleteAllInSpace(sp.id);
     }
     d.profiles.delete(p.id);
+    d.claudeHomes.forget(p.id);
     rpc.broadcast("spaces.changed", {});
     rpc.broadcast("profiles.changed", {});
     return { ok: true as const };
@@ -259,7 +279,7 @@ export function registerMethods(d: Deps): void {
      is deliberately not awaited: it opens the consent pane by itself, announced as the asking
      session's when there is one, and it cannot reject. */
   reg("signin.start", async (p) => {
-    const started = await d.signIn.start(p.spaceId, p.kind);
+    const started = await d.signIn.start(p.spaceId, p.kind, p.sessionId ?? null);
     if (!started.ok) throw new RpcError("BAD_REQUEST", started.reason);
     void (p.sessionId ? announceSignIn(rpc, p.spaceId, p.sessionId, started) : started.settled);
     return { terminalId: started.terminalId, command: started.command };
@@ -268,7 +288,12 @@ export function registerMethods(d: Deps): void {
      the service broadcasts every one after it as `agentSignIn.changed`. Refused mid-drain like the
      other things that start work: the daemon closing would kill the CLI under the person in the
      browser. */
-  reg("agentSignIn.start", (p) => { refuseWhileDraining("sign in"); return d.agentSignIn.start(p.kind); });
+  reg("agentSignIn.start", (p) => {
+    refuseWhileDraining("sign in");
+    const home = p.kind === "claude" ? d.claudeHomes.ofProfile(p.profileId ?? null) : null;
+    d.claudeHomes.assertPresent(home, { resumes: false });
+    return d.agentSignIn.start(p.kind, home);
+  });
   reg("agentSignIn.code", (p) => { d.agentSignIn.code(p.id, p.code); return { ok: true as const }; });
   reg("agentSignIn.cancel", (p) => { d.agentSignIn.cancel(p.id); return { ok: true as const }; });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
@@ -932,8 +957,20 @@ export function registerMethods(d: Deps): void {
   reg("delegation.models", (p) => d.agentRuns.catalogFor(p.sessionId));
   reg("delegation.tab", (p) => d.children.tab(p.sessionId));
 
-  reg("agents.probe", (p) => d.sessions.probe({ force: p.force }));
-  reg("agents.probeOne", async (p) => (await d.sessions.probeAgent(p.kind)) ?? null);
+  reg("agents.probe", (p) => d.sessions.probe({ force: p.force, home: d.claudeHomes.ofProfile(p.profileId ?? null) }));
+  reg("agents.probeOne", async (p) => {
+    const home = p.kind !== "claude" ? null : p.sessionId ? d.sessions.claudeHome(p.sessionId) : d.claudeHomes.ofProfile(p.profileId ?? null);
+    return (await (p.force ? d.sessions.probeAgent(p.kind, home) : d.sessions.probeRow(p.kind, home))) ?? null;
+  });
+  reg("agents.claudeDir", (p) => withRunningFolders(d.claudeHomes.get(p.profileId), d.sessions));
+  reg("agents.setClaudeDir", (p) => {
+    const left = d.claudeHomes.ofProfile(p.profileId);
+    const answer = withRunningFolders(d.claudeHomes.set(p.profileId, p.dir), d.sessions);
+    d.sessions.forgetClaudeProbe(left);
+    d.sessions.forgetClaudeProbe(answer.dir);
+    rpc.broadcast("agents.claudeDirChanged", { profileId: p.profileId, ...answer });
+    return answer;
+  });
   reg("models.catalog", async (p) => ({ rows: await d.modelCatalog.list({ force: p.force }) }));
 
   reg("cli.status", async (p) => ({ rows: await d.cli.status({ force: p.force }) }));

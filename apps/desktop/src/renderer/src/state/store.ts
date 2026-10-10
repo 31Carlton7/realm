@@ -4,7 +4,7 @@ import { destinationTarget, pageHidesSidebar } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
-import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
+import { VIEWER_SLOT, ownerOf, viewerStartSpace, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
 import type { PickedElement } from "@realm/contracts";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
 import { createStore, useStore, type StoreApi } from "zustand";
@@ -45,6 +45,7 @@ import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browse
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
 import type { AskAnswers } from "@realm/contracts";
+import type { ClaudeDir } from "@realm/contracts";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 /** What the New space sheet hands over: the row, and what is made WITH it — the folder its sessions
@@ -115,6 +116,50 @@ function modelIdsByKind(probe: AgentProbe[]): Map<AgentKind, Set<string>> {
   const out = new Map<AgentKind, Set<string>>();
   for (const p of probe) if (p.models) out.set(p.kind, new Set(p.models.map((m) => m.id)));
   return out;
+}
+
+/**
+ * Claude's row with everything a config folder decides taken off it: whether it is signed in and
+ * why not, as whom, from which folder, whether that folder is there, and the models that account is
+ * offered. What is left is true whichever folder a session runs under: the CLI is installed, at
+ * this version.
+ *
+ * Shown while the row that belongs is on its way. `loggedIn: null` blocks nothing and draws no
+ * chip, so for that moment a pane says less than it could, and never names another folder's
+ * account. Nor does it put one folder's "missing" card over a session that runs under another.
+ */
+export function unknownClaude(row: AgentProbe): AgentProbe {
+  const { account: _account, home: _home, homeMissing: _homeMissing, models: _models, ...rest } = row;
+  return { ...rest, loggedIn: null, reason: null };
+}
+
+/** `rows` with Claude's sign-in taken off (`unknownClaude`): what `agentProbe` is from the moment
+ *  the folder it answered for stops being the one in force until the answer for the new folder
+ *  lands. Every other agent's row stays as it is, since no folder decides it. */
+function withClaudeUnknown(rows: AgentProbe[]): AgentProbe[] {
+  return rows.map((r) => (r.kind === "claude" ? unknownClaude(r) : r));
+}
+
+/** Whether two profiles are KNOWN to run Claude under one config folder: both answers held, and
+ *  the same folder named in each (null in both is the default folder in both). Anything less is
+ *  not known, and Claude's row is then treated as another folder's. A row kept on a guess is how
+ *  one profile's account would be shown under another. */
+function sameClaudeDir(dirs: Record<string, ClaudeDir>, left: string | null, entered: string): boolean {
+  const was = left === null ? undefined : dirs[left];
+  const now = dirs[entered];
+  return was !== undefined && now !== undefined && was.dir === now.dir;
+}
+
+/**
+ * `dirs` with one word on whether a folder besides the default one is in use written onto every
+ * answer (`ClaudeDir.anyNamed`). That word is said of the whole install, and the window holds an
+ * answer for each profile, so an answer held from before a folder was named or given back would go
+ * on saying what was true then. An answer that already says so is kept as it is, and so is the
+ * whole record where every answer does.
+ */
+function withAnyNamed(dirs: Record<string, ClaudeDir>, anyNamed: boolean): Record<string, ClaudeDir> {
+  if (Object.values(dirs).every((held) => held.anyNamed === anyNamed)) return dirs;
+  return Object.fromEntries(Object.entries(dirs).map(([id, held]) => [id, held.anyNamed === anyNamed ? held : { ...held, anyNamed }]));
 }
 
 /**
@@ -237,9 +282,14 @@ export type Api = {
   setSetting(key: string, value: unknown): Promise<void>;
   /** `system.info` — the under-strip's display-only machine label (Plan 12 W1) and the person's
    *  first name for the hero greeting. One call: boot wants both labels at the same moment. */
-  systemInfo(): Promise<{ machineName: string; userName: string; detachedSince: number | null }>;
-  /** Native folder picker; resolves null when cancelled. */
-  pickFolder(): Promise<string | null>;
+  systemInfo(): Promise<{ machineName: string; userName: string; detachedSince: number | null; userHome?: string | null }>;
+  /** Native folder picker; resolves null when cancelled. With nothing asked it is the dialog it
+   *  always was. `hidden` also lists the folders the Finder hides, which is where a Claude config
+   *  folder is, its name starting with a dot. `create: false` takes the New Folder button away, for
+   *  a pick where Realm makes no folder. `aliases: false` hands an alias back as it is named, where
+   *  the dialog would otherwise answer the folder it points at. `from` is the folder the dialog
+   *  opens at. Each is asked for on its own, and asking for one asks for none of the others. */
+  pickFolder(o?: { hidden?: boolean; create?: boolean; aliases?: boolean; from?: string }): Promise<string | null>;
   /** Native multi-select file picker; resolves [] when cancelled. */
   pickFiles(): Promise<PickedAttachment[]>;
   /** The filesystem path behind a dropped File. "" when it has none — a pasted image, which has to be
@@ -417,10 +467,21 @@ export type Api = {
   writeTerminal(terminalId: string, data: string): Promise<void>;
   /** Type a command into a terminal once its shell goes quiet; never appends a newline. */
   prefillTerminal(terminalId: string, command: string): Promise<void>;
-  /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
-  probeAgents(force: boolean): Promise<AgentProbe[]>;
-  /** `agents.probeOne` — one agent, fresh; null for a kind with no adapter. */
-  probeAgent(kind: AgentKind): Promise<AgentProbe | null>;
+  /** `force` bypasses the server's probe cache (the install card's retry / focus refresh).
+   *  `profileId` is the profile whose Claude config folder Claude's row answers for, since each
+   *  folder holds its own sign-in; null or left out, the row is the default folder's. */
+  probeAgents(force: boolean, profileId?: string | null): Promise<AgentProbe[]>;
+  /** `agents.probeOne` — one agent, fresh; null for a kind with no adapter. Claude's row is for one
+   *  config folder: the one `sessionId`'s conversation runs under, else the one `profileId` names,
+   *  else the default one. `force: false` answers from what the server last learned where that is
+   *  recent, which is what a pane asks for each time it is shown. */
+  probeAgent(kind: AgentKind, o?: { profileId?: string | null; sessionId?: string; force?: boolean }): Promise<AgentProbe | null>;
+  /** The Claude config folder a profile names, and the folder in force (`agents.claudeDir`). */
+  claudeDir(profileId: string): Promise<ClaudeDir>;
+  /** Names a profile's Claude config folder, or with null goes back to the default one
+   *  (`agents.setClaudeDir`). Rejects with the server's own sentence for a path Claude Code could
+   *  not run under. Nothing is created. */
+  setClaudeDir(profileId: string, dir: string | null): Promise<ClaudeDir>;
   /** `cli.status` — install/update situation per agent CLI. `force` bypasses the server's probe
    *  cache AND its six-hour version sweep; that is the "Check for updates" gesture. */
   cliStatus(force: boolean): Promise<CliStatus[]>;
@@ -431,9 +492,9 @@ export type Api = {
    *  Resolves once the shell is running with the command typed, NOT when the sign-in finishes: the
    *  terminal and then the consent pane arrive as `sessionId`'s panes, the way an agent's own do. */
   startSignIn(spaceId: string, kind: AgentKind, sessionId: string | null): Promise<{ terminalId: string; command: string }>;
-  /** `agentSignIn.start` — sign `kind` in with no space around it (the first run's buttons). Its
-   *  progress arrives as `agentSignIn.changed`. */
-  agentSignInStart(kind: AgentKind): Promise<AgentSignIn>;
+  /** `agentSignIn.start` — sign `kind` in with no space around it (the first run's buttons, and
+   *  Sign in on a profile's page). Its progress arrives as `agentSignIn.changed`. */
+  agentSignInStart(kind: AgentKind, profileId?: string | null): Promise<AgentSignIn>;
   /** `agentSignIn.code` — type the sign-in page's code back into the CLI that asked for it. */
   agentSignInCode(id: string, code: string): Promise<void>;
   /** `agentSignIn.cancel` — stop a sign-in that is still running. */
@@ -1277,12 +1338,57 @@ export type AppState = {
    *  `NOTIFICATIONS_SLACK_WEBHOOK_KEY`). Empty strings mean nowhere, which is the default. */
   notificationRelay: { imessage: string; slackWebhook: string };
   soundVolume: number;
-  /** What the probes last said, one row per agent. Mostly a whole `agents.probe`, but `probeAgent`
-   *  upserts single rows into it, so a kind missing from it is not yet known to be missing — that
-   *  is what `agentsProbed` is for. */
+  /**
+   * What the probes last said for the ACTIVE profile, one row per agent. Claude's row answers for
+   * the Claude config folder that profile names (`claudeDirs`), since each folder holds its own
+   * sign-in; every other agent's row is the same whichever profile is showing. When the window
+   * moves to a profile on another folder, or the active profile is named another folder in this
+   * window or another, Claude's row loses its sign-in at once (`unknownClaude`) and is asked for
+   * again, so the list does not go on naming one folder's account under another.
+   *
+   * A session is not always under its profile's folder, because a conversation stays in the folder
+   * it began under. A pane that draws a session reads this through `useSessionProbe`, which swaps
+   * in that session's own row (`sessionClaude`).
+   *
+   * Mostly a whole `agents.probe`, but `probeAgent` upserts single rows into it, so a kind missing
+   * from it is not yet known to be missing — that is what `agentsProbed` is for.
+   */
   agentProbe: AgentProbe[];
   /** A whole probe has answered at least once, so a kind it did not report is not on this Mac. */
   agentsProbed: boolean;
+  /**
+   * A session's own Claude row, by session id (`agents.probeOne` with the session named): the
+   * sign-in of the Claude config folder that session's conversation runs under, which is not always
+   * the folder its profile names today. A row is here once it has been asked for, by a pane as it
+   * is shown (`probeSessionClaude`) or by the store when a Claude session this window holds fails
+   * to authenticate. From then on it is kept true: asked for again when the session starts, when
+   * any profile's folder is changed, when any Claude session fails to authenticate, in this
+   * window's profile or in another's, since the two may run under one folder, and after a sign-in
+   * or an install of Claude Code finishes. A deleted session's row goes with it, and so does an
+   * answer still on its way for that session, which would otherwise bring the row back for good.
+   */
+  sessionClaude: Record<string, AgentProbe>;
+  /**
+   * Each profile's Claude config folder as the server answers it (`agents.claudeDir`), by profile
+   * id: the folder it names, the folder in force, and what is wrong with either. Read whenever the
+   * profile list is, and kept current by `agents.claudeDirChanged`. A profile whose answer has not
+   * landed holds nothing here, which reads as "not known yet" and never as "the default folder".
+   * Two profiles are known to share a sign-in only when both answers are held and name one folder.
+   *
+   * Each answer also says whether any folder besides the default one is in use (`anyNamed`), which
+   * is a fact about the whole install. So when a folder is named or given back, by a write from
+   * this window or by the event from another, what that answer says of the install is written onto
+   * every answer held. Left as they were, the other profiles' answers would go on saying a folder
+   * is in use after the last one was given back, and every pane would wait for a row of its own
+   * until the folders were next read. A read does not do this (`loadClaudeDirs`).
+   *
+   * A deleted profile's answer stays in the record. Taking it out would not hold, since a read
+   * asked before the delete and landed after it would put it back. No read replaces it either,
+   * and no event says a folder was given back when the profile that named it went. So whoever
+   * asks the record about the whole install counts the answers of the profiles in `profiles` and
+   * no others (`useSessionProbe`), and a deleted profile's answer is not counted.
+   */
+  claudeDirs: Record<string, ClaudeDir>;
   /** Per-agent install/update situation. Empty until something asks; the engines list and the
    *  install card both read it, and neither may block on it. */
   cliStatus: CliStatus[];
@@ -1574,6 +1680,10 @@ export type AppState = {
    *  agents on this Mac and no other, so there is no selector to back. "" until boot's fetch answers
    *  (the strip renders nothing rather than a wrong name). */
   machineName: string;
+  /** `system.info.userHome` — the person's home folder, which is what `~` stands for where a Claude
+   *  config folder is shown. Null before boot's fetch answers and against a server that does not
+   *  say, and a path is then shown in full. */
+  userHome: string | null;
   /** `system.info.userName` — the account's first name, for the hero prompter's greeting. "" when the
    *  host reports no real name (or before boot's fetch answers), which the greeting reads as "greet
    *  the space, not the person" rather than as a blank to print. */
@@ -1790,8 +1900,13 @@ export type AppState = {
   linkProject(rootPath: string, spaceId?: string | null): Promise<void>;
   pickAndLinkProject(spaceId?: string | null): Promise<void>;
   /** The OS folder dialog, bare: the path or null when cancelled. Onboarding asks before a space
-   *  exists, so it cannot go through `pickAndLinkProject`, which links into the active one. */
-  pickFolder(): Promise<string | null>;
+   *  exists, so it cannot go through `pickAndLinkProject`, which links into the active one.
+   *
+   *  What a caller asks for goes to the dialog as it is (`Api.pickFolder`). A profile's page asks
+   *  for hidden folders and no New Folder, since the folder it picks starts with a dot and is never
+   *  Realm's to make, and for an alias to come back as it is named, since that spelling is the one
+   *  the server keeps. A caller that asks for nothing gets the dialog every picker here has had. */
+  pickFolder(o?: { hidden?: boolean; create?: boolean; aliases?: boolean; from?: string }): Promise<string | null>;
   /** The on-disk path Electron pins to a dropped File, or "" for one that has none (a paste, a
    *  drag out of a browser). The preload bridge's answer, exposed so drop targets need no bridge. */
   pathForFile(file: File): string;
@@ -2118,12 +2233,83 @@ export type AppState = {
    *  in the store, never the one that was sent. */
   setComputerAllowedApps(spaceId: string, apps: string[]): Promise<void>;
   /** Refresh `agentProbe`. Unforced calls (prompter mount, onboarding) ride the server's TTL cache and
-   *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh. */
+   *  are deduped here too; `force` is the install card's "Check again" and its window-focus refresh.
+   *
+   *  Asked for the active profile, whose Claude config folder decides Claude's row. A call joins one
+   *  in flight only when both ask with the same `force` for the same profile, since another
+   *  profile's answer is about another sign-in. An answer that lands after the window has moved to
+   *  another profile is dropped for the same reason. It would put the account of the profile left
+   *  behind over the one now showing. So that a dropped answer is never the last word, the store
+   *  asks again itself each time the window moves to another profile. The profile a window opens on
+   *  is asked about by whichever pane mounts first, as it always was, unless something had already
+   *  asked before a profile was the window's. */
   probeAgents(force?: boolean): Promise<void>;
   /** Probe one agent, fresh, and put its row in `agentProbe` — for a screen that leads with one or
    *  two agents and must not wait on the slowest of all of them (an ACP agent's model listing can
-   *  take half a minute; `agents.probe` answers when every adapter has). */
+   *  take half a minute; `agents.probe` answers when every adapter has). Asked for the active
+   *  profile, and dropped, as a whole probe's answer is, when it lands after the window has left
+   *  that profile. Claude's row is dropped as well when that profile was named a folder while the
+   *  answer was on its way, since it answers for the folder as it was and would put that folder's
+   *  account back. */
   probeAgent(kind: AgentKind): Promise<void>;
+  /**
+   * Ask for one session's own Claude row and hold it in `sessionClaude`. Unforced, the server
+   * answers from what it last learned, which is what a pane asks for each time it is shown; `force`
+   * runs the CLI again (the pane's "Check again", an auth failure, a finished sign-in).
+   *
+   * Never rejects. A failed call, or an answer of no row at all, leaves whatever was held. The row
+   * is a reading the next ask repairs, and a toast from every pane that asked would tell a person
+   * nothing they could act on. Calls in flight for one session with one `force` are one call.
+   */
+  probeSessionClaude(sessionId: string, force?: boolean): Promise<void>;
+  /**
+   * One profile's own Claude row, handed back and held nowhere: the sign-in of the Claude config
+   * folder that profile names, for the profile's own page to state. `agentProbe` cannot answer for
+   * that page. It holds the active profile's row, and the page follows its space, so it can be
+   * about a profile the window is not on, and would then put one profile's account under
+   * another's folder.
+   *
+   * Unforced, the server answers from what it last learned, which is what the page asks as it is
+   * shown; `force` runs the CLI again, for once a sign-in may have finished in a terminal and a
+   * browser. Rejects when the call does, so the page can say it cannot tell.
+   */
+  probeProfileClaude(profileId: string, force?: boolean): Promise<AgentProbe | null>;
+  /** Read every profile's Claude config folder into `claudeDirs`. A profile whose read fails keeps
+   *  what was held for it and fails nothing else, since the profiles themselves have already
+   *  loaded. A read that lands after the folder was named again, by `setClaudeDir` or by the event
+   *  from another window, is not held. It says what the folder was.
+   *
+   *  A read that finds a profile on another folder than the one held is a change this window was
+   *  never told of, as after the socket was down, and it is taken the way the event would have been
+   *  (`applyClaudeDir`). A first read holds its answer and nothing more. No sign-in is taken off
+   *  and no probe is asked, since nothing shown was about another folder.
+   *
+   *  In one thing a read is never the event, whichever folder it finds: what its answer says of
+   *  the whole install (`anyNamed`) is held for its own profile alone. A read can land late, and
+   *  one late "none in use" must not overrule a profile that has named a folder since. */
+  loadClaudeDirs(): Promise<void>;
+  /** Name a profile's Claude config folder, or with null go back to the default one. Answers what
+   *  the server stored, which `claudeDirs` then holds too. Rejects with the server's sentence when
+   *  it refuses the path, so the page that asked can say why.
+   *
+   *  The server also tells every window (`applyClaudeDir`), and that event is what asks for the
+   *  probes again. Whichever of the two lands first, Claude's row in `agentProbe` loses its sign-in
+   *  in the same write that puts the active profile on another folder, and every held answer is
+   *  told whether a folder is still in use (`claudeDirs`). */
+  setClaudeDir(profileId: string, dir: string | null): Promise<ClaudeDir>;
+  /**
+   * An `agents.claudeDirChanged` event: a profile's folder was named or given back, in this window
+   * or another. The answer is held, what it says of the whole install is written onto every other
+   * answer held (`claudeDirs`), and what that folder decides is asked for again.
+   *
+   * Answers still in flight for the profile's probe are let go first, since they were asked about
+   * the folder as it was. Where the profile is the active one, Claude's row in `agentProbe` loses
+   * its sign-in at once if the folder is another one now, and the probe is asked again, afresh
+   * where a forced one was among those let go. Every session's own row is asked again the same
+   * way. A session that holds no conversation yet runs under whatever its profile names, and the
+   * window cannot tell which sessions those are.
+   */
+  applyClaudeDir(e: ClaudeDir & { profileId: string }): void;
   /** Refresh `cliStatus`. Unforced rides the server's caches; `force` is "Check for updates" and the
    *  refresh after an install finishes. */
   refreshCliStatus(force?: boolean): Promise<void>;
@@ -2131,10 +2317,20 @@ export type AppState = {
   /** Start signing this agent in, in `spaceId` (else the current space). The panes it opens are the
    *  feedback — in `sessionId`'s side pane, the session whose card asked. */
   startSignIn(kind: AgentKind, spaceId?: string | null, sessionId?: string | null): Promise<void>;
-  /** Sign `kind` in from the first run, with no space: the CLI's own login, its page in the browser,
-   *  and a code typed back if it asks. Progress lands in `agentSignIns`; a finished one re-probes. */
-  startAgentSignIn(kind: AgentKind): Promise<void>;
+  /** Sign `kind` in with no space around it: the CLI's own login, its page in the browser, and a
+   *  code typed back if it asks. Progress lands in `agentSignIns`; a finished one re-probes.
+   *
+   *  `profileId` is the profile whose Claude config folder the sign-in lands in. Left out, it is the
+   *  active profile, which is what the first run's buttons mean. A profile's own page names its
+   *  profile, since that page can be about a profile the window is not on. */
+  startAgentSignIn(kind: AgentKind, profileId?: string): Promise<void>;
   sendAgentSignInCode(kind: AgentKind, code: string): Promise<void>;
+  /** Stop the space-less sign-in the window holds for `kind`. Once the server has answered, the
+   *  sign-in is marked `cancelled` here as well, where the window still holds it as running. The
+   *  server reports a cancellation only for a sign-in it is still running, and answers the same
+   *  for one that has ended or that it never knew. So a sign-in whose ending this window never
+   *  heard would stay on its steps, under a Cancel that did nothing a person could see. An ending
+   *  the server reports later for the same sign-in still lands (`applyAgentSignIn`). */
   cancelAgentSignIn(kind: AgentKind): Promise<void>;
   /** An `agentSignIn.changed` event, or a start's own answer. */
   applyAgentSignIn(s: AgentSignIn): void;
@@ -3214,7 +3410,34 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const ensuringTerminal = new Map<string, Promise<void>>();
     /** In-flight `agents.probe` calls, kept apart by force: a forced probe must never be satisfied by a
      *  cheap one already in flight (that one may predate the install the user just ran). */
-    const probing: { plain: Promise<void> | null; forced: Promise<void> | null } = { plain: null, forced: null };
+    const probing: Record<"plain" | "forced", Map<string | null, Promise<void>>> = { plain: new Map(), forced: new Map() };
+    let probeAsked = false;
+    const sessionProbing: Record<"plain" | "forced", Map<string, Promise<void>>> = { plain: new Map(), forced: new Map() };
+    const letGoOfSessionProbes = (sessionId: string) => { sessionProbing.plain.delete(sessionId); sessionProbing.forced.delete(sessionId); };
+    const withoutSessionClaude = (sessionId: string): Record<string, AgentProbe> => {
+      letGoOfSessionProbes(sessionId);
+      const { [sessionId]: _gone, ...rest } = get().sessionClaude;
+      return rest;
+    };
+    const askSessionClaudeAgain = (force: boolean) => { for (const id of Object.keys(get().sessionClaude)) void get().probeSessionClaude(id, force); };
+    const claudeDirWrites = new Map<string, number>();
+    const holdClaudeDir = (profileId: string, answer: ClaudeDir, from: "write" | "event" | "read") => {
+      claudeDirWrites.set(profileId, (claudeDirWrites.get(profileId) ?? 0) + 1);
+      const moved = profileId === get().activeProfileId && get().claudeDirs[profileId]?.dir !== answer.dir;
+      const held = from === "read" ? get().claudeDirs : withAnyNamed(get().claudeDirs, answer.anyNamed);
+      set({ claudeDirs: { ...held, [profileId]: answer }, ...(moved ? { agentProbe: withClaudeUnknown(get().agentProbe) } : {}) });
+    };
+    const takeClaudeDir = (profileId: string, answer: ClaudeDir, from: "event" | "read") => {
+      holdClaudeDir(profileId, answer, from);
+      probing.plain.delete(profileId);
+      const forced = probing.forced.delete(profileId);
+      if (profileId === get().activeProfileId) get().run(() => get().probeAgents(forced));
+      for (const id of new Set([...Object.keys(get().sessionClaude), ...sessionProbing.plain.keys(), ...sessionProbing.forced.keys()])) {
+        const fresh = sessionProbing.forced.has(id);
+        letGoOfSessionProbes(id);
+        void get().probeSessionClaude(id, fresh);
+      }
+    };
   const cliChecking: { plain: Promise<void> | null; forced: Promise<void> | null } = { plain: null, forced: null };
     // The catalog's in-flight read, collapsed the same way the probe's is — one round trip per tick
     // however many panes mounted at once.
@@ -3928,6 +4151,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       profileEpoch++;
       layoutHydrated = false;
       const last = lastSpaceId && get().spaces.some((sp) => sp.id === lastSpaceId && sp.profileId === pid) ? lastSpaceId : null;
+      const left = get().activeProfileId;
       set({
         activeProfileId: pid, items: [], projects: [], environments: {}, sessions: keepQuickChatSession({}),
         view: null, layout: null, focusedLeafId: null, peek: null, viewer: null, sheetSnap: null, offscreenBrowsers: [],
@@ -3935,7 +4159,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // the profile being left.
         diffs: {}, diffLoading: {}, patches: {},
         ...(last ? { lastSpaceByProfile: { ...get().lastSpaceByProfile, [pid]: last } } : {}),
+        ...(sameClaudeDir(get().claudeDirs, left, pid) ? {} : { agentProbe: withClaudeUnknown(get().agentProbe) }),
       });
+      if (left !== null || probeAsked) get().run(() => get().probeAgents());
       const epoch = profileEpoch;
       const ids = profileSpaceIds();
       await Promise.all([
@@ -4066,12 +4292,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
       spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, sessionClaude: {}, claudeDirs: {}, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
-      machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
+      machineName: "", userHome: null, userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
@@ -4092,7 +4318,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.getSetting(SETTING_LIBRARY_VIEW),
           // Labels, not dependencies: a failure here must not take boot down with it — the strip
           // simply shows no machine name, and the greeting no name.
-          api.systemInfo().catch(() => ({ machineName: "", userName: "", detachedSince: null })),
+          api.systemInfo().catch((): Awaited<ReturnType<Api["systemInfo"]>> => ({ machineName: "", userName: "", detachedSince: null })),
           // Same posture: a face that fails to load is an initial, never a failed boot.
           api.getAvatar().catch(() => null),
           api.getSetting(SETTING_SIDE_PANES_HIDDEN),
@@ -4131,7 +4357,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           confirmDelete: askDelete !== false,
           lastAgentKind: agent.success ? agent.data : null,
           easterEggs: eggs === true, konamiUnlocked: konami === true,
-          terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
+          terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userHome: system.userHome ?? null, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
+        void get().loadClaudeDirs();
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
         // icon can resolve, rather than visibly rendering its folder fallback first.
         /* Before the spaces are published, and so before the first painted frame: `applyTheme`
@@ -4419,7 +4646,10 @@ await get().refreshCustomThemes().catch(() => {});
         // Its spaces are gone with it; `refreshSpaces` moves a window that was showing one of them.
         await get().refreshSpaces();
       },
-      async refreshProfiles() { set({ profiles: await api.listProfiles() }); },
+      async refreshProfiles() {
+        set({ profiles: await api.listProfiles() });
+        await get().loadClaudeDirs();
+      },
       openNewProfileSheet() { get().openSheet({ kind: "new-profile" }); },
       openProfileWindow(profileId) { return api.openProfileWindow(profileId); },
       async switchProfile(profileId) {
@@ -4715,7 +4945,7 @@ await get().refreshCustomThemes().catch(() => {});
         await api.createProject(sid, folderName(rootPath), rootPath);
         await get().refreshProjects(sid);
       },
-      pickFolder() { return api.pickFolder(); },
+      pickFolder(o) { return api.pickFolder(o); },
       pathForFile(file) { return api.pathForFile(file); },
       async completeOnboarding({ name, agentKind, folder, icon, color }) {
         // app.ts seeds a "Personal" profile on first boot; creating one here is belt-and-braces so
@@ -5120,7 +5350,8 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
           const { [it.refId]: _drf, ...draftRefs } = get().draftRefs;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
+          const sessionClaude = withoutSessionClaude(it.refId);
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity, sessionClaude });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -5274,7 +5505,7 @@ await get().refreshCustomThemes().catch(() => {});
         set({ connectionState: state });
         if (state !== "connected") return;
         // The socket was down: change events were lost, so refetch what they would have delivered.
-        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions()]));
+        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions(), get().loadClaudeDirs()]));
         // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
         // …and the terminals, which are the same problem with a different cursor.
@@ -5577,16 +5808,29 @@ await get().refreshCustomThemes().catch(() => {});
         const grew = !ev.ephemeral && ev.seq > 0 ? logGrew(ev.sessionId, ev.seq) : undefined;
         const also = activity || grew ? { ...grew, ...activity } : undefined;
         /* An auth failure the server has already re-probed and given up on. Re-read the agents here
-           too, and before the transcript returns below, because the answer is about the CLI rather
-           than about this session: a signed-out `claude` is signed out for every pane, including the
-           ones nobody has opened. What it buys is the prompter — `agentAvailability` turns a probe
+           too, and before the transcript returns below, because the answer is about the CLI's sign-in
+           rather than about this session: every pane on that sign-in is signed out with it, including
+           the ones nobody has opened. Where it is a Claude session that failed, in this window's
+           profile or in another's (`allSessions`), every session's own row the window holds is asked
+           for afresh as well, and the failing session's own where the window holds that session and
+           no row for it yet (`sessionClaude`). A conversation can run under another config folder
+           than the list answers for, two profiles can run under one folder, and the other panes
+           that hold rows for that folder are signed out with
+           this one. What it buys is the prompter — `agentAvailability` turns a probe
            that says `loggedIn: false` into the card holding the login command, and until the store's
            copy of the probe is refreshed the prompter goes on offering a text box that will fail the
            next message the same way. The forced call collapses across sessions (`probeAgents`), so
-           four panes failing together still spawn one probe. */
+           four panes failing together still spawn one probe, and the server shares fresh asks about
+           one folder, so the rows cost two probes a folder at most. */
         if (ev.event.type === "error" && ev.event.payload.failure === "auth") {
           void get().run(() => get().probeAgents(true));
+          const failed = get().sessions[ev.sessionId] ?? get().allSessions[ev.sessionId];
+          if (failed?.agentKind === "claude") {
+            askSessionClaudeAgain(true);
+            if (get().sessions[ev.sessionId] && !get().sessionClaude[ev.sessionId]) void get().probeSessionClaude(ev.sessionId, true);
+          }
         }
+        if (ev.event.type === "init" && get().sessionClaude[ev.sessionId]) void get().probeSessionClaude(ev.sessionId);
         /* A harness just said whether a model can run fast mode, and the server has already filed
            it (it writes before it broadcasts). Re-read here, before the returns below, because the
            answer is wanted by sessions that have not STARTED — the next one on this model offers the
@@ -6082,23 +6326,61 @@ await get().refreshCustomThemes().catch(() => {});
         return result;
       },
       async probeAgents(force = false) {
+        probeAsked = true;
         // Mount-storm guard: a split of four session panes asks four times in the same tick. The server
         // holds the TTL cache (probe-cache.ts); this only collapses the round trips.
-        const pending = probing[force ? "forced" : "plain"];
+        const profileId = get().activeProfileId;
+        const inFlight = probing[force ? "forced" : "plain"];
+        const pending = inFlight.get(profileId);
         if (pending) { await pending; return; }
-        const p = api.probeAgents(force)
-          .then((agentProbe) => { set({ agentProbe, agentsProbed: true }); })
-          .finally(() => { probing[force ? "forced" : "plain"] = null; });
-        probing[force ? "forced" : "plain"] = p;
+        const p: Promise<void> = api.probeAgents(force, profileId)
+          .then((agentProbe) => { if (inFlight.get(profileId) === p && get().activeProfileId === profileId) set({ agentProbe, agentsProbed: true }); })
+          .finally(() => { if (inFlight.get(profileId) === p) inFlight.delete(profileId); });
+        inFlight.set(profileId, p);
         await p;
       },
       async probeAgent(kind) {
-        const row = await api.probeAgent(kind);
-        if (!row) return;
+        probeAsked = true;
+        const profileId = get().activeProfileId;
+        const writes = profileId === null ? 0 : claudeDirWrites.get(profileId) ?? 0;
+        const row = await api.probeAgent(kind, { profileId });
+        if (!row || get().activeProfileId !== profileId) return;
+        if (kind === "claude" && profileId !== null && (claudeDirWrites.get(profileId) ?? 0) !== writes) return;
         // In place, so the list keeps the server's order; appended when no whole probe has landed yet.
         const rows = get().agentProbe;
         set({ agentProbe: rows.some((r) => r.kind === kind) ? rows.map((r) => (r.kind === kind ? row : r)) : [...rows, row] });
       },
+      probeSessionClaude(sessionId, force = false) {
+        const inFlight = sessionProbing[force ? "forced" : "plain"];
+        const pending = inFlight.get(sessionId);
+        if (pending) return pending;
+        const p: Promise<void> = api.probeAgent("claude", { sessionId, force })
+          .then((row) => { if (row && inFlight.get(sessionId) === p) set({ sessionClaude: { ...get().sessionClaude, [sessionId]: row } }); })
+          .catch(() => {})
+          .finally(() => { if (inFlight.get(sessionId) === p) inFlight.delete(sessionId); });
+        inFlight.set(sessionId, p);
+        return p;
+      },
+      probeProfileClaude(profileId, force = false) { return api.probeAgent("claude", { profileId, force }); },
+      async loadClaudeDirs() {
+        const asked = get().profiles.map((p) => ({ id: p.id, writes: claudeDirWrites.get(p.id) ?? 0, answer: api.claudeDir(p.id).catch(() => null) }));
+        const answers = await Promise.all(asked.map((a) => a.answer));
+        const read = asked.flatMap((a, i) => {
+          const answer = answers[i];
+          return answer && (claudeDirWrites.get(a.id) ?? 0) === a.writes ? [[a.id, answer] as const] : [];
+        });
+        const held = get().claudeDirs;
+        const moved = read.filter(([id, answer]) => held[id] !== undefined && held[id].dir !== answer.dir);
+        const steady = read.filter((r) => !moved.includes(r));
+        if (steady.length > 0) set({ claudeDirs: { ...get().claudeDirs, ...Object.fromEntries(steady) } });
+        for (const [profileId, answer] of moved) takeClaudeDir(profileId, answer, "read");
+      },
+      async setClaudeDir(profileId, dir) {
+        const answer = await api.setClaudeDir(profileId, dir);
+        holdClaudeDir(profileId, answer, "write");
+        return answer;
+      },
+      applyClaudeDir({ profileId, ...answer }) { takeClaudeDir(profileId, answer, "event"); },
       async refreshCliStatus(force = false) {
         // Same mount-storm collapse as probeAgents, keyed by force for the same reason: an unforced
         // call already in flight may have read the machine before an install finished, which is
@@ -6131,8 +6413,8 @@ await get().refreshCustomThemes().catch(() => {});
            again" and the window-focus listener already ask. A local "signing in…" flag would be this
            client's guess at a state the server is the one holding. */
       },
-      async startAgentSignIn(kind) {
-        get().applyAgentSignIn(await api.agentSignInStart(kind));
+      async startAgentSignIn(kind, profileId) {
+        get().applyAgentSignIn(await api.agentSignInStart(kind, profileId ?? get().activeProfileId));
       },
       async sendAgentSignInCode(kind, code) {
         const s = get().agentSignIns[kind];
@@ -6140,7 +6422,10 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async cancelAgentSignIn(kind) {
         const s = get().agentSignIns[kind];
-        if (s) await api.agentSignInCancel(s.id);
+        if (!s) return;
+        await api.agentSignInCancel(s.id);
+        const now = get().agentSignIns[kind];
+        if (now?.id === s.id && SIGN_IN_ORDER[now.state] < SIGN_IN_ORDER.cancelled) get().applyAgentSignIn({ ...now, state: "cancelled" });
       },
       applyAgentSignIn(s) {
         const now = get().agentSignIns[s.kind];
@@ -6154,6 +6439,7 @@ await get().refreshCustomThemes().catch(() => {});
         // That agent alone, fresh — a second or so, where every agent's probe waits on the slowest
         // of them to say nothing about this one.
         if (s.state === "done") get().run(() => get().probeAgent(s.kind));
+        if (s.state === "done" && s.kind === "claude") askSessionClaudeAgain(true);
       },
       async runCliAction(kind, action) {
         const started = await api.runCli(kind, action);
@@ -6169,6 +6455,7 @@ await get().refreshCustomThemes().catch(() => {});
         set({ cliJobs: { ...get().cliJobs, [kind]: { ...job, output: job.output + chunk } } });
       },
       applyCliDone({ id, kind, ok, error }) {
+        if (kind === "claude") askSessionClaudeAgain(true);
         const job = get().cliJobs[kind];
         if (!job || job.id !== id) return;
         set({ cliJobs: { ...get().cliJobs, [kind]: { ...job, state: ok ? "ok" : "failed", error } } });
@@ -6528,7 +6815,7 @@ await get().refreshCustomThemes().catch(() => {});
         const { [qc.sessionId]: _sp, ...sessionSpace } = get().sessionSpace;
         const { [qc.sessionId]: _d, ...drafts } = get().drafts;
         const { [qc.sessionId]: _a, ...pendingAttachments } = get().pendingAttachments;
-        set({ sessions, sessionStatus, sessionSpace, drafts, pendingAttachments });
+        set({ sessions, sessionStatus, sessionSpace, drafts, pendingAttachments, sessionClaude: withoutSessionClaude(qc.sessionId) });
         await persistQuickChat();
         // There is no item to delete THROUGH — an unlisted session has none — so this is the route.
         await api.deleteSession(qc.sessionId);
@@ -6590,8 +6877,7 @@ await get().refreshCustomThemes().catch(() => {});
              starts a session in the file's own space while that still exists, which is where work on
              the file belongs, and otherwise in the space on screen. Made at the send, not at the open:
              looking at a file is not asking about it, and a session per look would be litter. */
-          const home = file.from?.spaceId ?? v.spaceId;
-          const sid = home && get().spaces.some((sp) => sp.id === home) ? home : get().activeSpaceId;
+          const sid = viewerStartSpace(v, file, get().spaces, get().activeSpaceId);
           if (!sid) return;
           const agentKind = v.pick?.agentKind ?? get().lastAgentKind ?? FALLBACK_AGENT;
           const created = await api.createSession({ spaceId: sid, agentKind, model: v.pick?.model ?? null, effort: v.pick?.effort ?? null,

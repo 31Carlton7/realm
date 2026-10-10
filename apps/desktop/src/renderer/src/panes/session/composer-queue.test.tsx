@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { AgentKind, MidTurnMode, PlanLimits, QueuedPrompt } from "@realm/contracts";
-import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, session } from "../../state/store.test-fakes";
+import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
+import { claudeFolder, claudeRow, fakeApi, item, session } from "../../state/store.test-fakes";
 import { SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
 
@@ -214,5 +214,63 @@ describe("the prompter's limit warning", () => {
   it("ignores a warning belonging to another provider", async () => {
     await withLimits(limits({ agentKind: "claude", alert: "exceeded", alertWindow: "seven_day", windows: [w("seven_day", "Weekly", 100)] }));
     expect(warning()).toBeNull();
+  });
+});
+
+/** A Claude config folder a profile names, inside the home folder the fake server reports. */
+const WORK_HOME = "/Users/carlton/.claude-work";
+/** Claude as that folder has it, signed in to the work account. */
+const ON_WORK = claudeRow("work@example.com", WORK_HOME);
+
+/** One Claude account's plan row: the account kept in `home` (null for the default folder), its
+ *  weekly window at `pct`, and the provider's own verdict on it. */
+const claudePlan = (home: string | null, alert: PlanLimits["alert"], pct: number): PlanLimits => ({
+  agentKind: "claude", subscriptionType: "max", organization: null, home, alert, alertWindow: alert === "none" ? null : "seven_day",
+  windows: [{ id: "seven_day", label: "Weekly", utilization: pct, resetsAt: null }], unavailable: null, detail: null, ts: 1,
+});
+
+/**
+ * The pane over a Claude session while `plans` are the rows the providers have reported, in an
+ * install where another profile names the work folder. `own` is the session's own Claude row, held
+ * from the start as it is once the pane has asked for it. With none, the session holds a
+ * conversation and the answer to its ask never lands, so the folder it runs under is not known.
+ */
+async function onClaude(plans: PlanLimits[], own: AgentProbe | null) {
+  const it0 = item("i9", "s1", { kind: "session", refId: "se1", title: "s" });
+  const api = fakeApi({
+    sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", providerSessionId: own ? null : "conversation-1" })],
+    items: { s1: [it0] }, agentProbe: [claudeRow("me@example.com")], claudeDirs: { p2: claudeFolder(WORK_HOME) }, ...(own ? { sessionClaude: { se1: own } } : {}),
+  });
+  if (!own) api.probeAgent = () => new Promise<AgentProbe | null>(() => {});
+  const store = createAppStore(api);
+  await store.getState().boot();
+  store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } }, planLimits: plans, ...(own ? { sessionClaude: { se1: own } } : {}) });
+  render(<StoreContext.Provider value={store}><SessionPane item={it0} visible /></StoreContext.Provider>);
+  await waitFor(() => expect(store.getState().agentsProbed).toBe(true));
+  await act(async () => { await new Promise((res) => setTimeout(res, 1)); });
+}
+
+/** The limit warning above the prompter, or null where none is drawn. */
+const limitWarning = () => document.querySelector(".composer-limit");
+
+describe("the prompter's limit warning for Claude, whose plan is the account of the session's own config folder", () => {
+  it("warns from the row of the account the session's own folder is signed in to", async () => {
+    await onClaude([claudePlan(null, "none", 10), claudePlan(WORK_HOME, "approaching", 92)], ON_WORK);
+    expect(limitWarning()?.textContent).toContain("Weekly limit at 92%");
+  });
+
+  it("says nothing of a limit that another folder's account has reached", async () => {
+    await onClaude([claudePlan(null, "exceeded", 100), claudePlan(WORK_HOME, "none", 10)], ON_WORK);
+    expect(limitWarning()).toBeNull();
+  });
+
+  it("says nothing while the session's own folder is not known and two accounts report", async () => {
+    await onClaude([claudePlan(null, "exceeded", 100), claudePlan(WORK_HOME, "exceeded", 100)], null);
+    expect(limitWarning()).toBeNull();
+  });
+
+  it("still warns from the one Claude account there is while the session's own folder is not known", async () => {
+    await onClaude([claudePlan(null, "exceeded", 100)], null);
+    expect(limitWarning()?.textContent).toContain("Weekly limit reached");
   });
 });

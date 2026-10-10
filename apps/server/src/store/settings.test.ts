@@ -28,4 +28,46 @@ describe("SettingsStore", () => {
     s.set("computer.allowedApps:sp1", ["com.apple.TextEdit", 7, null, "com.apple.mail"]);
     expect(s.getIds("computer.allowedApps:sp1")).toEqual(["com.apple.TextEdit", "com.apple.mail"]);
   });
+
+  it("delete drops the row and leaves every other key alone", () => {
+    const db = openDatabase(join(tempDir("realm-"), "realm.db"));
+    const s = new SettingsStore(db);
+    const rows = (): number => (db.prepare("SELECT COUNT(*) AS n FROM settings").get() as { n: number }).n;
+    const before = rows();
+    s.set("claude.sessionHome:a", "/tmp/a");
+    s.set("claude.sessionHome:b", "/tmp/b");
+    s.delete("claude.sessionHome:a");
+    expect(s.get("claude.sessionHome:a")).toBeNull();
+    expect(s.get("claude.sessionHome:b")).toBe("/tmp/b");
+    expect(rows()).toBe(before + 1);
+    s.delete("claude.sessionHome:never-set");
+    expect(rows()).toBe(before + 1);
+  });
+
+  it("distinctUnder answers each value kept under a prefix once, and none kept under a key beside it", () => {
+    const s = new SettingsStore(openDatabase(join(tempDir("realm-"), "realm.db")));
+    expect(s.distinctUnder("claude.configDir:")).toEqual([]);
+    s.set("claude.configDir:p1", "/a");
+    s.set("claude.configDir:p2", "/b");
+    s.set("claude.configDir:p3", "/a");
+    s.set("claude.configDir:", "/named-by-the-prefix-alone");
+    s.set("claude.configDir", "/before-the-range");
+    s.set("claude.configDir;", "/the-end-of-the-range");
+    s.set("claude.configDir;p4", "/after-the-range");
+    s.set("claude.configDirs:p5", "/a-longer-name");
+    s.set("claude.sessionHome:s1", "/another-prefix");
+    expect(s.distinctUnder("claude.configDir:").sort()).toEqual(["/a", "/b", "/named-by-the-prefix-alone"]);
+    expect(s.distinctUnder("claude.sessionHome:")).toEqual(["/another-prefix"]);
+  });
+
+  it("distinctUnder answers a value as it was kept, whatever its shape, and passes over a row that is not JSON", () => {
+    const db = openDatabase(join(tempDir("realm-"), "realm.db"));
+    const s = new SettingsStore(db);
+    s.set("k:list", ["x"]);
+    s.set("k:number", 7);
+    s.set("k:broken", "kept");
+    db.prepare("UPDATE settings SET value_json = '{bad' WHERE key = 'k:broken'").run();
+    expect(s.distinctUnder("k:")).toEqual(expect.arrayContaining([["x"], 7]));
+    expect(s.distinctUnder("k:")).toHaveLength(2);
+  });
 });

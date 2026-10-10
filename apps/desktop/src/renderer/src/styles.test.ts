@@ -3380,6 +3380,46 @@ describe("row and control layout", () => {
     expect(bodiesFor(".task-lens-list").join(" ")).toContain("flex: 1 1");
   });
 
+  it("a profile's Claude config folder field takes its row's slack and gives it back first, and the buttons go under it before it is squeezed away", () => {
+    const field = bodiesFor(".claude-folder-row > input").join(" ");
+    expect(field).toMatch(/flex: 1 1 \d+px/);
+    expect(field).toContain("min-width: 0");
+    expect(bodiesFor(".claude-folder-row").join(" ")).toContain("flex-wrap: wrap");
+    expect(bodiesFor(".btn").join(" ")).toContain("flex-shrink: 0");
+  });
+
+  it("the line under that field holds a button's height, so Sign in arriving moves nothing under it", () => {
+    const button = /--btn-h: (\d+)px/.exec(bodiesFor(".btn").join(" "))?.[1];
+    expect(button).toBeDefined();
+    expect(bodiesFor(".claude-folder-state").join(" ")).toContain(`min-height: ${button}px`);
+  });
+
+  it("the sentence on that line carries the line's size, leading and ink itself, so the button beside it is drawn like the two a row above", () => {
+    const sentence = bodiesFor(".claude-folder-state > span").join(" ");
+    for (const part of ["font-size: 13px", "line-height: 18px", "color: var(--rl-text-dim)"]) expect(sentence, part).toContain(part);
+    expect(bodiesFor(".claude-folder-state").join(" ")).not.toMatch(/font-size|line-height|color:/);
+  });
+
+  it("a sign-in's row of actions keeps to the column where its steps stand in a field, so a page's scroller cuts nothing off its first button, and keeps its pull on the first run's card", () => {
+    expect(bodiesFor(".field .agent-card-actions").join(" ")).toContain("margin-left: 0;");
+    expect(bodiesFor(".agent-card-actions").join(" ")).toContain("margin-left: -10px");
+  });
+
+  it("a plan card's head holds the path's neighbours at their width where a path is drawn, and is left as it was where none is", () => {
+    expect(bodiesFor(".plan-account-head:has(> code.plan-account-home) > span").join(" ")).toContain("flex-shrink: 0");
+    expect(RULES.filter((r) => r.selectors.includes(".plan-account-head > span"))).toEqual([]);
+    for (const sel of [".plan-account-head", ".plan-account-name", ".plan-account-tier", ".plan-account-org"]) {
+      expect(bodiesFor(sel).join(" "), sel).not.toMatch(/flex-shrink|flex:/);
+    }
+  });
+
+  it("the sentence on Claude's card is what gives way, and the button that changes the folder keeps its width", () => {
+    const says = bodiesFor(".engine-folder > span").join(" ");
+    expect(says).toMatch(/flex: 1;/);
+    expect(says).toContain("min-width: 0");
+    expect(bodiesFor(".engine-folder > .btn-quiet").join(" ")).toContain("flex: none");
+  });
+
   it("a busy control keeps its fill — only a nothing-to-do control is greyed out", () => {
     // `.btn.primary:disabled` is written for "there is nothing to commit"; applied to "Generating…"
     // it erased the button under the press that started the work.

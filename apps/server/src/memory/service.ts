@@ -43,8 +43,11 @@ const tryRead = (path: string): string | null => {
  * whose environment row says Realm created it.
  */
 export class MemoryService {
-  /** Where user-level Claude files are read from. Overridable so tests and live checks never touch the
-   *  real `~/.claude`; the default is the exact directory the CLI itself reads. */
+  /** Where user-level Claude files are read from for a session that runs under the default Claude
+   *  config folder, which is the exact directory the CLI itself reads when Realm names no other for
+   *  it. `systemContextFor` and `sourcesFor` read the folder a session runs under in this one's
+   *  place when they are given one as `claudeDir`. Overridable so tests and live checks never touch
+   *  the real `~/.claude`. */
   private readonly claudeDir: string;
   constructor(private d: {
     home: string; settings: SettingsStore; environments: PrimaryEnvironments; claudeDir?: string;
@@ -201,11 +204,18 @@ export class MemoryService {
    * takes `{cwd, mcpServers}` and nothing else, and handing an adapter context it can only drop would
    * make the memory pane a lie.
    */
-  systemContextFor(o: { spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean }): string | undefined {
+  systemContextFor(o: {
+    spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean;
+    /** The Claude config folder the session runs under, where it is not the default one. The CLI
+     *  started there loads that folder's `CLAUDE.md` as the user's own, so that file is the one
+     *  carried back in as the user file. The default folder's in its place would hand the session
+     *  the memory of an account it does not run on. Null or absent reads the constructor's folder. */
+    claudeDir?: string | null;
+  }): string | undefined {
     if (AGENT_MEMORY_CHANNEL[o.kind] === "none") return undefined;
     const parts: string[] = [];
     if (o.kind === "claude" && o.skillsInjected) {
-      for (const f of claudeMemoryFiles(o.cwd, this.claudeDir)) {
+      for (const f of claudeMemoryFiles(o.cwd, o.claudeDir ?? this.claudeDir)) {
         if (!f.content?.trim()) continue;
         parts.push(`Contents of ${f.path} (re-injected by Realm; this session loads no settings files itself because its skills library isolates them):\n\n${f.content}`);
       }
@@ -230,7 +240,12 @@ export class MemoryService {
    * Claude modeled from the paths the CLI reads, Codex from the `instructionSources` ITS OWN
    * `thread/start` reported (`reported` is null until it has), Cursor a stated nothing.
    */
-  sourcesFor(o: { kind: AgentKind; spaceId: string; cwd: string; skillsInjected: boolean; reported: string[] | null }): MemorySources {
+  sourcesFor(o: {
+    kind: AgentKind; spaceId: string; cwd: string; skillsInjected: boolean; reported: string[] | null;
+    /** The Claude config folder the session runs under, as `systemContextFor` takes it, so the pane
+     *  lists the user file that session loads and not the default folder's. */
+    claudeDir?: string | null;
+  }): MemorySources {
     const channel = AGENT_MEMORY_CHANNEL[o.kind];
     const note = memorySupportNote(o.kind);
     // Same effective computation the injection uses — any doc that would ride (space, or an inherited
@@ -239,7 +254,7 @@ export class MemoryService {
     const realmMemoryInjected = channel !== "none"
       && (eff.spaceDoc.trim().length > 0 || (eff.profile !== null && eff.profile.enabledHere && eff.profile.doc.trim().length > 0));
     if (o.kind === "claude") {
-      const sources: MemorySource[] = claudeMemoryFiles(o.cwd, this.claudeDir).map((f) => ({
+      const sources: MemorySource[] = claudeMemoryFiles(o.cwd, o.claudeDir ?? this.claudeDir).map((f) => ({
         path: f.path, origin: f.origin, exists: f.exists,
         via: !f.exists ? "none" : o.skillsInjected ? "realm" : "cli",
       }));

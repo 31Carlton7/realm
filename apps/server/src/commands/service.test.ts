@@ -215,3 +215,104 @@ describe("UserCommandsService.sources", () => {
     expect([readdirSync(claudeCmds()), readdirSync(userDir())]).toEqual(before);
   });
 });
+
+/**
+ * The service with `claudeDirOf` wired, the seam that says which Claude config folder a space's
+ * profile names. In the suite that follows, SPACE's profile names `work` and no other space's names
+ * any. Each folder keeps one command the other lacks: `/deploy` in the work one, `/journal` in the
+ * default one. `userHome` is the person's home folder, which holds none of the fixtures unless a
+ * test puts a folder under it to read the tilde in its label.
+ */
+const serviceAsking = (claudeDirOf: (spaceId: string) => string | null, userHome = "/Users/nobody") => new UserCommandsService({
+  home, claudeDir, userHome, claudeDirOf,
+  spaces: { folderPathOf: (id) => (id === SPACE ? folder : null) },
+});
+
+describe("the Claude config folder a space's profile names", () => {
+  let work: string;
+  const workCmds = () => join(work, "commands");
+
+  beforeEach(() => {
+    work = join(tempDir("realm-commands-work-"), ".claude-work");
+    service = serviceAsking((id) => (id === SPACE ? work : null));
+    cmd(workCmds(), "deploy.md", template("the work account's", "Ship it."));
+    cmd(claudeCmds(), "journal.md", template("the personal account's", "Write the journal."));
+  });
+
+  it("lists the commands of the folder a space's profile names, and none of the default folder's", () => {
+    expect(names()).toEqual(["deploy"]);
+  });
+
+  it("lists the commands of the folder a space's profile names although the default folder holds none", () => {
+    claudeDir = join(tempDir("realm-commands-user-"), ".claude");
+    service = serviceAsking((id) => (id === SPACE ? work : null));
+    expect(names()).toEqual(["deploy"]);
+  });
+
+  it("lists the default folder's commands in a space whose profile names no folder", () => {
+    expect(names("spc_other")).toEqual(["journal"]);
+  });
+
+  it("lists the commands of the folder a profile names in a space that has no folder of its own", () => {
+    service = serviceAsking(() => work);
+    expect(names("spc_other")).toEqual(["deploy"]);
+  });
+
+  it("lists the default folder's commands outside any space, without asking which folder a profile names", () => {
+    const asked: string[] = [];
+    service = serviceAsking((id) => { asked.push(id); return work; });
+    expect(names(null)).toEqual(["journal"]);
+    expect(asked).toEqual([]);
+  });
+
+  it("offers the prompter's picker the commands of the folder a space's profile names, and none of the default folder's", () => {
+    expect(service.runnable(SPACE).map((c) => c.name)).toEqual(["deploy"]);
+  });
+
+  it("expands a command from the folder a space's profile names, and finds none that only the default folder holds", () => {
+    expect(service.expand(SPACE, "deploy", "").text.trim()).toBe("Ship it.");
+    expect(() => service.expand(SPACE, "journal", "")).toThrow(/not found/);
+  });
+
+  it("lets the user's own command win a name over the same command in the folder a space's profile names", () => {
+    cmd(userDir(), "deploy.md", template("the user's"));
+    expect(byName("deploy").map((c) => c.origin.kind)).toEqual(["user", "agent"]);
+  });
+
+  it("names the folder a space's profile names among that space's sources, with what it contributed", () => {
+    expect(service.sources(SPACE).find((s) => s.kind === "agent")).toEqual({
+      kind: "agent", key: "claude", label: workCmds(), path: workCmds(), count: 1, writable: false,
+    });
+  });
+
+  it("shows a named folder under the person's home folder with a tilde in its label", () => {
+    const userHome = tempDir("realm-commands-person-");
+    const named = join(userHome, ".claude-work");
+    cmd(join(named, "commands"), "deploy.md", template("the work account's"));
+    service = serviceAsking(() => named, userHome);
+    expect(service.sources(SPACE).find((s) => s.kind === "agent")?.label).toBe("~/.claude-work/commands");
+  });
+
+  it("lists no Claude commands for a profile whose folder holds none, whatever the default folder holds", () => {
+    const bare = join(tempDir("realm-commands-bare-"), ".claude-bare");
+    mkdirSync(bare);
+    service = serviceAsking(() => bare);
+    expect(names()).toEqual([]);
+    expect(service.sources(SPACE).map((s) => s.kind)).toEqual(["space", "user"]);
+  });
+
+  it("lists no Claude commands for a profile whose folder is missing, whatever the default folder holds", () => {
+    const missing = join(tempDir("realm-commands-missing-"), ".claude-missing");
+    service = serviceAsking(() => missing);
+    expect(names()).toEqual([]);
+    expect(service.sources(SPACE).map((s) => s.kind)).toEqual(["space", "user"]);
+  });
+
+  it("asks which folder a profile names at every list, so a folder named later needs no restart", () => {
+    let named: string | null = null;
+    service = serviceAsking(() => named);
+    expect(names()).toEqual(["journal"]);
+    named = work;
+    expect(names()).toEqual(["deploy"]);
+  });
+});

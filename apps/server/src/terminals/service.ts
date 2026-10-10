@@ -174,8 +174,8 @@ export class TerminalService {
    *  sandbox. No `extraWritableRoots`: a terminal's cwd is a directory of the space, and the space's
    *  checkouts are already writable — unlike a session, which can be pointed at a folder Realm has
    *  not catalogued. See `sandboxWrapFor` for why `undefined` and not an identity function. */
-  private wrapFor(spaceId: string): SpawnWrap | undefined {
-    return sandboxWrapFor(this.d.sandbox, { spaceId });
+  private wrapFor(spaceId: string, claudeDir?: string | null): SpawnWrap | undefined {
+    return sandboxWrapFor(this.d.sandbox, { spaceId, ...(claudeDir !== undefined ? { claudeDir } : {}) });
   }
 
   /** Boot: respawn a pty for every persisted terminal row. Rows whose cwd vanished or whose spawn fails
@@ -216,7 +216,12 @@ export class TerminalService {
     return restored;
   }
 
-  open(p: { spaceId: string; cwd?: string; cols: number; rows: number }): { terminalId: string; itemId: string } {
+  /**
+   * `claudeDir` is the Claude config folder the shell is opened to write to, where the caller knows
+   * it: a sign-in names the folder it lands in, with null for the default one. Left out, a sandboxed
+   * shell gets the folder its space's profile names, as every other terminal does.
+   */
+  open(p: { spaceId: string; cwd?: string; cols: number; rows: number; claudeDir?: string | null }): { terminalId: string; itemId: string } {
     const space = this.d.spaces.get(p.spaceId); if (!space) throw new NotFoundError("space", p.spaceId);
     const cwd = p.cwd ?? space.folderPath;
     const shell = process.env.SHELL ?? "/bin/zsh";
@@ -230,7 +235,7 @@ export class TerminalService {
       itemId = this.d.items.create({ spaceId: p.spaceId, kind: "terminal", title: basename(cwd) || "Terminal", refId: terminalId }).id;
       // Before `create`, for `restoreAll`'s reason: the shell can print before the call returns.
       this.scrollback.newRun(terminalId, newId(), { cols: p.cols, rows: p.rows }, null);
-      this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell, env: this.envFor(p.spaceId, cwd), wrap: this.wrapFor(p.spaceId) });
+      this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell, env: this.envFor(p.spaceId, cwd), wrap: this.wrapFor(p.spaceId, p.claudeDir) });
       this.foreground.watch(terminalId);
       this.d.db.exec("COMMIT");
     } catch (e) {

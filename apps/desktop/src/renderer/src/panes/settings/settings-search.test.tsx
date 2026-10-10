@@ -15,13 +15,19 @@ vi.mock("../../rpc/client", () => ({
 }));
 
 import { SettingsPage } from "./SettingsPage";
-import { SETTINGS_GROUPS, SETTINGS_INDEX, searchSettings, type SettingsTab } from "./settings-index";
+import { SETTINGS_GROUPS, SETTINGS_INDEX, searchSettings, type SettingsNow, type SettingsTab } from "./settings-index";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
+import { claudeFolder, fakeApi, item, type FakeData } from "../../state/store.test-fakes";
 import type { AgentProbe } from "../../state/store";
 
 const pageItem = item("set-s1", "s1", { kind: "settings-page", title: "Settings", refId: PAGE_REF_IDS["settings-page"] });
 const probe: AgentProbe[] = [{ kind: "claude", available: true, version: "2.1.223", loggedIn: null, reason: null }];
+/** What the window shows in the fixture every test here mounts unless it says otherwise: no profile
+ *  names a Claude config folder, so the rows that wait on one are not drawn. */
+const NO_FOLDER_NAMED: SettingsNow = { claudeFolder: false };
+/** Work (p1), the profile the window opens on, naming a Claude config folder of its own. Made anew
+ *  for each test: the fake keeps what it is handed, and writes into it. */
+const workNamesAFolder = (): FakeData => ({ claudeDirs: { p1: claudeFolder("/Users/carlton/.claude-work") } });
 
 async function mount(overrides: FakeData = {}) {
   const api = fakeApi({ agentProbe: probe, ...overrides });
@@ -228,7 +234,7 @@ describe("the index and the pages agree", () => {
       await mount();
       fireEvent.click(screen.getByRole("radio", { name: label(tab) }));
       const content = document.querySelector(".page-content") as HTMLElement;
-      const wanted = SETTINGS_INDEX.filter((e) => e.tab === tab && !e.page && e.available?.() !== false).map((e) => e.id);
+      const wanted = SETTINGS_INDEX.filter((e) => e.tab === tab && !e.page && e.available?.(NO_FOLDER_NAMED) !== false).map((e) => e.id);
       await waitFor(() => {
         const present = new Set([...content.querySelectorAll("[data-setting]")].map((el) => el.getAttribute("data-setting")));
         for (const id of wanted) expect(present.has(id), `${tab}: no row carries "${id}"`).toBe(true);
@@ -255,6 +261,45 @@ describe("the index and the pages agree", () => {
   it("no two entries share an id, so a jump has one row to land on", () => {
     const ids = SETTINGS_INDEX.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("a row drawn only where the active profile names a Claude config folder", () => {
+  const found = () => screen.queryByRole("button", { name: "Claude config folder, in Engines" });
+
+  it("is on Engines under the anchor its entry names, which the index then expects there", async () => {
+    await mount(workNamesAFolder());
+    fireEvent.click(screen.getByRole("radio", { name: "Engines" }));
+    await waitFor(() => expect(document.querySelector('.page-content [data-setting="engine-claude-folder"]')).not.toBeNull());
+    const expected = SETTINGS_INDEX.filter((e) => e.tab === "engines" && !e.page && e.available?.({ claudeFolder: true }) !== false).map((e) => e.id);
+    expect(expected).toContain("engine-claude-folder");
+  });
+
+  it("is left out of a search while no folder is named, when it would land on a card that does not hold it", async () => {
+    const { store } = await mount();
+    await waitFor(() => expect(store.getState().claudeDirs.p1).toBeDefined());
+    type("config folder");
+    expect(found()).toBeNull();
+  });
+
+  it("is left out of a search under a variable that outranks the folder's sign-in, where the card does not draw it either", async () => {
+    const { store } = await mount({ claudeDirs: { p1: claudeFolder("/Users/carlton/.claude-work", { override: "ANTHROPIC_API_KEY" }) } });
+    await waitFor(() => expect(store.getState().claudeDirs.p1?.override).toBe("ANTHROPIC_API_KEY"));
+    type("config folder");
+    expect(found()).toBeNull();
+    fireEvent.change(search(), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Engines" }));
+    await waitFor(() => expect(screen.getByRole("listitem", { name: /^Claude:/ })).toBeInTheDocument());
+    expect(document.querySelector('.page-content [data-setting="engine-claude-folder"]')).toBeNull();
+  });
+
+  it("is found by a search once a folder is named, and the jump lands on the button that changes it", async () => {
+    await mount(workNamesAFolder());
+    type("config folder");
+    await waitFor(() => expect(found()).not.toBeNull());
+    fireEvent.click(found()!);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Change…" })).toHaveFocus());
+    expect(screen.getByRole("listitem", { name: /^Claude:/ })).toHaveAttribute("data-found");
   });
 });
 

@@ -67,7 +67,10 @@ contextBridge.exposeInMainWorld("realm", {
     list: (): Promise<InstalledEditor[]> => ipcRenderer.invoke("editors:list"),
     open: (id: EditorId, path: string, base?: string): Promise<boolean> => ipcRenderer.invoke("editors:open", id, path, base),
   },
-  pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
+  /** The OS folder dialog: the folder chosen, or null when cancelled. What the caller asks for
+   *  goes to main as it is, and main reads each part for itself. Dropped here, a profile's page
+   *  would get the dialog that hides the dot folder it is there to pick. */
+  pickFolder: (o?: { hidden?: boolean; create?: boolean; aliases?: boolean; from?: string }): Promise<string | null> => ipcRenderer.invoke("pick-folder", o),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),
   /** The path of a VS Code theme file the user chose, or null if they cancelled. The path alone —

@@ -1,7 +1,8 @@
-import { MCP_SECRET_STORAGE_NOTE, SPACE_COLORS, type McpServer, type Profile, type Skill } from "@realm/contracts";
+import { AGENT_META, MCP_SECRET_STORAGE_NOTE, SPACE_COLORS, tildePath, type AgentAccount, type AgentSignIn, type ClaudeDir, type McpServer, type Profile, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
-import { useApp, type ProfilePageTab, type ProfileUsage } from "../../state/store";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useApp, type AgentProbe, type ProfilePageTab, type ProfileUsage } from "../../state/store";
+import { AgentSignInSteps, runningSignIn } from "../../components/AgentSignInSteps";
 import { MoveScopeConfirm } from "../../components/scoped/ScopeGroups";
 import { McpServerForm } from "../../components/sidebar/McpSection";
 import { IconPicker } from "../../components/IconPicker";
@@ -10,6 +11,7 @@ import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { MemoryDoc } from "../../components/settings/MemoryDoc";
+import { accountTitle } from "../session/Composer";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -109,6 +111,10 @@ export function ProfilePage({ item }: PaneProps) {
  * The General tab (Plan 27 Phase 2): the profile's name, icon and colour, and deleting it. A profile is
  * an identity now — its own spaces, browser cookies, saved sign-ins and passkeys — so this is where it
  * is edited, as a space is on its own page.
+ *
+ * The Claude config folder its sessions sign in from is named here as well, between the colour and
+ * the delete. That field is keyed by the profile, so neither a half-typed path nor an account
+ * follows the page from one profile to the next.
  */
 function ProfileGeneralTab({ profile }: { profile: Profile }) {
   const renameProfile = useApp((s) => s.renameProfile);
@@ -147,7 +153,304 @@ function ProfileGeneralTab({ profile }: { profile: Profile }) {
           <input aria-label="Custom colour" className="hex" value={hex} onChange={(e) => commitHex(e.target.value)} placeholder="#rrggbb" spellCheck={false} />
         </div>
       </div>
+      <ClaudeFolderField key={profile.id} profile={profile} />
       <DeleteProfile profile={profile} />
+    </div>
+  );
+}
+
+/** What the page says where Claude's row for a folder does not say whether it is signed in. */
+const CANT_TELL = "Realm can't tell whether this folder is signed in.";
+
+/** What Sign in says in its tooltip while a Claude sign-in runs for another folder. The server
+ *  keeps one unfinished sign-in for each agent, whichever folder it lands in, so starting one here
+ *  ends that one, and its page in the browser then leads nowhere. */
+const STOPS_ANOTHER_SIGN_IN = "Starting this sign-in stops the Claude sign-in that is running for another folder.";
+
+/**
+ * What the General tab says about the sign-in of a profile's Claude config folder.
+ *
+ * - `checking`: nothing has answered for this folder yet.
+ * - `missing`: the named folder is not on disk. No session starts under it, and Claude Code makes a
+ *   folder it is pointed at and does not find, so a sign-in there would make the folder Realm says
+ *   it never makes. No Sign in is offered.
+ * - `override`: a variable in Realm's own environment outranks every folder's sign-in. Signing the
+ *   folder in would change nothing a session uses, so no Sign in is offered here either.
+ * - `signed-in` and `signed-out`: what the folder's own probe said.
+ * - `unknown`: Claude Code is not installed, or could not say. `says` is its own reason where it
+ *   gave one.
+ */
+type FolderSignIn =
+  | { state: "checking" | "missing" | "signed-out" }
+  | { state: "override"; variable: string }
+  | { state: "signed-in" | "unknown"; says: string };
+
+/**
+ * "Signed in as EMAIL (PLAN, ORG)." for the account a folder is signed in as.
+ *
+ * Cut from the account chip's own sentence (`accountTitle`) and not written again, so the two agree
+ * on the bracket: the plan as the chip names it, and the organisation only where it says more than
+ * the email does. A second copy of that rule is the copy that falls behind. If the chip's sentence
+ * ever opens another way it is shown whole, which is still true of the folder.
+ */
+function signedInAs(account: AgentAccount): string {
+  const said = accountTitle("claude", account, undefined);
+  const lead = `${AGENT_META.claude.label} is signed in as `;
+  return said.startsWith(lead) ? `Signed in as ${said.slice(lead.length)}` : said;
+}
+
+/**
+ * The sign-in state of a folder, from the folder's own answer and Claude's row for it.
+ *
+ * The folder's answer is read first. The server runs nothing under a missing folder and reports it
+ * signed out, and an API key in Realm's environment does not show in the CLI's own status, so in
+ * both cases the row alone would offer a Sign in that cannot help. A row for a CLI that is not
+ * installed is read before its sign-in for the same reason: there is nothing there to sign in to.
+ *
+ * A folder is missing where either says so: its own answer, or the row (`homeMissing`). The answer
+ * is read when the profiles are and the row each time the tab is shown, so the row is the first to
+ * say that a folder went while the page was away. The server refuses a sign-in there, and a line
+ * that offered one would be offering a press that ends in a toast.
+ */
+function folderSignIn(folder: ClaudeDir | undefined, row: AgentProbe | null | undefined): FolderSignIn {
+  if (folder?.missing || row?.homeMissing) return { state: "missing" };
+  if (folder?.override) return { state: "override", variable: folder.override };
+  if (row === undefined) return { state: "checking" };
+  if (row === null || !row.available || row.loggedIn === null) return { state: "unknown", says: row?.reason || CANT_TELL };
+  if (!row.loggedIn) return { state: "signed-out" };
+  return { state: "signed-in", says: row.account ? signedInAs(row.account) : "Signed in." };
+}
+
+/** The sentence for a sign-in state. The variable is set in mono: it is a name a person goes and
+ *  looks for, in their shell's own files. */
+function signInSentence(signIn: FolderSignIn, profileName: string): ReactNode {
+  switch (signIn.state) {
+    case "checking": return "Checking…";
+    case "missing": return `This folder is missing. Claude sessions in ${profileName}'s spaces can't start until you choose a folder or use the default.`;
+    case "override": return <>Realm's environment sets <code className="env-path">{signIn.variable}</code>, which Claude uses instead of this folder's sign-in.</>;
+    case "signed-out": return "Not signed in.";
+    default: return signIn.says;
+  }
+}
+
+/**
+ * Claude's row for a profile's config folder, the way to ask for it again, and the way to let go of
+ * the one held.
+ *
+ * Asked as the tab is shown and again whenever the folder's answer changes, from what the server
+ * last learned (`ask(false)`). It is not asked before the folder is known: the row is a fact about
+ * a folder, and until then the page names none.
+ *
+ * An answer is kept only while it is about the profile on the page, the folder, and whether that
+ * folder is on disk. The page follows its space to another profile, and a profile can be named
+ * another folder while an answer is on its way; either answer landing late would put one account
+ * under another folder's path. And the row held for a folder that is missing is the server's
+ * stand-in for one, since Claude Code is asked nothing about a folder that is not there: kept once
+ * the folder is back, it would speak for a folder nothing had looked at yet. So the row reads as
+ * not answered from the moment any of the three changes, and an answer for what the page has left
+ * is let go.
+ *
+ * `forget` lets the held row go while all three stand, for a page that knows the row is out of
+ * date: a sign-in it watched has finished since the row was read. The row then reads as not
+ * answered until the next answer lands.
+ *
+ * A fresh ask (`ask(true)`) that fails, or answers no row, leaves what was held: it is made when a
+ * sign-in may have finished, and a lost call says nothing about that. Where nothing is held, as
+ * after `forget`, it answers null as an ordinary ask that fails does, which the page reads as not
+ * being able to tell. Left unanswered, the line would wait on a reply that is not coming.
+ */
+function useFolderRow(profileId: string, folder: ClaudeDir | undefined): { row: AgentProbe | null | undefined; ask: (force: boolean) => void; forget: () => void } {
+  const probeProfileClaude = useApp((s) => s.probeProfileClaude);
+  const about = folder ? `${profileId}\n${folder.inForce}\n${folder.missing}` : null;
+  const wanted = useRef<string | null>(null);
+  const [answer, setAnswer] = useState<{ about: string; row: AgentProbe | null } | null>(null);
+  useEffect(() => {
+    wanted.current = about;
+    return () => { wanted.current = null; };
+  }, [about]);
+  const ask = useCallback((force: boolean) => {
+    if (about === null) return;
+    const land = (row: AgentProbe | null) => {
+      if (wanted.current !== about) return;
+      setAnswer((held) => (force && row === null && held?.about === about ? held : { about, row }));
+    };
+    void probeProfileClaude(profileId, force).then(land, () => land(null));
+  }, [about, profileId, probeProfileClaude]);
+  const forget = useCallback(() => setAnswer(null), []);
+  useEffect(() => { ask(false); }, [ask, folder?.dir, folder?.missing, folder?.override]);
+  return { row: answer !== null && answer.about === about ? answer.row : undefined, ask, forget };
+}
+
+/**
+ * The folder that holds `path`, which is where the folder dialog opens: the folders a person
+ * chooses between sit side by side there. A path with no folder over it is answered the root.
+ */
+function parentFolder(path: string): string {
+  const cut = path.lastIndexOf("/");
+  return cut > 0 ? path.slice(0, cut) : "/";
+}
+
+/**
+ * The space-less Claude sign-in the window holds, where it is this folder's: the one that lands in
+ * the folder the profile names, or in the default folder where the profile names none
+ * (`AgentSignIn.home`). A sign-in started for another folder is another page's, and is not shown
+ * here. Null where the window holds none, and until the folder is known.
+ */
+function signInFor(folder: ClaudeDir | undefined, held: AgentSignIn | undefined): AgentSignIn | null {
+  return folder && held && (held.home ?? null) === folder.dir ? held : null;
+}
+
+/**
+ * A profile's Claude config folder: the folder in force, the ways to name another, and whether that
+ * folder is signed in.
+ *
+ * The field shows the folder in force and never a blank, the default folder included, so what a
+ * person reads there is what the profile's next session runs under. It is a draft only while it is
+ * typed in. Enter sends it, and so does moving the keyboard to another control. The window losing
+ * the keyboard does not: the folder dialog opening, or a switch to another app, leaves the draft in
+ * the field as it was typed. Nor is a draft sent that would change nothing: one that reads as the
+ * shown folder does, or an empty one while the profile names no folder. Escape puts the shown
+ * folder back, and once the server has stored or refused a draft the field shows the stored folder
+ * again. A refusal is the server's own sentence, in a toast. Escape is the field's only while there
+ * is a draft to put back; with none it is the page's way out, as it is everywhere else on the page.
+ *
+ * Choose… and Use the default act on the stored folder. A press on either leaves the keyboard in
+ * the field, so a half-typed path is not sent on the way to the button, to be refused in a toast
+ * about a path the person had already given up on. The dialog opens on the folder that holds the
+ * one in force, where the folders a person chooses between are listed side by side, the hidden
+ * ones among them. It offers no New Folder, since Realm makes no folder here, and it hands an alias
+ * back as it is named: the server keeps a path as it was named, and Claude Code files a sign-in
+ * under that spelling. A second press on Choose… while its dialog is up opens no second dialog over
+ * the first.
+ *
+ * Until the window holds this profile's folder the field is off and says so, and the page reads the
+ * folder itself: a path shown before then would be a guess.
+ *
+ * Sign in runs Claude Code's own login for this profile's folder, with no space around it, as the
+ * first run's card does (`startAgentSignIn`). While a sign-in for this folder runs, its steps stand
+ * in place of the line under the field (`AgentSignInSteps`), keyed by the sign-in, so a code typed
+ * for one is never left in the field for the next. A sign-in running for another folder is not
+ * shown here. The server keeps one unfinished sign-in for Claude whichever folder it lands in, so
+ * while one runs elsewhere Sign in says in its tooltip that a press stops it.
+ *
+ * When the page has watched a sign-in run and it reports that it is done, the row the page holds
+ * was read before the sign-in. It is let go and asked for again, so the line reads "Checking…"
+ * with no button until the answer lands, and never "Not signed in." over a folder that has just
+ * been signed in. The row is let go before the window is painted again (a layout effect), so the
+ * button is not drawn for one frame either. A profile that names a folder asks from what the
+ * server last learned: the server reads that folder afresh to confirm a sign-in before it reports
+ * one done, so the answer is at hand. A profile on the default folder asks afresh. There the
+ * server's confirming read only amends its list of every agent and leaves that list's age as it
+ * was, and a plain ask of a list past its age waits on every agent's probe. When it was cancelled
+ * the line is back at once, and the row is asked for afresh behind it, since a cancel can land
+ * after the login itself has finished. When the sign-in did not finish, the line is back with its
+ * button, under the sentence the first run's card says of one.
+ *
+ * While that line reads "Not signed in.", says the folder is missing, or says it can't tell, the
+ * page reads the folders again each time the window comes back to the front. It asks for the row
+ * afresh as well, as the install card does, wherever the folder's own answer does not say the
+ * folder is missing. That is under "Not signed in.", where a row could not say or a call for one
+ * was lost, and where only the row says the folder is missing: the folder may have
+ * gone since its answer was read, which the read puts right, or gone and come back between two
+ * reads, which only a fresh row does. Where the folder's answer says it is missing nothing is
+ * asked, since the server asks Claude Code nothing about a folder that is not there. A folder can
+ * be put back, and a sign-in finished, in a terminal that tells this page nothing.
+ */
+function ClaudeFolderField({ profile }: { profile: Profile }) {
+  const folder = useApp((s) => s.claudeDirs[profile.id]);
+  const userHome = useApp((s) => s.userHome);
+  const held = useApp((s) => s.agentSignIns.claude);
+  const loadClaudeDirs = useApp((s) => s.loadClaudeDirs);
+  const setClaudeDir = useApp((s) => s.setClaudeDir);
+  const pickFolder = useApp((s) => s.pickFolder);
+  const startAgentSignIn = useApp((s) => s.startAgentSignIn);
+  const run = useApp((s) => s.run);
+  const known = folder !== undefined;
+  const shown = folder ? tildePath(folder.inForce, userHome) : "";
+  const [text, setText] = useState(shown);
+  const [settled, setSettled] = useState(0);
+  const picking = useRef(false);
+  useEffect(() => { setText(shown); }, [shown, settled]);
+  useEffect(() => { if (!known) void loadClaudeDirs(); }, [known, loadClaudeDirs]);
+  const { row, ask, forget } = useFolderRow(profile.id, folder);
+  const signIn = folderSignIn(folder, row);
+  const signedOut = signIn.state === "signed-out";
+  const rereads = signedOut || signIn.state === "missing" || signIn.state === "unknown";
+  useEffect(() => {
+    if (!rereads) return;
+    const again = () => {
+      void loadClaudeDirs();
+      if (!folder?.missing) ask(true);
+    };
+    window.addEventListener("focus", again);
+    return () => window.removeEventListener("focus", again);
+  }, [rereads, folder?.missing, ask, loadClaudeDirs]);
+  const own = signInFor(folder, held);
+  const live = runningSignIn(own);
+  const ended = live ? null : own?.state ?? null;
+  const elsewhere = own === null && runningSignIn(held) !== null;
+  const onDefaultFolder = folder?.dir === null;
+  const watched = useRef(false);
+  useLayoutEffect(() => {
+    if (watched.current && ended === "done") { forget(); ask(onDefaultFolder); }
+    else if (watched.current && ended === "cancelled") ask(true);
+    watched.current = live !== null;
+  }, [live, ended, ask, forget, onDefaultFolder]);
+
+  const write = async (dir: string | null) => {
+    try { await setClaudeDir(profile.id, dir); }
+    finally { setSettled((n) => n + 1); }
+  };
+  const commit = () => {
+    if (!folder) return;
+    const typed = text.trim();
+    if (typed === shown || (typed === "" && folder.dir === null)) setText(shown);
+    else run(() => write(typed === "" ? null : typed));
+  };
+  const choose = () => {
+    if (!folder || picking.current) return;
+    picking.current = true;
+    run(async () => {
+      try {
+        const picked = await pickFolder({ hidden: true, create: false, aliases: false, from: parentFolder(folder.inForce) });
+        if (picked !== null) await write(picked);
+      } finally { picking.current = false; }
+    });
+  };
+
+  return (
+    <div className="field"><span>Claude config folder</span>
+      <div className="claude-folder-row">
+        <input aria-label="Claude config folder" className={known ? "env-path" : undefined} value={text} disabled={!known}
+          placeholder={known ? undefined : "Checking…"} spellCheck={false} autoComplete="off"
+          onChange={(e) => setText(e.target.value)}
+          onBlur={(e) => { if (document.activeElement !== e.currentTarget) commit(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            else if (e.key === "Escape" && text !== shown) { e.preventDefault(); e.stopPropagation(); setText(shown); }
+          }} />
+        <button type="button" className="btn" disabled={!known} onMouseDown={(e) => e.preventDefault()} onClick={choose}>Choose…</button>
+        {folder && folder.dir !== null && (
+          <button type="button" className="btn" onMouseDown={(e) => e.preventDefault()} onClick={() => run(() => write(null))}>Use the default</button>
+        )}
+      </div>
+      {(live || (signedOut && ended === "failed")) && (
+        <div aria-live="polite">
+          {live
+            ? <AgentSignInSteps key={live.id} signIn={live} name={AGENT_META.claude.label} />
+            : <p className="settings-hint" data-tone="danger" title={own?.detail ?? undefined}>The sign-in didn't finish. Try again.</p>}
+        </div>
+      )}
+      {!live && (
+        <div className="claude-folder-state">
+          <span role="status">{signInSentence(signIn, profile.name)}</span>
+          {signedOut && (
+            <button type="button" className="btn" title={elsewhere ? STOPS_ANOTHER_SIGN_IN : undefined}
+              onClick={() => run(() => startAgentSignIn("claude", profile.id))}>Sign in</button>
+          )}
+        </div>
+      )}
+      <p className="settings-hint">New Claude sessions in {profile.name}'s spaces use this folder's sign-in, memory, and commands. A conversation keeps the sign-in it began with.</p>
     </div>
   );
 }

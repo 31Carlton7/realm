@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createAppStore, StoreContext } from "../../state/store";
-import { fakeApi, item } from "../../state/store.test-fakes";
+import { claudeRow, fakeApi, item } from "../../state/store.test-fakes";
 import { reduceAll } from "./transcript-model";
 import { sessionEvent, type GitInfo } from "@realm/contracts";
 import { contextRows, planBodyBelowTitle, planRows, planTitle } from "./SessionSummary";
@@ -380,6 +380,20 @@ describe("the account the session spends from", () => {
     // A plan with no tier is a row that cannot be named; a window with no utilization is not a 0%.
     expect(planRows(limits({ subscriptionType: null }), "claude").map((r) => r.label)).toEqual(["Weekly"]);
     expect(planRows(limits({ windows: [{ id: "weekly", label: "Weekly", utilization: null, resetsAt: null }] }), "claude").map((r) => r.label)).toEqual(["plan"]);
+  });
+
+  it("names the plan of the account the session's own config folder is signed in to, where two Claude accounts report", async () => {
+    const work = "/Users/carlton/.claude-work";
+    const { store } = await mount([sessionEvent("usage", { costUsd: 0.42, inputTokens: 10, outputTokens: 10, numTurns: 2 })]);
+    store.setState({
+      sessions: { ...store.getState().sessions, se1: fakeSession("se1", "s1", { agentKind: "claude" }) },
+      sessionClaude: { se1: claudeRow("work@example.com", work) },
+      planLimits: [limits(), limits({ subscriptionType: "team", home: work })],
+    });
+    openPanel();
+    const panel = screen.getByRole("dialog", { name: "Session summary" });
+    expect(within(panel).getByText("Claude Team")).toBeInTheDocument();
+    expect(within(panel).queryByText("Claude Max")).toBeNull();
   });
 });
 

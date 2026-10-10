@@ -322,3 +322,125 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
   });
 
 });
+
+const DEFAULT_FOLDER_MEMORY = "DEFAULT_FOLDER_MARKER_2204";
+const WORK_FOLDER_MEMORY = "WORK_FOLDER_MARKER_7731";
+const PROJECT_MEMORY = "PROJECT_MARKER_3358";
+
+/**
+ * The harness with three Claude config folders in it. The constructor's, which is the default one,
+ * and `work`, for the account a profile might name, each hold their own `CLAUDE.md`. `bare` holds
+ * none, and `missing` is a path with no folder at it. `defaultHoldsNone` leaves the default folder
+ * as empty as `bare`, for a person who keeps a `CLAUDE.md` in a named folder only. `context`,
+ * `sources` and `userFiles` ask, for a Claude session in SPACE_A that runs under the folder they are
+ * given, what Realm re-injects, which files the pane lists, and which of those is the user file.
+ * `context` asks with skills on, the one case in which Realm re-injects a `CLAUDE.md`, and the other
+ * two with skills off, unless a test says otherwise.
+ */
+function claudeFolders({ defaultHoldsNone = false } = {}) {
+  const h = harness();
+  const work = join(h.home, "claude-work");
+  const bare = join(h.home, "claude-bare");
+  const missing = join(h.home, "claude-missing");
+  for (const [dir, text] of [[h.claudeDir, defaultHoldsNone ? null : DEFAULT_FOLDER_MEMORY], [work, WORK_FOLDER_MEMORY], [bare, null]] as const) {
+    mkdirSync(dir, { recursive: true });
+    if (text !== null) writeFileSync(join(dir, "CLAUDE.md"), text);
+  }
+  const cwd = h.folderOf(SPACE_A);
+  const session = { spaceId: SPACE_A, kind: "claude", cwd } as const;
+  const sources = (claudeDir: string | null, { skillsInjected = false } = {}) =>
+    h.memory.sourcesFor({ ...session, skillsInjected, reported: null, claudeDir }).sources;
+  return {
+    ...h, work, bare, missing, cwd, sources,
+    context: (claudeDir: string | null, { skillsInjected = true } = {}) =>
+      h.memory.systemContextFor({ ...session, skillsInjected, claudeDir }),
+    userFiles: (claudeDir: string | null, o: { skillsInjected?: boolean } = {}) =>
+      sources(claudeDir, o).filter((s) => s.origin === "user"),
+  };
+}
+
+describe("the Claude config folder a session runs under", () => {
+  it("re-injects the CLAUDE.md of the folder a session runs under, in place of the default folder's", () => {
+    const { context, work } = claudeFolders();
+    const ctx = context(work)!;
+    expect(ctx).toContain(WORK_FOLDER_MEMORY);
+    expect(ctx).toContain(join(work, "CLAUDE.md"));
+    expect(ctx).not.toContain(DEFAULT_FOLDER_MEMORY);
+  });
+
+  it("re-injects the default folder's CLAUDE.md for a session whose folder is null", () => {
+    const { context, claudeDir } = claudeFolders();
+    const ctx = context(null)!;
+    expect(ctx).toContain(DEFAULT_FOLDER_MEMORY);
+    expect(ctx).toContain(join(claudeDir, "CLAUDE.md"));
+    expect(ctx).not.toContain(WORK_FOLDER_MEMORY);
+  });
+
+  it("re-injects no user file for a session whose own folder holds none, never the default folder's in its place", () => {
+    const { context, bare } = claudeFolders();
+    expect(context(bare) ?? "").not.toContain(DEFAULT_FOLDER_MEMORY);
+  });
+
+  it("re-injects no user file for a session whose own folder is missing, never the default folder's in its place", () => {
+    const { context, missing } = claudeFolders();
+    expect(context(missing) ?? "").not.toContain(DEFAULT_FOLDER_MEMORY);
+  });
+
+  it("still re-injects the project's own CLAUDE.md for a session that runs under a named folder", () => {
+    const { context, work, cwd } = claudeFolders();
+    writeFileSync(join(cwd, "CLAUDE.md"), PROJECT_MEMORY);
+    expect(context(work)).toContain(PROJECT_MEMORY);
+  });
+
+  it("leaves the CLAUDE.md of the folder a session runs under to the CLI when skills are off, as it does the default folder's", () => {
+    const { memory, context, work } = claudeFolders();
+    memory.set(SPACE_A, "space A memory");
+    const ctx = context(work, { skillsInjected: false })!;
+    expect(ctx).toContain("space A memory");
+    expect(ctx).not.toContain(WORK_FOLDER_MEMORY);
+  });
+
+  it("lists the CLAUDE.md of the folder a session runs under as its user file, in place of the default folder's", () => {
+    const { userFiles, work } = claudeFolders();
+    expect(userFiles(work)).toEqual([{ path: join(work, "CLAUDE.md"), origin: "user", exists: true, via: "cli" }]);
+  });
+
+  it("lists the default folder's CLAUDE.md as the user file of a session whose folder is null", () => {
+    const { userFiles, claudeDir } = claudeFolders();
+    expect(userFiles(null)).toEqual([{ path: join(claudeDir, "CLAUDE.md"), origin: "user", exists: true, via: "cli" }]);
+  });
+
+  it("lists where the user file would go in a session's own folder when that folder holds none", () => {
+    const { userFiles, bare } = claudeFolders();
+    expect(userFiles(bare)).toEqual([{ path: join(bare, "CLAUDE.md"), origin: "user", exists: false, via: "none" }]);
+  });
+
+  it("lists where the user file would go in a session's own folder when that folder is missing", () => {
+    const { userFiles, missing } = claudeFolders();
+    expect(userFiles(missing)).toEqual([{ path: join(missing, "CLAUDE.md"), origin: "user", exists: false, via: "none" }]);
+  });
+
+  it("still lists the project's own CLAUDE.md for a session that runs under a named folder", () => {
+    const { sources, work, cwd } = claudeFolders();
+    const project = join(cwd, "CLAUDE.md");
+    writeFileSync(project, PROJECT_MEMORY);
+    expect(sources(work).find((s) => s.path === project)).toEqual({ path: project, origin: "project", exists: true, via: "cli" });
+  });
+
+  it("marks the CLAUDE.md of the folder a session runs under as carried by Realm once skills are on", () => {
+    const { userFiles, work } = claudeFolders();
+    expect(userFiles(work, { skillsInjected: true })).toEqual([{ path: join(work, "CLAUDE.md"), origin: "user", exists: true, via: "realm" }]);
+  });
+
+  it("reads the folder a session runs under although the default folder holds no CLAUDE.md", () => {
+    const { context, userFiles, work } = claudeFolders({ defaultHoldsNone: true });
+    expect(context(work)).toContain(WORK_FOLDER_MEMORY);
+    expect(userFiles(work)).toEqual([{ path: join(work, "CLAUDE.md"), origin: "user", exists: true, via: "cli" }]);
+  });
+
+  it("hands an agent that is not Claude nothing from a Claude config folder it is given", () => {
+    const { memory, work, cwd } = claudeFolders();
+    expect(memory.systemContextFor({ spaceId: SPACE_A, kind: "codex", cwd, skillsInjected: true, claudeDir: work })).toBeUndefined();
+    expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd, skillsInjected: true, reported: null, claudeDir: work }).sources).toEqual([]);
+  });
+});

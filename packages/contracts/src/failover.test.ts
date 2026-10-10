@@ -38,6 +38,12 @@ describe("classifyFailure", () => {
     expect(classifyFailure("Failed to authenticate: OAuth session expired and could not be refreshed")).toBe("auth");
   });
 
+  it("reads what Claude Code says under a config folder nobody has signed in to", () => {
+    expect(classifyFailure("Not logged in · Please run /login")).toBe("auth");
+    expect(classifyFailure("Not logged in")).toBe("auth");
+    expect(classifyFailure("Please run /login")).toBe("auth");
+  });
+
   it("separates an unwell provider from an unwell wire", () => {
     expect(classifyFailure("Overloaded_error: the model is overloaded")).toBe("provider_down");
     expect(classifyFailure("read ECONNRESET")).toBe("transient");
@@ -184,6 +190,15 @@ describe("what the user is told to do about an auth failure", () => {
   it("names the agent's own login command", () => {
     expect(authFix("claude", "signed_out")).toMatchObject({ title: "Claude is not signed in", command: "claude auth login" });
     expect(authFix("codex", "signed_out")).toMatchObject({ title: "Codex is not signed in", command: "codex login" });
+  });
+
+  it("signs in the folder a Claude session runs under, where one is named, and says where that login is kept", () => {
+    const fix = authFix("claude", "signed_out", "/Users/mara/.claude-work");
+    expect(fix.command).toBe("env CLAUDE_CONFIG_DIR='/Users/mara/.claude-work' claude auth login");
+    expect(fix.hint).toBe("Uses the `claude` login kept in /Users/mara/.claude-work. Sign in there if sessions fail to authenticate.");
+    expect(authFix("claude", "unverified", "/Users/mara/.claude-work").command).toBe(fix.command);
+    expect(authFix("claude", "signed_out", null)).toEqual(authFix("claude", "signed_out"));
+    expect(authFix("codex", "signed_out", "/Users/mara/.claude-work")).toEqual(authFix("codex", "signed_out"));
   });
 
   it("tells a signed-in user something other than to sign in", () => {

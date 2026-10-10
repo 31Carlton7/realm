@@ -68,7 +68,11 @@ interface Window {
       list(): Promise<import("@realm/contracts").InstalledEditor[]>;
       open(id: import("@realm/contracts").EditorId, path: string, base?: string): Promise<boolean>;
     };
-    pickFolder(): Promise<string | null>;
+    /** The OS folder dialog: the folder chosen, or null when cancelled. With nothing asked it is the
+     *  dialog it always was. `hidden` also lists the folders the Finder hides, `create: false` takes
+     *  the New Folder button away, `aliases: false` hands an alias back as it is named, and `from`
+     *  is the folder the dialog opens at. */
+    pickFolder(o?: { hidden?: boolean; create?: boolean; aliases?: boolean; from?: string }): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;
     /** The path of a VS Code colour theme the user chose, or null if they cancelled. */

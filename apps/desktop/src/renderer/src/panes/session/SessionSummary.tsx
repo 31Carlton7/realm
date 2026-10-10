@@ -1,8 +1,9 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
-import { AGENT_META, DEFAULT_MODEL_LABEL, PERMISSION_MODES, SESSION_MODES, documentKindFor, planLabel, sessionModeOf, tightestWindow, type AgentKind, type Environment, type GitInfo, type Item, type McpServer, type MemorySources, type PlanLimits, type Session } from "@realm/contracts";
-import { useApp } from "../../state/store";
+import { AGENT_META, DEFAULT_MODEL_LABEL, PERMISSION_MODES, SESSION_MODES, documentKindFor, planLabel, planRowFor, sessionModeOf, tightestWindow, type AgentKind, type Environment, type GitInfo, type Item, type McpServer, type MemorySources, type PlanLimits, type Session } from "@realm/contracts";
+import { useApp, type AgentProbe } from "../../state/store";
+import { useSessionProbe } from "../../state/session-probe";
 import { ScrollFades } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
 import { Markdown } from "./Markdown";
@@ -339,8 +340,10 @@ function Fact({ row, onSelect }: { row: ContextRow; onSelect?: () => void }) {
  * most expensive wrong thing this panel could say.
  */
 function UsageSection({ sessionId, cost, turns }: { sessionId: string; cost: number; turns: number }) {
-  const kind = useApp((s) => s.sessions[sessionId]?.agentKind ?? null);
-  const limits = useApp((s) => s.planLimits.find((r) => r.agentKind === kind) ?? null);
+  const session = useApp((s) => s.sessions[sessionId]);
+  const kind = session?.agentKind ?? null;
+  const probe = useSessionProbe(session);
+  const limits = useSessionPlan(kind, probe);
   const rows = planRows(limits, kind);
   const spend = cost > 0 || turns > 0;
   if (!spend && rows.length === 0) return null;
@@ -355,6 +358,23 @@ function UsageSection({ sessionId, cost, turns }: { sessionId: string; cost: num
       {rows.map((r) => <Fact key={r.label} row={r} />)}
     </Section>
   );
+}
+
+/**
+ * The plan row a session draws on, out of every row the providers have reported, or null where
+ * no provider has reported one for its account.
+ *
+ * Every other agent has one account, so its row is the one of its kind. Claude has an account for
+ * each config folder a profile names, so `planRowFor` matches its row by the folder too. The
+ * folder comes off `probe`, the list this session's pane reads (`useSessionProbe`), so the plan
+ * is the plan of the account that pane's chip names. Where that row carries no `home`, which is
+ * while the sign-in the pane reads is not yet known (`unknownClaude`) or no Claude row has landed,
+ * `planRowFor` answers only where a single Claude row exists. Another account's "limit reached"
+ * over this session's prompter is worse than no warning for a moment.
+ */
+export function useSessionPlan(kind: AgentKind | null | undefined, probe: AgentProbe[]): PlanLimits | null {
+  const home = kind === "claude" ? probe.find((r) => r.kind === "claude")?.home : null;
+  return useApp((s) => (kind ? planRowFor(s.planLimits, kind, home) ?? null : null));
 }
 
 /** The plan and its tightest window, as rows — pure, for the same reason `contextRows` is. */

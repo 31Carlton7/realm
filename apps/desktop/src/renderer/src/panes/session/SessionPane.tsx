@@ -10,6 +10,7 @@ const EMPTY_COMMANDS: readonly UserCommand[] = Object.freeze([]);
 const NO_LINKS: LinkChip[] = [];
 import { spaceIsPlainFolder, useApp, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
+import { useSessionProbe } from "../../state/session-probe";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
 import { Composer } from "./Composer";
@@ -22,7 +23,7 @@ import { TerminalDock } from "./TerminalDock";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
 import { latestTodos } from "./session-todos";
-import { SessionSummaryHost, useSummaryLive } from "./SessionSummary";
+import { SessionSummaryHost, useSessionPlan, useSummaryLive } from "./SessionSummary";
 import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
 import { useSelectInRealm } from "../../app-pick/start";
@@ -229,9 +230,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const interruptSession = useApp((s) => s.interruptSession);
   const queued = useApp((s) => s.sessionQueues[id]);
   const midTurnMode = useApp((s) => s.midTurnMode);
+  const agentProbe = useSessionProbe(session);
   // This session's own agent's row. A warning about the Claude account means nothing in a Cursor
   // pane, so the row is selected by kind rather than showing whichever provider warned last.
-  const planLimits = useApp((s) => s.planLimits.find((r) => r.agentKind === s.sessions[id]?.agentKind) ?? null);
+  const planLimits = useSessionPlan(session?.agentKind, agentProbe);
   const refreshSessionQueue = useApp((s) => s.refreshSessionQueue);
   const releaseQueuedPrompt = useApp((s) => s.releaseQueuedPrompt);
   const dequeuePrompt = useApp((s) => s.dequeuePrompt);
@@ -317,6 +319,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const removeAttachment = useApp((s) => s.removeAttachment);
   // Under-strip + "+" menu (Plan 12 W1).
   const machineName = useApp((s) => s.machineName);
+  const userHome = useApp((s) => s.userHome);
   const userName = useApp((s) => s.userName);
   const environments = useApp((s) => s.environments);
   const setSessionEnvironment = useApp((s) => s.setSessionEnvironment);
@@ -376,8 +379,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     if (!paneEl.contains(document.activeElement)) paneEl.querySelector<HTMLElement>(".composer-input")?.focus();
     keyboardTaken(keyboardFor);
   }, [focused, paneEl, keyboardFor, keyboardTaken]);
-  const agentProbe = useApp((s) => s.agentProbe);
   const probeAgents = useApp((s) => s.probeAgents);
+  const probeSessionClaude = useApp((s) => s.probeSessionClaude);
+  const onClaude = agentKind === "claude";
   const modelFavorites = useApp((s) => s.modelFavorites);
   const modelInfo = useApp((s) => s.modelInfo);
   const refreshModelCatalog = useApp((s) => s.refreshModelCatalog);
@@ -397,7 +401,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const submitKey = useApp((s) => s.submitKey);
   const easterEggs = useApp((s) => s.easterEggs);
   // Stable across renders: InstallCard registers it as a window "focus" listener.
-  const reprobe = useCallback(() => { run(() => probeAgents(true)); }, [probeAgents, run]);
+  const reprobe = useCallback(() => {
+    run(() => probeAgents(true));
+    if (onClaude) void probeSessionClaude(id, true);
+  }, [probeAgents, probeSessionClaude, id, onClaude, run]);
   // Sends from THIS prompter, counted so the transcript can pin to the bottom on each one. Counted
   // here rather than off the transcript's own growth because only the prompter's send carries the
   // intent: ⌘⇧↩ dispatches the draft into a NEW session (store.dispatchDraft, bound in hotkeys.ts)
@@ -443,6 +450,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // Cheap by construction: the store dedups concurrent calls and the server holds a TTL cache, so a
   // four-pane split (or a tab-back) costs one round trip, not a process spawn per agent.
   useEffect(() => { run(() => probeAgents()); }, [id, probeAgents, run]);
+  useEffect(() => { if (onClaude) void probeSessionClaude(id); }, [id, onClaude, probeSessionClaude]);
   // Alongside the probe and just as cheap: the server caches this for six hours and the store
   // collapses concurrent calls, so a split of four panes costs one round trip and no network.
   useEffect(() => { run(() => refreshCliStatus()); }, [id, refreshCliStatus, run]);
@@ -686,7 +694,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             mentionSkills={mentionSkills} allSkills={allSkills} staleMentions={staleMentions}
             onToggleSkill={(skillId, enabled) => run(() => setSkillEnabled(session.spaceId, skillId, enabled))}
             onManageSkills={() => openSpacePage(session.spaceId, "skills")}
-            machineName={machineName} userName={userName} environments={spaceEnvironments}
+            machineName={machineName} userHome={userHome} userName={userName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
             onNewWorktree={plainFolder ? undefined : () => run(() => moveSessionToNewWorktree(id))}
             otherSpaces={otherSpaces} onMoveToSpace={(spaceId) => run(() => moveSessionToSpace(id, spaceId))}

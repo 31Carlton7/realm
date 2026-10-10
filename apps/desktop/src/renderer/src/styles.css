@@ -35,7 +35,7 @@
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id, .mp-about code,
-.msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
+.msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, code.plan-account-home, .req-target,
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
@@ -3216,6 +3216,32 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .danger-zone.profile-delete { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .profile-delete .settings-input-label { width: min(320px, 100%); }
 .profile-delete .form-actions { justify-content: flex-start; }
+/* A profile's Claude config folder: the path, then what can be done about it. The path is the
+   person's own and as long as they made it, so the field takes the row's slack and is the first to
+   give it back, down to a width a short path still reads in. Past that the buttons go under it,
+   each at the width of its words, rather than squeezing the field to nothing. */
+.claude-folder-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.claude-folder-row > input { flex: 1 1 220px; min-width: 0; }
+/* What the field reads while the folder is not known yet. It is a sentence a person has to read, so
+   it takes the secondary ink and not a placeholder's half-strength one. */
+.claude-folder-row > input::placeholder { color: var(--rl-text-dim); }
+/* The line under it: whether that folder is signed in. It holds a button's height in every state,
+   so that Sign in arriving on it moves nothing: the button comes and goes when a probe answers,
+   not when a person asks, and the control under this line is Delete profile. The steps drawn in
+   the line's place while a sign-in runs are taller than it and are held to nothing, so what is
+   under them does move when they come and when they go. */
+.claude-folder-state { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 30px; }
+/* The sentence is at the size and in the ink of the line under a settings label. Those are the
+   sentence's own and not the row's, so the button beside it inherits neither and is drawn like the
+   two a row above. */
+.claude-folder-state > span { min-width: 0; overflow-wrap: anywhere; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+/* Those steps are the first run's card's own block, and on that card their row of actions is
+   pulled 10px to the left, into the padding of the card's foot. On a profile's page the steps
+   stand in a field of the page's column, with no padding to take the pull: the column is the
+   scroller, which clips 4px out from its content, so the left end of the first button's hover
+   fill, and the left side of its focus ring, fell outside the clip. In a field the row keeps to
+   the column. */
+.field .agent-card-actions { margin-left: 0; }
 
 .palette-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: var(--scrim-soft); }
 /* ⌘K wears the app's curve. `--r-float` (16px) is the window rung and read as a plain dialog beside
@@ -5425,13 +5451,15 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   border-radius: 0 0 var(--r-squircle) var(--r-squircle); corner-shape: squircle; }
 .composer-understrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-understrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
-/* What the strip drops as it narrows. The machine label goes first: Realm runs agents on this Mac
-   and no other, so at a narrow width the laptop glyph says everything the name does, and the name
-   is on the tooltip. Then the glyph itself.
+/* What the strip drops as it narrows. The first chip's label goes first. For the machine, Realm
+   runs agents on this Mac and no other, so at a narrow width the laptop glyph says everything the
+   name does. For an account, the glyph says there is one and the tooltip says whose. Either way
+   the name is on the tooltip. Then the glyph itself.
    There is no `--branch-reserved` here any more — the branch group has the over-strip above the
-   card, and with it went the only string on this row whose length was user data. What is left is a
-   machine name, a space name and a meter, so the yielding order is these two steps and nothing has
-   to be reserved against a name that is no longer beside it. */
+   card, and with it went the only string on this row with no bound on its length. What is left is
+   a machine name or an account's label, which its chip cuts at 260px, a space name and a meter, so
+   the yielding order is these two steps and nothing has to be reserved against a name that is no
+   longer beside it. */
 @container (max-width: 520px) {
   .composer-understrip .strip-machine .chip-label { display: none; }
 }
@@ -8181,6 +8209,13 @@ button.cr-finding-where:hover { text-decoration: underline; }
   font-variant-numeric: tabular-nums;
 }
 .engine-chip[data-tone="warn"] { color: var(--orange); }
+/* Whose sign-in Claude's card reports, where the profile showing names a Claude config folder: the
+   sentence, then the way to the page that changes it. The sentence holds a profile's name and a
+   path, each as long as its owner made it, so it takes the row's slack, is the first to give it
+   back, and wraps where it must. The button keeps its width at the row's end, under the head's. */
+.engine-folder { display: flex; align-items: center; gap: 10px; }
+.engine-folder > span { flex: 1; min-width: 0; }
+.engine-folder > .btn-quiet { flex: none; }
 /* The prose, folded. Open by default only when the engine wants something from you — which is the
    whole of how this page stopped being a wall: a ready engine is a title and some chips. */
 .engine-details > summary {
@@ -9347,6 +9382,17 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .plan-account-name { font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .plan-account-tier { font-size: 12px; color: var(--rl-text-dim); }
 .plan-account-org { font-size: 12px; color: var(--rl-text-faint); }
+/* The Claude config folder an account is kept in, on a Claude card's head where more than one Claude
+   account reports and the folder is what tells the cards apart. A person has to read it, so it takes
+   the secondary ink the plan beside it has. A path is as long as its owner made it, so it is the one
+   thing on the head that gives way, and its tooltip holds it whole. */
+.plan-account-home { font-size: 12px; color: var(--rl-text-dim); }
+code.plan-account-home { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); }
+/* Where a path is drawn, the name, the plan and the organisation beside it keep their width, so
+   the path alone gives way. A large shrink factor on the path still left its neighbours a share of
+   the shortfall. A head with no path is not matched, and lays out as it always did. */
+.plan-account-head:has(> code.plan-account-home) > span { flex-shrink: 0; }
 /* A grid, not a flex row: the labels, the bars and the reset times line up down the column, which is
    what makes four windows comparable at a glance instead of four separate readings. */
 .plan-window { display: grid; grid-template-columns: 7.5rem 1fr 2.5rem auto; align-items: center;

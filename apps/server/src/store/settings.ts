@@ -20,4 +20,23 @@ export class SettingsStore {
     this.db.prepare("INSERT INTO settings (key, value_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json")
       .run(key, JSON.stringify(value));
   }
+
+  /**
+   * Each distinct value kept under a key that starts with `prefix`. For keys named after something
+   * else, one per profile or per session, where no caller holds every name.
+   *
+   * Read as a range of the key's index. Its end is `prefix` with the last character stepped once,
+   * so `prefix` must end in a character that can be stepped, as the `:` of `name:` can.
+   */
+  distinctUnder(prefix: string): unknown[] {
+    const end = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
+    const rows = this.db.prepare("SELECT DISTINCT value_json FROM settings WHERE key >= ? AND key < ?").all(prefix, end) as { value_json: string }[];
+    return rows.flatMap((r) => { try { return [JSON.parse(r.value_json) as unknown]; } catch { return []; } });
+  }
+
+  /** Drops the row. For a key named after something that can go away, such as a session: a null
+   *  left behind for each would outlive what it described. */
+  delete(key: string): void {
+    this.db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+  }
 }

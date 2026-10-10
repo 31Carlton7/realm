@@ -45,10 +45,17 @@ export type Recap = {
  * reading a transcript will cheerfully miscount the files it touched, and "edited 8 files" when it
  * was 3 is worse than the derived line, because it reads like it was checked.
  *
+ * The call rides the sign-in of one Claude config folder, which `configDir` names. That is the
+ * folder the session runs under, so the recap of a conversation is billed to the account that holds
+ * it. Null or absent is the default folder's sign-in, the one every recap rode before a profile
+ * could name a folder, and the options then carry no `env` at all. For a named folder the process's
+ * environment goes along beneath `CLAUDE_CONFIG_DIR`, because the SDK's `env` replaces the child's
+ * environment whole and a CLI left without PATH does not start.
+ *
  * Throws only when the CALL failed or the summary came back empty. A missing or declined hint is not
  * a failure — the prompter has a deterministic one — so it comes back as `hint: null`.
  */
-export async function generateSessionRecap(input: RecapInput, deps: { query?: QueryFn } = {}): Promise<Recap> {
+export async function generateSessionRecap(input: RecapInput, deps: { query?: QueryFn; configDir?: string | null } = {}): Promise<Recap> {
   const query = deps.query ?? sdkQuery;
   const tail = input.transcript.length > TAIL_CHARS ? input.transcript.slice(-TAIL_CHARS) : input.transcript;
   const q = query({
@@ -81,6 +88,7 @@ export async function generateSessionRecap(input: RecapInput, deps: { query?: Qu
         "own plain placeholder for that case, and a vague suggestion is worse than none, because it",
         "costs a keystroke to find out it was vague.",
       ].join(" "),
+      ...(typeof deps.configDir === "string" ? { env: { ...process.env, CLAUDE_CONFIG_DIR: deps.configDir } } : {}),
     },
   });
   let result = "";

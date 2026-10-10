@@ -4,6 +4,7 @@ import { AGENT_META, prKey, prName, sameRepo, sessionModeOf, type PrDetail, type
 import { Menu, type MenuItem } from "../../components/Menu";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { FALLBACK_AGENT, useApp, type PickedAttachment } from "../../state/store";
+import { useSessionProbe } from "../../state/session-probe";
 import { Composer } from "../session/Composer";
 import { draftRun, draftSession as draftAsSession, withOptions, type DraftRun } from "../session/draft-run";
 import { Transcript } from "../session/Transcript";
@@ -32,7 +33,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
   const lastAgentKind = useApp((s) => s.lastAgentKind);
   const draft = useApp((s) => s.drafts[ASK_SLOT] ?? "");
   const attachments = useApp((s) => s.pendingAttachments[ASK_SLOT] ?? NO_ATTACHMENTS);
-  const agentProbe = useApp((s) => s.agentProbe);
+  const probeSessionClaude = useApp((s) => s.probeSessionClaude);
   const modelFavorites = useApp((s) => s.modelFavorites);
   const modelInfo = useApp((s) => s.modelInfo);
   const fastSupport = useApp((s) => s.fastSupport);
@@ -106,6 +107,10 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
     [place?.spaceId, place?.projectId, place?.path, pick]);
   // A thread in another place than the one chosen is not where the next question goes: it starts anew.
   const continuing = thread && owner && place && thread.spaceId === place.spaceId ? owner : null;
+  const agentProbe = useSessionProbe(continuing);
+  const continuingId = continuing?.id ?? null;
+  const continuingOnClaude = continuing?.agentKind === "claude";
+  useEffect(() => { if (continuingId && continuingOnClaude) void probeSessionClaude(continuingId); }, [continuingId, continuingOnClaude, probeSessionClaude]);
   const session = continuing ?? draftSession;
   const exchange = useMemo(() => (entry && continuing ? { ...entry.t, summary: null, promptHint: null } : null), [entry, continuing]);
   const openOwner = () => { if (!continuing) return; closePageOverlay(); run(() => revealSession(continuing.id, continuing.spaceId)); };

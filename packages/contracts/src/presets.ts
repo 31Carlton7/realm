@@ -60,14 +60,23 @@ export type AgentModel = {
 };
 
 /**
+ * Who an agent's CLI says it is signed in as. `email` is what makes it an account at all: a sign-in
+ * the CLI names no email for — the Agent SDK says a cloud provider's carries none — reports no
+ * account. `plan` is the tier as the CLI spells it ("max"), for `planLabel` to name.
+ */
+export type AgentAccount = { email: string; organization: string | null; plan: string | null };
+
+/**
  * STATIC fallback model lists — what the picker shows for a kind when no probe has answered yet
  * (`agents.probe` results carry `models`, the live catalog, which wins whenever present).
  *
  * The asymmetry is deliberate, not an accident of neglect:
  *
- *  - **claude** is a curated list that stays hardcoded because no enumeration channel exists — the
- *    Claude Code CLI has no `--list-models`, and the Agent SDK takes a model id on faith. Curation is
- *    the honest option left; keep it in step with the CLI's own picker.
+ *  - **claude** is a curated list for the moments the live one is not in hand. The probe reads Claude
+ *    Code's own catalog off a query's handshake (`supportedModels()`, see `ClaudeAdapter.probe`), and
+ *    this list stands in until that answer lands and wherever it cannot be read. The CLI has no
+ *    `--list-models` and the Agent SDK takes a model id on faith, so keep it in step with the CLI's
+ *    own picker.
  *
  *    "On faith" is the trap: a model id here is only usable if the `claude` binary the Agent SDK
  *    bundles is new enough to know it. Too old and the API rejects the turn with

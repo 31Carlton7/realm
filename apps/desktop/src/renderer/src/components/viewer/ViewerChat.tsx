@@ -6,12 +6,41 @@ import { draftRun, draftSession as draftAsSession } from "../../panes/session/dr
 import { Transcript } from "../../panes/session/Transcript";
 import { useMediaFiles } from "../../panes/session/media/use-media";
 import { FALLBACK_AGENT, useApp, type PickedAttachment } from "../../state/store";
-import { VIEWER_SLOT, exchangeResults, exchangeStart, ownerOf, type ViewerFile, type ViewerState } from "../../state/viewer";
+import { useSessionProbe, type ProbedSession } from "../../state/session-probe";
+import { VIEWER_SLOT, exchangeResults, exchangeStart, ownerOf, viewerStartSpace, type ViewerFile, type ViewerState } from "../../state/viewer";
 import { composeMarks, markedName } from "./markup";
 import { ViewerShowContext } from "./open";
 
 const NO_ATTACHMENTS: PickedAttachment[] = [];
 const NOOP = () => {};
+
+/**
+ * A stand-in for the session the prompter's next question goes to, for reading Claude's sign-in
+ * where the window holds no row of that session. There are two, and the prompter reads Claude's
+ * sign-in as each would have it (`useSessionProbe`).
+ *
+ * With a session to ask (`ownerId`), it stands in for a session that exists. The window knows a
+ * session of another profile by the space it is in, and holds its row only once the session has
+ * been fetched: the viewer fetches it as it opens, with its transcript, and not at all where that
+ * transcript was already held. The question goes to that session all the same, under the Claude
+ * config folder its conversation runs in. So the stand-in goes under the session's own id, which
+ * is how its own row is read once the store holds one, and it claims a conversation, so it is
+ * never read as a session about to start under the active profile's folder. Until its own row
+ * lands the prompter names no account where a folder is in use, and reads the window's list where
+ * none is.
+ *
+ * With nobody to ask, it stands in for the session a first question would start: one of the space
+ * that question starts in (`viewerStartSpace`), holding no conversation yet. A Library file can
+ * come from a space of another profile, and its first question then runs under that profile's
+ * folder. Read as this session, the prompter names the window's account only where that is the
+ * account the question would run on, and no account where it cannot tell.
+ *
+ * Null where there is nobody to ask and no space for a question to start in.
+ */
+function standInSession(ownerId: string | null, startSpaceId: string | null): ProbedSession | null {
+  if (ownerId !== null) return { id: ownerId, spaceId: "", providerSessionId: ownerId };
+  return startSpaceId !== null ? { id: VIEWER_SLOT, spaceId: startSpaceId, providerSessionId: null } : null;
+}
 
 /**
  * The prompter docked under the viewer, and the exchange it has had — a quick chat about the file on
@@ -50,7 +79,9 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
   const lastAgentKind = useApp((s) => s.lastAgentKind);
   const modelFavorites = useApp((s) => s.modelFavorites);
   const modelInfo = useApp((s) => s.modelInfo);
-  const agentProbe = useApp((s) => s.agentProbe);
+  const startSpaceId = useApp((s) => viewerStartSpace(viewer, file, s.spaces, s.activeSpaceId));
+  const agentProbe = useSessionProbe(owner ?? standInSession(ownerId, startSpaceId));
+  const probeSessionClaude = useApp((s) => s.probeSessionClaude);
   const fastSupport = useApp((s) => s.fastSupport);
   const effortSupport = useApp((s) => s.effortSupport);
   const submitKey = useApp((s) => s.submitKey);
@@ -75,6 +106,8 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
   const toast = useApp((s) => s.toast);
   const run = useApp((s) => s.run);
   const [sends, setSends] = useState(0);
+  const ownerOnClaude = useApp((s) => ownerId !== null && (s.sessions[ownerId] ?? s.allSessions[ownerId])?.agentKind === "claude");
+  useEffect(() => { if (ownerId && ownerOnClaude) void probeSessionClaude(ownerId); }, [ownerId, ownerOnClaude, probeSessionClaude]);
 
   /* Marks on the file go as a copy of it with the marks drawn in, attached beside the file itself —
      made at the send, from what is on the stage then. A copy that cannot be made stops the send and

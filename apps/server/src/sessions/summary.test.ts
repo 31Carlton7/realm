@@ -32,8 +32,9 @@ function build(events: StoredSessionEvent[], over: Partial<Parameters<typeof mak
 
 function makeDeps(o: {
   events: StoredSessionEvent[]; published: SessionEvent[];
-  generate?: (i: { asked: string; transcript: string; facts: string }) => Promise<{ summary: string; hint: string | null }>;
-  available?: () => boolean | Promise<boolean>;
+  generate?: (i: { asked: string; transcript: string; facts: string }, o?: { configDir?: string | null }) => Promise<{ summary: string; hint: string | null }>;
+  available?: (home: string | null) => boolean | Promise<boolean>;
+  homeOf?: (sessionId: string) => string | null | undefined;
   debounceMs?: number;
   isIdle?: (sessionId: string) => boolean;
 }) {
@@ -43,6 +44,7 @@ function makeDeps(o: {
     publish: (_id: string, ev: SessionEvent) => { o.published.push(ev); },
     generate: o.generate,
     available: o.available,
+    homeOf: o.homeOf,
     debounceMs: o.debounceMs,
     isIdle: o.isIdle,
     onError: () => {},
@@ -145,6 +147,52 @@ describe("the session summary writer", () => {
     const service = new SessionSummaryService(makeDeps({ events: worked(), published, generate: undefined }));
     await service.onSettled("s1");
     expect(published).toEqual([]);
+  });
+});
+
+describe("the Claude config folder a recap runs under", () => {
+  it("is the session's own, handed to the call and to the question of whether one can run", async () => {
+    const available = vi.fn(async (_home: string | null) => true);
+    const { service, generate } = build(worked(), { available, homeOf: (id) => (id === "s1" ? "/Users/me/.claude-work" : null) });
+    await service.onSettled("s1");
+    expect(available.mock.calls).toEqual([["/Users/me/.claude-work"]]);
+    expect(generate.mock.calls[0]).toEqual([expect.objectContaining({ asked: "fix the login flow" }), { configDir: "/Users/me/.claude-work" }]);
+  });
+
+  it("is left unsaid for the default folder, so that call is exactly what it was", async () => {
+    const available = vi.fn(async (_home: string | null) => true);
+    const named = build(worked(), { available, homeOf: () => null });
+    await named.service.onSettled("s1");
+    expect(named.generate.mock.calls[0]).toHaveLength(1);
+    expect(available.mock.calls).toEqual([[null]]);
+    const unwired = build(worked());
+    await unwired.service.onSettled("s1");
+    expect(unwired.generate.mock.calls[0]).toHaveLength(1);
+  });
+
+  it("switches off one folder at a time: a folder that is signed out says nothing about another", async () => {
+    const available = vi.fn(async (home: string | null) => home !== "/Users/me/.claude-work");
+    const { service, generate } = build(worked(), { available, homeOf: (id) => (id === "s1" ? "/Users/me/.claude-work" : null) });
+    await service.onSettled("s1");
+    await service.onSettled("s1");
+    expect(available.mock.calls).toEqual([["/Users/me/.claude-work"]]);
+    expect(generate).not.toHaveBeenCalled();
+    await service.onSettled("s2");
+    expect(available.mock.calls).toEqual([["/Users/me/.claude-work"], [null]]);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes nothing, asks nothing and latches nothing while there is nowhere to run one", async () => {
+    let home: string | undefined;
+    const available = vi.fn(async (_home: string | null) => true);
+    const { service, generate, published } = build(worked(), { available, homeOf: () => home });
+    await service.onSettled("s1");
+    expect(available).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+    expect(published).toEqual([]);
+    home = "/Users/me/.claude-work";
+    await service.onSettled("s1");
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 });
 

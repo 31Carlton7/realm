@@ -1,4 +1,4 @@
-import type { AgentKind, AgentModel, AskAnswers, SessionEvent } from "@realm/contracts";
+import type { AgentAccount, AgentKind, AgentModel, AskAnswers, SessionEvent } from "@realm/contracts";
 
 /**
  * One MCP server on its way to an agent.
@@ -117,19 +117,38 @@ export interface AgentHandle {
 
 /**
  * `models` is the provider's live catalog, when the adapter has a channel to ask on: Codex answers
- * app-server `model/list`, Cursor reports `availableModels` on ACP `session/new`. `null`/absent means
- * "cannot enumerate" — Claude has no such channel (the curated static list in contracts stands in),
- * and an unavailable CLI obviously can't be asked. Never an invented list: ids here are ids the
- * provider itself handed over, verbatim.
+ * app-server `model/list`, Cursor reports `availableModels` on ACP `session/new`, Claude Code answers
+ * `supportedModels()` on a query's handshake. `null`/absent means "cannot enumerate" — an agent with
+ * no such channel, an unavailable CLI, which obviously can't be asked, or an enumeration that failed
+ * (for Claude the curated static list in contracts stands in). Never an invented list: ids here are
+ * ids the provider itself handed over, verbatim.
  */
 export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null;
   /** An agent's reasoning levels where they are a session setting (an ACP `thought_level` option), with
    *  the one it starts on. Absent where the agent offers none, or was not asked. */
-  efforts?: { id: string; label: string }[]; defaultEffort?: string | null };
+  efforts?: { id: string; label: string }[]; defaultEffort?: string | null;
+  /** Who the CLI says it is signed in as, where it names an account. Absent is "not stated", which
+   *  is every agent whose CLI has no such answer and every sign-in that carries no email. */
+  account?: AgentAccount;
+  /** The config folder the CLI says it answered for, where it states one. This is Claude Code's own
+   *  `configDirectory`, spelled as the CLI spells it, and not an echo of what was asked. A caller
+   *  that asked about one folder compares the two, so that another folder's account is never
+   *  shown as this one's. */
+  configDirectory?: string };
+
+/**
+ * What a probe may be handed.
+ *
+ * `env` is extra environment for whatever the probe runs, on top of the process's own. The Claude
+ * adapter reads `CLAUDE_CONFIG_DIR` from it and answers for that one config folder. Claude Code
+ * keeps a sign-in per folder, so a probe that could only run under the process's environment would
+ * report the default folder's account for every profile. Every other adapter ignores it.
+ */
+export type ProbeOptions = { env?: Record<string, string> };
 
 export interface AgentAdapter {
   readonly kind: AgentKind;
-  probe(): Promise<ProbeResult>;
+  probe(opts?: ProbeOptions): Promise<ProbeResult>;
   start(opts: StartOptions): AgentHandle;
 }
 

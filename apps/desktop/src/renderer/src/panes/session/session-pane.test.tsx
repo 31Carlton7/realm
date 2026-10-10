@@ -3,10 +3,11 @@ import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup }
 import { AGENT_CLI_COMMANDS, AGENT_NOTES, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
-import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } from "../../state/store.test-fakes";
+import { claudeFolder, claudeRow, fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space, type FakeApi } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
 import { TerminalHub, setTerminalHubForTests, type HubTransport, type TerminalLike } from "../terminal-hub";
 import { SessionMeta, SessionPane } from "./SessionPane";
+import { accountLabel, accountTitle } from "./Composer";
 import { reduceAll } from "./transcript-model";
 import { EGG_RUN_LABELS, runLabelFor } from "./run-label";
 import { Markdown, renderMarkdown } from "./Markdown";
@@ -2429,6 +2430,91 @@ describe("under-strip (Plan 12 W1)", () => {
     expect(label.closest(".ghost-chip")).toHaveAttribute("data-static");
   });
 
+  describe("the account the session's agent is signed in as", () => {
+    const account = { email: "owner@example.com", organization: "Example Labs", plan: "max" };
+    const signedIn = (kind: AgentProbe["kind"], extra: Partial<AgentProbe> = {}): AgentProbe =>
+      ({ kind, available: true, version: "1", loggedIn: true, reason: null, ...extra });
+    async function mountFor(agentKind: "claude" | "codex", agentProbe: AgentProbe[]) {
+      const { envA } = twoEnvs();
+      const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", environmentId: "envA", cwd: "/tmp", agentKind })],
+        environments: { s1: [envA] }, agentProbe });
+      const store = createAppStore(api); await store.getState().boot();
+      store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+      render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+      await waitFor(() => expect(store.getState().agentsProbed).toBe(true));
+      return document.querySelector<HTMLElement>(".composer-understrip .strip-machine")!;
+    }
+
+    it("takes the machine's place on the strip, as plain text naming the organisation, and says the rest on its tooltip and to a screen reader", async () => {
+      const says = "Claude is signed in as owner@example.com (Claude Max, Example Labs). Agents run on this Mac — Carlton's M4 MacBook Pro.";
+      const chip = await mountFor("claude", [signedIn("claude", { account })]);
+      await waitFor(() => expect(chip.querySelector(".chip-label")).toHaveTextContent("Example Labs"));
+      expect(chip.querySelector(".chip-label")!.textContent).toBe("Example Labs");
+      expect(chip.querySelector(".chip-label")).toHaveAttribute("aria-hidden", "true");
+      expect(chip.querySelector(".visually-hidden")!.textContent).toBe(says);
+      expect(chip).toHaveAttribute("data-static");
+      expect(chip.closest("button")).toBeNull();
+      expect(chip).toHaveAttribute("title", says);
+    });
+
+    it("is the account of the agent this session runs on, never another agent's", async () => {
+      const chip = await mountFor("codex", [signedIn("claude", { account }), signedIn("codex")]);
+      expect(chip).toHaveTextContent("Carlton's M4 MacBook Pro");
+      expect(chip).not.toHaveTextContent("Example Labs");
+      expect(chip).not.toHaveTextContent("owner@example.com");
+      expect(chip.querySelector(".visually-hidden")).toBeNull();
+      expect(chip).toHaveAttribute("title", "Agents run on this Mac — Carlton's M4 MacBook Pro");
+    });
+
+    it("leaves the machine where it was for an agent that names no account", async () => {
+      const chip = await mountFor("claude", [signedIn("claude")]);
+      expect(chip).toHaveTextContent("Carlton's M4 MacBook Pro");
+    });
+
+    it("names the plan on the strip for a personal account, whose organisation only restates the email, and keeps the email to the tooltip", async () => {
+      const personal = { email: "owner@example.com", organization: "owner@example.com's Organization", plan: "max" };
+      const chip = await mountFor("claude", [signedIn("claude", { account: personal })]);
+      await waitFor(() => expect(chip.querySelector(".chip-label")!.textContent).toBe("Claude Max"));
+      expect(chip).toHaveAttribute("title", "Claude is signed in as owner@example.com (Claude Max). Agents run on this Mac — Carlton's M4 MacBook Pro.");
+    });
+
+    it("says the organisation first, then the plan, and the email only where the CLI names neither", () => {
+      const email = "owner@example.com";
+      expect(accountLabel("claude", { email, organization: "Example Labs", plan: "max" })).toBe("Example Labs");
+      expect(accountLabel("claude", { email, organization: "Example Labs", plan: null })).toBe("Example Labs");
+      expect(accountLabel("claude", { email, organization: "Owner Labs", plan: "max" })).toBe("Owner Labs");
+      expect(accountLabel("claude", { email, organization: null, plan: "team" })).toBe("Claude Team");
+      expect(accountLabel("codex", { email, organization: null, plan: "plus" })).toBe("Codex Plus");
+      expect(accountLabel("claude", { email, organization: "owner@example.com's Organization", plan: null })).toBe(email);
+      expect(accountLabel("claude", { email, organization: null, plan: null })).toBe(email);
+    });
+
+    it("puts no organisation on the strip that is named after an address, the account's own or another member's", () => {
+      const email = "owner@example.com";
+      expect(accountLabel("claude", { email, organization: "owner@example.com's Organization", plan: "max" })).toBe("Claude Max");
+      expect(accountLabel("claude", { email: "Owner@Example.com", organization: "owner@example.com's Organization", plan: "max" })).toBe("Claude Max");
+      expect(accountLabel("claude", { email: "member@example.com", organization: "owner@example.com's Organization", plan: "team" })).toBe("Claude Team");
+      expect(accountLabel("claude", { email, organization: "billing@example.com", plan: "enterprise" })).toBe("Claude Enterprise");
+      expect(accountLabel("claude", { email, organization: "Design @ Example", plan: "team" })).toBe("Design @ Example");
+    });
+
+    it("says the plan as a person would, and leaves out an organisation that only restates the email", () => {
+      expect(accountTitle("claude", { email: "owner@example.com", organization: "owner@example.com's Organization", plan: "max" }, "Studio"))
+        .toBe("Claude is signed in as owner@example.com (Claude Max). Agents run on this Mac — Studio.");
+      expect(accountTitle("claude", { email: "owner@example.com", organization: null, plan: null }, undefined))
+        .toBe("Claude is signed in as owner@example.com.");
+    });
+
+    it("leaves the organisation off the tooltip only where it repeats the account's own email, wherever and in whatever case", () => {
+      expect(accountTitle("claude", { email: "Owner@Example.com", organization: "owner@example.com's Organization", plan: "max" }, undefined))
+        .toBe("Claude is signed in as Owner@Example.com (Claude Max).");
+      expect(accountTitle("claude", { email: "owner@example.com", organization: "The organisation of owner@example.com", plan: "max" }, undefined))
+        .toBe("Claude is signed in as owner@example.com (Claude Max).");
+      expect(accountTitle("claude", { email: "member@example.com", organization: "owner@example.com's Organization", plan: "team" }, undefined))
+        .toBe("Claude is signed in as member@example.com (Claude Team, owner@example.com's Organization).");
+    });
+  });
+
   it("wears the space's colour on the workspace chip's glyph, as the face can carry it (Plan 27)", async () => {
     // THE MUTANT: leave the glyph in the chip's own ink — the composer would no longer say which
     // space the next message runs in, now that the space is not a room on screen.
@@ -2533,6 +2619,145 @@ describe("under-strip (Plan 12 W1)", () => {
     expect(strip.querySelector(".composer-thinking")).toHaveTextContent("Thinking…");
     expect(strip).toHaveTextContent("Carlton's M4 MacBook Pro");
     expect(screen.getByRole("button", { name: "Workspace" }).closest(".composer-understrip")).toBe(strip);
+  });
+});
+
+/** The account the window's list names, which the default Claude config folder is signed in to. */
+const LISTED = { email: "me@example.com", organization: "Home Labs", plan: "max" };
+/** The account a config folder that a profile names is signed in to. */
+const NAMED = { email: "work@example.com", organization: "Acme", plan: "team" };
+/** A Claude config folder a profile names, inside the home folder the fake server reports. */
+const NAMED_HOME = "/Users/carlton/.claude-work";
+/** Claude under that folder with nobody signed in, as the server answers it. */
+const SIGNED_OUT_THERE: AgentProbe = { kind: "claude", available: true, version: "2.1.296", loggedIn: false, reason: null, home: NAMED_HOME };
+/** The login line a card offers for that folder. */
+const LOGIN_THERE = "env CLAUDE_CONFIG_DIR='/Users/carlton/.claude-work' claude auth login";
+
+/**
+ * The pane over session `se1`, in a window whose list says Claude is signed in to the default
+ * folder as `LISTED`. `own` is what the server answers when that session's own Claude row is asked
+ * for, and the install is then one where another profile names `NAMED_HOME`. With none it answers
+ * the list's row, as it does for a session that follows its profile, and no folder is named.
+ */
+async function mountOwn(o: { agentKind?: "claude" | "codex"; own?: AgentProbe; agentProbe?: AgentProbe[]; also?: ReturnType<typeof session>[] } = {}) {
+  const api = fakeApi({
+    sessions: [session("se1", "s1", { status: "idle", agentKind: o.agentKind ?? "claude" }), ...(o.also ?? [])],
+    agentProbe: o.agentProbe ?? [claudeRow(LISTED.email, null, { account: LISTED })],
+    ...(o.own ? { sessionClaude: { se1: o.own }, claudeDirs: { p2: claudeFolder(NAMED_HOME) } } : {}),
+  });
+  const store = createAppStore(api); await store.getState().boot();
+  store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+  const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" })} visible /></StoreContext.Provider>);
+  await waitFor(() => expect(store.getState().agentsProbed).toBe(true));
+  return { api, store, ...r };
+}
+
+/** The asks the fake logged for sessions' own Claude rows, in the order they were made. */
+const sessionAsks = (api: FakeApi): string[] => api.calls.filter((c) => c.includes(":session:"));
+/** The account chip on the strip under the prompter, or the machine's where no account is named. */
+const accountChip = () => document.querySelector<HTMLElement>(".composer-understrip .strip-machine")!;
+
+describe("a session pane and its session's own Claude row", () => {
+  it("draws the account its own config folder is signed in to, not the one the window's list names", async () => {
+    await mountOwn({ own: claudeRow(NAMED.email, NAMED_HOME, { account: NAMED }) });
+    await waitFor(() => expect(accountChip().querySelector(".chip-label")?.textContent).toBe("Acme"));
+  });
+
+  it("asks for that row once, unforced, as it mounts", async () => {
+    const { api, store } = await mountOwn({ own: claudeRow(NAMED.email, NAMED_HOME, { account: NAMED }) });
+    await waitFor(() => expect(store.getState().sessionClaude.se1).toBeDefined());
+    expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:se1"]);
+  });
+
+  it("asks for no Claude row on behalf of a Codex session", async () => {
+    const { api } = await mountOwn({ agentKind: "codex" });
+    expect(api.calls).toContain("probeAgents:false");
+    expect(sessionAsks(api)).toEqual([]);
+  });
+
+  it("asks for the row when a session that has not started is switched to Claude", async () => {
+    const { api, store } = await mountOwn({ agentKind: "codex" });
+    await act(async () => { await store.getState().setSessionAgent("se1", "claude"); });
+    await waitFor(() => expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:se1"]));
+  });
+
+  it("asks for the next session's row when it is handed another session", async () => {
+    const { api, store, rerender } = await mountOwn({ also: [session("se2", "s1", { status: "idle", agentKind: "claude" })] });
+    rerender(<StoreContext.Provider value={store}><SessionPane item={item("i10", "s1", { kind: "session", refId: "se2", title: "Another session" })} visible /></StoreContext.Provider>);
+    await waitFor(() => expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:se1", "probeAgent:claude:plain:session:se2"]));
+  });
+
+  it("puts up the sign-in card for its own folder, with that folder's login line, while the window's list says Claude is signed in", async () => {
+    await mountOwn({ own: SIGNED_OUT_THERE });
+    expect(await screen.findByRole("group", { name: /isn’t signed in/ })).toBeInTheDocument();
+    expect(screen.getByText(LOGIN_THERE)).toBeInTheDocument();
+    expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.login)).toBeNull();
+  });
+
+  it("puts up a card that says its folder is missing, with the server's reason and Check again alone, and offers no way to sign in there", async () => {
+    const reason = "The Claude config folder ~/.claude-work is missing.";
+    await mountOwn({ own: { ...SIGNED_OUT_THERE, reason, homeMissing: true } });
+    const card = await screen.findByRole("group", { name: "Claude’s config folder is missing" });
+    expect(within(card).getByText(reason)).toBeInTheDocument();
+    expect(within(card).getAllByRole("button").map((b) => b.textContent)).toEqual(["Check again"]);
+    expect(screen.queryByText(LOGIN_THERE)).toBeNull();
+  });
+
+  it("asks for the row again on Check again, afresh, and gives the prompter back once that folder is signed in", async () => {
+    const { api } = await mountOwn({ own: SIGNED_OUT_THERE });
+    await screen.findByRole("group", { name: /isn’t signed in/ });
+    api.data.sessionClaude.se1 = claudeRow(NAMED.email, NAMED_HOME, { account: NAMED });
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(await screen.findByRole("textbox", { name: /message/i })).toBeInTheDocument();
+    expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:se1", "probeAgent:claude:forced:session:se1"]);
+  });
+
+  it("leaves a Codex session's Check again to the window's list", async () => {
+    const { api } = await mountOwn({ agentKind: "codex", agentProbe: [{ kind: "codex", available: false, version: null, loggedIn: null, reason: "spawn codex ENOENT" }] });
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(api.calls).toContain("probeAgents:true"));
+    expect(sessionAsks(api)).toEqual([]);
+  });
+});
+
+describe("the account chip of a session on a Claude config folder a profile names", () => {
+  it("says the folder after the account, as a person writes it, on its tooltip and to a screen reader", async () => {
+    const says = "Claude is signed in as work@example.com (Claude Team, Acme), from ~/.claude-work. Agents run on this Mac — Carlton's M4 MacBook Pro.";
+    await mountOwn({ own: claudeRow(NAMED.email, NAMED_HOME, { account: NAMED }) });
+    await waitFor(() => expect(accountChip()).toHaveAttribute("title", says));
+    expect(accountChip().querySelector(".visually-hidden")?.textContent).toBe(says);
+  });
+
+  it("says the sentence it always did for a session on the default folder", async () => {
+    await mountOwn({ own: claudeRow(NAMED.email, null, { account: NAMED }) });
+    await waitFor(() => expect(accountChip()).toHaveAttribute("title", "Claude is signed in as work@example.com (Claude Team, Acme). Agents run on this Mac — Carlton's M4 MacBook Pro."));
+  });
+
+  it("draws the list's account over a conversation before its own row lands, and goes on following the list, where no folder is named anywhere", async () => {
+    const api = fakeApi({
+      sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", providerSessionId: "conversation-1" })],
+      agentProbe: [claudeRow(LISTED.email, null, { account: LISTED })],
+    });
+    const landings: ((row: AgentProbe | null) => void)[] = [];
+    const listed = api.probeAgent;
+    api.probeAgent = (kind, o) => (o?.sessionId ? new Promise<AgentProbe | null>((land) => { landings.push(land); }) : listed(kind, o));
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } } });
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "Claude session" })} visible /></StoreContext.Provider>);
+    await waitFor(() => expect(accountChip().querySelector(".chip-label")?.textContent).toBe("Home Labs"));
+    await waitFor(() => expect(landings.length).toBeGreaterThan(0));
+    await act(async () => { for (const land of landings) land(claudeRow(LISTED.email, null, { account: LISTED })); });
+    await waitFor(() => expect(store.getState().sessionClaude.se1).toBeDefined());
+    const next = { email: "next@example.com", organization: "Next Co", plan: "max" };
+    act(() => { store.setState({ agentProbe: [claudeRow(next.email, null, { account: next })] }); });
+    await waitFor(() => expect(accountChip().querySelector(".chip-label")?.textContent).toBe("Next Co"));
+  });
+
+  it("puts the folder after the bracket, and after the email where the account names no plan or organisation", () => {
+    expect(accountTitle("claude", NAMED, "Studio", "~/.claude-work"))
+      .toBe("Claude is signed in as work@example.com (Claude Team, Acme), from ~/.claude-work. Agents run on this Mac — Studio.");
+    expect(accountTitle("claude", { email: "work@example.com", organization: null, plan: null }, undefined, "~/.claude-work"))
+      .toBe("Claude is signed in as work@example.com, from ~/.claude-work.");
   });
 });
 

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { PAGE_REF_IDS, type AgentKind, type CliStatus } from "@realm/contracts";
 import { SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
+import { claudeFolder, fakeApi, item, type FakeData } from "../../state/store.test-fakes";
 import type { AgentProbe } from "../../state/store";
 
 const pageItem = item("set-s1", "s1", { kind: "settings-page", title: "Settings", refId: PAGE_REF_IDS["settings-page"] });
@@ -152,5 +152,94 @@ describe("checking for new models", () => {
     await waitFor(() => expect(api.calls).toContain("probeAgents:false"));
     fireEvent.click(screen.getByRole("button", { name: "Check for new models" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/No new models/));
+  });
+});
+
+/** A Claude config folder under the fake's home (`/Users/carlton`), which the page writes with `~`. */
+const WORK = "/Users/carlton/.claude-work";
+const claudeCard = () => screen.getByRole("listitem", { name: /^Claude:/ });
+/** The line on Claude's card that says which folder the profile signs in from, or null. */
+const folderLine = () => claudeCard().querySelector('[data-setting="engine-claude-folder"]');
+/** Claude Code installed and signed out, as its row reads for `home` (null for the default folder). */
+const signedOut = (home: string | null): AgentProbe[] => [{ kind: "claude", available: true, version: "2.1.296", loggedIn: false, reason: null, home }];
+
+describe("Claude's card, where the active profile names a Claude config folder", () => {
+  it("says which folder the profile signs in from, with the folder in mono and ~ for home", async () => {
+    await mount({ claudeDirs: { p1: claudeFolder(WORK) } });
+    await waitFor(() => expect(folderLine()?.querySelector("span")?.textContent).toBe("Work signs in from ~/.claude-work."));
+    expect(within(claudeCard()).getByText("~/.claude-work").tagName).toBe("CODE");
+  });
+
+  it("opens the profile's own page on General from Change…", async () => {
+    const { store } = await mount({ claudeDirs: { p1: claudeFolder(WORK) } });
+    fireEvent.click(await screen.findByRole("button", { name: "Change…" }));
+    expect(store.getState().pageOverlay).toMatchObject({ kind: "profile-page", spaceId: store.getState().activeSpaceId });
+    expect(store.getState().profilePageTab).toEqual({ p1: "general" });
+  });
+
+  it("draws no such line, and no Change…, while the profile names no folder", async () => {
+    const { store } = await mount();
+    await waitFor(() => expect(store.getState().claudeDirs.p1).toEqual(claudeFolder(null)));
+    await waitFor(() => expect(claudeCard()).toBeInTheDocument());
+    expect(folderLine()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Change…" })).toBeNull();
+  });
+
+  it("draws no such line, and no Change…, under a variable that outranks the folder's sign-in", async () => {
+    const { store } = await mount({ claudeDirs: { p1: claudeFolder(WORK, { override: "ANTHROPIC_API_KEY" }) } });
+    await waitFor(() => expect(store.getState().claudeDirs.p1?.override).toBe("ANTHROPIC_API_KEY"));
+    await waitFor(() => expect(claudeCard()).toBeInTheDocument());
+    expect(folderLine()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Change…" })).toBeNull();
+  });
+});
+
+describe("Claude's card, signed out", () => {
+  it("offers the line that signs the named folder in, never the bare one, and says where that sign-in is kept", async () => {
+    await mount({ agentProbe: signedOut(WORK), claudeDirs: { p1: claudeFolder(WORK) } });
+    const card = await screen.findByRole("listitem", { name: "Claude: Signed out" });
+    expect(within(card).getByText(`env CLAUDE_CONFIG_DIR='${WORK}' claude auth login`)).toBeInTheDocument();
+    expect(within(card).queryByText("claude auth login")).toBeNull();
+    expect(within(card).getByText(`Uses the \`claude\` login kept in ${WORK}. Sign in there if sessions fail to authenticate.`)).toBeInTheDocument();
+    expect(within(card).queryByText(/run `claude auth login`/)).toBeNull();
+  });
+
+  it("keeps the table's own line and sentence on the default folder", async () => {
+    await mount({ agentProbe: signedOut(null) });
+    const card = await screen.findByRole("listitem", { name: "Claude: Signed out" });
+    expect(within(card).getByText("claude auth login")).toBeInTheDocument();
+    expect(within(card).getByText("Uses your `claude` login — run `claude auth login` if sessions fail to authenticate.")).toBeInTheDocument();
+  });
+});
+
+/** What the server says of a named folder that is gone, in place of asking Claude Code about it. */
+const REASON = "The Claude config folder ~/.claude-work is missing.";
+/** Work naming that folder, and Claude's row for it: signed out, as the server reads a folder
+ *  nothing can be signed in to. Made anew for each test, since the fake keeps what it is handed. */
+const gone = (): FakeData => ({
+  agentProbe: [{ kind: "claude", available: true, version: "2.1.296", loggedIn: false, reason: REASON, home: WORK, homeMissing: true }],
+  claudeDirs: { p1: claudeFolder(WORK, { missing: true }) },
+});
+
+describe("Claude's card, where the folder the profile names is missing", () => {
+  it("offers no line to copy, which would have Claude Code make the folder", async () => {
+    await mount(gone());
+    const card = await screen.findByRole("listitem", { name: "Claude: Signed out" });
+    expect(within(card).queryByText(/claude auth login/)).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Copy command" })).toBeNull();
+  });
+
+  it("says nothing of where a sign-in is kept, and prints the row's reason once", async () => {
+    await mount(gone());
+    const card = await screen.findByRole("listitem", { name: "Claude: Signed out" });
+    expect(within(card).queryByText(/Sign in there if sessions fail to authenticate/)).toBeNull();
+    expect(within(card).getAllByText(REASON)).toHaveLength(1);
+  });
+
+  it("prints that reason once where the row also says Claude Code is not installed", async () => {
+    const away = gone();
+    await mount({ ...away, agentProbe: away.agentProbe?.map((row) => ({ ...row, available: false, version: null })) });
+    const card = await screen.findByRole("listitem", { name: "Claude: Not installed" });
+    expect(within(card).getAllByText(REASON)).toHaveLength(1);
   });
 });

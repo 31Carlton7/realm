@@ -117,6 +117,8 @@ describe("rpc methods", () => {
     // The greeting's name, on the other hand, is allowed to be unknown — a host with no real name on
     // the account answers "", and the hero greets the space instead.
     expect(typeof info.userName).toBe("string");
+    // Where `~` is, for a window that shows a path under it. A suite's is its own scratch home.
+    expect(info.userHome).toBe(home);
     c.close();
   });
 

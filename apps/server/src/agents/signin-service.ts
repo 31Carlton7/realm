@@ -46,8 +46,12 @@ export type LoginCommand = { file: string; args: string[] };
 export type AgentSignInDeps = {
   rpc: Pick<RpcServer, "broadcast">;
   /** `SessionService.probeAgent` — a fresh probe of the one agent whose login just exited, which
-   *  also puts its answer in the cache every other probe caller rides. */
-  probe: (kind: AgentKind) => Promise<ProbeResult | undefined>;
+   *  also puts its answer in the cache every other probe caller rides. `home` is the Claude config
+   *  folder the login ran under, with null for the default one. */
+  probe: (kind: AgentKind, home: string | null) => Promise<ProbeResult | undefined>;
+  /** What a Claude login under a config folder is handed on top of `env` (`ClaudeHomes.envFor`).
+   *  Left out, every login runs under the default folder. */
+  claudeEnv?: (home: string | null) => Record<string, string>;
   /** What to spawn for `kind`'s login, or null when it is not on this Mac. `loginCommand` unless a
    *  suite hands in a fake login program — which is the only way a suite may run one. */
   command?: (kind: AgentKind) => Promise<LoginCommand | null>;
@@ -96,6 +100,8 @@ const RANK: Record<"starting" | "browser" | "code", number> = { starting: 0, bro
 type Run = {
   id: string;
   kind: AgentKind;
+  /** The Claude config folder the login runs under, with null for the default one. */
+  home: string | null;
   state: State;
   url: string | null;
   detail: string | null;
@@ -112,7 +118,7 @@ type Run = {
   lookAgain: boolean;
 };
 
-const snapshot = (r: Run): AgentSignIn => ({ id: r.id, kind: r.kind, state: r.state, url: r.url, detail: r.detail });
+const snapshot = (r: Run): AgentSignIn => ({ id: r.id, kind: r.kind, state: r.state, url: r.url, detail: r.detail, ...(r.home === null ? {} : { home: r.home }) });
 
 export class AgentSignInService {
   private runs = new Map<string, Run>();
@@ -122,8 +128,9 @@ export class AgentSignInService {
   constructor(private readonly d: AgentSignInDeps) {}
 
   /** Start `kind`'s login and answer with its first state; every later one is broadcast. Refuses an
-   *  agent with no login command, and one whose CLI is not on this Mac. */
-  async start(kind: AgentKind): Promise<AgentSignIn> {
+   *  agent with no login command, and one whose CLI is not on this Mac. `home` is the Claude config
+   *  folder a Claude login lands in, with null for the default one. */
+  async start(kind: AgentKind, home: string | null = null): Promise<AgentSignIn> {
     if (!AGENT_CLI_COMMANDS[kind].login) {
       // Gemini and DeepSeek: an API key is a sentence, not a line to run. Same answer as the
       // in-space flow gives, because it is the same fact.
@@ -139,7 +146,7 @@ export class AgentSignInService {
     if (prior) this.end(prior, "cancelled", null);
 
     const run: Run = {
-      id: newId(), kind, state: "starting", url: null, detail: null, term: null, exited: false,
+      id: newId(), kind, home, state: "starting", url: null, detail: null, term: null, exited: false,
       output: "", typed: [], lookTimer: null, deadline: null, killTimer: null, looking: false, lookAgain: false,
     };
     this.runs.set(run.id, run);
@@ -156,7 +163,10 @@ export class AgentSignInService {
          Claude Code reads a project's `.claude/settings.json` from where it runs, and a repo's
          settings can steer a sign-in (`forceLoginMethod`, `forceLoginOrgUUID`). Not Realm's home
          either — that is Realm's data folder, and nothing a third-party CLI writes belongs in it. */
-      run.term = pty.spawn(command.file, command.args, { name: "xterm-256color", cols: COLS, rows: ROWS, cwd: this.d.cwd ?? homedir(), env });
+      run.term = pty.spawn(command.file, command.args, {
+        name: "xterm-256color", cols: COLS, rows: ROWS, cwd: this.d.cwd ?? homedir(),
+        env: home === null ? env : { ...env, ...this.d.claudeEnv?.(home) },
+      });
     } catch (e) {
       this.end(run, "failed", `${agentLabel(kind)}'s sign-in could not start: ${(e as Error).message}`);
       return snapshot(run);
@@ -258,7 +268,7 @@ export class AgentSignInService {
     }
     // `end` ignores a run that is already final, so a cancel or a replacement that lands while this
     // probe is out wins — the person asked for that after the CLI finished.
-    const probe = await this.d.probe(run.kind).catch(() => undefined);
+    const probe = await this.d.probe(run.kind, run.home).catch(() => undefined);
     if (probe?.loggedIn === false) {
       const said = lastWords(screen, run.typed);
       this.end(run, "failed", clip(`${label} finished, but it still says it isn't signed in.${said ? `\n${said}` : ""}`));

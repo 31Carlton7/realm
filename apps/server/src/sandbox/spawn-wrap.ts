@@ -33,11 +33,23 @@ export type SpawnWrap = (command: string, args: string[]) => { command: string; 
  */
 export function sandboxWrapFor(
   sandbox: ExecutionSandboxService | undefined,
-  o: { spaceId: string; extraWritableRoots?: readonly string[] },
+  o: {
+    spaceId: string;
+    extraWritableRoots?: readonly string[];
+    /** The Claude config folder the process runs under, handed to `ExecutionSandboxService.wrap` as
+     *  given. A session names its own, with null for the default one. A terminal leaves it out and
+     *  gets the folder its space's profile names. Left out, it is left out of what `wrap` is handed
+     *  too, so a spawn that names no folder asks for exactly what it asked for before a profile
+     *  could name one. */
+    claudeDir?: string | null;
+  },
 ): SpawnWrap | undefined {
   if (!sandbox || sandbox.policyFor(o.spaceId).posture === "off") return undefined;
   return (command, args) => {
-    const w = sandbox.wrap({ spaceId: o.spaceId, command, args, extraWritableRoots: o.extraWritableRoots });
+    const w = sandbox.wrap({
+      spaceId: o.spaceId, command, args, extraWritableRoots: o.extraWritableRoots,
+      ...(o.claudeDir !== undefined ? { claudeDir: o.claudeDir } : {}),
+    });
     // Narrowed to the two fields a spawn site needs. `SandboxedCommand` is a discriminated union
     // whose `sandboxed: false` arm exists so nobody can read an argv out of it by accident; by here
     // the question has been answered, and passing the union on would only spread that check further.

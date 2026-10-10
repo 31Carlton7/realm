@@ -31,7 +31,7 @@ const NOT_SUMMARY_WORTHY = new Set<SessionEvent["type"]>([
  */
 export const RECAP_DEBOUNCE_MS = 2_500;
 
-export type RecapGenerator = (input: { asked: string; transcript: string; facts: string })
+export type RecapGenerator = (input: { asked: string; transcript: string; facts: string }, o?: { configDir?: string | null })
   => Promise<{ summary: string; hint: string | null }>;
 
 export type SummaryServiceDeps = {
@@ -44,8 +44,15 @@ export type SummaryServiceDeps = {
   /** Omitted on any build that must not make a billed call — tests, live-check scripts. */
   generate?: RecapGenerator;
   /** Whether the machine can actually run one. Checked BEFORE the call so a user with no Claude CLI
-   *  installed pays nothing and sees the derived line, rather than a failed call per settled turn. */
-  available?: () => boolean | Promise<boolean>;
+   *  installed pays nothing and sees the derived line, rather than a failed call per settled turn.
+   *  Asked about the folder the call would run under, since each config folder is its own sign-in. */
+  available?: (home: string | null) => boolean | Promise<boolean>;
+  /**
+   * The Claude config folder a session's recap runs under (`SessionService.sideCallHome`): null for
+   * the default one, and undefined when there is nowhere to run one now, which writes nothing and
+   * latches nothing. Left out, every recap runs under the default folder.
+   */
+  homeOf?: (sessionId: string) => string | null | undefined;
   onError?: (message: string) => void;
   /**
    * How long a session must stay idle before its recap is written. 0 runs inline.
@@ -78,7 +85,8 @@ export type SummaryServiceDeps = {
  *
  *   1. **A generator is configured.** Tests and live checks pass none and get today's behaviour.
  *   2. **The machine can run one.** `available()` — no Claude CLI, no call. After the first refusal
- *      the whole service switches off for the process rather than retrying per turn.
+ *      the service switches off for that config folder, for the process, rather than retrying per
+ *      turn. One folder signed out says nothing about another.
  *   3. **Something happened.** A greeting and its answer are not worth a call; the derived line says
  *      as much as anything could.
  *   4. **Something happened SINCE the last summary.** A status flap, a reconnect or a second settle
@@ -91,8 +99,8 @@ export class SessionSummaryService {
   /** Sessions with a call in flight. A slow model and a fast user can settle twice before the first
    *  answer lands, and two calls would race to write the same summary. */
   private inFlight = new Set<string>();
-  /** Latched off once the machine says it cannot run one. */
-  private disabled = false;
+  /** The config folders latched off, each once the machine said it cannot run one there. */
+  private disabled = new Set<string | null>();
   /** One pending write per session, re-armed by each settle. */
   private pending = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -130,7 +138,9 @@ export class SessionSummaryService {
   }
 
   private async write(sessionId: string): Promise<void> {
-    if (this.disabled || !this.d.generate || this.inFlight.has(sessionId)) return;
+    if (!this.d.generate || this.inFlight.has(sessionId)) return;
+    const home = this.d.homeOf ? this.d.homeOf(sessionId) : null;
+    if (home === undefined || this.disabled.has(home)) return;
     const events = this.d.listEvents(sessionId);
     if (events.length === 0) return;
     // Anchored to the last event that could CHANGE what a summary says. A settle writes a `status`
@@ -148,17 +158,14 @@ export class SessionSummaryService {
 
     if (this.d.available) {
       let ok = false;
-      try { ok = await this.d.available(); } catch { ok = false; }
-      if (!ok) { this.disabled = true; return; }
+      try { ok = await this.d.available(home); } catch { ok = false; }
+      if (!ok) { this.disabled.add(home); return; }
     }
 
     this.inFlight.add(sessionId);
     try {
-      const recap = await this.d.generate({
-        asked: facts.asked,
-        transcript: transcriptForSummary(events),
-        facts: factLines(facts),
-      });
+      const input = { asked: facts.asked, transcript: transcriptForSummary(events), facts: factLines(facts) };
+      const recap = await (home === null ? this.d.generate(input) : this.d.generate(input, { configDir: home }));
       if (recap.summary.trim()) this.d.publish(sessionId, sessionEvent("summary", { text: recap.summary.trim(), throughSeq }));
       /* The prompter's hint rides the SAME answer — one call reads the transcript once and fills both
          fields. Two events rather than one, because they are consumed in different places and have

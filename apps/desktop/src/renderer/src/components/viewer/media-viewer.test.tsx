@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { mediaUrl, sessionEvent, type MediaFile } from "@realm/contracts";
+import { mediaUrl, sessionEvent, type AgentKind, type MediaFile } from "@realm/contracts";
 import { MediaStrip } from "../../panes/session/media/MediaView";
 import { resetMediaCache } from "../../panes/session/media/use-media";
-import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
+import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
+import { claudeFolder, claudeRow, fakeApi, item, session, space, type FakeApi, type FakeData } from "../../state/store.test-fakes";
 import { MediaViewer } from "./MediaViewer";
 import { composeMarks } from "./markup";
 import { MediaSessionContext } from "./open";
@@ -469,6 +469,151 @@ describe("marking up a picture", () => {
     draw([10, 10], [60, 40]);
     fireEvent.click(viewerEl()!.querySelector(".media-viewer-canvas")!);
     expect(viewerEl()).not.toBeNull();
+  });
+});
+
+/** Claude under a config folder a profile names, with nobody signed in, as the server answers it. */
+const SIGNED_OUT_THERE: AgentProbe = { kind: "claude", available: true, version: "2.1.296", loggedIn: false, reason: null, home: "/Users/carlton/.claude-work" };
+
+/** The viewer opened on a picture out of `lead`, here a session of `agentKind`, with the prompter
+ *  docked under it. */
+async function openFrom(agentKind: AgentKind, over: FakeData = {}) {
+  bridge([media("/work/hero.png")]);
+  const m = await mount([media("/work/hero.png")], { sessions: [session("lead", "s1", { title: "Logo rework", cwd: "/work", agentKind })], ...over });
+  fireEvent.click(await screen.findByRole("button", { name: "Open hero.png larger" }));
+  await screen.findByRole("dialog", { name: "hero.png" });
+  return m;
+}
+
+/** The asks the fake logged for sessions' own Claude rows, in the order they were made. */
+const sessionAsks = (api: FakeApi): string[] => api.calls.filter((c) => c.includes(":session:"));
+
+describe("the viewer's prompter and its session's own Claude row", () => {
+  it("asks for the row of the session the file came from, unforced, as it comes up", async () => {
+    const { api } = await openFrom("claude");
+    expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:lead"]);
+  });
+
+  it("asks for no Claude row on behalf of a Codex session", async () => {
+    const { api } = await openFrom("codex");
+    expect(sessionAsks(api)).toEqual([]);
+  });
+
+  it("asks for the next session's row when the file on show came from another session", async () => {
+    bridge([media("/work/a.png"), media("/work/b.png")]);
+    const { api, store } = await mount([], { sessions: [session("lead", "s1", { cwd: "/work", agentKind: "claude" }), session("other", "s1", { cwd: "/work", agentKind: "claude" })] });
+    act(() => store.getState().openViewer({ files: [
+      { path: "/work/a.png", from: { sessionId: "lead", spaceId: "s1", sessionTitle: "Logo rework", kind: "output" } },
+      { path: "/work/b.png", from: { sessionId: "other", spaceId: "s1", sessionTitle: "Another look", kind: "output" } },
+    ] }));
+    await screen.findByRole("dialog", { name: "a.png" });
+    fireEvent.keyDown(prompter(), { key: "ArrowRight" });
+    await screen.findByRole("dialog", { name: "b.png" });
+    expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:lead", "probeAgent:claude:plain:session:other"]);
+  });
+
+  it("reads Claude's sign-in off that session's own row, not off the window's list", async () => {
+    const { store } = await openFrom("claude", { agentProbe: [claudeRow("me@example.com")], sessionClaude: { lead: SIGNED_OUT_THERE } });
+    await act(async () => { await store.getState().probeAgents(); });
+    fireEvent.click(within(viewerEl()!).getByRole("button", { name: "Model" }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /Claude Fable 5\.1/ })).toHaveTextContent("signed out"));
+  });
+
+  it("keeps reading the window's list while no session is behind it", async () => {
+    bridge([media("/x/orphan.png")]);
+    const { store } = await mount([], { agentProbe: [{ ...SIGNED_OUT_THERE, home: null }] });
+    await act(async () => { await store.getState().probeAgents(); });
+    act(() => store.getState().openViewer({ files: [{ path: "/x/orphan.png" }] }));
+    const dialog = await screen.findByRole("dialog", { name: "orphan.png" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /Claude Fable 5\.1/ })).toHaveTextContent("signed out"));
+  });
+
+  it("asks for the row once the session the file came from is switched from Codex to Claude", async () => {
+    const { api, store } = await openFrom("codex");
+    expect(sessionAsks(api)).toEqual([]);
+    await act(async () => { await store.getState().setSessionAgent("lead", "claude"); });
+    await waitFor(() => expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:lead"]));
+  });
+});
+
+/** The viewer over a file whose session is gone, which came from a space of School (p2), in a
+ *  window that shows Work (p1). The window's list says the default folder is signed out. With
+ *  `claudeDirs`, School names a folder of its own; without, no folder is in use anywhere. */
+async function openFromSchool(claudeDirs: FakeData["claudeDirs"] = {}) {
+  bridge([media("/x/orphan.png")]);
+  const m = await mount([], {
+    spaces: [space("s1", "p1", "Versed"), space("s9", "p2", "Thesis")],
+    agentProbe: [{ ...SIGNED_OUT_THERE, home: null }], claudeDirs,
+  });
+  await act(async () => { await m.store.getState().probeAgents(); });
+  await waitFor(() => expect(Object.keys(m.store.getState().claudeDirs).sort()).toEqual(["p1", "p2"]));
+  act(() => m.store.getState().openViewer({ files: [{ path: "/x/orphan.png", from: { sessionId: "deleted", spaceId: "s9", sessionTitle: "Gone", kind: "output" } }] }));
+  const dialog = await screen.findByRole("dialog", { name: "orphan.png" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
+  return { ...m, dialog, claude: await screen.findByRole("option", { name: /Claude Fable 5\.1/ }) };
+}
+
+describe("the viewer's prompter before its first question, over a file from another profile's space", () => {
+  it("says nothing of Claude's sign-in where a folder is in use, since the question would run under that profile's folder", async () => {
+    const { dialog, claude } = await openFromSchool({ p2: claudeFolder("/Users/carlton/.claude-school") });
+    expect(within(dialog).getByText("New session in Thesis")).toBeInTheDocument();
+    expect(claude).not.toHaveTextContent("signed out");
+  });
+
+  it("goes on reading the window's list while no folder is in use, as it always did", async () => {
+    const { claude } = await openFromSchool();
+    await waitFor(() => expect(claude).toHaveTextContent("signed out"));
+  });
+});
+
+/** The viewer over a file from `there`, a Claude session of School (p2) that holds a conversation,
+ *  in a window that shows Work (p1). The window knows that session by the space it is in and holds
+ *  no row of it: the row comes with the session's transcript, which is held back for the whole
+ *  look. The window's list says the default folder is signed out, unless `rows.list` says what it
+ *  reads. With `claudeDirs`, School names a folder of its own, which is signed in; without, no
+ *  folder is in use anywhere. `rows.own` is what the server answers for that session's own row. */
+async function openFromSchoolSession(claudeDirs: FakeData["claudeDirs"] = {}, rows: { list?: AgentProbe; own?: AgentProbe } = {}) {
+  bridge([media("/x/notes.png")]);
+  const school = claudeDirs.p2?.dir;
+  const m = await mount([], {
+    spaces: [space("s1", "p1", "Versed"), space("s9", "p2", "Thesis")],
+    sessions: [session("lead", "s1", { title: "Logo rework", cwd: "/work" }), session("there", "s9", { title: "Thesis notes", agentKind: "claude", providerSessionId: "conversation-9" })],
+    agentProbe: [rows.list ?? { ...SIGNED_OUT_THERE, home: null }], claudeDirs,
+    profileClaude: school ? { p2: claudeRow("school@example.com", school) } : {},
+    sessionClaude: rows.own ? { there: rows.own } : {},
+  });
+  const answering = m.api.sessionEvents;
+  m.api.sessionEvents = (id, after, limit) => (id === "there" ? new Promise<never>(() => {}) : answering(id, after, limit));
+  await act(async () => { await m.store.getState().probeAgents(); });
+  await waitFor(() => expect(Object.keys(m.store.getState().claudeDirs).sort()).toEqual(["p1", "p2"]));
+  act(() => m.store.getState().openViewer({ files: [{ path: "/x/notes.png", from: { sessionId: "there", spaceId: "s9", sessionTitle: "Thesis notes", kind: "output" } }] }));
+  const dialog = await screen.findByRole("dialog", { name: "notes.png" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
+  return { ...m, dialog, claude: await screen.findByRole("option", { name: /Claude Fable 5\.1/ }) };
+}
+
+describe("the viewer's prompter over a file from a session the window knows only by its space", () => {
+  it("says nothing of Claude's sign-in off the window's list where a folder is in use, since the question runs under the folder that session's conversation is in", async () => {
+    const { store, claude } = await openFromSchoolSession({ p2: claudeFolder("/Users/carlton/.claude-school") });
+    expect(store.getState().sessions.there).toBeUndefined();
+    expect(claude).not.toHaveTextContent("signed out");
+  });
+
+  it("asks for that session's own row, though the window holds no row of the session to read its agent off", async () => {
+    const { api } = await openFromSchoolSession({ p2: claudeFolder("/Users/carlton/.claude-school") });
+    expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:there"]);
+  });
+
+  it("reads Claude's sign-in off that session's own row once the row has landed, and not off the window's list", async () => {
+    const school = "/Users/carlton/.claude-school";
+    await openFromSchoolSession({ p2: claudeFolder(school) }, { list: claudeRow("me@example.com"), own: { ...SIGNED_OUT_THERE, home: school } });
+    await waitFor(() => expect(screen.getByRole("option", { name: /Claude Fable 5\.1/ })).toHaveTextContent("signed out"));
+  });
+
+  it("goes on reading the window's list for that session while no folder is in use, as it always did", async () => {
+    const { claude } = await openFromSchoolSession({}, { own: claudeRow("school@example.com") });
+    expect(claude).toHaveTextContent("signed out");
   });
 });
 
