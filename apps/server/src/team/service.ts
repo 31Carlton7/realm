@@ -700,6 +700,7 @@ export class TeamService {
       channels: [...new Set(items.map((i) => itemTarget(i)?.channel).filter((c): c is string => !!c))],
       account: (items[0] ? itemTarget(items[0])?.account : null) ?? null,
       format: items[0] ? inferFormat(items[0]) : null,
+      verb: reviewVerb(r.kind, items),
       editedItems: items.filter((i) => i.editedBy === "user").map((i) => i.ord + 1),
       changedSinceApproval: items.some((i) => i.approvedHash !== null && i.approvedHash !== i.contentHash),
       ...(() => { const c = this.d.acts?.counts(r.id) ?? { total: 0, done: 0 }; return { actsTotal: c.total, actsDone: c.done }; })(),
@@ -826,13 +827,15 @@ export class TeamService {
       } else if (a.verb === "updated_record") {
         lines.push({ ts: a.ts, glyph: "note", text: `Updated ${a.object ?? "a record"}`, detail: typeof a.detail.line === "string" ? clip(a.detail.line, 90) : null });
       } else if (a.verb === "submitted" || a.verb === "revised") {
+        // A run that sent several batches made each of them; this review's log is its own submission.
+        if (typeof a.detail.reviewId === "string" && a.detail.reviewId !== r.id) continue;
         const items = typeof a.detail.items === "number" ? a.detail.items : null;
         const version = typeof a.detail.version === "number" ? a.detail.version : r.version;
         const files = [...new Set(this.d.store.items(r.id, version).flatMap((i) => i.files))];
         if (files.length > 0) {
           const pictures = files.filter((f) => IMAGE.test(f)).length;
           const dirs = [...new Set(files.map((f) => (f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : ".")))];
-          lines.push({ ts: a.ts, glyph: "image", text: `Laid out ${files.length} ${pictures === files.length ? "slides" : "files"}`,
+          lines.push({ ts: a.ts, glyph: "image", text: `Laid out ${files.length} ${pictures === files.length ? (files.length === 1 ? "picture" : "slides") : files.length === 1 ? "file" : "files"}`,
             detail: dirs.length === 1 ? `saved to ${dirs[0]}` : `in ${dirs.length} folders`, });
         }
         const role = r.roleId ? this.d.store.role(r.roleId) : null;

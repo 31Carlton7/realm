@@ -1,4 +1,4 @@
-import { describeSchedule, type ActKind, type ActTicket, type HandoffState, type RoleGoal, type RoleRun, type TeamActivity, type TeamBackoff, type TeamLimits, type TeamReviewSummary, type TeamRole } from "@realm/contracts";
+import { describeSchedule, reviewVerb, verbFamily, type ActKind, type ActTicket, type HandoffState, type RoleGoal, type RoleRun, type TeamActivity, type TeamBackoff, type TeamLimits, type TeamReviewSummary, type TeamRole } from "@realm/contracts";
 import { cadenceSentence, clockLabel } from "../schedules/schedule-model";
 import { vaultSentence } from "./vault-format";
 
@@ -182,15 +182,19 @@ export function runChip(run: RoleRun): { tone: "ok" | "warn" | "bad" | null; wor
 
 /** A review's state line in the list, in words. */
 export function reviewStateLine(r: TeamReviewSummary): { text: string; dot: "waiting" | null } {
+  // Worded by what the batch does when it goes out; a summary from before the verb was sent reads its
+  // legacy label the way it always did.
+  const family = verbFamily(r.verb !== undefined ? r.verb : reviewVerb(r.kind, []));
+  const goes = family === "send" ? "sends" : family === "post" ? "posts" : "leaves Realm";
   if (r.state === "waiting") {
     if (r.changedSinceApproval) return { text: "A file changed after you approved it", dot: "waiting" };
-    if (r.version > 1) return { text: `Version ${r.version} · approve before anything ${r.kind === "message" ? "sends" : "posts"}`, dot: "waiting" };
-    return { text: r.kind === "message" && r.account ? `Sends from ${r.account}` : "Approve before anything posts", dot: "waiting" };
+    if (r.version > 1) return { text: `Version ${r.version} · approve before anything ${goes}`, dot: "waiting" };
+    return { text: family === "send" && r.account ? `Sends from ${r.account}` : `Approve before anything ${goes}`, dot: "waiting" };
   }
   if (r.state === "changes") return { text: "Changes asked · the role is on it", dot: null };
   if (r.state === "approved") {
-    if (r.actsTotal > 0) return { text: `Approved by you · ${r.actsDone} of ${r.actsTotal} ${r.kind === "message" ? "sent" : "posted"}`, dot: null };
-    return { text: `Approved by you · ${r.kind === "message" ? "send it yourself" : "post it by hand"}`, dot: null };
+    if (r.actsTotal > 0) return { text: `Approved by you · ${r.actsDone} of ${r.actsTotal} ${family === "send" ? "sent" : "posted"}`, dot: null };
+    return { text: family === "send" ? "Approved by you · send it yourself" : family === "post" ? "Approved by you · post it by hand" : "Approved by you", dot: null };
   }
   if (r.state === "done") return { text: "Done", dot: null };
   return { text: "Put away", dot: null };

@@ -377,6 +377,8 @@ export const TeamReviewSummarySchema = z.object({
   account: z.string().nullable(),
   /** How the first item is drawn — the card's glyph and, with no label of the role's, its line. */
   format: DeliverableFormatSchema.nullable().optional(),
+  /** What the batch does when it goes out — post, send, or null for nothing (`reviewVerb`). */
+  verb: z.string().nullable().optional(),
   /** Items of this version the person edited before approving, by place (1-based). */
   editedItems: z.array(z.number().int()).optional(),
   /** A file changed after it was approved, so the yes no longer covers it. */
