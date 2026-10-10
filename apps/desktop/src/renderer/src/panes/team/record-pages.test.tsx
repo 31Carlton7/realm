@@ -70,13 +70,13 @@ describe("the team's column", () => {
     const data = base();
     await mount(data, () => <TeamRailList spaceId="s1" team={data.teams![0]!} tab="team" pick={() => undefined} />);
     // THE MUTANT: the column hardcoding "Creators", or one row for every kind's records together.
-    expect(railLabels()).toEqual(["Overview", "Creators1", "Leads1", "Roles1", "Vault", "Activity"]);
+    expect(railLabels()).toEqual(["Overview", "Creators1", "Leads1", "Roles1", "Policies", "Vault", "Activity"]);
   });
 
   it("unfolds a kind's records while one of its pages is open, and keeps the kind lit while its fields are shaped", async () => {
     const data = base();
     const { view, store } = await mount(data, () => <TeamRailList spaceId="s1" team={data.teams![0]!} tab="records:lead" pick={() => undefined} />);
-    await waitFor(() => expect(railLabels()).toEqual(["Overview", "Creators1", "Leads", "Acme Corp", "Roles1", "Vault", "Activity"]));
+    await waitFor(() => expect(railLabels()).toEqual(["Overview", "Creators1", "Leads", "Acme Corp", "Roles1", "Policies", "Vault", "Activity"]));
     expect(screen.getByRole("radio", { name: "Leads" })).toBeChecked();
     const picked: string[] = [];
     view.rerender(<StoreContext.Provider value={store}><TeamRailList spaceId="s1" team={data.teams![0]!} tab="recordtype:lead" pick={(t) => picked.push(t)} /></StoreContext.Provider>);
@@ -90,7 +90,7 @@ describe("the team's column", () => {
   it("says Records, and nothing about creators, for a team that keeps no kind yet", async () => {
     const data = base({ teams: [teamSpace("s1", [manager], [], { recordTypes: [] })] });
     await mount(data, () => <TeamRailList spaceId="s1" team={data.teams![0]!} tab="team" pick={() => undefined} />);
-    expect(railLabels()).toEqual(["Overview", "Records", "Roles1", "Vault", "Activity"]);
+    expect(railLabels()).toEqual(["Overview", "Records", "Roles1", "Policies", "Vault", "Activity"]);
   });
 
   it("names each page by its kind", () => {

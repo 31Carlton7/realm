@@ -56,7 +56,7 @@ describe("PoliciesService.view", () => {
     expect(v.connectors.filter((c) => c.kind === "server").flatMap((c) => c.tools).every((t) => t.asksToday)).toBe(true);
     const team = v.connectors.find((c) => c.connector === "realm:realm-team")!;
     expect(team.name).toBe("Team");
-    expect(team.tools.filter((t) => !t.asksToday).map((t) => t.tool)).toEqual(["record_list", "review_status"]);
+    expect(team.tools.filter((t) => !t.asksToday).map((t) => t.tool)).toEqual(["record_list", "record_types", "review_status"]);
     expect(team.tools.find((t) => t.tool === "record_read")).toMatchObject({ class: "read", asksToday: true });
     expect(v.connectors.find((c) => c.connector === "realm:realm-vault")!.tools.find((t) => t.tool === "vault_http"))
       .toMatchObject({ class: "irreversible-external", asksToday: true });
