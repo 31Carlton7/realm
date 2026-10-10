@@ -444,7 +444,8 @@ async function main() {
   check("S5 accounts say consent; deadlines their state", rec.chips.includes("Consented") && rec.chips.includes("Done"), rec.chips);
   check("S5 the file line names who last changed it", /last changed by Creator Manager/.test(rec.file ?? ""), rec.file);
   await shot(c, "05-creator-record-dark");
-  await evalIn(c, `__live.click(__live.button('Edit'))`);
+  // The record's own Edit, in its page head: Review's open batch draws an Edit on each item's text too.
+  await evalIn(c, `__live.click(__live.button('Edit', [...document.querySelectorAll('.page-head')].find((h) => h.textContent.includes('Nathan Beyenhof'))))`);
   await evalIn(c, `__live.set(__live.q('.tp-record-source'), __live.q('.tp-record-source').value.replace('## Content', '- Sends from: carlton@charmtechnologies.co\\n\\n## Content'))`);
   await evalIn(c, `__live.click(__live.button('Save'))`);
   await until(() => evalIn(c, `/last changed by (?!Creator Manager)/.test(__live.text('.tp-file') ?? '')`), 8_000, "edit committed");
