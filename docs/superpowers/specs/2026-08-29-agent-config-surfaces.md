@@ -386,6 +386,23 @@ should surface that state rather than silently trusting on the user's behalf.**
 **Recommendation: A for Claude and Codex, B for storage, C only for Cursor and only in
 Realm-created space folders. Never D, never E, never F.**
 
+**What F is not: a folder the person already keeps.** F is Realm making a config folder of its own
+and pointing an agent at it, to isolate the agent from the person's config. A person with a second
+Claude account already has a second config folder, since that is how Claude Code's own
+documentation says to stay signed in to two accounts at once. A profile can name one of those
+folders (`apps/server/src/agents/claude-homes.ts`), and its sessions then run with
+`CLAUDE_CONFIG_DIR` set to it. Nothing is relocated: the login and the history in that folder are
+the ones the person's terminal uses there, which is the promise F's cost was about. Realm still
+makes no folder and writes nothing into one. A profile that names none runs as before, with the
+variable left unset. Two costs are real and accepted:
+
+- Claude Code keeps a transcript in the folder a conversation began in, so a conversation resumes
+  only under that folder. Realm notes the folder per session, and a profile that changes its folder
+  moves no conversation that exists.
+- A session with no Realm skill enabled loads the named folder's own settings, hooks and plugins,
+  as a terminal pointed at that folder would. With a skill enabled, `settingSources: []` isolates
+  it exactly as it does under the default folder.
+
 ### 3.4 Is there a per-invocation channel that avoids the problem entirely?
 
 - **Claude Code — yes, completely.** Skills, MCP, and durable context all per-session, zero
@@ -528,7 +545,8 @@ is exactly right here.
    three.
 
 7. **`CLAUDE_CONFIG_DIR` / `CODEX_HOME` redirection for isolation.** Takes auth and session
-   history with it.
+   history with it. (A profile naming a Claude config folder the person already keeps is not
+   this, and takes neither: §3.3.)
 
 8. **Per-space Codex skill roots.** `skills/extraRoots/set` has no `threadId` and the adapter
    shares one process by design. Union the roots; scope with the picker.

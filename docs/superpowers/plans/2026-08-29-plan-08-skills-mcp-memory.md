@@ -113,7 +113,9 @@ a skills library that silently does nothing for Cursor is the failure mode to av
 ## Explicitly not built
 
 Symlinks into `~/.agents/skills`. Generated-block edits of `~/.claude.json` or `~/.codex/config.toml`.
-`CODEX_HOME` / `CLAUDE_CONFIG_DIR` redirection — it takes auth and history with it.
+`CODEX_HOME` / `CLAUDE_CONFIG_DIR` redirection — it takes auth and history with it. (A profile
+naming a Claude config folder the person already keeps is not this, and moves neither: see the
+config-surfaces spec, §3.3.)
 
 ## Execution notes
 
