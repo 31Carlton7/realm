@@ -961,10 +961,10 @@ export function registerMethods(d: Deps): void {
   reg("team.reviewRequestChanges", (p) => d.team.requestChanges(p.id, p.note));
   reg("team.reviewDone", (p) => d.team.markDone(p.id));
   reg("team.reviewDismiss", (p) => d.team.dismiss(p.id));
-  reg("team.records", (p) => d.team.records(space(p.spaceId)));
+  reg("team.records", (p) => d.team.records(space(p.spaceId), p.type));
   reg("team.record", (p) => d.team.record(space(p.spaceId), p.path));
   reg("team.recordWrite", (p) => d.team.writeRecord(space(p.spaceId), p.path, p.markdown));
-  reg("team.recordCreate", (p) => d.team.createRecord(space(p.spaceId), p.name));
+  reg("team.recordCreate", (p) => d.team.createRecord(space(p.spaceId), p.name, p.type));
   reg("team.activity", (p) => d.team.activity(space(p.spaceId), p.limit, p.before));
   reg("team.roleHandoffs", (p) => handoffs().setRoleHandoffs(p));
   reg("team.roleGoal", (p) => { refuseWhileDraining("give a role a goal"); return handoffs().setGoal(p.id, p.objective); });

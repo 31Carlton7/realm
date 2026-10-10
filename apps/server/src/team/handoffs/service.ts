@@ -237,7 +237,7 @@ export class HandoffService implements TeamExtras {
     if (input.record) {
       const repo = this.d.team.repoPath(ctx.spaceId);
       if (!repo) throw new RpcError("TEAM_NO_REPO", "this team has no memory repo, so it has no records");
-      recordPath = this.d.team.recordRel(input.record);
+      recordPath = this.d.team.recordRel(ctx.spaceId, input.record);
     }
     const root = this.d.rootForSpace(ctx.spaceId);
     const files = (input.files ?? []).map((f) => {

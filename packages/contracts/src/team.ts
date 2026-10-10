@@ -5,6 +5,7 @@ import { RunStateSchema } from "./runs";
 import { SkillIdSchema } from "./skills";
 import { RoleGoalSchema, TeamHandoffSchema, TeamLimitsSchema } from "./team-handoffs";
 import { ActTicketSchema } from "./team-acts";
+import { TeamRecordTypeSchema } from "./team-record-types";
 
 /**
  * Teams (Phase 1): a space with standing roles.
@@ -419,7 +420,9 @@ export const TEAM_VERBS = ["made_team", "edited_team", "made_role", "edited_role
   "paused", "submitted", "revised", "approved", "asked_changes", "marked_done", "dismissed", "read_record", "updated_record", "refused",
   "handed_off", "mentioned", "goal_set", "goal_stopped", "backed_off", "edited_limits",
   // Phase 3: approve → act.
-  "issued_tickets", "pressed", "acted", "act_failed", "cancelled_ticket", "held_acts", "resumed_acts"] as const;
+  "issued_tickets", "pressed", "acted", "act_failed", "cancelled_ticket", "held_acts", "resumed_acts",
+  // Dynamic Teams: the kinds of record a team keeps.
+  "made_record_type", "edited_record_type", "archived_record_type", "adopted_record_type"] as const;
 export type TeamVerb = (typeof TEAM_VERBS)[number];
 
 export const TeamActivitySchema = z.object({
@@ -478,6 +481,8 @@ export const TeamSpaceSchema = z.object({
   /** Roles removed from the team, so what they did still reads under their name in the log. */
   formerRoles: z.array(z.object({ id: z.string(), name: z.string(), realmite: z.unknown() })),
   recordCount: z.number().int(),
+  /** The kinds of record it keeps (team-record-types.ts), each with its count, in order. */
+  recordTypes: z.array(TeamRecordTypeSchema).default([]),
   /** Sessions role runs made. Work a clock or a role starts is not work the person started, so the
    *  sidebar leaves these to the role's page (design.md, "Work a clock starts"). */
   runSessionIds: z.array(z.string()),

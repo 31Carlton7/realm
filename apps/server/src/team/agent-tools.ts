@@ -4,20 +4,25 @@ import { ReviewKindSchema, ReviewTargetSchema, TEAM_PROVIDER_NAME, type TeamRevi
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
 import type { TeamService } from "./service";
+import type { RecordTypeService } from "./record-types/service";
 
 export { TEAM_PROVIDER_NAME };
 
 export type TeamAgentToolsDeps = {
   team: Pick<TeamService, "isTeam" | "space" | "records" | "readForAgent" | "updateForAgent" | "submit" | "reviewStatus">;
+  /** The team's kinds of record: what `record_types` answers, and the record tools' words per space. */
+  types: Pick<RecordTypeService, "describe" | "descriptions">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
   /** More tools on this provider (Phase 4's handoff and mention), answering null for a name not theirs. */
   more?: { tools: Tool[]; call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult | null> };
 };
 
-const RecordListArgs = z.object({ kind: z.literal("creators").optional() }).strict();
+/** `type` is a kind's key or folder; `kind` is v50's name for it ("creators"), still taken. */
+const RecordListArgs = z.object({ type: z.string().min(1).max(60).optional(), kind: z.string().min(1).max(60).optional() }).strict();
+const RecordTypesArgs = z.object({}).strict();
 const RecordReadArgs = z.object({ path: z.string().min(1).max(200) }).strict();
 const RecordUpdateArgs = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("create"), name: z.string().trim().min(1).max(120), path: z.string().max(200).optional() }).strict(),
+  z.object({ op: z.literal("create"), name: z.string().trim().min(1).max(120), type: z.string().min(1).max(60).optional(), path: z.string().max(200).optional() }).strict(),
   z.object({ op: z.literal("add"), path: z.string().min(1).max(200), section: z.string().max(60).optional(), entry: z.string().min(1).max(2_000) }).strict(),
   z.object({ op: z.literal("replace"), path: z.string().min(1).max(200), match: z.string().min(1).max(500), entry: z.string().min(1).max(2_000) }).strict(),
   z.object({ op: z.literal("remove"), path: z.string().min(1).max(200), match: z.string().min(1).max(500) }).strict(),
@@ -40,32 +45,28 @@ const TOOLS: Tool[] = [
     description: "The roles on this space's team: each one's name, what it does (its brief's first line), when it runs and what it is doing now. Read-only.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
+  { name: "record_types", description: "", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   {
     name: "record_list",
-    description: "The team's records — one Markdown file per person the team works with (creators/<name>.md in the team's memory) — with each one's name and status. Read-only.",
-    inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["creators"] } }, additionalProperties: false },
+    description: "",
+    inputSchema: { type: "object", properties: { type: { type: "string", description: "a kind's key or folder, e.g. \"creator\"" }, kind: { type: "string", description: "the same as type (an older name)" } }, additionalProperties: false },
   },
   {
     name: "record_read",
-    description: "One record, whole: its head (Status, Contact, Sends from), then ## Deal, ## Accounts, ## Deadlines, ## Content. Read it before you act for that person. `path` is `creators/<name>.md` or just `<name>`.",
+    description: "",
     inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false },
   },
   {
     name: "record_update",
-    description: [
-      "Change one line of a record, or make a new one. `op`: `create` (with `name`) makes creators/<name>.md from the template;",
-      "`add` puts `entry` at the end of `section` (Deal, Accounts, Deadlines, Content — made if missing; omit it for the head);",
-      "`replace` swaps the one line holding `match` for `entry`; `remove` deletes it.",
-      "Write an entry as `Key: value` where it is a fact with a name (\"Rate: $5 per video\"). An account line is `TikTok @handle · vault: <where its sign-in is kept> · consent: <where the creator agreed>` — the sign-in's NAME, never a password or key, which is refused.",
-      "Each line is stamped with this session and today's date, and committed under your role's name.",
-    ].join(" "),
+    description: "",
     inputSchema: {
       type: "object",
       properties: {
         op: { type: "string", enum: ["create", "add", "replace", "remove"] },
-        path: { type: "string", description: "creators/<name>.md, or <name>" },
-        name: { type: "string", description: "op create: the person's name, e.g. \"Nathan Beyenhof\"" },
-        section: { type: "string", description: "op add: Deal, Accounts, Deadlines or Content; omit for the head" },
+        path: { type: "string", description: "" },
+        name: { type: "string", description: "op create: the record's name, e.g. \"Nathan Beyenhof\"" },
+        type: { type: "string", description: "op create: the kind of record (record_types lists them); needed when the team keeps more than one" },
+        section: { type: "string", description: "" },
         entry: { type: "string", description: "op add/replace: the line, without the leading dash" },
         match: { type: "string", description: "op replace/remove: text that appears in exactly one line" },
       },
@@ -124,7 +125,8 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
     name: TEAM_PROVIDER_NAME,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!d.mcp.providerEnabled(ctx.spaceId, TEAM_PROVIDER_NAME) || !d.team.isTeam(ctx.spaceId)) return [];
-      return d.more ? [...TOOLS, ...d.more.tools] : TOOLS;
+      const tools = withRecordWords(TOOLS, d.types.descriptions(ctx.spaceId));
+      return d.more ? [...tools, ...d.more.tools] : tools;
     },
     async call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult> {
       if (!d.mcp.providerEnabled(ctx.spaceId, TEAM_PROVIDER_NAME))
@@ -140,9 +142,13 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
               return `- ${r.name} — ${r.state}${r.cron ? ` · runs ${r.cron}` : ""}${to.length ? ` · hands off to ${to.join(", ")}` : ""}: ${firstLine(r.brief)}`;
             }).join("\n") || "No roles.");
           }
+          case "record_types": {
+            const a = parseArgs(RecordTypesArgs, args); if ("error" in a) return a.error;
+            return ok(d.types.describe(ctx.spaceId));
+          }
           case "record_list": {
             const a = parseArgs(RecordListArgs, args); if ("error" in a) return a.error;
-            const rows = d.team.records(ctx.spaceId);
+            const rows = d.team.records(ctx.spaceId, a.value.type ?? a.value.kind);
             return ok(rows.length ? rows.map((r) => `- ${r.path} — ${r.name}${r.status ? ` (${r.status})` : ""}`).join("\n") : "No records yet. Make one with record_update op \"create\".");
           }
           case "record_read": {
@@ -152,8 +158,9 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
           case "record_update": {
             const a = parseArgs(RecordUpdateArgs, args); if ("error" in a) return a.error;
             const v = a.value;
-            const out = await d.team.updateForAgent(ctx, v.op === "create" ? { op: "create", name: v.name, path: v.path ?? "" } : v);
-            return ok(out.changed ? `Saved ${out.path}${out.line ? `: ${out.line}` : ""}.` : `${out.path} already said that; nothing changed.`);
+            const out = await d.team.updateForAgent(ctx, v.op === "create" ? { op: "create", name: v.name, path: v.path ?? "", type: v.type } : v);
+            const said = out.changed ? `Saved ${out.path}${out.line ? `: ${out.line}` : ""}.` : `${out.path} already said that; nothing changed.`;
+            return ok(out.note ? `${said} ${out.note}` : said);
           }
           case "review_submit": {
             const a = parseArgs(SubmitArgs, args); if ("error" in a) return a.error;
@@ -189,3 +196,20 @@ function statusLine(r: TeamReviewSummary): string {
 }
 
 const firstLine = (s: string): string => s.trim().split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? "";
+
+/** The record tools with this space's words: its folders, its sections. Only descriptions change with
+ *  a team's types — the list itself, names and schemas, is the same in every team space. */
+function withRecordWords(tools: Tool[], words: ReturnType<RecordTypeService["descriptions"]>): Tool[] {
+  return tools.map((t) => {
+    switch (t.name) {
+      case "record_types": return { ...t, description: words.types };
+      case "record_list": return { ...t, description: words.list };
+      case "record_read": return { ...t, description: words.read };
+      case "record_update": {
+        const props = (t.inputSchema.properties ?? {}) as Record<string, Record<string, unknown>>;
+        return { ...t, description: words.update, inputSchema: { ...t.inputSchema, properties: { ...props, path: { ...props.path, description: words.path }, section: { ...props.section, description: words.section } } } };
+      }
+      default: return t;
+    }
+  });
+}

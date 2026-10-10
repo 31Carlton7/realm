@@ -82,6 +82,15 @@ function stubActivitySources(db: DatabaseSync): void {
   if (!cols("session_events").includes("type")) db.exec("ALTER TABLE session_events ADD COLUMN type TEXT NOT NULL DEFAULT ''");
 }
 
+/** What the record types' migration (v51) reads and hangs off on its way to the end of the chain (the
+ *  spaces, the team's roles and reviews) as stubs, in a fixture stamped past the migrations that made them. */
+function stubTeamSources(db: DatabaseSync): void {
+  const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
+  if (cols("spaces").length === 0) db.exec("CREATE TABLE spaces (id TEXT PRIMARY KEY)");
+  if (cols("team_roles").length === 0) db.exec("CREATE TABLE team_roles (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, template TEXT, created_at INTEGER NOT NULL)");
+  if (cols("team_reviews").length === 0) db.exec("CREATE TABLE team_reviews (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, kind TEXT NOT NULL, record_path TEXT)");
+}
+
 describe("database", () => {
 
   it("migrates a populated v3 database to v4, adding sessions.terminal_item_id (NULL) without touching its rows", () => {
@@ -1759,6 +1768,7 @@ function teamRolesFixture(path: string, through: number, extra = ""): void {
     VALUES ('R1', 'sp1', 'Content Producer', 'Make slides.', '{"seed":"cp"}', 'claude', 0, 25, 10, 20)`).run();
   if (extra) db.prepare("INSERT INTO vault_grants (secret_id, space_id, role_id, created_at) VALUES ('S1', 'sp1', 'R1', 5)").run();
   stubActivitySources(db);
+  stubTeamSources(db);
   db.close();
 }
 
@@ -1865,6 +1875,7 @@ function v45Fixture(path: string): void {
   ev.run("talked", 2_500, "summary");
   ev.run("quiet", 4_000, "init");
   ev.run("quiet", 4_100, "status");
+  stubTeamSources(db);
   db.close();
 }
 
@@ -1927,7 +1938,7 @@ describe("migration — a session's activity", () => {
 describe("migrations 46–50, as the five branches that held each other's slots merged", () => {
   it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, then act tickets", () => {
     expect(migrations.filter((m) => m.trim() === "SELECT 1;")).toEqual([]);
-    expect(migrations).toHaveLength(50);
+    expect(migrations.length).toBeGreaterThanOrEqual(50);
     expect(migrations[45]).toContain("CREATE TABLE IF NOT EXISTS vault_grants");
     expect(migrations[46]).toContain("CREATE TABLE IF NOT EXISTS team_handoffs");
     expect(migrations[47]).toContain("CREATE TABLE IF NOT EXISTS lab_devices");

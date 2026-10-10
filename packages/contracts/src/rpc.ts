@@ -38,6 +38,7 @@ import { ActTicketSchema } from "./team-acts";
 import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
 import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
 import { SetRoleHandoffsSchema, SetTeamLimitsSchema } from "./team-handoffs";
+import { CreateRecordTypeSchema, TeamRecordTypeSchema, UpdateRecordTypeSchema } from "./team-record-types";
 import { LabAccountSchema, LabDeviceKindSchema, LabDevicesSchema, LabReadinessSchema, LabStatusSchema } from "./lab";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
@@ -1592,10 +1593,17 @@ export const Methods = {
   "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
   "team.reviewDone": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   "team.reviewDismiss": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  "team.records": { params: z.object({ spaceId: IdSchema }), result: z.array(TeamRecordSummarySchema) },
+  "team.records": { params: z.object({ spaceId: IdSchema, type: z.string().min(1).max(60).optional() }), result: z.array(TeamRecordSummarySchema) },
   "team.record": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200) }), result: TeamRecordSchema },
   "team.recordWrite": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200), markdown: z.string().max(100_000) }), result: TeamRecordSchema },
-  "team.recordCreate": { params: z.object({ spaceId: IdSchema, name: z.string().trim().min(1).max(120) }), result: TeamRecordSchema },
+  "team.recordCreate": { params: z.object({ spaceId: IdSchema, name: z.string().trim().min(1).max(120), type: z.string().min(1).max(60).optional() }), result: TeamRecordSchema },
+  // The kinds of record a team keeps (team-record-types.ts). The person's alone: no agent tool writes
+  // a type. A folder that holds records is never renamed out from under them; archiving hides a type
+  // and leaves its files.
+  "team.recordTypes.list": { params: z.object({ spaceId: IdSchema, archived: z.boolean().default(false) }), result: z.array(TeamRecordTypeSchema) },
+  "team.recordTypes.create": { params: CreateRecordTypeSchema, result: TeamRecordTypeSchema },
+  "team.recordTypes.update": { params: UpdateRecordTypeSchema, result: TeamRecordTypeSchema },
+  "team.recordTypes.archive": { params: z.object({ id: IdSchema, archived: z.boolean().default(true) }), result: TeamRecordTypeSchema },
   "team.activity": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(100), before: z.number().int().optional() }), result: z.array(TeamActivitySchema) },
   // The team vault (Teams Phase 2). Grants are ids and hosts — no value is ever on this wire, and
   // there is no method that sets a grant's "use without asking": that is the Vault page's, over
