@@ -1,5 +1,5 @@
 import {
-  AGENT_META, SELECTABLE_AGENT_KINDS, planLabel, planUnavailableNote, reportsPlanLimits, windowsByUrgency,
+  AGENT_META, SELECTABLE_AGENT_KINDS, planLabel, planUnavailableNote, reportsPlanLimits, tildePath, windowsByUrgency,
   type AgentKind, type PlanLimits, type PlanWindow,
 } from "@realm/contracts";
 import { useApp } from "../../../state/store";
@@ -43,7 +43,29 @@ function WindowRow({ window: w, alerted }: { window: PlanWindow; alerted: boolea
   );
 }
 
-function AccountCard({ row }: { row: PlanLimits }) {
+/**
+ * A card's key: the agent, and the Claude config folder its account is kept in. Claude reports a
+ * row for each folder a profile names, and two cards on one key are one card to React, which warns
+ * of it and may draw a card twice or leave one out when the rows next change.
+ */
+const cardKey = (row: PlanLimits): string => `${row.agentKind}:${row.home ?? ""}`;
+
+/**
+ * The folder a card's head names, where it has one to name: the path as a person writes it, or
+ * null for the default folder. Only Claude's cards name one, and only where more than one Claude
+ * account reports, since the folder is then what tells the cards apart. With a single Claude
+ * account there is nothing to tell apart, and the head is the one it always was.
+ */
+function headFolder(row: PlanLimits, claudeAccounts: number, userHome: string | null): string | null | undefined {
+  if (row.agentKind !== "claude" || claudeAccounts < 2) return undefined;
+  return row.home == null ? null : tildePath(row.home, userHome);
+}
+
+function AccountCard({ row, folder }: {
+  row: PlanLimits;
+  /** What `headFolder` answers for this row. Absent, the head names no folder. */
+  folder?: string | null;
+}) {
   const kind = row.agentKind as AgentKind;
   const plan = planLabel(kind, row.subscriptionType);
   return (
@@ -54,6 +76,8 @@ function AccountCard({ row }: { row: PlanLimits }) {
             different thing to explain than a personal plan at the same tier. */}
         <span className="plan-account-tier">{plan ?? "plan not reported"}</span>
         {row.organization && <span className="plan-account-org">{row.organization}</span>}
+        {folder === null && <span className="plan-account-home">default folder</span>}
+        {typeof folder === "string" && <code className="plan-account-home" title={folder}>{folder}</code>}
       </header>
       {row.unavailable ? (
         <p className="plan-note">{planUnavailableNote(kind, row.unavailable)}{row.detail ? ` (${row.detail})` : ""}</p>
@@ -77,15 +101,17 @@ const RUNNABLE = new Set<string>(SELECTABLE_AGENT_KINDS);
 
 export function PlanCard() {
   const limits = useApp((s) => s.planLimits);
+  const userHome = useApp((s) => s.userHome);
 
   const rows = limits.filter((r) => RUNNABLE.has(r.agentKind));
   const reporting = rows.filter((r) => reportsPlanLimits(r.agentKind as AgentKind));
   const silent = rows.filter((r) => !reportsPlanLimits(r.agentKind as AgentKind));
+  const claudeAccounts = reporting.filter((r) => r.agentKind === "claude").length;
 
   return (
     <section className="settings-card plan-card" aria-labelledby="plan-card-head">
       <h3 className="settings-head" id="plan-card-head">Plan &amp; limits</h3>
-      {reporting.map((row) => <AccountCard key={row.agentKind} row={row} />)}
+      {reporting.map((row) => <AccountCard key={cardKey(row)} row={row} folder={headFolder(row, claudeAccounts, userHome)} />)}
       {/* One line for every agent that cannot answer, rather than a row each. Twelve stacked
           "does not report plan limits" rows would be the tiny grey copy this app's guidelines reject,
           and the fact is the same for all of them — their protocols have no notion of a plan. */}

@@ -51,6 +51,20 @@ export const CATEGORY_COPY: Record<NotificationCategory, { label: string; desc: 
 };
 
 /**
+ * What the window is showing, for the rows a page draws only some of the time where the platform
+ * is not what decides it.
+ *
+ * `claudeFolder`: the active profile names a Claude config folder and signs in from it, which is
+ * when Claude's card on Engines says which. The index is a table and holds no store, so the page
+ * that searches hands this in.
+ */
+export type SettingsNow = { claudeFolder: boolean };
+
+/** Nothing of the kind is showing. It is what a search is given where nobody says otherwise, so a
+ *  row that needs something to be true is left out, never offered and then not found. */
+const NOTHING_SHOWING: SettingsNow = { claudeFolder: false };
+
+/**
  * One thing a search can land on.
  *
  * `id` is what the element on the page carries as `data-setting`, which is how a jump finds it once
@@ -69,8 +83,21 @@ export type SettingEntry = {
   page?: true;
   /** For a row a page draws only where the platform has the thing (the App icon row needs a Dock).
    *  False means search leaves it out — a result that lands on a row that is not there is a dead
-   *  end — and the index-agrees-with-page test does not expect it. Absent means always. */
-  available?: () => boolean;
+   *  end — and the index-agrees-with-page test does not expect it. Absent means always.
+   *
+   *  `now` is for a row that depends on what the window is showing and not on the platform. */
+  available?: (now: SettingsNow) => boolean;
+};
+
+/**
+ * The line on Claude's Engines card that says which Claude config folder the active profile signs
+ * in from. It is drawn only where that profile names one and signs in from it, so it is found only
+ * then. With none named, or under a variable that outranks the folder's sign-in, the card says
+ * nothing of folders, and a result would land on a card that does not hold it.
+ */
+const CLAUDE_FOLDER: SettingEntry = {
+  id: "engine-claude-folder", tab: "engines", label: "Claude config folder", terms: "profile account login sign in directory",
+  available: (now) => now.claudeFolder,
 };
 
 /**
@@ -138,7 +165,10 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
 
   // Engines
   { id: "engine-checks", tab: "engines", label: "Check for new models", terms: "updates cli version catalog" },
-  ...SELECTABLE_AGENT_KINDS.map((k): SettingEntry => ({ id: `engine:${k}`, tab: "engines", label: AGENT_META[k].label, terms: "agent cli install update sign login" })),
+  ...SELECTABLE_AGENT_KINDS.flatMap((k): SettingEntry[] => [
+    { id: `engine:${k}`, tab: "engines", label: AGENT_META[k].label, terms: "agent cli install update sign login" },
+    ...(k === "claude" ? [CLAUDE_FOLDER] : []),
+  ]),
   { id: "failover", tab: "engines", label: "Failover", terms: "retry stalled turn hand over fallback limit chain" },
   { id: "laya", tab: "engines", label: "Laya (local decisions)", terms: "local model shadow assist recordings evaluation log" },
 
@@ -177,14 +207,17 @@ const words = (s: string): string[] => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).
  * Ranked by where the words landed — all in the label first, then label and place, then anything
  * that needed the terms — and in page order within a rank, so a query that names a page lists that
  * page's rows as the page draws them.
+ *
+ * `now` is what the window is showing, for the rows that are drawn only some of the time
+ * (`SettingsNow`). Left out, those rows are left out.
  */
-export function searchSettings(query: string): SettingEntry[] {
+export function searchSettings(query: string, now: SettingsNow = NOTHING_SHOWING): SettingEntry[] {
   const typed = words(query);
   if (typed.length === 0) return [];
   const starts = (pool: string[]) => typed.every((w) => pool.some((p) => p.startsWith(w)));
   const hits: { entry: SettingEntry; rank: number; at: number }[] = [];
   SETTINGS_INDEX.forEach((entry, at) => {
-    if (entry.available?.() === false) return;
+    if (entry.available?.(now) === false) return;
     const label = words(entry.label);
     const place = [...label, ...words(settingsTabLabel(entry.tab)), ...words(entry.section ?? "")];
     const all = [...place, ...words(entry.terms ?? "")];

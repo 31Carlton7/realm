@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { allItems, sessionEvent } from "@realm/contracts";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { allItems, sessionEvent, type AgentKind } from "@realm/contracts";
 import { reduceAll } from "../panes/session/transcript-model";
 import { QuickChat } from "./QuickChat";
-import { StoreContext, createAppStore, useAppStore } from "../state/store";
+import { StoreContext, createAppStore, useAppStore, type AgentProbe } from "../state/store";
 import { appCommands } from "../keys/commands";
-import { fakeApi, type FakeData } from "../state/store.test-fakes";
+import { claudeRow, fakeApi, session, type FakeApi, type FakeData } from "../state/store.test-fakes";
 
 /** Quick chat is a keystroke now, not a sidebar row (Plan 27): this presses it through the app's own
  *  command table, the path ⌘⇧N takes. */
@@ -310,5 +310,46 @@ describe("the quick chat", () => {
     const { x, y } = store.getState().quickChatPos!;
     expect(x).toBeGreaterThanOrEqual(0);
     expect(y).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/** Claude under a config folder a profile names, with nobody signed in, as the server answers it. */
+const SIGNED_OUT_THERE: AgentProbe = { kind: "claude", available: true, version: "2.1.296", loggedIn: false, reason: null, home: "/Users/carlton/.claude-work" };
+
+/**
+ * The window brought back over a session the fake server already holds, as a relaunch brings it
+ * back, so a test can say what that session's own Claude row is before the window asks for it.
+ */
+async function restored(agentKind: AgentKind, overrides: FakeData = {}) {
+  const m = await mount({ sessions: [session("qc", "s1", { agentKind })], settings: { "ui.quickChat": { sessionId: "qc", pos: null } }, ...overrides });
+  await screen.findByRole("dialog", { name: "Quick chat" });
+  return m;
+}
+
+/** The asks the fake logged for sessions' own Claude rows, in the order they were made. */
+const sessionAsks = (api: FakeApi): string[] => api.calls.filter((c) => c.includes(":session:"));
+
+describe("the quick chat and its session's own Claude row", () => {
+  it("asks for the row of its own session, unforced, as the window comes up", async () => {
+    const { api } = await restored("claude");
+    expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:qc"]);
+  });
+
+  it("asks for no Claude row on behalf of a Codex chat", async () => {
+    const { api } = await restored("codex");
+    expect(sessionAsks(api)).toEqual([]);
+  });
+
+  it("asks for the row when a chat that has not started is switched to Claude", async () => {
+    const { api, store } = await restored("codex");
+    await act(async () => { await store.getState().setSessionAgent("qc", "claude"); });
+    await waitFor(() => expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:qc"]));
+  });
+
+  it("reads Claude's sign-in off its session's own row, not off the window's list", async () => {
+    const { store } = await restored("claude", { agentProbe: [claudeRow("me@example.com")], sessionClaude: { qc: SIGNED_OUT_THERE } });
+    await act(async () => { await store.getState().probeAgents(); });
+    fireEvent.click(within(chat()).getByRole("button", { name: /model/i }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /Claude Fable 5\.1/ })).toHaveTextContent("signed out"));
   });
 });

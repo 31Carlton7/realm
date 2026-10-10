@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_ATTACHMENT_BYTES, sessionEvent } from "@realm/contracts";
 import { createAppStore } from "./store";
 import { fakeApi, item, session } from "./store.test-fakes";
-import { VIEWER_SLOT, exchangeResults, exchangeStart, ownerOf } from "./viewer";
+import { VIEWER_SLOT, exchangeResults, exchangeStart, ownerOf, viewerStartSpace } from "./viewer";
 import { reduceAll } from "../panes/session/transcript-model";
 import { keyContext } from "../keys/commands";
 
@@ -179,6 +179,32 @@ describe("asking about the file", () => {
     store.getState().stepViewer(1);
     await store.getState().sendFromViewer("two");
     expect(api.sent.map((m) => [m.id, m.text])).toEqual([["lead", "one"], ["other", "two"]]);
+  });
+});
+
+describe("the space a first question starts its session in", () => {
+  const spaces = [{ id: "s1" }, { id: "s2" }];
+  const from = (spaceId: string | null) => ({ sessionId: "gone", spaceId, sessionTitle: null, kind: "output" as const });
+
+  it("is the space the file came from, ahead of the one the viewer was opened over", () => {
+    expect(viewerStartSpace({ spaceId: "s1" }, { path: "/a", from: from("s2") }, spaces, "s1")).toBe("s2");
+  });
+
+  it("is the space the viewer was opened over for a file that names none", () => {
+    expect(viewerStartSpace({ spaceId: "s2" }, { path: "/a" }, spaces, "s1")).toBe("s2");
+    expect(viewerStartSpace({ spaceId: "s2" }, { path: "/a", from: from(null) }, spaces, "s1")).toBe("s2");
+  });
+
+  it("is the space on screen where the space the file came from is gone", () => {
+    expect(viewerStartSpace({ spaceId: "s1" }, { path: "/a", from: from("s7") }, spaces, "s2")).toBe("s2");
+  });
+
+  it("is the space on screen where nothing names another", () => {
+    expect(viewerStartSpace({ spaceId: null }, { path: "/a" }, spaces, "s1")).toBe("s1");
+  });
+
+  it("is none where no space is on screen either, so nothing is started", () => {
+    expect(viewerStartSpace({ spaceId: null }, { path: "/a" }, spaces, null)).toBeNull();
   });
 });
 

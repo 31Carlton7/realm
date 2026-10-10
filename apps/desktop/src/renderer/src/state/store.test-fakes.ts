@@ -5,6 +5,7 @@ import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableMod
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
+import type { ClaudeDir } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -40,6 +41,16 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra });
+/** A profile's Claude config folder as the server answers it: `dir` named, or null for the default
+ *  one, there on disk, and nothing in Realm's environment standing in for its sign-in. `anyNamed` is
+ *  what an install with this one profile would say: a folder is in use exactly where this profile
+ *  names one. A test of an install where another profile names a folder says so in `extra`. */
+export const claudeFolder = (dir: string | null, extra: Partial<ClaudeDir> = {}): ClaudeDir =>
+  ({ dir, inForce: dir ?? "/home/.claude", missing: false, override: null, anyNamed: dir !== null, ...extra });
+/** Claude's probe row as one config folder has it: installed, and signed in as `email` from `home`
+ *  (null for the default folder), which is how the server stamps the row it answers. */
+export const claudeRow = (email: string, home: string | null = null, extra: Partial<AgentProbe> = {}): AgentProbe =>
+  ({ kind: "claude", available: true, version: "2.1.296", loggedIn: true, reason: null, account: { email, organization: null, plan: "max" }, home, ...extra });
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
@@ -239,6 +250,31 @@ export type FakeData = {
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
+  /** A profile's own Claude row, by profile id: what `agents.probe` and `agents.probeOne` answer for
+   *  Claude when that profile is named, in place of `agentProbe`'s. A profile with none here answers
+   *  `agentProbe`'s, as a profile that names no folder answers the default folder's. That is every
+   *  fixture written before a profile could name one, and they read as they always did.
+   *
+   *  A probe is logged in `calls` as it always was (`probeAgents:true`, `probeAgent:claude`), and
+   *  once more where it names whom it asks for, since that is the part worth asserting:
+   *  `probeAgents:plain:<profileId>` or `probeAgents:forced:<profileId>`, and
+   *  `probeAgent:<kind>:forced:profile:<profileId>` or `probeAgent:<kind>:plain:session:<sessionId>`. */
+  profileClaude?: Record<string, AgentProbe>;
+  /** A session's own Claude row, by session id: what `agents.probeOne` answers when that session is
+   *  named. A session with none here answers its profile's, as the server resolves a session that
+   *  holds no conversation to the folder its profile names. A session the fake does not hold is
+   *  refused, which is how a test gets a probe that fails. */
+  sessionClaude?: Record<string, AgentProbe>;
+  /** What `agents.claudeDir` answers, by profile id, and where `agents.setClaudeDir` writes. A
+   *  profile with none here names no folder (`claudeFolder(null)`). The fake refuses a path that is
+   *  not absolute, in the server's sentence, and a profile it does not hold; it expands no `~`.
+   *  A read answers what was held when it arrived, and hands that back after
+   *  `delays["claudeDir:<profileId>"]` where one is set. That is a reply held up on the wire, which
+   *  lets a race test land a read from before a write after it.
+   *
+   *  A space-less Claude sign-in started for a profile that names a folder here answers with that
+   *  folder as its `home`, as the server's does, and with none for a profile on the default one. */
+  claudeDirs?: Record<string, ClaudeDir>;
   /** The space's failover policy. Defaults to the real default (retry on, no chain), so a test that
    *  does not care about failover gets the behaviour a fresh install has. */
   failover?: FailoverPolicy;
@@ -471,6 +507,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
+    profileClaude: overrides.profileClaude ?? {},
+    sessionClaude: overrides.sessionClaude ?? {},
+    claudeDirs: overrides.claudeDirs ?? {},
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
     editors: overrides.editors ?? [],
     installedApps: overrides.installedApps ?? [],
@@ -922,7 +961,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const row = data.sessions.find((x) => x.id === id);
       if (row) row.seenSeq = Math.max(row.seenSeq, seq);
     },
-    systemInfo: async () => { calls.push("systemInfo"); return { machineName: "Carlton's M4 MacBook Pro", userName: "Carlton", detachedSince: data.detachedSince ?? null }; },
+    systemInfo: async () => { calls.push("systemInfo"); return { machineName: "Carlton's M4 MacBook Pro", userName: "Carlton", detachedSince: data.detachedSince ?? null, userHome: "/Users/carlton" }; },
     pickFolder: async () => "/tmp/picked-repo",
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
@@ -1431,15 +1470,43 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return Object.fromEntries(paths.filter((p) => data.installedApps.some((a) => a.path === p)).map((p) => [p, data.appIcons[p] ?? null]));
     },
     openInEditor: async (id, path, base) => { calls.push(`openInEditor:${id}:${path}${base ? `@${base}` : ""}`); return data.editors.some((e) => e.id === id); },
-    probeAgents: async (force) => {
+    probeAgents: async (force, profileId) => {
       calls.push(`probeAgents:${force}`);
+      if (profileId) calls.push(`probeAgents:${force ? "forced" : "plain"}:${profileId}`);
       await wait("probeAgents");
-      return data.agentProbe;
+      const own = profileId ? data.profileClaude[profileId] : undefined;
+      if (!own) return data.agentProbe;
+      return data.agentProbe.some((r) => r.kind === "claude") ? data.agentProbe.map((r) => (r.kind === "claude" ? own : r)) : [...data.agentProbe, own];
     },
-    probeAgent: async (kind) => {
+    probeAgent: async (kind, o) => {
       calls.push(`probeAgent:${kind}`);
+      const asked = o?.force === false ? "plain" : "forced";
+      if (o?.sessionId) calls.push(`probeAgent:${kind}:${asked}:session:${o.sessionId}`);
+      else if (o?.profileId) calls.push(`probeAgent:${kind}:${asked}:profile:${o.profileId}`);
       await wait("probeAgent");
-      return data.agentProbe.find((r) => r.kind === kind) ?? null;
+      const shared = data.agentProbe.find((r) => r.kind === kind) ?? null;
+      if (kind !== "claude") return shared;
+      if (!o?.sessionId) return (o?.profileId ? data.profileClaude[o.profileId] : undefined) ?? shared;
+      const held = data.sessions.find((x) => x.id === o.sessionId);
+      if (!held) throw new Error(`no session ${o.sessionId}`);
+      const profileId = data.spaces.find((sp) => sp.id === held.spaceId)?.profileId;
+      return data.sessionClaude[held.id] ?? (profileId ? data.profileClaude[profileId] : undefined) ?? shared;
+    },
+    claudeDir: async (profileId) => {
+      calls.push(`claudeDir:${profileId}`);
+      const known = data.profiles.some((p) => p.id === profileId);
+      const answer = data.claudeDirs[profileId] ?? claudeFolder(null);
+      if (api.delays[`claudeDir:${profileId}`] !== undefined) await wait(`claudeDir:${profileId}`);
+      if (!known) throw new Error(`profile ${profileId} not found`);
+      return answer;
+    },
+    setClaudeDir: async (profileId, dir) => {
+      calls.push(`setClaudeDir:${profileId}=${dir ?? "default"}`);
+      if (!data.profiles.some((p) => p.id === profileId)) throw new Error(`profile ${profileId} not found`);
+      if (dir !== null && !dir.startsWith("/")) throw new Error("A Claude config folder needs a full path, such as ~/.claude-work.");
+      const answer = claudeFolder(dir);
+      data.claudeDirs[profileId] = answer;
+      return answer;
     },
     cliStatus: async (force) => {
       calls.push(`cliStatus:${force}`);
@@ -1460,9 +1527,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     // The space-less sign-in answers with the page already up, as a real CLI does within a second; a
     // test moves it on by applying events itself.
-    agentSignInStart: async (kind) => {
+    agentSignInStart: async (kind, profileId) => {
       calls.push(`agentSignInStart:${kind}`);
-      return { id: `si-${kind}`, kind, state: "browser", url: `https://example.com/oauth/authorize?client=${kind}`, detail: null };
+      if (profileId) calls.push(`agentSignInStart:${kind}:profile:${profileId}`);
+      const home = kind === "claude" && profileId ? data.claudeDirs[profileId]?.dir ?? null : null;
+      return { id: `si-${kind}`, kind, state: "browser", url: `https://example.com/oauth/authorize?client=${kind}`, detail: null, ...(home === null ? {} : { home }) };
     },
     agentSignInCode: async (id, code) => { calls.push(`agentSignInCode:${id}:${code.length}`); },
     agentSignInCancel: async (id) => { calls.push(`agentSignInCancel:${id}`); },

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import type { PlanLimits } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../../state/store";
 import { fakeApi } from "../../../state/store.test-fakes";
@@ -115,5 +115,63 @@ describe("the plan card", () => {
     const noon = new Date(); noon.setHours(12, 20, 0, 0);
     await mount([row({ agentKind: "claude", subscriptionType: "max", windows: [win("five_hour", "5-hour", 31, noon.getTime())] })]);
     expect(await screen.findByText(/resets Today at/)).toBeInTheDocument();
+  });
+});
+
+/** A Claude config folder a profile names, inside the home folder the fake server reports. */
+const WORK_HOME = "/Users/carlton/.claude-work";
+/** Claude on two accounts: the one the default folder is signed in to, and a named folder's. */
+const TWO_ACCOUNTS: PlanLimits[] = [
+  row({ agentKind: "claude", subscriptionType: "max", home: null, windows: [win("five_hour", "5-hour", 12)] }),
+  row({ agentKind: "claude", subscriptionType: "team", home: WORK_HOME, windows: [win("five_hour", "5-hour", 40)] }),
+];
+/** Codex's one account, which no folder decides. */
+const CODEX = row({ agentKind: "codex", subscriptionType: "pro", windows: [win("primary", "5-hour", 5)] });
+
+/** The account cards drawn, top to bottom. */
+const cards = () => Array.from(document.querySelectorAll<HTMLElement>(".plan-account"));
+/** What a card's head says, an entry for each thing on it. */
+const headOf = (card: HTMLElement): string[] => Array.from(card.querySelectorAll(".plan-account-head > *")).map((el) => el.textContent ?? "");
+/** The folder a card's head names, or null where it names none. */
+const folderOn = (card: HTMLElement) => card.querySelector(".plan-account-home");
+
+describe("the plan card where Claude runs on more than one account", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("draws a card for each account on a key of its own, and keeps one card to an account when the rows change", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { store } = await mount(TWO_ACCOUNTS);
+    await waitFor(() => expect(cards()).toHaveLength(2));
+    act(() => store.getState().applyPlanLimits([CODEX, ...TWO_ACCOUNTS]));
+    expect(cards().map((card) => headOf(card)[1])).toEqual(["Codex Pro", "Claude Max", "Claude Team"]);
+    expect(errors.mock.calls).toEqual([]);
+  });
+
+  it("names the folder on each Claude card's head: a path as a person writes it, in the code face, and the default folder in words", async () => {
+    await mount(TWO_ACCOUNTS);
+    await waitFor(() => expect(cards()).toHaveLength(2));
+    const [onDefault, onWork] = cards().map(folderOn);
+    expect(onDefault?.textContent).toBe("default folder");
+    expect(onDefault?.tagName).toBe("SPAN");
+    expect(onWork?.textContent).toBe("~/.claude-work");
+    expect(onWork?.tagName).toBe("CODE");
+  });
+
+  it("holds a path whole on its tooltip, for a head too narrow to show all of it", async () => {
+    await mount(TWO_ACCOUNTS);
+    await waitFor(() => expect(cards()).toHaveLength(2));
+    expect(folderOn(cards()[1]!)).toHaveAttribute("title", "~/.claude-work");
+  });
+
+  it("names no folder on another agent's card", async () => {
+    await mount([...TWO_ACCOUNTS, CODEX]);
+    await waitFor(() => expect(cards()).toHaveLength(3));
+    expect(folderOn(cards()[2]!)).toBeNull();
+  });
+
+  it("keeps the head it always had where one Claude account reports, whichever folder it is kept in", async () => {
+    await mount([row({ agentKind: "claude", subscriptionType: "team", home: WORK_HOME, windows: [win("five_hour", "5-hour", 40)] })]);
+    await waitFor(() => expect(cards()).toHaveLength(1));
+    expect(headOf(cards()[0]!)).toEqual(["Claude", "Claude Team"]);
   });
 });

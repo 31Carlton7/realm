@@ -118,6 +118,21 @@ export function ownerOf(v: Pick<ViewerState, "sessionId">, file: ViewerFile | un
   return v.sessionId && reachable(v.sessionId) ? v.sessionId : null;
 }
 
+/**
+ * The space a first question starts its session in, where the viewer has nobody to ask: the space
+ * the file came from, or with none named the space the viewer was opened over, while that space
+ * still exists, and otherwise the space on screen. Null where there is none of them, and nothing is
+ * then sent.
+ *
+ * `sendFromViewer` starts the session there. The viewer's prompter reads Claude's sign-in as a
+ * session that started there would, so the account it names before the first question is the one
+ * the question then runs on. Both ask here, so the two cannot come apart.
+ */
+export function viewerStartSpace(v: Pick<ViewerState, "spaceId">, file: ViewerFile | undefined, spaces: readonly { id: string }[], activeSpaceId: string | null): string | null {
+  const home = file?.from?.spaceId ?? v.spaceId;
+  return home && spaces.some((sp) => sp.id === home) ? home : activeSpaceId;
+}
+
 /** Where this viewer's exchange starts in `blocks`: the first user message at or after `from`, sent
  *  no earlier than `at`, or -1 while the question has not landed (a send queued behind a turn). */
 export function exchangeStart(blocks: readonly Block[], from: number, at = 0): number {

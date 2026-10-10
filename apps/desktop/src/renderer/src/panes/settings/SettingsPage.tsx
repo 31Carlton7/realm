@@ -4,7 +4,7 @@ import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
-  EDITOR_NAMES, resolveEditor, type OpenFilesIn, type TerminalDockEdge, } from "@realm/contracts";
+  EDITOR_NAMES, resolveEditor, type OpenFilesIn, type TerminalDockEdge, claudeLoginHint, tildePath, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
@@ -16,8 +16,8 @@ import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
 import { CommandCopy } from "../../components/CommandCopy";
-import { agentAvailability, isBlocked } from "../../state/agent-availability";
-import { useApp, type CliJob, type SettingsPageTab, type SubmitKey } from "../../state/store";
+import { agentAvailability, isBlocked, namedClaudeHome } from "../../state/agent-availability";
+import { useApp, type AppState, type CliJob, type SettingsPageTab, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
@@ -39,6 +39,9 @@ import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, settingsT
  *
  * The pane's `item` goes unused: nothing here has a per-space vantage —
  * engines, app preferences and TCC grants are facts about the machine and the app, not a space.
+ * One of them is a fact about a profile as well: the sign-in on Claude's card is the active
+ * profile's, since a profile can name the Claude config folder its sessions sign in from. That
+ * profile is the window's own, read from the store, so the `item` still goes unused.
  */
 
 /** "2.1.223" → "v2.1.223", but "codex-cli 0.146.0" stays as-is — the v is for bare numbers only
@@ -50,6 +53,19 @@ export function engineVersionLabel(version: string): string {
 /** How long a row a search landed on keeps its mark: long enough to find on a page that scrolled to
  *  it, short enough that it is gone before anyone reads it as a state. */
 const FOUND_MS = 1600;
+
+/**
+ * The Claude config folder the active profile signs in from, where it names one, or null: where it
+ * names none, where its answer has not landed, and where a variable in Realm's environment
+ * outranks every folder's sign-in (`override`). Under such a variable the profile does not sign in
+ * from the folder it names, and its own page says what it uses. It is the one reading behind both
+ * the line on Claude's Engines card and the search that lands on that line, so a result is never
+ * offered for a line that is not drawn.
+ */
+const activeClaudeFolder = (s: AppState): string | null => {
+  const answer = s.activeProfileId === null ? undefined : s.claudeDirs[s.activeProfileId];
+  return answer === undefined || answer.override !== null ? null : answer.dir;
+};
 
 export function SettingsPage(_props: PaneProps) {
   // In the store so an opener can land on a tab — the browser pane's "Browser settings" opens Sign-ins.
@@ -63,7 +79,8 @@ export function SettingsPage(_props: PaneProps) {
   useDissolve(lists);
   useDissolve(lists, "x");
   const ids = useId();
-  const results = query.trim() === "" ? null : searchSettings(query);
+  const claudeFolder = useApp((s) => activeClaudeFolder(s) !== null);
+  const results = query.trim() === "" ? null : searchSettings(query, { claudeFolder });
 
   const open = (next: SettingsTab) => { setQuery(""); setTab(next); };
   const jump = (entry: SettingEntry) => {
@@ -332,6 +349,17 @@ function EnginesTab() {
  * can find rather than one sentence you have to parse. And the prose — install commands, login
  * hints, probe reasons — folds behind a disclosure, opened by default only when the engine needs
  * something from you. A ready engine is one line; a broken one still explains itself in full.
+ *
+ * Claude's sign-in is one Claude config folder's, and a profile can name its own. Where the row
+ * answers for a named folder, the line the card offers for copying and the sentence under it name
+ * that folder (`agentAvailability`, `claudeLoginHint`). The table's bare `claude auth login` signs
+ * the default folder in, and a person who ran it would come back to the same Signed out card.
+ * Every other card, and Claude's on the default folder, says what the table says.
+ *
+ * Where that named folder is missing (`homeMissing`), the card offers no line to copy and no
+ * sentence about signing in. It prints the row's own reason. Claude Code makes a folder it is
+ * pointed at, so the login line would bring back an empty folder under the name of the one that
+ * went, which is what the server refuses a sign-in to prevent.
  */
 function EngineCard({ kind }: { kind: AgentKind }) {
   const agentProbe = useApp((s) => s.agentProbe);
@@ -343,7 +371,10 @@ function EngineCard({ kind }: { kind: AgentKind }) {
   const p = agentProbe.find((x) => x.kind === kind);
   const meta = AGENT_META[kind];
   const a = agentAvailability(kind, agentProbe);
-  const { install, login } = AGENT_CLI_COMMANDS[kind];
+  const { install } = AGENT_CLI_COMMANDS[kind];
+  const login = a.state === "logged_out" ? a.command : null;
+  const home = namedClaudeHome(p);
+  const loginHint = home === null ? AGENT_LOGIN_HINTS[kind] : claudeLoginHint(home);
   // The one command a click would run, and the label for the click. The server decided both; the
   // card only renders them, so a button can never offer something the server would refuse.
   /* Three offers, not two. An update with a known newer version NAMES it and takes the primary
@@ -363,6 +394,8 @@ function EngineCard({ kind }: { kind: AgentKind }) {
     : null;
   const offered = (SELECTABLE_AGENT_KINDS as readonly AgentKind[]).includes(kind);
   const blocked = isBlocked(a) && kind !== "fake";
+  const folderGone = kind === "claude" && p?.homeMissing === true;
+  const hint = folderGone && isBlocked(a) ? a.reason : loginHint;
   const state = !p ? "unknown" : !p.available ? "missing" : p.loggedIn === false ? "logged_out" : "ready";
   const STATE_LABEL = { unknown: "Checking…", missing: "Not installed", logged_out: "Signed out", ready: "Ready" };
 
@@ -418,6 +451,7 @@ function EngineCard({ kind }: { kind: AgentKind }) {
           {chips.map((c) => <span key={c.label} className="engine-chip" data-tone={c.tone}>{c.label}</span>)}
         </div>
       )}
+      {kind === "claude" && <ClaudeFolderLine />}
       {details.length > 0 && (
         <details className="engine-details" open={wantsYou || openDetails || undefined}
           onToggle={(e) => setOpenDetails((e.currentTarget as HTMLDetailsElement).open)}>
@@ -435,14 +469,43 @@ function EngineCard({ kind }: { kind: AgentKind }) {
                 `!offered`, which held only while every kind with something awkward to explain was
                 also withheld. Gemini broke that when it was offered again: `login` is null for it
                 (it needs an API key, Vertex credentials, or a gateway), so the card would have gone
-                from a full explanation to nothing but "Not installed". */}
-            {blocked && <p className="settings-hint">{AGENT_LOGIN_HINTS[kind]}</p>}
-            {p && !p.available && p.reason && <p className="settings-hint">{p.reason}</p>}
+                from a full explanation to nothing but "Not installed". The one blocked card that
+                says something else here is Claude's where its config folder is missing: it prints
+                the row's reason, once, since nothing can sign in to a folder that is not there. */}
+            {blocked && <p className="settings-hint">{hint}</p>}
+            {p && !p.available && p.reason && !folderGone && <p className="settings-hint">{p.reason}</p>}
           </div>
         </details>
       )}
       {job && <CliJobPanel job={job} onDismiss={() => dismissCliJob(kind)} />}
     </li>
+  );
+}
+
+/**
+ * Whose sign-in Claude's card is reporting, where the profile showing names a Claude config folder.
+ *
+ * The card's pill, its Signed in chip and its sign-in line all answer for that one folder, and
+ * another profile's card can say something else. Without this line a person on two accounts reads
+ * "Signed out" with nothing to say which of them. Change… opens the profile's own page, where the
+ * folder is named, the way the profile menu opens it.
+ *
+ * Nothing is drawn where the profile names no folder, or where its answer has not landed: the card
+ * is then about the default folder, as it always was, and says nothing new. Nothing is drawn under
+ * a variable that outranks the folder's sign-in either (`activeClaudeFolder`). The sentence would
+ * be untrue there, and the profile's page says what is.
+ */
+function ClaudeFolderLine() {
+  const profile = useApp((s) => s.profiles.find((p) => p.id === s.activeProfileId) ?? null);
+  const folder = useApp(activeClaudeFolder);
+  const userHome = useApp((s) => s.userHome);
+  const openProfilePage = useApp((s) => s.openProfilePage);
+  if (!profile || folder === null) return null;
+  return (
+    <div className="engine-folder" data-setting="engine-claude-folder">
+      <span className="settings-row-desc">{profile.name} signs in from <code className="env-path">{tildePath(folder, userHome)}</code>.</span>
+      <button type="button" className="btn-quiet" onClick={() => openProfilePage("general")}>Change…</button>
+    </div>
   );
 }
 

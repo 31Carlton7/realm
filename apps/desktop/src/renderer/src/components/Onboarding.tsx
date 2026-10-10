@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FALLBACK_AGENT, folderName, useApp } from "../state/store";
 import { agentAvailability, type AgentAvailability } from "../state/agent-availability";
+import { AgentSignInSteps, runningSignIn } from "./AgentSignInSteps";
 import { Spinner } from "./Spinner";
 import { useDissolve } from "./ScrollFades";
 import { DEFAULT_SPACE_ICON, SpaceFolderField, SpaceIdentityField } from "./space-fields";
@@ -214,7 +215,8 @@ export function Onboarding() {
  * One lead agent, as a card: picking it (the radio is the card's head), and below, the one thing its
  * state needs — Checking…, Install, Sign in with …, the browser step of a sign-in, a code to paste
  * back, or Ready. Every action also picks the agent it acts on: someone who signs in to Codex means
- * Codex.
+ * Codex. The steps of a sign-in that is running are `AgentSignInSteps`, which a profile's page
+ * draws as well.
  */
 function AgentCard({ kind, selected, onPick }: { kind: LeadAgent; selected: boolean; onPick: () => void }) {
   const probe = useApp((s) => s.agentProbe);
@@ -224,54 +226,17 @@ function AgentCard({ kind, selected, onPick }: { kind: LeadAgent; selected: bool
   const signIn = useApp((s) => s.agentSignIns[kind]);
   const runCliAction = useApp((s) => s.runCliAction);
   const startAgentSignIn = useApp((s) => s.startAgentSignIn);
-  const sendAgentSignInCode = useApp((s) => s.sendAgentSignInCode);
-  const cancelAgentSignIn = useApp((s) => s.cancelAgentSignIn);
   const run = useApp((s) => s.run);
-  const [code, setCode] = useState("");
   const copy = LEAD_COPY[kind];
   const a = standing(kind, probe, probedAll);
   const loggedIn = probe.find((p) => p.kind === kind)?.loggedIn ?? null;
-  const live = signIn && (signIn.state === "starting" || signIn.state === "browser" || signIn.state === "code") ? signIn : null;
+  const live = runningSignIn(signIn);
 
-  const signInNow = () => { onPick(); setCode(""); run(() => startAgentSignIn(kind)); };
-  const sendCode = () => {
-    const c = code.trim();
-    if (c === "") return;
-    setCode("");
-    run(() => sendAgentSignInCode(kind, c));
-  };
+  const signInNow = () => { onPick(); run(() => startAgentSignIn(kind)); };
 
   let foot: ReactNode;
   if (live) {
-    foot = (
-      <div className="agent-card-signin">
-        {/* Claude asks for a code in the same breath as it prints the page — but the browser tab it
-            opened itself finishes on its own, and only the page reached by "Open the page again"
-            shows a code. So the browser leads, and the field is there for whoever needs it. */}
-        <span className="agent-card-status" data-busy>
-          <Spinner size={12} />
-          {live.state === "starting" ? "Opening the sign-in page…" : "Finish signing in in your browser."}
-        </span>
-        {live.state === "code" && (
-          <>
-            <span className="agent-card-note">If the page shows a code, paste it here.</span>
-            <div className="agent-code-row">
-              {/* Enter would otherwise submit the whole page and start before the code went in. */}
-              <input className="agent-code" aria-label={`Code from ${copy.name}'s sign-in page`} value={code}
-                spellCheck={false} autoComplete="off" onChange={(e) => setCode(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendCode(); } }} />
-              <button type="button" className="btn primary" disabled={code.trim() === ""} onClick={sendCode}>Continue</button>
-            </div>
-          </>
-        )}
-        <span className="agent-card-actions">
-          {live.url && (
-            <button type="button" className="btn-quiet" onClick={() => window.open(live.url!, "_blank")}>Open the page again</button>
-          )}
-          <button type="button" className="btn-quiet" onClick={() => run(() => cancelAgentSignIn(kind))}>Cancel</button>
-        </span>
-      </div>
-    );
+    foot = <AgentSignInSteps key={live.id} signIn={live} name={copy.name} />;
   } else if (job?.state === "running") {
     const tail = job.output.trimEnd().split("\n").at(-1) ?? "";
     foot = (

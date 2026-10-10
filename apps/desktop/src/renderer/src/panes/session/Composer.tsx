@@ -1,12 +1,12 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, planLabel, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type AgentAccount, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, planLabel, steerInterrupts, steerNote, tightestWindow, tildePath, type AcpSessionMode, type AgentAccount, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useFileDrop } from "../../components/use-file-drop";
 import { useItemDrop } from "../../components/use-item-drop";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
-import { agentAvailability, availabilityNote } from "../../state/agent-availability";
+import { agentAvailability, availabilityNote, namedClaudeHome } from "../../state/agent-availability";
 import { MentionPicker, mentionOptionId, mentionQueryAt } from "./MentionPicker";
 import { fileMark, labelCandidatesFor, mentionOptions, mentionRows, refFor, useMentionAnswers, type MentionRow, type MentionSources } from "./mention-sources";
 import { SlashPicker } from "./SlashPicker";
@@ -416,10 +416,16 @@ export function accountLabel(kind: AgentKind, account: AgentAccount): string {
  * The account chip, spelled out: whose sign-in this session's agent runs on, the plan it draws on,
  * and the Mac it runs on. The organisation is left out where it only restates the email. It is the
  * chip's tooltip, and what the chip says to a screen reader in place of its label.
+ *
+ * `folder` is the Claude config folder the sign-in is kept in, as a person writes it, where the
+ * session runs under one a profile names. A conversation keeps the folder it began under, so the
+ * folder a session is on is not always the one its profile names today, and this sentence is where
+ * a person can read which. The sentence leaves the default folder out, so with no folder named
+ * anywhere it is the one it always was.
  */
-export function accountTitle(kind: AgentKind, account: AgentAccount, machineName: string | undefined): string {
+export function accountTitle(kind: AgentKind, account: AgentAccount, machineName: string | undefined, folder: string | null = null): string {
   const details = [planLabel(kind, account.plan), organizationOf(account)].filter((d): d is string => d !== null).join(", ");
-  const who = `${AGENT_META[kind].label} is signed in as ${account.email}${details ? ` (${details})` : ""}.`;
+  const who = `${AGENT_META[kind].label} is signed in as ${account.email}${details ? ` (${details})` : ""}${folder === null ? "" : `, from ${folder}`}.`;
   return machineName ? `${who} Agents run on this Mac — ${machineName}.` : who;
 }
 
@@ -457,7 +463,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", userHome = null, environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -554,6 +560,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    *  on this Mac and no other, and a one-item dropdown pretending otherwise is the lie the plan bans.
    *  "" (boot not answered) renders nothing rather than a wrong name. */
   machineName?: string;
+  /** The person's home folder, which is what `~` stands for where the account chip names a Claude
+   *  config folder. Null (boot not answered, or a server that does not say) names the folder by its
+   *  whole path rather than guessing where home is. */
+  userHome?: string | null;
   /** The space's environments — the workspace selector's options. May momentarily lack the session's
    *  own row (the map loads separately); the chip then labels itself from the session's cwd. */
   environments?: Environment[];
@@ -622,8 +632,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const ta = useRef<HTMLTextAreaElement>(null);
   const running = status === "running" || status === "waiting_permission";
   const kind = session.agentKind;
-  const account = agentProbe.find((p) => p.kind === kind)?.account ?? null;
-  const accountSays = account ? accountTitle(kind, account, machineName) : null;
+  const agentRow = agentProbe.find((p) => p.kind === kind);
+  const account = agentRow?.account ?? null;
+  const accountHome = namedClaudeHome(agentRow);
+  const accountSays = account ? accountTitle(kind, account, machineName, accountHome === null ? null : tildePath(accountHome, userHome)) : null;
   // Hidden exactly like the model menu is empty when the agent has no models: an option Realm cannot
   // transmit is worse than no option at all.
   const canSetPermissionMode = AGENT_SUPPORTS_PERMISSION_MODES[kind];

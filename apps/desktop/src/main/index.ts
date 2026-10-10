@@ -984,8 +984,29 @@ ipcMain.handle("passkeys:share", async (_e, profileId: unknown, id: unknown, toP
 });
 ipcMain.handle("credentials:set-presence-ttl", (_e, ms: number): number => secrets()?.setPresenceTtlMs(Number(ms)) ?? 0);
 
-ipcMain.handle("pick-folder", async () => {
-  const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
+/**
+ * The OS folder dialog, for the renderer. Asked for nothing, it is the dialog every folder picker
+ * here has had: a folder to choose, and a New Folder button.
+ *
+ * A caller can ask for four things. `hidden` lists the folders the Finder hides, which is where a
+ * Claude config folder is, its name starting with a dot: without it the folder a profile's page is
+ * there to pick is not in the list at all. `create: false` takes the New Folder button away, for a
+ * pick where Realm makes no folder. `aliases: false` hands an alias back as it is named, where the
+ * dialog would otherwise answer the folder it points at: the server keeps a Claude config folder
+ * as it was named, and Claude Code files a sign-in under that spelling. `from` is the folder the
+ * dialog opens at, and an existing folder given there is the one whose contents it lists.
+ *
+ * All four come from a page, so each is read as its own type and anything else is left out. Each
+ * is asked for on its own: a caller that asks only for hidden folders gets only that. The dialog
+ * is the person's to answer wherever it opens, and it hands back a path and writes nothing.
+ */
+ipcMain.handle("pick-folder", async (_e, o?: { hidden?: unknown; create?: unknown; aliases?: unknown; from?: unknown }) => {
+  const from = o?.from;
+  const r = await dialog.showOpenDialog({
+    properties: ["openDirectory", ...(o?.create === false ? [] : ["createDirectory" as const]), ...(o?.hidden === true ? ["showHiddenFiles" as const] : []),
+      ...(o?.aliases === false ? ["noResolveAliases" as const] : [])],
+    ...(typeof from === "string" && from !== "" ? { defaultPath: from } : {}),
+  });
   return r.canceled ? null : r.filePaths[0] ?? null;
 });
 

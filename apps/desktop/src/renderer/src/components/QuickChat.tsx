@@ -6,6 +6,7 @@ import { Composer } from "../panes/session/Composer";
 import { emptyTranscript } from "../panes/session/transcript-model";
 import { Transcript } from "../panes/session/Transcript";
 import { useApp, useBrowserRects } from "../state/store";
+import { useSessionProbe } from "../state/session-probe";
 import { useFileDrop } from "./use-file-drop";
 import { complementOf } from "../state/no-overlay";
 import { MediaSessionContext } from "./viewer/open";
@@ -52,7 +53,8 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
   const attachments = useApp((s) => s.pendingAttachments[sessionId] ?? NO_ATTACHMENTS);
   const modelFavorites = useApp((s) => s.modelFavorites);
   const modelInfo = useApp((s) => s.modelInfo);
-  const agentProbe = useApp((s) => s.agentProbe);
+  const agentProbe = useSessionProbe(session);
+  const probeSessionClaude = useApp((s) => s.probeSessionClaude);
   const fastSupport = useApp((s) => s.fastSupport);
   const effortSupport = useApp((s) => s.effortSupport);
   const submitKey = useApp((s) => s.submitKey);
@@ -83,6 +85,8 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
   const drag = useDrag({ pos, onMove: setQuickChatPos });
   const said = transcript.blocks.length > 0;
   const [confirming, setConfirming] = useState(false);
+  const onClaude = session?.agentKind === "claude";
+  useEffect(() => { if (onClaude) void probeSessionClaude(sessionId); }, [sessionId, onClaude, probeSessionClaude]);
 
   /* Escape closes an EMPTY chat and nothing else. A chat with a conversation in it is something a
      stray key would cost you, and Escape is not a key anyone presses deliberately to delete. */

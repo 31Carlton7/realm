@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MODEL_EFFORTS_KEY, PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
+import { MODEL_EFFORTS_KEY, PAGE_REF_IDS, type AgentKind, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
 
 /** The page's calls, answered from what each test sets, and every one kept. Nothing reaches a socket
  *  — and so nothing reaches gh, or GitHub. */
@@ -11,6 +11,9 @@ let detail: PrDetail;
 let review: PrReview | null = null;
 let instructions = "";
 let reviewerPick: ReviewerPick | null = null;
+/** The session an earlier question about the request went to, and its space. Both are null until
+ *  a test says there was such a question. */
+let thread: { sessionId: string | null; spaceId: string | null } = { sessionId: null, spaceId: null };
 vi.mock("../../rpc/client", () => ({
   rpc: () => ({
     on: () => () => {},
@@ -26,7 +29,7 @@ vi.mock("../../rpc/client", () => ({
         case "codeReview.reviewGet": return { review };
         case "codeReview.pins": return { pins: [] };
         case "codeReview.places": return { places: [{ spaceId: "s1", projectId: null, name: "Versed", path: "/tmp/versed", repo: null, branch: null }] };
-        case "codeReview.thread": return { sessionId: null, spaceId: null };
+        case "codeReview.thread": return thread;
         case "codeReview.ask": return { sessionId: "01HQ000000000000000000ASK1", itemId: null };
         case "codeReview.instructions": return { text: instructions };
         case "codeReview.setInstructions": instructions = params.text; return { text: params.text };
@@ -45,8 +48,8 @@ vi.mock("../../rpc/client", () => ({
 import { CodeReviewPage } from "./CodeReviewPage";
 import { forgetHeld } from "./held";
 import { exited } from "../../components/popover-exit.test-fakes";
-import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
+import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
+import { claudeRow, fakeApi, item, session, type FakeApi, type FakeData } from "../../state/store.test-fakes";
 /* The overlay draws its page through the registry, which the panes fill by side effect. */
 import "../index";
 import { PageNavProvider } from "../../components/page-nav";
@@ -92,6 +95,7 @@ beforeEach(() => {
   review = null;
   instructions = "";
   reviewerPick = null;
+  thread = { sessionId: null, spaceId: null };
 });
 afterEach(() => cleanup());
 
@@ -542,5 +546,67 @@ describe("the column, in the sidebar's place", () => {
     await mountInWindow({ settings: { "ui.sidebarCollapsed": true } });
     expect(await within(page()).findByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
     expect(sidebar().querySelector(".sb-page")).toBeNull();
+  });
+});
+
+/** Claude under a config folder a profile names, with nobody signed in, as the server answers it. */
+const SIGNED_OUT_THERE: AgentProbe = { kind: "claude", available: true, version: "2.1.296", loggedIn: false, reason: null, home: "/Users/carlton/.claude-work" };
+
+/**
+ * The request open where an earlier question about it went to `se1`, a session of `agentKind` that
+ * the fake server holds, so the prompter at the request's foot carries on in that session. It
+ * answers once the prompter names that session, which is when it has taken it up.
+ */
+async function mountContinuing(agentKind: AgentKind, data: FakeData = {}) {
+  thread = { sessionId: "se1", spaceId: "s1" };
+  const api = fakeApi({ sessions: [session("se1", "s1", { agentKind, title: "About the tokenizer" })], ...data });
+  const store = createAppStore(api);
+  await store.getState().boot();
+  render(<StoreContext.Provider value={store}>
+    <CodeReviewPage item={item("cr", "s1", { kind: "code-review-page", title: "Code review", refId: PAGE_REF_IDS["code-review-page"] })} visible />
+  </StoreContext.Provider>);
+  await openRequest();
+  const ask = screen.getByRole("region", { name: "Ask about this pull request" });
+  await within(ask).findByRole("button", { name: /About the tokenizer/ });
+  await act(async () => { await new Promise((res) => setTimeout(res, 1)); });
+  return { api, store, ask };
+}
+
+/** The asks the fake logged for sessions' own Claude rows, in the order they were made. */
+const sessionAsks = (api: FakeApi): string[] => api.calls.filter((c) => c.includes(":session:"));
+
+describe("the pull request's prompter and its session's own Claude row", () => {
+  it("asks for the row of the session it carries on in, unforced, once it has taken that session up", async () => {
+    const { api } = await mountContinuing("claude");
+    expect(sessionAsks(api)).toEqual(["probeAgent:claude:plain:session:se1"]);
+  });
+
+  it("asks for no Claude row on behalf of a Codex session", async () => {
+    const { api } = await mountContinuing("codex");
+    expect(sessionAsks(api)).toEqual([]);
+  });
+
+  it("reads Claude's sign-in off that session's own row, not off the window's list", async () => {
+    const { store, ask } = await mountContinuing("claude", { agentProbe: [claudeRow("me@example.com")], sessionClaude: { se1: SIGNED_OUT_THERE } });
+    await act(async () => { await store.getState().probeAgents(); });
+    fireEvent.click(within(ask).getByRole("button", { name: "Model" }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /Claude Fable 5\.1/ })).toHaveTextContent("signed out"));
+  });
+
+  it("asks for no session's row where the earlier question went to another space than the place chosen, since the next one starts anew", async () => {
+    thread = { sessionId: "se1", spaceId: "s2" };
+    const api = fakeApi({ sessions: [session("se1", "s2", { agentKind: "claude", title: "About the tokenizer" })] });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}>
+      <CodeReviewPage item={item("cr", "s1", { kind: "code-review-page", title: "Code review", refId: PAGE_REF_IDS["code-review-page"] })} visible />
+    </StoreContext.Provider>);
+    await openRequest();
+    const ask = screen.getByRole("region", { name: "Ask about this pull request" });
+    await waitFor(() => expect(store.getState().transcripts.se1).toBeDefined());
+    await act(async () => { await new Promise((res) => setTimeout(res, 20)); });
+    expect(within(ask).getByText("New session")).toBeInTheDocument();
+    expect(within(ask).queryByRole("button", { name: /About the tokenizer/ })).toBeNull();
+    expect(sessionAsks(api)).toEqual([]);
   });
 });
