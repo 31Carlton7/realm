@@ -132,6 +132,7 @@ function PdfPage({ detail, file }: { detail: TeamReviewDetail; file: string }) {
     <figure className="rv-pdf">
       <button type="button" className="rv-pdf-page" aria-label={`${name}, its first page. Open it large`} {...fileDragProps(path)} onKeyDown={quickLookOnSpace(path)}
         onClick={(e) => openViewer({ files: [{ path }], index: 0, sessionId: detail.sessionId, spaceId: detail.spaceId, opener: e.currentTarget })}>
+        {/* off-ladder: the glyph stands in for a PDF's first page, a picture the size of a card. */}
         {page ? <img src={page} alt="" draggable={false} /> : <span className="rv-pdf-blank"><Icon name="filePdf" size={24} />{page === undefined ? "" : name}</span>}
       </button>
       <figcaption className="rv-pdf-foot">
