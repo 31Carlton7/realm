@@ -240,6 +240,18 @@ export function usableModel(kind: AgentKind, model: string | null, agentProbe: A
   return known.some((m) => m.id === model) ? model : null;
 }
 
+/**
+ * The model a session made with no other say starts on.
+ *
+ * The one the person chose for new sessions on this agent, where they chose one and the harness
+ * still offers it; else the one they last sent on, on the same terms; else `null`, the harness's
+ * own default. The choice outranks the memory because it is the one of the two made on purpose: a
+ * single message sent on another model moves what is remembered, and must not move what was chosen.
+ */
+export function startingModel(kind: AgentKind, o: { chosen: string | null; last: string | null; agentProbe: AgentProbe[] }): string | null {
+  return usableModel(kind, o.chosen, o.agentProbe) ?? usableModel(kind, o.last, o.agentProbe);
+}
+
 /** A harness's own default row — "whatever this agent runs when nothing is pinned". */
 export const isHarnessDefault = (row: ModelRow): boolean => row.key === `default:${row.kind}`;
 

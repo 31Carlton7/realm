@@ -114,6 +114,12 @@ describe("searching", () => {
     expect(results().getByRole("button", { name: "Theme, in Appearance" })).toBeInTheDocument();
   });
 
+  it("finds the model for new sessions by a model's name, and says it lives under Sessions", async () => {
+    await mount();
+    type("opus");
+    expect(results().getByRole("button", { name: "Model for new sessions, in General ▸ Sessions" })).toBeInTheDocument();
+  });
+
   it("matches the starts of words, not any run of letters inside them", async () => {
     // THE substring mutant: "ine" is inside "Line height", "Engines" and "Blink the editor caret",
     // and a field that offered all three for it would be offering noise.

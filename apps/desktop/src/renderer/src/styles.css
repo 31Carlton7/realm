@@ -7057,6 +7057,11 @@ select { appearance: none; padding-right: 22px;
 /* The control side takes what it needs; the label takes the rest. Left to the row's free space a
    slider or a select pair would resize every time the label beside it changed length. */
 .settings-row > .font-row, .settings-row > .slider-row { flex: none; }
+/* The model for new sessions: an agent's name, then its select at the row's end, a line for each
+   agent. An agent's name is a few letters and keeps its width. The select takes what its longest
+   option needs of the rest, and past that is cut inside, as a select is. */
+.default-models { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 8px 12px; }
+.default-models > select { justify-self: end; min-width: 0; max-width: 100%; }
 /* A text destination on a row: as wide as a URL needs, no wider than the row's control column. */
 .settings-row > .settings-text { flex: none; width: min(280px, 45%); height: 28px; padding: 0 9px; font: inherit; font-size: 13px;
   border-radius: var(--r-ctl); corner-shape: squircle; border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); }

@@ -41,7 +41,7 @@ import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type T
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { draftRun, withOptions } from "../panes/session/draft-run";
-import { usableModel } from "../panes/session/model-catalog";
+import { startingModel } from "../panes/session/model-catalog";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
@@ -118,6 +118,16 @@ function parseLastModels(raw: unknown): Partial<Record<AgentKind, string | null>
   for (const [k, v] of Object.entries(raw)) {
     const kind = AgentKindSchema.safeParse(k);
     if (kind.success && (typeof v === "string" || v === null)) out[kind.data] = v;
+  }
+  return out;
+}
+
+/** `sessions.defaultModels` as stored: entries of a known agent kind with a model id. A choice is
+ *  always a model, so a null or an empty id is no choice, and reads as none made. */
+function parseDefaultModels(raw: unknown): Partial<Record<AgentKind, string>> {
+  const out: Partial<Record<AgentKind, string>> = {};
+  for (const [kind, model] of Object.entries(parseLastModels(raw))) {
+    if (typeof model === "string" && model.trim() !== "") out[kind as AgentKind] = model;
   }
   return out;
 }
@@ -797,8 +807,12 @@ export const SETTING_PANE_ALPHA = "ui.paneAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 /** Per agent kind, the model of the last message the user sent — what "+"/⌘N put the next session
- *  of that kind on. `null` is a send on the harness's own default, and is remembered as one. */
+ *  of that kind on, where no model is chosen for it (`SETTING_DEFAULT_MODELS`). `null` is a send on
+ *  the harness's own default, and is remembered as one. */
 export const SETTING_LAST_MODELS = "ui.lastModels";
+/** Per agent kind, the model the person chose for new sessions to start on (Settings ▸ General). A
+ *  kind absent from it has no choice made, and starts on the model last sent on. */
+export const SETTING_DEFAULT_MODELS = "sessions.defaultModels";
 /** Whether the app keeps its decorative motion off for good. See `lowPower`. */
 const SETTING_LOW_POWER = "ui.lowPower";
 const SETTING_SUBMIT_KEY = "ui.submitKey";
@@ -1117,8 +1131,12 @@ export type AppState = {
    *  (then instant-create falls back to FALLBACK_AGENT). */
   lastAgentKind: AgentKind | null;
   /** The model of the last message sent on each agent kind (`SETTING_LAST_MODELS`). A kind absent
-   *  from it has never been sent on, and starts on its harness's default. */
+   *  from it has never been sent on, and starts on its harness's default unless a model is chosen
+   *  for it (`defaultModels`). */
   lastModels: Partial<Record<AgentKind, string | null>>;
+  /** The model chosen for new sessions on each agent kind (`SETTING_DEFAULT_MODELS`). It outranks
+   *  `lastModels`: a kind with a choice starts on it whatever was sent on last. */
+  defaultModels: Partial<Record<AgentKind, string>>;
   /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
   renamingItemId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
@@ -2049,8 +2067,9 @@ export type AppState = {
    *  supplied with a target leaf, it opens there the way a dragged row would. */
   newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
-   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model last sent
-   *  on with that agent (`lastModels`, else the adapter's default) and the default permission mode;
+   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model chosen for
+   *  new sessions on that agent (`defaultModels`), else the one last sent on with it (`lastModels`),
+   *  else the adapter's default, and the default permission mode;
    *  its prompter gets the keyboard. Everything else is changed on the prompter's chips afterwards. `spaceId`
    *  names the space (a space section's own +); omitted, the current space. */
   newSessionInstant(targetLeafId?: string | null, edge?: DropEdge, spaceId?: string | null): Promise<void>;
@@ -2595,6 +2614,12 @@ export type AppState = {
    *  consumed server-side at `sessions.create`. The bypass confirm lives in the page, not here:
    *  by the time this runs the user has already said it twice. */
   setDefaultPermissionMode(mode: string): Promise<void>;
+  /** Read `SETTING_DEFAULT_MODELS` again. A window reads it when it boots, and another window may
+   *  have changed it since. */
+  refreshDefaultModels(): Promise<void>;
+  /** Choose the model new sessions on one agent start on. `null` takes the choice back, and new
+   *  sessions on that agent start on the model last sent on again. */
+  setDefaultModel(kind: AgentKind, model: string | null): Promise<void>;
   setMidTurnMode(mode: MidTurnMode): Promise<void>;
   /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
   refreshTcc(): Promise<void>;
@@ -3330,11 +3355,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       await get().openSession(session.id);
       return session.id;
     };
-    /** What a session made with no other say is put on: the last agent, and the model last sent on it
-     *  if that harness still offers it. */
+    /** What a session made with no other say is put on: the last agent, and on it the model chosen
+     *  for new sessions, else the model last sent on, each if that harness still offers it. */
     const instantPick = (): { agentKind: AgentKind; model: string | null } => {
       const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
-      return { agentKind, model: usableModel(agentKind, get().lastModels[agentKind] ?? null, get().agentProbe) };
+      return { agentKind, model: startingModel(agentKind, { chosen: get().defaultModels[agentKind] ?? null, last: get().lastModels[agentKind] ?? null, agentProbe: get().agentProbe }) };
     };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
@@ -4114,7 +4139,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     return {
       booted: false,
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
-      allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
+      allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, defaultModels: {}, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
       libraryRevision: 0,
@@ -4139,7 +4164,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels, defaultModels] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -4154,6 +4179,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.getAvatar().catch(() => null),
           api.getSetting(SETTING_SIDE_PANES_HIDDEN),
           api.getSetting(SETTING_LAST_MODELS),
+          api.getSetting(SETTING_DEFAULT_MODELS),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         /* The panes' own value, or — in a home saved while one control moved both — the value that
@@ -4187,7 +4213,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
           // has said", and the answer to that for a destructive step is to keep asking.
           confirmDelete: askDelete !== false,
-          lastAgentKind: agent.success ? agent.data : null, lastModels: parseLastModels(lastModels),
+          lastAgentKind: agent.success ? agent.data : null, lastModels: parseLastModels(lastModels), defaultModels: parseDefaultModels(defaultModels),
           easterEggs: eggs === true, konamiUnlocked: konami === true,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
@@ -7148,6 +7174,16 @@ await get().refreshCustomThemes().catch(() => {});
         const prefs = get().settingsPrefs; if (!prefs) return;
         await api.setSetting(DEFAULT_PERMISSION_MODE_KEY, mode);
         set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
+      },
+      async refreshDefaultModels() {
+        set({ defaultModels: parseDefaultModels(await api.getSetting(SETTING_DEFAULT_MODELS)) });
+      },
+      async setDefaultModel(kind, model) {
+        const defaultModels = parseDefaultModels(await api.getSetting(SETTING_DEFAULT_MODELS));
+        if (model === null) delete defaultModels[kind];
+        else defaultModels[kind] = model;
+        await api.setSetting(SETTING_DEFAULT_MODELS, defaultModels);
+        set({ defaultModels });
       },
       async setMidTurnMode(mode) {
         await api.setSetting(MID_TURN_MODE_KEY, mode);
