@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from "react";
 import { useApp } from "../../state/store";
 import { AnswerHere } from "../../panes/session/AnswerHere";
 import { NEEDS_YOU_LABEL, needsYou, reviewsNeedingYou, type NeedsYouRow, type ReviewNeedsRow } from "./model";
-import { REVIEW_GLYPH } from "./TeamRows";
+import { reviewGlyph } from "./TeamRows";
 import { useSidebarState } from "./use-sidebar-model";
 
 /**
@@ -99,7 +99,7 @@ function ReviewNeedsItem({ row }: { row: ReviewNeedsRow }) {
     <div className="item" data-actions="0">
       <button type="button" className="item-row" aria-label={`${row.review.title}${where ? ` in ${where}` : ""}${by} — waiting for your review`}
         title={`${row.review.title}${where ? ` — ${where}` : ""}`} onClick={() => run(() => openTeamReview(row.spaceId, row.review.id))}>
-        <Icon name={REVIEW_GLYPH[row.review.kind]} size={16} />
+        <Icon name={reviewGlyph(row.review)} size={16} />
         <span className="item-title">{row.review.title}</span>
         {where && <span className="item-where">{where}</span>}
         <span className="item-trail"><span className="status-dot item-status" data-status="waiting_permission" title="Waiting for your review" /></span>

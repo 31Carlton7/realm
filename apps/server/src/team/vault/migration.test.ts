@@ -31,6 +31,9 @@ CREATE TABLE team_activity (
   detail_json TEXT NOT NULL DEFAULT '{}');-- What the sessions' activity migration (v49) reads on the way to the end of the chain.
 CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+-- Review's tables (v44), which generic deliverables (v52) alters on the way to the end of the chain.
+CREATE TABLE team_reviews (id TEXT PRIMARY KEY, kind TEXT NOT NULL);
+CREATE TABLE team_review_items (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, target_json TEXT);
 `;
 
 function v45Home(): string {

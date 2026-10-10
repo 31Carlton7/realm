@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
-  ACT_LATE_MS, ACT_PACING, ACT_SLOT_TOLERANCE_MS, DISCLOSURE, actAccountKey, actKindFor, planSlot, recordAccounts, slotProblem, slotWhyWords,
+  ACT_LATE_MS, ACT_PACING, ACT_SLOT_TOLERANCE_MS, DISCLOSURE, actAccountKey, actKindFor, itemActKind, itemTarget, planSlot, recordAccounts, slotProblem, slotWhyWords,
   type ActKind, type ActTicket, type ParsedRecord, type PlannedAct, type RecordAccount, type ReviewTarget, type SlotWhy,
 } from "@realm/contracts";
 import type { RpcServer } from "../../rpc/server";
@@ -99,8 +99,9 @@ export class ActService {
     let issued = 0;
     const skipped: string[] = [];
     for (const item of items) {
-      const target = item.target;
-      const kind = actKindFor(r.kind, target?.channel);
+      // The item's action, or for a legacy row its target — a channel act either way (post, dm, email).
+      const target = itemTarget(item);
+      const kind = itemActKind(r.kind, item);
       if (!kind || !target?.account || !target.channel || !item.approvedHash) continue;
       if ((kind === "dm" || kind === "email") && !target.to) { skipped.push(`item ${item.ord + 1} names nobody to send it to`); continue; }
       const live = this.d.store.liveForItem(item.id);

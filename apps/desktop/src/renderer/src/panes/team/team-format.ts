@@ -231,6 +231,7 @@ export function activitySentence(a: TeamActivity, actorName: string): { text: st
     case "asked_changes": return { text: `You asked for changes to ${a.object}`, detail: str("note") ? `“${str("note")}”` : null };
     case "marked_done": return a.actor === "realm" ? { text: `Everything in ${a.object} went out`, detail: null } : { text: `You marked ${a.object} done`, detail: null };
     case "dismissed": return { text: `You put away ${a.object}`, detail: null };
+    case "edited_item": return { text: `You edited item ${num("item") ?? ""} of ${a.object}`.replace("item  of", "an item of"), detail: num("version") !== null ? `version ${num("version")}` : null };
     case "read_record": return { text: `${actorName} read ${a.object}'s record`, detail: null };
     case "updated_record": return { text: `${actorName === "You" ? "You" : actorName} updated ${a.object}'s record`, detail: str("line") };
     case "refused": return typeof d.ticketId === "string" ? refusedAct(a) : { text: `${a.object} needs your yes again`, detail: "a file changed after you approved it" };

@@ -176,16 +176,27 @@ describe("teams over the wire", () => {
     c.close();
   });
 
-  it("refuses an account whose record line says no consent:, and names what to add", async () => {
+  it("takes work for an account whose record line says no consent:, says so to the role and the person, and nothing can go out", async () => {
+    // Generic deliverables: submit refuses only what could never be fixed later. Consent is REPORTED
+    // here — to the role in the tool's answer, to the person as a failing check — and enforced where
+    // something would go out (the act service's press and slot).
     const { c, spaceId, roleId } = await boot();
     await c.must("team.roleRun", { id: roleId, message: "no consent yet" });
     await waitFor(async () => (await runsOf(c, roleId)).every(settled), { timeout: 8000 });
     await c.must("team.roleRun", { id: roleId, message: "make the slides" });
     await waitFor(async () => (await runsOf(c, roleId)).every(settled), { timeout: 8000 });
-    expect((await c.must("team.space", { spaceId })).reviews).toEqual([]);
+    const [review] = (await c.must("team.space", { spaceId })).reviews;
+    expect(review).toMatchObject({ kind: "slideshows", state: "waiting" });
+    const detail = await c.must("team.review", { id: review.id });
+    expect(detail.checks[0]).toMatchObject({ ok: false, title: "@versed.nathan has no consent on record" });
     const sid = (await runsOf(c, roleId))[0].sessionId;
     const results = app.sessions.events(sid, 0, 500).filter((e) => e.event.type === "tool_result").map((e) => JSON.stringify(e.event.payload));
-    expect(results.some((r) => r.includes("without consent:"))).toBe(true);
+    // THE MUTANT: the failing checks left out of the tool's answer — the role learns nothing it could fix.
+    expect(results.some((r) => r.includes("Before it can go, Realm found: @versed.nathan has no consent on record"))).toBe(true);
+    await c.must("team.reviewApprove", { id: review.id });
+    const t = (await c.must("team.review", { id: review.id })).tickets[0];
+    const r = await c.call("team.ticketPost", { id: t.id });
+    expect(r.ok).toBe(false);
     c.close();
   });
 

@@ -2,7 +2,8 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "n
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink, creatorRecordTemplate,
-  ACT_PACING, actKindFor, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, sessionEvent, usageDeltas, weekStart,
+  ACT_PACING, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, lineDiff, reviewVerb, verbFamily,
+  type DeliverableFormat, type ProposedAction, type ReviewAction, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, sessionEvent, usageDeltas, weekStart,
   type ActTicket, type AgentKind, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewKind, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
   type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type TeamRole, type TeamSpace, type UpdateRoleInput, type WokeOn,
@@ -14,6 +15,7 @@ import type { SessionService } from "../sessions/service";
 import type { MemoryRepoService } from "../memory/repo";
 import type { RpcServer } from "../rpc/server";
 import { NotFoundError, RpcError } from "../store/rows";
+import { secretShapeIn } from "../memory/secret-shapes";
 import { bytesHash, itemHash } from "./item-hash";
 import { applyRecordEdit, type RecordEdit } from "./records";
 import type { TeamExtras } from "./handoffs/service";
@@ -25,13 +27,22 @@ const teamBudgetKey = (spaceId: string) => `team.weekBudget:${spaceId}`;
 const teamMaxLiveKey = (spaceId: string) => `team.maxLive:${spaceId}`;
 const SLOTS_KEY = "team.slots";
 const IMAGE = /\.(png|jpe?g|gif|webp|heic|avif)$/i;
+const TEXT_FILE = /\.(md|markdown|csv|tsv|diff|patch|txt)$/i;
 const REVIEW_DEDUPE = /^review:([0-9A-HJKMNP-TV-Z]{26}):\d+$/;
 
 export type SubmitInput = {
-  kind: ReviewKind;
+  /** The review's label, as the role wrote it (`kind` is its old name, still taken). Absent, the
+   *  first item's format stands in. */
+  kind?: ReviewKind | undefined;
   title: string;
   record?: string | undefined;
-  items: { files: string[]; body?: string | undefined; target?: ReviewTarget | undefined }[];
+  items: {
+    files: string[]; body?: string | undefined;
+    format?: DeliverableFormat | undefined; meta?: Record<string, string> | undefined;
+    action?: ProposedAction | undefined;
+    /** The old way to name where it goes; read as the action it implies. */
+    target?: ReviewTarget | undefined;
+  }[];
 };
 
 export type RecordUpdateInput =
@@ -560,8 +571,11 @@ export class TeamService {
   /* ═══════════════════════════════ review ═══════════════════════════════ */
 
   /**
-   * A role (or any session in a team space) sends work to Review. Every file must be inside the space
-   * folder, and an item aimed at an account needs a record whose Accounts line for it says `consent:`.
+   * A role (or any session in a team space) sends work to Review. What is refused here is only what
+   * could never be put right later: a file outside the space folder, a record that does not exist, and
+   * anything shaped like a secret in an item's text, its meta or its action. Everything else Realm
+   * checks — consent on the record, the disclosure, the pacing — is REPORTED here (the review's
+   * checks) and enforced where something would go out: at the press and at the slot.
    * A run woken by "Request changes" revises the review it was woken for, in place.
    */
   submit(ctx: { sessionId: string; spaceId: string }, input: SubmitInput): TeamReviewSummary {
@@ -572,21 +586,29 @@ export class TeamService {
     if (!title) throw new RpcError("TEAM_REVIEW_INVALID", "give the batch a title");
     if (input.items.length === 0) throw new RpcError("TEAM_REVIEW_INVALID", "a review needs at least one item");
     let recordPath: string | null = null;
-    let record: ReturnType<typeof parseRecord> = null;
     if (input.record) {
       const repo = this.repoPath(ctx.spaceId);
       if (!repo) throw new RpcError("TEAM_NO_REPO", "this team has no memory repo, so it has no records");
       recordPath = this.recordRel(input.record);
       if (!existsSync(join(repo, recordPath))) throw new RpcError("TEAM_RECORD_NOT_FOUND", `${recordPath} is not a record — record_list lists them`);
-      record = parseRecord(readFileSync(join(repo, recordPath), "utf8"));
     }
+    const given = input.kind?.trim() || null;
     const items: ItemInsert[] = input.items.map((it, i) => {
       if (it.files.length === 0 && !it.body?.trim()) throw new RpcError("TEAM_REVIEW_INVALID", `item ${i + 1} has neither files nor text`);
+      if (it.action && it.target) throw new RpcError("TEAM_REVIEW_INVALID", `item ${i + 1} names both \`action\` and \`target\` — give one`);
       const files = it.files.map((f) => this.spaceFile(root, f));
+      const body = it.body?.trim() || null;
+      const meta = it.meta ?? {};
+      const secret = secretShapeIn([body ?? "", ...Object.entries(meta).map(([k, v]) => `${k}: ${v}`), it.action ? JSON.stringify(it.action) : ""].join("\n"));
+      if (secret) throw new RpcError("TEAM_REVIEW_SECRET", `item ${i + 1} holds what looks like ${secret}. Review never takes a secret: name where it is kept instead.`);
       const target = it.target && (it.target.channel || it.target.account) ? it.target : null;
-      if (target?.account) this.requireConsent(target, record, recordPath, i);
-      return { files, body: it.body?.trim() || null, target, contentHash: this.hashItem(root, files, it.body?.trim() || null) };
+      return {
+        files, body, target, meta, format: it.format ?? null,
+        action: it.action ?? (target ? this.legacyAction(given ?? "", target) : null),
+        contentHash: this.hashItem(root, files, body),
+      };
     });
+    const label = given ?? inferFormat(items[0]!);
 
     const run = this.d.runs.listLive().find((r) => r.sessionId === ctx.sessionId) ?? null;
     const roleId = run?.roleId ?? null;
@@ -594,9 +616,9 @@ export class TeamService {
     const prior = revising ? this.d.store.review(revising) : null;
     const row = prior && prior.spaceId === ctx.spaceId
       ? this.d.store.revise(prior.id, { runId: run?.id ?? null, sessionId: ctx.sessionId, title }, items)
-      : this.d.store.createReview({ spaceId: ctx.spaceId, roleId, runId: run?.id ?? null, sessionId: ctx.sessionId, recordPath, kind: input.kind, title }, items);
+      : this.d.store.createReview({ spaceId: ctx.spaceId, roleId, runId: run?.id ?? null, sessionId: ctx.sessionId, recordPath, kind: label, title }, items);
     this.log(ctx.spaceId, roleId ? `role:${roleId}` : "realm", prior ? "revised" : "submitted", title,
-      { reviewId: row.id, kind: input.kind, items: items.length, version: row.version }, run ?? { sessionId: ctx.sessionId });
+      { reviewId: row.id, kind: label, items: items.length, version: row.version }, run ?? { sessionId: ctx.sessionId });
 
     // The files are the session's work, so they belong in Documents and the Library like any other.
     const abs = [...new Set(items.flatMap((it) => it.files))].map((f) => join(root, f)).filter((p) => existsSync(p));
@@ -611,14 +633,51 @@ export class TeamService {
     return this.summary(row);
   }
 
-  private requireConsent(target: ReviewTarget, record: ReturnType<typeof parseRecord>, recordPath: string | null, i: number): void {
-    if (!record || !recordPath)
-      throw new RpcError("TEAM_NO_CONSENT", `item ${i + 1} is for ${target.account}, but names no record — pass \`record\` with the creator's record, whose Accounts line for ${target.account} says consent:`);
-    const handle = target.account!.toLowerCase();
-    const acct = recordAccounts(record).find((a) => a.handle?.toLowerCase() === handle
-      && (!target.channel || a.channel.toLowerCase().includes(target.channel.toLowerCase()) || target.channel.toLowerCase().includes(a.channel.toLowerCase())));
-    if (!acct) throw new RpcError("TEAM_NO_CONSENT", `${recordPath} has no Accounts line for ${target.account}${target.channel ? ` on ${target.channel}` : ""}`);
-    if (!acct.parts.consent) throw new RpcError("TEAM_NO_CONSENT", `${recordPath} names ${target.account} without consent: — an account is managed only with the creator's written yes; add "· consent: <where it was given>" to its line first`);
+  /** The action a legacy `target` already implies — the v52 backfill's rule, so a review sent the old
+   *  way today is stored exactly as one sent before it: only a slideshow or a message, and only with
+   *  both a channel and an account. */
+  private legacyAction(label: string, t: ReviewTarget): ReviewAction | null {
+    const channel = t.channel?.trim().toLowerCase();
+    if (!channel || !t.account || (label !== "slideshows" && label !== "message")) return null;
+    return { verb: label === "slideshows" ? "post" : channel === "email" || channel === "mail" ? "email" : "dm",
+      connector: `channel:${channel}`, account: t.account, to: t.to ?? null, legacy: 1 };
+  }
+
+  /**
+   * The person's edit of an item's text before they approve it (the Lindy pattern). The batch becomes
+   * its next version, every other item carried over unchanged and this one with the new text, marked
+   * `edited_by = 'user'` and hashed again — so Approve covers the edited bytes, and the role's next
+   * run is told the person edited it. Only text that IS the deliverable is edited here: a picture or a
+   * PDF opens in Documents, and its own hash takes the item back to waiting.
+   */
+  editItem(reviewId: string, itemId: string, body: string): TeamReviewSummary {
+    const r = this.mustReview(reviewId);
+    if (r.state !== "waiting") throw new RpcError("TEAM_REVIEW_STATE", `this review is ${r.state}; only work waiting for you can be edited`);
+    const current = this.d.store.items(reviewId, r.version);
+    const item = current.find((i) => i.id === itemId);
+    if (!item) throw new RpcError("TEAM_REVIEW_STATE", "a newer version of this batch replaced that item — read it again");
+    const format = inferFormat(item);
+    if (!EDITABLE_FORMATS.includes(format)) throw new RpcError("TEAM_REVIEW_INVALID", `a ${format} item is edited in Documents, not here`);
+    if (!body.trim()) throw new RpcError("TEAM_REVIEW_INVALID", "the text is empty — Request changes asks the role for something else");
+    if (body.length > 20_000) throw new RpcError("TEAM_REVIEW_INVALID", "an item's text is capped at 20,000 characters");
+    if (body === item.body) return this.summary(r);
+    const root = this.d.rootForSpace(r.spaceId);
+    if (!root) throw new RpcError("TEAM_NO_FOLDER", "this space has no folder");
+    const next: ItemInsert[] = current.map((i) => {
+      const mine = i.id === itemId;
+      const text = mine ? body : i.body;
+      return {
+        files: i.files, body: text, target: i.target, meta: i.meta ?? {}, action: i.action ?? null,
+        // The edited one keeps the format it was drawn in: new words never redraw it as something else.
+        format: mine ? format : i.format ?? null,
+        editedBy: mine ? "user" : i.editedBy ?? null,
+        contentHash: this.hashItem(root, i.files, text),
+      };
+    });
+    const row = this.d.store.revise(reviewId, { runId: null, sessionId: null, title: r.title }, next);
+    this.log(r.spaceId, "user", "edited_item", r.title, { reviewId, item: item.ord + 1, version: row.version, diff: lineDiff(item.body ?? "", body) });
+    this.changed(r.spaceId);
+    return this.summary(row);
   }
 
   reviewStatus(spaceId: string, id: string | null, sessionId: string): TeamReviewSummary[] {
@@ -638,8 +697,10 @@ export class TeamService {
       id: r.id, spaceId: r.spaceId, roleId: r.roleId, roleName: role?.name ?? null, runId: r.runId, sessionId: r.sessionId,
       recordPath: r.recordPath, kind: r.kind, title: r.title, state: r.state, note: r.note, version: r.version,
       itemCount: items.length, thumb: first,
-      channels: [...new Set(items.map((i) => i.target?.channel).filter((c): c is string => !!c))],
-      account: items[0]?.target?.account ?? null,
+      channels: [...new Set(items.map((i) => itemTarget(i)?.channel).filter((c): c is string => !!c))],
+      account: (items[0] ? itemTarget(items[0])?.account : null) ?? null,
+      format: items[0] ? inferFormat(items[0]) : null,
+      editedItems: items.filter((i) => i.editedBy === "user").map((i) => i.ord + 1),
       changedSinceApproval: items.some((i) => i.approvedHash !== null && i.approvedHash !== i.contentHash),
       ...(() => { const c = this.d.acts?.counts(r.id) ?? { total: 0, done: 0 }; return { actsTotal: c.total, actsDone: c.done }; })(),
       createdAt: r.createdAt, decidedAt: r.decidedAt, updatedAt: r.updatedAt,
@@ -671,26 +732,52 @@ export class TeamService {
       ledger: this.ledger(fresh, run),
       root,
       tickets: this.d.acts?.tickets(id) ?? [],
+      fileTexts: root ? this.fileTexts(root, all) : {},
     };
   }
 
-  /** What Realm itself can say about a batch before anyone posts it — facts it checked, not claims. */
+  /** The text files the items name (a table, a diff, Markdown), read for the window, which cannot read
+   *  the disk itself: each at most 256 KB and 1 MB in all. A file past either cap is simply absent,
+   *  and the item draws it as a file row instead. */
+  private fileTexts(root: string, items: TeamReviewItem[]): Record<string, string> {
+    const out: Record<string, string> = {};
+    let total = 0;
+    for (const f of [...new Set(items.flatMap((i) => i.files))]) {
+      if (!TEXT_FILE.test(f)) continue;
+      try {
+        const st = statSync(join(root, f));
+        if (st.size > 256 * 1024 || total + st.size > 1024 * 1024) continue;
+        out[f] = readFileSync(join(root, f), "utf8");
+        total += st.size;
+      } catch { /* gone since it was submitted: the hash already says so */ }
+    }
+    return out;
+  }
+
+  /**
+   * What Realm itself can say about a batch before anything goes out — facts it checked, not claims.
+   * Read by each item's action (or, for a legacy row with none, by the target its label gave meaning
+   * to), so a review sent before deliverables were generic reads exactly as it always did; the
+   * migration test holds every legacy review's checks to that.
+   */
   private checks(items: TeamReviewItem[], record: ReturnType<typeof parseRecord>, kind: ReviewKind): ReviewCheck[] {
     const out: ReviewCheck[] = [];
-    const target = items.find((i) => i.target?.account)?.target ?? null;
+    const aimed = items.find((i) => itemTarget(i)?.account) ?? null;
+    const target = aimed ? itemTarget(aimed) : null;
+    const family = verbFamily(reviewVerb(kind, items));
     if (target?.account) {
       // The account on the channel it goes to: @versed.nathan on Instagram is not the TikTok one.
       const ch = target.channel?.toLowerCase() ?? "";
       const acct = record ? recordAccounts(record).find((a) => a.handle?.toLowerCase() === target.account!.toLowerCase()
         && (!ch || a.channel.toLowerCase().includes(ch) || ch.includes(a.channel.toLowerCase()))) ?? null : null;
-      const verb = kind === "message" ? "Sends" : "Posts";
+      const verb = family === "send" ? "Sends" : "Posts";
       out.push(acct?.parts.consent
         ? { ok: true, title: `${verb} as ${target.account}${acct.channel ? ` on ${acct.channel}` : ""}`, detail: `${record!.title}'s account, managed with their consent (${acct.parts.consent})` }
         : { ok: false, title: `${target.account} has no consent on record`, detail: "Add consent: to the account's line in the record before it is posted" });
     }
     const captions = items.map((i) => i.body ?? "").filter(Boolean);
     // Paid-partnership disclosure is a post's: a DM or an email carries no platform label.
-    if (kind === "slideshows" && captions.length > 0 && items.some((i) => i.target?.account)) {
+    if (family === "post" && captions.length > 0 && items.some((i) => itemTarget(i)?.account)) {
       const disclosed = captions.every((c) => /#ad\b|#sponsored\b|#paidpartnership\b|paid partnership/i.test(c));
       out.push(disclosed
         ? { ok: true, title: "Disclosed as paid partnership", detail: "Every caption says so" }
@@ -698,18 +785,32 @@ export class TeamService {
     }
     // Today's pacing for the account, as Realm will keep it — or, for work aimed nowhere, the plain
     // fact that a yes marks it and a person sends it. A message is sent, not posted.
-    const act = target?.account ? actKindFor(kind, target.channel) : null;
+    const act = aimed && target?.account ? itemActKind(kind, aimed) : null;
     if (act && target?.account && target.channel && this.d.acts) {
       const today = this.d.acts.today(act, target.channel, target.account);
       const noun = act === "post" ? "posts" : act === "dm" ? "DMs" : "emails";
       out.push({ ok: today.count < today.cap, title: `${today.count} of ${today.cap} ${noun} today for this account`,
         detail: act === "post" ? "Realm spaces posts at least 2 hours apart" : `Realm spaces ${noun} at least ${Math.round(ACT_PACING[act].gapMs / 60_000)} minutes apart` });
     } else {
-      out.push(kind === "message"
-        ? { ok: null, title: "Realm does not send this", detail: "It names no account and no one to send it to. Approving marks it ready; send it yourself." }
-        : { ok: null, title: "Realm does not post this", detail: "It names no account. Approving marks it ready; post it by hand from the space folder." });
+      out.push(this.goesNowhere(kind, items, family));
     }
     return out;
+  }
+
+  /** The line for work Realm will not act on itself. The legacy labels keep their words; anything
+   *  else says what its action is, or that nothing leaves Realm. */
+  private goesNowhere(kind: ReviewKind, items: TeamReviewItem[], family: "post" | "send" | null): ReviewCheck {
+    if (kind === "message" || (isLegacyLabel(kind) && family === "send"))
+      return { ok: null, title: "Realm does not send this", detail: "It names no account and no one to send it to. Approving marks it ready; send it yourself." };
+    if (isLegacyLabel(kind))
+      return { ok: null, title: "Realm does not post this", detail: "It names no account. Approving marks it ready; post it by hand from the space folder." };
+    const action = items.find((i) => i.action)?.action ?? null;
+    if (action) {
+      const what = [action.verb, action.tool].filter(Boolean).join(" ") || "an action";
+      return { ok: null, title: `Realm does not ${family === "post" ? "post" : "send"} this yet`,
+        detail: `It proposes ${what} through ${action.connector}. Approving marks it ready; do it yourself for now.` };
+    }
+    return { ok: null, title: "Nothing leaves Realm", detail: "It names no action. Approving marks it approved." };
   }
 
   /** "How it was made": the run's own log, in a few lines, with the dollars at the end. */

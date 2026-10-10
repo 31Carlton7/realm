@@ -10,7 +10,7 @@ import { MODES, RoleSheet, modelLabel } from "./RoleSheet";
 import { MakeTeam } from "./TeamPicker";
 import { VaultPage } from "./VaultPage";
 import { BackoffNote, HandoffLines, HandsOffTo, MentionWake, RoleBudget, RoleGoalPanel, TeamBudget } from "./HandoffParts";
-import { REVIEW_GLYPH, realmiteState } from "../../components/sidebar/TeamRows";
+import { realmiteState, reviewGlyph } from "../../components/sidebar/TeamRows";
 import { shortWhen } from "../schedules/schedule-model";
 import { useApp, type SpacePageTab } from "../../state/store";
 import {
@@ -122,7 +122,7 @@ function Overview({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
               {waiting.map((r, i) => (
                 <div key={r.id} className="tp-wait-row">
                   {r.thumb && space ? <img src={mediaUrl(`${space.folderPath}/${r.thumb}`)} alt="" draggable={false} />
-                    : <span className="tp-mark"><Icon name={REVIEW_GLYPH[r.kind]} size={16} /></span>}
+                    : <span className="tp-mark"><Icon name={reviewGlyph(r)} size={16} /></span>}
                   <div className="tp-wait-text">
                     <div className="tp-card-name">{r.title}</div>
                     <div className="tp-card-line">{[r.roleName, `made ${agoPhrase(r.createdAt)}`, r.kind === "message" && r.account ? `sends from ${r.account}` : "nothing posts until you approve"].filter(Boolean).join(" · ")}</div>

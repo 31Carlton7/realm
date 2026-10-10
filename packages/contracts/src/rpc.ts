@@ -1592,6 +1592,8 @@ export const Methods = {
   "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
   "team.reviewDone": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   "team.reviewDismiss": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
+  /** The person's edit of an item's text before the yes: the batch's next version (generic deliverables). */
+  "team.reviewEditItem": { params: z.object({ id: IdSchema, itemId: IdSchema, body: z.string().min(1).max(20_000) }), result: TeamReviewSummarySchema },
   "team.records": { params: z.object({ spaceId: IdSchema }), result: z.array(TeamRecordSummarySchema) },
   "team.record": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200) }), result: TeamRecordSchema },
   "team.recordWrite": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200), markdown: z.string().max(100_000) }), result: TeamRecordSchema },

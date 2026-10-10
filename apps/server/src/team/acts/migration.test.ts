@@ -63,11 +63,10 @@ const ticket = (db: DatabaseSync, id: string, item: string, state = "ready") => 
   VALUES (?, 'sp1', 'R1', ?, 'post', 'TikTok', '@versed.nathan', 'h1', ?, 10, 1, 1)`).run(id, item, state);
 
 describe("migration v50 — act tickets", () => {
-  it("is appended after the vault's grants, and is the last on this branch", () => {
-    // At merge the integration line puts v47–v49 between them; this one goes last whatever its index.
+  it("is appended after the vault's grants", () => {
+    // At merge the integration line puts v47–v49 between them, and dynamic Teams' v51+ after it.
     expect(VAULT_AT).toBeGreaterThan(-1);
     expect(ACTS_AT).toBeGreaterThan(VAULT_AT);
-    expect(ACTS_AT).toBe(migrations.length - 1);
   });
 
   it("brings the vault's home to the end of the chain, and leaves Review and the log as they were", () => {
