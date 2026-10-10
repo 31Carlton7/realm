@@ -31,7 +31,7 @@ export function PoliciesPage({ spaceId, team }: { spaceId: string; team: TeamSpa
     const realm = data.connectors.filter((c) => c.kind === "realm");
     const merged: TeamPolicyConnector[] = realm.length === 0 ? [] : [{
       connector: "realm", kind: "realm", name: "Realm", icon: null, reached: true,
-      tools: realm.flatMap((c) => c.tools.map((t) => ({ ...t, tool: `${c.name}: ${toolLabel(t.tool)}` }))),
+      tools: realm.flatMap((c) => c.tools.map((t) => ({ ...t, tool: `${c.name}: ${toolLabel(t.tool, c.name)}` }))),
     }];
     return [...merged, ...data.connectors.filter((c) => c.kind === "server")];
   }, [data]);

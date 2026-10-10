@@ -5,7 +5,7 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, profile, space, teamRole, teamSpace } from "../../state/store.test-fakes";
 import { PoliciesPage } from "./PoliciesPage";
 import { setPoliciesClient } from "./policies-client";
-import { ACT_ROWS, classRows, classToday, connectorSummary, toolNote } from "./policies-format";
+import { ACT_ROWS, classRows, classToday, connectorSummary, toolLabel, toolNote } from "./policies-format";
 
 /**
  * The team's Policies page, read-only: the four kinds of action, Realm's own tools as one connection,
@@ -127,6 +127,14 @@ describe("policies-format", () => {
       { label: "DMs", detail: "15 a day per account · 3 min apart · 8 AM–10 PM" },
       { label: "Email", detail: "20 a day per account · 1 min apart · 8 AM–10 PM" },
     ]);
+  });
+
+  it("drops a word a Realm toolset's name already says", () => {
+    expect(toolLabel("browser_list", "Browser")).toBe("list");
+    expect(toolLabel("agent_run", "Agents")).toBe("run");
+    expect(toolLabel("docs_read", "Documents")).toBe("docs read");
+    expect(toolLabel("save_issue")).toBe("save issue");
+    expect(toolLabel("vault", "Vault")).toBe("vault");
   });
 
   it("lists every class, reading first", () => {

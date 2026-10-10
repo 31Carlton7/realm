@@ -11,8 +11,13 @@ export const CLASS_SHORT: Record<RiskClass, string> = {
   "irreversible-external": "Can't be taken back",
 };
 
-/** A tool's name as words: `save_issue` → "save issue", `notion-update-page` → "notion update page". */
-export const toolLabel = (tool: string): string => tool.replace(/[_-]+/g, " ").trim();
+/** A tool's name as words: `save_issue` → "save issue"; under its owner, `browser_list` → "list". */
+export function toolLabel(tool: string, owner?: string): string {
+  const words = tool.replace(/[_-]+/g, " ").trim();
+  // "Browser: list", not "Browser: browser list" — a word the owner's name already says goes.
+  const first = words.split(" ")[0]!.toLowerCase();
+  return owner && words.includes(" ") && owner.toLowerCase().startsWith(first) ? words.slice(first.length + 1) : words;
+}
 
 /** What a call does today, in the page's words. */
 export const todayWords = (t: Pick<TeamPolicyTool, "asksToday">): string => (t.asksToday ? "Asks each time" : "Without asking");
@@ -41,7 +46,7 @@ export function classRows(connectors: readonly TeamPolicyConnector[]): ClassRow[
   return RISK_CLASSES.map((cls) => {
     const mine = all.filter(({ t }) => t.class === cls);
     const servers = mine.filter(({ c }) => c.kind === "server");
-    const examples = [...servers, ...mine.filter(({ c }) => c.kind === "realm")].slice(0, 3).map(({ c, t }) => `${c.name}: ${toolLabel(t.tool)}`);
+    const examples = [...servers, ...mine.filter(({ c }) => c.kind === "realm")].slice(0, 3).map(({ c, t }) => `${c.name}: ${toolLabel(t.tool, c.name)}`);
     return { class: cls, words: RISK_CLASS_WORDS[cls], count: mine.length, today: classToday(mine.map(({ t }) => t)), examples };
   });
 }
