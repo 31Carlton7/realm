@@ -77,8 +77,12 @@ describe("the team's column", () => {
     const { view, store } = await mount(data, () => <TeamRailList spaceId="s1" team={data.teams![0]!} tab="records:lead" pick={() => undefined} />);
     await waitFor(() => expect(railLabels()).toEqual(["Overview", "Creators1", "Leads", "Acme Corp", "Roles1", "Vault", "Activity"]));
     expect(screen.getByRole("radio", { name: "Leads" })).toBeChecked();
-    view.rerender(<StoreContext.Provider value={store}><TeamRailList spaceId="s1" team={data.teams![0]!} tab="recordtype:lead" pick={() => undefined} /></StoreContext.Provider>);
+    const picked: string[] = [];
+    view.rerender(<StoreContext.Provider value={store}><TeamRailList spaceId="s1" team={data.teams![0]!} tab="recordtype:lead" pick={(t) => picked.push(t)} /></StoreContext.Provider>);
     expect(screen.getByRole("radio", { name: /^Leads/ })).toBeChecked();
+    // THE MUTANT: a click on the lit row doing nothing, since a checked radio fires no change.
+    fireEvent.click(screen.getByRole("radio", { name: /^Leads/ }));
+    expect(picked).toEqual(["records:lead"]);
     expect(screen.queryByRole("radio", { name: "Acme Corp" })).toBeNull();
   });
 

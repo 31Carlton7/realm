@@ -59,7 +59,9 @@ export function TeamRailList({ spaceId, team, tab, pick }: { spaceId: string; te
   const name = `space-page-tab-${spaceId}`;
   const row = (id: SpacePageTab, label: string, glyph: IconName | TeamRole | null, count?: number, sub = false, lit = tab === id) => (
     <label key={id} className={`settings-tab page-rail-tab${sub ? " tp-sub" : ""}${glyph && typeof glyph === "object" ? " tp-sub-role" : ""}`} data-selected={lit || undefined}>
-      <input type="radio" name={name} value={id} checked={lit} onChange={() => pick(id)} />
+      {/* A kind's row is lit on its fields page too, where a click must still go to its list: a checked
+          radio fires no change. */}
+      <input type="radio" name={name} value={id} checked={lit} onChange={() => pick(id)} onClick={() => { if (lit && tab !== id) pick(id); }} />
       {glyph && (typeof glyph === "object"
         ? <span className="page-rail-glyph tp-rail-realmite"><Realmite spec={parseRealmiteSpec(glyph.realmite, glyph.id)} size={16} state={realmiteState(glyph)} /></span>
         : <Icon name={glyph} size={16} className="page-rail-glyph" />)}
