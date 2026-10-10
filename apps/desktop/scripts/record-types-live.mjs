@@ -269,8 +269,9 @@ async function main() {
   /* ── R1: this build, on the same home ────────────────────────────────────────────────────────── */
   const c = await boot(repoRoot, "pr1");
   const db = (sql) => execFileSync("sqlite3", [path.join(home, "realm.db"), sql], { encoding: "utf8" }).trim();
-  check("R1 the home is migrated to v51, Versed classed creator-campaigns with one Creator type",
-    db("SELECT MAX(version) FROM schema_version") === "51" && db("SELECT template FROM team_meta m JOIN spaces s ON s.id = m.space_id WHERE s.name = 'Versed'") === "creator-campaigns"
+  // v51 at least: on the integration line deliverables (v52) and tool classes (v53) follow it.
+  check("R1 the home is migrated through v51, Versed classed creator-campaigns with one Creator type",
+    Number(db("SELECT MAX(version) FROM schema_version")) >= 51 && db("SELECT template FROM team_meta m JOIN spaces s ON s.id = m.space_id WHERE s.name = 'Versed'") === "creator-campaigns"
       && db("SELECT group_concat(key) FROM team_record_types t JOIN spaces s ON s.id = t.space_id WHERE s.name = 'Versed'") === "creator",
     { version: db("SELECT MAX(version) FROM schema_version"), types: db("SELECT group_concat(s.name || ':' || key) FROM team_record_types t JOIN spaces s ON s.id = t.space_id") });
   await openNathan(c);
