@@ -63,6 +63,10 @@ const V45_SCHEMA = `
     provider_cursor TEXT, rewind_fork_json TEXT, rewind_refusal TEXT);
   CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+  -- Review's tables (v44) as far as the chain reads them on its way to the end: record types (v51)
+  -- classes a team by its reviews' kinds and records, and generic deliverables (v52) alters the items.
+  CREATE TABLE team_reviews (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, kind TEXT NOT NULL, record_path TEXT);
+  CREATE TABLE team_review_items (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, target_json TEXT);
 `;
 
 function writeV45Fixture(dir: string): string {
