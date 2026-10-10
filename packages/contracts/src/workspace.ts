@@ -10,14 +10,6 @@
 export const WORKSPACE_PROVIDER_NAME = "realm-workspace";
 export const PANE_SHOW_TOOL_NAME = "pane_show";
 
-/**
- * The tools of this provider that only read. Realm's broker never prompts for them, and the Claude
- * adapter pre-allows them so Claude's own per-MCP-tool prompt does not stack on top of nothing — the
- * same arrangement, and the same warning, as `BROWSER_READ_ONLY_TOOLS`: never add a tool that
- * changes anything.
- */
-export const WORKSPACE_READ_ONLY_TOOLS = ["workspace_state", "sessions_list", "session_read", "space_list", "settings_get"] as const;
-
 /** `pane_show` under the name the gateway lists it by — the name every "not open" refusal spells. */
 export const PANE_SHOW_WIRE_NAME = `${WORKSPACE_PROVIDER_NAME}__${PANE_SHOW_TOOL_NAME}`;
 

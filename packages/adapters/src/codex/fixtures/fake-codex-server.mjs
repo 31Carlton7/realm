@@ -29,6 +29,8 @@
  *   ELICIT    passes on an MCP form elicitation from "notion" (echoes the reply)
  *   ELICITSECRET passes on a form that asks for an API key — Realm must decline it unasked
  *   ELICITURL passes on a URL-mode elicitation (echoes the reply)
+ *   ELICITTOOL asks to run an MCP tool, in the payload 0.154 was captured sending (echoes the reply)
+ *   ELICITEMPTY passes on a plain form with no fields and no approval kind (echoes the reply)
  *   ECHO      replies with the raw `input` array as the agent message (input-shape assertions)
  *   CRASH     opens a command item, then dies without warning          (unexpected-death path)
  *   BADSTEER  (on turn/steer) fails the steer with something other than "no active turn"
@@ -312,7 +314,14 @@ async function streamAskAutoTurn(threadId, turnId, text) {
 async function streamElicitTurn(threadId, turnId, text) {
   await openTurn(threadId, turnId, text);
   const base = { threadId, turnId, serverName: "notion", _meta: null };
-  const params = text.includes("ELICITURL")
+  const params = text.includes("ELICITTOOL")
+    // Verbatim from a live 0.154.0 capture, ids aside.
+    ? { threadId, turnId, serverName: "realm", mode: "form",
+        _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"], tool_description: "List peer sessions", tool_params: { scope: "space" }, tool_params_display: [] },
+        message: "Allow the realm MCP server to run tool \"realm-agent__agent_peers\"?", requestedSchema: { type: "object", properties: {} } }
+    : text.includes("ELICITEMPTY")
+    ? { ...base, mode: "form", message: "Anything to add?", requestedSchema: { type: "object", properties: {} } }
+    : text.includes("ELICITURL")
     ? { ...base, mode: "url", message: "Connect your Notion workspace", url: "https://www.notion.so/install-integration?id=fake", elicitationId: "el_1" }
     : text.includes("ELICITSECRET")
       ? { ...base, mode: "form", message: "Paste your Notion key", requestedSchema: { type: "object", properties: { api_key: { type: "string", title: "API key" } }, required: ["api_key"] } }

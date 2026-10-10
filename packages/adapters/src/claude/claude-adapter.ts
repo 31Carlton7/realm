@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
 import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, WORKSPACE_PROVIDER_NAME, WORKSPACE_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, REALM_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -115,27 +115,22 @@ export function claudeMcpServers(servers: readonly McpServerConfig[]): Record<st
 
 /**
  * W4's double-prompt fix, read-only half ONLY. The SDK asks `canUseTool` for every MCP tool — which
- * Realm bridges to an ApprovalCard — so before this, a `browser_snapshot` that Realm's own broker
- * deliberately lets run free still raised a card from Claude's side. Pre-allowing the READ-ONLY
- * `realm-browser` tools via `Options.allowedTools` makes reads promptless end to end.
+ * Realm bridges to an ApprovalCard — so a `browser_snapshot` that Realm's own broker lets run free
+ * would still raise a card from Claude's side. Pre-allowing Realm's READ-ONLY gateway tools via
+ * `Options.allowedTools` makes reads promptless end to end.
  *
  * Tool naming, verified against the gateway (`apps/server/src/mcp/gateway.ts`): every session's one
  * MCP server is the gateway entry named `realm`, whose provider tools are re-exported as
- * `realm-browser__browser_*`; the SDK prefixes MCP tools as `mcp__<serverName>__<toolName>` — so
+ * `<provider>__<tool>`; the SDK prefixes MCP tools as `mcp__<serverName>__<toolName>` — so
  * `mcp__realm__realm-browser__browser_snapshot` etc. Derived from `opts.mcpServers` rather than a
  * literal "realm" so a renamed gateway entry cannot silently orphan the allow-list.
  *
- * MUTATING tools are deliberately NOT here and must never be: they keep BOTH prompts (Claude's and
- * Realm's ApprovalCard) — one prompt too many beats one too few. `BROWSER_READ_ONLY_TOOLS` is the
- * same shared list the server's broker gates by, and the test pins its exact expansion.
+ * MUTATING tools are deliberately NOT here and must never be. `REALM_READ_ONLY_TOOLS` is the same
+ * list the gateway marks `readOnlyHint` for Codex, so the two engines prompt for the same tools, and
+ * the test pins its exact expansion.
  */
 export function claudeAllowedTools(servers: readonly McpServerConfig[]): string[] {
-  return servers.flatMap((s) => [
-    ...BROWSER_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__realm-browser__${t}`),
-    // `realm-workspace`'s reads, on the same terms and from the same kind of shared list: Realm never
-    // prompts for them, so Claude's prompt would be the only card in front of a read.
-    ...WORKSPACE_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__${WORKSPACE_PROVIDER_NAME}__${t}`),
-  ]);
+  return servers.flatMap((s) => REALM_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__${t}`));
 }
 
 /**
@@ -162,8 +157,8 @@ const CLAUDE_ASK_BUILTINS = ["Read", "Glob", "Grep", "NotebookRead", "WebFetch",
 /**
  * Every tool name an Ask session may run, for a session with these MCP servers.
  *
- * The MCP half is `claudeAllowedTools` itself rather than a second list: those are the read-only
- * `realm-browser` tools, they are already pre-allowed for every session, and deriving them here
+ * The MCP half is `claudeAllowedTools` itself rather than a second list: those are Realm's read-only
+ * gateway tools, they are already pre-allowed for every session, and deriving them here
  * means Ask can never disagree with what the rest of the adapter calls read-only.
  */
 export function claudeAskTools(servers: readonly McpServerConfig[]): Set<string> {

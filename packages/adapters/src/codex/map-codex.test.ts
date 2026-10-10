@@ -268,6 +268,13 @@ describe("createCodexMapper", () => {
     expect(done[0]).toMatchObject({ type: "tool_result", payload: { toolUseId: "mcp2", content: "401 unauthorized", isError: true } });
   });
 
+  it("reads the message out of an mcpToolCall error object, the shape 0.154 sends", () => {
+    const m = createCodexMapper();
+    m.map("item/started", { item: { type: "mcpToolCall", id: "mcp3", server: "realm", tool: "realm-agent__agent_peers", arguments: {} } });
+    const done = m.map("item/completed", { item: { type: "mcpToolCall", id: "mcp3", status: "failed", result: null, error: { message: "user rejected MCP tool call" } } });
+    expect(done[0]).toMatchObject({ type: "tool_result", payload: { toolUseId: "mcp3", content: "user rejected MCP tool call", isError: true } });
+  });
+
   it("appends the exit code to a nonzero-exit command's output", () => {
     const m = createCodexMapper();
     m.map("item/started", { item: { type: "commandExecution", id: "c3", command: "false", cwd: "/tmp" } });

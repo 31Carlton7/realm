@@ -35,7 +35,9 @@ function toolOutputFor(item: Bag): string {
       return changes.map((c) => `${str(obj(c.kind).type) || "change"} ${str(c.path)}\n${str(c.diff)}`.trimEnd()).join("\n\n");
     }
     case "mcpToolCall": {
-      const err = str(item.error);
+      // 0.154 sends `error` as `{message}` (captured live: `{message: "user rejected MCP tool call"}`);
+      // a bare string is what earlier builds sent.
+      const err = str(item.error) || str(obj(item.error).message);
       if (err) return err;
       return typeof item.result === "string" ? item.result : JSON.stringify(item.result ?? null);
     }

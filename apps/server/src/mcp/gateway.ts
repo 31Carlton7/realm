@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, type ServerNotification, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerConfig } from "@realm/adapters";
-import { callableByApp, visibleToModel } from "@realm/contracts";
+import { REALM_READ_ONLY_TOOLS, callableByApp, visibleToModel } from "@realm/contracts";
 import type { DrawnView } from "../apps/views";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
@@ -15,6 +15,7 @@ import type { McpService } from "./service";
 
 const SUMMARY_MAX = 200;
 const truncate = (s: string): string => (s.length > SUMMARY_MAX ? s.slice(0, SUMMARY_MAX) : s);
+const READ_ONLY_TOOLS = new Set(REALM_READ_ONLY_TOOLS);
 /** How long `refreshTools` waits for a session's agent to read its tool list again. Long enough for
  *  a client that honours `tools/list_changed` to round-trip on this Mac; short enough that one that
  *  ignores it costs a pause the first time, never a hang. */
@@ -500,7 +501,11 @@ export class McpGateway {
     const perProvider = await Promise.all([...this.providers.values()].filter((p) => providerVisible(p.name, toolset)).map(async (p): Promise<Tool[]> => {
       try {
         const tools = await p.tools({ sessionId, spaceId });
-        return tools.map((t): Tool => ({ ...t, name: `${p.name}__${t.name}` }));
+        return tools.map((t): Tool => {
+          const name = `${p.name}__${t.name}`;
+          // Codex asks before any MCP tool not marked read-only; these change nothing, so it need not.
+          return READ_ONLY_TOOLS.has(name) ? { ...t, name, annotations: { ...t.annotations, readOnlyHint: true } } : { ...t, name };
+        });
       } catch { return []; }
     }));
     if (Array.isArray(toolset)) { this.relisted(sessionId); return { tools: perProvider.flat() }; }
