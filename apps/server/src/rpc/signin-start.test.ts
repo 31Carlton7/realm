@@ -18,14 +18,15 @@ describe("signin.start", () => {
       register: (name: string, _schema: unknown, fn: (p: unknown) => Promise<unknown>) => { handlers.set(name, fn); },
       broadcast: (event: string, payload: unknown) => { broadcasts.push({ event, payload }); },
     };
-    const signIn = { start: async () => ({ ok: true as const, terminalId: "t9", terminalItemId: "it9", command: "claude auth login", settled }) };
+    const asked: unknown[][] = [];
+    const signIn = { start: async (...args: unknown[]) => { asked.push(args); return { ok: true as const, terminalId: "t9", terminalItemId: "it9", command: "claude auth login", settled }; } };
     registerMethods({ rpc, signIn } as unknown as Deps);
     const opened = () => broadcasts.filter((b) => b.event.endsWith(".agentOpened"));
     const finish = async () => {
       settle({ url: page ? "https://x/authorize?client_id=a&redirect_uri=b" : null, browserId: page?.browserId ?? null, browserItemId: page?.browserItemId ?? null, mayAuthorize: false, screen });
       await settled; await new Promise((r) => setTimeout(r, 0));
     };
-    return { call: (p: unknown) => handlers.get("signin.start")!(p), opened, finish };
+    return { call: (p: unknown) => handlers.get("signin.start")!(p), opened, finish, asked };
   }
 
   it("announces the terminal as the asking session's at once, and its consent page once it opens", async () => {
@@ -36,6 +37,13 @@ describe("signin.start", () => {
     expect(h.opened()).toEqual([{ event: "terminal.agentOpened", payload: { spaceId: "sp1", terminalId: "t9", itemId: "it9", openedBy: "se1" } }]);
     await h.finish();
     expect(h.opened()[1]).toEqual({ event: "browser.agentOpened", payload: { spaceId: "sp1", browserId: "b9", itemId: "ib9", openedBy: "se1" } });
+  });
+
+  it("tells the flow which session asked, since that session's config folder is where the sign-in has to land", async () => {
+    const h = harness(null);
+    await h.call({ spaceId: "sp1", kind: "claude", sessionId: "se1" });
+    await h.call({ spaceId: "sp1", kind: "claude" });
+    expect(h.asked).toEqual([["sp1", "claude", "se1"], ["sp1", "claude", null]]);
   });
 
   it("announces only the terminal when the login printed no URL", async () => {

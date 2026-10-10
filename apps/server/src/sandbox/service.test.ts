@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EXECUTION_SANDBOX_DEFAULT_KEY, executionSandboxSpaceKey, type Environment } from "@realm/contracts";
+import * as policyModule from "./policy";
+import { resolveExecutionSandboxPolicy } from "./policy";
 import { ExecutionSandboxService, probeSandboxExec, type SandboxAvailability } from "./service";
+import { sandboxCommand } from "./spawn";
 
 const root = tempDir("realm-sandbox-service-");
 const home = join(root, "home");
@@ -224,3 +227,220 @@ describe("env", () => {
   });
 });
 
+/** The Claude config folder sp_1's profile names, and the one a session of that space still runs
+ *  under because its conversation began there. */
+const profileDir = join(root, "claude-work");
+const sessionDir = join(root, "claude-before");
+for (const d of [profileDir, sessionDir]) mkdirSync(d, { recursive: true });
+
+/** The service as the app builds it once a profile can name a folder: sp_1's profile names one and
+ *  every other space's names none. Sandboxed, since a policy of `off` has no roots to read. */
+const withProfileFolder = (): ExecutionSandboxService => {
+  const s = new ExecutionSandboxService({
+    settings, environments, home, tmpDir: tmp, realmHome: realm, platform: "darwin", probe: () => YES,
+    claudeDirOf: (spaceId) => (spaceId === "sp_1" ? profileDir : null),
+  });
+  s.setDefaults({ posture: "workspace-write", network: true });
+  return s;
+};
+
+/** The roots a wrapped argv lets the process write: the values of its `REALM_WRITE_n` parameters. */
+const writableIn = (args: readonly string[]): string[] =>
+  args.filter((a) => /^REALM_WRITE_\d+=/.test(a)).map((a) => a.slice(a.indexOf("=") + 1));
+
+/** The policy a sandboxed space resolved to before a profile could name a folder: the resolver's
+ *  own answer for this machine, with no folder in what it is given. */
+const withNoFolder = () => resolveExecutionSandboxPolicy({
+  prefs: { posture: "workspace-write", network: true }, checkouts: [checkout], home, tmpDir: tmp, realmHome: realm,
+});
+
+/** The keys of what `policyFor` handed the resolver before a profile could name a folder, in the
+ *  order it wrote them. */
+const HANDED_BEFORE = ["prefs", "checkouts", "home", "tmpDir", "realmHome", "extraWritableRoots", "onDrop"];
+
+describe("the Claude config folder a policy is resolved for", () => {
+  it("resolves the policy every space had before, when it is built with no way to ask about profiles", () => {
+    const s = service();
+    s.setDefaults({ posture: "workspace-write", network: true });
+    expect(s.policyFor("sp_1")).toEqual(withNoFolder());
+  });
+
+  it("uses the folder the space's profile names when the caller names none", () => {
+    const s = withProfileFolder();
+    expect(s.policyFor("sp_1").writableRoots).toContain(realpathSync(profileDir));
+    expect(s.policyFor("sp_2")).toEqual(withNoFolder());
+  });
+
+  it("takes a folder given as undefined for one left out, and asks the profile", () => {
+    expect(withProfileFolder().policyFor("sp_1", { claudeDir: undefined }).writableRoots).toContain(realpathSync(profileDir));
+  });
+
+  it("uses the caller's folder when it names one, whatever the profile names", () => {
+    const p = withProfileFolder().policyFor("sp_1", { claudeDir: sessionDir });
+    expect(p.writableRoots).toContain(realpathSync(sessionDir));
+    expect(p.writableRoots).not.toContain(realpathSync(profileDir));
+  });
+
+  it("uses the caller's folder in a service built with no way to ask about profiles", () => {
+    const s = service();
+    s.setDefaults({ posture: "workspace-write", network: true });
+    expect(s.policyFor("sp_1", { claudeDir: sessionDir }).writableRoots).toContain(realpathSync(sessionDir));
+  });
+
+  it("uses no folder for a caller on the default one, even where the profile names one", () => {
+    expect(withProfileFolder().policyFor("sp_1", { claudeDir: null })).toEqual(withNoFolder());
+  });
+
+  it("describes the space to Settings with its profile's folder, as a terminal there gets it", () => {
+    const s = withProfileFolder();
+    expect(s.state("sp_1").policy.writableRoots).toContain(realpathSync(profileDir));
+    expect(s.describe("sp_1")).toBe(s.state("sp_1").summary);
+  });
+
+  it("leaves a space with no sandbox as it was, whatever folder is named: an empty policy and the bare command", () => {
+    const s = new ExecutionSandboxService({
+      settings, environments, home, tmpDir: tmp, realmHome: realm, platform: "darwin", probe: () => NO,
+      claudeDirOf: () => profileDir,
+    });
+    expect(s.policyFor("sp_1", { claudeDir: sessionDir })).toEqual({
+      posture: "off", writableRoots: [], readableRoots: [], readOnlyPaths: [], protectedRoots: [], network: true,
+    });
+    expect(s.wrap({ spaceId: "sp_1", command: "/bin/echo", args: ["hi"], claudeDir: sessionDir }))
+      .toMatchObject({ sandboxed: false, command: "/bin/echo", args: ["hi"] });
+  });
+
+  it("wraps a session's command for the folder the session runs under, not the one its profile names", () => {
+    const out = withProfileFolder().wrap({ spaceId: "sp_1", command: "/bin/echo", args: [], claudeDir: sessionDir });
+    expect(writableIn(out.args)).toContain(realpathSync(sessionDir));
+    expect(writableIn(out.args)).not.toContain(realpathSync(profileDir));
+  });
+
+  it("wraps the command of a session on the default folder as it did before, with nothing from its profile's folder", () => {
+    const out = withProfileFolder().wrap({ spaceId: "sp_1", command: "/bin/echo", args: [], claudeDir: null });
+    expect(out.args).toEqual(sandboxCommand({ command: "/bin/echo", args: [], policy: withNoFolder() }).args);
+  });
+
+  it("wraps a terminal's command, which names no folder, for the one its space's profile names", () => {
+    const out = withProfileFolder().wrap({ spaceId: "sp_1", command: "/bin/zsh", args: ["-l"] });
+    expect(writableIn(out.args)).toContain(realpathSync(profileDir));
+  });
+
+  it("keeps the checkout a session was opened on writable beside the folder it runs under", () => {
+    const openedOn = join(root, "opened-on");
+    mkdirSync(openedOn, { recursive: true });
+    const out = withProfileFolder().wrap({
+      spaceId: "sp_1", command: "/bin/echo", args: [], extraWritableRoots: [openedOn], claudeDir: sessionDir,
+    });
+    expect(writableIn(out.args)).toEqual(expect.arrayContaining([realpathSync(openedOn), realpathSync(sessionDir)]));
+  });
+
+  it("asks which folder the profile names only for a caller that does not say", () => {
+    const asked: string[] = [];
+    const s = new ExecutionSandboxService({
+      settings, environments, home, tmpDir: tmp, realmHome: realm, platform: "darwin", probe: () => YES,
+      claudeDirOf: (spaceId) => { asked.push(spaceId); return profileDir; },
+    });
+    s.setDefaults({ posture: "workspace-write", network: true });
+    s.policyFor("sp_1", { claudeDir: sessionDir });
+    s.policyFor("sp_1", { claudeDir: null });
+    expect(asked).toEqual([]);
+    s.policyFor("sp_1");
+    expect(asked).toEqual(["sp_1"]);
+  });
+
+  it("resolves the policy with the options it passed before, key for key, for a command that names no folder or gives undefined for one", () => {
+    for (const o of [{}, { claudeDir: undefined }]) {
+      const s = withProfileFolder();
+      const policyFor = vi.spyOn(s, "policyFor");
+      s.wrap({ spaceId: "sp_1", command: "/bin/zsh", args: ["-l"], ...o });
+      expect(policyFor.mock.calls.map(([spaceId, handed]) => [spaceId, Object.keys(handed ?? {})])).toEqual([["sp_1", ["extraWritableRoots"]]]);
+    }
+  });
+
+  it("hands the resolver what it was handed before, wherever no folder is named", () => {
+    const resolver = vi.spyOn(policyModule, "resolveExecutionSandboxPolicy");
+    try {
+      const cannotAsk = service();
+      cannotAsk.setDefaults({ posture: "workspace-write", network: true });
+      cannotAsk.policyFor("sp_1");
+      withProfileFolder().policyFor("sp_2");
+      withProfileFolder().policyFor("sp_1", { claudeDir: null });
+      expect(resolver.mock.calls.map(([input]) => Object.keys(input))).toEqual([HANDED_BEFORE, HANDED_BEFORE, HANDED_BEFORE]);
+    } finally {
+      resolver.mockRestore();
+    }
+  });
+
+  it("passes on a folder nothing can be made of, an empty one included, so the drop is said and not skipped", () => {
+    const said = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const dir of ["claude-work", ""]) {
+        const s = new ExecutionSandboxService({
+          settings, environments, home, tmpDir: tmp, realmHome: realm, platform: "darwin", probe: () => YES,
+          claudeDirOf: () => dir,
+        });
+        s.setDefaults({ posture: "workspace-write", network: true });
+        s.policyFor("sp_1");
+      }
+      expect(said.mock.calls).toEqual([
+        ["[sandbox] not a usable root for sp_1: claude-work — nothing along this path exists"],
+        ["[sandbox] not a usable root for sp_1:  — nothing along this path exists"],
+      ]);
+    } finally {
+      said.mockRestore();
+    }
+  });
+});
+
+/** The service as the app builds it: it can ask which folders Realm starts Claude under. */
+const withFolders = (dirs: readonly string[]): ExecutionSandboxService => {
+  const s = new ExecutionSandboxService({
+    settings, environments, home, tmpDir: tmp, realmHome: realm, platform: "darwin", probe: () => YES,
+    claudeDirs: () => dirs,
+  });
+  s.setDefaults({ posture: "workspace-write", network: true });
+  return s;
+};
+
+describe("the Claude config folders every policy freezes", () => {
+  it("freezes what Claude Code runs from each folder in every space's policy, and makes none of them writable", () => {
+    const s = withFolders([profileDir, sessionDir]);
+    for (const spaceId of ["sp_1", "sp_2"]) {
+      const p = s.policyFor(spaceId);
+      for (const dir of [profileDir, sessionDir]) {
+        expect(p.readOnlyPaths).toContain(join(realpathSync(dir), "settings.json"));
+        expect(p.writableRoots).not.toContain(realpathSync(dir));
+      }
+    }
+  });
+
+  it("freezes them for a session on the default folder, and for one under a folder of its own", () => {
+    const s = withFolders([profileDir, sessionDir]);
+    const onDefault = s.policyFor("sp_1", { claudeDir: null });
+    const onItsOwn = s.policyFor("sp_1", { claudeDir: sessionDir });
+    for (const p of [onDefault, onItsOwn]) {
+      for (const dir of [profileDir, sessionDir]) expect(p.readOnlyPaths).toContain(join(realpathSync(dir), "settings.json"));
+    }
+    expect(onDefault).toEqual(s.policyFor("sp_2"));
+    expect(onItsOwn.writableRoots).toContain(realpathSync(sessionDir));
+    expect(onItsOwn.writableRoots).not.toContain(realpathSync(profileDir));
+  });
+
+  it("asks for the folders at each policy, so one named after the service was built is frozen in the next", () => {
+    const dirs: string[] = [];
+    const s = withFolders(dirs);
+    expect(s.policyFor("sp_1")).toEqual(withNoFolder());
+    dirs.push(profileDir);
+    expect(s.policyFor("sp_1").readOnlyPaths).toContain(join(realpathSync(profileDir), "settings.json"));
+  });
+
+  it("hands the resolver what it was handed before, where there is no folder to freeze", () => {
+    const resolver = vi.spyOn(policyModule, "resolveExecutionSandboxPolicy");
+    try {
+      withFolders([]).policyFor("sp_1");
+      expect(resolver.mock.calls.map(([input]) => Object.keys(input))).toEqual([HANDED_BEFORE]);
+    } finally {
+      resolver.mockRestore();
+    }
+  });
+});

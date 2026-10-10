@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
 import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
+import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -26,6 +26,7 @@ import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import type { AppViewRef, MemorySources } from "@realm/contracts";
 import { SecretAnswers } from "./secret-answers";
+import type { ClaudeHomes } from "../agents/claude-homes";
 
 /**
  * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
@@ -84,7 +85,22 @@ export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): str
 /** How long a steer waits for the interrupted turn to settle before sending anyway. */
 const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
 
-type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
+type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean;
+  /** The Claude config folder this process was started under (`ClaudeHomes`): null for the default
+   *  one, and for every agent but Claude. Kept on the handle because it is a fact about the process,
+   *  and the folder a profile names can change while the process runs. */
+  home: string | null };
+
+/** A probe row as a client is handed it: Claude's says which config folder it answers for. */
+export type ProbeRow = ProbeResult & { home?: string | null; homeMissing?: boolean };
+
+/** `row` for the wire: stamped with the folder it describes, and without the CLI's own statement of
+ *  one, which the server has already checked against it. */
+function claudeRow(row: ProbeResult, home: string | null): ProbeRow {
+  const out: ProbeRow = { ...row, home };
+  delete out.configDirectory;
+  return out;
+}
 
 /**
  * Owns the session trio: DB row + sidebar item + live adapter handle. Adapter handles are started lazily on the
@@ -187,14 +203,18 @@ export class SessionService {
      *  so only `main.ts`'s real server process wires it, and only with the scripted agent off
      *  (`billed-calls.ts`) — tests go through `createApp` without it, live checks boot `main.ts`
      *  with the scripted agent on, and both get the heuristic title only, never a live network call. */
-    titleGenerator?: (text: string) => Promise<string>;
+    titleGenerator?: (text: string, o?: { configDir?: string | null }) => Promise<string>;
     /** Writes the model's account of a session when a turn settles (`SessionSummaryService`). Wired
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
      *  the real server process passes one, and it is `void`ed off the settle rather than awaited. */
     /** The settle's model-written fields — the summary and the prompter's hint, from one call. */
     summaries?: { onSettled(sessionId: string): Promise<void> };
-    /** Where a `rate_limit` reading goes. Per agent KIND, not per session — see PlanLimitsService. */
-    planLimits?: { apply(kind: AgentKind, reading: SessionEventPayload<"rate_limit">): void };
+    /** Where a `rate_limit` reading goes. Per ACCOUNT, not per session — see PlanLimitsService. For
+     *  Claude the account is the config folder the reporting process runs under. */
+    planLimits?: { apply(kind: AgentKind, reading: SessionEventPayload<"rate_limit">, home?: string | null): void };
+    /** Which Claude config folder each session runs under (`ClaudeHomes`). Optional so a harness
+     *  built without it starts every agent in the server's own environment, exactly as before. */
+    claudeHomes?: ClaudeHomes;
     /** Goal mode (`GoalService`), which is the one thing here that can start a turn nobody asked
      *  for. Optional and absent in most tests, exactly like the two above: a suite that never
      *  mentions goals must not have a session continue itself behind its back. */
@@ -216,8 +236,27 @@ export class SessionService {
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
    *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
   private probeCache = new ProbeCache(() => this.probeAll());
+  /**
+   * Claude's row for each named config folder, cached like the list above and apart from it.
+   *
+   * Only Claude's row depends on the folder: a folder is a sign-in, and every other agent's CLI is
+   * the same one whichever profile asks. So a profile's list is the app's own with this one row put
+   * in, and asking about a second folder costs one more `claude` and not one more of everything.
+   */
+  private claudeProbes = new Map<string, ProbeCache<ProbeResult>>();
 
-  probe(opts: { force?: boolean } = {}): Promise<ProbeResult[]> { return this.probeCache.get(opts); }
+  /**
+   * Every agent's row. With `home`, Claude's answers for that config folder; without, for the
+   * default one.
+   */
+  async probe(opts: { force?: boolean; home?: string | null } = {}): Promise<ProbeRow[]> {
+    const home = this.d.claudeHomes ? opts.home ?? null : null;
+    const [rows, own] = await Promise.all([
+      this.probeCache.get({ force: opts.force }),
+      home === null ? undefined : this.claudeUnder(home, opts.force),
+    ]);
+    return rows.map((r) => (r.kind === "claude" ? claudeRow(own ?? r, home) : r));
+  }
   /** The last probe's rows, stale or not, without spending a new one — see `ProbeCache.peek`. */
   probeCached(): { rows: ProbeResult[]; at: number } | null { const p = this.probeCache.peek(); return p && { rows: p.value, at: p.at }; }
 
@@ -228,14 +267,109 @@ export class SessionService {
    * learns replaces that agent's row in the cache — and in whatever a probe still out lands with —
    * so the next cheap read agrees with what this caller was just told. `undefined` for an agent
    * with no adapter.
+   *
+   * For Claude under a named config folder (`home`) the row asked for, and replaced, is that
+   * folder's own.
    */
-  async probeAgent(kind: AgentKind): Promise<ProbeResult | undefined> {
+  async probeAgent(kind: AgentKind, home: string | null = null): Promise<ProbeRow | undefined> {
     const adapter = this.d.adapters[kind];
     if (!adapter) return undefined;
-    const row = await adapter.probe().catch((e: unknown): ProbeResult =>
-      ({ kind, available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }));
-    this.probeCache.amend((rows) => rows.map((r) => (r.kind === kind ? row : r)));
-    return row;
+    if (kind === "claude" && home !== null) {
+      const own = await this.claudeUnder(home, true);
+      if (own) return claudeRow(own, home);
+    }
+    const row = await this.fresh(kind, () => adapter.probe()
+      .catch((e: unknown): ProbeResult =>
+        ({ kind, available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }))
+      .then((found) => {
+        this.probeCache.amend((rows) => rows.map((r) => (r.kind === kind ? found : r)));
+        return found;
+      }));
+    return kind === "claude" ? claudeRow(row, null) : row;
+  }
+
+  /**
+   * The fresh probes out now, by what each asks about, and for each the one that asks arriving
+   * meanwhile share.
+   *
+   * Each pane asks about its own session, so one sign-in is asked about by every pane at once, and
+   * each ask would start a `claude` of its own. An ask that arrives while a probe is out is not
+   * answered by that probe, which may have looked before the sign-in the ask is about. It waits for
+   * the next probe, and so does every ask after it: a burst costs two probes, however many panes
+   * sent it. A probe that has landed is kept as the last one out, and the next ask starts its own
+   * behind it at once. So is one that failed, however it failed: the ask after it starts anew.
+   */
+  private freshProbes = new Map<string, { out: Promise<unknown>; next: Promise<unknown> | null }>();
+
+  private fresh<T>(about: string, probe: () => Promise<T>): Promise<T> {
+    const start = (): Promise<T> => {
+      const out = new Promise<T>((answer) => answer(probe()));
+      this.freshProbes.set(about, { out, next: null });
+      return out;
+    };
+    const last = this.freshProbes.get(about);
+    if (!last) return start();
+    return (last.next ??= last.out.then(start, start)) as Promise<T>;
+  }
+
+  /**
+   * One agent's row from what was last learned, where that is recent: the cheap form of
+   * `probeAgent`, for a pane that asks each time it is shown. Claude's row for a named folder comes
+   * from that folder's own cache and does not wait on any other agent.
+   */
+  async probeRow(kind: AgentKind, home: string | null = null): Promise<ProbeRow | undefined> {
+    const own = kind === "claude" && home !== null ? await this.claudeUnder(home) : undefined;
+    return own ? claudeRow(own, home) : (await this.probe()).find((r) => r.kind === kind);
+  }
+
+  /** A profile was pointed at or away from `home`: what was known of the folder is asked again. A
+   *  folder is usually named the moment after it was signed in from a terminal, and a row read
+   *  before that would say it is signed out. */
+  forgetClaudeProbe(home: string | null): void {
+    if (home !== null) this.claudeProbes.delete(home);
+  }
+
+  /**
+   * Claude's row for a named folder, or undefined where no Claude adapter is registered.
+   *
+   * A folder that is gone is answered here and never probed: Claude Code makes a config folder it
+   * is pointed at, so asking would bring back an empty, signed-out folder under the name of the one
+   * that went. The answer is not cached either, so putting the folder back shows at the next ask.
+   */
+  private claudeUnder(home: string, force = false): Promise<ProbeResult> | undefined {
+    const adapter = this.d.adapters.claude;
+    const homes = this.d.claudeHomes;
+    if (!adapter || !homes) return undefined;
+    if (homes.missing(home)) return this.missingFolderRow(homes.shown(home));
+    let cache = this.claudeProbes.get(home);
+    if (!cache) {
+      cache = new ProbeCache<ProbeResult>(() => this.probeClaudeUnder(adapter, homes, home));
+      this.claudeProbes.set(home, cache);
+    }
+    const asked = cache;
+    return force ? this.fresh(`claude\n${home}`, () => asked.get({ force: true })) : asked.get();
+  }
+
+  /** Whether the CLI is installed is the same answer for every folder, so it is read off the list. */
+  private async missingFolderRow(folder: string): Promise<ProbeRow> {
+    const base = (await this.probeCache.get()).find((r) => r.kind === "claude");
+    return { kind: "claude", available: base?.available ?? false, version: base?.version ?? null, loggedIn: false, reason: `The Claude config folder ${folder} is missing.`, homeMissing: true };
+  }
+
+  /**
+   * Ask Claude Code about one folder, and check that it answered for that folder.
+   *
+   * It may not have: managed settings can set `CLAUDE_CONFIG_DIR` over the one a process is handed.
+   * An answer for another folder is that folder's account, and showing it under this one would be
+   * the confusion this whole feature removes. So it reads as "cannot tell", with the reason.
+   */
+  private async probeClaudeUnder(adapter: AgentAdapter, homes: ClaudeHomes, home: string): Promise<ProbeResult> {
+    const row = await adapter.probe({ env: homes.envFor(home) }).catch((e: unknown): ProbeResult =>
+      ({ kind: "claude", available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }));
+    const stated = row.configDirectory;
+    if (stated === undefined || homes.same(stated, home)) return row;
+    return { kind: row.kind, available: row.available, version: row.version, loggedIn: null,
+      reason: `Claude Code answered for ${homes.shown(stated)}, not ${homes.shown(home)}, so Realm can't tell whether this folder is signed in.` };
   }
 
   /** One adapter's probe throwing must not hide the others; it reports as unavailable with the reason. */
@@ -871,6 +1005,7 @@ export class SessionService {
     this.d.browserAgents?.release(id);
     // And its carried handoff context, plus any retry still on a timer.
     this.d.failover?.release(id);
+    this.d.claudeHomes?.unpin(id);
     // Nothing left to send into. No broadcast: the session's own row is going away with it.
     this.queued.delete(id);
     // …and the rewind bookkeeping. The row carrying the durable half goes below; these two are what a
@@ -1046,7 +1181,9 @@ export class SessionService {
    *  ever touches the item's title, never the session's, so the session-row check alone would miss it. */
   private async upgradeTitle(id: string, heuristicTitle: string, text: string): Promise<void> {
     try {
-      const title = await this.d.titleGenerator!(text);
+      const home = this.sideCallHome(id);
+      if (home === undefined) return;
+      const title = home === null ? await this.d.titleGenerator!(text) : await this.d.titleGenerator!(text, { configDir: home });
       const s = this.d.sessions.get(id); if (!s || s.title !== heuristicTitle) return;
       const item = this.d.items.findByRefId(id);
       if (item && item.title !== heuristicTitle) return;
@@ -1108,7 +1245,85 @@ export class SessionService {
       const ev = this.d.events.lastOfType(id, "init");
       reported = ev?.type === "init" ? ev.payload.instructionSources ?? null : null;
     }
-    return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, skillsInjected, reported });
+    return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, skillsInjected, reported, claudeDir: this.homeOf(s) });
+  }
+
+  /** The Claude config folder this session's agent runs under, or would on its next start
+   *  (`ClaudeHomes.ofSession`). Null without the resolver, which is the default folder. */
+  private homeOf(s: Session): string | null {
+    return this.d.claudeHomes?.ofSession(s, this.live.get(s.id)) ?? null;
+  }
+
+  /** The same, by id, for a caller outside that holds no row: a probe of this session's sign-in,
+   *  failover's check of it. NOT_FOUND for a session that is gone. */
+  claudeHome(id: string): string | null { return this.homeOf(this.get(id)); }
+
+  /**
+   * Whether a process is running under a Claude config folder besides the default one.
+   *
+   * A process is started under its folder before its conversation is noted there, which waits for
+   * `init` (`noteHome`). Where the profile that named the folder gives it back in between, no
+   * settings row says the folder is in use, and the rows are all `ClaudeHomes` reads. So whoever
+   * answers whether any folder is in use asks here as well (`ClaudeDir.anyNamed`).
+   */
+  runsUnderNamedFolder(): boolean {
+    for (const started of this.live.values()) if (started.home !== null) return true;
+    return false;
+  }
+
+  /**
+   * The Claude config folder Realm's own calls about this session run under
+   * (`ClaudeHomes.ofSideCall`), or undefined when there is nowhere to run one: the session is gone,
+   * or its folder is. A call skipped is a nicety lost. A call made anyway would have Claude Code
+   * make the folder.
+   */
+  sideCallHome(id: string): string | null | undefined {
+    const s = this.d.sessions.get(id);
+    if (!s) return undefined;
+    const homes = this.d.claudeHomes;
+    if (!homes) return null;
+    const home = homes.ofSideCall(s, this.live.get(id));
+    return homes.missing(home) ? undefined : home;
+  }
+
+  /** The Claude config folder a sign-in asked for in `spaceId` lands in, by the session that asked
+   *  or by nobody (`ClaudeHomes.ofSignIn`). It throws where that folder is gone. */
+  signInHome(spaceId: string, sessionId: string | null): string | null {
+    const homes = this.d.claudeHomes;
+    if (!homes) return null;
+    const asking = sessionId === null ? null : this.d.sessions.get(sessionId) ?? null;
+    return homes.ofSignIn(spaceId, asking, asking ? this.live.get(asking.id) : undefined);
+  }
+
+  /**
+   * The Claude config folder a cold start runs under, settled once for the whole start.
+   *
+   * Everything a start does with the folder takes this one value: the sandbox's writable root, the
+   * memory files put back into the prompt, the variable the process is handed, and the note kept
+   * for the resume. Asked once because the answer can move, a profile's folder being a setting, and
+   * a start that asked twice could confine a process to one folder and point it at another.
+   *
+   * A named folder that is gone is refused here, before the start has allocated anything
+   * (`ClaudeHomes.assertPresent`).
+   */
+  private startHome(s: Session): string | null {
+    const homes = this.d.claudeHomes;
+    if (!homes) return null;
+    const home = homes.ofSession(s);
+    homes.assertPresent(home, { resumes: s.providerSessionId !== null });
+    return home;
+  }
+
+  /**
+   * Notes, beside a conversation's id, the folder that conversation lives in.
+   *
+   * Read off the handle and never worked out again: by the time `init` arrives the profile may name
+   * another folder, and the conversation is in the one its process was started under. Written
+   * before the id is, so no row ever holds a conversation with another conversation's note.
+   */
+  private noteHome(id: string): void {
+    const live = this.live.get(id);
+    if (live) this.d.claudeHomes?.pin(id, live.home);
   }
 
   /** Whether a session in this environment is mid-turn — what stops a restore rewriting a working tree
@@ -1135,8 +1350,8 @@ export class SessionService {
    *  `extraWritableRoots: [s.cwd]` because the session's own checkout must be writable even when it is
    *  not one of the space's registered environments — a session pointed at a folder Realm has not
    *  catalogued would otherwise be confined out of the very directory it was opened on. */
-  private wrapFor(s: Session): SpawnWrap | undefined {
-    return sandboxWrapFor(this.d.sandbox, { spaceId: s.spaceId, extraWritableRoots: [s.cwd] });
+  private wrapFor(s: Session, home: string | null): SpawnWrap | undefined {
+    return sandboxWrapFor(this.d.sandbox, { spaceId: s.spaceId, extraWritableRoots: [s.cwd], claudeDir: home });
   }
 
   private ensureLive(id: string): AgentHandle {
@@ -1148,11 +1363,12 @@ export class SessionService {
     const s = this.get(id);
     const adapter = this.d.adapters[s.agentKind];
     if (!adapter) throw new RpcError("AGENT_UNAVAILABLE", `${s.agentKind} is not registered`);
+    const home = this.startHome(s);
     // The space's Seatbelt policy, resolved before anything else is allocated so a refusal costs
     // nothing to unwind. `undefined` for a space on `off`, which is what this release ships: no
     // wrapper is installed at all, and every adapter below spawns exactly the argv it always did.
     // See `TerminalService.wrapFor` for the same reasoning at the other spawn site.
-    const wrap = this.wrapFor(s);
+    const wrap = this.wrapFor(s, home);
     // Codex, and only Codex, refuses rather than running unconfined. `CodexAdapter.start` throws on
     // a `wrap` it cannot honour, and this is the same refusal one step earlier — before a gateway
     // token has been minted for a session that will not exist, and as an `RpcError` whose code the
@@ -1181,7 +1397,7 @@ export class SessionService {
     // injection above is active on a Claude session — the CLAUDE.md content that `settingSources: []`
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
     // isolation on, so the re-injection can never disagree with it.
-    const baseContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    const baseContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined, claudeDir: home });
     // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
@@ -1221,7 +1437,7 @@ export class SessionService {
       systemContext,
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
       // under, for a log line or a bug report to read. Nothing reads them back.
-      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId) },
+      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId), ...this.d.claudeHomes?.envFor(home) },
       ...(wrap ? { wrap } : {}),
       ...(fork ? { resumeAt: fork.at, resumeDropsTurn: fork.dropsTurn } : {}),
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`),
@@ -1250,7 +1466,7 @@ export class SessionService {
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
       finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.d.gateway.release(id); } }
     })();
-    this.live.set(id, { handle, pump, skillsInjected: skills !== undefined });
+    this.live.set(id, { handle, pump, skillsInjected: skills !== undefined, home });
     return handle;
   }
 
@@ -1420,6 +1636,7 @@ export class SessionService {
     this.d.notifications?.handleSessionEvent(before, ev);
     if (ev.type === "init") {
       this.noteContextReset(before, ev.payload);
+      this.noteHome(id);
       this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
       if (ev.payload.supportsFastMode !== undefined || ev.payload.fastModeModels || ev.payload.effortModels) this.noteFastSupport(before, ev.payload);
     }
@@ -1451,8 +1668,8 @@ export class SessionService {
     if (ev.type === "tool_call") this.surfaceWrittenDocument(id, ev.payload.name, ev.payload.input);
     if (ev.type === "tool_call") this.toolTurns.add(id);
     // Not persisted and not this session's: the reading describes the ACCOUNT behind every session on
-    // this agent, so it is folded into per-kind state and never into the transcript.
-    if (ev.type === "rate_limit") this.d.planLimits?.apply(before.agentKind, ev.payload);
+    // this agent, so it is folded into that account's state and never into the transcript.
+    if (ev.type === "rate_limit") this.d.planLimits?.apply(before.agentKind, ev.payload, this.live.get(id)?.home ?? null);
     // A goal's budget is spent by tokens rather than by turns, and this event is where a turn's cost
     // is reported. Counted even on a turn that errored: the tokens were still spent.
     if (ev.type === "usage") this.d.goals?.onUsage(id, ev.payload);

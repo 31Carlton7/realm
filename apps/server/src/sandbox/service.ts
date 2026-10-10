@@ -64,6 +64,21 @@ export class ExecutionSandboxService {
     realmHome?: string;
     platform?: string;
     probe?: () => SandboxAvailability;
+    /**
+     * The Claude config folder a space's profile names, or null where it names none.
+     *
+     * Asked only when a caller does not say which folder its process runs under. That is a terminal
+     * in the space, the policy Settings describes, and a caller that reads only the posture and the
+     * network switch, which no folder changes. Left out, such a caller gets no folder, as every
+     * caller did before a profile could name one.
+     */
+    claudeDirOf?: (spaceId: string) => string | null;
+    /**
+     * Every Claude config folder Realm starts Claude under besides the default one. What Claude
+     * Code runs from each is frozen for every sandboxed process, whichever folder that process
+     * runs under (`ResolveInput.frozenClaudeDirs`). Left out, there are none.
+     */
+    claudeDirs?: () => readonly string[];
   }) {
     this.home = d.home ?? homedir();
     this.tmpDir = d.tmpDir ?? tmpdir();
@@ -110,8 +125,22 @@ export class ExecutionSandboxService {
    * Resolved per call rather than cached: the writable roots are this space's checkouts, and a
    * worktree added while Realm is running must be writable in the next session without a restart.
    */
-  policyFor(spaceId: string, o: { extraWritableRoots?: readonly string[] } = {}): ExecutionSandboxPolicy {
+  policyFor(spaceId: string, o: {
+    extraWritableRoots?: readonly string[];
+    /**
+     * The Claude config folder the process runs under. A session passes its own, and null counts as
+     * an answer: a conversation that began under the default folder stays there after its profile
+     * names another, so it is given no root in a folder it does not use. Left out, the policy takes
+     * the folder the space's profile names (`claudeDirOf`).
+     *
+     * Where that leaves no folder, the resolver is handed none, and not a null in its place: such a
+     * space resolves from exactly what it resolved from before a profile could name a folder.
+     */
+    claudeDir?: string | null;
+  } = {}): ExecutionSandboxPolicy {
     const { prefs } = this.prefsFor(spaceId);
+    const claudeDir = o.claudeDir === undefined ? this.d.claudeDirOf?.(spaceId) : o.claudeDir;
+    const frozenClaudeDirs = this.d.claudeDirs?.() ?? [];
     return resolveExecutionSandboxPolicy({
       prefs,
       checkouts: this.d.environments.list(spaceId).map((e) => e.path),
@@ -119,6 +148,8 @@ export class ExecutionSandboxService {
       tmpDir: this.tmpDir,
       realmHome: this.realmHome,
       extraWritableRoots: o.extraWritableRoots,
+      ...(claudeDir !== undefined && claudeDir !== null ? { claudeDir } : {}),
+      ...(frozenClaudeDirs.length > 0 ? { frozenClaudeDirs } : {}),
       onDrop: (root, why) => console.error(`[sandbox] not a usable root for ${spaceId}: ${root} — ${why}`),
     });
   }
@@ -160,8 +191,16 @@ export class ExecutionSandboxService {
    * and spawning `o.command` unchanged would reintroduce exactly the silent downgrade this design
    * exists to prevent.
    */
-  wrap(o: { spaceId: string; command: string; args: readonly string[]; extraWritableRoots?: readonly string[] }): SandboxedCommand {
-    const policy = this.policyFor(o.spaceId, { extraWritableRoots: o.extraWritableRoots });
+  wrap(o: {
+    spaceId: string; command: string; args: readonly string[]; extraWritableRoots?: readonly string[];
+    /** The Claude config folder the process runs under, with the meaning `policyFor` gives null and
+     *  a value left out. Left out here, it is left out of what `policyFor` is handed too. */
+    claudeDir?: string | null;
+  }): SandboxedCommand {
+    const policy = this.policyFor(o.spaceId, {
+      extraWritableRoots: o.extraWritableRoots,
+      ...(o.claudeDir !== undefined ? { claudeDir: o.claudeDir } : {}),
+    });
     if (policy.posture !== "off") {
       const avail = this.availability();
       if (!avail.available) {

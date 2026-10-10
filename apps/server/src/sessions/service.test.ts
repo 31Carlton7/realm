@@ -185,7 +185,7 @@ describe("SessionService over rpc", () => {
     const c2 = await client(app.port);
     expect((await c2.call("agents.probe", {})).result).toEqual([
       { kind: "fake", available: true, version: "fake", loggedIn: true, reason: null },
-      { kind: "claude", available: false, version: null, loggedIn: null, reason: "probe exploded" },
+      { kind: "claude", available: false, version: null, loggedIn: null, reason: "probe exploded", home: null },
     ]);
     c2.close();
   });

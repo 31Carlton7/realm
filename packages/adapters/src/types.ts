@@ -129,11 +129,26 @@ export type ProbeResult = { kind: AgentKind; available: boolean; version: string
   efforts?: { id: string; label: string }[]; defaultEffort?: string | null;
   /** Who the CLI says it is signed in as, where it names an account. Absent is "not stated", which
    *  is every agent whose CLI has no such answer and every sign-in that carries no email. */
-  account?: AgentAccount };
+  account?: AgentAccount;
+  /** The config folder the CLI says it answered for, where it states one. This is Claude Code's own
+   *  `configDirectory`, spelled as the CLI spells it, and not an echo of what was asked. A caller
+   *  that asked about one folder compares the two, so that another folder's account is never
+   *  shown as this one's. */
+  configDirectory?: string };
+
+/**
+ * What a probe may be handed.
+ *
+ * `env` is extra environment for whatever the probe runs, on top of the process's own. The Claude
+ * adapter reads `CLAUDE_CONFIG_DIR` from it and answers for that one config folder. Claude Code
+ * keeps a sign-in per folder, so a probe that could only run under the process's environment would
+ * report the default folder's account for every profile. Every other adapter ignores it.
+ */
+export type ProbeOptions = { env?: Record<string, string> };
 
 export interface AgentAdapter {
   readonly kind: AgentKind;
-  probe(): Promise<ProbeResult>;
+  probe(opts?: ProbeOptions): Promise<ProbeResult>;
   start(opts: StartOptions): AgentHandle;
 }
 

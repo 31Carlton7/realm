@@ -3,6 +3,7 @@ import { generateSvgIcon } from "@realm/adapters";
 import { mimeForPath, type IconAsset } from "@realm/contracts";
 import type { IconAssetsStore } from "../store/icon-assets";
 import { RpcError } from "../store/rows";
+import type { ClaudeHomes } from "../agents/claude-homes";
 
 const MAX_GENERATED_SVG_BYTES = 20 * 1024;
 const MAX_UPLOAD_BYTES = 512 * 1024;
@@ -22,10 +23,18 @@ export function validateGeneratedSvg(svg: string): void {
 }
 
 export class IconGenerationService {
-  constructor(private assets: IconAssetsStore) {}
+  /**
+   * `homes` says which Claude config folder a profile's icons are drawn under, so the call is
+   * billed to the account the profile uses; left out, every icon is the default folder's. `draw`
+   * is the model call itself, named so a suite can stand in for it and never make one.
+   */
+  constructor(private assets: IconAssetsStore, private o: { homes?: Pick<ClaudeHomes, "ofProfile" | "assertPresent">; draw?: typeof generateSvgIcon } = {}) {}
 
   async generate(profileId: string, prompt: string): Promise<IconAsset> {
-    const svg = await generateSvgIcon(prompt);
+    const draw = this.o.draw ?? generateSvgIcon;
+    const home = this.o.homes?.ofProfile(profileId) ?? null;
+    this.o.homes?.assertPresent(home, { resumes: false });
+    const svg = home === null ? await draw(prompt) : await draw(prompt, { configDir: home });
     validateGeneratedSvg(svg);
     return this.assets.create({ profileId, kind: "generated", mime: "image/svg+xml", dataText: svg, prompt });
   }

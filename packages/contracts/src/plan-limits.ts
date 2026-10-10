@@ -75,8 +75,26 @@ export const PlanLimitsSchema = z.object({
   detail: z.string().nullable(),
   /** When this was last heard. A stale panel says how stale rather than looking current. */
   ts: z.number(),
+  /** Whose plan this is, where one agent runs on more than one account: the Claude config folder
+   *  the sessions that reported it ran under, and null for the default folder. */
+  home: z.string().nullable().optional(),
 });
 export type PlanLimits = z.infer<typeof PlanLimitsSchema>;
+
+/**
+ * The plan row for a session of `kind` that runs under `home`.
+ *
+ * Every other agent has one account, so its row is matched by kind. Claude's is matched by folder
+ * as well, since a profile can name its own. `home` undefined is "not known yet": the row is
+ * answered only where there is a single one to answer with, because another account's "limit
+ * reached" over a prompter is worse than a blank for one frame.
+ */
+export function planRowFor(rows: readonly PlanLimits[], kind: string, home: string | null | undefined): PlanLimits | undefined {
+  const mine = rows.filter((r) => r.agentKind === kind);
+  if (kind !== "claude") return mine[0];
+  if (home === undefined) return mine.length === 1 ? mine[0] : undefined;
+  return mine.find((r) => (r.home ?? null) === home);
+}
 
 /**
  * What each agent kind can actually answer.

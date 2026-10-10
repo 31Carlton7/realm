@@ -99,6 +99,28 @@ export type ResolveInput = {
   realmHome: string;
   /** Anything else the caller knows a process needs — a session's own scratch directory, say. */
   extraWritableRoots?: readonly string[];
+  /**
+   * The Claude config folder this process runs under, where it is not the default one. Null or
+   * absent is the default folder, and then nothing is added: `AGENT_STATE_DIRS` covers `~/.claude`
+   * as it always has.
+   *
+   * Writable under `workspace-write` for the reason `~/.claude` is. Claude Code writes each
+   * conversation's transcript into the folder it is pointed at, and a session that cannot write one
+   * does not start. A profile names the folder, so it is one more candidate, resolved and dropped by
+   * the same rules as a checkout. Under both postures the files in it that make Claude Code run
+   * something are frozen, and `CLAUDE_DIR_EXECUTABLE_CONFIG` lists them.
+   */
+  claudeDir?: string | null;
+  /**
+   * Every Claude config folder Realm starts Claude under besides the default one: each folder a
+   * profile names, and each a conversation began under and still runs in.
+   *
+   * None of them becomes writable here. The files in each that make Claude Code run something are
+   * frozen, as `~/.claude`'s are for every process. Without that, a process under one folder could
+   * rewrite what a session under another folder runs, wherever a writable root holds that other
+   * folder: a folder kept inside `~/.claude`, inside a checkout, or under `/tmp`.
+   */
+  frozenClaudeDirs?: readonly string[];
   resolve?: RootResolver;
   /** Called for every root that could not be used, with the reason. Nothing is dropped silently. */
   onDrop?: (root: string, why: string) => void;
@@ -107,6 +129,7 @@ export type ResolveInput = {
 export function resolveExecutionSandboxPolicy(o: ResolveInput): ExecutionSandboxPolicy {
   const resolve = o.resolve ?? realRoot;
   const drop = o.onDrop ?? (() => {});
+  const claudeDir = o.claudeDir ?? null;
 
   const protectedRoots = protectedPaths(o, resolve);
 
@@ -123,6 +146,7 @@ export function resolveExecutionSandboxPolicy(o: ResolveInput): ExecutionSandbox
     // The agent CLIs' own state. Without these, `claude` and `codex` cannot write a transcript and
     // do not start — see AGENT_STATE_DIRS for what that costs and what is clawed back below.
     for (const rel of AGENT_STATE_DIRS) candidates.push(join(o.home, rel));
+    if (claudeDir !== null) candidates.push(claudeDir);
     for (const rel of TOOLCHAIN_CACHE_DIRS) candidates.push(join(o.home, rel));
     // `/tmp` as well as `$TMPDIR`: enough shell scripts hardcode `/tmp/foo` that leaving it out
     // produces failures nobody attributes to the sandbox. It resolves to `/private/tmp`, which is
@@ -157,6 +181,34 @@ export function resolveExecutionSandboxPolicy(o: ResolveInput): ExecutionSandbox
   };
 }
 
+/** How `AGENT_EXECUTABLE_CONFIG` spells an entry of the default Claude folder: relative to the home
+ *  folder, so under `.claude/`. */
+const DEFAULT_CLAUDE_DIR_PREFIX = ".claude/";
+
+/**
+ * The files frozen inside a Claude config folder other than the default one.
+ *
+ * First, whatever `AGENT_EXECUTABLE_CONFIG` freezes inside `~/.claude`, read off that list rather
+ * than written out a second time. A copy kept by hand falls behind: a hook file added to the
+ * contract would be frozen in `~/.claude` and left writable in every named folder.
+ *
+ * Then `.claude.json`, which holds the MCP servers Claude Code starts. No entry under `.claude/`
+ * names it, because with no `CLAUDE_CONFIG_DIR` Claude Code keeps the file in the home folder,
+ * beside `~/.claude` and not in it. Pointed at a folder with `CLAUDE_CONFIG_DIR`, it keeps the file
+ * inside that folder, and this policy makes that folder writable. Left unfrozen, a session could
+ * add a server there, and Claude Code would start it for the next session under that folder, in
+ * Realm or outside it.
+ *
+ * What the freeze costs: Claude Code also keeps the signed-in account and each project's trust in
+ * `.claude.json`, so a sandboxed process under a named folder can change neither.
+ */
+const CLAUDE_DIR_EXECUTABLE_CONFIG: readonly string[] = [
+  ...AGENT_EXECUTABLE_CONFIG
+    .filter((rel) => rel.startsWith(DEFAULT_CLAUDE_DIR_PREFIX))
+    .map((rel) => rel.slice(DEFAULT_CLAUDE_DIR_PREFIX.length)),
+  ".claude.json",
+];
+
 /**
  * The executable configuration a toolchain reads every run and must not be able to rewrite.
  *
@@ -167,9 +219,16 @@ export function resolveExecutionSandboxPolicy(o: ResolveInput): ExecutionSandbox
 function executableConfigPaths(o: ResolveInput, resolve: RootResolver): string[] {
   const out = new Set<string>();
   const homes = [o.home, resolve(o.home)].filter((h): h is string => h !== null);
-  for (const home of homes) {
-    for (const rel of AGENT_EXECUTABLE_CONFIG) {
-      const p = join(home, rel);
+  const claudeDir = o.claudeDir ?? null;
+  const named = [...(claudeDir === null ? [] : [claudeDir]), ...o.frozenClaudeDirs ?? []];
+  const claudeDirs = named.flatMap((dir) => [dir, resolve(dir)]).filter((d): d is string => d !== null);
+  const frozen = [
+    ...homes.map((dir) => ({ dir, entries: AGENT_EXECUTABLE_CONFIG })),
+    ...claudeDirs.map((dir) => ({ dir, entries: CLAUDE_DIR_EXECUTABLE_CONFIG })),
+  ];
+  for (const { dir, entries } of frozen) {
+    for (const rel of entries) {
+      const p = join(dir, rel);
       if (sandboxPathProblem(p) === null) out.add(p);
       // The resolved form too, for `protectedPaths`' reason: a rule that misses fails OPEN. The cost
       // is that someone who symlinks `~/.claude/settings.json` into a dotfiles repo finds that one

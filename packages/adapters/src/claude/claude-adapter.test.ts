@@ -1,11 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeCatalog, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
-import type { StartOptions } from "../types";
+import type { ClaudeLookup } from "./probe";
+import type { AgentAdapter, StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { tmpdir } from "node:os";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
+
+/**
+ * `probeClaude`, the CLI probe an adapter uses when the suite hands it none, replaced for this
+ * whole file by a stand-in that notes what it was called with and runs nothing. The real one looks
+ * for `claude` on PATH and starts it. A test that reached it would ask the developer's own CLI
+ * about a made-up folder, and an adapter that lost the environment on the way would ask it under
+ * their own sign-in.
+ */
+const probeClaudeStandIn = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock("./probe", async (original) => ({
+  ...(await original<typeof import("./probe")>()),
+  probeClaude: async (...args: unknown[]) => {
+    probeClaudeStandIn.calls.push(args);
+    return { available: false, version: null, loggedIn: null, reason: "the stand-in for the CLI probe ran nothing" };
+  },
+}));
 
 type FakeOpts = {
   permissionOnTool?: string;
@@ -1108,6 +1125,13 @@ describe("claudeCatalog", () => {
   });
 });
 
+/**
+ * A made-up variable that stands for everything a child process inherits. The tests look for this
+ * one and never compare whole environments, so a failure prints one made-up value and not the
+ * environment of whoever ran the suite.
+ */
+const INHERITED = "REALM_TEST_INHERITED";
+
 describe("ClaudeAdapter.probe — the live catalog", () => {
   type Asked = { prompt: AsyncIterable<unknown>; options: Record<string, unknown> };
   const SIGNED_IN = { available: true, version: "2.1.293 (Claude Code)", loggedIn: true, reason: null } as const;
@@ -1124,7 +1148,7 @@ describe("ClaudeAdapter.probe — the live catalog", () => {
     await new ClaudeAdapter({ probe: async () => SIGNED_IN, query: handshake(async () => LISTED, asked) }).probe();
     expect(asked).toHaveLength(1);
     expect(asked[0]!.options).toMatchObject({ cwd: tmpdir(), settingSources: [], persistSession: false });
-    expect(asked[0]!.options).not.toHaveProperty("env");
+    expect(Object.keys(asked[0]!.options)).not.toContain("env");
     expect(await asked[0]!.prompt[Symbol.asyncIterator]().next()).toEqual({ value: undefined, done: true });
   });
 
@@ -1191,5 +1215,90 @@ describe("ClaudeAdapter.probe — the live catalog", () => {
     expect(await a.probe()).toEqual({ kind: "claude", ...SIGNED_IN, models: null });
     expect((asked[0]!.options.abortController as AbortController).signal.aborted).toBe(true);
     expect(await asked[0]!.prompt[Symbol.asyncIterator]().next()).toEqual({ value: undefined, done: true });
+  });
+
+  describe("for one Claude config folder", () => {
+    const WORK = "/Users/mara/.claude-work";
+    const PERSONAL = "/Users/mara/.claude-personal";
+    const SIGNED_OUT = { ...SIGNED_IN, loggedIn: false, reason: "not signed in" } as const;
+    type Found = { available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; configDirectory?: string };
+    const recording = (found: Found, seen: unknown[][]) => async (...args: unknown[]) => { seen.push(args); return found; };
+    afterEach(() => { vi.unstubAllEnvs(); });
+
+    it("hands the CLI probe nothing and the handshake no env when it asks about the default folder, as it always did", async () => {
+      for (const opts of [undefined, {}, { env: {} }]) {
+        const seen: unknown[][] = [];
+        const asked: Asked[] = [];
+        await new ClaudeAdapter({ probe: recording(SIGNED_IN, seen), query: handshake(async () => LISTED, asked) }).probe(opts);
+        expect(seen.map((args) => args.length), JSON.stringify(opts)).toEqual([0]);
+        expect(Object.keys(asked[0]!.options), JSON.stringify(opts)).not.toContain("env");
+      }
+    });
+
+    it("probes a named folder under the process's own environment with the folder on top, and says which folder was named", async () => {
+      vi.stubEnv(INHERITED, "kept");
+      const lookups: (ClaudeLookup | undefined)[] = [];
+      await new ClaudeAdapter({ probe: async (o) => { lookups.push(o); return SIGNED_OUT; }, query: handshake(async () => LISTED) }).probe({ env: { CLAUDE_CONFIG_DIR: WORK } });
+      expect(lookups).toHaveLength(1);
+      expect(lookups[0]).toMatchObject({ env: { [INHERITED]: "kept", CLAUDE_CONFIG_DIR: WORK }, configDir: WORK });
+    });
+
+    it("runs the catalog handshake under that same environment, so the list is read with the folder's sign-in", async () => {
+      vi.stubEnv(INHERITED, "kept");
+      const asked: Asked[] = [];
+      await new ClaudeAdapter({ probe: async () => SIGNED_IN, query: handshake(async () => LISTED, asked) }).probe({ env: { CLAUDE_CONFIG_DIR: WORK } });
+      expect(asked[0]!.options.env).toMatchObject({ [INHERITED]: "kept", CLAUDE_CONFIG_DIR: WORK });
+    });
+
+    it("lets the named folder outrank a CLAUDE_CONFIG_DIR that Realm itself was started with", async () => {
+      vi.stubEnv("CLAUDE_CONFIG_DIR", PERSONAL);
+      const seen: unknown[][] = [];
+      const asked: Asked[] = [];
+      await new ClaudeAdapter({ probe: recording(SIGNED_IN, seen), query: handshake(async () => LISTED, asked) }).probe({ env: { CLAUDE_CONFIG_DIR: WORK } });
+      expect(seen[0]![0]).toMatchObject({ env: { CLAUDE_CONFIG_DIR: WORK } });
+      expect(asked[0]!.options.env).toMatchObject({ CLAUDE_CONFIG_DIR: WORK });
+    });
+
+    it("names no folder when the extra environment carries none, and leaves the one Realm itself was started under in force", async () => {
+      vi.stubEnv("CLAUDE_CONFIG_DIR", PERSONAL);
+      const seen: unknown[][] = [];
+      await new ClaudeAdapter({ probe: recording(SIGNED_OUT, seen), query: handshake(async () => LISTED) }).probe({ env: { REALM_PROBE_EXTRA: "1" } });
+      expect(seen[0]![0]).toMatchObject({ env: { CLAUDE_CONFIG_DIR: PERSONAL, REALM_PROBE_EXTRA: "1" } });
+      expect(Object.keys(seen[0]![0] as object)).toEqual(["env"]);
+    });
+
+    it("runs the handshake under an extra environment that names no folder, as it runs the CLI probe under it", async () => {
+      vi.stubEnv(INHERITED, "kept");
+      const asked: Asked[] = [];
+      await new ClaudeAdapter({ probe: async () => SIGNED_IN, query: handshake(async () => LISTED, asked) }).probe({ env: { REALM_PROBE_EXTRA: "1" } });
+      expect(asked[0]!.options.env).toMatchObject({ [INHERITED]: "kept", REALM_PROBE_EXTRA: "1" });
+    });
+
+    it("starts no handshake for a named folder that is signed out, and adds nothing to what the CLI probe found", async () => {
+      const asked: Asked[] = [];
+      const row = await new ClaudeAdapter({ probe: async () => SIGNED_OUT, query: handshake(async () => LISTED, asked) }).probe({ env: { CLAUDE_CONFIG_DIR: WORK } });
+      expect(asked).toHaveLength(0);
+      expect(row).toEqual({ kind: "claude", ...SIGNED_OUT, models: null });
+    });
+
+    it("passes on the folder the CLI said it answered for, not the one that was asked about, to a caller that knows it only as an adapter", async () => {
+      const adapter: AgentAdapter = new ClaudeAdapter({ probe: async () => ({ ...SIGNED_OUT, configDirectory: PERSONAL }), query: handshake(async () => LISTED) });
+      const row = await adapter.probe({ env: { CLAUDE_CONFIG_DIR: WORK } });
+      expect(row.configDirectory).toBe(PERSONAL);
+    });
+
+    it("leaves the process's own environment as it was, so a later probe of the default folder is not asked under the named one", async () => {
+      vi.stubEnv("CLAUDE_CONFIG_DIR", PERSONAL);
+      await new ClaudeAdapter({ probe: async () => SIGNED_IN, query: handshake(async () => LISTED) }).probe({ env: { CLAUDE_CONFIG_DIR: WORK } });
+      expect(process.env.CLAUDE_CONFIG_DIR).toBe(PERSONAL);
+    });
+
+    it("passes the whole lookup on to probeClaude, the CLI probe it uses when the suite gives it no seam", async () => {
+      probeClaudeStandIn.calls.length = 0;
+      await new ClaudeAdapter({ query: handshake(async () => LISTED) }).probe({ env: { CLAUDE_CONFIG_DIR: WORK } });
+      expect(probeClaudeStandIn.calls.map((args) => args.length)).toEqual([2]);
+      expect(probeClaudeStandIn.calls[0]![0]).toBeUndefined();
+      expect(probeClaudeStandIn.calls[0]![1]).toMatchObject({ env: { CLAUDE_CONFIG_DIR: WORK }, configDir: WORK });
+    });
   });
 });

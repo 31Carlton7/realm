@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentKindSchema, type AgentKind } from "./entities";
 import { AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META } from "./presets";
+import { claudeLoginHint, claudeLoginLine } from "./claude-home";
 
 /**
  * Failover: finishing a turn that the agent could not.
@@ -96,6 +97,12 @@ const TABLE: { kind: FailureKind; phrases: readonly string[] }[] = [
       // six minutes after the last of those failures, so every one of them was a turn that would have
       // finished had anything asked again.
       "oauth session expired",
+      // SEEN LIVE on 2026-10-09 (Claude Code 2.1.296), as the whole message of a session started
+      // under a config folder nobody had signed in to: "Not logged in · Please run /login". A probe
+      // catches a signed-out folder before a turn wherever its answer has landed. A session whose
+      // own folder has not been asked about yet can send first, and this is what it gets back.
+      "not logged in",
+      "please run /login",
       // Read off vendor error catalogues rather than seen live: Realm's probes catch a signed-out
       // agent long before a turn starts, so these fire mainly for a token that expired MID-session.
       "authentication_error",
@@ -211,11 +218,15 @@ export const authBackoffFor = (attempt: number): number =>
  * The command is never run for them. A login is a browser round-trip or an API key, so Realm offers
  * the command to copy or to drop into this session's terminal — the same rule the install card
  * states, and for the same reason.
+ *
+ * `home` is the Claude config folder the session runs under, where one is named for it. The command
+ * and the sentence then name that folder: the table's own would sign another one in.
  */
-export function authFix(kind: AgentKind, why: "signed_out" | "unverified" | "unchecked"): { title: string; hint: string; command: string | null } {
+export function authFix(kind: AgentKind, why: "signed_out" | "unverified" | "unchecked", home: string | null = null): { title: string; hint: string; command: string | null } {
   const label = agentLabel(kind);
-  const command = AGENT_CLI_COMMANDS[kind].login;
-  if (why === "signed_out") return { title: `${label} is not signed in`, hint: AGENT_LOGIN_HINTS[kind], command };
+  const named = kind === "claude" && home !== null;
+  const command = named ? claudeLoginLine(home) : AGENT_CLI_COMMANDS[kind].login;
+  if (why === "signed_out") return { title: `${label} is not signed in`, hint: named ? claudeLoginHint(home) : AGENT_LOGIN_HINTS[kind], command };
   // The login hint is appended wherever the agent has no login COMMAND — goose, DeepSeek and Gemini
   // all need a sentence rather than a line to run, and a card with an empty command frame and no
   // explanation is worse than the bare error it replaced.

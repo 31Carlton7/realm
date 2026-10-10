@@ -20,6 +20,8 @@ function harness(opts: {
    *  signed out and the next one signed in, which is the only way to tell a carried verdict from a
    *  fresh one. */
   loggedIn?: boolean | null | ((k: AgentKind) => boolean | null);
+  /** The Claude config folder the session runs under, as `SessionService.claudeHome` would say. */
+  claudeHome?: (sessionId: string) => string | null;
 } = {}) {
   const settings = new Map<string, unknown>([["failover.policy:sp1", opts.policy]]);
   let session: Session = {
@@ -34,7 +36,7 @@ function harness(opts: {
   const resent: string[] = [];
   const stopped: string[] = [];
   /** Every probe the re-auth path asked for, so a test can prove it forced past the cache. */
-  const probes: { force: boolean }[] = [];
+  const probes: { force: boolean; home?: string | null }[] = [];
   // The timer is captured rather than run, so a test decides when the backoff elapses and the suite
   // never actually waits twelve seconds to prove a ladder.
   let pending: (() => void) | null = null;
@@ -58,6 +60,7 @@ function harness(opts: {
       const answer = typeof opts.loggedIn === "function" ? opts.loggedIn(session.agentKind) : opts.loggedIn ?? null;
       return [{ kind: session.agentKind, available: opts.available ?? true, version: "1", loggedIn: answer, reason: null }];
     },
+    claudeHome: opts.claudeHome,
     setTimer: (fn) => { pending = fn; return 0 as never; },
     clearTimer: () => { pending = null; },
   });
@@ -291,6 +294,39 @@ describe("an auth failure", () => {
     const err = h.emitted.find((e) => e.type === "error");
     expect(err?.payload).toMatchObject({ failure: "auth", fix: { command: "claude auth login" } });
     expect((err?.payload as { fix: { title: string } }).fix.title).toBe("Claude is not signed in");
+  });
+
+  it("asks about the config folder the failing session runs under, since each folder is its own sign-in", async () => {
+    const asked: string[] = [];
+    const h = harness({ policy: { retry: true, chain: [] }, loggedIn: true, claudeHome: (id) => { asked.push(id); return "/Users/me/.claude-work"; } });
+    h.svc.turnStarted("se1", msg);
+    h.svc.onError(h.session(), AUTH_ERROR);
+    await h.settled();
+    expect(h.probes).toEqual([{ force: true, home: "/Users/me/.claude-work" }]);
+    expect(asked).toEqual(["se1"]);
+  });
+
+  it("asks exactly as before for a session on the default folder, or one nothing can place", async () => {
+    for (const claudeHome of [() => null, () => { throw new Error("session se1 not found"); }]) {
+      const h = harness({ policy: { retry: true, chain: [] }, loggedIn: true, claudeHome });
+      h.svc.turnStarted("se1", msg);
+      h.svc.onError(h.session(), AUTH_ERROR);
+      await h.settled();
+      expect(h.probes).toEqual([{ force: true }]);
+    }
+  });
+
+  it("names the session's config folder in the command that fixes a signed-out one", async () => {
+    const h = harness({ policy: { retry: true, chain: [] }, loggedIn: false, claudeHome: () => "/Users/me/.claude-work" });
+    h.svc.turnStarted("se1", msg);
+    h.svc.onError(h.session(), AUTH_ERROR);
+    await h.settled();
+    const err = h.emitted.find((e) => e.type === "error");
+    expect(err?.payload).toMatchObject({ failure: "auth", fix: {
+      title: "Claude is not signed in",
+      command: "env CLAUDE_CONFIG_DIR='/Users/me/.claude-work' claude auth login",
+      hint: "Uses the `claude` login kept in /Users/me/.claude-work. Sign in there if sessions fail to authenticate.",
+    } });
   });
 
   it("gives up after its own ladder, and says the credentials are the problem rather than the login", async () => {

@@ -9,11 +9,15 @@ type QueryFn = typeof sdkQuery;
  * `query()` directly: `maxTurns: 1`, no tools, no MCP servers, cheapest model in the fleet (an icon
  * is a handful of shapes, not a task that benefits from a frontier model).
  *
- * Rides the same `claude auth login` credentials every Claude session already uses — no separate API
- * key. Throws on any non-success result (error, refusal, max-turns) or an empty response; callers
- * decide how to surface that.
+ * Rides the sign-in of one Claude config folder, with no API key of its own. `configDir` names the
+ * folder, that of the profile the icon is drawn for, so the call is billed to that profile's
+ * account. Null or absent is the default folder's sign-in, the one every icon rode before a profile
+ * could name a folder, and the options then carry no `env` at all. For a named folder the process's
+ * environment goes along beneath `CLAUDE_CONFIG_DIR`, because the SDK's `env` replaces the child's
+ * environment whole and a CLI left without PATH does not start. Throws on any non-success result
+ * (error, refusal, max-turns) or an empty response; callers decide how to surface that.
  */
-export async function generateSvgIcon(prompt: string, deps: { query?: QueryFn } = {}): Promise<string> {
+export async function generateSvgIcon(prompt: string, deps: { query?: QueryFn; configDir?: string | null } = {}): Promise<string> {
   const query = deps.query ?? sdkQuery;
   const q = query({
     prompt: `Design a small, simple icon for: ${prompt}\n\nRespond with ONLY a single <svg> element, nothing else — no markdown fences, no explanation.`,
@@ -31,6 +35,7 @@ export async function generateSvgIcon(prompt: string, deps: { query?: QueryFn } 
         "Never emit <script>, <foreignObject>, <image>, event handler attributes (onload, onclick, ...),",
         "or any external reference (href, xlink:href, url(...) pointing outside a local gradient id).",
       ].join(" "),
+      ...(typeof deps.configDir === "string" ? { env: { ...process.env, CLAUDE_CONFIG_DIR: deps.configDir } } : {}),
     },
   });
   let text = "";

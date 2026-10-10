@@ -1,4 +1,4 @@
-import { AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, agentLabel, type AgentKind } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, agentLabel, claudeLoginLine, type AgentKind } from "@realm/contracts";
 import { bundledClaude, claudeExecutable } from "@realm/adapters";
 import { isOAuthConsentUrl } from "./guards";
 import { screenText, type TerminalScreen } from "../terminals/screen";
@@ -78,20 +78,31 @@ export type SignInSettled = {
 
 export type SignInFlowDeps = {
   terminals: {
-    open(p: { spaceId: string; cwd?: string; cols: number; rows: number }): { terminalId: string; itemId: string };
+    open(p: { spaceId: string; cwd?: string; cols: number; rows: number; claudeDir?: string | null }): { terminalId: string; itemId: string };
     screen(terminalId: string, scrollback?: number): Promise<TerminalScreen | null>;
     quiet(terminalId: string, quietMs?: number, timeoutMs?: number): Promise<boolean>;
     manager: { writeWhenQuiet(id: string, data: string): Promise<void> };
   };
   browsers: { open(p: { spaceId: string; url: string }): { browserId: string; itemId: string; url: string } };
   tickets: Pick<SignInTickets, "mint" | "enabled">;
+  /**
+   * The Claude config folder a Claude sign-in asked for here lands in (`ClaudeHomes`): the asking
+   * session's where a Claude session asks, else the one the space's profile names. Null is the
+   * default folder. It throws, with the sentence to show, when that folder is gone: `claude auth
+   * login` would make it. Left out, every sign-in is the default folder's.
+   *
+   * The terminal is opened for the same folder. Under a sandbox it can then write the sign-in where
+   * the command it types puts it, which for a conversation that began under another folder is not
+   * the folder the space's profile names.
+   */
+  claudeHome?: (spaceId: string, sessionId: string | null) => string | null;
   now?: () => number;
 };
 
 export class SignInFlow {
   constructor(private readonly d: SignInFlowDeps) {}
 
-  async start(spaceId: string, kind: AgentKind): Promise<SignInStart> {
+  async start(spaceId: string, kind: AgentKind, sessionId: string | null = null): Promise<SignInStart> {
     const command = AGENT_CLI_COMMANDS[kind]?.login;
     if (!command) {
       // Gemini is the one with no login command: Google discontinued its free personal tier, so the
@@ -103,8 +114,13 @@ export class SignInFlow {
 
     // Wider and taller than the 80×24 default: what runs here lays itself out against the size it
     // finds, and a menu that fits on screen is one that can be read in a single look.
-    const typed = await typedCommand(kind, command);
-    const { terminalId, itemId } = this.d.terminals.open({ spaceId, cols: 100, rows: 30 });
+    let home: string | null | undefined;
+    if (kind === "claude" && this.d.claudeHome) {
+      try { home = this.d.claudeHome(spaceId, sessionId); }
+      catch (e) { return { ok: false, reason: e instanceof Error ? e.message : String(e) }; }
+    }
+    const typed = await typedCommand(kind, command, home ?? null);
+    const { terminalId, itemId } = this.d.terminals.open({ spaceId, cols: 100, rows: 30, ...(home !== undefined ? { claudeDir: home } : {}) });
     await this.d.terminals.quiet(terminalId, 300, 4_000);
     await this.d.terminals.manager.writeWhenQuiet(terminalId, `${typed}\r`);
     return { ok: true, terminalId, terminalItemId: itemId, command: typed, settled: this.settle(spaceId, terminalId) };
@@ -173,13 +189,15 @@ export function announceSignIn(
  * copy it carries. That copy is not on PATH — it is why a Mac with no npm runs Claude sessions at all —
  * so a shell told `claude auth login` answers "command not found"; it gets that binary's path, quoted.
  * Everywhere a `claude` IS on PATH the line is exactly the table's, as it always was.
+ *
+ * A Claude sign-in for a named config folder (`home`) also says which folder, the way
+ * `claudeLoginLine` writes it. Typed bare, the login would land in whichever folder the shell's
+ * own `claude` picks, and the session that asked would go on being signed out.
  */
-async function typedCommand(kind: AgentKind, command: string): Promise<string> {
+async function typedCommand(kind: AgentKind, command: string, home: string | null): Promise<string> {
   if (kind !== "claude") return command;
   const bin = await claudeExecutable().catch(() => null);
-  if (!bin || bin !== bundledClaude()) return command;
-  const [, ...args] = command.split(/\s+/);
-  return [`'${bin.replaceAll("'", `'\\''`)}'`, ...args].join(" ");
+  return claudeLoginLine(home, bin !== null && bin === bundledClaude() ? bin : null);
 }
 
 const EMPTY_SCREEN: TerminalScreen = { screen: [], scrollback: [], cursor: { row: 0, col: 0 }, cols: 100, rows: 30, altScreen: false };

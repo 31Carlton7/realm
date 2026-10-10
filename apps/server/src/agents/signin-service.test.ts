@@ -64,26 +64,38 @@ function thrown(fn: () => void): unknown {
 const services: AgentSignInService[] = [];
 afterEach(() => { for (const s of services.splice(0)) s.disposeAll(); });
 
-function harness(o: { login: (kind: AgentKind) => LoginCommand | null; loggedIn?: boolean | null; timeoutMs?: number }) {
+function harness(o: {
+  login: (kind: AgentKind) => LoginCommand | null; loggedIn?: boolean | null; timeoutMs?: number;
+  env?: NodeJS.ProcessEnv; claudeEnv?: (home: string | null) => Record<string, string>;
+}) {
   const said: AgentSignIn[] = [];
   const probed: AgentKind[] = [];
+  const confirmed: (string | null)[] = [];
   const asked: AgentKind[] = [];
   const loggedIn = o.loggedIn === undefined ? true : o.loggedIn;
   const svc = new AgentSignInService({
     rpc: { broadcast: (event, payload) => { if (event === "agentSignIn.changed") said.push(payload as AgentSignIn); } },
-    probe: async (kind) => {
+    probe: async (kind, home) => {
       probed.push(kind);
+      confirmed.push(home);
       return { kind, available: true, version: null, loggedIn, reason: null };
     },
     command: async (kind) => { asked.push(kind); return o.login(kind); },
     cwd: tempDir("realm-agentsignin-cwd-"),
     timeoutMs: o.timeoutMs,
+    env: o.env, claudeEnv: o.claudeEnv,
   });
   services.push(svc);
   const latest = (id: string) => [...said].reverse().find((s) => s.id === id);
   const reaches = (id: string, state: AgentSignIn["state"]) => waitFor(() => latest(id)?.state === state);
-  return { svc, said, probed, asked, latest, reaches };
+  return { svc, said, probed, confirmed, asked, latest, reaches };
 }
+
+/** Leaves the config folder it was started under beside itself, then finishes as a login does. */
+const NOTES_ITS_FOLDER = String.raw`
+printf '%s' "$CLAUDE_CONFIG_DIR" > "$(dirname "$0")/folder"
+printf 'Login successful.
+'`;
 
 describe("a sign-in with no space around it", () => {
   it("answers at once, then reports the sign-in page the CLI printed — the consent link, not the docs one", async () => {
@@ -272,6 +284,68 @@ exec sleep 30`);
     h.svc.disposeAll();
     expect(h.latest(id)).toMatchObject({ state: "failed", detail: expect.stringContaining("Realm closed") });
     await waitFor(() => !alive(pid));
+  });
+});
+
+describe("the Claude config folder a sign-in with no space lands in", () => {
+  const env = { PATH: process.env.PATH ?? "" };
+  const claudeEnv = (home: string | null): Record<string, string> => (home === null ? {} : { CLAUDE_CONFIG_DIR: home });
+
+  it("says which folder it is for in every state it reports, and names none for the default folder", async () => {
+    const p = program(NOTES_ITS_FOLDER);
+    const h = harness({ login: () => p.command, env, claudeEnv });
+    const named = await h.svc.start("claude", "/Users/me/.claude-work");
+    expect(named.home).toBe("/Users/me/.claude-work");
+    await h.reaches(named.id, "done");
+    const plain = await h.svc.start("claude");
+    expect(plain).not.toHaveProperty("home");
+    await h.reaches(plain.id, "done");
+    const reported = (id: string) => h.said.filter((s) => s.id === id);
+    expect(reported(named.id).map((s) => s.state)).toContain("done");
+    expect(reported(named.id).every((s) => s.home === "/Users/me/.claude-work")).toBe(true);
+    expect(reported(plain.id).map((s) => s.state)).toContain("done");
+    expect(reported(plain.id).some((s) => "home" in s)).toBe(false);
+  });
+
+  it("runs the login under the folder it is handed, and confirms it against that folder", async () => {
+    const p = program(NOTES_ITS_FOLDER);
+    const h = harness({ login: () => p.command, env, claudeEnv });
+    const { id } = await h.svc.start("claude", "/Users/me/.claude-work");
+    await h.reaches(id, "done");
+    expect(readFileSync(join(p.dir, "folder"), "utf8")).toBe("/Users/me/.claude-work");
+    expect(h.confirmed).toEqual(["/Users/me/.claude-work"]);
+  });
+
+  it("runs a login under the default folder with the environment it always had, and asks nothing about a folder", async () => {
+    const p = program(NOTES_ITS_FOLDER);
+    const folders: (string | null)[] = [];
+    const h = harness({ login: () => p.command, env, claudeEnv: (home) => { folders.push(home); return { CLAUDE_CONFIG_DIR: "/never-asked-for" }; } });
+    for (const start of [() => h.svc.start("claude"), () => h.svc.start("claude", null)]) {
+      const { id } = await start();
+      await h.reaches(id, "done");
+      expect(readFileSync(join(p.dir, "folder"), "utf8")).toBe("");
+    }
+    expect(folders).toEqual([]);
+    expect(h.confirmed).toEqual([null, null]);
+  });
+
+  it("keeps the rest of the environment beside the folder", async () => {
+    const p = program(String.raw`
+printf '%s|%s' "$CLAUDE_CONFIG_DIR" "$REALM_TEST_KEPT" > "$(dirname "$0")/folder"
+printf 'Login successful.
+'`);
+    const h = harness({ login: () => p.command, env: { ...env, REALM_TEST_KEPT: "kept" }, claudeEnv });
+    const { id } = await h.svc.start("claude", "/Users/me/.claude-work");
+    await h.reaches(id, "done");
+    expect(readFileSync(join(p.dir, "folder"), "utf8")).toBe("/Users/me/.claude-work|kept");
+  });
+
+  it("fails against the folder the login ran under, where that folder still reads as signed out", async () => {
+    const p = program(NOTES_ITS_FOLDER);
+    const h = harness({ login: () => p.command, env, claudeEnv, loggedIn: false });
+    const { id } = await h.svc.start("claude", "/Users/me/.claude-work");
+    await h.reaches(id, "failed");
+    expect(h.confirmed).toEqual(["/Users/me/.claude-work"]);
   });
 });
 

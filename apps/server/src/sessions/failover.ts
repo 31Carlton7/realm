@@ -84,7 +84,13 @@ export type FailoverDeps = {
    * answer is exactly the one this cannot use, because the thirty seconds the probe cache holds are
    * the thirty seconds in which the credential changed.
    */
-  probe: (opts: { force: boolean }) => Promise<ProbeResult[]>;
+  probe: (opts: { force: boolean; home?: string | null }) => Promise<ProbeResult[]>;
+  /**
+   * The Claude config folder a session's agent runs under: `SessionService.claudeHome`. A folder is
+   * a sign-in, so "is Claude signed in" is a question about the failing session's folder, and the
+   * command that fixes it has to name that folder. Left out, every session is on the default one.
+   */
+  claudeHome?: (sessionId: string) => string | null;
   /** Injectable so tests do not spend real seconds on the backoff ladder. */
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (t: ReturnType<typeof setTimeout>) => void;
@@ -234,7 +240,7 @@ export class FailoverService {
         // The fix, not the post-mortem. `exhaustedNote` would say "is not signed in" here, which is
         // a claim about the user's credentials that Realm has either checked and found false, or —
         // with retries off — never checked at all.
-        const fix = authFix(session.agentKind, why);
+        const fix = authFix(session.agentKind, why, this.homeOf(session));
         this.d.emit(session.id, sessionEvent("error", { message: `${fix.title}. ${fix.hint}`, failure: "auth", fix }));
       } else if (policy.chain.length === 0) {
         this.d.emit(session.id, sessionEvent("error", { message: exhaustedNote(session.agentKind, kind), failure: kind }));
@@ -267,7 +273,7 @@ export class FailoverService {
   private async reauth(session: Session, turn: Attempt): Promise<void> {
     const attempt = turn.reauths + 1;
     turn.reauths = attempt;
-    const signedIn = await this.signedIn(session.agentKind);
+    const signedIn = await this.signedIn(session);
     // The await let the world move: the user may have pressed stop, sent something else, or closed
     // the app while a child process ran.
     if (this.closing || this.turns.get(session.id) !== turn || !turn.msg) return;
@@ -294,10 +300,11 @@ export class FailoverService {
 
   /** What the agent's own CLI says about being signed in, or null when it will not say. A probe that
    *  throws is null too: a failed probe is not evidence of a signed-out user. */
-  private async signedIn(kind: AgentKind): Promise<boolean | null> {
+  private async signedIn(session: Session): Promise<boolean | null> {
     try {
-      const results = await this.d.probe({ force: true });
-      const row = results.find((r) => r.kind === kind);
+      const home = this.homeOf(session);
+      const results = await this.d.probe(home === null ? { force: true } : { force: true, home });
+      const row = results.find((r) => r.kind === session.agentKind);
       // An agent that no longer runs at all is not a sign-in problem, and answering `false` here
       // would send the user to a login command for a CLI that is missing.
       if (!row || !row.available) return null;
@@ -305,6 +312,12 @@ export class FailoverService {
     } catch {
       return null;
     }
+  }
+
+  /** The failing session's Claude config folder, or null where that is the default one, the
+   *  session has gone, or nothing here can say. */
+  private homeOf(session: Session): string | null {
+    try { return this.d.claudeHome?.(session.id) ?? null; } catch { return null; }
   }
 
   /**

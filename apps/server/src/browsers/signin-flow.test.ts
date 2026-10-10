@@ -16,14 +16,14 @@ const screenOf = (data: string) => renderScreen(data, { cols: 100, rows: 30 });
  * can make a login command print its banner first and its URL a beat later, which is what they all
  * actually do.
  */
-function setup(opts: { output: string[]; ticketsEnabled?: boolean; screenThrows?: Error }) {
-  const calls = { opened: [] as string[], writes: [] as string[], minted: [] as { browserId: string; url: string }[] };
+function setup(opts: { output: string[]; ticketsEnabled?: boolean; screenThrows?: Error; claudeHome?: SignInFlowDeps["claudeHome"] }) {
+  const calls = { opened: [] as string[], terminals: [] as object[], writes: [] as string[], minted: [] as { browserId: string; url: string }[] };
   let step = 0;
   const current = () => opts.output[Math.min(step, opts.output.length - 1)] ?? "";
 
   const deps: SignInFlowDeps = {
     terminals: {
-      open: () => { calls.opened.push("terminal"); return { terminalId: "t1", itemId: "i1" }; },
+      open: (p) => { calls.opened.push("terminal"); calls.terminals.push(p); return { terminalId: "t1", itemId: "i1" }; },
       screen: async () => { if (opts.screenThrows) throw opts.screenThrows; return screenOf(current()); },
       quiet: async () => { step += 1; return true; },
       manager: { writeWhenQuiet: async (_id, data) => { calls.writes.push(data); } },
@@ -35,6 +35,7 @@ function setup(opts: { output: string[]; ticketsEnabled?: boolean; screenThrows?
       enabled: () => opts.ticketsEnabled ?? false,
       mint: (_spaceId, browserId, url) => { if (opts.ticketsEnabled) calls.minted.push({ browserId, url }); },
     },
+    claudeHome: opts.claudeHome,
     // A clock that runs out after a handful of polls, so the timeout test does not take 45 seconds.
     now: () => step * 10_000,
   };
@@ -76,6 +77,57 @@ describe("starting a sign-in", () => {
     // provenanced because Realm chose the program that printed it — a caller-supplied command would
     // make the ticket a laundering step for any URL an agent wanted opened.
     expect(calls.writes).toEqual([`${AGENT_CLI_COMMANDS.claude.login}\r`]);
+  });
+
+  it("signs a named Claude config folder in by name, so the login lands where the session looks", async () => {
+    const asked: [string, string | null][] = [];
+    const { flow, calls } = setup({ output: ["$ "], claudeHome: (spaceId, sessionId) => { asked.push([spaceId, sessionId]); return "/Users/me/.claude-work"; } });
+    const r = await flow.start(SPACE, "claude", "session1");
+    expect(asked).toEqual([[SPACE, "session1"]]);
+    expect(calls.writes).toHaveLength(1);
+    expect(calls.writes[0]).toMatch(/^env CLAUDE_CONFIG_DIR='\/Users\/me\/\.claude-work' (claude|'.+') auth login\r$/);
+    expect(r).toMatchObject({ ok: true, command: calls.writes[0]!.slice(0, -1) });
+  });
+
+  it("types the table's own line where the folder is the default one, and asks with no session when none asked", async () => {
+    const asked: (string | null)[] = [];
+    const plain = setup({ output: ["$ "] });
+    await plain.flow.start(SPACE, "claude");
+    const { flow, calls } = setup({ output: ["$ "], claudeHome: (_spaceId, sessionId) => { asked.push(sessionId); return null; } });
+    await flow.start(SPACE, "claude");
+    expect(asked).toEqual([null]);
+    expect(calls.writes).toEqual(plain.calls.writes);
+  });
+
+  it("asks about no folder for another agent's sign-in", async () => {
+    const claudeHome = (): string => { throw new Error("asked about a folder for an agent that has none"); };
+    const { flow, calls } = setup({ output: ["$ "], claudeHome });
+    expect((await flow.start(SPACE, "codex", "session1")).ok).toBe(true);
+    expect(calls.writes).toEqual([`${AGENT_CLI_COMMANDS.codex.login}\r`]);
+  });
+
+  it("opens the terminal for the folder the sign-in lands in, the default one included, so a sandboxed login can write there", async () => {
+    const named = setup({ output: ["$ "], claudeHome: () => "/Users/me/.claude-work" });
+    await named.flow.start(SPACE, "claude", "session1");
+    expect(named.calls.terminals).toEqual([{ spaceId: SPACE, cols: 100, rows: 30, claudeDir: "/Users/me/.claude-work" }]);
+    const byDefault = setup({ output: ["$ "], claudeHome: () => null });
+    await byDefault.flow.start(SPACE, "claude", "session1");
+    expect(byDefault.calls.terminals).toEqual([{ spaceId: SPACE, cols: 100, rows: 30, claudeDir: null }]);
+  });
+
+  it("opens the terminal as it always did for another agent's sign-in, and where nothing says which folder", async () => {
+    const other = setup({ output: ["$ "], claudeHome: () => "/Users/me/.claude-work" });
+    await other.flow.start(SPACE, "codex", "session1");
+    const unasked = setup({ output: ["$ "] });
+    await unasked.flow.start(SPACE, "claude", "session1");
+    expect([...other.calls.terminals, ...unasked.calls.terminals]).toEqual([{ spaceId: SPACE, cols: 100, rows: 30 }, { spaceId: SPACE, cols: 100, rows: 30 }]);
+  });
+
+  it("refuses with the reason when the folder has gone, and opens no terminal that would make it", async () => {
+    const { flow, calls } = setup({ output: ["$ "], claudeHome: () => { throw new Error("~/.claude-work, the Claude config folder for this profile, is missing."); } });
+    expect(await flow.start(SPACE, "claude", "session1")).toEqual({ ok: false, reason: "~/.claude-work, the Claude config folder for this profile, is missing." });
+    expect(calls.opened).toEqual([]);
+    expect(calls.writes).toEqual([]);
   });
 
   it("opens the pane at the URL the terminal printed", async () => {

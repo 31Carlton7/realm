@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  PLAN_LIMIT_REPORTING, mergeWindows, planLabel, planUnavailableNote, planWindowLabel,
-  reportsPlanLimits, tightestWindow, windowLabelForMinutes, windowsByUrgency, type PlanWindow,
+  PLAN_LIMIT_REPORTING, mergeWindows, planLabel, planRowFor, planUnavailableNote, planWindowLabel,
+  reportsPlanLimits, tightestWindow, windowLabelForMinutes, windowsByUrgency, type PlanLimits, type PlanWindow,
 } from "./plan-limits";
 
 const w = (id: string, utilization: number | null): PlanWindow =>
@@ -146,5 +146,28 @@ describe("windowsByUrgency / tightestWindow", () => {
     const original = [w("five_hour", 10), w("seven_day", 90)];
     windowsByUrgency(original);
     expect(original.map((x) => x.id)).toEqual(["five_hour", "seven_day"]);
+  });
+});
+
+describe("planRowFor", () => {
+  const row = (agentKind: string, subscriptionType: string, home?: string | null): PlanLimits =>
+    ({ agentKind, subscriptionType, organization: null, windows: [], alert: "none", alertWindow: null, unavailable: null, detail: null, ts: 1, ...(home === undefined ? {} : { home }) });
+  const rows = [row("codex", "plus"), row("claude", "max"), row("claude", "team", "/Users/mara/.claude-work")];
+
+  it("matches another agent by kind alone, whichever folder is asked about", () => {
+    expect(planRowFor(rows, "codex", "/Users/mara/.claude-work")?.subscriptionType).toBe("plus");
+    expect(planRowFor(rows, "codex", undefined)?.subscriptionType).toBe("plus");
+  });
+
+  it("matches Claude by folder as well, a row that names none being the default folder's", () => {
+    expect(planRowFor(rows, "claude", null)?.subscriptionType).toBe("max");
+    expect(planRowFor(rows, "claude", "/Users/mara/.claude-work")?.subscriptionType).toBe("team");
+    expect(planRowFor([row("claude", "max", null)], "claude", null)?.subscriptionType).toBe("max");
+    expect(planRowFor(rows, "claude", "/Users/mara/.claude-other")).toBeUndefined();
+  });
+
+  it("answers the one Claude row there is while the session's folder is not known, and none where there are two", () => {
+    expect(planRowFor([row("claude", "team", "/Users/mara/.claude-work")], "claude", undefined)?.subscriptionType).toBe("team");
+    expect(planRowFor(rows, "claude", undefined)).toBeUndefined();
   });
 });

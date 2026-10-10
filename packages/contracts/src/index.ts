@@ -48,6 +48,7 @@ export * from "./models";
 export * from "./catalog";
 export * from "./usage";
 export * from "./plan-limits";
+export * from "./claude-home";
 export * from "./documents";
 export * from "./library";
 export * from "./saved-turns";

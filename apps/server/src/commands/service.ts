@@ -36,9 +36,17 @@ export class UserCommandsService {
      *  which is what keeps `<REALM_HOME>/commands` and `~/.claude/commands` two different places
      *  even when REALM_HOME has been pointed somewhere unusual. */
     home: string;
-    /** Where `~/.claude` is, same override `MemoryService` takes (and the same `CLAUDE_CONFIG_DIR`
-     *  honouring, since both go through `claudeUserDir`). Tests point it at a fixture. */
+    /** Where the default Claude config folder is, same override `MemoryService` takes (and the same
+     *  `CLAUDE_CONFIG_DIR` honouring, since both go through `claudeUserDir`). A space reads it when
+     *  its profile names no folder of its own, and so does a list asked for outside any space. Tests
+     *  point it at a fixture. */
     claudeDir?: string;
+    /** The Claude config folder a space's profile names, or null where it names none. A profile
+     *  that names one starts its Claude sessions under it, so that folder's `commands/` is what its
+     *  spaces list. The default folder's stays out, since those are another account's commands.
+     *  Optional on the same terms as `spaces`: unwired, every space reads the default folder, as
+     *  each did before a profile could name one. */
+    claudeDirOf?: (spaceId: string) => string | null;
     /** Only for tildifying labels. A label is the one thing here that is about the person, not the
      *  machine, and `~/Realm/commands` reads better than four inches of absolute path. */
     userHome?: string;
@@ -50,6 +58,18 @@ export class UserCommandsService {
     this.root = commandsRoot(d.home);
     this.claudeDir = d.claudeDir ?? claudeUserDir();
     this.userHome = d.userHome ?? homedir();
+  }
+
+  /**
+   * The Claude config folder whose `commands/` a space lists. It is the one the space's profile
+   * names, else the default one.
+   *
+   * Outside any space there is no profile to ask about, so the seam is not asked and the default
+   * folder is read. The two are never mixed. A profile whose folder holds no `commands/` lists no
+   * Claude commands, where a fall back to the default folder would show it another account's.
+   */
+  private claudeDirFor(spaceId: string | null): string {
+    return (spaceId ? this.d.claudeDirOf?.(spaceId) : null) ?? this.claudeDir;
   }
 
   /**
@@ -71,7 +91,7 @@ export class UserCommandsService {
     // body — and that dialect is the whole reason a discovered file can be expanded at all. A second
     // agent's folder means reading ITS dialect first: a template whose placeholders mean something
     // else would not fail, it would quietly send a different prompt than the one written.
-    const claude = join(this.claudeDir, "commands");
+    const claude = join(this.claudeDirFor(spaceId), "commands");
     if (isDir(claude)) out.push({ kind: "agent", key: "claude", label: tildify(claude, this.userHome), root: claude, writable: false });
     return out;
   }

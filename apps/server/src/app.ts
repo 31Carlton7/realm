@@ -61,6 +61,7 @@ import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
 import { SignInFlow } from "./browsers/signin-flow";
 import { AgentSignInService } from "./agents/signin-service";
+import { ClaudeHomes } from "./agents/claude-homes";
 import { createAppUiProvider } from "./app-ui/agent-tools";
 import { createMachineAgentProvider } from "./machines/agent-tools";
 import { createSimulatorAgentProvider } from "./simulators/agent-tools";
@@ -619,7 +620,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  background (`SessionService.upgradeTitle`). A real, billed LLM call per session — omitted here
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
    *  passes `generateSessionTitle`. */
-  titleGenerator?: (text: string) => Promise<string>;
+  titleGenerator?: (text: string, o?: { configDir?: string | null }) => Promise<string>;
   /** Writes the model's account of a session when a turn settles. A real, billed LLM call per settled
    *  turn — omitted here on purpose so tests and live-check scripts never make one; the real server
    *  process (`main.ts`) passes `generateSessionSummary`. Without it the panes show the derived line,
@@ -627,7 +628,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** One call answering BOTH of a settle's model-written fields — the summary and the prompter's
    *  hint. Omitted on any build that must not make a billed call: without it the panes show the
    *  derived line and the prompter keeps its deterministic ladder. */
-  summaryGenerator?: (input: { asked: string; transcript: string; facts: string })
+  summaryGenerator?: (input: { asked: string; transcript: string; facts: string }, o?: { configDir?: string | null })
     => Promise<{ summary: string; hint: string | null }>;
   /** Plan 22: where Plynn's meeting exports are read from. Tests point this at a fixture; production
    *  leaves it unset for `~/Library/Application Support/Plynn/Meetings`. */
@@ -649,7 +650,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const rpc = new RpcServer();
   const spaces = new SpacesStore(db, opts.home);
   const iconAssets = new IconAssetsStore(db);
-  const iconGeneration = new IconGenerationService(iconAssets);
   const items = new ItemsStore(db);
   const projects = new ProjectsStore(db);
   const environments = new EnvironmentsStore(db);
@@ -659,11 +659,20 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const worktrees = new WorktreeService(opts.home);
   const sessionsStore = new SessionsStore(db);
   const settings = new SettingsStore(db);
+  /* Which Claude config folder each profile, and each of its sessions, runs under: asked by every
+     service below that starts Claude, reads its files or reports its sign-in, so that none of them
+     works a folder out for itself. `userHome` falls back to `home` on the terms the skills service's
+     does: a suite that names neither reads its own scratch home and never the machine's. */
+  const claudeHomes = new ClaudeHomes({ settings, profiles, spaces, defaultDir: opts.claudeDir, env: opts.cli?.env, userHome: opts.userHome ?? opts.home });
+  const iconGeneration = new IconGenerationService(iconAssets, { homes: claudeHomes });
   /* The Seatbelt policy an agent CLI or a shell is spawned under — one instance, shared by the two
      spawn sites (TerminalService and SessionService) so they can never resolve a space differently.
      `realmHome` is passed rather than derived: this process's REALM_HOME and `opts.home` are the same
      directory in production, and a test on a scratch home must protect ITS database, not the real one. */
-  const sandbox = new ExecutionSandboxService({ settings, environments, realmHome: opts.home });
+  const sandbox = new ExecutionSandboxService({
+    settings, environments, realmHome: opts.home,
+    claudeDirOf: (spaceId) => claudeHomes.ofTerminal(spaceId), claudeDirs: () => claudeHomes.named(),
+  });
   // The notifications feed (Plan 12 W5): the ONE writer of notification rows. Every producer below —
   // SessionService's event hook, the hub's onStatus callback, the two stale-ack refusal sites — hands
   // its events here rather than writing rows of its own, so the dedup rule and the category toggles
@@ -768,7 +777,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // `~/.claude/commands`. Same `spaces` seam and same `claudeDir` override the skills and memory
   // services take, so a test can point all three at one fixture.
   const userCommands = new UserCommandsService({
-    home: opts.home, claudeDir: opts.claudeDir,
+    home: opts.home, claudeDir: opts.claudeDir, claudeDirOf: (spaceId) => claudeHomes.ofSpace(spaceId),
     spaces: { folderPathOf: (spaceId: string): string | null => spaces.get(spaceId)?.folderPath ?? null },
   });
   // The user's keymap, as a file under ~/Realm. Seeded and merged on read; see the service for why a
@@ -987,7 +996,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         // uses, so it costs nothing extra, and asked BEFORE the call so a machine with no Claude CLI
         // never pays for a refusal. `loggedIn === false` is a real no; null is "the CLI did not say",
         // which is not grounds for withholding the feature.
-        available: async (): Promise<boolean> => (await sessions.probe()).some((p: ProbeResult) => p.kind === "claude" && p.available && p.loggedIn !== false),
+        available: async (home: string | null): Promise<boolean> => (await sessions.probe({ home })).some((p: ProbeResult) => p.kind === "claude" && p.available && p.loggedIn !== false),
+        homeOf: (id: string): string | null | undefined => sessions.sideCallHome(id),
         onError: (line) => console.error(line),
         // Wait for the session to actually go quiet. A rapid exchange otherwise pays for a recap per
         // turn, each superseded by the next before anybody reads it.
@@ -1011,7 +1021,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     queued: (sessionId) => sessions.queuedFor(sessionId).length > 0,
     log: (line) => console.log(line),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals, views: appViews,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals, views: appViews, claudeHomes,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
@@ -1123,7 +1133,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* The sign-in flow rides on both: a terminal that talks back and a pane to put the consent page
      in. It is handed to the terminal provider rather than the browser one because the terminal is
      where it starts and where the code is typed back. */
-  const signInFlow = new SignInFlow({ terminals, browsers, tickets: signInTickets });
+  const signInFlow = new SignInFlow({ terminals, browsers, tickets: signInTickets, claudeHome: (spaceId, sessionId) => sessions.signInHome(spaceId, sessionId) });
   mcpGateway.registerProvider(createTerminalAgentProvider({
     terminals, rows: terminalsStore, items, mcp, broker: browserBroker, rpc, signIn: signInFlow,
   }));
@@ -1221,7 +1231,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      A clean exit is confirmed by a fresh probe of that one agent. The CLI manager's env too,
      for the reason the installer takes it: a suite's PATH must be the one the test built, so no
      `createApp` in a suite can find — let alone start — the developer's real `codex login`. */
-  const agentSignIn = new AgentSignInService({ rpc, probe: (kind) => sessions.probeAgent(kind), env: opts.cli?.env });
+  const agentSignIn = new AgentSignInService({
+    rpc, probe: (kind, home) => sessions.probeAgent(kind, home), claudeEnv: (home) => claudeHomes.envFor(home), env: opts.cli?.env,
+  });
   // Spend and activity for Settings → Usage, and the budget watcher behind it. Reads only; the one
   // thing it writes is the budget row, and the one thing it emits is a threshold notification.
   usage = new UsageService({ db, settings, catalog: modelCatalog, notifications });
@@ -1240,6 +1252,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     resend: (id, msg) => sessions.resendTurn(id, msg),
     stop: (id) => sessions.stopAgent(id),
     probe: (opts) => sessions.probe(opts),
+    claudeHome: (id) => sessions.claudeHome(id),
   });
   // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
   // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or
@@ -1260,7 +1273,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
-    libraryFiles,
+    libraryFiles, claudeHomes,
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock

@@ -248,6 +248,26 @@ describe("restoreAll and a refusing sandbox", () => {
     h.svc.closeAll();
   });
 
+  it("hands the sandbox the Claude config folder a terminal is opened for, null included, and none where the caller names none", () => {
+    const handed: (string | null)[] = [];
+    const sandbox = {
+      policyFor: () => ({ posture: "workspace-write" }),
+      env: () => ({}),
+      wrap: (o: { command: string; args: readonly string[]; claudeDir?: string | null }) => {
+        handed.push("claudeDir" in o ? o.claudeDir ?? null : "left out");
+        return { command: o.command, args: [...o.args] };
+      },
+    } as unknown as ExecutionSandboxService;
+    const h = harness(() => sandbox);
+    h.svc.open({ spaceId: h.space.id, cwd: h.home, cols: 80, rows: 24, claudeDir: "/Users/me/.claude-work" });
+    h.svc.open({ spaceId: h.space.id, cwd: h.home, cols: 80, rows: 24, claudeDir: null });
+    h.svc.open({ spaceId: h.space.id, cwd: h.home, cols: 80, rows: 24 });
+    expect(handed).toEqual(["/Users/me/.claude-work", null, "left out"]);
+    h.svc.restoreAll();
+    expect(handed).toEqual(["/Users/me/.claude-work", null, "left out", "left out"]);
+    h.svc.closeAll();
+  });
+
   it("tells a sandbox refusal apart from an ordinary error carrying the word sandbox", () => {
     // The predicate itself, because the catch above cannot show the difference between a code match
     // and a message match. MUTANT: match on the message and a `git` failure mentioning a sandbox

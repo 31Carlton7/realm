@@ -5,8 +5,8 @@ import { query as sdkQuery, type EffortLevel, type Options, type PermissionResul
 import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AgentModel, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
-import { probeClaude } from "./probe";
-import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { probeClaude, type ClaudeLookup } from "./probe";
+import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeOptions, ProbeResult, StartOptions, UserMessage } from "../types";
 
 type QueryFn = typeof sdkQuery;
 /** The keys `Settings` actually declares. The SDK's type ends in `[k: string]: unknown`, so a
@@ -264,12 +264,12 @@ function spawnWrapped(o: SpawnOptions, wrap: NonNullable<StartOptions["wrap"]>, 
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude" as const;
   private queryFn: QueryFn;
-  private probeCli: () => ReturnType<typeof probeClaude>;
+  private probeCli: (o?: ClaudeLookup) => ReturnType<typeof probeClaude>;
   private catalogTimeoutMs: number;
   /** `probe` and `catalogTimeoutMs` are seams for the suite; production passes neither. */
-  constructor(deps: { query?: QueryFn; probe?: () => ReturnType<typeof probeClaude>; catalogTimeoutMs?: number } = {}) {
+  constructor(deps: { query?: QueryFn; probe?: (o?: ClaudeLookup) => ReturnType<typeof probeClaude>; catalogTimeoutMs?: number } = {}) {
     this.queryFn = deps.query ?? sdkQuery;
-    this.probeCli = deps.probe ?? (() => probeClaude());
+    this.probeCli = deps.probe ?? ((o) => probeClaude(undefined, o));
     this.catalogTimeoutMs = deps.catalogTimeoutMs ?? CATALOG_TIMEOUT_MS;
   }
 
@@ -278,10 +278,25 @@ export class ClaudeAdapter implements AgentAdapter {
    *
    * A CLI that says it is signed out is not asked for its catalog: no session can start on it, and
    * the sign-in card is what the prompter shows instead of a picker.
+   *
+   * `opts.env` asks about one Claude config folder in place of the default one. Its
+   * `CLAUDE_CONFIG_DIR` names the folder, and both the CLI probe and the catalog handshake run under
+   * the process's environment with `opts.env` laid on top. It is never passed alone. An environment
+   * handed to a child replaces everything the child would have inherited, and a CLI with no PATH
+   * does not start. The row carries the CLI's `configDirectory` where it states one, so the caller
+   * can see which folder answered.
+   *
+   * Without `opts.env` the CLI probe is handed no lookup and the handshake no `env`, so a probe of
+   * the default folder makes the calls it made before a folder could be named. An empty `opts.env`
+   * counts as none, since nothing extra is the same environment and must not cost the handshake an
+   * `env` of its own.
    */
-  async probe(): Promise<ProbeResult> {
-    const p = await this.probeCli();
-    const models = p.available && p.loggedIn !== false ? await this.listModels() : null;
+  async probe(opts: ProbeOptions = {}): Promise<ProbeResult> {
+    const extra = opts.env && Object.keys(opts.env).length > 0 ? opts.env : undefined;
+    const env = extra ? { ...process.env, ...extra } : undefined;
+    const configDir = extra?.CLAUDE_CONFIG_DIR;
+    const p = env ? await this.probeCli({ env, ...(configDir === undefined ? {} : { configDir }) }) : await this.probeCli();
+    const models = p.available && p.loggedIn !== false ? await this.listModels(env) : null;
     return { kind: this.kind, ...p, models };
   }
 
@@ -298,8 +313,15 @@ export class ClaudeAdapter implements AgentAdapter {
    * `null` on ANY failure — a spawn that died, a CLI that declined the request, an empty list, a
    * handshake that outlasted its timeout — because the picker has the curated list to fall back on
    * and a failed enumeration must never fail the probe that carries availability.
+   *
+   * `env` is the environment the handshake runs under when the probe asked about one config folder.
+   * It is the whole environment, since the SDK hands the child nothing else once it is given one.
+   * The list belongs to an account as much as to a binary. An organisation can choose the model an
+   * unpinned session runs and switch models off for its members, so a handshake left on the
+   * process's own environment would put the default folder's list beside another folder's account.
+   * With no `env` the options carry no such key, and the CLI inherits what it always did.
    */
-  private async listModels(): Promise<AgentModel[] | null> {
+  private async listModels(env?: NodeJS.ProcessEnv): Promise<AgentModel[] | null> {
     const input = new AsyncQueue<SDKUserMessage>();
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -307,6 +329,7 @@ export class ClaudeAdapter implements AgentAdapter {
       const q = this.queryFn({ prompt: input, options: {
         cwd: tmpdir(), settingSources: [], persistSession: false, abortController: abort,
         stderr: () => {}, pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,
+        ...(env ? { env } : {}),
       } });
       const rows = await Promise.race([
         q.supportedModels(),

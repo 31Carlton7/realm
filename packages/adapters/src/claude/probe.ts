@@ -3,14 +3,14 @@ import { promisify } from "node:util";
 import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import type { AgentAccount } from "@realm/contracts";
+import { claudeLoginLine, type AgentAccount } from "@realm/contracts";
 
 const run = promisify(execFile);
 
 /** What `claude auth status --json` answers with, as far as this file reads it: whether the CLI is
- *  signed in, and who as. The command reports more — the config directory, the API provider — which
- *  is none of Realm's business here. */
-type AuthStatus = { loggedIn?: unknown; email?: unknown; orgName?: unknown; subscriptionType?: unknown };
+ *  signed in, who as, and which config folder it answered for. The command reports more — the API
+ *  provider, the sign-in method — which is none of Realm's business here. */
+type AuthStatus = { loggedIn?: unknown; email?: unknown; orgName?: unknown; subscriptionType?: unknown; configDirectory?: unknown };
 
 const stated = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
 
@@ -21,12 +21,37 @@ function accountOf(status: AuthStatus): AgentAccount | undefined {
   return email === null ? undefined : { email, organization: stated(status.orgName), plan: stated(status.subscriptionType) };
 }
 
-/** Where to look for `claude`. Both are seams for the suite; production passes neither. */
+/**
+ * The config folder the CLI says it answered for, ready to lay beside its verdict, or nothing where
+ * it states none.
+ *
+ * The folder is passed on as the CLI spells it, and never trimmed the way an account's fields are.
+ * It is there to be compared with the folder that was asked about, and a path with its spelling
+ * tidied is another path. A blank one is no statement at all.
+ */
+function folderOf(status: AuthStatus): { configDirectory?: string } {
+  const dir = status.configDirectory;
+  return typeof dir === "string" && dir.trim() !== "" ? { configDirectory: dir } : {};
+}
+
+/**
+ * Where to look for `claude`, and whose sign-in to ask it about.
+ *
+ * `bundled` is a seam for the suite. `env` is one too, and it is also how one Claude config folder
+ * is asked about. The CLI runs under it, so its `CLAUDE_CONFIG_DIR` decides whose sign-in the
+ * answer is. A probe of the default folder passes nothing at all.
+ */
 export type ClaudeLookup = {
   /** Whose PATH and REALM_CLAUDE_BIN are read — the process's own when absent. */
   env?: NodeJS.ProcessEnv;
   /** Where Realm's own copy is (`bundledClaude`), so a test never depends on the real binary. */
   bundled?: () => string | null;
+  /** The config folder the caller asked about by name, where it named one. It only shapes the
+   *  sign-in line a signed-out answer offers, so that the line signs that folder in and not the
+   *  default one. It is kept apart from `env` because Realm itself may have been started with a
+   *  `CLAUDE_CONFIG_DIR`. That folder is then the default one, nobody named it, and its signed-out
+   *  answer must go on offering the plain command. */
+  configDir?: string;
 };
 
 /** A `claude` that answered `--version`, or why none did. */
@@ -124,8 +149,18 @@ async function locate(bin: string | undefined, o: ClaudeLookup): Promise<Located
  * that refuses to open, a parse of something that was not JSON — none of those is evidence the user
  * is signed out, and telling a signed-in user to log in again is the one wrong answer that costs
  * them something.
+ *
+ * `env` is the environment the CLI is asked under, and the fallback reads that same one. It looks
+ * for the credentials file in the config folder `env` names, and for an API key in `env`. Read off
+ * the process's own environment and the home folder's `.claude`, the fallback would answer for the
+ * default folder whichever folder was asked about, and a signed-out folder would read as signed in
+ * on the strength of another account's file.
+ *
+ * `configDir` is that folder where the caller named it. Its one use is the command a signed-out
+ * answer offers, since a bare `claude auth login` signs the default folder in and leaves the folder
+ * that was asked about as it was.
  */
-async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.ProcessEnv): Promise<{ loggedIn: boolean | null; reason: string | null; account?: AgentAccount }> {
+async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.ProcessEnv, configDir?: string): Promise<{ loggedIn: boolean | null; reason: string | null; account?: AgentAccount; configDirectory?: string }> {
   try {
     // `--json` explicitly, though it is the default today: `--text` exists, so the default is a
     // choice the CLI could revisit, and a parse of the human-readable form would answer `null`.
@@ -138,17 +173,18 @@ async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.Proce
       (e: { stdout?: unknown }) => { if (typeof e.stdout === "string") return e.stdout; throw e; },
     );
     const parsed = JSON.parse(stdout) as AuthStatus;
-    if (typeof parsed.loggedIn !== "boolean") return { loggedIn: null, reason: "unknown (auth status said nothing about it)" };
-    if (parsed.loggedIn) { const account = accountOf(parsed); return { loggedIn: true, reason: null, ...(account ? { account } : {}) }; }
+    const folder = folderOf(parsed);
+    if (typeof parsed.loggedIn !== "boolean") return { loggedIn: null, reason: "unknown (auth status said nothing about it)", ...folder };
+    if (parsed.loggedIn) { const account = accountOf(parsed); return { loggedIn: true, reason: null, ...(account ? { account } : {}), ...folder }; }
     // Realm's own copy has no `claude` on PATH behind it, so the usual advice would send someone to
     // a terminal to type a command that is not there. The sign-in that works is Realm's.
     return bundled
-      ? { loggedIn: false, reason: "not signed in — sign in from Realm: this is the Claude Code that comes with Realm, so there is no `claude` command to run in a terminal" }
-      : { loggedIn: false, reason: "not signed in — run `claude auth login`" };
+      ? { loggedIn: false, reason: "not signed in — sign in from Realm: this is the Claude Code that comes with Realm, so there is no `claude` command to run in a terminal", ...folder }
+      : { loggedIn: false, reason: `not signed in — run \`${claudeLoginLine(configDir ?? null)}\``, ...folder };
   } catch {
     // The fallback the subcommand replaced, kept for CLIs that predate it. It can only ever say
     // "credentials exist", never that they are valid or unexpired, so it never claims `false`.
-    const hasCreds = existsSync(join(homedir(), ".claude", ".credentials.json")) || Boolean(process.env.ANTHROPIC_API_KEY);
+    const hasCreds = existsSync(join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), ".credentials.json")) || Boolean(env.ANTHROPIC_API_KEY);
     return hasCreds ? { loggedIn: true, reason: null } : { loggedIn: null, reason: "unknown (keychain)" };
   }
 }
@@ -164,14 +200,18 @@ async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.Proce
  * `account` is who the CLI says that sign-in is, where it names an email — its own statement, passed
  * on so a session can say whose plan it runs on.
  *
+ * `configDirectory` is the config folder the CLI says it answered for, where it states one, signed
+ * in or not. A caller that asked about one folder through `o.env` compares the two, since a row
+ * about another folder must not be shown as this one's.
+ *
  * `bin` probes exactly that file and nothing else; without it the probe looks the way `locate` does.
  * The version is reported as printed whichever copy answered — Realm's own prints
  * `2.1.281 (Claude Code)` like any other, and it is the version every session really runs.
  */
-export async function probeClaude(bin?: string, o: ClaudeLookup = {}): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; account?: AgentAccount }> {
+export async function probeClaude(bin?: string, o: ClaudeLookup = {}): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; account?: AgentAccount; configDirectory?: string }> {
   const found = await locate(bin, o);
   if (!found.ok) return { available: false, version: null, loggedIn: null, reason: found.reason };
-  return { available: true, version: found.version, ...(await claudeAuthStatus(found.bin, found.bundled, o.env ?? process.env)) };
+  return { available: true, version: found.version, ...(await claudeAuthStatus(found.bin, found.bundled, o.env ?? process.env, o.configDir)) };
 }
 
 /**
