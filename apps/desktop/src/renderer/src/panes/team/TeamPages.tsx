@@ -1,14 +1,12 @@
 import { Icon, Realmite, parseRealmiteSpec, type IconName } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ROLE_TEMPLATES, mediaUrl, parseAccount, parseRecord, type ParsedRecord, type RecordLine, type TeamActivity,
-  type TeamRecord, type TeamRole, type TeamSpace,
-} from "@realm/contracts";
+import { ROLE_TEMPLATES, mediaUrl, type TeamActivity, type TeamRecordType, type TeamRole, type TeamSpace } from "@realm/contracts";
 import { Menu } from "../../components/Menu";
 import { Sheet } from "../../components/Sheet";
 import { MODES, RoleSheet, modelLabel } from "./RoleSheet";
 import { MakeTeam } from "./TeamPicker";
 import { VaultPage } from "./VaultPage";
+import { NewRecordTypePage, RecordPage, RecordTypePage, RecordsPage, typeGlyph, typeOfPath } from "./RecordPages";
 import { BackoffNote, HandoffLines, HandsOffTo, MentionWake, RoleBudget, RoleGoalPanel, TeamBudget } from "./HandoffParts";
 import { REVIEW_GLYPH, realmiteState } from "../../components/sidebar/TeamRows";
 import { shortWhen } from "../schedules/schedule-model";
@@ -20,33 +18,48 @@ import {
 /* ═══════════════════════════════ the column ═══════════════════════════════ */
 
 export const isTeamTab = (tab: SpacePageTab): boolean =>
-  tab === "team" || tab === "records" || tab === "roles" || tab === "vault" || tab === "activity" || tab.startsWith("role:") || tab.startsWith("record:");
+  tab === "team" || tab === "records" || tab === "roles" || tab === "vault" || tab === "activity" || tab.startsWith("role:") || tab.startsWith("record:")
+  || tab.startsWith("records:") || tab.startsWith("recordtype:");
+
+/** The kind of record a team tab is about: its list, one of its records, or its fields. */
+export function tabRecordType(tab: SpacePageTab, team: TeamSpace | undefined): TeamRecordType | null {
+  const types = team?.recordTypes ?? [];
+  if (tab === "records") return types[0] ?? null;
+  if (tab.startsWith("records:")) return types.find((t) => t.key === tab.slice(8)) ?? null;
+  if (tab.startsWith("recordtype:")) return types.find((t) => t.key === tab.slice(11)) ?? null;
+  if (tab.startsWith("record:")) return types.find((t) => tab.slice(7).startsWith(`${t.folder}/`)) ?? null;
+  return null;
+}
 
 /** The page's name for a team tab — the head the bar and Back speak of. */
 export function teamTabLabel(tab: SpacePageTab, team: TeamSpace | undefined): string {
-  if (tab === "records") return "Creators";
   if (tab === "activity") return "Activity";
   if (tab === "roles") return "Roles";
   if (tab === "vault") return "Vault";
   if (tab.startsWith("role:")) return team?.roles.find((r) => r.id === tab.slice(5))?.name ?? "Role";
-  if (tab.startsWith("record:")) return "Creator";
+  if (tab === "recordtype:new") return "New record type";
+  const type = tabRecordType(tab, team);
+  if (tab === "records" || tab.startsWith("records:")) return type?.many ?? "Records";
+  if (tab.startsWith("record:")) return (type ?? (team && typeOfPath(team, tab.slice(7))))?.one ?? "Record";
+  if (tab.startsWith("recordtype:")) return type?.one ?? "Record type";
   return "Overview";
 }
 
 /**
  * The team's sections in the space page's column, under a "Team" head (the Teams plan, 13.2): the
- * Overview, the creators and the roles — each of which unfolds to its members while one of them is
- * open, the open one lit — and the log. Radios, one tab stop, as every page rail here is.
+ * Overview, each kind of record the team keeps and the roles — each of which unfolds to its members
+ * while one of them is open, the open one lit — and the log. Radios, one tab stop, as every page rail
+ * here is. A kind's row stays lit while its fields are being shaped.
  */
 export function TeamRailList({ spaceId, team, tab, pick }: { spaceId: string; team: TeamSpace; tab: SpacePageTab; pick: (t: SpacePageTab) => void }) {
   const records = useApp((s) => s.teamRecords[spaceId]);
   const loadTeamRecords = useApp((s) => s.loadTeamRecords);
   const run = useApp((s) => s.run);
-  useEffect(() => { if (tab.startsWith("record:") && !records) run(() => loadTeamRecords(spaceId)); }, [tab, records, spaceId, loadTeamRecords, run]);
+  useEffect(() => { if ((tab.startsWith("record:") || tab.startsWith("records")) && !records) run(() => loadTeamRecords(spaceId)); }, [tab, records, spaceId, loadTeamRecords, run]);
   const name = `space-page-tab-${spaceId}`;
-  const row = (id: SpacePageTab, label: string, glyph: IconName | TeamRole | null, count?: number, sub = false) => (
-    <label key={id} className={`settings-tab page-rail-tab${sub ? " tp-sub" : ""}${glyph && typeof glyph === "object" ? " tp-sub-role" : ""}`} data-selected={tab === id || undefined}>
-      <input type="radio" name={name} value={id} checked={tab === id} onChange={() => pick(id)} />
+  const row = (id: SpacePageTab, label: string, glyph: IconName | TeamRole | null, count?: number, sub = false, lit = tab === id) => (
+    <label key={id} className={`settings-tab page-rail-tab${sub ? " tp-sub" : ""}${glyph && typeof glyph === "object" ? " tp-sub-role" : ""}`} data-selected={lit || undefined}>
+      <input type="radio" name={name} value={id} checked={lit} onChange={() => pick(id)} />
       {glyph && (typeof glyph === "object"
         ? <span className="page-rail-glyph tp-rail-realmite"><Realmite spec={parseRealmiteSpec(glyph.realmite, glyph.id)} size={16} state={realmiteState(glyph)} /></span>
         : <Icon name={glyph} size={16} className="page-rail-glyph" />)}
@@ -55,14 +68,20 @@ export function TeamRailList({ spaceId, team, tab, pick }: { spaceId: string; te
     </label>
   );
   const inRoles = tab.startsWith("role:") || tab === "roles";
-  const inRecords = tab.startsWith("record:") || tab === "records";
+  const open = tabRecordType(tab, team);
   return (
     <fieldset className="page-rail-list">
       <legend className="visually-hidden">Team</legend>
       <span className="page-rail-head" aria-hidden="true">Team</span>
       {row("team", "Overview", "team")}
-      {row("records", "Creators", "records", inRecords && records?.length ? undefined : team.recordCount)}
-      {inRecords && records?.map((r) => row(`record:${r.path}`, r.name, null, undefined, true))}
+      {team.recordTypes.length === 0 && row("records", "Records", "records", undefined, false, tab === "records" || tab === "recordtype:new")}
+      {team.recordTypes.map((t) => {
+        const mine = open?.id === t.id && tab !== `recordtype:${t.key}` ? records?.filter((r) => r.path.startsWith(`${t.folder}/`)) : undefined;
+        return [
+          row(`records:${t.key}`, t.many, typeGlyph(t), mine?.length ? undefined : t.count, false, open?.id === t.id && (tab === "records" || !tab.startsWith("record:"))),
+          ...(mine ?? []).map((r) => row(`record:${r.path}`, r.name, null, undefined, true)),
+        ];
+      })}
       {row("roles", "Roles", "user", inRoles ? undefined : team.roles.length)}
       {inRoles && team.roles.map((r) => row(`role:${r.id}`, r.name, r, undefined, true))}
       {row("vault", "Vault", "padlock")}
@@ -75,7 +94,13 @@ export function TeamRailList({ spaceId, team, tab, pick }: { spaceId: string; te
 export function TeamPage({ spaceId, tab }: { spaceId: string; tab: SpacePageTab }) {
   const team = useApp((s) => s.teams[spaceId]);
   if (!team?.enabled) return <MakeTeam spaceId={spaceId} />;
-  if (tab === "records") return <RecordsPage spaceId={spaceId} />;
+  if (tab === "records") return <RecordsPage spaceId={spaceId} team={team} typeKey={null} />;
+  if (tab.startsWith("records:")) return <RecordsPage key={tab} spaceId={spaceId} team={team} typeKey={tab.slice(8)} />;
+  if (tab === "recordtype:new") return <NewRecordTypePage spaceId={spaceId} team={team} />;
+  if (tab.startsWith("recordtype:")) {
+    const type = tabRecordType(tab, team);
+    return type ? <RecordTypePage key={type.id} spaceId={spaceId} type={type} /> : <RecordsPage spaceId={spaceId} team={team} typeKey={null} />;
+  }
   if (tab === "activity") return <ActivityPage spaceId={spaceId} team={team} />;
   if (tab === "roles") return <RolesPage spaceId={spaceId} team={team} />;
   if (tab === "vault") return <VaultPage spaceId={spaceId} team={team} />;
@@ -103,7 +128,7 @@ function Overview({ spaceId, team }: { spaceId: string; team: TeamSpace }) {
   const today = (activity ?? []).filter((a) => a.ts > Date.now() - 2 * 86_400_000).slice(0, 8);
   const vantage = [
     `${team.roles.length} role${team.roles.length === 1 ? "" : "s"}`,
-    team.hasRepo ? `${team.recordCount} creator${team.recordCount === 1 ? "" : "s"}` : null,
+    team.hasRepo && team.recordTypes.length > 0 ? team.recordTypes.map((t) => `${t.count} ${(t.count === 1 ? t.one : t.many).toLowerCase()}`).join(" · ") : null,
     `${money(team.weekSpendUsd)} of ${money(team.weekBudgetUsd)} this week`,
   ].filter(Boolean).join(" · ");
   return (
@@ -436,222 +461,6 @@ function BriefEditor({ role }: { role: TeamRole }) {
     </div>
   );
 }
-
-/* ═══════════════════════════════ records ═══════════════════════════════ */
-
-function RecordsPage({ spaceId }: { spaceId: string }) {
-  const records = useApp((s) => s.teamRecords[spaceId]);
-  const loadTeamRecords = useApp((s) => s.loadTeamRecords);
-  const createTeamRecord = useApp((s) => s.createTeamRecord);
-  const setSpacePageTab = useApp((s) => s.setSpacePageTab);
-  const run = useApp((s) => s.run);
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  useEffect(() => { run(() => loadTeamRecords(spaceId)); }, [spaceId, loadTeamRecords, run]);
-  const add = () => run(async () => { const r = await createTeamRecord(spaceId, name.trim()); setAdding(false); setName(""); setSpacePageTab(spaceId, `record:${r.path}`); });
-  return (
-    <>
-      <header className="page-head">
-        <div className="page-title"><h1>Creators</h1></div>
-        <span className="page-vantage">{records ? `${records.length} record${records.length === 1 ? "" : "s"}` : ""}</span>
-        <button type="button" className="btn" onClick={() => setAdding(true)}><Icon name="add" size={16} />New record</button>
-      </header>
-      <div className="form">
-        <p className="tp-file"><code>creators/</code> · team memory · one Markdown file per person, read by every role</p>
-        {adding && (
-          <form className="tp-message tp-inline" onSubmit={(e) => { e.preventDefault(); if (name.trim()) add(); }}>
-            <input className="tp-inline-field" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Their name" aria-label="The creator's name"
-              onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setAdding(false); } }} />
-            <button type="button" className="btn" onClick={() => setAdding(false)}>Cancel</button>
-            <button type="submit" className="btn primary" disabled={!name.trim()}>Make record</button>
-          </form>
-        )}
-        {records && records.length === 0 && !adding && <p className="tp-empty">No records yet. Creator Manager keeps one for each creator it works with, or make one yourself.</p>}
-        {records && records.length > 0 && (
-          <ul className="settings-list">
-            {records.map((r) => (
-              <li key={r.path} className="settings-row tp-row-link">
-                <button type="button" className="tp-row-button" onClick={() => setSpacePageTab(spaceId, `record:${r.path}`)}>
-                  <span className="settings-row-main">
-                    <span className="settings-row-name">{r.name}</span>
-                    <span className="settings-row-detail t-mono">{r.path}</span>
-                  </span>
-                  {r.status && <StatusChip status={r.status} />}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </>
-  );
-}
-
-const STATUS_TONE: Record<string, "ok" | "warn" | undefined> = { signed: "ok", active: "ok", contacted: "warn", negotiating: "warn", paused: "warn" };
-function StatusChip({ status }: { status: string }) {
-  const word = status.split(/[\s,·]/)[0] ?? status;
-  return <span className="tp-chip" data-tone={STATUS_TONE[word.toLowerCase()]}>{word.charAt(0).toUpperCase() + word.slice(1)}</span>;
-}
-
-/**
- * A record as Realm draws it — the Deal as a card of properties, Accounts with where each sign-in is
- * kept and whether it is consented, Deadlines and Content — over the Markdown file that IS the record.
- * A file not in the record's shape is shown as its Markdown, never as a half-drawn form; Edit is the
- * file itself, saved under the person's name.
- */
-function RecordPage({ spaceId, path, team }: { spaceId: string; path: string; team: TeamSpace }) {
-  const fetchTeamRecord = useApp((s) => s.fetchTeamRecord);
-  const writeTeamRecord = useApp((s) => s.writeTeamRecord);
-  const runRole = useApp((s) => s.runRole);
-  const reveal = window.realm?.files?.reveal;
-  const run = useApp((s) => s.run);
-  const [rec, setRec] = useState<TeamRecord | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const records = useApp((s) => s.teamRecords[spaceId]);
-  useEffect(() => { run(async () => setRec(await fetchTeamRecord(spaceId, path))); }, [spaceId, path, fetchTeamRecord, run, records]);
-  if (!rec) return <p className="tp-empty">Loading…</p>;
-  const parsed = parseRecord(rec.markdown);
-  const manager = team.roles.find((r) => r.template === "creator-manager") ?? team.roles[0];
-  const save = () => run(async () => { setRec(await writeTeamRecord(spaceId, rec.path, draft)); setEditing(false); });
-  return (
-    <>
-      <header className="page-head">
-        <div className="page-title"><h1>{parsed?.title ?? rec.name}</h1></div>
-        <span className="page-vantage">{rec.status ? rec.status.charAt(0).toUpperCase() + rec.status.slice(1) : ""}</span>
-        {editing ? (
-          <>
-            <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
-            <button type="button" className="btn primary" onClick={save}>Save</button>
-          </>
-        ) : (
-          <>
-            <button type="button" className="btn" onClick={() => { setDraft(rec.markdown); setEditing(true); }}>Edit</button>
-            {reveal && <button type="button" className="btn" onClick={() => { void reveal(rec.absPath); }}>Show in Finder</button>}
-            {manager && <button type="button" className="btn" onClick={() => run(() => runRole(manager.id, `About ${parsed?.title ?? rec.name} (${rec.path}): check the record and tell me what is due.`).then(() => undefined))}>Ask {manager.name}</button>}
-          </>
-        )}
-      </header>
-      <div className="form">
-        <p className="tp-file"><code>{rec.path}</code> · team memory{rec.lastAuthor ? ` · last changed by ${rec.lastAuthor} ${feedTime(rec.updatedAt ?? Date.now())}` : ""}</p>
-        {editing ? (
-          <textarea className="tp-record-source" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={`${rec.name}'s record, as Markdown`} spellCheck={false} />
-        ) : parsed ? <RecordView record={parsed} spaceId={spaceId} /> : (
-          <>
-            <p className="tp-make-note">This file is not in a record's shape, so it is shown as written.</p>
-            <pre className="tp-record-source tp-record-pre">{rec.markdown}</pre>
-          </>
-        )}
-      </div>
-    </>
-  );
-}
-
-const ACCOUNT_GLYPH = (channel: string): IconName => {
-  const c = channel.toLowerCase();
-  return c.includes("tiktok") ? "tiktok" : c.includes("instagram") ? "instagram" : c.includes("youtube") ? "youtube" : c.includes("mail") ? "mail" : "user";
-};
-
-function RecordView({ record, spaceId }: { record: ParsedRecord; spaceId: string }) {
-  const section = (name: string) => record.sections.find((s) => s.heading.toLowerCase() === name)?.lines ?? [];
-  const deal = [...record.head, ...section("deal")].filter((l) => l.field);
-  const loose = [...record.head, ...section("deal")].filter((l) => !l.field);
-  const accounts = section("accounts");
-  const deadlines = section("deadlines");
-  const content = section("content");
-  const others = record.sections.filter((s) => !["deal", "accounts", "deadlines", "content"].includes(s.heading.toLowerCase()));
-  void spaceId;
-  return (
-    <>
-      <h3 className="settings-head">Deal</h3>
-      {deal.length === 0 && loose.length === 0 ? <p className="tp-empty">Nothing on the deal yet.</p> : (
-        <div className="tp-props">
-          {deal.map((l, i) => (
-            <PropRow key={i} line={l} />
-          ))}
-          {loose.map((l, i) => <div key={`loose-${i}`} className="tp-prop-full">{l.text}</div>)}
-        </div>
-      )}
-      <h3 className="settings-head">Accounts</h3>
-      {accounts.length === 0 ? <p className="tp-empty">No accounts on record.</p> : (
-        <ul className="settings-list">
-          {accounts.map((l, i) => {
-            const a = parseAccount(l);
-            const consent = a.parts.consent;
-            return (
-              <li key={i} className="settings-row">
-                <span className="t-glyph"><Icon name={ACCOUNT_GLYPH(a.channel)} size={16} /></span>
-                <div className="settings-row-main">
-                  <span className="settings-row-name">{a.handle ?? a.channel}</span>
-                  <span className="settings-row-detail">{[a.handle ? a.channel : null, a.parts.vault ? `sign-in kept as ${a.parts.vault}` : null, a.parts.device ?? null, a.handle ? a.note : null].filter(Boolean).join(" · ")}</span>
-                </div>
-                {a.handle
-                  ? <span className="tp-chip" data-tone={consent ? "ok" : "warn"} title={consent ? `Consent: ${consent}` : "Add consent: to this line before anything is posted to it"}>{consent ? "Consented" : "No consent yet"}</span>
-                  : a.note && <span className="tp-chip" data-tone="warn">{capital(a.note)}</span>}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <h3 className="settings-head">Deadlines</h3>
-      {deadlines.length === 0 ? <p className="tp-empty">No deadlines on record.</p> : (
-        <ul className="settings-list">
-          {deadlines.map((l, i) => {
-            const [what = "", ...rest] = l.text.split(/\s+·\s+/);
-            const state = rest.at(-1);
-            const done = state && /^(done|sent|paid)$/i.test(state);
-            return (
-              <li key={i} className="settings-row">
-                <div className="settings-row-main">
-                  <span className="settings-row-name">{what}</span>
-                  {rest.length > (state ? 1 : 0) && <span className="settings-row-detail">{rest.slice(0, state ? -1 : undefined).join(" · ")}</span>}
-                </div>
-                {state && <span className="tp-chip" data-tone={done ? "ok" : "warn"}>{capital(state)}</span>}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <h3 className="settings-head">Content</h3>
-      {content.length === 0 ? <p className="tp-empty">Nothing posted yet.</p> : (
-        <ul className="settings-list">
-          {content.map((l, i) => {
-            const [what = "", ...rest] = l.text.split(/\s+·\s+/);
-            return (
-              <li key={i} className="settings-row">
-                <div className="settings-row-main">
-                  <span className="settings-row-name">{what}</span>
-                  {rest.length > 0 && <span className="settings-row-detail">{rest.join(" · ")}</span>}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {others.map((s) => (
-        <div key={s.heading}>
-          <h3 className="settings-head">{s.heading}</h3>
-          <ul className="settings-list">
-            {s.lines.map((l, i) => <li key={i} className="settings-row"><div className="settings-row-main"><span className="settings-row-name">{l.text}</span></div></li>)}
-          </ul>
-        </div>
-      ))}
-    </>
-  );
-}
-
-function PropRow({ line }: { line: RecordLine }) {
-  const f = line.field!;
-  const statusish = f.key.toLowerCase() === "status";
-  return (
-    <>
-      <div>{f.key}</div>
-      <div>{statusish ? <><StatusChip status={f.value} /> <span className="t-faint">{f.value.split(/[\s,·]/).slice(1).join(" ").replace(/^[·,\s]+/, "")}</span></> : f.value}</div>
-    </>
-  );
-}
-
-const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /* ═══════════════════════════════ activity ═══════════════════════════════ */
 

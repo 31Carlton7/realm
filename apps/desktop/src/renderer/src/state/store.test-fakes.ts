@@ -6,7 +6,8 @@ import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mime
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
-import type { RoleRun, TeamActivity, TeamRecord, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
+import type { RoleRun, TeamActivity, TeamRecord, TeamRecordType, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
+import { recordPreset, recordTemplate } from "@realm/contracts";
 import type { LabCheck, LabDevices, LabSeenDevice, LabStatus } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
@@ -106,9 +107,14 @@ export const teamReview = (id: string, spaceId: string, title: string, extra: Pa
   note: null, version: 1, itemCount: 1, thumb: null, channels: [], account: null, changedSinceApproval: false, actsTotal: 0, actsDone: 0, createdAt: 0, decidedAt: null, updatedAt: 0, ...extra,
 });
 
+/** A team's kind of record from a preset — a team made from RC2's creator starters keeps creators. */
+export const recordType = (spaceId: string, preset: string, extra: Partial<TeamRecordType> = {}): TeamRecordType => ({
+  ...recordPreset(preset)!, id: `rt-${spaceId}-${preset}`, spaceId, preset, archived: false, sortOrder: 0, createdAt: 0, updatedAt: 0, count: 0, ...extra,
+});
+
 /** A team space: its roles and reviews. */
 export const teamSpace = (spaceId: string, roles: TeamRole[], reviews: TeamReviewSummary[] = [], extra: Partial<TeamSpace> = {}): TeamSpace => ({
-  spaceId, enabled: true, roles, reviews, weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [],
+  spaceId, enabled: true, roles, reviews, weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [], recordTypes: [recordType(spaceId, "creator")],
   repoPath: "/realm/memory/repos/space", repoMoved: false, sharesUsd: roles.reduce((n, r) => n + (r.weekBudgetUsd ?? 0), 0), formerRoles: [],
   limits: { teamMaxLive: 2, realmMaxUnattended: 3, teamRunning: 0, realmRunning: 0, teamQueued: 0, backoff: [] }, handoffs: [], actsHeld: false, ...extra,
 });
@@ -1741,7 +1747,34 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       r.markdown = markdown;
       return r;
     },
-    teamRecordCreate: async (spaceId, name) => { calls.push(`teamRecordCreate:${spaceId}:${name}`); throw new Error("not faked"); },
+    teamRecordCreate: async (spaceId, name, type) => {
+      calls.push(`teamRecordCreate:${spaceId}:${name}${type ? `:${type}` : ""}`);
+      const t = data.teams.find((x) => x.spaceId === spaceId)?.recordTypes.find((x) => x.key === type) ?? data.teams.find((x) => x.spaceId === spaceId)?.recordTypes[0];
+      if (!t) throw new Error("no record type");
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const rec: TeamRecord = { path: `${t.folder}/${slug}.md`, kind: t.key, name, status: t.statuses[0] ?? null, updatedAt: 0, markdown: recordTemplate(t, name), absPath: `/repo/${t.folder}/${slug}.md`, lastAuthor: "You" };
+      (data.teamRecords[spaceId] ??= []).push(rec);
+      t.count++;
+      return rec;
+    },
+    teamRecordTypeCreate: async (input) => {
+      calls.push(`teamRecordTypeCreate:${input.spaceId}:${"preset" in input ? input.preset : input.one}`);
+      const team = data.teams.find((x) => x.spaceId === input.spaceId)!;
+      const made = "preset" in input ? recordType(input.spaceId, input.preset)
+        : recordType(input.spaceId, "creator", { ...input, key: input.key ?? input.one.toLowerCase(), id: `rt-${input.spaceId}-${input.one.toLowerCase()}`, preset: null, glyph: input.glyph ?? "records", titleField: input.titleField ?? "#", statusField: input.statusField ?? null, statuses: input.statuses ?? [], head: input.head ?? [], sections: input.sections ?? [] });
+      team.recordTypes.push(made);
+      return made;
+    },
+    teamRecordTypeUpdate: async (input) => {
+      calls.push(`teamRecordTypeUpdate:${input.id}:${Object.keys(input).filter((k) => k !== "id").sort().join(",")}`);
+      for (const t of data.teams) { const r = t.recordTypes.find((x) => x.id === input.id); if (r) { Object.assign(r, input); return r; } }
+      throw new Error("no record type");
+    },
+    teamRecordTypeArchive: async (id, archived) => {
+      calls.push(`teamRecordTypeArchive:${id}:${archived}`);
+      for (const t of data.teams) { const r = t.recordTypes.find((x) => x.id === id); if (r) { r.archived = archived; t.recordTypes = t.recordTypes.filter((x) => !x.archived); return r; } }
+      throw new Error("no record type");
+    },
     teamActivity: async (spaceId) => { calls.push(`teamActivity:${spaceId}`); return data.teamActivity[spaceId] ?? []; },
     teamRoleHandoffs: async (input) => {
       calls.push(`teamRoleHandoffs:${input.id}:${(input.handsOffTo ?? []).join(",")}:${input.wakeOnMention ?? ""}`);

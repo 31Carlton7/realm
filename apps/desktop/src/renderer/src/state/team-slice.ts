@@ -1,5 +1,6 @@
 import type {
-  ActTicket, CreateRoleInput, CustomRoleInput, RoleRun, Run, SetRoleHandoffsInput, TeamActivity, TeamRecord, TeamRecordSummary, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace, UpdateRoleInput,
+  ActTicket, CreateRecordTypeInput, CreateRoleInput, CustomRoleInput, RoleRun, Run, SetRoleHandoffsInput, TeamActivity, TeamRecord, TeamRecordSummary, TeamRecordType, TeamReviewDetail, TeamReviewSummary,
+  TeamRole, TeamSpace, UpdateRecordTypeInput, UpdateRoleInput,
 } from "@realm/contracts";
 
 /** What making a team, or adding to one, can carry besides the starters: the person's own teammates,
@@ -22,7 +23,10 @@ export type TeamApi = {
   teamRecords(spaceId: string): Promise<TeamRecordSummary[]>;
   teamRecord(spaceId: string, path: string): Promise<TeamRecord>;
   teamRecordWrite(spaceId: string, path: string, markdown: string): Promise<TeamRecord>;
-  teamRecordCreate(spaceId: string, name: string): Promise<TeamRecord>;
+  teamRecordCreate(spaceId: string, name: string, type?: string): Promise<TeamRecord>;
+  teamRecordTypeCreate(input: CreateRecordTypeInput): Promise<TeamRecordType>;
+  teamRecordTypeUpdate(input: UpdateRecordTypeInput): Promise<TeamRecordType>;
+  teamRecordTypeArchive(id: string, archived: boolean): Promise<TeamRecordType>;
   teamActivity(spaceId: string, limit: number): Promise<TeamActivity[]>;
   teamRoleHandoffs(input: SetRoleHandoffsInput): Promise<TeamRole>;
   teamRoleGoal(id: string, objective: string): Promise<Run>;
@@ -80,7 +84,11 @@ export type TeamSlice = {
   loadTeamRecords(spaceId: string): Promise<void>;
   fetchTeamRecord(spaceId: string, path: string): Promise<TeamRecord>;
   writeTeamRecord(spaceId: string, path: string, markdown: string): Promise<TeamRecord>;
-  createTeamRecord(spaceId: string, name: string): Promise<TeamRecord>;
+  createTeamRecord(spaceId: string, name: string, type?: string): Promise<TeamRecord>;
+  /** The kinds of record a team keeps: made, changed and archived by the person, never by a role. */
+  createRecordType(input: CreateRecordTypeInput): Promise<TeamRecordType>;
+  updateRecordType(input: UpdateRecordTypeInput): Promise<TeamRecordType>;
+  archiveRecordType(id: string, spaceId: string, archived: boolean): Promise<void>;
   loadTeamActivity(spaceId: string): Promise<void>;
   /** Who a role hands work to, and whether a mention wakes it. */
   setRoleHandoffs(input: SetRoleHandoffsInput): Promise<void>;
@@ -196,10 +204,24 @@ export function teamSlice<S extends Host & TeamSlice>(
       await get().loadTeamRecords(spaceId);
       return rec;
     },
-    async createTeamRecord(spaceId, name) {
-      const rec = await api.teamRecordCreate(spaceId, name);
-      await get().loadTeamRecords(spaceId);
+    async createTeamRecord(spaceId, name, type) {
+      const rec = await api.teamRecordCreate(spaceId, name, type);
+      await Promise.all([get().loadTeamRecords(spaceId), get().refreshTeam(spaceId)]);
       return rec;
+    },
+    async createRecordType(input) {
+      const t = await api.teamRecordTypeCreate(input);
+      await get().refreshTeam(t.spaceId);
+      return t;
+    },
+    async updateRecordType(input) {
+      const t = await api.teamRecordTypeUpdate(input);
+      await get().refreshTeam(t.spaceId);
+      return t;
+    },
+    async archiveRecordType(id, spaceId, archived) {
+      await api.teamRecordTypeArchive(id, archived);
+      await get().refreshTeam(spaceId);
     },
     async loadTeamActivity(spaceId) { put("teamActivity", spaceId, await api.teamActivity(spaceId, TEAM_ACTIVITY_PAGE)); },
     async setRoleHandoffs(input) {

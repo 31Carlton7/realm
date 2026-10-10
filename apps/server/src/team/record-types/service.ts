@@ -113,7 +113,7 @@ export class RecordTypeService {
     if (!before) throw new NotFoundError("record type", id);
     if (before.archived === archived) return this.view(before);
     const t = this.d.store.update(id, { archived })!;
-    this.d.log(t.spaceId, "user", archived ? "archived_record_type" : "edited_record_type", t.many, { typeId: t.id, ...(archived ? {} : { changed: ["archived"] }) });
+    this.d.log(t.spaceId, "user", archived ? "archived_record_type" : "edited_record_type", t.many, { typeId: t.id, folder: t.folder, ...(archived ? {} : { changed: ["archived"] }) });
     this.d.changed(t.spaceId);
     return this.view(t);
   }

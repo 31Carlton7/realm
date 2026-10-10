@@ -10195,6 +10195,31 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .settings-row.tp-row-link > .tp-row-button { padding: 14px 16px; border-radius: inherit; }
 .settings-row.tp-row-link > .tp-row-button:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
 .tp-danger { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+/* A team's kinds of record (dynamic Teams): a section the type does not name, drawn as written under
+   Other; a text section as prose at the reading measure; and the page a person shapes a kind on —
+   settings rows whose controls are text fields, a shape's segmented control and a comma list. */
+.tp-new-type { align-self: flex-start; margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; }
+.tp-other + .tp-other { margin-top: 12px; }
+.tp-other > .settings-row-title { margin: 0 0 6px; color: var(--rl-text-dim); }
+.tp-prose { padding: 12px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); max-width: 72ch; }
+.tp-prose p { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); }
+.tp-prose p + p { margin-top: 8px; }
+.tp-type-card { text-align: left; color: inherit; }
+.tp-type-card code { font-size: 12px; }
+.settings-row > .tp-type-name { width: min(160px, 24%); }
+.tp-type-status { align-items: center; }
+.tp-type-status > select { margin-left: auto; }
+.tp-type-section { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tp-type-section > .settings-tabs { flex: none; margin: 0; }
+.tp-type-section > .icon-btn, .tp-type-section > .btn { margin-left: auto; flex: none; }
+.tp-type-field, .tp-type-list > .settings-text { flex: none; width: min(220px, 40%); height: 28px; padding: 0 9px; font: inherit; font-size: 13px;
+  border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
+.tp-type-field:focus, .tp-type-list > .settings-text:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.tp-type-list { display: flex; align-items: center; gap: 12px; }
+.tp-type-list > .settings-row-detail { flex: none; }
+.tp-type-list > .settings-text { flex: 1; width: auto; max-width: 420px; }
+.tp-type-dated { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tp-type-preview { min-height: 0; }
 .tp-record-source { width: 100%; min-height: 420px; padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card);
   border: var(--hairline-w) solid var(--rl-card-rim); font-family: var(--font-mono); font-size: 13px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
 .tp-record-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 0; }
