@@ -10201,7 +10201,8 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-new-type { align-self: flex-start; margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; }
 .tp-other + .tp-other { margin-top: 12px; }
 .tp-other > .settings-row-title { margin: 0 0 6px; color: var(--rl-text-dim); }
-.tp-prose { padding: 12px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); max-width: 72ch; }
+.tp-prose { padding: 12px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-prose p { max-width: 72ch; }
 .tp-prose p { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); }
 .tp-prose p + p { margin-top: 8px; }
 .tp-type-card { text-align: left; color: inherit; }
@@ -10220,6 +10221,8 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-type-list > .settings-text { flex: 1; width: auto; max-width: 420px; }
 .tp-type-dated { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .tp-type-preview { min-height: 0; }
+/* A folder that records use is fixed: its field reads as a value, not as something to type in. */
+.settings-row > .settings-text:disabled { background: transparent; color: var(--rl-text-dim); }
 .tp-record-source { width: 100%; min-height: 420px; padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card);
   border: var(--hairline-w) solid var(--rl-card-rim); font-family: var(--font-mono); font-size: 13px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
 .tp-record-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 0; }

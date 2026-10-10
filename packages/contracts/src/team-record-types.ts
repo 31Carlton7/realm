@@ -134,13 +134,13 @@ export const RECORD_PRESETS: readonly RecordPreset[] = [
   { key: "release", one: "Release", many: "Releases", folder: "releases", glyph: "flag", titleField: "#", statusField: "Status",
     statuses: ["planned", "building", "in review", "live"], head: [{ key: "Status" }, { key: "Version" }],
     sections: [{ heading: "Changes", shape: "list" }, { heading: "Checks", shape: "list" }, { heading: "Notes", shape: "text" }] },
-  { key: "bug", one: "Bug", many: "Bugs", folder: "bugs", glyph: "bug", titleField: "#", statusField: "Status",
+  { key: "bug", one: "Bug", many: "Bugs", folder: "bugs", glyph: "alert", titleField: "#", statusField: "Status",
     statuses: ["open", "fixing", "fixed", "won't fix"], head: [{ key: "Status" }, { key: "Severity" }],
     sections: [{ heading: "Steps", shape: "list" }, { heading: "Fix", shape: "text" }] },
   { key: "piece", one: "Piece", many: "Pieces", folder: "pieces", glyph: "note", titleField: "#", statusField: "Status",
     statuses: ["idea", "draft", "review", "scheduled", "published"], head: [{ key: "Status" }, { key: "Channel" }, { key: "Due" }],
     sections: [{ heading: "Brief", shape: "text" }, { heading: "Drafts", shape: "list", dated: true }, { heading: "Links", shape: "list" }] },
-  { key: "channel", one: "Channel", many: "Channels", folder: "channels", glyph: "globe", titleField: "#", statusField: null,
+  { key: "channel", one: "Channel", many: "Channels", folder: "channels", glyph: "browser", titleField: "#", statusField: null,
     statuses: [], head: [{ key: "Handle" }], sections: [{ heading: "Rules", shape: "list" }] },
 ];
 

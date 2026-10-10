@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { CREATOR_PRESET, parseRecord, recordPreset, recordTemplate, type TeamRecord } from "@realm/contracts";
+import { isIconName } from "@realm/ui";
+import { CREATOR_PRESET, RECORD_PRESETS, parseRecord, recordPreset, recordTemplate, type TeamRecord } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, profile, recordType, space, teamRole, teamSpace, type FakeData } from "../../state/store.test-fakes";
 import { TeamPage, TeamRailList, teamTabLabel } from "./TeamPages";
@@ -146,7 +147,7 @@ describe("shaping a kind", () => {
   it("keeps a folder that holds records fixed, and previews the file a new record starts as", async () => {
     await mount(base(), () => <TeamPage spaceId="s1" tab="recordtype:creator" />);
     expect(await screen.findByRole("textbox", { name: "Folder" })).toBeDisabled();
-    expect(screen.getByText(/Fixed: 1 record use it/)).toBeInTheDocument();
+    expect(screen.getByText(/Fixed: 1 record uses it/)).toBeInTheDocument();
     expect(screen.getByLabelText("Preview").textContent).toBe(recordTemplate(CREATOR_PRESET, "Jane Doe"));
   });
 
@@ -187,6 +188,11 @@ describe("shaping a kind", () => {
 });
 
 describe("a new kind", () => {
+  it("draws every preset with a glyph Realm's icon set has, never the fallback by accident", () => {
+    // THE MUTANT: a preset naming a glyph the set lacks (\"bug\"), which quietly draws as a person's card.
+    for (const p of RECORD_PRESETS) expect(isIconName(p.glyph), p.key).toBe(true);
+  });
+
   it("offers the presets the team does not keep yet, and lands on the one made", async () => {
     const { api, store } = await mount(base(), () => <TeamPage spaceId="s1" tab="recordtype:new" />);
     const cards = await screen.findAllByRole("button", { name: /\// });

@@ -402,7 +402,7 @@ export function RecordTypePage({ spaceId, type }: { spaceId: string; type: TeamR
           <li className="settings-row">
             <div className="settings-row-main">
               <span className="settings-row-name">Folder</span>
-              <span className="settings-row-detail">{fixed ? `Fixed: ${type.count} record${type.count === 1 ? "" : "s"} use it, and reviews point at their files. A new folder is a new kind of record.` : "One name in the team's memory"}</span>
+              <span className="settings-row-detail">{fixed ? `Fixed: ${type.count} record${type.count === 1 ? " uses" : "s use"} it, and reviews point at their files. A new folder is a new kind of record.` : "One name in the team's memory"}</span>
             </div>
             <input className="settings-text t-mono" aria-label="Folder" value={draft.folder} disabled={fixed} onChange={(e) => change({ folder: e.target.value.toLowerCase() })} />
           </li>

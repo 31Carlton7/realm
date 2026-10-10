@@ -138,7 +138,7 @@ export function v50Rows(o: { root: string; repos: { versed: string; research: st
     add(`INSERT INTO team_roles (id, space_id, name, brief, realmite_json, template, agent_kind, model, effort, permission_mode, skills_json, wake_on_review,
       week_budget_usd, run_cap_usd, run_cap_ms, max_concurrent, archived, sort_order, created_at, updated_at, handoffs_json, wake_on_mention)
       VALUES (${sq(id)}, ${sq(sp)}, ${sq(name)}, ${sq(`${name}'s brief: keep creators/ current.`)}, ${sq(`{"seed":"${name}"}`)}, ${template ? sq(template) : "NULL"},
-      'claude', 'sonnet', NULL, 'default', '["aurafarm"]', 1, ${extra.budget ?? "NULL"}, 3, 1200000, 1, ${extra.archived ? 1 : 0}, ${n}, ${t0 + 100 + n}, ${t0 + 200 + n},
+      'claude', 'sonnet', NULL, 'default', '[]', 1, ${extra.budget ?? "NULL"}, 3, 1200000, 1, ${extra.archived ? 1 : 0}, ${n}, ${t0 + 100 + n}, ${t0 + 200 + n},
       ${sq(JSON.stringify(extra.handoffs ?? []))}, 1)`);
   role(ROLE.manager, VERSED, "Creator Manager", "creator-manager", 0, { budget: 20 });
   role(ROLE.producer, VERSED, "Content Producer", "content-producer", 1, { budget: 25, handoffs: [ROLE.manager] });
