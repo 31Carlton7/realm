@@ -1,15 +1,17 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { mediaUrl, type ActTicket, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary } from "@realm/contracts";
+import {
+  bodyHead, inferFormat, itemNoun, itemVerb, mediaUrl, reviewCardKind, reviewVerb, verbFamily,
+  type ActTicket, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary,
+} from "@realm/contracts";
 import { useDissolve } from "../../components/ScrollFades";
-import { REVIEW_GLYPH } from "../../components/sidebar/TeamRows";
+import { reviewGlyph } from "../../components/sidebar/TeamRows";
 import { useApp } from "../../state/store";
 import type { Item } from "@realm/contracts";
 import { ACT_WORDS, ageShort, agoPhrase, duration, feedTime, money, plainError, reviewGroups, reviewStateLine, slotPhrase } from "./team-format";
 import { POST_SHEET_NO_AGENT, PostSheet } from "./PostSheet";
+import { Deliverable, drawsBody, editable } from "./renderers";
 
-const IMAGE = /\.(png|jpe?g|gif|webp|heic|avif)$/i;
-const ONE: Record<TeamReviewSummary["kind"], string> = { slideshows: "slideshow", message: "message", document: "document", report: "report" };
 const EMPTY: readonly TeamReviewSummary[] = [];
 
 /**
@@ -94,14 +96,14 @@ export function ReviewPane({ item }: { item: Item; visible: boolean; focused?: b
 function ReviewCard({ review, root, selected, onSelect }: { review: TeamReviewSummary; root: string | null; selected: boolean; onSelect: () => void }) {
   const thumb = review.thumb && root ? mediaUrl(`${root}/${review.thumb}`) : null;
   const state = reviewStateLine(review);
-  const meta = [review.roleName, review.channels.length ? review.channels.join(" + ") : kindWord(review)].filter(Boolean).join(" · ");
+  const meta = [review.roleName, review.channels.length ? review.channels.join(" + ") : reviewCardKind(review)].filter(Boolean).join(" · ");
   return (
     <button type="button" className="rv-card" role="listitem" data-review={review.id} data-selected={selected || undefined}
       aria-current={selected || undefined} tabIndex={selected ? 0 : -1} onClick={onSelect}
       aria-label={`${review.title} — ${meta} — ${state.text}`}>
       {thumb
         ? <img className="rv-thumb" src={thumb} alt="" draggable={false} />
-        : <span className="rv-thumb-glyph"><Icon name={REVIEW_GLYPH[review.kind]} size={20} /></span>}
+        : <span className="rv-thumb-glyph"><Icon name={reviewGlyph(review)} size={20} /></span>}
       <span className="rv-title">{review.title}</span>
       <span className="rv-age">{ageShort(review.createdAt)}</span>
       <span className="rv-meta">{meta}</span>
@@ -110,12 +112,11 @@ function ReviewCard({ review, root, selected, onSelect }: { review: TeamReviewSu
   );
 }
 
-const kindWord = (r: TeamReviewSummary) => (r.kind === "message" ? "email draft" : r.kind === "report" ? "report" : r.kind === "document" ? "document" : `${r.itemCount} ${ONE[r.kind]}${r.itemCount === 1 ? "" : "s"}`);
-
 function ReviewDetail({ summary }: { summary: TeamReviewSummary }) {
   const detail = useApp((s) => s.teamReviewDetail[summary.id]);
   const held = useApp((s) => s.teams[summary.spaceId]?.actsHeld ?? false);
   const loadTeamReview = useApp((s) => s.loadTeamReview);
+  const editItem = useApp((s) => s.editTeamReviewItem);
   const run = useApp((s) => s.run);
   // The summary moves with `team.changed`; the detail is re-read with it (team-slice.ts).
   useEffect(() => { run(() => loadTeamReview(summary.id).then(() => undefined)); }, [summary.id, summary.updatedAt, loadTeamReview, run]);
@@ -128,7 +129,14 @@ function ReviewDetail({ summary }: { summary: TeamReviewSummary }) {
   const at = Math.min(step, Math.max(0, items.length - 1));
   const item = items[at];
   const many = items.length > 1;
-  const title = many ? `${detail.title} — ${ONE[detail.kind]} ${at + 1} of ${items.length}` : detail.title;
+  const noun = itemNoun(detail.kind);
+  const title = many ? `${detail.title} — ${noun} ${at + 1} of ${items.length}` : detail.title;
+  const family = verbFamily(reviewVerb(detail.kind, detail.items));
+  const format = item ? inferFormat(item) : null;
+  // The text rides under its own head only where the renderer did not draw it as the deliverable.
+  const caption = item?.body && format && !drawsBody(format, item) ? item.body : null;
+  const edit = item && !showPrevious && editable(detail, item) ? { save: (body: string) => editItem(detail.id, item.id, body) } : null;
+  const editedHere = !showPrevious ? editedThisVersion(detail) : [];
   return (
     <div className="rv-detail">
       <div className="rv-detail-scroll" ref={scroller}>
@@ -147,7 +155,7 @@ function ReviewDetail({ summary }: { summary: TeamReviewSummary }) {
             </div>
           </div>
           {many && (
-            <fieldset className="settings-tabs rv-stepper" aria-label={`${ONE[detail.kind]} to read`}>
+            <fieldset className="settings-tabs rv-stepper" aria-label={`${noun} to read`}>
               {items.map((it, i) => (
                 <label key={it.id} className="settings-tab" data-selected={i === at || undefined}>
                   <input type="radio" name={`rv-step-${detail.id}`} checked={i === at} onChange={() => setStep(i)} />{i + 1}
@@ -158,22 +166,24 @@ function ReviewDetail({ summary }: { summary: TeamReviewSummary }) {
         </div>
         {detail.version > 1 && (
           <p className="rv-version">
-            {showPrevious ? `Version ${detail.version - 1}, before your changes.` : `Version ${detail.version}, after you asked: “${detail.note ?? "changes"}”${/[.!?]$/.test(detail.note ?? "") ? "" : "."}`}{" "}
+            {showPrevious ? `Version ${detail.version - 1}, before your changes.`
+              : editedHere.length > 0 ? `Version ${detail.version}, with your edit to ${noun} ${editedHere.join(", ")}.`
+              : `Version ${detail.version}, after you asked: “${detail.note ?? "changes"}”${/[.!?]$/.test(detail.note ?? "") ? "" : "."}`}{" "}
             <button type="button" className="btn-quiet rv-version-toggle" onClick={() => { setShowPrevious((v) => !v); setStep(0); }}>
               {showPrevious ? `Back to version ${detail.version}` : `Show version ${detail.version - 1}`}
             </button>
           </p>
         )}
-        {item && <Deliverable detail={detail} item={item} />}
+        {item && detail.root && <Deliverable key={item.id} detail={detail} item={item} edit={edit} />}
         <div className="rv-cols">
-          {item?.body && (
+          {caption && (
             <section className="rv-section">
-              <h3>{detail.kind === "message" ? "Message" : "Caption"}</h3>
-              <div className="rv-caption">{item.body}</div>
+              <h3>{bodyHead(itemVerb(detail.kind, item!) ?? reviewVerb(detail.kind, detail.items))}</h3>
+              <div className="rv-caption">{caption}</div>
             </section>
           )}
           <section className="rv-section">
-            <h3>{detail.kind === "message" ? "Before it can send" : "Before it can post"}</h3>
+            <h3>{family === "send" ? "Before it can send" : family === "post" ? "Before it can post" : "Before it can go"}</h3>
             <ul className="rv-checks">
               {detail.checks.map((c) => (
                 <li key={c.title}>
@@ -212,45 +222,11 @@ function latestPrevious(items: TeamReviewItem[]): TeamReviewItem[] {
   return items.filter((i) => i.version === v).sort((a, b) => a.ord - b.ord);
 }
 
-/** The thing itself, at the width it needs: a strip of 9:16 slides, or the files a message carries. */
-function Deliverable({ detail, item }: { detail: TeamReviewDetail; item: TeamReviewItem }) {
-  const openViewer = useApp((s) => s.openViewer);
-  const root = detail.root;
-  const pictures = item.files.filter((f) => IMAGE.test(f));
-  const others = item.files.filter((f) => !IMAGE.test(f));
-  if (!root) return null;
-  const abs = (f: string) => `${root}/${f}`;
-  return (
-    <>
-      {pictures.length > 0 && (
-        <>
-          <div className="rv-strip" style={{ gridTemplateColumns: `repeat(${Math.max(pictures.length, 5)}, minmax(0, 1fr))` }}>
-            {pictures.map((f, i) => (
-              <button key={f} type="button" className="rv-slide" aria-label={`Slide ${i + 1}, ${f}. Open it large`}
-                onClick={(e) => openViewer({ files: pictures.map((p) => ({ path: abs(p) })), index: i, sessionId: detail.sessionId, spaceId: detail.spaceId, opener: e.currentTarget })}>
-                <img src={mediaUrl(abs(f))} alt="" draggable={false} />
-                <span className="rv-slide-n">{i + 1}</span>
-              </button>
-            ))}
-          </div>
-          <p className="rv-strip-note">{pictures.length} slide{pictures.length === 1 ? "" : "s"} in <span className="t-mono">{folderOf(pictures[0]!)}</span>. Open one to see it full size, or to ask {detail.roleName ?? "the role"} about it.</p>
-        </>
-      )}
-      {others.length > 0 && (
-        <ul className="settings-list rv-files">
-          {others.map((f) => (
-            <li key={f} className="settings-row">
-              <Icon name="artifact" size={16} />
-              <div className="settings-row-main"><span className="settings-row-name">{f.split("/").pop()}</span><span className="settings-row-detail t-mono">{f}</span></div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </>
-  );
+/** The items of this version whose text the person edited, by place — not the ones carried over. */
+function editedThisVersion(detail: TeamReviewDetail): number[] {
+  const before = latestPrevious(detail.previous);
+  return detail.items.filter((i) => i.editedBy === "user" && before.find((b) => b.ord === i.ord)?.body !== i.body).map((i) => i.ord + 1);
 }
-
-const folderOf = (rel: string) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".");
 
 /**
  * The team's kill switch, at the head of its Review: "Hold posting" stops every post and send of the
@@ -303,6 +279,7 @@ function DecisionBar({ detail, item, held }: { detail: TeamReviewDetail; item: T
   useEffect(() => { if (asking) field.current?.focus(); }, [asking]);
   const act = (fn: () => Promise<void>) => { setBusy(true); setError(null); run(async () => { try { await fn(); } catch (e) { setError(plainError(e)); } finally { setBusy(false); } }); };
   const n = detail.items.length;
+  const family = verbFamily(reviewVerb(detail.kind, detail.items));
   const reveal = window.realm?.files?.reveal;
   const send = () => { const text = note.trim(); if (!text) return; act(async () => { await requestChanges(detail.id, text); setAsking(false); setNote(""); }); };
   const pending = detail.state === "waiting" || detail.state === "changes";
@@ -311,8 +288,9 @@ function DecisionBar({ detail, item, held }: { detail: TeamReviewDetail; item: T
   const byHand = detail.state === "approved" && (!ticket || !ticket.adapter.connected);
   const approvedAt = `Approved by you${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}.`;
   const sentence = detail.state === "changes" ? `You asked for changes${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}. ${detail.roleName ?? "The role"} is on it.`
-    : detail.state === "approved" ? approvedLine(detail, ticket, approvedAt, held)
-    : detail.state === "done" ? doneLine(ticket) : detail.note && detail.changedSinceApproval ? detail.note : detail.kind === "message" ? "Nothing sends until you approve." : "Nothing posts until you approve.";
+    : detail.state === "approved" ? approvedLine(ticket, approvedAt, held, family)
+    : detail.state === "done" ? doneLine(ticket) : detail.note && detail.changedSinceApproval ? detail.note
+    : family === "send" ? "Nothing sends until you approve." : family === "post" ? "Nothing posts until you approve." : "Nothing leaves Realm until you approve.";
   return (
     <div className="rv-decide-wrap">
       {asking && (
@@ -358,7 +336,7 @@ function DecisionBar({ detail, item, held }: { detail: TeamReviewDetail; item: T
             {reveal && detail.root && detail.items[0]?.files[0] && (
               <button type="button" className="btn" onClick={() => { void reveal(`${detail.root}/${detail.items[0]!.files[0]}`); }}>Show in Finder</button>
             )}
-            <button type="button" className="btn" disabled={busy} onClick={() => act(() => decide(detail.id, "done"))}>{detail.kind === "message" ? "Mark as sent" : "Mark as posted"}</button>
+            <button type="button" className="btn" disabled={busy} onClick={() => act(() => decide(detail.id, "done"))}>{family === "send" ? "Mark as sent" : family === "post" ? "Mark as posted" : "Mark as done"}</button>
           </>
         )}
       </div>
@@ -377,8 +355,8 @@ function ProofControls({ ticket, onShot }: { ticket: ActTicket; onShot: (path: s
   );
 }
 
-function approvedLine(detail: TeamReviewDetail, t: ActTicket | null, approvedAt: string, held: boolean): string {
-  if (!t) return `${approvedAt} ${detail.kind === "message" ? "Realm doesn't send this — send it yourself." : "Realm doesn't post this — post it by hand."}`;
+function approvedLine(t: ActTicket | null, approvedAt: string, held: boolean, family: "post" | "send" | null): string {
+  if (!t) return family === "send" ? `${approvedAt} Realm doesn't send this — send it yourself.` : family === "post" ? `${approvedAt} Realm doesn't post this — post it by hand.` : approvedAt;
   const w = ACT_WORDS[t.kind];
   if (!t.adapter.connected) return `${approvedAt} ${t.adapter.why ?? ""}`.trim();
   if (held && t.state !== "done") return `${approvedAt} Posting is held for this team.`;

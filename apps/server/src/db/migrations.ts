@@ -1079,4 +1079,37 @@ export const migrations: string[] = [
       'creator', 0, 0, created_at, created_at
     FROM team_meta WHERE template = 'creator-campaigns';
   `,
+  // v52 — generic deliverables (dynamic Teams, PR 2). An item of a review is files, text and metadata,
+  // drawn by what it is and carrying an optional proposed outward action, instead of a business's four
+  // fixed kinds. `meta_json` is the item's free key/values ("Subject", "Due"); `format` is a renderer
+  // hint (images|pdf|markdown|email|message|diff|links|table|text|files; NULL = infer it); `action_json`
+  // is the outward act it proposes (NULL = nothing leaves Realm); `edited_by` is 'user' when the person
+  // edited that version's text before approving. Numbered for the integration line after v51 (record
+  // types): its test finds it by its text.
+  //
+  // Backfilled: every legacy item gets the action it already implied, by exactly `actKindFor`'s rules
+  // (a slideshow is a post; a message is an email on an email channel, else a DM), marked `legacy`, and
+  // only where its target names both a channel and an account — the two a ticket needs. Slideshows are
+  // drawn as images. `team_reviews.kind` stays, read as a free label; `target_json` stays as the
+  // fallback; the hash covers files and body only, and neither moved. Safe to meet twice: each update
+  // only fills what is still NULL.
+  `
+  ALTER TABLE team_review_items ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE team_review_items ADD COLUMN format TEXT;
+  ALTER TABLE team_review_items ADD COLUMN action_json TEXT;
+  ALTER TABLE team_review_items ADD COLUMN edited_by TEXT;
+  UPDATE team_review_items SET action_json = json_object(
+      'verb', CASE WHEN (SELECT kind FROM team_reviews r WHERE r.id = review_id) = 'slideshows' THEN 'post'
+                   WHEN lower(trim(json_extract(target_json, '$.channel'))) IN ('email', 'mail') THEN 'email' ELSE 'dm' END,
+      'connector', 'channel:' || lower(trim(json_extract(target_json, '$.channel'))),
+      'account', json_extract(target_json, '$.account'),
+      'to', json_extract(target_json, '$.to'),
+      'legacy', 1)
+    WHERE action_json IS NULL AND target_json IS NOT NULL AND json_valid(target_json)
+      AND trim(COALESCE(json_extract(target_json, '$.channel'), '')) <> ''
+      AND json_extract(target_json, '$.account') IS NOT NULL
+      AND (SELECT kind FROM team_reviews r WHERE r.id = review_id) IN ('slideshows', 'message');
+  UPDATE team_review_items SET format = 'images'
+    WHERE format IS NULL AND (SELECT kind FROM team_reviews r WHERE r.id = review_id) = 'slideshows';
+  `,
 ];

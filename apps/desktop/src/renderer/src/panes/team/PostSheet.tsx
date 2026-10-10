@@ -1,13 +1,11 @@
 import { useState } from "react";
-import { slotWhyWords, type ActTicket, type TeamReviewDetail } from "@realm/contracts";
+import { itemNoun, slotWhyWords, type ActTicket, type TeamReviewDetail } from "@realm/contracts";
 import { Sheet } from "../../components/Sheet";
 import { useApp } from "../../state/store";
 import { ACT_WORDS, actButton, othersPhrase, plainError, slotPhrase } from "./team-format";
 
 /** What `app_act` calls this surface when it refuses an agent's press inside it. */
 export const POST_SHEET_NO_AGENT = "post sheet";
-
-const ONE: Record<TeamReviewDetail["kind"], string> = { slideshows: "slideshow", message: "message", document: "document", report: "report" };
 
 /**
  * The one click (the Teams plan, section 7, mock 04). The sheet names the consequence before it is
@@ -27,7 +25,7 @@ export function PostSheet({ detail, ticket, onClose }: { detail: TeamReviewDetai
   const [label, setLabel] = useState(false);
   const words = ACT_WORDS[ticket.kind];
   const item = detail.items.find((i) => i.id === ticket.itemId);
-  const noun = ONE[detail.kind];
+  const noun = itemNoun(detail.kind);
   const n = detail.items.length;
   const channel = ticket.channel;
   const title = ticket.kind === "post"

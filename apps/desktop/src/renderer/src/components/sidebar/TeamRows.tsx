@@ -1,12 +1,19 @@
 import { Icon, Realmite, parseRealmiteSpec, type IconName, type RealmiteState } from "@realm/ui";
 import { useRef } from "react";
-import { itemIdOfLeaf, type ReviewKind, type TeamRole, type TeamSpace } from "@realm/contracts";
+import { itemIdOfLeaf, type DeliverableFormat, type TeamReviewSummary, type TeamRole, type TeamSpace } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { roleMark, tallyWords, teamTally, waitingReviews } from "./model";
 import { TallyMarks } from "./SessionRows";
 
-/** A review's glyph by what it holds — the same everywhere a review is listed. */
-export const REVIEW_GLYPH: Record<ReviewKind, IconName> = { slideshows: "review", message: "mail", document: "artifact", report: "report" };
+/** A review's glyph by what it holds — the same everywhere a review is listed. The four labels Teams
+ *  began with keep theirs; any other review wears its first item's format. */
+export const REVIEW_GLYPH: Record<string, IconName> = { slideshows: "review", message: "mail", document: "artifact", report: "report" };
+const FORMAT_GLYPH: Record<DeliverableFormat, IconName> = {
+  images: "image", pdf: "filePdf", markdown: "note", email: "mail", message: "comment", diff: "diff",
+  links: "link", table: "table", text: "note", files: "artifact",
+};
+export const reviewGlyph = (r: Pick<TeamReviewSummary, "kind" | "format">): IconName =>
+  REVIEW_GLYPH[r.kind] ?? (r.format ? FORMAT_GLYPH[r.format] : "review");
 
 /** What a role's Realmite is doing, from the role's state: its face is the run's state, never a mood. */
 export function realmiteState(role: Pick<TeamRole, "state">): RealmiteState {

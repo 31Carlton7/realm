@@ -112,6 +112,10 @@ describe("approve → act, in words", () => {
   it("counts what went out on an approved card", () => {
     expect(reviewStateLine(teamReview("r", "s", "6 slideshows", { state: "approved", actsTotal: 6, actsDone: 0 })).text).toBe("Approved by you · 0 of 6 posted");
     expect(reviewStateLine(teamReview("r", "s", "DMs", { kind: "message", state: "approved", actsTotal: 3, actsDone: 1 })).text).toBe("Approved by you · 1 of 3 sent");
+    // Generic deliverables: worded by the batch's verb. THE MUTANT: "Approve before anything posts" on a
+    // research note that goes nowhere, or on a reply that is sent.
+    expect(reviewStateLine(teamReview("r", "s", "Answer", { kind: "answer", verb: null })).text).toBe("Approve before anything leaves Realm");
+    expect(reviewStateLine(teamReview("r", "s", "Reply", { kind: "replies", verb: "send", account: "me@x.co" })).text).toBe("Sends from me@x.co");
   });
 
   it("writes each act's line in the log, its proof and its refusals included", () => {

@@ -20,6 +20,7 @@ export type TeamApi = {
   teamReview(id: string): Promise<TeamReviewDetail>;
   teamReviewDecide(id: string, decision: "approve" | "done" | "dismiss"): Promise<TeamReviewSummary>;
   teamReviewRequestChanges(id: string, note: string): Promise<TeamReviewSummary>;
+  teamReviewEditItem(id: string, itemId: string, body: string): Promise<TeamReviewSummary>;
   teamRecords(spaceId: string): Promise<TeamRecordSummary[]>;
   teamRecord(spaceId: string, path: string): Promise<TeamRecord>;
   teamRecordWrite(spaceId: string, path: string, markdown: string): Promise<TeamRecord>;
@@ -75,6 +76,8 @@ export type TeamSlice = {
   selectTeamReview(spaceId: string, id: string): void;
   decideTeamReview(id: string, decision: "approve" | "done" | "dismiss"): Promise<void>;
   requestTeamReviewChanges(id: string, note: string): Promise<void>;
+  /** The person's edit of an item's text before approving: the batch's next version. */
+  editTeamReviewItem(id: string, itemId: string, body: string): Promise<void>;
   /** The post sheet's one click: the press to main, then the ticket set for its slot. Throws what the
    *  server refused, after re-reading the review so the sheet shows the slot as it now is. */
   postTeamTicket(ticket: ActTicket, o: { label: boolean }): Promise<void>;
@@ -180,6 +183,10 @@ export function teamSlice<S extends Host & TeamSlice>(
     },
     async requestTeamReviewChanges(id, note) {
       const r = await api.teamReviewRequestChanges(id, note);
+      await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
+    },
+    async editTeamReviewItem(id, itemId, body) {
+      const r = await api.teamReviewEditItem(id, itemId, body);
       await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
     },
     async postTeamTicket(ticket, o) {

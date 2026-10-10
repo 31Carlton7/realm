@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { ReviewKindSchema, ReviewTargetSchema, TEAM_PROVIDER_NAME, type TeamReviewSummary } from "@realm/contracts";
+import { DELIVERABLE_FORMATS, DeliverableFormatSchema, ItemMetaSchema, ProposedActionSchema, ReviewLabelSchema, ReviewTargetSchema, TEAM_PROVIDER_NAME, type TeamReviewSummary } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
 import type { TeamService } from "./service";
@@ -9,7 +9,7 @@ import type { RecordTypeService } from "./record-types/service";
 export { TEAM_PROVIDER_NAME };
 
 export type TeamAgentToolsDeps = {
-  team: Pick<TeamService, "isTeam" | "space" | "records" | "readForAgent" | "updateForAgent" | "submit" | "reviewStatus">;
+  team: Pick<TeamService, "isTeam" | "space" | "records" | "readForAgent" | "updateForAgent" | "submit" | "reviewStatus" | "review">;
   /** The team's kinds of record: what `record_types` answers, and the record tools' words per space. */
   types: Pick<RecordTypeService, "describe" | "descriptions">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
@@ -28,15 +28,21 @@ const RecordUpdateArgs = z.discriminatedUnion("op", [
   z.object({ op: z.literal("remove"), path: z.string().min(1).max(200), match: z.string().min(1).max(500) }).strict(),
 ]);
 const SubmitArgs = z.object({
-  kind: ReviewKindSchema,
+  /** Free words for the batch; `kind` is the old name for the same thing, still taken. */
+  label: ReviewLabelSchema.optional(),
+  kind: ReviewLabelSchema.optional(),
   title: z.string().trim().min(1).max(200),
   record: z.string().min(1).max(200).optional(),
   items: z.array(z.object({
     files: z.array(z.string().min(1).max(1_000)).max(40).default([]),
     body: z.string().max(20_000).optional(),
+    format: DeliverableFormatSchema.optional(),
+    meta: ItemMetaSchema.optional(),
+    action: ProposedActionSchema.optional(),
+    /** The old way to say where it goes; read as the action it implies. */
     target: ReviewTargetSchema.optional(),
   }).strict()).min(1).max(30),
-}).strict();
+}).strict().refine((a) => !(a.label && a.kind && a.label !== a.kind), { message: "give `label` or `kind`, not two different ones" });
 const StatusArgs = z.object({ id: z.string().min(1).max(40).optional() }).strict();
 
 const TOOLS: Tool[] = [
@@ -78,15 +84,17 @@ const TOOLS: Tool[] = [
     name: "review_submit",
     description: [
       "Send finished work to the team's Review, where a person approves it or asks for changes. This is how you deliver: nothing you make is sent, posted or signed by you.",
-      "`kind`: slideshows | message | document | report. One item per piece — one slideshow, one email. An item's `files` are its slides or attachments in order (paths inside this space's folder; anything else is refused), and `body` is its caption or message text.",
-      "`target` names where it would go (`channel`: tiktok, instagram, email; `account`: @handle or the address it sends from; `to`: who a DM or an email is for). An item aimed at an account needs `record`, and that record's Accounts line for the account must say `consent:`.",
+      "`label`: a few words for what the batch is (\"slideshows\", \"replies\", \"release notes\"); `kind` is the same field's old name. One item per piece — one slideshow, one email, one report. An item's `files` are its pictures, PDF, Markdown, CSV, diff or attachments in order (paths inside this space's folder; anything else is refused), and `body` is its text: a caption, a message, or the deliverable itself.",
+      `\`format\` says how Review draws it (${DELIVERABLE_FORMATS.join(", ")}); leave it out and Realm infers it from the files and the text. \`meta\` is up to 20 short key/values the person should see (\"Subject\", \"Due\", \"Version\").`,
+      "`action` is the outward act it proposes, if any: `connector` (`channel:tiktok`, `channel:instagram`, `channel:email` for the team's own accounts), `verb` (post, dm, email, send), `account` (the @handle or address it goes out as) and `to` (who a DM or an email is for). `target` {channel, account, to} is the old way to say the same. Realm checks the record's `consent:` for that account, the disclosure and the pacing, reports them to the person, and enforces them when anything would go out. Never put a password, key or token in any field; it is refused.",
       "Once approved, each post, DM or email waits for a person to press it, one at a time, at Realm's paced slots (3 posts a day per account, 15 DMs). You cannot post or send it, and nothing you call will.",
       "If a person asked for changes and woke you, submitting again replaces that review in place as its next version.",
     ].join(" "),
     inputSchema: {
       type: "object",
       properties: {
-        kind: { type: "string", enum: ["slideshows", "message", "document", "report"] },
+        label: { type: "string", description: "a few words for what the batch is, e.g. \"slideshows\" or \"replies\"" },
+        kind: { type: "string", description: "the old name for `label`" },
         title: { type: "string", description: "what the person will read in the list, e.g. \"6 slideshows for Nathan\"" },
         record: { type: "string", description: "the record it is for: creators/<name>.md" },
         items: {
@@ -96,13 +104,20 @@ const TOOLS: Tool[] = [
             properties: {
               files: { type: "array", items: { type: "string" } },
               body: { type: "string" },
+              format: { type: "string", enum: [...DELIVERABLE_FORMATS] },
+              meta: { type: "object", additionalProperties: { type: "string" } },
+              action: {
+                type: "object",
+                properties: { connector: { type: "string" }, tool: { type: "string" }, args: { type: "object" }, verb: { type: "string" }, account: { type: "string" }, to: { type: "string" } },
+                required: ["connector"], additionalProperties: false,
+              },
               target: { type: "object", properties: { channel: { type: "string" }, account: { type: "string" }, to: { type: "string" } }, additionalProperties: false },
             },
             additionalProperties: false,
           },
         },
       },
-      required: ["kind", "title", "items"],
+      required: ["title", "items"],
       additionalProperties: false,
     },
   },
@@ -164,8 +179,13 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
           }
           case "review_submit": {
             const a = parseArgs(SubmitArgs, args); if ("error" in a) return a.error;
-            const r = d.team.submit(ctx, a.value);
-            return ok(`Sent "${r.title}" to Review (${r.itemCount} item${r.itemCount === 1 ? "" : "s"}${r.version > 1 ? `, version ${r.version}` : ""}; review ${r.id}). Nothing goes out until a person approves it. Check on it with review_status.`);
+            const { label, ...rest } = a.value;
+            const r = d.team.submit(ctx, { ...rest, kind: label ?? rest.kind });
+            // What Realm checked is the role's to read now, while it can still fix it: a missing consent
+            // line is reported here and enforced only when something would go out.
+            const failing = d.team.review(r.id).checks.filter((c) => c.ok === false).map((c) => `${c.title} — ${c.detail}`);
+            return ok(`Sent "${r.title}" to Review (${r.itemCount} item${r.itemCount === 1 ? "" : "s"}${r.version > 1 ? `, version ${r.version}` : ""}; review ${r.id}). Nothing goes out until a person approves it. Check on it with review_status.`
+              + (failing.length ? `\nBefore it can go, Realm found: ${failing.join("; ")}.` : ""));
           }
           case "review_status": {
             const a = parseArgs(StatusArgs, args); if ("error" in a) return a.error;
@@ -192,7 +212,10 @@ const STATE_WORDS: Record<string, string> = {
 function statusLine(r: TeamReviewSummary): string {
   // What went out is the person's doing, press by press; the role only reads where it stands.
   const acts = r.actsTotal > 0 ? ` · ${r.actsDone} of ${r.actsTotal} sent by the person` : "";
-  return `- ${r.id} "${r.title}" — ${STATE_WORDS[r.state] ?? r.state}${acts}${r.version > 1 ? ` (version ${r.version})` : ""}${r.note ? `: ${r.note}` : ""}`;
+  // The person's own words in what was approved are the role's to know before it writes the next one.
+  const n = r.editedItems ?? [];
+  const edited = n.length > 0 ? ` · the person edited item${n.length === 1 ? "" : "s"} ${n.join(", ")}${r.state === "approved" || r.state === "done" ? " before approving" : ""}` : "";
+  return `- ${r.id} "${r.title}" — ${STATE_WORDS[r.state] ?? r.state}${acts}${edited}${r.version > 1 ? ` (version ${r.version})` : ""}${r.note ? `: ${r.note}` : ""}`;
 }
 
 const firstLine = (s: string): string => s.trim().split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? "";

@@ -6,6 +6,7 @@ import { SkillIdSchema } from "./skills";
 import { RoleGoalSchema, TeamHandoffSchema, TeamLimitsSchema } from "./team-handoffs";
 import { ActTicketSchema } from "./team-acts";
 import { TeamRecordTypeSchema } from "./team-record-types";
+import { DeliverableFormatSchema, ReviewActionSchema, ReviewLabelSchema } from "./team-deliverables";
 
 /**
  * Teams (Phase 1): a space with standing roles.
@@ -312,7 +313,8 @@ export type CustomRoleInput = z.infer<typeof CustomRoleSchema>;
 /* ────────────────────────────── review ────────────────────────────── */
 
 export const REVIEW_KINDS = ["slideshows", "message", "document", "report"] as const;
-export const ReviewKindSchema = z.enum(REVIEW_KINDS);
+/** A review's label: free words since dynamic Teams (team-deliverables.ts); the four above still read. */
+export const ReviewKindSchema = ReviewLabelSchema;
 export type ReviewKind = z.infer<typeof ReviewKindSchema>;
 
 /** `waiting`: for you. `changes`: you asked for changes; the role is on it. `approved`: yes, not yet
@@ -344,6 +346,12 @@ export const TeamReviewItemSchema = z.object({
   /** The hash that was approved; differs from `contentHash` once a file changes after the yes. */
   approvedHash: z.string().nullable(),
   actState: z.string(),
+  /** Free key/values ("Subject", "Due"); a renderer hint; the proposed outward action; and 'user' when
+   *  the person edited this version's text before approving (team-deliverables.ts, v52). */
+  meta: z.record(z.string(), z.string()).optional(),
+  format: DeliverableFormatSchema.nullable().optional(),
+  action: ReviewActionSchema.nullable().optional(),
+  editedBy: z.string().nullable().optional(),
 });
 export type TeamReviewItem = z.infer<typeof TeamReviewItemSchema>;
 
@@ -368,6 +376,12 @@ export const TeamReviewSummarySchema = z.object({
   channels: z.array(z.string()),
   /** The first item's account, for a message's "Sends from". */
   account: z.string().nullable(),
+  /** How the first item is drawn — the card's glyph and, with no label of the role's, its line. */
+  format: DeliverableFormatSchema.nullable().optional(),
+  /** What the batch does when it goes out — post, send, or null for nothing (`reviewVerb`). */
+  verb: z.string().nullable().optional(),
+  /** Items of this version the person edited before approving, by place (1-based). */
+  editedItems: z.array(z.number().int()).optional(),
   /** A file changed after it was approved, so the yes no longer covers it. */
   changedSinceApproval: z.boolean(),
   /** Its act tickets (Phase 3): how many outward acts the yes issued, and how many went out. */
@@ -411,6 +425,9 @@ export const TeamReviewDetailSchema = TeamReviewSummarySchema.extend({
   root: z.string().nullable(),
   /** One ticket per outward act, in batch order — what the post sheet presses (team-acts.ts). */
   tickets: z.array(ActTicketSchema).default([]),
+  /** The text of the items' text files (Markdown, CSV, a diff), by space-relative path, so a table or
+   *  a diff draws without the window reading the disk. Capped; a file past the cap is absent. */
+  fileTexts: z.record(z.string(), z.string()).optional(),
 });
 export type TeamReviewDetail = z.infer<typeof TeamReviewDetailSchema>;
 
@@ -422,7 +439,9 @@ export const TEAM_VERBS = ["made_team", "edited_team", "made_role", "edited_role
   // Phase 3: approve → act.
   "issued_tickets", "pressed", "acted", "act_failed", "cancelled_ticket", "held_acts", "resumed_acts",
   // Dynamic Teams: the kinds of record a team keeps.
-  "made_record_type", "edited_record_type", "archived_record_type", "adopted_record_type"] as const;
+  "made_record_type", "edited_record_type", "archived_record_type", "adopted_record_type",
+  // Generic deliverables: the person's own edit of an item before the yes.
+  "edited_item"] as const;
 export type TeamVerb = (typeof TEAM_VERBS)[number];
 
 export const TeamActivitySchema = z.object({

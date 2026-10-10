@@ -961,6 +961,7 @@ export function registerMethods(d: Deps): void {
   reg("team.reviewRequestChanges", (p) => d.team.requestChanges(p.id, p.note));
   reg("team.reviewDone", (p) => d.team.markDone(p.id));
   reg("team.reviewDismiss", (p) => d.team.dismiss(p.id));
+  reg("team.reviewEditItem", (p) => d.team.editItem(p.id, p.itemId, p.body));
   reg("team.records", (p) => d.team.records(space(p.spaceId), p.type));
   reg("team.record", (p) => d.team.record(space(p.spaceId), p.path));
   reg("team.recordWrite", (p) => d.team.writeRecord(space(p.spaceId), p.path, p.markdown));

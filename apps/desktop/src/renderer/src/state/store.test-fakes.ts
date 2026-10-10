@@ -1734,6 +1734,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) { s.state = "changes"; s.note = note; } }
       return r;
     },
+    teamReviewEditItem: async (id, itemId, body) => {
+      calls.push(`teamReviewEditItem:${id}:${itemId}:${body}`);
+      const r = data.teamReviews[id]!;
+      r.previous = [...r.items, ...r.previous];
+      r.version += 1;
+      r.items = r.items.map((i) => ({ ...i, id: `${i.id}-v${r.version}`, version: r.version, ...(i.id === itemId ? { body, editedBy: "user" } : {}) }));
+      return r;
+    },
     teamRecords: async (spaceId) => { calls.push(`teamRecords:${spaceId}`); return (data.teamRecords[spaceId] ?? []).map(({ markdown: _m, absPath: _a, lastAuthor: _l, ...rest }) => rest); },
     teamRecord: async (spaceId, path) => {
       calls.push(`teamRecord:${spaceId}:${path}`);

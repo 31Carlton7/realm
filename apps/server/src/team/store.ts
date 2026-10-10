@@ -1,4 +1,4 @@
-import { newId, type AgentKind, type ReviewKind, type ReviewState, type ReviewTarget, type TeamActivity, type TeamReviewItem } from "@realm/contracts";
+import { DeliverableFormatSchema, ReviewActionSchema, newId, type AgentKind, type DeliverableFormat, type ReviewAction, type ReviewKind, type ReviewState, type ReviewTarget, type TeamActivity, type TeamReviewItem } from "@realm/contracts";
 import type { Db } from "../db/database";
 import { now } from "../store/rows";
 
@@ -50,11 +50,17 @@ const toReview = (r: RawReview): ReviewRow => ({
 type RawItem = {
   id: string; review_id: string; version: number; ord: number; files_json: string; body: string | null; target_json: string | null;
   content_hash: string; approved_hash: string | null; act_state: string;
+  meta_json: string; format: string | null; action_json: string | null; edited_by: string | null;
 };
 const toItem = (r: RawItem): TeamReviewItem => ({
   id: r.id, reviewId: r.review_id, version: r.version, ord: r.ord,
   files: json<string[]>(r.files_json, []), body: r.body, target: json<ReviewTarget | null>(r.target_json, null),
   contentHash: r.content_hash, approvedHash: r.approved_hash, actState: r.act_state,
+  meta: json<Record<string, string>>(r.meta_json, {}),
+  // A hint or an action this build cannot read is no hint and no action — never a guess at one.
+  format: DeliverableFormatSchema.safeParse(r.format).data ?? null,
+  action: ReviewActionSchema.safeParse(json<unknown>(r.action_json, null)).data ?? null,
+  editedBy: r.edited_by,
 });
 
 type RawActivity = {
@@ -68,7 +74,10 @@ const toActivity = (r: RawActivity): TeamActivity => ({
 
 export type RoleInsert = Omit<RoleRow, "id" | "archived" | "sortOrder" | "createdAt" | "updatedAt">;
 export type RolePatch = Partial<Omit<RoleRow, "id" | "spaceId" | "createdAt" | "updatedAt">>;
-export type ItemInsert = { files: string[]; body: string | null; target: ReviewTarget | null; contentHash: string };
+export type ItemInsert = {
+  files: string[]; body: string | null; target: ReviewTarget | null; contentHash: string;
+  meta?: Record<string, string>; format?: DeliverableFormat | null; action?: ReviewAction | null; editedBy?: string | null;
+};
 
 /**
  * The team tables: rows only. Every rule about which change is allowed is `TeamService`'s.
@@ -190,9 +199,11 @@ export class TeamStore {
   }
 
   private insertItems(reviewId: string, version: number, items: ItemInsert[]): void {
-    const ins = this.db.prepare(`INSERT INTO team_review_items (id, review_id, version, ord, files_json, body, target_json, content_hash, approved_hash, act_state)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'none')`);
-    items.forEach((it, ord) => ins.run(newId(), reviewId, version, ord, JSON.stringify(it.files), it.body, it.target ? JSON.stringify(it.target) : null, it.contentHash));
+    const ins = this.db.prepare(`INSERT INTO team_review_items (id, review_id, version, ord, files_json, body, target_json, content_hash, approved_hash, act_state,
+        meta_json, format, action_json, edited_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'none', ?, ?, ?, ?)`);
+    items.forEach((it, ord) => ins.run(newId(), reviewId, version, ord, JSON.stringify(it.files), it.body, it.target ? JSON.stringify(it.target) : null, it.contentHash,
+      JSON.stringify(it.meta ?? {}), it.format ?? null, it.action ? JSON.stringify(it.action) : null, it.editedBy ?? null));
   }
 
   setReviewState(id: string, state: ReviewState, o: { note?: string | null; decided?: boolean } = {}): ReviewRow | null {

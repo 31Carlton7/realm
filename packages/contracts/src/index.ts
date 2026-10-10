@@ -66,6 +66,7 @@ export * from "./schedules";
 export * from "./team";
 export * from "./team-record-types";
 export * from "./team-acts";
+export * from "./team-deliverables";
 export * from "./vault";
 export * from "./team-handoffs";
 export * from "./lab";

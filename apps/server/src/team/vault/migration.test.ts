@@ -31,8 +31,10 @@ CREATE TABLE team_activity (
   detail_json TEXT NOT NULL DEFAULT '{}');-- What the sessions' activity migration (v49) reads on the way to the end of the chain.
 CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
--- What the record types' migration (v51) reads: Review's batches, by kind and record.
+-- Review's tables (v44): the record types' migration (v51) reads its batches by kind and record, and
+-- generic deliverables (v52) alters its items, on the way to the end of the chain.
 CREATE TABLE team_reviews (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, kind TEXT NOT NULL, record_path TEXT);
+CREATE TABLE team_review_items (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, target_json TEXT);
 `;
 
 function v45Home(): string {

@@ -1268,6 +1268,17 @@ CREATE TABLE IF NOT EXISTS schedules (id TEXT PRIMARY KEY);
 `;
 
 /**
+ * Review's two tables (v44) as far as a later migration reads them: record types (v51) classes a team
+ * by its reviews' kinds and records, and generic deliverables (v52) alters the items and backfills them
+ * from their reviews' kinds, so a fixture that stops after v44 without Review's tables has to hold
+ * them, as the team stub above holds `runs`. IF NOT EXISTS, likewise.
+ */
+const REVIEW_TABLES_STUB = `
+CREATE TABLE IF NOT EXISTS team_reviews (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, kind TEXT NOT NULL, record_path TEXT);
+CREATE TABLE IF NOT EXISTS team_review_items (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, target_json TEXT);
+`;
+
+/**
  * The v38 shape of what v39 touches, hand-written for the reason every fixture above is: `sessions`
  * as it stands at v38 matters only as the table `app_views` hangs off, so it is a stub holding the
  * id the foreign key needs — with a session in it, as a real home would have. `session_events` is a
@@ -1745,7 +1756,7 @@ CREATE TABLE team_roles (
   max_concurrent INTEGER NOT NULL DEFAULT 1,
   archived INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-`;
+${REVIEW_TABLES_STUB}`;
 
 /** A vault table as Phase 2's plan sketches it — what a v46 home could hold. Only its survival matters. */
 const V46_VAULT_SCHEMA = `
@@ -1850,7 +1861,7 @@ CREATE TABLE sessions (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, project_id T
   provider_cursor TEXT, rewind_fork_json TEXT, rewind_refusal TEXT);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
-`;
+${REVIEW_TABLES_STUB}`;
 
 /** Stamped up to the version BEFORE the activity column, found from the migration's own text so the
  *  fixture survives a renumbering at merge time. */
@@ -1938,6 +1949,7 @@ describe("migration — a session's activity", () => {
 describe("migrations 46–50, as the five branches that held each other's slots merged", () => {
   it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, then act tickets", () => {
     expect(migrations.filter((m) => m.trim() === "SELECT 1;")).toEqual([]);
+    // Dynamic Teams' v51+ follow; these five keep their slots.
     expect(migrations.length).toBeGreaterThanOrEqual(50);
     expect(migrations[45]).toContain("CREATE TABLE IF NOT EXISTS vault_grants");
     expect(migrations[46]).toContain("CREATE TABLE IF NOT EXISTS team_handoffs");
