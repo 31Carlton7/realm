@@ -307,7 +307,7 @@ async function main() {
   // A card names where its batch goes when it goes somewhere (the channel), and otherwise its label as written.
   check("F2 every card says its label as written, or its channel", SUBMITS.every((s) => card.some((m) => m.includes(s.label) || (s.items[0].action?.connector.startsWith("channel:") && m.includes(s.items[0].action.connector.slice(8))))), card);
   const states = await evalIn(c, `__live.qa('.rv-card .rv-state').map((m) => m.textContent)`);
-  check("F2 a batch that goes nowhere promises no post", states.filter((t) => /leaves Realm/.test(t)).length === 7 && states.filter((t) => /anything posts/.test(t)).length === 1, states);
+  check("F2 a batch that goes nowhere promises no post", states.filter((t) => /leaves Realm/.test(t)).length === 8 && states.filter((t) => /anything posts/.test(t)).length === 1, states);
 
   /* ── F3: edit the email, then approve ─────────────────────────────────────────────────────────── */
   const mail = byTitle["Reply to Dana at Acme"];
