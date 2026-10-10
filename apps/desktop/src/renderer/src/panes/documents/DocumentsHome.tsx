@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
-import { chordsForCommand, displayKeyChord, documentKindFor, type DocumentKind, type LibraryEntry } from "@realm/contracts";
+import { chordsForCommand, displayKeyChord, type DocumentKind, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { TYPE_ICON } from "../../components/FileCard";
 import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
@@ -10,7 +10,7 @@ import { useDissolve } from "../../components/ScrollFades";
 import { SEARCH_DEBOUNCE_MS, relTime } from "../../components/CommandPalette";
 import { CodeFilePrompt, NEW_KINDS, NewMenu } from "./NewMenu";
 import {
-  checkoutFileOf, folderName, homeFilesOf, identityOf, libraryDetail, matchRun, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
+  checkoutFileOf, folderName, homeFilesOf, identityOf, libraryDetail, matchRun, paneTabOf, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
 } from "./home-model";
 
 /** Rows a section shows before folding the rest: enough to read the shape of a session's work in a
@@ -126,16 +126,17 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
       else run(() => attachPaths(sessionId, [f.abs!]));
     },
   } : null);
-  /* A file inside the checkout that the pane has an editor or a page for opens HERE, as a tab. A
-     picture, a video or a sound opens in the media viewer, which is where media is looked at — with
-     this session's prompter under it — and so does anything else, a file in another space's checkout,
-     a download the user attached, an archive: the viewer every other list of files opens, which says
-     what Realm can do with it. Beside it, the home's other files the viewer would show, so ← and →
+  /* A file the pane has an editor or a page for opens HERE, as a tab — inside the checkout, or outside
+     it read-only when the pane draws it from text (`paneTabOf`): a REPORT.md in another worktree is
+     markdown, never Quick Look's grey picture of its source. A picture, a video or a sound opens in
+     the media viewer, which is where media is looked at — with this session's prompter under it — and
+     so does anything else, a PDF elsewhere, a download the user attached, an archive: the viewer every
+     other list of files opens, which says what Realm can do with it. Beside it, the home's other files the viewer would show, so ← and →
      walk the list as it reads. */
-  const inPane = (f: HomeFile) => f.rel !== null && documentKindFor(f.rel) !== "unsupported";
+  const inPane = (f: HomeFile) => paneTabOf(f) !== null;
   const opensHere = (f: HomeFile) => inPane(f) && f.type !== "image" && f.type !== "video" && f.type !== "audio";
   const open = (f: HomeFile) => {
-    if (opensHere(f)) { onOpen(f.rel!); return; }
+    if (opensHere(f)) { onOpen(paneTabOf(f)!); return; }
     if (!f.abs) return;
     const shown = [...(sections?.session ?? []), ...(sections?.library ?? []), ...(sections?.checkout ?? [])]
       .filter((x) => x.abs && !opensHere(x));

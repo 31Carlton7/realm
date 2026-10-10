@@ -209,6 +209,70 @@ describe("documents RPC — files", () => {
   });
 });
 
+/** A file a session recorded writing somewhere outside the space's folder — another worktree's report. */
+async function outsideFile(app: App, c: Awaited<ReturnType<typeof client>>, spaceId: string, text: string, record = true) {
+  const dir = tempDir("realm-elsewhere-");
+  const abs = join(dir, "REPORT.md");
+  await writeFile(abs, text);
+  if (record) {
+    const { session } = (await c.call("sessions.create", { spaceId, agentKind: "claude" })).result;
+    app.db.prepare("INSERT INTO artifacts (id, session_id, seq, kind, path, name, ext, ts) VALUES (?, ?, 1, 'output', ?, 'REPORT.md', 'md', ?)")
+      .run(`${session.id}:1:${abs}`, session.id, abs, Date.now());
+  }
+  return { dir, abs };
+}
+
+describe("documents RPC — a file outside the space the session recorded", () => {
+  it("reads it by its absolute path, and keeps it on the strip", async () => {
+    const { app, c, space, documentsId } = await setup();
+    const { abs } = await outsideFile(app, c, space.id, "# Report\n");
+    expect((await c.call("documents.read", { documentsId, path: abs })).result).toEqual({ text: "# Report\n", hash: hashText("# Report\n") });
+    const ws = (await c.call("documents.setTabs", { documentsId, openPaths: [abs], activePath: abs })).result;
+    expect(ws.openPaths).toEqual([abs]);
+    c.close();
+  });
+
+  it("refuses an outside path no session recorded, and a `..` composed onto a recorded one", async () => {
+    const { app, c, space, documentsId } = await setup();
+    const { abs: stray } = await outsideFile(app, c, space.id, "secret", false);
+    expect((await c.call("documents.read", { documentsId, path: stray })).error?.code).toBe("BAD_PATH");
+    expect((await c.call("documents.setTabs", { documentsId, openPaths: [stray], activePath: stray })).error?.code).toBe("BAD_PATH");
+    const { dir } = await outsideFile(app, c, space.id, "recorded");
+    expect((await c.call("documents.read", { documentsId, path: `${dir}/../${dir.split("/").pop()}/REPORT.md` })).error?.code).toBe("BAD_PATH");
+    c.close();
+  });
+
+  /** The boundary: the pane reads a recorded outside file, and never writes, makes or renames one. */
+  it("never writes, creates or renames outside the space, recorded or not", async () => {
+    const { app, c, space, documentsId } = await setup();
+    const { dir, abs } = await outsideFile(app, c, space.id, "the agent's report");
+    const read = (await c.call("documents.read", { documentsId, path: abs })).result;
+    expect((await c.call("documents.write", { documentsId, path: abs, text: "overwritten", baseHash: read.hash })).error?.code).toBe("BAD_PATH");
+    expect((await c.call("documents.createFile", { documentsId, path: join(dir, "new.md"), kind: "doc", title: "x" })).error?.code).toBe("BAD_PATH");
+    expect((await c.call("documents.renameFile", { documentsId, from: abs, to: join(dir, "moved.md") })).error?.code).toBe("BAD_PATH");
+    expect(await readFile(abs, "utf8")).toBe("the agent's report");
+    c.close();
+  });
+
+  it("says when the outside file is too large or not text", async () => {
+    const { app, c, space, documentsId } = await setup();
+    const { abs } = await outsideFile(app, c, space.id, "x".repeat(3 * 1024 * 1024));
+    expect((await c.call("documents.read", { documentsId, path: abs })).error?.code).toBe("TOO_LARGE");
+    c.close();
+  });
+
+  it("broadcasts an outside edit to the open outside tab, by its absolute path", async () => {
+    const { app, c, env, space, documentsId } = await setup();
+    const { abs } = await outsideFile(app, c, space.id, "v1");
+    await c.call("documents.setTabs", { documentsId, openPaths: [abs], activePath: abs });
+    await writeFile(abs, "rewritten by the agent");
+    await waitFor(() => c.events.some((e) => e.event === "documents.fileChanged"));
+    expect(c.events.find((e) => e.event === "documents.fileChanged").payload)
+      .toEqual({ environmentId: env.id, path: abs, hash: hashText("rewritten by the agent") });
+    c.close();
+  });
+});
+
 describe("documents RPC — live reload", () => {
   it("broadcasts an outside edit to an open document", async () => {
     const { c, env, documentsId, root } = await setup();

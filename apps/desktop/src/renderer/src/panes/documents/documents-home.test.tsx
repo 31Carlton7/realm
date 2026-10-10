@@ -126,6 +126,65 @@ describe("the documents home", () => {
     expect(api.calls.some((c) => c.startsWith("readDocument:"))).toBe(false);
   });
 
+  it("opens a markdown file the session wrote OUTSIDE the space in the pane, rendered and read-only", async () => {
+    /* The report: a REPORT.md in another worktree opened as Quick Look's grey picture of its source.
+       THE MUTANTS: route an outside file to the viewer again (a dialog, no read), or open it editable
+       (a toolbar, a contenteditable surface, a rename button, a "Saved" that claims a write). */
+    const report = "/Users/ada/work/other-worktree/.verify/tool-rejection/REPORT.md";
+    const { api } = await mount({ artifacts: [art("a1", "lead", report, 100)], files: { [report]: "# Tool rejection\n\nThe card **lands**.\n" } });
+    await screen.findByRole("region", { name: "This session" });
+    fireEvent.click(rowFor("REPORT.md"));
+    await waitFor(() => expect(api.calls).toContain(`readDocument:docs1:${report}`));
+    expect(await screen.findByRole("tab", { name: /^REPORT/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const surface = await waitFor(() => {
+      const el = document.querySelector(".documents-editor .ProseMirror");
+      if (!el?.querySelector("h1")) throw new Error("not drawn yet");
+      return el;
+    });
+    expect(surface.querySelector("h1")!.textContent).toBe("Tool rejection");
+    expect(surface.getAttribute("contenteditable")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+    expect(screen.getByText("Outside this space · read-only")).toBeTruthy();
+    expect(screen.getByText("~/work/other-worktree/.verify/tool-rejection")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show in Finder" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Read-only");
+    expect(document.querySelector("button.documents-name")).toBeNull();
+  });
+
+  it("opens source the session wrote outside the space highlighted and read-only, and never writes it", async () => {
+    // THE MUTANT: a CodeEditor built without its read-only facets — the edit lands and autosaves.
+    const script = "/Users/ada/work/other-worktree/apps/desktop/scripts/teams-vault-live.mjs";
+    const { api, ui } = await mount({ artifacts: [art("a1", "lead", script, 100)], files: { [script]: "export const a = 1;\n" } });
+    await screen.findByRole("region", { name: "This session" });
+    fireEvent.click(rowFor("teams-vault-live.mjs"));
+    const view = await waitFor(() => {
+      const el = ui.container.querySelector(".cm-editor") as HTMLElement | null;
+      const v = el ? EditorView.findFromDOM(el) : null;
+      if (!v) throw new Error("no editor yet");
+      return v;
+    });
+    expect(view.state.readOnly).toBe(true);
+    expect(view.state.doc.toString()).toBe("export const a = 1;\n");
+    expect(screen.getByText("Outside this space · read-only")).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 800));
+    expect(api.calls.some((c) => c.startsWith("writeDocument:"))).toBe(false);
+  });
+
+  it("says in the pane why an outside file cannot be shown, never an empty editor", async () => {
+    // Recorded, then gone from disk. THE MUTANT: the read's failure left to an error far from the row.
+    const gone = "/Users/ada/work/other-worktree/NOTES.md";
+    await mount({ artifacts: [art("a1", "lead", gone, 100)] });
+    await screen.findByRole("region", { name: "This session" });
+    fireEvent.click(rowFor("NOTES.md"));
+    const note = await waitFor(() => { const n = document.querySelector(".documents-unshown"); if (!n) throw new Error("no note"); return n; });
+    expect(note.textContent).toContain("NOTES.md could not be read");
+    expect(within(note as HTMLElement).getByRole("button", { name: "Show in Finder" })).toBeTruthy();
+    expect(within(note as HTMLElement).getByRole("button", { name: "Open with the default app" })).toBeTruthy();
+    expect(document.querySelector(".documents-editor")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("opens a picture in the media viewer even inside the checkout, asked about in this session", async () => {
     /* Media is looked at in the viewer, with the session's prompter under it — a tab of Quick Look's
        render of a screenshot was the one way a picture opened without it. The pane is still a click

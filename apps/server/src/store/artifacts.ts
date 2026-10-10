@@ -166,6 +166,17 @@ export class ArtifactsStore {
     return r.n;
   }
 
+  /**
+   * Whether a session made or was given this exact path, or a person added it to the Library — the
+   * files the documents pane lists, and so the only files outside a space's folder it will READ
+   * (`DocumentService.read`). Matched as recorded: a row is only ever a path some session or person
+   * named, never one a caller composed.
+   */
+  records(path: string): boolean {
+    return this.db.prepare("SELECT 1 FROM artifacts WHERE path = ? UNION ALL SELECT 1 FROM library_files WHERE path = ? LIMIT 1")
+      .get(path, path) !== undefined;
+  }
+
   readCursor(): { done: number; target: number } | null {
     const v = this.settings.get(ARTIFACTS_BACKFILL_KEY);
     if (!v || typeof v !== "object") return null;

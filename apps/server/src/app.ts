@@ -749,7 +749,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
-  const documents: DocumentService = new DocumentService({ db, rpc, spaces, items, environments, documents: new DocumentsStore(db), preview });
+  const documents: DocumentService = new DocumentService({
+    db, rpc, spaces, items, environments, documents: new DocumentsStore(db), preview,
+    // Late-bound like `preview`: the index is built further down, and is asked only once a pane reads.
+    recorded: (abs) => artifacts.records(abs),
+  });
   // W2: the one slice of the spaces/profiles world the scoped services (skills, MCP, memory) may see.
   // A seam rather than the store so each service declares exactly the questions it asks.
   const scopeSeam = {
