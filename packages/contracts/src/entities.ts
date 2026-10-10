@@ -74,7 +74,7 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  that looks a session's item up can be handed its tab instead.
  *  `app-view` (v2) is a view an MCP server drew for one tool call (MCP Apps), opened as a tab of its
  *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "you-page"]);
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "you-page", "review"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -360,11 +360,13 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
  * Plan 16 W3's "Fork from here" — `sessionId` is the ANCESTOR session the fork carried context from,
  * which that fork leaves byte-untouched; `import` is a transcript carried in from an agent CLI's own
  * store (`ImportService`), whose `sessionId` is null because nothing dispatched it — it already
- * existed. A session the user created normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is
+ * existed; `session_open` is a session an agent opened beside itself for the USER to work in
+ * (`realm-workspace`'s tool) — `sessionId` is that agent's, and the session is nobody's child: it has
+ * a pane and a row of its own, and reports to no one. A session the user created normally has no dispatch origin at all (`dispatchedBy: null`), which is why this is
  * nullable rather than having a "user" member: absence IS the ordinary case, and no backfill invents
  * one.
  */
-export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork", "import", "run"]);
+export const DispatchKindSchema = z.enum(["agent_run", "browser_agent_run", "user-dispatch", "review", "fork", "import", "run", "session_open"]);
 export type DispatchKind = z.infer<typeof DispatchKindSchema>;
 export const DispatchedBySchema = z.object({
   /** The delegating session, or null for an origin with no parent agent (`user-dispatch`). */
@@ -409,6 +411,14 @@ export const SessionSchema = z.object({
   /** Set when a delegation tool (or W2's dispatch gesture) created this session; null for every
    *  session the user created themselves. Recorded at creation, never rewritten. */
   dispatchedBy: DispatchedBySchema.nullable(),
+  /**
+   * When the conversation last moved: a prompt went out, or the agent answered or finished a turn.
+   * What every list of sessions is ordered by.
+   *
+   * Not `updatedAt`, which moves on every write to the row — a resume's init, a status, a cursor, a
+   * rename — and so moved a row just for being opened. Nothing a reader does moves this one.
+   */
+  activityAt: z.number().int(),
   ...Timestamps,
 });
 export type Session = z.infer<typeof SessionSchema>;
@@ -431,5 +441,10 @@ export const QueuedPromptSchema = z.object({
   text: z.string(),
   attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
   ts: z.number(),
+  /** Someone is editing it (`sessions.holdQueued`): the queue will not send it, nor anything behind
+   *  it, until the edit is saved or let go. Every window draws it, so a second window shows the hold
+   *  rather than offering a Send now the server would only have to refuse. Defaulted, so a payload
+   *  from before the field still parses. */
+  held: z.boolean().default(false),
 });
 export type QueuedPrompt = z.infer<typeof QueuedPromptSchema>;

@@ -31,6 +31,9 @@ export function PageOverlay() {
   const page = useApp((s) => s.pageOverlay);
   const close = useApp((s) => s.closePageOverlay);
   const sidebarGone = useApp(sidebarHidden);
+  // A space's page — its Overview, or its team, a role, a record — is named for the space in the bar,
+  // as a session's crumb is: "Overview" over a team's role page named the tab, not the place.
+  const spaceName = useApp((s) => (page?.kind === "space-page" ? s.spaces.find((sp) => sp.id === page.spaceId)?.name : undefined));
   const cut = useArrivesWithSidebar(page !== null, sidebarGone);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -50,18 +53,19 @@ export function PageOverlay() {
 
   const item = useMemo(() => (page ? pageItemOf(page) : null), [page]);
   if (!page || !item) return null;
+  const label = spaceName ?? PAGE_LABEL[page.kind] ?? "Page";
 
   return (
     // Not `aria-modal`: the rail and the sidebar stay live beside it, and a page's own sections may be
     // drawn in the sidebar's column (page-nav.tsx) — a modal claim would hide them from a screen reader.
-    <div className="page-overlay" role="dialog" aria-label={PAGE_LABEL[page.kind] ?? "Page"} ref={ref} tabIndex={-1}
+    <div className="page-overlay" role="dialog" aria-label={label} ref={ref} tabIndex={-1}
       data-cut={cut || undefined}>
       {/* The page's name and nothing else. A page is a destination, left the way it was reached — the
           sidebar or the rail beside it — or with Escape. A × here was one more way out, at the far
           end of the bar from the ones the page was reached by. */}
       <header className="page-overlay-bar">
         <Icon name={page.kind} size={14} className="page-overlay-mark" />
-        <span className="page-overlay-title">{PAGE_LABEL[page.kind] ?? "Page"}</span>
+        <span className="page-overlay-title">{label}</span>
       </header>
       <div className="page-overlay-body">
         <InPageOverlay value={true}><PaneFor item={item} visible focused /></InPageOverlay>

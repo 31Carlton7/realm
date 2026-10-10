@@ -109,7 +109,10 @@ describe("SessionPane", () => {
     const card = tool.closest(".tool-card") as HTMLElement;
     expect(card.querySelector(".cmd-line code")).toHaveTextContent("ls -la");
     expect(screen.getAllByText(/"command": "ls -la"/).length).toBeGreaterThanOrEqual(1); // the permission card still shows the raw details
-    expect(screen.getByLabelText("running")).toBeInTheDocument(); // no result yet while the session is live
+    // No result yet, and the agent is blocked on THIS call's permission: the row says so rather than
+    // spinning like work in progress, and the decision stays in the card at the foot.
+    expect(screen.getByLabelText("waiting for you")).toBeInTheDocument();
+    expect(card.querySelector(".tool-meta")).toHaveTextContent("Waiting for you");
   });
 
   it("empty transcript is the HERO prompter: a greeting and the card, and nothing else", async () => {
@@ -417,9 +420,10 @@ describe("SessionPane", () => {
       sessionEvent("error", { message: "OAuth session expired" }),
     ]));
     expect(screen.queryByLabelText("running")).toBeNull();
-    expect(screen.getByLabelText("no result")).toBeInTheDocument();
+    expect(screen.getByLabelText("stopped")).toBeInTheDocument();
+    expect(document.querySelector(".tool-meta")).toHaveTextContent("Stopped");
     expect(screen.getByRole("alert")).toHaveTextContent("OAuth session expired");
-    expect(screen.getByText("/a/b.ts")).toBeInTheDocument();
+    expect(screen.getByTitle("/a/b.ts")).toHaveTextContent("/a/b.ts");
   });
 
   it("puts the command that fixes an auth failure under the message that reports it", async () => {
@@ -530,6 +534,18 @@ describe("reading a session by opening it", () => {
     expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
     expect(store.getState().sessions["se1"]!.seenSeq).toBe(2);
     rerender(true);
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
+  });
+
+  it("a focused pane in a window nobody is looking at reads nothing — until the window comes back", async () => {
+    // THE MUTANTS: the effect without `windowActive` in its condition (it reads behind another app), or
+    // without it in its dependencies (coming back never reads, and the dot stays on a session on screen).
+    const { api, store, rerender } = await mountAt(false);
+    act(() => store.getState().setWindowActive(false));
+    rerender(true);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
+    act(() => store.getState().setWindowActive(true));
     await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
   });
 });
@@ -923,32 +939,27 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
       delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
     });
 
-    it("an overflowing row folds the permission chip into the model menu instead of wrapping", async () => {
-      // Effort no longer collapses — it LIVES in the menu — so permission is the one chip left
-      // with somewhere to fold to.
+    it("a row that runs short keeps the permission chip on it — the mode is never folded away", async () => {
+      // THE mutant: the old fold, which took "Full access" off the row of every narrow pane and put it
+      // one click deep in the model menu. The row now yields its model name instead (styles.css).
       stageWidths(700, 500);
-      const { store } = await mountFresh();
-      expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
-      expect(document.querySelector(".composer-opts")).toHaveAttribute("data-collapsed");
-      // …and it lives in the model menu as a labelled group, with working handlers.
+      const { store } = await mountFresh({ permissionMode: "bypassPermissions" });
+      const chip = screen.getByRole("button", { name: "Permission mode" });
+      expect(chip).toHaveTextContent("Full access");
+      expect(chip).toHaveAttribute("data-warning");
+      expect(document.querySelector(".composer-opts")).not.toHaveAttribute("data-collapsed");
       openPicker();
-      const perms = screen.getByRole("group", { name: "Permissions" });
-      fireEvent.click(within(perms).getByRole("button", { name: "Accept edits" }));
-      await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
-      await exited();
-      // A setting on the picker's card like the rest: choosing it leaves the picker open.
-      expect(screen.getByRole("dialog", { name: "Model picker" })).not.toHaveAttribute("data-closing");
+      expect(screen.queryByRole("group", { name: "Permissions" })).toBeNull();
+      expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions");
     });
 
-    it("bypassPermissions from the collapsed menu still goes through the inline confirm (U-M7)", async () => {
+    it("the chip carries a short word for a narrow pane beside its long one, and its tooltip names the mode whole", async () => {
       stageWidths(700, 500);
-      const { api, store } = await mountFresh();
-      openPicker();
-      fireEvent.click(within(screen.getByRole("group", { name: "Permissions" })).getByRole("button", { name: "Full access" }));
-      // Nothing transmitted yet — the confirm chip on the row is still the only path in.
-      expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
-      fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
-      await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+      await mountFresh({ permissionMode: "acceptEdits" });
+      const chip = screen.getByRole("button", { name: "Permission mode" });
+      expect(chip.querySelector(".perm-long")).toHaveTextContent("Accept edits");
+      expect(chip.querySelector(".perm-short")).toHaveTextContent("Edits");
+      expect(chip).toHaveAttribute("title", "Permission mode: Accept edits");
     });
 
     it("a row that fits keeps the permission chip; the menu carries only its permanent effort track", async () => {

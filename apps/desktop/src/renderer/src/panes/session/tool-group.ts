@@ -1,6 +1,6 @@
 import { bareToolName } from "@realm/contracts";
 import { blockKey, type Block } from "./transcript-model";
-import { toolSummary } from "./tool-summary";
+import { clip, editStat, editTarget, readTarget, resultEditStat, toolSummary, toolVerb, type EditStat } from "./tool-summary";
 
 export type ToolBlock = Extract<Block, { kind: "tool" }>;
 
@@ -24,10 +24,9 @@ const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegati
  *  two consecutive calls already read as a run, so only a lone tool call stays inline. */
 export const GROUP_MIN = 2;
 
-/** Tools whose summary is the path they touched, and tools that run a command. Kept here rather than
- *  imported from tool-summary's switch so that widening one does not silently widen the other. */
+/** Tools whose summary is the path they touched. Kept here rather than imported from tool-summary's
+ *  switch so that widening one does not silently widen the other. */
 const FILE_TOOLS = new Set(["Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"]);
-const COMMAND_TOOLS = new Set(["Bash", "exec_command"]);
 
 /** A tool call together with the calls a sub-agent made underneath it.
  *
@@ -143,25 +142,75 @@ export function withEnter(nodes: readonly ToolNode[], isEntering: (key: string) 
   return nodes.map((n) => ({ key: n.key, block: n.block, enter: isEntering(n.key), nested: withEnter(n.nested, isEntering) }));
 }
 
-export type ToolRunSummary = { tools: number; files: number; commands: number; durationMs: number };
+export type ToolRunSummary = {
+  tools: number; files: number; commands: number; durationMs: number;
+  /** What the run did, by kind of act: the head names the work, not only how long it took. */
+  reads: number; edits: number; searches: number;
+  /** The run's edits, summed off the same diffs each row counts. */
+  add: number; del: number;
+  /** Calls whose result was an error. The one count the head may never drop. */
+  failed: number;
+  /** The call still in flight, as its row says it ("Run pnpm test"), or null once nothing is. */
+  liveStep: string | null;
+};
+
+/** Each settled call's counts, by the block object itself: a settled block keeps its identity across
+ *  renders, so a run's head re-derives no diff behind a streaming answer. */
+const STATS = new WeakMap<ToolBlock, EditStat | null>();
+const statOf = (b: ToolBlock): EditStat | null => {
+  if (STATS.has(b)) return STATS.get(b)!;
+  const s = editStat(b.name, b.input) ?? resultEditStat(b);
+  STATS.set(b, s);
+  return s;
+};
+
+/** A call as its row names it, in one line: the verb, then the file's name or the object. */
+const stepLine = (b: ToolBlock): string => {
+  const path = editTarget(b)?.path ?? readTarget(b);
+  const object = path ? path.slice(path.lastIndexOf("/") + 1) : clip(toolSummary(b.name, b.input), 60);
+  return object ? `${toolVerb(b.name, b.toolKind)} ${object}` : toolVerb(b.name, b.toolKind);
+};
 
 /** Counts behind the collapsed line. `files` is distinct paths — an agent reading the same file four
  *  times edited one file, and saying "4 files" would be a lie. */
 export function summarizeToolRun(blocks: readonly ToolBlock[]): ToolRunSummary {
   const files = new Set<string>();
-  let commands = 0;
+  let commands = 0, reads = 0, edits = 0, searches = 0, add = 0, del = 0, failed = 0;
+  let live: ToolBlock | null = null;
   for (const b of blocks) {
     if (FILE_TOOLS.has(b.name)) { const p = toolSummary(b.name, b.input); if (p) files.add(p); }
-    if (COMMAND_TOOLS.has(b.name)) commands++;
+    const verb = toolVerb(b.name, b.toolKind);
+    if (verb === "Run") commands++;
+    else if (verb === "Read") reads++;
+    else if (verb === "Edit" || verb === "Write") {
+      edits++;
+      const s = statOf(b);
+      if (s) { add += s.add; del += s.del; }
+    } else if (verb === "Search" || verb === "Find files" || verb === "Search web") searches++;
+    if (b.result?.isError) failed++;
+    if (!b.result) live = b;
   }
   // The span is min→max rather than first→last: a sub-agent's calls are counted in here and they
   // ran CONCURRENTLY with the parent's, so the last call in tree order is not the last to happen.
   let lo = Infinity, hi = -Infinity;
   for (const b of blocks) { lo = Math.min(lo, b.ts); hi = Math.max(hi, b.ts); }
-  return { tools: blocks.length, files: files.size, commands, durationMs: blocks.length ? Math.max(0, hi - lo) : 0 };
+  return { tools: blocks.length, files: files.size, commands, durationMs: blocks.length ? Math.max(0, hi - lo) : 0,
+    reads, edits, searches, add, del, failed, liveStep: live ? stepLine(live) : null };
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : word.endsWith("h") ? "es" : "s"}`;
+
+/** The settled head's work, as parts in reading order — "4 reads", "2 edits", "3 commands" — with
+ *  the zero ones dropped. The edits' +/− and the failures are drawn beside these by the head itself,
+ *  because one is coloured and the other may never be cut. */
+export function runWork(s: ToolRunSummary): { reads: string | null; edits: string | null; searches: string | null; commands: string | null } {
+  return {
+    reads: s.reads ? plural(s.reads, "read") : null,
+    edits: s.edits ? plural(s.edits, "edit") : null,
+    searches: s.searches ? plural(s.searches, "search") : null,
+    commands: s.commands ? plural(s.commands, "command") : null,
+  };
+}
 
 /** The `Worked for <this>` half of the collapsed ledger row (Ara refresh §4): "<1s", "42s",
  *  "6m 12s", "1h 4m". A settled sub-second run says "<1s" rather than the lie "0s". Seconds drop
@@ -177,7 +226,7 @@ export function formatDuration(ms: number): string {
 }
 
 /** "18 tools · 5 files · 2 commands · 6m 12s" — zero-valued parts drop out entirely. */
-export function formatToolRun(s: ToolRunSummary): string {
+export function formatToolRun(s: Pick<ToolRunSummary, "tools" | "files" | "commands" | "durationMs">): string {
   const parts = [plural(s.tools, "tool")];
   if (s.files > 0) parts.push(plural(s.files, "file"));
   if (s.commands > 0) parts.push(plural(s.commands, "command"));

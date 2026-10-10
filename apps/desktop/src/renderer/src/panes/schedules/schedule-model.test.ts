@@ -10,7 +10,7 @@ const DAY = 86_400_000;
 const schedule = (over: Partial<Schedule> = {}): Schedule => ({
   id: "sch1", spaceId: "s1", title: "Morning triage", goal: "read the new issues", cron: "0 9 * * *", enabled: true,
   constraints: null, nextRunAt: now + DAY, lastRunAt: null, lastRunId: null, lastSkippedAt: null,
-  newSessionPerRun: true, archiveSucceeded: false, createdAt: 1, updatedAt: 1, ...over,
+  newSessionPerRun: true, archiveSucceeded: false, roleId: null, createdAt: 1, updatedAt: 1, ...over,
 });
 
 describe("reading a moment", () => {

@@ -149,6 +149,17 @@ export class DelegationEngine {
   }
 
   /**
+   * Nobody is blocked on this run any more — its caller went away mid-wait — but it is still running
+   * under its own deadline. It becomes what an `agent_start` run is: invisible to `hasRun`, and held
+   * for `agent_wait` to collect once it settles.
+   */
+  detach(run: ActiveRun): void {
+    if (run.detached) return;
+    run.detached = true;
+    this.announce(run.parentSessionId);
+  }
+
+  /**
    * The run is over (any outcome) — always called from the tool's `finally`.
    *
    * Omitting `run` removes ALL of the parent's runs, which is what `release` (the parent session was
@@ -214,12 +225,20 @@ export class DelegationEngine {
    * Polls `run.done` rather than racing the `settled` promises so that `mode: "any"` does not have to
    * abandon promises it is no longer interested in, and so a run that settled BEFORE this call (the
    * common case: fire three, do other work, collect) resolves on the first pass with no wait at all.
+   *
+   * `onTick` is called on every pass that is still waiting — what the waiting tool reports as its
+   * progress, so a long wait is never silent on the wire. `signal` is the caller's own cancellation:
+   * once it aborts nobody is listening, and the wait returns `aborted` on the next pass, leaving every
+   * run exactly as it was.
    */
-  async awaitRuns(runs: ActiveRun[], mode: "all" | "any", deadline: number, pollMs: number): Promise<"settled" | "timeout"> {
+  async awaitRuns(runs: ActiveRun[], mode: "all" | "any", deadline: number, pollMs: number,
+    opts: { onTick?: () => void; signal?: AbortSignal } = {}): Promise<"settled" | "timeout" | "aborted"> {
     if (runs.length === 0) return "settled";
     const satisfied = (): boolean => mode === "all" ? runs.every((r) => r.done !== null) : runs.some((r) => r.done !== null);
     for (;;) {
       if (satisfied()) return "settled";
+      if (opts.signal?.aborted) return "aborted";
+      opts.onTick?.();
       // A cancelled run whose drain has returned is `done`; one whose parent was interrupted mid-poll
       // resolves on the next pass. Either way the loop below is what notices, so there is no separate
       // cancellation branch here.
@@ -303,9 +322,17 @@ export class DelegationEngine {
    * The adapter's start-of-life `idle` (emitted before the turn begins) cannot settle it, because no
    * assistant_text exists yet; a turn that is still running cannot either, because its last status
    * is `running`/`waiting_permission` until the adapter closes the turn.
+   *
+   * **The budget is working time.** While the child is `waiting_permission` it is waiting on the user,
+   * not working, so the clock stops: the span is added to the deadline once the child moves on, and a
+   * child held on a prompt is never timed out for it. Interrupting a child for something the user did
+   * (or has not yet done) would be blaming it for the wait. A child can therefore sit on a prompt
+   * indefinitely — the user owns that wait, and the lead's interrupt or deletion still ends it.
    */
-  async drain(childId: string, fromSeq: number, run: ActiveRun, deadline: number, pollMs: number): Promise<SettledRun> {
+  async drain(childId: string, fromSeq: number, run: ActiveRun, deadline: number, pollMs: number, onTick?: () => void): Promise<SettledRun> {
     let last = fromSeq;
+    // When the child started waiting on the user, while it still is.
+    let pausedSince: number | null = null;
     let lastStatus: string | null = null;
     let finalText: string | null = null;
     // Whether the child's last status said a person pressed stop — taken from the SAME event as the
@@ -336,10 +363,15 @@ export class DelegationEngine {
       if (lastStatus === "idle" && stopped) return { outcome: "stopped", finalText, lastStatus };
       if (lastStatus === "idle" && finalText !== null) return { outcome: "done", finalText, lastStatus };
       if (lastStatus === "error" || lastStatus === "ended") return { outcome: "failed", finalText, lastStatus };
-      if (Date.now() >= deadline) {
+      if (lastStatus === "waiting_permission") pausedSince ??= Date.now();
+      else if (pausedSince !== null) { const span = Date.now() - pausedSince; deadline += span; run.pausedMs = (run.pausedMs ?? 0) + span; pausedSince = null; }
+      // Kept on the run as well, so the lead's Agents tab can say how much of the budget is spent.
+      run.pausedSince = pausedSince;
+      if (pausedSince === null && Date.now() >= deadline) {
         void this.d.sessions.interrupt(childId).catch(() => { /* best effort — it may have just ended */ });
         return { outcome: "timeout", finalText, lastStatus };
       }
+      onTick?.();
       await sleep(pollMs);
     }
   }
@@ -369,6 +401,10 @@ export type ActiveRun = {
   startedAt: number;
   interruptOnCancel: boolean;
   detached: boolean;
+  /** The time the child has spent waiting on the user and is not charged for, as `drain` has seen
+   *  it: the closed spans, and the open one's start while it is still waiting. */
+  pausedMs?: number;
+  pausedSince?: number | null;
   settled: Promise<SettledRun> | null;
   done: SettledRun | null;
 };
@@ -383,5 +419,12 @@ export type SettledAsk = {
   outcome: "answered" | "replied" | "cancelled" | "timeout" | "failed" | "gone";
   answer: string | null; lastStatus: string | null;
 };
+
+/** How much of its budget a run has spent by `now`: the time since it began, less the time it spent
+ *  waiting on the user. */
+export function workingMs(run: ActiveRun, now: number): number {
+  const open = run.pausedSince != null ? now - run.pausedSince : 0;
+  return Math.max(0, now - run.startedAt - (run.pausedMs ?? 0) - open);
+}
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

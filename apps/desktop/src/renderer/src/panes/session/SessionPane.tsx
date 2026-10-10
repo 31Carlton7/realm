@@ -12,7 +12,7 @@ import { spaceIsPlainFolder, useApp, type PickedAttachment } from "../../state/s
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
-import { Composer } from "./Composer";
+import { Composer, type QueueActions } from "./Composer";
 import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
@@ -234,6 +234,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const planLimits = useApp((s) => s.planLimits.find((r) => r.agentKind === s.sessions[id]?.agentKind) ?? null);
   const refreshSessionQueue = useApp((s) => s.refreshSessionQueue);
   const releaseQueuedPrompt = useApp((s) => s.releaseQueuedPrompt);
+  const beginQueuedEdit = useApp((s) => s.beginQueuedEdit);
+  const cancelQueuedEdit = useApp((s) => s.cancelQueuedEdit);
+  const saveQueuedEdit = useApp((s) => s.saveQueuedEdit);
   const dequeuePrompt = useApp((s) => s.dequeuePrompt);
   const retryLastTurn = useApp((s) => s.retryLastTurn);
   const rateMessage = useApp((s) => s.rateMessage);
@@ -251,14 +254,24 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const openPeek = useApp((s) => s.openPeek);
   const run = useApp((s) => s.run);
   const markSessionSeen = useApp((s) => s.markSessionSeen);
+  /* Stable, so the queue's rows are not handed a new set of callbacks on every keystroke of the draft. */
+  const queueActions = useMemo<QueueActions>(() => ({
+    onRelease: (queuedId) => run(() => releaseQueuedPrompt(id, queuedId)),
+    onDrop: (queuedId) => run(() => dequeuePrompt(id, queuedId)),
+    onBeginEdit: (queuedId) => beginQueuedEdit(id, queuedId).catch(() => false),
+    onSaveEdit: (queuedId, text) => run(() => saveQueuedEdit(id, queuedId, text)),
+    onCancelEdit: (queuedId) => run(() => cancelQueuedEdit(id, queuedId)),
+  }), [id, run, releaseQueuedPrompt, dequeuePrompt, beginQueuedEdit, saveQueuedEdit, cancelQueuedEdit]);
   const transcript = entry?.t ?? emptyTranscript();
   /* Having the pane with the keyboard IS reading it. `applySessionEvent` stamps what arrives while the
      pane is focused; this stamps what was already here when the focus did. Without it a session
      opened to read its news kept the unread ring — and its row in every list of what needs you —
      until it said something new. Unfocused, nothing: a pane restored behind another one has been
-     opened, not read. */
+     opened, not read. Nor in a window nobody is looking at — and coming back to the window is when
+     the focused pane is read, so the effect runs again then. */
   const readTo = entry?.lastSeq ?? 0;
-  useEffect(() => { if (focused && readTo > 0) void run(() => markSessionSeen(id)); }, [focused, readTo, id, markSessionSeen, run]);
+  const windowActive = useApp((s) => s.windowActive);
+  useEffect(() => { if (focused && windowActive && readTo > 0) void run(() => markSessionSeen(id)); }, [focused, windowActive, readTo, id, markSessionSeen, run]);
   // Store-owned, keyed by session id (A-M9): layout reshapes/remounts never lose typed text, and a
   // suggestion chip in the empty state can fill the draft without sending it. The pane only WRITES it;
   // the composer reads it (`DraftedComposer`), so a keystroke re-renders the composer and not this.
@@ -400,7 +413,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const reprobe = useCallback(() => { run(() => probeAgents(true)); }, [probeAgents, run]);
   // Sends from THIS prompter, counted so the transcript can pin to the bottom on each one. Counted
   // here rather than off the transcript's own growth because only the prompter's send carries the
-  // intent: ⌘⇧↩ dispatches the draft into a NEW session (store.dispatchDraft, bound in hotkeys.ts)
+  // intent: ⌘⇧↩ dispatches the draft into a NEW session (store.dispatchDraft, bound in the keymap, keys/)
   // and must leave this scroller exactly where the reader parked it.
   const [sends, setSends] = useState(0);
   /* A passage quoted out of the transcript, on its way to the prompter. Held HERE because the two
@@ -496,8 +509,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const ensureIcons = useCallback((paths: readonly string[]) => { void ensureAppIcons(paths); }, [ensureAppIcons]);
   const addRef = useCallback((ref: UnlabelledRef, candidates: readonly string[]) => addMentionRef(id, ref, candidates), [id, addMentionRef]);
   const cwd = session?.cwd ?? "";
-  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef }),
-    [cwd, macSkill, installedApps, appIcons, accessibility, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef]);
+  // A team space's roles: `@Creator Manager` wakes one as this session's sub-agent.
+  const teamRoles = useApp((st) => (session ? st.teams[session.spaceId]?.roles : undefined));
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [] }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
      when the transcript first carries them. */
   const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),
@@ -701,13 +716,13 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             goal={<GoalStrip goal={goal}
               onPause={() => run(() => setGoalStatus(id, "paused", "You paused it."))}
               onResume={() => run(() => resumeGoal(id))}
-              onDrop={() => run(() => clearGoal(id))} />}
+              onDrop={() => run(() => clearGoal(id))}
+              onDone={() => run(() => setGoalStatus(id, "complete", "Marked done by you."))} />}
             sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
             mentions={mentionSources} refs={draftRefs} selectInRealm={selectInRealm}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}
-            onReleaseQueued={(queuedId) => run(() => releaseQueuedPrompt(id, queuedId))}
-            onDropQueued={(queuedId) => run(() => dequeuePrompt(id, queuedId))} />}
+            queueActions={queueActions} />}
       {/* Last child and BELOW the prompter's dock, so the glow passes under the card exactly as the
           transcript does — an affordance that blurred across the prompter would be the fade band's
           old bug wearing a different colour. Decorative: the drop is announced by what it does. */}

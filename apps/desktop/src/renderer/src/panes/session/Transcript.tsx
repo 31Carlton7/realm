@@ -13,10 +13,10 @@ import { sourcesFor, type Source } from "./message-sources";
 import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion } from "./QuestionCard";
-import { ToolCard, ToolCwd, ToolGroup } from "./ToolCard";
+import { ToolCard, ToolCwd, ToolGroup, ToolWaiting } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, goalTurnLabel, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { blockKey, goalTurnLabel, lastUserMessage, waitingToolIds, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
 import { EditSummary } from "./EditSummary";
@@ -68,11 +68,14 @@ const inCardOrder = (c: TurnChanges, card: TurnEdits): TurnChanges => {
   return { ...c, files: card.files.map((f) => byPath.get(f.shown)).filter((f): f is TurnChanges["files"][number] => f !== undefined) };
 };
 
-function Thinking({ text, enter }: { text: string; enter?: boolean }) {
+/** `live` is a block the agent may still be writing: the last thing in a turn that is running. Any
+ *  other says it in the past tense — an interrupted turn's open block read "Thinking…" between two
+ *  finished runs, an ellipsis promising more from a turn that had long since stopped. */
+function Thinking({ text, enter, live }: { text: string; enter?: boolean; live: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="msg-thinking" data-enter={enter || undefined}>
-      <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={12} /><span>Thinking…</span></button>
+      <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={12} /><span>{live ? "Thinking…" : "Thought"}</span></button>
       {open && <Markdown text={text} className="thinking-body" />}
     </div>
   );
@@ -99,6 +102,7 @@ const NO_APP_ICONS: Readonly<Record<string, string | null>> = {};
 const NO_SOURCES: readonly Source[] = [];
 const NO_PROMPTS: readonly TrackPrompt[] = [];
 const NO_SAVED: readonly number[] = [];
+const NO_WAITING: ReadonlySet<string> = new Set();
 
 const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
@@ -148,6 +152,7 @@ function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: strin
 
 /** What a named thing's chip says under the pointer: where the file is, what the app mention did. */
 function refTitle(ref: MentionRef): string {
+  if (ref.kind === "role") return ref.childId ? `${ref.label} — started as this session's sub-agent` : `${ref.label} — not started${ref.refused ? `: ${ref.refused}` : ""}`;
   return ref.kind === "app" ? `${ref.name} — computer use for this session (${ref.bundleId})` : ref.path;
 }
 
@@ -162,7 +167,7 @@ function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionI
         const ref = r.chip.kind === "element" ? byLabel.get(r.chip.label) ?? null : null;
         const appIcon = ref?.kind === "app" ? appIcons[ref.path] : null;
         const icon = r.chip.kind === "link" && r.chip.service ? LINK_SERVICE_META[r.chip.service].icon
-          : ref ? (ref.kind === "app" ? "pointer" : fileMark(ref.path))
+          : ref ? (ref.kind === "app" ? "pointer" : ref.kind === "role" ? "team" : fileMark(ref.path))
           : r.chip.kind === "element" ? "target"
           : r.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles";
         return (
@@ -360,6 +365,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   const lastLen = lastText && "text" in lastText ? lastText.text?.length ?? 0 : 0;
   // Permission cards only make sense while the adapter is actually waiting; stale requests (crash, restart) are closed server-side.
   const permissions = sessionStatus === "waiting_permission" ? transcript.pendingPermissions : [];
+  /* The calls those requests are about, so each one's row says "Waiting for you" rather than spinning
+     like work in progress. Kept as the SAME set while the ids hold, because every streaming delta
+     rebuilds the blocks and a fresh set would re-render every card in the transcript with it. */
+  const waitingKey = permissions.length ? waitingToolIds(transcript.blocks, permissions).join("\n") : "";
+  const waiting = useMemo(() => (waitingKey ? new Set(waitingKey.split("\n")) : NO_WAITING), [waitingKey]);
   /* The newest answer in the transcript — the only message that wears an action bar.
      A bar under every finished message meant forty of them in a long session, all but one of which
      acted on something the reader had scrolled past; the copy the reader actually reaches for is
@@ -586,15 +596,21 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         <LeadSessionContext.Provider value={sessionId}>
         <div className="transcript-col">
         <ToolCwd.Provider value={cwd}>
+        <ToolWaiting.Provider value={waiting}>
         {start > 0 && (
           <button ref={earlierRef} type="button" className="btn-quiet transcript-earlier" onClick={showEarlier}>Show earlier messages</button>
         )}
-        {groupTranscript(shown, start).map((it) => {
-          if (it.kind === "group")
+        {groupTranscript(shown, start).map((it, i, items) => {
+          if (it.kind === "group") {
+            /* The turn ended on this run when nothing but its closing line (or the error that ended
+               it) follows — no word from the agent, no further call. */
+            const next = items[i + 1];
+            const endsTurn = !next || (next.kind === "block" && (next.block.kind === "run" || next.block.kind === "error"));
             // The group container itself never animates in: when a run crosses the grouping
             // threshold the cards it swallows are already on screen, and wrapping them in a fresh
             // entrance would replay motion for items the reader has been watching.
-            return <ToolGroup key={it.key} sessionStatus={sessionStatus} steps={withEnter(it.steps, isEntering)} />;
+            return <ToolGroup key={it.key} sessionStatus={sessionStatus} steps={withEnter(it.steps, isEntering)} endsTurn={endsTurn} />;
+          }
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
             case "user": return (
@@ -632,7 +648,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}
               sources={sourcesByKey.get(key)} />;
-            case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
+            case "thinking": return <Thinking key={key} text={b.text} enter={enter} live={busy && i === items.length - 1} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
               onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} onImplementWith={onImplementWith} />;
@@ -734,6 +750,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
         <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} />
+        </ToolWaiting.Provider>
         </ToolCwd.Provider>
         </div>
         </LeadSessionContext.Provider>

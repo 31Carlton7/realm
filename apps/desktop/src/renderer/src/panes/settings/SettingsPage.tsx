@@ -10,7 +10,7 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
   type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
   CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
-import type { ThemeSeed } from "@realm/contracts";
+import { UNLOCK_POLICIES, UNLOCK_SESSION_HOURS, type ThemeSeed, type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus } from "@realm/contracts";
 import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
@@ -24,6 +24,7 @@ import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
 import { FailoverPanel } from "./FailoverPanel";
 import { LayaSection } from "./LayaSection";
+import { LabSection } from "./LabSection";
 import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
@@ -133,6 +134,7 @@ export function SettingsPage(_props: PaneProps) {
               {tab === "signins" && <SignInsTab />}
               {tab === "permissions" && <PermissionsTab />}
               {tab === "computer-use" && <ComputerUseTab />}
+              {tab === "lab" && <LabSection />}
               {tab === "import" && <ImportPanel />}
               {tab === "archived" && <ArchivedTab />}
             </>
@@ -1611,7 +1613,7 @@ function Attribution() {
 function ArchivedTab() {
   const archived = useApp((s) => s.archivedSessions);
   const spaces = useApp((s) => s.spaces);
-  const updatedAt = useApp((s) => s.sessionUpdatedAt);
+  const activityAt = useApp((s) => s.sessionActivityAt);
   const refreshArchivedSessions = useApp((s) => s.refreshArchivedSessions);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshArchivedSessions()); }, [run, refreshArchivedSessions]);
@@ -1624,7 +1626,7 @@ function ArchivedTab() {
         <ul className="settings-list" aria-label="Archived sessions">
           {archived.map((it) => (
             <ArchivedRow key={it.id} itemId={it.id} title={it.title} spaceName={spaceName(it.spaceId)}
-              at={updatedAt[it.refId] ?? it.updatedAt} />
+              at={activityAt[it.refId] ?? it.createdAt} />
           ))}
         </ul>
       )}
@@ -1673,6 +1675,137 @@ function ArchivedRow({ itemId, title, spaceName, at }: { itemId: string; title: 
  *  one; the windows exist because an SSO sign-in is often two fills a few seconds apart. */
 const PRESENCE_TTL_LABELS: Record<number, string> = { 0: "Every time", 60_000: "For 1 minute", 300_000: "For 5 minutes" };
 
+/** The rungs of the unlock ladder, strongest first, as the radio names them. */
+const UNLOCK_LABELS: Record<UnlockPolicyKind, string> = {
+  "touch-id": "Touch ID",
+  "device-password": "Touch ID or password",
+  session: "Once per session",
+  unattended: "Without asking",
+};
+
+function unlockDescription(status: UnlockPolicyStatus, profileName: string, now: number): string {
+  const { policy } = status;
+  switch (policy.kind) {
+    case "touch-id": return "Touch ID for each fill, or once for the short window below.";
+    case "device-password": return "Touch ID, or this Mac's login password when there is no sensor or nobody at it.";
+    case "session": {
+      const span = `${policy.hours} ${policy.hours === 1 ? "hour" : "hours"}`;
+      return status.sessionUntil !== null && status.sessionUntil > now
+        ? `Unlocked for ${span} from one check. Open until ${new Date(status.sessionUntil).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`
+        : `One Touch ID or password check unlocks ${profileName}'s sign-ins for ${span}.`;
+    }
+    case "unattended": return `Agents fill ${profileName}'s sign-ins and passkeys on this Mac without asking anyone. Every fill is logged.`;
+  }
+}
+
+/**
+ * Settings ▸ Sign-ins ▸ Unlock: how this profile's sign-ins and passkeys are unlocked for a fill.
+ *
+ * `data-no-agent` on all of it: an agent driving Realm's window must not be able to press a rung that
+ * removes a gate. Main is the second guard — it asks macOS (Touch ID or the login password) before any
+ * change that lets more through — and there is no RPC method or tool for this at all.
+ *
+ * "Without asking" is never one click. It opens a sheet that says what it costs, and turning it off is
+ * one click on any other rung.
+ */
+function UnlockPolicyRows({ profileId, profileName }: { profileId: string; profileName: string }) {
+  const status = useApp((s) => (s.credentialsProfileId === profileId ? s.unlockPolicy : null));
+  const setUnlockPolicy = useApp((s) => s.setUnlockPolicy);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const current = status?.policy ?? null;
+
+  async function apply(policy: UnlockPolicy): Promise<boolean> {
+    setError(null);
+    setBusy(true);
+    try {
+      const r = await setUnlockPolicy(profileId, policy);
+      if (!r.ok) setError(r.error);
+      return r.ok;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function choose(kind: UnlockPolicyKind) {
+    if (kind === current?.kind) return;
+    if (kind === "unattended") { setError(null); setConfirming(true); return; }
+    void apply(kind === "session" ? { kind, hours: 8 } : { kind });
+  }
+
+  return (
+    <>
+      {/* One row of the Security run, so it meshes with the rows after it; the sheet is portalled. */}
+      <div className="settings-row unlock-policy" data-stack data-setting="unlock-policy" data-no-agent="sign-in unlock setting">
+        <div className="settings-row-main">
+          <span className="settings-row-name">Unlock {profileName}'s sign-ins with</span>
+          <span className="settings-row-desc">{status ? unlockDescription(status, profileName, Date.now()) : "Loading…"}</span>
+        </div>
+        <fieldset className="settings-tabs" aria-label="Unlock sign-ins with" disabled={busy || status === null}>
+          {UNLOCK_POLICIES.map((kind) => (
+            <label key={kind} className="settings-tab" data-selected={current?.kind === kind || undefined}
+              data-tone={kind === "unattended" ? "warning" : undefined}>
+              <input type="radio" name={`settings-unlock-${profileId}`} value={kind} checked={current?.kind === kind}
+                onChange={() => choose(kind)} />
+              {UNLOCK_LABELS[kind]}
+            </label>
+          ))}
+        </fieldset>
+        {current?.kind === "session" && (
+          <fieldset className="settings-tabs" aria-label="Session length" disabled={busy}>
+            {UNLOCK_SESSION_HOURS.map((hours) => (
+              <label key={hours} className="settings-tab" data-selected={current.hours === hours || undefined}>
+                <input type="radio" name={`settings-unlock-hours-${profileId}`} value={hours} checked={current.hours === hours}
+                  onChange={() => { void apply({ kind: "session", hours }); }} />
+                {hours === 1 ? "1 hour" : `${hours} hours`}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {error !== null && !confirming && <p className="settings-hint" role="alert">{error}</p>}
+        {current?.kind === "unattended" && (
+          <p className="settings-hint settings-alert unlock-unattended-note">
+            Anyone using Realm on this Mac, and any agent in {profileName}, can sign in to these accounts.
+            <button type="button" className="btn" disabled={busy} onClick={() => { void apply({ kind: "touch-id" }); }}>
+              Ask for Touch ID again
+            </button>
+          </p>
+        )}
+      </div>
+
+      {confirming && (
+        <Sheet title="Fill without asking on this Mac?" onClose={() => setConfirming(false)} width={480}>
+          <div className="form unlock-confirm" data-no-agent="sign-in unlock setting">
+            <p>
+              Agents in {profileName} will fill its saved sign-ins and passkeys with no Touch ID or password
+              check. Anyone using Realm on this Mac can then sign in to those accounts too.
+            </p>
+            <p>Use this on a Mac set aside for {profileName}'s work, not for your personal accounts.</p>
+            <ul className="unlock-confirm-list">
+              <li>The agent still never receives a password. Realm types it into the page.</li>
+              <li>Every fill is written to Realm's credential log.</li>
+              <li>It works only on this Mac. A copy of Realm's files on another Mac asks for Touch ID again.</li>
+              <li>Each fill still needs your approval in the session, as it does today.</li>
+            </ul>
+            <p className="settings-hint">macOS asks for Touch ID or your login password to turn this on.</p>
+            {error !== null && <p className="settings-hint" role="alert">{error}</p>}
+            <div className="sheet-actions">
+              <span className="diff-head-spacer" />
+              <button type="button" className="btn" onClick={() => setConfirming(false)}>Cancel</button>
+              <button type="button" className="btn primary" disabled={busy}
+                onClick={() => { void apply({ kind: "unattended" }).then((ok) => { if (ok) setConfirming(false); }); }}>
+                {busy && <Spinner size={12} />}
+                Turn on for {profileName}
+              </button>
+            </div>
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
 /**
  * Settings → Sign-ins: the one place a password of the USER's own can be saved.
  *
@@ -1711,6 +1844,7 @@ function SignInsTab() {
   const shareCredential = useApp((s) => s.shareCredential);
   const sharePasskey = useApp((s) => s.sharePasskey);
   const setCredentialPresenceTtl = useApp((s) => s.setCredentialPresenceTtl);
+  const unlock = useApp((s) => (loaded ? s.unlockPolicy : null));
   const run = useApp((s) => s.run);
   useEffect(() => { if (profileId) void run(() => refreshCredentials(profileId)); }, [run, refreshCredentials, profileId]);
 
@@ -1755,10 +1889,12 @@ function SignInsTab() {
           won't store one unencrypted.
         </p>
       )}
-      {status !== null && status.available && !status.canPromptTouchID && (
+      {/* Only while the profile is on Touch ID alone: that is the one policy this Mac cannot satisfy. */}
+      {status !== null && status.available && !status.canPromptTouchID && (unlock === null || unlock.policy.kind === "touch-id") && (
         <p className="settings-hint settings-alert" role="alert">
-          This Mac has no Touch ID sensor. Sign-ins can be saved, but filling one always needs Touch ID,
-          so fills will be refused here.
+          {status.canPromptDeviceOwner
+            ? "This Mac has no Touch ID sensor, so fills that need Touch ID are refused here. Under Security, choose Touch ID or password to unlock with this Mac's login password."
+            : "This Mac has no Touch ID sensor. Sign-ins can be saved, but filling one needs Touch ID, so fills will be refused here."}
         </p>
       )}
       {/* Whose these are, in one line under the title. It was a paragraph that also explained why,
@@ -1789,7 +1925,7 @@ function SignInsTab() {
               <span className="creds-mark" aria-hidden="true"><Icon name="padlock" size={16} /></span>
               <div className="settings-row-main">
                 <span className="settings-row-name">No saved sign-ins yet.</span>
-                <span className="settings-row-desc">An agent can type one into its site without ever seeing it, or have Realm make a new one for a sign-up. You approve each fill with Touch ID.</span>
+                <span className="settings-row-desc">An agent can type one into its site without ever seeing it, or have Realm make a new one for a sign-up. You approve each fill, and unlock it as set under Security.</span>
               </div>
             </li>
           ) : credentials.map((c) => (
@@ -1895,6 +2031,7 @@ function SignInsTab() {
 
       <h3 className="settings-head">Security</h3>
       <div className="settings-group">
+        {profileId && profile && <UnlockPolicyRows profileId={profileId} profileName={profile.name} />}
         <div className="settings-row" data-setting="touch-id"
           title="A window only starts after a successful check, and never survives quitting Realm.">
           <div className="settings-row-main">

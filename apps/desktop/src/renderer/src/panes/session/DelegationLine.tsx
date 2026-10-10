@@ -16,7 +16,7 @@ import { useElapsed } from "./use-elapsed";
 export const LeadSessionContext = createContext<string | null>(null);
 
 /**
- * A sub-agent, as its lead's transcript shows it: one quiet line — "Subagent finished · Write the
+ * A sub-agent, as its lead's transcript shows it: one quiet line — "Sub-agent finished · Write the
  * migration", the model it ran on, how long — and a click away from its row in the Agents tab.
  *
  * The call's raw input and result are deliberately not here. What a person wants from a delegation
@@ -52,12 +52,13 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
   const named = (block.input.constraints as { model?: unknown } | undefined)?.model;
   const model = child ? modelLabel(child.session.agentKind, child.session.model, probe) : typeof named === "string" ? named : null;
   const kind = child?.session.agentKind ?? null;
-  const task = taskTitle(goal, "Sub-agent");
+  // The child's own title once it exists; before that, the name the call gave it.
+  const task = taskTitle(child?.session.title ?? (typeof block.input.title === "string" ? block.input.title : null), goal, "Sub-agent");
   return (
     <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={state} data-enter={enter || undefined}>
       <button type="button" className="tool-row" disabled={!lead || !id}
         title={lead && id ? "Show it in this session's Agents tab" : undefined}
-        aria-label={`${gone ? "Subagent" : STATE_VERB[state]}: ${task}${model ? `, on ${model}` : ""}`}
+        aria-label={`${gone ? "Sub-agent" : STATE_VERB[state]}: ${task}${model ? `, on ${model}` : ""}`}
         onClick={() => { if (lead && id) run(() => openAgentsTab(lead, { childId: id })); }}>
         <span className="tool-status" aria-hidden="true">
           {gone ? null
@@ -67,7 +68,7 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
             : state === "stopped" || state === "cancelled" ? <Icon name="stop" size={14} />
             : <Icon name="errorCircle" size={14} />}
         </span>
-        <span className="tool-name">{gone ? "Subagent" : STATE_VERB[state]}</span>
+        <span className="tool-name">{gone ? "Sub-agent" : STATE_VERB[state]}</span>
         <span className="delegation-line-task" title={goal}>{task}</span>
         {model && (
           <span className="delegation-line-model">
@@ -86,7 +87,7 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
 const COLLECTED = /^## Agent [0-9A-HJKMNP-TV-Z]{26} — /gm;
 
 /**
- * The lead waiting for its sub-agents, as a line of the same kind: "Waiting for 2 subagents", then
+ * The lead waiting for its sub-agents, as a line of the same kind: "Waiting for 2 sub-agents", then
  * "Collected 2 reports". The reports themselves are each sub-agent's own, in the Agents tab — which
  * is where the line goes.
  */
@@ -100,7 +101,7 @@ export function DelegationWait({ block, sessionStatus, enter = false }: { block:
   const collected = block.result ? (block.result.content.match(COLLECTED) ?? []).length : 0;
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const label = waiting
-    ? (owned > 0 ? `Waiting for ${plural(owned, "subagent")}` : "Waiting for subagents")
+    ? (owned > 0 ? `Waiting for ${plural(owned, "sub-agent")}` : "Waiting for sub-agents")
     : `Collected ${plural(collected, "report")}`;
   return (
     <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={waiting ? "working" : "done"} data-enter={enter || undefined}>

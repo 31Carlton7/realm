@@ -5,14 +5,14 @@ import { NotFoundError, RpcError, now } from "./rows";
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null; fast_mode: number;
   permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number; seen_seq: number;
   terminal_item_id: string | null; dispatched_by_kind: DispatchKind | null; dispatched_by_session_id: string | null;
-  provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; created_at: number; updated_at: number };
+  provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; activity_at: number; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
   fastMode: r.fast_mode === 1,
   permissionMode: r.permission_mode, environmentId: r.environment_id, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
   lastEventSeq: r.last_event_seq, seenSeq: r.seen_seq, terminalItemId: r.terminal_item_id,
   dispatchedBy: r.dispatched_by_kind ? { kind: r.dispatched_by_kind, sessionId: r.dispatched_by_session_id } : null,
-  createdAt: r.created_at, updatedAt: r.updated_at,
+  activityAt: r.activity_at, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 /**
@@ -26,12 +26,34 @@ const SELECT = "SELECT s.*, e.path AS cwd FROM sessions s JOIN environments e ON
 export type SessionUpdate = { id: string; status?: SessionStatus; providerSessionId?: string | null; lastEventSeq?: number; title?: string;
   model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind; fastMode?: boolean };
 
+/** Settings key: the one-time read-mark catch-up has run on this home (`catchUpReadMarksOnce`). */
+export const READ_MARKS_CAUGHT_UP = "sessions.readMarksCaughtUp";
+
 export class SessionsStore {
   constructor(private db: Db) {}
   /** Move the read mark forward. Never backwards — a stale client holding an old seq must not
    *  resurrect an unseen dot on a session somebody has already caught up on. */
   markSeen(id: string, seq: number): void {
     this.db.prepare("UPDATE sessions SET seen_seq = MAX(seen_seq, ?) WHERE id = ?").run(seq, id);
+  }
+  /**
+   * Catch every OPENED session's read mark up to where it stands, once per home (`settings` holds the
+   * fact that it has been done). The sidebar's unread dot reads `seen_seq` against `last_event_seq`,
+   * but the stamp had been written for months before anything drew it, by rules that moved under it —
+   * on the owner's own home 54 opened sessions sat behind their last event, so the first launch of the
+   * build that draws the dot opened onto a sidebar of them (Versed alone had 21). None of those marks
+   * was a claim anyone saw being made. A session never opened stays at 0, which is "never opened" and
+   * draws nothing. Returns how many sessions it caught up; 0 on every launch after the first.
+   */
+  catchUpReadMarksOnce(settings: { get(key: string): unknown; set(key: string, value: unknown): void }): number {
+    if (settings.get(READ_MARKS_CAUGHT_UP) === true) return 0;
+    this.db.exec("BEGIN");
+    try {
+      const r = this.db.prepare("UPDATE sessions SET seen_seq = last_event_seq WHERE seen_seq > 0 AND seen_seq < last_event_seq").run();
+      settings.set(READ_MARKS_CAUGHT_UP, true);
+      this.db.exec("COMMIT");
+      return Number(r.changes);
+    } catch (e) { this.db.exec("ROLLBACK"); throw e; }
   }
   list(spaceId: string): Session[] {
     return (this.db.prepare(`${SELECT} WHERE s.space_id = ? ORDER BY s.created_at`).all(spaceId) as Row[]).map(toSession);
@@ -75,10 +97,10 @@ export class SessionsStore {
     // header another; there is no reading of that which is not a bug.
     if (env.space_id !== input.spaceId) throw new RpcError("ENVIRONMENT_WRONG_SPACE", "that environment belongs to another space");
     const id = newId(); const t = now();
-    this.db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, environment_id, status, provider_session_id, title, last_event_seq, dispatched_by_kind, dispatched_by_session_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, 0, ?, ?, ?, ?)`)
+    this.db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, environment_id, status, provider_session_id, title, last_event_seq, dispatched_by_kind, dispatched_by_session_id, activity_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, 0, ?, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.projectId, input.agentKind, input.model, input.effort, input.permissionMode, input.environmentId, input.title,
-        input.dispatchedBy?.kind ?? null, input.dispatchedBy?.sessionId ?? null, t, t);
+        input.dispatchedBy?.kind ?? null, input.dispatchedBy?.sessionId ?? null, t, t, t);
     return this.get(id)!;
   }
   update(input: SessionUpdate): Session {
@@ -130,6 +152,19 @@ export class SessionsStore {
   /** Hot path (every persisted event): touch only the seq column. */
   setLastEventSeq(id: string, seq: number): void {
     this.db.prepare("UPDATE sessions SET last_event_seq = ?, updated_at = ? WHERE id = ?").run(seq, now(), id);
+  }
+  /** The conversation moved at `at` — a prompt went out, or the agent answered or finished a turn
+   *  (`SessionService`). The only writer of `activity_at` after `create`, and never backwards: an
+   *  event dated earlier than one already counted does not move the session down. */
+  touchActivity(id: string, at: number): void {
+    this.db.prepare("UPDATE sessions SET activity_at = MAX(activity_at, ?) WHERE id = ?").run(at, id);
+  }
+  /** The log grew by an event about the past (the turn-media catch-up's): its length moves, but the
+   *  session is not touched now, so it keeps its place in an activity sort — and a session read to
+   *  the end stays read to the end, rather than wearing a dot for something the user never missed. */
+  setLastEventSeqQuietly(id: string, seq: number): void {
+    this.db.prepare(`UPDATE sessions SET seen_seq = CASE WHEN seen_seq >= last_event_seq THEN ? ELSE seen_seq END,
+      last_event_seq = ? WHERE id = ?`).run(seq, seq, id);
   }
 
   /*
@@ -188,6 +223,29 @@ export class SessionsStore {
     this.db.prepare("DELETE FROM search_index WHERE kind = 'session' AND ref = ?").run(id);
     this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
   }
+}
+
+/** The longest a reply's line is kept: a row has one line to give it, and past this it is ellipsized
+ *  on screen anyway. */
+export const REPLY_LINE_MAX = 140;
+
+/**
+ * A reply's first line of prose, as a row can show it: the first line with words on it, its markdown
+ * marks taken off (a heading's #, a list's bullet, emphasis, code ticks), its spacing collapsed, and
+ * cut at `REPLY_LINE_MAX` with an ellipsis. A reply that opens with a code fence starts at the line
+ * after it. Null when there are no words at all.
+ */
+export function replyLine(text: string): string | null {
+  let fenced = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("```")) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    const words = line.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+    if (!words) continue;
+    return words.length > REPLY_LINE_MAX ? `${words.slice(0, REPLY_LINE_MAX - 1).trimEnd()}…` : words;
+  }
+  return null;
 }
 
 type EventRow = { seq: number; session_id: string; ts: number; type: string; payload_json: string };
@@ -290,6 +348,21 @@ export class SessionEventsStore {
     }
     return null;
   }
+  /**
+   * Where each of a space's sessions left off: the first line of its newest reply, for a list of them
+   * to say without opening any (`replyLine`). Null for a session that has not replied. One indexed
+   * look per session (`session_events_session`), never a read of a transcript.
+   */
+  lastReplies(spaceId: string): { sessionId: string; lastReply: string | null }[] {
+    const rows = this.db.prepare(`SELECT s.id AS session_id,
+        (SELECT ev.payload_json FROM session_events ev WHERE ev.session_id = s.id AND ev.type = 'assistant_text' ORDER BY ev.seq DESC LIMIT 1) AS payload
+      FROM sessions s WHERE s.space_id = ?`).all(spaceId) as { session_id: string; payload: string | null }[];
+    return rows.map((r) => {
+      let text: unknown = null;
+      if (r.payload) { try { text = (JSON.parse(r.payload) as { text?: unknown }).text; } catch { /* unreadable: no line */ } }
+      return { sessionId: r.session_id, lastReply: typeof text === "string" ? replyLine(text) : null };
+    });
+  }
   /** The newest persisted event of one type, or null. Skips rows that fail schema validation. */
   lastOfType(sessionId: string, type: SessionEvent["type"]): SessionEvent | null {
     const r = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1")
@@ -316,6 +389,27 @@ export class SessionEventsStore {
       let text: unknown; try { text = (JSON.parse(r.payload_json) as { text?: unknown }).text; } catch { continue; }
       if (typeof text !== "string" || text.trim() === "") continue;
       out.push({ role: r.type === "user_message" ? "user" : "assistant", text });
+    }
+    return out;
+  }
+
+  /**
+   * Only events of `types`, oldest first, at most `limit` of them: the first `limit` after `afterSeq`
+   * when it is given (reading forward a page at a time), else the session's LAST `limit` (what it has
+   * been doing lately). What `session_read` pages through; a status or usage row is not part of
+   * anything a reader asked for, so the filter is in the query rather than over a page of everything.
+   */
+  listOfTypes(sessionId: string, types: readonly SessionEvent["type"][], opts: { afterSeq?: number; limit: number }): StoredSessionEvent[] {
+    if (types.length === 0 || opts.limit <= 0) return [];
+    const inTypes = `type IN (${types.map(() => "?").join(", ")})`;
+    const rows = (opts.afterSeq !== undefined
+      ? this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND seq > ? AND ${inTypes} ORDER BY seq LIMIT ?`).all(sessionId, opts.afterSeq, ...types, opts.limit)
+      : this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND ${inTypes} ORDER BY seq DESC LIMIT ?`).all(sessionId, ...types, opts.limit).reverse()) as EventRow[];
+    const out: StoredSessionEvent[] = [];
+    for (const r of rows) {
+      let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { continue; }
+      const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
+      if (p.success) out.push({ seq: r.seq, sessionId, event: p.data });
     }
     return out;
   }

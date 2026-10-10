@@ -30,16 +30,24 @@ import { SimulatorService } from "./simulators/service";
 import { GoalService } from "./goals/service";
 import { EggService } from "./eggs/service";
 import { createGoalProvider } from "./goals/agent-tools";
+import { createWorkspaceProvider } from "./workspace/agent-tools";
+import { createSessionOpenTools } from "./workspace/session-open";
+import { createSpacesTools } from "./workspace/spaces";
+import { createSettingsTools } from "./workspace/settings";
+import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
 import { ImageStore } from "./machines/images";
-import { GuestSpecSchema, type GuestSpec } from "@realm/contracts";
+import { DEFAULT_PERMISSION_MODE_KEY, GOAL_PROVIDER_NAME, GuestSpecSchema, goalToolWireName, type GuestSpec } from "@realm/contracts";
 import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
+import { namedInRoot } from "./documents/paths";
 import { LectureService } from "./school/lectures";
 import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
@@ -78,7 +86,7 @@ import { GhClient, ghRunner } from "./code-review/gh";
 import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
-import { SessionService } from "./sessions/service";
+import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { PlanLimitsService } from "./limits/service";
 import type { ProbeResult } from "@realm/adapters";
@@ -95,6 +103,8 @@ import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
+import { MemoryRepoService, type RepoOwner } from "./memory/repo";
+import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
@@ -134,11 +144,36 @@ import { AppViewService } from "./apps/service";
 import { ExecutionSandboxService } from "./sandbox/service";
 import { machineName } from "./machine-name";
 import { userFirstName } from "./user-name";
+import { TeamService } from "./team/service";
+import { HandoffService } from "./team/handoffs/service";
+import { HandoffStore } from "./team/handoffs/store";
+import { createHandoffTools } from "./team/handoffs/agent-tools";
+import { TeamStore } from "./team/store";
+import { createTeamAgentProvider } from "./team/agent-tools";
+import { VaultService } from "./team/vault/service";
+import { VaultStore } from "./team/vault/store";
+import { createVaultAgentProvider } from "./team/vault/agent-tools";
+import { registerVaultMethods } from "./team/vault/rpc";
+import { LabService } from "./lab/service";
+import { LabDevicesStore } from "./lab/devices-store";
+import { registerLabMethods } from "./lab/methods";
+import { evaluate, macProbeDeps, probeFacts, runCommand } from "./lab/readiness";
+import { ActService, type TicketPress } from "./team/acts/service";
+import { ActStore } from "./team/acts/store";
+import { FakeActAdapter, NotConnectedAdapter, type ActAdapter } from "./team/acts/adapters";
+import { registerActMethods } from "./team/acts/rpc";
+import { RecordTypeStore } from "./team/record-types/store";
+import { RecordTypeService } from "./team/record-types/service";
+import { adoptRecordTypes } from "./team/record-types/adopt";
+import { registerRecordTypeMethods } from "./team/record-types/rpc";
+import { PoliciesService } from "./team/policies/service";
+import { registerPolicyMethods } from "./team/policies/rpc";
+import { ToolClassesStore } from "./team/policies/tool-classes";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -312,7 +347,7 @@ export function defaultAdapters(): AdapterRegistry {
   // updates is the behaviour worth looking at. A to-do list is here for the same reason, in two
   // triggers rather than one run: the strip above the prompter shuts itself once every item is done,
   // and both sides of that have to be reachable and holdable long enough to look at.
-  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [{
+  if (process.env.REALM_ENABLE_FAKE_AGENT === "1") reg.fake = new FakeAdapter({ delayMs: 15, script: [...harnessFakeScript(), {
     // Code Review's "Review with…" (code-review/reviewer.ts) on the live checks' fixture request
     // (scripts/fixtures/code-review): a summary and three findings in the reply shape the page reads —
     // two on lines the fixture's diff shows, one off it, so anchored and unanchored both appear.
@@ -340,8 +375,8 @@ export function defaultAdapters(): AdapterRegistry {
     // hands over a plan also says "plan", and the first entry to match is the one that plays.
     on: "Build this with", emit: [
       { kind: "text", paceMs: 40, text: "I'll split this: the toggle and its tests go to GPT-6 Luna, and the migration to Fable." },
-      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Build the dark-mode toggle in Settings ▸ App, with its tests", constraints: { model: "GPT-6 Luna" } } },
-      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Write the migration that stores the theme choice", constraints: { model: "Fable" } } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { title: "Dark-mode toggle", goal: "Build the dark-mode toggle in Settings ▸ App, with its tests", constraints: { model: "GPT-6 Luna" } } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { title: "Theme migration", goal: "Write the migration that stores the theme choice", constraints: { model: "Fable" } } },
       { kind: "call", tool: "realm-agent__agent_wait", input: {} },
       { kind: "text", paceMs: 30, text: "Both sub-agents are done. GPT-6 Luna added the toggle and four tests for it; Fable wrote the migration and tested it against the previous schema. Everything passes." },
     ],
@@ -362,6 +397,63 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "tool", name: "Bash", input: { command: "pnpm vitest run migrations" }, result: "Tests  12 passed (12)" },
       { kind: "text", paceMs: 110, text: "Wrote the migration and tested it against a fixture of the previous schema. All twelve migration tests pass." },
     ],
+  }, {
+    // Only the main session orchestrates: a lead hands one task to a sub-agent whose script tries to
+    // start a sub-agent of its own, through its own gateway, and is refused there.
+    on: "Nest a sub-agent", emit: [
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Try to start another agent for the copy pass" } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", text: "The sub-agent did the copy pass itself." },
+    ],
+  }, {
+    on: "Try to start another agent", emit: [
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Do the copy pass" } },
+      { kind: "text", text: "I can't start a sub-agent from here, so I did the copy pass myself." },
+    ],
+  }, {
+    // The Agents tab as an orchestrator: four sub-agents at once, in every state it draws — one asks
+    // for a permission, one asks a question, one works for a while, one is done in seconds.
+    on: "Orchestrate the theme work", emit: [
+      { kind: "text", paceMs: 40, text: "Four parts that do not depend on each other, so four sub-agents." },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Run the settings test suite and report what fails", constraints: { model: "GPT-6 Luna" } } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Choose the default theme for new users" } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Survey every theme hook across the renderer", constraints: { model: "Fable" } } },
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Tidy the Settings copy for the theme row" } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", paceMs: 30, text: "All four sub-agents reported back." },
+    ],
+  }, {
+    on: "Run the settings test suite", emit: [
+      { kind: "tool", name: "Bash", needsPermission: true, input: { command: "pnpm vitest run settings" }, result: "Tests  18 passed (18)" },
+      { kind: "text", text: "All eighteen settings tests pass." },
+    ],
+  }, {
+    on: "Choose the default theme", emit: [
+      { kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "Answered", input: { questions: [{ question: "Which theme should new users start in?", header: "Theme",
+        multiSelect: false, options: [{ label: "System", description: "Follow the Mac" }, { label: "Dark" }, { label: "Light" }] }] } },
+      { kind: "text", text: "New users start in the theme you picked." },
+    ],
+  }, {
+    on: "Survey every theme hook", emit: [
+      { kind: "tool", name: "Read", input: { file_path: "apps/desktop/src/renderer/src/theme/use-theme.ts" }, result: "export function useTheme() { … }" },
+      { kind: "text", paceMs: 900, text: "Reading each pane that reads the theme: the session pane, the browser pane, the documents pane, the settings page, the sidebar, the composer, the terminal, the simulator frame, the code review page, the media viewer, and the quick chat window, noting which ones read the token directly and which go through the hook, so the switch can reach all of them in one place without a reload." },
+      { kind: "text", text: "Eleven surfaces read the theme; three bypass the hook." },
+    ],
+  }, {
+    on: "Tidy the Settings copy", emit: [
+      { kind: "tool", name: "Edit", input: { file_path: "apps/desktop/src/renderer/src/panes/settings/AppSettings.tsx", old_string: "Colour scheme", new_string: "Theme" }, result: "Edited" },
+      { kind: "text", text: "Renamed the row to Theme and shortened its note." },
+    ],
+  }, {
+    // A lead that names nothing, opening its goal with a role the way leads do: the child is named
+    // by its task read out of the goal (`taskName`), never by the role.
+    on: "Hand it over unnamed", emit: [
+      { kind: "call", tool: "realm-agent__agent_start", input: { goal: "You are implementing a feature in the settings page. Add the font-size picker; keep it beside the theme in Settings ▸ App." } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", text: "The font-size picker is in." },
+    ],
+  }, {
+    on: "Add the font-size picker", emit: [{ kind: "text", paceMs: 40, text: "Added the font-size picker beside the theme." }],
   }, {
     // An app mention gives the session computer use for that app alone. The scripted agent reaches
     // for it as a real one would — a real call through its gateway, so the scoped grant is the
@@ -526,6 +618,13 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "text", text: "Done — \"Weekly review\" runs every Friday at 4:00 PM, starting this week." },
     ],
   }, {
+    // A fact saved to the profile's memory repo through `realm-memory`, as an agent in any engine
+    // saves one — so the memory row's last commit and its Recent memories have a real one to show.
+    on: "remember I prefer tabs", emit: [
+      { kind: "call", tool: "realm-memory__memory_save", input: { entry: "Prefers tabs over spaces" } },
+      { kind: "text", text: "Saved to your memory repo: you prefer tabs over spaces." },
+    ],
+  }, {
     // A turn that leaves files behind — a note and a script written, the README edited — so the
     // documents pane beside the session has its own files to list. The tool calls are what the
     // Library's index records; the paths are relative, as an agent names files in its own checkout.
@@ -543,6 +642,14 @@ export function defaultAdapters(): AdapterRegistry {
     on: "Make the sky warmer", emit: [
       { kind: "tool", name: "Bash", input: { command: "magick hero.png -modulate 100,112,94 hero-warm.png", description: "Warm the sky" }, result: "" },
       { kind: "text", paceMs: 30, text: "Warmed the sky and left the ridge as it was. The new version is `hero-warm.png`, beside the original." },
+    ],
+  }, {
+    // A deck composed into ANOTHER space's folder by a shell command, the way the Versed slideshow was
+    // made: no write tool names a slide, so only the settle's sweep (sessions/turn-media.ts) finds it.
+    // Held on its permission, so a live check can put the slide on disk while the turn is open.
+    on: "Compose the deck", emit: [
+      { kind: "tool", name: "Bash", input: { command: "cd ../versed/content/decks && node compose.mjs deck v1", description: "Compose the slides" }, needsPermission: true, result: "deck/v1/01.png 1080x1920" },
+      { kind: "text", paceMs: 30, text: "Composed the first slide of the deck." },
     ],
   }] });
   /* The fake behind real agents' NAMES, for a live check that has to show work handed across
@@ -569,6 +676,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Called when a drain is accepted, so the caller can record it outside this process — `main.ts`
    *  rewrites the state file, which is what makes a mid-drain launcher wait rather than adopt. */
   onDraining?: () => void;
+  /** Where a memory repo goes when Realm's home is inside a space's folder. Unset, it is the app's
+   *  Application Support folder under `userHome` — and nowhere at all when no `userHome` is named. */
+  memoryFallbackRoot?: string;
+  /** Teams Phase 3 test knobs: the platform every channel acts on, and main's answer about a press.
+   *  Production passes neither — the platform is the fake only under REALM_FAKE_ACT_ADAPTER=1 (live
+   *  checks), not connected otherwise, and a press is asked of Electron main over the bridge. */
+  acts?: { adapter?: ActAdapter; presses?: { consume(ticketId: string, contentHash: string): Promise<TicketPress> } };
   /** The RPC token every client must offer as its `realm.<token>` subprotocol. Undefined leaves the
    *  socket open to anything on loopback, which is what the suite's several hundred `createApp` calls
    *  want — production mints one in `main.ts` and writes it to the 0600 state file. */
@@ -577,6 +691,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
    *  budget so suites don't wait minutes. Production callers pass neither. */
   browserAgent?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perActMs: number; pollMs: number } };
+  /** The lab's probes of this Mac, replaced in tests so a suite never reads the machine it runs on. */
+  lab?: { probe?: () => Promise<import("@realm/contracts").LabCheck[]>; hostName?: () => Promise<string | null>; now?: () => number };
   /** Plan 13 W1: the same knobs for `agent_run`. `fallbackKind` falls back to `browserAgent`'s when
    *  unset (test harnesses configure the fake once); `timeouts` shrinks the settle budget. */
   agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number }; maxDepth?: number; caps?: { perParent?: number; total?: number } };
@@ -659,6 +775,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const worktrees = new WorktreeService(opts.home);
   const sessionsStore = new SessionsStore(db);
   const settings = new SettingsStore(db);
+  sessionsStore.catchUpReadMarksOnce(settings);
   /* The Seatbelt policy an agent CLI or a shell is spawned under — one instance, shared by the two
      spawn sites (TerminalService and SessionService) so they can never resolve a space differently.
      `realmHome` is passed rather than derived: this process's REALM_HOME and `opts.home` are the same
@@ -674,6 +791,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Space names for the relay line: with no window anywhere, that line is all a person gets, and a
     // session title alone does not say which space to open.
     spaces: { get: (id: string) => spaces.get(id) },
+    sessions: { get: (id: string) => sessionsStore.get(id) ?? null },
     relay: new NotificationRelay({ settings, transport: realTransport, log: (line) => console.error(line) }) });
   // `isEnvironmentBusy` is a late-bound closure rather than a constructor argument because the two
   // services genuinely need each other: SessionService checkpoints every turn, and CheckpointService
@@ -749,7 +867,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
   const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
-  const documents: DocumentService = new DocumentService({ db, rpc, spaces, items, environments, documents: new DocumentsStore(db), preview });
+  const documents: DocumentService = new DocumentService({
+    db, rpc, spaces, items, environments, documents: new DocumentsStore(db), preview,
+    // Late-bound like `preview`: the index is built further down, and is asked only once a pane reads.
+    recorded: (abs) => artifacts.records(abs),
+  });
   // W2: the one slice of the spaces/profiles world the scoped services (skills, MCP, memory) may see.
   // A seam rather than the store so each service declares exactly the questions it asks.
   const scopeSeam = {
@@ -870,6 +992,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Declared alongside `runs` and for the same reason: `close()` below runs on a boot that may have
   // failed before this was constructed, so the handle has to exist as null from the top.
   let schedules: ScheduleService | null = null;
+  // Teams: read back through the session-event hook and the run seams below, like `runs`.
+  let team: TeamService | null = null;
+  let acts: ActService | null = null;
+  /* The team vault (team/vault/service.ts): made beside the team below, and read lazily by the browser
+     tools — a role's sign-in fill passes its grant check — which are registered before either exists. */
+  let vault: VaultService | null = null;
+  // Teams, Phase 4: handoffs, mentions, role goals and the back-off — read through the same hooks.
+  let handoffs: HandoffService | null = null;
+  // The lab's update window holds team runs while an update waits to install (lab/service.ts).
+  let lab: LabService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -883,6 +1015,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const appViews = new AppViews({ store: new AppViewsStore(db) });
   const appViewServer = new AppViewServer();
   const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url), views: appViews,
+    // The live check shortens the heartbeat to watch several go by in one scripted wait; nothing
+    // else sets it.
+    heartbeatMs: heartbeatOverride(),
     // A browser-agent child is only-mode (realm-browser and nothing else); an agent_run child — and
     // a reviewer child (W3) — is exclude-mode (the space's FULL surface minus the delegation
     // provider — the gateway half of depth-1: a reviewer sees neither agent tool nor agent_review).
@@ -891,7 +1026,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       const only = browserAgents?.sessionToolset(sessionId);
       if (only) return only;
       // A reviewer child, and an agent_run child that has SPENT its depth budget, lose the whole
-      // realm-agent provider here. An agent_run child that still has budget keeps it and is narrowed
+      // realm-agent provider here. With the production depth of one that is every agent_run child:
+      // only the main session orchestrates. One that still has budget (a `maxDepth` override) keeps it and is narrowed
       // to the agent_run family by the provider's own `tools()` — the coarse gateway hammer cannot
       // express "this provider, but only four of its tools", and inventing a shape that could would
       // put per-tool delegation policy in the gateway, which is exactly where it does not belong.
@@ -901,7 +1037,34 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Activity keeps no masked answer: what a session was told in secret is scrubbed from its calls.
     redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text });
   gateway = mcpGateway;
-  const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam });
+  /* The profile's memory repo (Agent Memory Repo): what agents write. The memory documents stay the
+     user's standing instructions; this is the memory agents save into and read back, through the
+     `realm-memory` tools registered further down. A repo may never sit inside a space's checkout, an
+     agent's own config folder or Realm's install — the spec's first rule, and W3's read-only one. */
+  const userHome = opts.userHome ?? homedir();
+  const memoryRepos = new MemoryRepoService({
+    home: opts.home, settings, scopes: scopeSeam,
+    forbiddenRoots: () => [
+      ...spaces.listAll().flatMap((sp) => [sp.folderPath, ...environments.list(sp.id).map((e) => e.path)]).filter((p): p is string => typeof p === "string" && p !== ""),
+      ...[".claude", ".codex", ".cursor", ".agents"].map((d) => join(userHome, d)),
+      ...((process as { resourcesPath?: string }).resourcesPath ? [(process as { resourcesPath?: string }).resourcesPath!] : []),
+    ],
+    // Realm's home kept inside a project folder that is also a space (a preview build's, say) would
+    // forbid every repo made under it; the app's own Application Support folder is the second place.
+    // Only a caller that names the machine's home gets a default there: a test never writes outside its own.
+    fallbackRoot: opts.memoryFallbackRoot ?? (opts.userHome ? join(opts.userHome, "Library", "Application Support", "Realm", "memory-repos") : undefined),
+    toolsEnabled: (spaceId) => mcp.providerEnabled(spaceId, MEMORY_PROVIDER_NAME),
+    committerName: userFirstName,
+    // Asked only whether a GitHub remote is private, before sync is turned on; never a test's network.
+    gh: ghRunner(opts.codeReview?.gh ?? "gh"),
+    // A pull or push settles in the background, after the save that started it has answered.
+    onSynced: (o) => memoryRepoChanged(o),
+  });
+  /** Every space that shows a repo is told it changed: all of a profile's spaces, or the one space. */
+  const memoryRepoChanged = (o: RepoOwner): void => {
+    for (const spaceId of o.scope === "space" ? [o.id] : spaces.list(o.id).map((sp) => sp.id)) rpc.broadcast("memory.changed", { spaceId });
+  };
+  const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam, repos: memoryRepos });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
@@ -1009,14 +1172,26 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     deliver: (sessionId, text, tag) =>
       sessions.send(sessionId, { text, attachments: [], ...(tag === "goal-start" ? {} : { goal: tag === "goal-budget" ? "budget" as const : "continuation" as const }) }),
     queued: (sessionId) => sessions.queuedFor(sessionId).length > 0,
+    dropQueued: (sessionId) => sessions.dropGoalTurns(sessionId),
+    // A goal started or resumed on a session whose agent connected before it: say the list changed,
+    // so the turn that follows is planned against the goal tools' current descriptions.
+    notifyTools: (sessionId) => mcpGateway.refreshTools(sessionId),
+    // The continuation names `update_goal` as THIS agent lists it, or teaches the `GOAL COMPLETE:`
+    // line when the session cannot reach the tool at all (its space switched `realm-goal` off).
+    closeWith: (sessionId) => {
+      const s = sessionsStore.get(sessionId);
+      return s && mcpGateway.realmProvidersFor(sessionId, s.spaceId).includes(GOAL_PROVIDER_NAME) ? goalToolWireName(s.agentKind) : null;
+    },
     log: (line) => console.log(line),
+    // A team role's goal run settles when its goal stops, not after its first turn.
+    onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals, views: appViews,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
     notifications: {
-      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); usage?.handleSessionEvent(session, ev); },
+      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); usage?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); handoffs?.handleSessionEvent(session, ev); },
       probeResults: (results) => notifications.probeResults(results),
     },
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
@@ -1035,6 +1210,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); },
       extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id),
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
+      modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
     } });
   sessionService = sessions;
   // The delegation stack (Plan 11 W5 + Plan 13 W1): ONE engine (settle/drain + one-run-per-parent,
@@ -1052,6 +1228,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // A model named by a delegating agent resolves against the same probe rows the model picker
     // draws, so "GPT-6 Luna" in a tool call and "GPT-6 Luna" in the picker are the same model.
     models: { known: () => sessions.probeCached(), refresh: () => sessions.probe(), kinds: Object.keys(adapterRegistry) as AgentKind[] } });
+  // Children named before they were named by their task wear "Agent: <first line>"; renamed once,
+  // here, wherever that string is still exactly what both rows say.
+  agentRuns.retitleLegacyChildren();
+  browserAgents.retitleLegacyChildren();
   // The reviewer recipe (W3): same engine, read-only cap, review-origin children. `otherDelegation`
   // fans across BOTH sibling registries — no delegated child of any kind may mint a reviewer.
   const agentRunsFinal = agentRuns, browserAgentsFinal = browserAgents;
@@ -1074,7 +1254,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onOfferedChange: () => { mcpGateway.notifyToolsChanged(); rpc.broadcast("mcp.changed", {}); },
   });
   mcpGateway.registerProvider(createBrowserAgentProvider({
-    browsers: browsersStore, projects, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc,
+    browsers: browsersStore, projects, spaces, browserService: browsers, mcp, bridge: browserBridge, broker: browserBroker, rpc,
     constraints: browserAgents, signIn: signInTickets, simulatorStreams: simulatorTools,
     // Laya's shadow hears every act on a page as it hears the computer's and the simulator's, and a
     // walk asks its Assist for a label nothing matches while — only while — that is open.
@@ -1084,6 +1264,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     documents: { rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } } },
     // Saved sign-ins are a profile's own: the credential tools name the session's profile to main.
     profileOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
+    // A team's role fills a sign-in only under a grant, and without its card only under an allow.
+    vault: {
+      check: (ctx, secret, host) => vault ? vault.check(ctx, secret, host) : Promise.resolve({ unattended: false, roleId: null, runId: null, hosts: null }),
+      note: (ctx, use, who) => vault?.note(ctx, use, who),
+      grantedSignins: (sessionId) => {
+        const owner = vault?.roleOf(sessionId);
+        return owner ? vault!.grantsForRole(owner.role.id).filter((g) => g.kind === "signin").map((g) => g.secretId) : null;
+      },
+    },
   }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is neither a valid asker nor a valid target, because its own parent is already blocked inside
@@ -1141,6 +1330,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     listForSpace: (spaceId, dir) => documents.list(documents.open({ spaceId }).documentsId, dir),
     openPath: (p) => documents.openPath(p),
     progressForSpace: (spaceId, path) => documents.progressRead(documents.open({ spaceId }).documentsId, path),
+    readForSpace: async (spaceId, path) => {
+      const { rel, abs } = namedInRoot(documents.rootForSpace(spaceId), path);
+      const st = await stat(abs).catch(() => null);
+      if (!st) throw new Error(`no such file: ${rel}`);
+      if (!st.isFile()) throw new Error(`${rel} is not a file`);
+      return { path: rel, text: await extractor.text(abs) };
+    },
+    panesForSpace: (spaceId) => items.list(spaceId).filter((i) => i.kind === "documents" && !i.archived).flatMap((i) => {
+      try {
+        const ws = documents.get(i.refId);
+        return [{ title: i.title, root: documents.rootOfWorkspace(i.refId), openPaths: ws.openPaths, activePath: ws.activePath }];
+      } catch { return []; }
+    }),
   }));
   // Plan 25 W4, on the same terms: off until a space asks for it, a card per MACHINE rather than per
   // tool, and the card kept in bypassPermissions. Registered here and not conditionally — the
@@ -1152,10 +1354,26 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      add the pane, which is the point. Whether a session sees them at all is the toolchain's answer
      (`offered`) and the space's switch, like every other provider. */
   mcpGateway.registerProvider(simulatorTools);
-  /* Goal mode's two tools, and they appear only on a session that is actually pursuing a goal — see
+  /* Goal mode's two tools, listed on every session and refused on one with no goal running — see
      the provider. Registered after the session service exists because the goal service it wraps
      delivers through it. */
   mcpGateway.registerProvider(createGoalProvider({ goals, mcp }));
+  /* `realm-workspace`: what is in the space, what is on screen, what the other sessions here said, and
+     the one tool that brings a closed pane back. Read from the stores and the saved view rather than
+     the DOM — the app-ui provider's own argument for why clicking is the fragile route. */
+  mcpGateway.registerProvider(createWorkspaceProvider({
+    mcp, sessions: sessionsStore, events: sessionEvents, items, spaces, profiles, settings, documents, bridge: browserBridge, rpc,
+  }, [
+    createSessionOpenTools({
+      sessions, items, spaces, settings, broker: browserBroker, rpc,
+      defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
+      placeModel: (caller, model) => agentRunsFinal.placeModel(caller, model),
+      delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id) },
+      turnOf: (id) => sessionEvents.listOfTypes(id, ["user_message"], { limit: 1 })[0]?.seq ?? null,
+    }),
+    createSpacesTools({ spaces, settings, broker: browserBroker, rpc }),
+    createSettingsTools({ settings, broker: browserBroker, rpc }),
+  ]));
   /* Any goal that was running when Realm last closed is parked rather than resumed. A desktop app is
      relaunched by someone opening it, sometimes days later and usually to do something else — see
      `parkOnBoot`. */
@@ -1171,7 +1389,17 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   runs = new RunService({ store: new RunsStore(db), settings, sessions, rpc, environments: envService, skills, notifications,
     // A run a schedule fired may owe its schedule something once it is over (archiving a success).
     // Read through the variable, which is assigned on the next statement and before any run settles.
-    onSettled: (run) => schedules?.runSettled(run),
+    onSettled: (run) => { schedules?.runSettled(run); team?.runSettled(run); },
+    // A team role's run waits for a slot, wears its role's preamble, and arms its minutes cap when it
+    // starts — all decided by the team service, read through the variable assigned below.
+    admit: (run) => !(lab?.holding ?? false) && (team?.admit(run) ?? true),
+    rolePreamble: (run) => {
+      const base = team?.rolePreamble(run) ?? null;
+      const more = handoffs?.preamble(run) ?? null;
+      return base && more ? `${base}\n${more}` : base;
+    },
+    onChanged: (run) => { team?.runChanged(run); handoffs?.runChanged(run); },
+    holdSettle: (run) => handoffs?.holdSettle(run) ?? false,
     fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind });
   // Scheduled tasks: the clock in front of the runs above. It owns a timer and they deliberately do
   // not — every fact this one acts on is a column, so a restart replays from the row rather than
@@ -1180,6 +1408,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   schedules = new ScheduleService({
     store: new SchedulesStore(db), runs, rpc,
     spaceExists: (id) => Boolean(spaces.get(id)),
+    refuse: (schedule) => team?.refuseSchedule(schedule) ?? handoffs?.refuseSchedule(schedule) ?? null,
     // The session's sidebar row: an item, archived the way the row's own Archive does it.
     archiveSession: (sessionId, archived) => {
       const item = items.findByRefId(sessionId);
@@ -1193,12 +1422,94 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      because it wraps the service declared on the line above; the gateway's per-space enablement is
      what decides whether a session actually sees the tools. */
   mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp, sessions }));
+  /* Teams: roles whose work is the runs above, Review, records in the space's memory repo, and the
+     activity log (team/service.ts). `realm-team` is listed only in a space that is a team. */
+  const teamStore = new TeamStore(db);
+  /* Approve → act (team/acts): a yes issues one paced ticket per outward act, and each acts only on
+     the person's press on its sheet, which main holds and the bridge asks about. The platform is
+     never real in a check: REALM_FAKE_ACT_ADAPTER=1 posts nowhere and logs each act to the home. */
+  const actAdapter: ActAdapter = opts.acts?.adapter
+    ?? (process.env.REALM_FAKE_ACT_ADAPTER === "1" ? new FakeActAdapter(join(opts.home, "fake-acts.jsonl")) : new NotConnectedAdapter());
+  acts = new ActService({
+    store: new ActStore(db), team: teamStore,
+    rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
+    record: (spaceId, path) => team?.recordFor(spaceId, path) ?? null,
+    presses: opts.acts?.presses ?? {
+      consume: async (ticketId, contentHash) => {
+        if (!browserBridge.connected) return { pressed: false, label: false, slotAt: null };
+        return (await browserBridge.call("teamTicketPress", { ticketId, contentHash })) as TicketPress;
+      },
+    },
+    adapter: () => actAdapter,
+    proofDir: join(opts.home, "team-proof"),
+    rpc,
+  });
+  /* The kinds of record each team keeps (team/record-types). Their words reach the record tools'
+     descriptions, so a change re-lists the space's sessions; the tool list itself never changes. */
+  const recordTypeStore = new RecordTypeStore(db);
+  const recordTypes = new RecordTypeService({
+    store: recordTypeStore,
+    repoPath: (id) => team?.repoPath(id) ?? null,
+    spaceExists: (id) => Boolean(spaces.get(id)),
+    log: (spaceId, actor, verb, object, detail) => { teamStore.appendActivity({ spaceId, actor, verb, object, detail }); },
+    changed: (spaceId) => { rpc.broadcast("team.changed", { spaceId }); mcpGateway.notifyPolicyChanged(spaceId); },
+  });
+  team = new TeamService({
+    store: teamStore, runs, schedules, sessions, repos: memoryRepos, acts: acts, recordTypes,
+    rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
+    spaceExists: (id) => Boolean(spaces.get(id)),
+    enabledSkills: (id) => skills.list(id).skills.filter((s) => s.enabled && s.valid).map((s) => s.id),
+    settings, rpc,
+    defaultKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind,
+    preambleExtra: (roleId) => vault?.preambleLines(roleId) ?? [],
+  });
+  handoffs = new HandoffService({
+    store: new HandoffStore(db), teamStore, team, runs, goals: { get: (id) => goals.get(id), adopt: (id, o, b) => goals.adopt(id, o, b), set: (id, st, note) => goals.set(id, st, note) },
+    agentRuns, sessions, settings, rpc,
+    rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
+  });
+  team.attach(handoffs);
+  mcpGateway.registerProvider(createTeamAgentProvider({ team, types: recordTypes, mcp, more: createHandoffTools({ handoffs, teamStore }) }));
+  const teamFinal = team;
+  vault = new VaultService({
+    store: new VaultStore(db), team: teamStore, runs, bridge: browserBridge,
+    profileOf: (id) => spaces.get(id)?.profileId ?? null, isTeam: (id) => teamFinal.isTeam(id), rpc,
+  });
+  mcpGateway.registerProvider(createVaultAgentProvider({
+    vault, bridge: browserBridge, broker: browserBroker, mcp,
+    profileOf: (id) => spaces.get(id)?.profileId ?? null, isTeam: (id) => teamFinal.isTeam(id),
+  }));
+  /* The lab: this Mac's readiness, the devices on its cables, and the update window that holds team
+     runs while an update waits to install. Realm-wide — one Mac serves every team on it. */
+  lab = new LabService({
+    store: new LabDevicesStore(db), settings, rpc,
+    spaceName: (id) => spaces.get(id)?.name ?? null,
+    devices: () => simulators.devices(),
+    probe: opts.lab?.probe ?? (async () => evaluate(await probeFacts(macProbeDeps(opts.home)))),
+    hostName: opts.lab?.hostName ?? (async () => {
+      const r = await runCommand("/usr/sbin/scutil", ["--get", "LocalHostName"], 3_000);
+      return r.code === 0 && r.stdout.trim() ? `${r.stdout.trim()}.local` : null;
+    }),
+    // Work the window waits for: runs that are running, and turns in sessions no run owns.
+    busy: () => {
+      const running = runs!.listLive().filter((r) => r.state === "running");
+      const workers = new Set(running.map((r) => r.sessionId).filter(Boolean));
+      const sessionsWorking = sessionsStore.listAll().filter((s) => s.status === "running" && !workers.has(s.id) && !runs!.isWorker(s.id)).length;
+      return { runs: running.length, sessions: sessionsWorking };
+    },
+    pump: () => runs?.pump(),
+    ...(opts.lab?.now ? { now: opts.lab.now } : {}),
+  });
+  /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
+     has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
+     agents, which take no per-session context. A save repaints every open memory row of the profile. */
+  mcpGateway.registerProvider(createMemoryAgentProvider({ repos: memoryRepos, mcp, onChanged: memoryRepoChanged }));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
   // History tab already open sees the ship land.
   // Global search (Plan 16 W1). The service reads; the index writes live in the stores' own choke
   // points (SessionEventsStore.append, ItemsStore) so no producer can skip them.
-  const search = new SearchService({ db, settings, profiles, spaces, skills, memory });
+  const search = new SearchService({ db, settings, profiles, spaces, skills, memory, memoryRepos });
   // Model prices and context windows for the picker (public catalog, cached in `settings`). Nothing
   // depends on it: every method returns rows, and an unreachable catalog returns the stale ones.
   const modelCatalog = new ModelCatalogService({ settings });
@@ -1257,7 +1568,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const projectSearch = new ProjectSearchService();
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles,
@@ -1279,6 +1590,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       drain.tick();
     },
   });
+  registerVaultMethods(rpc, vault, (id) => Boolean(spaces.get(id)));
+  registerLabMethods(rpc, lab);
+  registerActMethods(rpc, acts!, (id) => Boolean(spaces.get(id)));
+  registerRecordTypeMethods(rpc, recordTypes, (id) => Boolean(spaces.get(id)));
+  registerPolicyMethods(rpc, new PoliciesService({
+    profileIdOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
+    realmProviders: (spaceId) => mcpGateway.realmProvidersFor("", spaceId),
+    serverIds: (spaceId) => mcp.effectiveServerIds(spaceId),
+    server: (id) => mcpServersStore.get(id),
+    allowedTools: (spaceId, id) => mcp.allowedTools(spaceId, id),
+    liveTools: (id) => mcpHub.tools(id),
+    overrides: new ToolClassesStore(db),
+  }), (id) => Boolean(spaces.get(id)));
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
@@ -1286,13 +1610,29 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // …and only then does the clock start. A schedule that came due while the app was closed fires on
   // this first tick, and it must not race the recovery that decides which runs are still alive.
   schedules.start();
+  team.start();
+  // A folder of records that no type claims — a team made from "any" roles that a person later gave
+  // creators/ files — is adopted here, once: what migration v51 could not see from SQL.
+  try {
+    adoptRecordTypes({ teamSpaceIds: () => teamStore.teamSpaceIds().filter((id) => Boolean(spaces.get(id))), repoPath: (id) => teamFinal.repoPath(id), store: recordTypeStore, types: recordTypes });
+  } catch (e) { console.error(`[team] record types reconcile failed: ${e instanceof Error ? e.message : String(e)}`); }
+  handoffs.start();
+  lab.start();
+  acts!.start();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
   void search.runBackfill();
+  /* Saves made while the network was down are pushed now, and what other machines pushed is pulled:
+     every synced repo, in the background, never holding up the boot. */
+  for (const p of profiles.list()) void memoryRepos.queueSync({ scope: "profile", id: p.id });
+  for (const sp of spaces.listAll()) void memoryRepos.queueSync({ scope: "space", id: sp.id });
   // The pre-v25 history reaches the Library's file index the same way, on the same terms: chunked,
   // yielding, resumable, and merely incomplete rather than wrong while it runs.
   void artifacts.runBackfill(() => false);
+  // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in
+  // the background (`SessionService.backfillTurnMedia`).
+  void sessions.backfillTurnMedia().catch((e) => console.error(`[sessions] media catch-up failed: ${e instanceof Error ? e.message : String(e)}`));
   // Copies removed from the Library while the last run was up, whose Undo went with it.
   void libraryFiles.sweep();
   terminals.restoreAll();
@@ -1325,6 +1665,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    */
   const closeApp = async (): Promise<void> => {
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
+    team?.close();
+    handoffs?.close();
+    lab?.close();
+    acts?.close();
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
@@ -1355,7 +1699,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
 
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, codeReview, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, team, lab, acts: acts!, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
+}
+
+/** `REALM_MCP_HEARTBEAT_MS`, for live checks only: a positive whole number of milliseconds, or the
+ *  gateway's own default. */
+function heartbeatOverride(): number | undefined {
+  const ms = Number(process.env.REALM_MCP_HEARTBEAT_MS);
+  return Number.isInteger(ms) && ms > 0 ? ms : undefined;
 }

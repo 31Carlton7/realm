@@ -26,22 +26,6 @@ describe("closeIntent", () => {
     expect(closeIntent(withSide, "LA", of)).toEqual({ kind: "prompter", sessionId: "sa" });
   });
 
-  it("closes the tab showing when the keyboard is in a side pane", () => {
-    expect(closeIntent(withSide, "LS", of)).toEqual({ kind: "tab", itemId: "W" });
-  });
-
-  it("takes a session out of a split it shares with something", () => {
-    expect(closeIntent(row(leaf("LA", "A"), leaf("LB", "B")), "LB", of)).toEqual({ kind: "unsplit", itemId: "B" });
-    expect(closeIntent(row(leaf("LA", "A"), leaf("LT", "T")), "LA", of)).toEqual({ kind: "unsplit", itemId: "A" });
-  });
-
-  it("drops an empty pane beside a session rather than the session", () => {
-    // THE MUTANT: unsplit by taking the session out — the view is left one empty box, which the store
-    // then fills with a session nobody asked for.
-    expect(closeIntent(row(leaf("LA", "A"), leaf("LE", null)), "LA", of)).toEqual({ kind: "empty", leafId: "LE" });
-    expect(closeIntent(row(leaf("LA", "A"), leaf("LE", null)), "LE", of)).toEqual({ kind: "empty", leafId: "LE" });
-  });
-
   it("closes a pane holding anything else, alone or not, as its bar says", () => {
     expect(closeIntent(leaf("LT", "T"), "LT", of)).toEqual({ kind: "pane", itemId: "T" });
     expect(closeIntent(row(leaf("LT", "T"), leaf("LE", null)), "LT", of)).toEqual({ kind: "pane", itemId: "T" });

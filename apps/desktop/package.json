@@ -74,6 +74,7 @@
     "marked": "^18.0.9",
     "mermaid": "^12.1.0",
     "papaparse": "^5.7.0",
+    "pdfjs-dist": "^5.7.284",
     "prosemirror-markdown": "^1.13.7",
     "react": "^19.0.0",
     "react-datasheet-grid": "^4.11.6",

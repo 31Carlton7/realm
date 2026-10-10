@@ -35,7 +35,7 @@ let enabled: boolean;
 
 const row = (input: CreateScheduleInput): Schedule => ({
   id: `sch${rows.length + 1}`, spaceId: input.spaceId, title: input.title, goal: input.goal,
-  cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints,
+  cron: input.cron, enabled: input.enabled ?? true, constraints: input.constraints, roleId: null,
   // The real store derives this; the fake mirrors the one property the tools read back — a one-shot
   // resolves to its own moment, and a cron to something ahead.
   nextRunAt: parseOnce(input.cron) ?? Date.parse("2026-10-01T09:00:00Z"),

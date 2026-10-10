@@ -847,4 +847,288 @@ export const migrations: string[] = [
   CREATE INDEX IF NOT EXISTS saved_turns_session ON saved_turns(session_id, event_seq);
   CREATE INDEX IF NOT EXISTS saved_turns_recent ON saved_turns(saved_at DESC, event_seq DESC);
   `,
+  // v42 — goal mode's provider is `realm-goal` now, not `goal`, so it sits beside Realm's other
+  // providers and an agent searching its deferred tools for `realm-` finds it. The per-space switch is
+  // stored BY NAME (`mcp.providersDisabled:<spaceId>`, a JSON array), so a space that had turned the
+  // goal tools off would quietly have them back under the new name. Each such list has `goal`
+  // swapped for `realm-goal`, once, and comes out sorted as `setProviderEnabled` writes it. Idempotent: a list that no longer
+  // holds `goal` is not touched, and a list that somehow holds both comes out with one.
+  `
+  UPDATE settings SET value_json = (
+    SELECT json_group_array(name) FROM (
+      SELECT DISTINCT CASE WHEN value = 'goal' THEN 'realm-goal' ELSE value END AS name
+      FROM json_each(settings.value_json) ORDER BY name))
+  WHERE key LIKE 'mcp.providersDisabled:%'
+    AND json_valid(value_json)
+    AND EXISTS (SELECT 1 FROM json_each(settings.value_json) WHERE value = 'goal');
+  `,
+  // v43 — team roles (Teams, Phase 1). A team is a space with standing roles; a role is a saved agent
+  // definition, and its work is ordinary `runs` — so this adds one table and tags the two tables a
+  // role's work already lives in, rather than a second scheduler beside them.
+  //
+  // `realmite_json` is the role's creature as the maker left it (`RealmiteSpec`, every part written
+  // out), so a role reads back as the creature the person chose even after the generator is retuned.
+  // `runs.role_id` / `schedules.role_id` are plain strings with no foreign key, for the reason
+  // `runs.schedule_id` has none: "role R ran X" stays true after R is archived. `woke_on` says why a
+  // run started (schedule | review | manual) and `cost_usd` is settled from its session's usage.
+  // Nothing is backfilled: every run and schedule written before this belongs to no role.
+  `
+  CREATE TABLE IF NOT EXISTS team_roles (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, brief TEXT NOT NULL, realmite_json TEXT NOT NULL, template TEXT,
+    agent_kind TEXT NOT NULL, model TEXT, effort TEXT,
+    permission_mode TEXT NOT NULL DEFAULT 'default',
+    skills_json TEXT NOT NULL DEFAULT '[]',
+    wake_on_review INTEGER NOT NULL DEFAULT 1,
+    week_budget_usd REAL, run_cap_usd REAL NOT NULL DEFAULT 3, run_cap_ms INTEGER NOT NULL DEFAULT 1200000,
+    max_concurrent INTEGER NOT NULL DEFAULT 1,
+    archived INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS team_roles_space ON team_roles(space_id, archived, sort_order);
+  ALTER TABLE schedules ADD COLUMN role_id TEXT;
+  ALTER TABLE runs ADD COLUMN role_id TEXT;
+  ALTER TABLE runs ADD COLUMN woke_on TEXT;
+  ALTER TABLE runs ADD COLUMN cost_usd REAL;
+  CREATE INDEX IF NOT EXISTS runs_role ON runs(role_id, created_at DESC) WHERE role_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS schedules_role ON schedules(role_id) WHERE role_id IS NOT NULL;
+  `,
+  // v44 — Review: what a team's roles make, waiting for a person's yes. A review is one batch (six
+  // slideshows, one email draft); its items are the pieces, each with the files and text that were
+  // approved and the hash of exactly those bytes, so a file changed after the yes is a yes to
+  // something else and the item drops back to waiting. `version` counts revisions: a run woken by
+  // "Request changes" replaces the items in place, and the earlier version's rows stay, one step back.
+  // `act_state` is Phase 3's (posting); Phase 1 only ever writes `none` and `ready`.
+  `
+  CREATE TABLE IF NOT EXISTS team_reviews (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    role_id TEXT, run_id TEXT, session_id TEXT, record_path TEXT,
+    kind TEXT NOT NULL, title TEXT NOT NULL, state TEXT NOT NULL, note TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL, decided_at INTEGER, updated_at INTEGER NOT NULL);
+  CREATE INDEX IF NOT EXISTS team_reviews_space ON team_reviews(space_id, state, created_at DESC);
+  CREATE TABLE IF NOT EXISTS team_review_items (
+    id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES team_reviews(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL DEFAULT 1, ord INTEGER NOT NULL,
+    files_json TEXT NOT NULL, body TEXT, target_json TEXT,
+    content_hash TEXT NOT NULL, approved_hash TEXT,
+    act_state TEXT NOT NULL DEFAULT 'none');
+  CREATE INDEX IF NOT EXISTS team_review_items_review ON team_review_items(review_id, version, ord);
+  `,
+  // v45 — the team's activity log: every wake, submission, decision, record change and budget stop,
+  // one line each. Append-only by contract — nothing in the code updates or deletes a row
+  // (`team/activity.test.ts` holds that), so "what did this team do" is answered from one place.
+  `
+  CREATE TABLE IF NOT EXISTS team_activity (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL, actor TEXT NOT NULL,
+    run_id TEXT, session_id TEXT, verb TEXT NOT NULL, object TEXT,
+    detail_json TEXT NOT NULL DEFAULT '{}');
+  CREATE INDEX IF NOT EXISTS team_activity_space ON team_activity(space_id, ts DESC);
+  CREATE INDEX IF NOT EXISTS team_activity_run ON team_activity(run_id) WHERE run_id IS NOT NULL;
+  `,
+  // v46 — the team vault's grants (Teams Phase 2): which role of a team may use which secret, and
+  // where. A row is ids and names only — the secret itself stays sealed in Electron main's store, and
+  // nothing here can open it. `hosts_json` is where the role may use it: a subset of the hosts the
+  // secret is pinned to. `created_at` is part of a grant's identity, because main seals a grant's
+  // "use without asking" against it: a grant revoked and made again asks again. The role is a plain
+  // string, as `runs.role_id` is; a removed role's grants are revoked by the service, not by a cascade
+  // on an archived row. Nothing to backfill — no grant existed before this.
+  `
+  CREATE TABLE IF NOT EXISTS vault_grants (
+    secret_id TEXT NOT NULL, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    role_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL,
+    hosts_json TEXT NOT NULL DEFAULT '[]', purpose TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (secret_id, role_id));
+  CREATE INDEX IF NOT EXISTS vault_grants_space ON vault_grants(space_id, role_id);
+  `,
+  // v47 — handoffs and mentions (Teams Phase 4). A role may pass work to another role along the edges
+  // `team_roles.handoffs_json` names (role ids), and a person or a session may wake a role by
+  // mentioning it, which starts it as that session's sub-agent. Both are one `team_handoffs` row: who
+  // asked (a role, or a session), who was woken, the record it is about, the note and the files
+  // passed with it, and what it started — a run for a handoff, a sub-agent session for a mention. The
+  // row's outcome is read off that run or session; `outcome`/`settled_at`/`cost_usd` are written only
+  // for a mention, whose sub-agent is not a run. `wake_on_mention` is the role page's switch. Nothing is
+  // backfilled: a role made before this hands off to nobody and answers mentions, the plan's default.
+  `
+  ALTER TABLE team_roles ADD COLUMN handoffs_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE team_roles ADD COLUMN wake_on_mention INTEGER NOT NULL DEFAULT 1;
+  CREATE TABLE IF NOT EXISTS team_handoffs (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    from_role_id TEXT, from_session_id TEXT, to_role_id TEXT NOT NULL,
+    record_path TEXT, note TEXT NOT NULL, files_json TEXT NOT NULL DEFAULT '[]',
+    run_id TEXT, session_id TEXT, outcome TEXT, cost_usd REAL,
+    created_at INTEGER NOT NULL, settled_at INTEGER);
+  CREATE INDEX IF NOT EXISTS team_handoffs_space ON team_handoffs(space_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS team_handoffs_to ON team_handoffs(to_role_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS team_handoffs_from ON team_handoffs(from_role_id, created_at DESC) WHERE from_role_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS team_handoffs_session ON team_handoffs(session_id) WHERE session_id IS NOT NULL;
+  `,
+  // v48 — the lab's devices (Teams Phase 5): the real iPhones, simulators and Android phones attached
+  // to the Mac a team's work runs on, which team each serves, the accounts it holds, and when a scan
+  // last saw it on the cable. `udid` is how a scan matches a row and is unique where it is known; a
+  // device written down before it was ever plugged in has none. `space_id` is the team it serves and
+  // falls back to none when that space is deleted, because the phone is still on the desk.
+  // `accounts_json` names accounts (service and handle) and never a password — those are the vault's.
+  // Nothing references another Phase's table, and nothing is backfilled.
+  `
+  CREATE TABLE IF NOT EXISTS lab_devices (
+    id TEXT PRIMARY KEY, kind TEXT NOT NULL, udid TEXT, name TEXT NOT NULL,
+    space_id TEXT REFERENCES spaces(id) ON DELETE SET NULL,
+    accounts_json TEXT NOT NULL DEFAULT '[]',
+    last_seen_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE UNIQUE INDEX IF NOT EXISTS lab_devices_udid ON lab_devices(udid) WHERE udid IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS lab_devices_space ON lab_devices(space_id) WHERE space_id IS NOT NULL;
+  `,
+  // v49 — when a session's conversation last moved: `sessions.activity_at`, what the sidebar and every
+  // other list of sessions is ordered by. `updated_at` moves on every write to the row — a resume's
+  // init, a status, a cursor, a rename — so ordering by it moved a session for being opened. This
+  // moves only when a prompt goes out or the agent answers or finishes a turn (`SessionService`).
+  //
+  // Backfilled from the log: the newest prompt or reply each session has, else when it was made — the
+  // two moments the column will record from here on, read back rather than invented. Safe to meet
+  // twice: the version table keeps the ALTER from re-running, and the backfill only ever moves a time
+  // forward, so a replay cannot pull a session back from a time written since.
+  `
+  ALTER TABLE sessions ADD COLUMN activity_at INTEGER NOT NULL DEFAULT 0;
+  UPDATE sessions SET activity_at = MAX(activity_at, COALESCE(
+    (SELECT MAX(ev.ts) FROM session_events ev WHERE ev.session_id = sessions.id AND ev.type IN ('user_message', 'assistant_text')),
+    created_at));
+  `,
+  // v50 — act tickets (Teams Phase 3: approve → act). Numbered for the integration line, where v47–v49
+  // (handoffs, lab, activity_at) come first: at merge this goes LAST, whatever its index, and its test
+  // finds it by its text. An approved item's outward act — a post, an email, a DM — is one ticket: one
+  // account, one consequence, bound to the hash of the bytes that were approved, and given the next
+  // paced slot. `pressed_at` is the person's one click on its sheet; nothing else moves a ticket to
+  // `scheduled`. `proof_url` and `screenshot` are what it left behind (or, after a failure, the
+  // screenshot of what went wrong, with `error`). One live-or-done ticket per item: an item goes out
+  // once. `review_id` and `item_id` are plain strings, as `runs.role_id` is: reviews go only with their
+  // space, and the space's cascade takes the tickets. `team_act_holds` is the team's kill switch — a
+  // row while every act of the team is held.
+  // Nothing to backfill: no item was ever acted on by Realm before this.
+  `
+  CREATE TABLE IF NOT EXISTS team_act_tickets (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    review_id TEXT NOT NULL, item_id TEXT NOT NULL,
+    kind TEXT NOT NULL, channel TEXT NOT NULL, account TEXT NOT NULL, recipient TEXT,
+    content_hash TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'ready',
+    slot_at INTEGER NOT NULL, slot_why TEXT NOT NULL DEFAULT 'next',
+    pressed_at INTEGER, disclosure TEXT, acted_at INTEGER,
+    proof_url TEXT, screenshot TEXT, error TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE UNIQUE INDEX IF NOT EXISTS team_act_tickets_item ON team_act_tickets(item_id) WHERE state <> 'cancelled';
+  CREATE INDEX IF NOT EXISTS team_act_tickets_review ON team_act_tickets(review_id, state);
+  CREATE INDEX IF NOT EXISTS team_act_tickets_account ON team_act_tickets(kind, channel, account, slot_at);
+  CREATE INDEX IF NOT EXISTS team_act_tickets_space ON team_act_tickets(space_id, kind, slot_at);
+  CREATE TABLE IF NOT EXISTS team_act_holds (
+    space_id TEXT PRIMARY KEY REFERENCES spaces(id) ON DELETE CASCADE,
+    held_at INTEGER NOT NULL);
+  `,
+  // v51 — record types (dynamic Teams, PR 1). A team keeps the kinds of record it needs, each a folder
+  // of Markdown files in the space's memory repo; v50 knew only `creators/` with four fixed sections.
+  // `team_meta` is one row per team: the template it was made from (NULL for one made before
+  // templates, or from "any" roles), copied rather than linked. `team_record_types` is one row per
+  // kind: its key (what tools name), its words, its folder (one segment, unique in the space), and the
+  // head fields and sections Realm draws, as JSON. `preset` names the preset it came from.
+  // Found by its own text in its test (`team/migrate-dynamic.test.ts`), never by number: at merge it
+  // stays ahead of the deliverables and risk-class migrations whatever its index.
+  //
+  // Backfilled, and safe to meet twice (INSERT OR IGNORE on keys that already hold): every team gets
+  // a meta row, classed `creator-campaigns` when it has a Creator Manager or Content Producer from the
+  // templates, a slideshow review or a review about a `creators/` record, or any act ticket — and each
+  // such team gets the Creator type with exactly v50's sections. A team with no such signal gets no
+  // type here; a `creators/` folder in its repo is adopted at boot (`team/record-types/adopt.ts`).
+  // No existing row changes, nothing is deleted, and no file moves.
+  `
+  CREATE TABLE IF NOT EXISTS team_meta (
+    space_id TEXT PRIMARY KEY REFERENCES spaces(id) ON DELETE CASCADE,
+    template TEXT,
+    template_version INTEGER,
+    created_at INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS team_record_types (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    one TEXT NOT NULL, many TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    glyph TEXT NOT NULL DEFAULT 'records',
+    title_field TEXT NOT NULL DEFAULT '#',
+    status_field TEXT,
+    statuses_json TEXT NOT NULL DEFAULT '[]',
+    head_json TEXT NOT NULL DEFAULT '[]',
+    sections_json TEXT NOT NULL DEFAULT '[]',
+    preset TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE UNIQUE INDEX IF NOT EXISTS team_record_types_key ON team_record_types(space_id, key);
+  CREATE UNIQUE INDEX IF NOT EXISTS team_record_types_folder ON team_record_types(space_id, folder);
+  INSERT OR IGNORE INTO team_meta (space_id, template, template_version, created_at)
+    SELECT space_id, CASE WHEN creator THEN 'creator-campaigns' ELSE NULL END, CASE WHEN creator THEN 1 ELSE NULL END, made
+    FROM (
+      SELECT r.space_id AS space_id, MIN(r.created_at) AS made,
+        (EXISTS (SELECT 1 FROM team_roles r2 WHERE r2.space_id = r.space_id AND r2.template IN ('creator-manager', 'content-producer'))
+          OR EXISTS (SELECT 1 FROM team_reviews v WHERE v.space_id = r.space_id AND (v.kind = 'slideshows' OR v.record_path LIKE 'creators/%'))
+          OR EXISTS (SELECT 1 FROM team_act_tickets t WHERE t.space_id = r.space_id)) AS creator
+      FROM team_roles r GROUP BY r.space_id);
+  INSERT OR IGNORE INTO team_record_types (id, space_id, key, one, many, folder, glyph, title_field, status_field, statuses_json, head_json, sections_json, preset, sort_order, archived, created_at, updated_at)
+    SELECT hex(randomblob(13)), space_id, 'creator', 'Creator', 'Creators', 'creators', 'records', '#', 'Status',
+      '["prospect","contacted","signed","paused","ended"]',
+      '[{"key":"Status"},{"key":"Contact"},{"key":"Sends from"}]',
+      '[{"heading":"Deal","shape":"properties"},{"heading":"Accounts","shape":"entries","parts":["vault","device","consent"]},{"heading":"Deadlines","shape":"list","dated":true},{"heading":"Content","shape":"list","dated":true}]',
+      'creator', 0, 0, created_at, created_at
+    FROM team_meta WHERE template = 'creator-campaigns';
+  `,
+  // v52 — generic deliverables (dynamic Teams, PR 2). An item of a review is files, text and metadata,
+  // drawn by what it is and carrying an optional proposed outward action, instead of a business's four
+  // fixed kinds. `meta_json` is the item's free key/values ("Subject", "Due"); `format` is a renderer
+  // hint (images|pdf|markdown|email|message|diff|links|table|text|files; NULL = infer it); `action_json`
+  // is the outward act it proposes (NULL = nothing leaves Realm); `edited_by` is 'user' when the person
+  // edited that version's text before approving. Numbered for the integration line after v51 (record
+  // types): its test finds it by its text.
+  //
+  // Backfilled: every legacy item gets the action it already implied, by exactly `actKindFor`'s rules
+  // (a slideshow is a post; a message is an email on an email channel, else a DM), marked `legacy`, and
+  // only where its target names both a channel and an account — the two a ticket needs. Slideshows are
+  // drawn as images. `team_reviews.kind` stays, read as a free label; `target_json` stays as the
+  // fallback; the hash covers files and body only, and neither moved. Safe to meet twice: each update
+  // only fills what is still NULL.
+  `
+  ALTER TABLE team_review_items ADD COLUMN meta_json TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE team_review_items ADD COLUMN format TEXT;
+  ALTER TABLE team_review_items ADD COLUMN action_json TEXT;
+  ALTER TABLE team_review_items ADD COLUMN edited_by TEXT;
+  UPDATE team_review_items SET action_json = json_object(
+      'verb', CASE WHEN (SELECT kind FROM team_reviews r WHERE r.id = review_id) = 'slideshows' THEN 'post'
+                   WHEN lower(trim(json_extract(target_json, '$.channel'))) IN ('email', 'mail') THEN 'email' ELSE 'dm' END,
+      'connector', 'channel:' || lower(trim(json_extract(target_json, '$.channel'))),
+      'account', json_extract(target_json, '$.account'),
+      'to', json_extract(target_json, '$.to'),
+      'legacy', 1)
+    WHERE action_json IS NULL AND target_json IS NOT NULL AND json_valid(target_json)
+      AND trim(COALESCE(json_extract(target_json, '$.channel'), '')) <> ''
+      AND json_extract(target_json, '$.account') IS NOT NULL
+      AND (SELECT kind FROM team_reviews r WHERE r.id = review_id) IN ('slideshows', 'message');
+  UPDATE team_review_items SET format = 'images'
+    WHERE format IS NULL AND (SELECT kind FROM team_reviews r WHERE r.id = review_id) = 'slideshows';
+  `,
+  // v53 — tool classes (dynamic Teams, PR 3), after record types and deliverables, and found by its
+  // text, never its number. A person's word on what a connector's tool does to the world (the
+  // dynamic-Teams plan, §4.2): only these OVERRIDES are stored — Realm's own tools and the vendor
+  // table are code (`risk-class.ts`), and a server's annotations are read live. `connector` is
+  // `mcp:<server row id>`, `realm:<provider>` or `surface:<origin or bundle id>`; `tool` is a name, or
+  // `*` for the whole connector. `seal` is main's stamp, required before a row may LOWER a class below
+  // what Realm derived; a row without one only ever raises. Per profile, because a connector's tools
+  // do the same thing in every space of it. Nothing to backfill: nobody has said anything yet.
+  `
+  CREATE TABLE IF NOT EXISTS tool_classes (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    connector TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    class TEXT NOT NULL,
+    verb TEXT,
+    seal TEXT,
+    set_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, connector, tool));
+  `,
 ];

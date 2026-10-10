@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
-import { AGENT_META, askCardFromAskUserQuestion, loggableAnswers, newId, normalizeAnswers, sessionEvent, type AgentKind, type AgentModel, type AskAnswers, type AskCard, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { AGENT_META, askCardFromAskUserQuestion, goalTurnLine, loggableAnswers, newId, normalizeAnswers, sessionEvent, type AgentKind, type AgentModel, type AskAnswers, type AskCard, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import type { AgentAdapter, AgentHandle, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { gatewayClient } from "./gateway-call";
@@ -23,11 +23,31 @@ export type FakeStep =
    *  an agent's CLI calls it — and recorded as the call and its result. `tool` is the gateway's name
    *  for it (`realm-agent__agent_start`); the transcript shows it under Claude's prefix. The one step
    *  that reaches past the script: what answers it is the production path. */
-  | { kind: "call"; tool: string; input: Record<string, unknown> }
+  | { kind: "call"; tool: string; input: Record<string, unknown>;
+      /** Merge the JSON object the user's message ends with over `input` — how a live check hands the
+       *  agent an id it only learns at run time ("S6 read {"browserId": "01…"}"). */
+      argsFromMessage?: boolean }
+  /** Read this session's tool list from the gateway, as the agent would see it right now, and say it
+   *  as the turn's text: the names, how many `tools/list_changed` the session has been sent, and —
+   *  given `expect` — which of those names are missing. What lets a live check see what an agent
+   *  could call, rather than what the server meant it to. */
+  | { kind: "list"; expect?: string[] }
+  /** A turn that does nothing: one line of text, no tool call. What a goal's stalled continuations
+   *  look like (2026-10-07: "nothing has changed"). */
+  | { kind: "idle"; text?: string }
   /** A plan-quota reading, as `SDKRateLimitEvent` produces one on the real Claude wire. The scripted
    *  adapter is the only kind that can drive the limits path end to end in a test. */
-  | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> };
-export type FakeScript = { on: string; emit: FakeStep[] }[];
+  | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> }
+  /** A usage report mid-turn, with what this stretch cost — how a live check drives a team role's run
+   *  to its dollar cap. A turn that scripted one does not add the fixed end-of-turn report. */
+  | { kind: "usage"; costUsd: number };
+/**
+ * `on` is matched as a substring of the message. `turn` narrows an entry to one turn of a goal: the
+ * continuation must also say `goalTurnLine(turn)` ("This is turn 3."), so a live check can script
+ * "turn 3 closes the goal" or "turns 2 to 4 do nothing" against one objective. The first entry that
+ * matches wins, so an entry with a `turn` goes before one for the same `on` without.
+ */
+export type FakeScript = { on: string; turn?: number; emit: FakeStep[] }[];
 
 /** A scripted `AskUserQuestion` is asked the way Claude's is, by the agent that is really asking. */
 const FAKE_ASKER = { kind: "agent", name: AGENT_META.fake.label, agent: "fake" } as const;
@@ -50,6 +70,9 @@ export class FakeAdapter implements AgentAdapter {
     const sleep = () => new Promise((r) => setTimeout(r, delay));
     let disposed = false;
     let interrupted = false;
+    // Full access runs a scripted permission without a card, as the real agents do; a question is not
+    // a permission and is asked in every mode.
+    let mode = opts.permissionMode ?? "default";
 
     const resumeOutcome = opts.resume ? this.cfg.resume : undefined;
     // Made on first use, and once: the gateway keeps one MCP session per Realm session.
@@ -73,26 +96,47 @@ export class FakeAdapter implements AgentAdapter {
       res(decision);
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
+    /** One whole message at once, the way an unpaced `text` step says it. */
+    const sayAll = (text: string) => {
+      const id = newId();
+      for (const ch of text) q.push(sessionEvent("assistant_delta", { messageId: id, delta: ch }));
+      q.push(sessionEvent("assistant_text", { messageId: id, text }));
+    };
 
     const run = async (msg: UserMessage) => {
       interrupted = false;
+      let reported = false;
       q.push(sessionEvent("status", { status: "running" }));
-      const step = this.cfg.script.find((s) => msg.text.includes(s.on));
+      const step = this.cfg.script.find((s) => msg.text.includes(s.on) && (s.turn === undefined || msg.text.includes(goalTurnLine(s.turn))));
       for (const st of step?.emit ?? [{ kind: "text", text: `echo: ${msg.text}` } as FakeStep]) {
         if (disposed) return;
         if (interrupted) break; // like the real adapter: interrupt stops the turn; the turn's natural end still emits usage + idle
         await sleep();
         if (st.kind === "throw") throw new Error(st.message);
         if (st.kind === "rateLimit") { q.push(sessionEvent("rate_limit", st.payload)); continue; }
+        if (st.kind === "usage") { reported = true; q.push(sessionEvent("usage", { costUsd: st.costUsd, inputTokens: 10, outputTokens: 10, numTurns: 1 })); continue; }
+        if (st.kind === "idle") { sayAll(st.text ?? "Nothing has changed since the last turn."); continue; }
+        if (st.kind === "list") {
+          const seen = gateway ? await gateway.list().catch((e: unknown) => ({ error: (e as Error).message ?? String(e) })) : { error: "no Realm gateway was handed to this session" };
+          if (disposed) return;
+          if ("error" in seen) { sayAll(`tools/list failed: ${seen.error}`); continue; }
+          const missing = (st.expect ?? []).filter((name) => !seen.names.includes(name));
+          sayAll([`tools/list: ${seen.names.join(", ")}`, `list_changed: ${seen.listChanged}`, ...(st.expect ? [`missing: ${missing.length ? missing.join(", ") : "none"}`] : [])].join("\n"));
+          continue;
+        }
         if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
         if (st.kind === "call") {
           const toolUseId = newId();
-          q.push(sessionEvent("tool_call", { toolUseId, name: `mcp__realm__${st.tool}`, input: st.input, parentToolUseId: null }));
+          const input = st.argsFromMessage ? { ...st.input, ...argsIn(msg.text) } : st.input;
+          q.push(sessionEvent("tool_call", { toolUseId, name: `mcp__realm__${st.tool}`, input, parentToolUseId: null }));
           const answer = gateway
-            ? await gateway.call(st.tool, st.input).catch((e: unknown) => ({ text: (e as Error).message ?? String(e), isError: true }))
+            ? await gateway.call(st.tool, input).catch((e: unknown) => ({ text: (e as Error).message ?? String(e), isError: true }))
             : { text: "no Realm gateway was handed to this session", isError: true };
           if (disposed) return;
-          q.push(sessionEvent("tool_result", { toolUseId, content: answer.text, isError: answer.isError }));
+          // What kept the call alive is said under its answer, so a live check can see it on the
+          // transcript. Real agents keep this to themselves; the scripted one is there to be looked at.
+          const notices = "notices" in answer && answer.notices ? `\n\n(${answer.notices} progress notice${answer.notices === 1 ? "" : "s"} came before this answer)` : "";
+          q.push(sessionEvent("tool_result", { toolUseId, content: answer.text + notices, isError: answer.isError }));
           continue;
         }
         if (st.kind === "text") {
@@ -116,7 +160,7 @@ export class FakeAdapter implements AgentAdapter {
         } else {
           const toolUseId = newId();
           q.push(sessionEvent("tool_call", { toolUseId, name: st.name, input: st.input, parentToolUseId: null }));
-          if (st.needsPermission) {
+          if (st.needsPermission && !(mode === "bypassPermissions" && st.name !== "AskUserQuestion")) {
             const requestId = newId();
             const ask = st.name === "AskUserQuestion" ? askCardFromAskUserQuestion(st.input, FAKE_ASKER) : null;
             if (ask) asks.set(requestId, ask);
@@ -132,7 +176,7 @@ export class FakeAdapter implements AgentAdapter {
           q.push(sessionEvent("tool_result", { toolUseId, content: failed ?? st.result, isError: failed !== null }));
         }
       }
-      q.push(sessionEvent("usage", { costUsd: 0.001, inputTokens: 10, outputTokens: 10, numTurns: 1 }));
+      if (!reported) q.push(sessionEvent("usage", { costUsd: 0.001, inputTokens: 10, outputTokens: 10, numTurns: 1 }));
       // Carries `interrupted` as the real adapters do (claude-adapter's result branch): the settle is
       // what tells "you stopped this" apart from "this finished".
       q.push(sessionEvent("status", { status: "idle", ...(interrupted ? { interrupted: true } : {}) }));
@@ -150,10 +194,11 @@ export class FakeAdapter implements AgentAdapter {
       },
       respondPermission: resolvePermission,
       interrupt: async () => { interrupted = true; denyAllPending(); },
-      setOptions: async () => {},
+      setOptions: async (o) => { if (o.permissionMode !== undefined) mode = o.permissionMode; },
       dispose: async () => {
         if (disposed) return;
         disposed = true;
+        gateway?.close();
         denyAllPending();
         await chain;
         q.push(sessionEvent("status", { status: "ended" }));
@@ -161,6 +206,16 @@ export class FakeAdapter implements AgentAdapter {
       },
     };
   }
+}
+
+/** The JSON object a message ends with (from its first `{`), for a `call` step's `argsFromMessage`.
+ *  Text that does not parse throws, and the turn reports it as an error: a script that meant to pass
+ *  an id and passed nothing should say so, not call the tool without it. */
+function argsIn(text: string): Record<string, unknown> {
+  const at = text.indexOf("{");
+  if (at < 0) return {};
+  const value: unknown = JSON.parse(text.slice(at));
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 /** Make a scripted `Write` or `Edit` real, under `cwd` and nowhere else. The error message, or null. */

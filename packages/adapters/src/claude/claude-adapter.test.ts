@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
-import type { StartOptions } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS, type StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
@@ -857,8 +857,16 @@ describe("claudeMcpServers", () => {
 
   it("tags each entry with its transport and carries only that transport's fields", () => {
     expect(claudeMcpServers([stdio])).toEqual({ airtable: { type: "stdio", command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } } });
-    expect(claudeMcpServers([http])).toEqual({ vercel: { type: "http", url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } } });
-    expect(claudeMcpServers([sse])).toEqual({ legacy: { type: "sse", url: "https://sse.example/mcp", headers: {} } });
+    expect(claudeMcpServers([http])).toEqual({ vercel: { type: "http", url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" }, timeout: GATEWAY_TOOL_TIMEOUT_MS } });
+    expect(claudeMcpServers([sse])).toEqual({ legacy: { type: "sse", url: "https://sse.example/mcp", headers: {}, timeout: GATEWAY_TOOL_TIMEOUT_MS } });
+  });
+
+  it("lets a gateway call run past Claude's five-minute silence limit, to the hour agent_wait may take", () => {
+    // THE MUTANT: drop `timeout`. Claude then aborts an agent_wait that has sent nothing for 300 s,
+    // and the lead is handed Claude's error instead of its sub-agents' reports.
+    const entry = claudeMcpServers([{ name: "realm", transport: "http", url: "http://127.0.0.1:1/mcp", headers: {} }]).realm as { timeout?: number };
+    expect(entry.timeout).toBe(GATEWAY_TOOL_TIMEOUT_MS);
+    expect(GATEWAY_TOOL_TIMEOUT_MS).toBeGreaterThan(60 * 60_000);
   });
 
   it("is empty — not absent — when there is nothing configured", () => {
@@ -871,7 +879,7 @@ describe("claudeMcpServers", () => {
  * prompt on top of Realm's broker — which deliberately lets read-only browser tools run free.
  * `allowedTools` pre-allows exactly the read-only set; mutating tools stay double-gated on purpose.
  */
-describe("realm-browser allowedTools (Plan 11 W4)", () => {
+describe("read-only gateway allowedTools (Plan 11 W4)", () => {
   const gatewayEntry = { name: "realm", transport: "http" as const, url: "http://127.0.0.1:1/mcp", headers: { Authorization: "Bearer t" } };
 
   it("expands to exactly the read-only tools under the gateway's server name — nothing more", () => {
@@ -884,12 +892,37 @@ describe("realm-browser allowedTools (Plan 11 W4)", () => {
       // for a value, so a promptless call discloses nothing but the origin/username/label the USER
       // typed into Settings. The FILL is a different tool and is deliberately absent below.
       "mcp__realm__realm-browser__browser_credentials",
+      // The rest of REALM_READ_ONLY_TOOLS, the list the gateway marks read-only for Codex: reads
+      // Realm itself never prompts for, so Claude's prompt would be the only card in front of them.
+      "mcp__realm__realm-workspace__workspace_state",
+      "mcp__realm__realm-workspace__sessions_list",
+      "mcp__realm__realm-workspace__session_read",
+      "mcp__realm__realm-workspace__space_list",
+      "mcp__realm__realm-workspace__settings_get",
+      "mcp__realm__realm-agent__agent_peers",
+      "mcp__realm__realm-agent__agent_status",
+      "mcp__realm__realm-schedule__schedule_list",
+      "mcp__realm__realm-docs__docs_search",
+      "mcp__realm__realm-docs__docs_read",
+      "mcp__realm__realm-docs__docs_state",
+      "mcp__realm__realm-team__record_list",
+      "mcp__realm__realm-team__record_types",
+      "mcp__realm__realm-team__review_status",
+      "mcp__realm__realm-memory__memory_index",
+      "mcp__realm__realm-memory__memory_read",
+      "mcp__realm__realm-memory__memory_search",
+      "mcp__realm__realm-goal__goal_status",
+      "mcp__realm__realm-vault__vault_list",
     ]);
   });
 
   it("NEVER contains a mutating tool name (the named mutant: a pre-allowed act)", () => {
     const allowed = claudeAllowedTools([gatewayEntry]);
-    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential"]) {
+    // `pane_show` changes what is on the user's screen: it keeps Claude's prompt where the mode has one.
+    for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential",
+      "pane_show", "session_open", "space_switch", "settings_set",
+      "agent_run", "agent_start", "agent_ask", "schedule_create", "docs_open", "update_goal",
+      "record_update", "record_read", "review_submit", "memory_save", "memory_write_file", "vault_http"]) {
       expect(allowed.some((t) => t.endsWith(`__${mutating}`))).toBe(false);
     }
   });

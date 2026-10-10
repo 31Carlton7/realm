@@ -1,5 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { homedir } from "node:os";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -26,6 +27,8 @@ import type { ExecutionSandboxService } from "../sandbox/service";
 import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import type { AppViewRef, MemorySources } from "@realm/contracts";
 import { SecretAnswers } from "./secret-answers";
+import { MTIME_SLACK_MS, sweepTurnMedia, turnSearchRoots } from "./turn-media";
+import type { SettledTurn } from "../goals/service";
 
 /**
  * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
@@ -42,18 +45,32 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
   goal?: "continuation" | "budget";
   /** A scheduled task's run, and the note the run appended to the task's instructions — the same
    *  transcript-only ride as `goal`: the agent is handed the text, note and all. */
-  scheduled?: { task: string; note: string } };
+  scheduled?: { task: string; note: string };
+  /** Written by another session's agent (`session_open`'s first message) — transcript-only, as `goal`
+   *  is, so the pane never shows an agent's words as something the user typed. */
+  from?: { sessionId: string; title: string } };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
  * is — which is the only question a title in a list of ten of them answers. */
 const DEFAULT_TITLE = "New session";
+/** The settings key that says the turn-media catch-up has run on this home (`backfillTurnMedia`). */
+export const MEDIA_BACKFILL_KEY = "artifacts.mediaBackfill";
+/** How far back the catch-up looks: far enough for last week's work, near enough that the files are
+ *  likely still where the turn left them and their mtimes still the turn's. */
+export const MEDIA_BACKFILL_DAYS = 14;
 export const TITLE_MAX = 40;
-/** First line of the message, whitespace-collapsed, clipped to TITLE_MAX. */
+/** First line of the message, whitespace-collapsed, clipped to TITLE_MAX at a word: "Survey every
+ *  theme hook across the rend…" is a word nobody wrote. A line with no space in its back half (a
+ *  path, a URL) is cut where it has to be. */
 export function titleFromMessage(text: string): string {
   const line = text.trim().split("\n").find((l) => l.trim()) ?? "";
   const one = line.replace(/\s+/g, " ").trim();
-  return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1).trimEnd()}…` : one;
+  if (one.length <= TITLE_MAX) return one;
+  const room = one.slice(0, TITLE_MAX - 1);
+  const space = one[TITLE_MAX - 1] === " " ? room.length : room.lastIndexOf(" ");
+  const cut = space >= TITLE_MAX / 2 ? room.slice(0, space) : room;
+  return `${cut.replace(/[\s,;:.–—-]+$/, "")}…`;
 }
 
 export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string | null; title?: string;
@@ -83,6 +100,9 @@ export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): str
  *  is a command that does not exist there. */
 /** How long a steer waits for the interrupted turn to settle before sending anyway. */
 const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
+/** How long a queued message stays held for an edit with nobody saving or letting go — a window
+ *  closed mid-edit, a client that dropped. Long enough for anyone actually typing. */
+export const QUEUE_HOLD_TTL_MS = 10 * 60_000;
 
 type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
 
@@ -112,7 +132,15 @@ export class SessionService {
    * the user can look at and send — never as a queue that sends itself. Unsent text is already not
    * durable anywhere: `drafts` is renderer memory.
    */
-  private queued = new Map<string, { prompt: QueuedPrompt; msg: SendMessage }[]>();
+  private queued = new Map<string, { prompt: Omit<QueuedPrompt, "held">; msg: SendMessage }[]>();
+  /** The queued message someone is editing, per session (`sessions.holdQueued`). The drain stops at
+   *  it, and its timer lets go if nobody comes back. */
+  private queueHolds = new Map<string, { queuedId: string; timer: NodeJS.Timeout }>();
+  /** Sessions whose settle reached a held head and so did not drain: the drain is owed, and paid when
+   *  the hold lets go. A settle the user caused never owes one — Stop has to mean stop. */
+  private drainOwed = new Set<string>();
+  /** `QUEUE_HOLD_TTL_MS`, as a field so a test can wait out a hold without waiting ten minutes. */
+  queueHoldTtlMs = QUEUE_HOLD_TTL_MS;
   /** Called on the next settle of each session — see `interruptAndSettle`. */
   private settleWaiters = new Map<string, Set<() => void>>();
   /**
@@ -138,6 +166,13 @@ export class SessionService {
   /** Sessions whose turn in flight has called a tool — the only turns whose checkout is worth asking
    *  git about at the settle (`recordTurnChanges`). A turn of conversation changes no file. */
   private toolTurns = new Set<string>();
+  /** Where the turn in flight began, per session: its `running` status's ts, and the last seq written
+   *  before it. The window the turn-media sweep reads mtimes against, and where it reads the turn's
+   *  own events from (`recordTurnMedia`). */
+  private turnStarted = new Map<string, { ts: number; seq: number }>();
+  /** What goal mode is told about each turn when it settles (`SettledTurn`): opened by the turn's
+   *  `user_message`, counted from its events, handed over and dropped at the settle. */
+  private turnSeen = new Map<string, { continuation: boolean; startedAt: number; toolCalls: number; finalText: string | null }>();
   /** A settled turn's measurement still in flight, per session. The next message waits for it: an agent
    *  that started writing before the snapshot was taken would have its first edits counted as the last
    *  turn's — and a steered message, which takes no checkpoint, starts the moment the settle lands. */
@@ -174,8 +209,11 @@ export class SessionService {
      *  forgets a deleted session's child record/run; `extraSystemContext` is the policy preamble a
      *  delegated child starts with; `skillsFilter` (optional, Plan 13 W1) narrows which of the
      *  space's enabled skills an agent_run child is staged — null/undefined for every other session.
+     *  `modeSet` (optional) is told a session's permission mode was just set, so its running
+     *  children come down with it (`AgentRunService.cascadeMode`).
      *  Optional — a harness without delegation behaves exactly as before. */
-    browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined; skillsFilter?(sessionId: string): string[] | null };
+    browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined; skillsFilter?(sessionId: string): string[] | null;
+      modeSet?(sessionId: string, mode: string): Promise<void> };
     /** Plan 12 W5: the notifications feed's session hooks. `handleSessionEvent` gets the session row as
      *  it stood BEFORE the event (so a status event carries its previous status implicitly); it is
      *  called from `onEvent` — the pump and `emitExternal` alike — and from `markStaleOnBoot`'s
@@ -188,6 +226,9 @@ export class SessionService {
      *  (`billed-calls.ts`) — tests go through `createApp` without it, live checks boot `main.ts`
      *  with the scripted agent on, and both get the heuristic title only, never a live network call. */
     titleGenerator?: (text: string) => Promise<string>;
+    /** The user's home, for the folders the turn-media sweep refuses (`~`, `~/Library`) and the `~` it
+     *  expands. Defaults to the OS's; a test passes a scratch one. */
+    userHome?: string;
     /** Writes the model's account of a session when a turn settles (`SessionSummaryService`). Wired
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
      *  the real server process passes one, and it is `void`ed off the settle rather than awaited. */
@@ -201,7 +242,7 @@ export class SessionService {
     goals?: {
       onUsage(sessionId: string, reading: SessionEventPayload<"usage">): void;
       onError(sessionId: string): void;
-      onSettled(sessionId: string, opts: { interrupted: boolean }): Promise<unknown>;
+      onSettled(sessionId: string, opts: { interrupted: boolean; queuedNext?: boolean; turn?: SettledTurn }): Promise<unknown>;
     };
     /** The views MCP servers draw for tool calls (`apps/views.ts`): told every call the agent
      *  reports, and asked, when its result arrives, for the view that call drew. Optional — without
@@ -254,6 +295,8 @@ export class SessionService {
   list(spaceId: string): Session[] { return this.d.sessions.list(spaceId); }
   /** `null` = every profile. See `SessionsStore.listAll` for why the scoping is a join and not a filter. */
   listAll(profileId: string | null = null): Session[] { return this.d.sessions.listAll(profileId); }
+  /** Each of a space's sessions' newest reply, as one line (`SessionEventsStore.lastReplies`). */
+  lastReplies(spaceId: string): { sessionId: string; lastReply: string | null }[] { return this.d.events.lastReplies(spaceId); }
   /** How far the user has read this session. See `sessions.markSeen` in the contract. */
   markSeen(id: string, seq: number): void { this.d.sessions.markSeen(id, seq); }
   /** Going quiet for a handoff: finish what is running, start nothing new. */
@@ -333,7 +376,7 @@ export class SessionService {
    * would turn an `@skill` typed during a turn into plain text for no reason the user could see.
    */
   private enqueue(id: string, msg: SendMessage): void {
-    const prompt: QueuedPrompt = { id: newId(), text: msg.text, attachments: msg.attachments, ts: Date.now() };
+    const prompt = { id: newId(), text: msg.text, attachments: msg.attachments, ts: Date.now() };
     this.queued.set(id, [...(this.queued.get(id) ?? []), { prompt, msg }]);
     this.broadcastQueue(id);
   }
@@ -399,6 +442,9 @@ export class SessionService {
   private async drainQueue(id: string): Promise<void> {
     const [next, ...rest] = this.queued.get(id) ?? [];
     if (!next) return;
+    // Being edited: it waits where it is, and so does everything behind it — sending the next one
+    // first would answer the user's messages out of the order they asked them in.
+    if (this.queueHolds.get(id)?.queuedId === next.prompt.id) { this.drainOwed.add(id); return; }
     if (rest.length === 0) this.queued.delete(id); else this.queued.set(id, rest);
     this.broadcastQueue(id);
     await this.deliver(id, next.msg);
@@ -406,7 +452,83 @@ export class SessionService {
 
   /** What this session still has waiting to go out. Read by goal mode, which stands down when the
    *  user has typed something: their message is the next turn, and the goal picks up behind it. */
-  queuedFor(id: string): { prompt: QueuedPrompt; msg: SendMessage }[] { return this.queued.get(id) ?? []; }
+  queuedFor(id: string): { prompt: Omit<QueuedPrompt, "held">; msg: SendMessage }[] { return this.queued.get(id) ?? []; }
+
+  /**
+   * Hold one queued message while it is edited, or let it go — see `sessions.holdQueued`. Answers
+   * whether it is now held: false for a let-go, and for a message that is no longer queued.
+   */
+  holdQueued(id: string, queuedId: string, held: boolean): boolean {
+    this.get(id);
+    if (!held) { this.letGoQueued(id, queuedId); return false; }
+    if (!this.queuedFor(id).some((w) => w.prompt.id === queuedId)) return false;
+    const prev = this.queueHolds.get(id);
+    if (prev) clearTimeout(prev.timer);
+    const timer = setTimeout(() => this.letGoQueued(id, queuedId), this.queueHoldTtlMs);
+    timer.unref?.();
+    this.queueHolds.set(id, { queuedId, timer });
+    this.broadcastQueue(id);
+    // The last hold wins: one moved off a head that had stopped a drain lets that drain go.
+    if (prev && prev.queuedId !== queuedId) this.payOwedDrain(id);
+    return true;
+  }
+
+  /**
+   * Replace a queued message's text where it stands, and let go of its hold — see
+   * `sessions.editQueued`. False when the message is no longer queued: the drain got there first.
+   *
+   * What the edit took out goes with it: an element chip or a named thing lives exactly as long as
+   * its `@[…]` token does (`keepLiveChips`), as in the prompter. Skill mentions need nothing here —
+   * they are re-scanned from the text at delivery (`resolveMentions`).
+   */
+  editQueued(id: string, queuedId: string, text: string, attachments?: { path: string; mime: string }[]): boolean {
+    this.get(id);
+    const w = this.queuedFor(id).find((x) => x.prompt.id === queuedId);
+    if (!w) { this.letGoQueued(id, queuedId); return false; }
+    const files = attachments ?? w.msg.attachments;
+    if (text.length === 0 && files.length === 0) throw new Error("a message needs text or at least one attachment");
+    w.msg = { ...w.msg, text, attachments: files,
+      ...(w.msg.elements ? { elements: keepLiveChips(text, w.msg.elements) } : {}),
+      ...(w.msg.mentionRefs ? { mentionRefs: keepLiveRefs(text, w.msg.mentionRefs) } : {}) };
+    w.prompt = { ...w.prompt, text, attachments: files };
+    if (this.queueHolds.get(id)?.queuedId === queuedId) this.letGoQueued(id, queuedId);
+    else this.broadcastQueue(id);
+    return true;
+  }
+
+  /** Let go of a hold, if `queuedId` is the one held, and pay the drain it stopped. */
+  private letGoQueued(id: string, queuedId: string, opts: { payDrain?: boolean } = {}): void {
+    const hold = this.queueHolds.get(id);
+    if (!hold || hold.queuedId !== queuedId) return;
+    clearTimeout(hold.timer);
+    this.queueHolds.delete(id);
+    this.broadcastQueue(id);
+    if (opts.payDrain === false) this.drainOwed.delete(id); else this.payOwedDrain(id);
+  }
+
+  /** The drain a held head stopped, run now if the session is still sitting idle. A turn in flight
+   *  will drain on its own settle, so the debt is simply dropped then. */
+  private payOwedDrain(id: string): void {
+    if (!this.drainOwed.delete(id)) return;
+    if (this.d.sessions.get(id)?.status !== "idle") return;
+    void this.drainQueue(id).catch(() => {});
+  }
+
+  /** Throw away the goal's own turns still waiting in this session's queue — continuations and the
+   *  budget handover — and keep everything the person typed. Goal mode calls it when a goal stops:
+   *  a continuation that queued behind the turn that called `update_goal` would otherwise go out
+   *  after the goal was done, and start the loop that was just ended. */
+  dropGoalTurns(id: string): void {
+    const waiting = this.queued.get(id);
+    if (!waiting) return;
+    const left = waiting.filter((w) => !w.msg.goal);
+    if (left.length === waiting.length) return;
+    if (left.length === 0) this.queued.delete(id); else this.queued.set(id, left);
+    // A hold on a goal turn just dropped has nothing left to hold.
+    const hold = this.queueHolds.get(id);
+    if (hold && !left.some((w) => w.prompt.id === hold.queuedId)) this.letGoQueued(id, hold.queuedId);
+    this.broadcastQueue(id);
+  }
 
   /** Drop a queued message before its turn comes. An id the queue no longer holds is a no-op: the
    *  drain got there first, which is a race the prompter cannot win and should not have to. */
@@ -418,6 +540,8 @@ export class SessionService {
     if (left.length === waiting.length) return;
     if (left.length === 0) this.queued.delete(id); else this.queued.set(id, left);
     this.broadcastQueue(id);
+    // Dropped while held: what was waiting behind it is next, and owed the drain it was stopping.
+    this.letGoQueued(id, queuedId);
   }
 
   /**
@@ -437,17 +561,25 @@ export class SessionService {
     if (!held) return; // the drain got there first
     const left = waiting.filter((w) => w !== held);
     if (left.length === 0) this.queued.delete(id); else this.queued.set(id, left);
+    // This message IS the next turn, so a drain its hold was stopping is not owed as well — paying it
+    // would send the one behind it at the same moment.
+    this.letGoQueued(id, queuedId, { payDrain: false });
     this.broadcastQueue(id);
     await this.send(id, held.msg, "steer");
   }
 
   queuedPrompts(id: string): QueuedPrompt[] {
     this.get(id);
-    return (this.queued.get(id) ?? []).map((w) => w.prompt);
+    return this.wireQueue(id);
+  }
+
+  private wireQueue(id: string): QueuedPrompt[] {
+    const held = this.queueHolds.get(id)?.queuedId;
+    return (this.queued.get(id) ?? []).map((w) => ({ ...w.prompt, held: w.prompt.id === held }));
   }
 
   private broadcastQueue(id: string): void {
-    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: (this.queued.get(id) ?? []).map((w) => w.prompt) });
+    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: this.wireQueue(id) });
   }
 
   /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from
@@ -481,7 +613,7 @@ export class SessionService {
     // which stay the files the user attached — the chip already shows a mentioned file.
     const refs = this.mentionedRefs(msg);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}),
-      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(refs.length ? { refs } : {}) }));
+      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(msg.from ? { from: msg.from } : {}), ...(refs.length ? { refs } : {}) }));
     await handle.send(this.resolveMentions(id, msg));
   }
 
@@ -593,7 +725,7 @@ export class SessionService {
     const attach: Attachment[] = [];
     const missing = new Set<string>(), withheld = new Set<string>();
     for (const r of refs) {
-      if (r.kind === "app") continue;
+      if (r.kind === "app" || r.kind === "role") continue;
       if (isSecretPath(r.path)) { withheld.add(r.path); continue; }
       let st;
       try { st = statSync(r.path); } catch { missing.add(r.path); continue; }
@@ -712,6 +844,8 @@ export class SessionService {
     // makes the switch mean the same thing before the first message as after it. The level goes to a
     // live one too: Claude and Codex both take it on the next turn.
     await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    // A lead's children run in its mode; lowering it lowers them, before this returns.
+    if (o.permissionMode !== undefined) await this.d.browserAgents?.modeSet?.(id, o.permissionMode);
     return s;
   }
 
@@ -873,11 +1007,16 @@ export class SessionService {
     this.d.failover?.release(id);
     // Nothing left to send into. No broadcast: the session's own row is going away with it.
     this.queued.delete(id);
+    clearTimeout(this.queueHolds.get(id)?.timer);
+    this.queueHolds.delete(id);
+    this.drainOwed.delete(id);
     // …and the rewind bookkeeping. The row carrying the durable half goes below; these two are what a
     // still-draining pump could otherwise read after the session it describes has stopped existing.
     this.forkInFlight.delete(id);
     this.rewindTurns.delete(id);
     this.toolTurns.delete(id);
+    this.turnStarted.delete(id);
+    this.turnSeen.delete(id);
     this.measuring.delete(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
@@ -992,12 +1131,15 @@ export class SessionService {
     this.live.delete(id);
   }
 
-  /** Append + bump last_event_seq atomically. */
+  /** Append + bump last_event_seq atomically — and, for a prompt or a reply, the session's activity:
+   *  those are the conversation moving, where an init, a status or a summary is Realm keeping its
+   *  books and must not move the session's row. */
   private persist(id: string, ev: SessionEvent): StoredSessionEvent {
     this.d.db.exec("BEGIN");
     try {
       const stored = this.d.events.append(id, ev);
       this.d.sessions.setLastEventSeq(id, stored.seq);
+      if (ev.type === "user_message" || ev.type === "assistant_text") this.d.sessions.touchActivity(id, ev.ts);
       this.d.db.exec("COMMIT");
       return stored;
     } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
@@ -1037,6 +1179,25 @@ export class SessionService {
     // Same fire-and-forget shape: the sidebar already has the raw-first-line title above, this just
     // swaps in a nicer one a little later, if a title generator is configured at all.
     if (this.d.titleGenerator) void this.upgradeTitle(id, title, text);
+  }
+
+  /** A title a delegation tool gave a session it created — `heuristic`, cut from `text` — upgraded to
+   *  a model-written one exactly as a session's first message is: billed and gated the same (no
+   *  generator, no call), and never over a title anything has moved on since. */
+  suggestTitle(id: string, heuristic: string, text: string): void {
+    if (this.d.titleGenerator) void this.upgradeTitle(id, heuristic, text);
+  }
+
+  /** Rename a session and its sidebar item to `title`, but only while BOTH still read `expected`. A
+   *  hand rename touches the item alone, so the pair is what tells a title Realm wrote from one the
+   *  person chose. Returns whether it renamed. */
+  retitleIf(id: string, expected: string, title: string): boolean {
+    const s = this.d.sessions.get(id); if (!s || s.title !== expected) return false;
+    const item = this.d.items.findByRefId(id);
+    if (item && item.title !== expected) return false;
+    this.d.sessions.update({ id, title });
+    if (item) { this.d.items.update({ id: item.id, title }); this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId }); }
+    return true;
   }
 
   /** Replaces the heuristic title with a short model-written summary, once the model answers —
@@ -1093,6 +1254,122 @@ export class SessionService {
     } catch (e) {
       console.error(`[sessions] could not measure the turn for ${id}: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  /**
+   * The pictures and movies a settled turn left on disk, put on the rail as `files_made` — which the
+   * artifacts index reads, so the documents home and the Library list them (`turn-media.ts`).
+   *
+   * What the turn already indexed itself (a Write, an attachment) is not repeated, and a file another
+   * session has indexed since this turn began is that session's: two sessions working in one folder
+   * must not both claim the same render. A nicety like `recordTurnChanges`, and fails the same way.
+   */
+  private async recordTurnMedia(id: string, started: { ts: number; seq: number }, settledAt: number): Promise<void> {
+    try {
+      const s = this.d.sessions.get(id);
+      if (!s) return;
+      const stored = this.d.events.listAfter(id, started.seq, 5000);
+      const roots = await turnSearchRoots({
+        cwd: s.cwd, spaceFolder: this.d.spaces.get(s.spaceId)?.folderPath ?? null,
+        events: stored.map((e) => e.event), home: this.d.userHome ?? homedir(),
+      });
+      const found = await sweepTurnMedia(roots, { from: started.ts, to: settledAt, max: TURN_MEDIA_MAX });
+      if (found.total === 0 || this.closing) return;
+      const own = new Set(stored.flatMap((e) =>
+        artifactsFromEvent({ sessionId: id, spaceId: s.spaceId, seq: e.seq, ts: e.event.ts, type: e.event.type, payload: e.event.payload }).map((a) => a.path)));
+      // What every other session has indexed since the turn began: a range on `artifacts_recent`, a
+      // handful of rows, rather than one lookup per picture on a column with no index.
+      const elsewhere = new Set((this.d.db.prepare("SELECT path FROM artifacts WHERE ts >= ? AND session_id <> ?")
+        .all(started.ts - MTIME_SLACK_MS, id) as { path: string }[]).map((r) => r.path));
+      const files = found.files.filter((f) => !own.has(f.path) && !elsewhere.has(f.path));
+      if (files.length === 0) return;
+      const totalFiles = found.total - (found.files.length - files.length);
+      this.publishServerEvent(id, sessionEvent("files_made", { settledAt, files, totalFiles }));
+    } catch (e) {
+      console.error(`[sessions] could not look for the turn's media for ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * The turn-media sweep, run once over the last `days` of history: what `recordTurnMedia` would have
+   * written for each tool turn that settled before this build existed, so a deck made last week is in
+   * the documents home and the Library without making it again.
+   *
+   * Once per home, behind a settings key, and only after it finishes — a run cut short by a quit runs
+   * again, and skips every turn that already has its `files_made`. Each turn's window is rebuilt from
+   * the session's own `status` events, and its event is written with the settle's `ts`, so the Library
+   * orders it with the turn that made it. Written quietly (`setLastEventSeqQuietly`) and broadcast to
+   * nobody: an event about last week must not move a session to the top of the list or give it a dot.
+   * Oldest turn first across every session, so of two sessions whose windows both saw a file, the one
+   * that was working first claims it.
+   */
+  async backfillTurnMedia({ days = MEDIA_BACKFILL_DAYS, now = Date.now() }: { days?: number; now?: number } = {}): Promise<number> {
+    if (this.d.settings.get(MEDIA_BACKFILL_KEY) != null) return 0;
+    const since = now - days * 86_400_000;
+    const turns: { sessionId: string; start: { ts: number; seq: number }; settledAt: number; events: StoredSessionEvent[] }[] = [];
+    for (const s of this.d.sessions.listAll()) {
+      if (s.updatedAt < since) continue;
+      const before = this.d.db.prepare("SELECT MAX(seq) AS seq FROM session_events WHERE session_id = ? AND ts < ?").get(s.id, since) as { seq: number | null };
+      const log: StoredSessionEvent[] = [];
+      for (let after = before.seq ?? 0; ;) {
+        const page = this.d.events.listAfter(s.id, after, 5000);
+        log.push(...page);
+        if (page.length < 5000) break;
+        after = page.at(-1)!.seq;
+      }
+      const recorded = new Set(log.flatMap((e) => (e.event.type === "files_made" ? [e.event.payload.settledAt] : [])));
+      let live = false;
+      let open: { start: { ts: number; seq: number }; from: number; tools: boolean } | null = null;
+      for (let i = 0; i < log.length; i++) {
+        const { event } = log[i]!;
+        if (event.type === "tool_call" && open) open.tools = true;
+        if (event.type !== "status") continue;
+        const isLive = event.payload.status === "running" || event.payload.status === "waiting_permission";
+        if (isLive && !live) open = { start: { ts: event.ts, seq: log[i - 1]?.seq ?? before.seq ?? 0 }, from: i, tools: false };
+        if (!isLive && live && open) {
+          if (open.tools && !recorded.has(event.ts)) {
+            turns.push({ sessionId: s.id, start: open.start, settledAt: event.ts, events: log.slice(open.from, i) });
+          }
+          open = null;
+        }
+        live = isLive;
+      }
+    }
+    turns.sort((a, b) => a.settledAt - b.settledAt);
+    const claimed = new Set<string>();
+    let written = 0;
+    for (const turn of turns) {
+      if (this.closing) return written;
+      const s = this.d.sessions.get(turn.sessionId);
+      if (!s) continue;
+      try {
+        const roots = await turnSearchRoots({
+          cwd: s.cwd, spaceFolder: this.d.spaces.get(s.spaceId)?.folderPath ?? null,
+          events: turn.events.map((e) => e.event), home: this.d.userHome ?? homedir(),
+        });
+        const found = await sweepTurnMedia(roots, { from: turn.start.ts, to: turn.settledAt, max: TURN_MEDIA_MAX });
+        if (found.total === 0) continue;
+        const own = new Set(turn.events.flatMap((e) =>
+          artifactsFromEvent({ sessionId: s.id, spaceId: s.spaceId, seq: e.seq, ts: e.event.ts, type: e.event.type, payload: e.event.payload }).map((a) => a.path)));
+        const elsewhere = new Set((this.d.db.prepare("SELECT path FROM artifacts WHERE ts >= ? AND ts <= ? AND session_id <> ?")
+          .all(turn.start.ts - MTIME_SLACK_MS, turn.settledAt + MTIME_SLACK_MS, s.id) as { path: string }[]).map((r) => r.path));
+        const files = found.files.filter((f) => !own.has(f.path) && !elsewhere.has(f.path) && !claimed.has(f.path));
+        if (files.length === 0) continue;
+        for (const f of files) claimed.add(f.path);
+        const ev = sessionEvent("files_made", { settledAt: turn.settledAt, files, totalFiles: found.total - (found.files.length - files.length) }, turn.settledAt);
+        this.d.db.exec("BEGIN");
+        try {
+          const stored = this.d.events.append(s.id, ev);
+          this.d.sessions.setLastEventSeqQuietly(s.id, stored.seq);
+          this.d.db.exec("COMMIT");
+        } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
+        written++;
+      } catch (e) {
+        console.error(`[sessions] media catch-up skipped a turn of ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    this.d.settings.set(MEDIA_BACKFILL_KEY, { doneAt: now, days, turns: turns.length, written });
+    return written;
   }
 
   /**
@@ -1405,6 +1682,19 @@ export class SessionService {
     return view ? { ...ev, payload: { ...ev.payload, view } } : ev;
   }
 
+  /** Keep `turnSeen` for the turn in flight: a `user_message` opens it, each tool call counts, and the
+   *  agent's latest whole message is the one goal mode reads for a `GOAL COMPLETE:` line. */
+  private noteTurnSeen(id: string, ev: SessionEvent): void {
+    if (ev.type === "user_message") {
+      this.turnSeen.set(id, { continuation: ev.payload.goal === "continuation", startedAt: Date.now(), toolCalls: 0, finalText: null });
+      return;
+    }
+    const seen = this.turnSeen.get(id);
+    if (!seen) return;
+    if (ev.type === "tool_call") seen.toolCalls += 1;
+    else if (ev.type === "assistant_text") seen.finalText = ev.payload.text;
+  }
+
   private onEvent(id: string, raw: SessionEvent): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
     const before = this.d.sessions.get(id);
@@ -1450,6 +1740,7 @@ export class SessionService {
      * rich-text editor. */
     if (ev.type === "tool_call") this.surfaceWrittenDocument(id, ev.payload.name, ev.payload.input);
     if (ev.type === "tool_call") this.toolTurns.add(id);
+    this.noteTurnSeen(id, ev);
     // Not persisted and not this session's: the reading describes the ACCOUNT behind every session on
     // this agent, so it is folded into per-kind state and never into the transcript.
     if (ev.type === "rate_limit") this.d.planLimits?.apply(before.agentKind, ev.payload);
@@ -1464,6 +1755,14 @@ export class SessionService {
       const settled = (before.status === "running" || before.status === "waiting_permission")
         && ev.payload.status !== "running" && ev.payload.status !== "waiting_permission";
       const fronting = settled ? this.d.checkpoints?.frontingCheckpoint(id) ?? null : null;
+      if (ev.payload.status === "running" && before.status !== "running" && before.status !== "waiting_permission") {
+        this.turnStarted.set(id, { ts: ev.ts, seq: before.lastEventSeq });
+      }
+      const started = settled ? this.turnStarted.get(id) : undefined;
+      if (settled) this.turnStarted.delete(id);
+      // A turn ending is the conversation moving even when it said nothing (a tool-only turn, an
+      // error): the row comes up to say it is done.
+      if (settled) this.d.sessions.touchActivity(id, ev.ts);
       // A SETTLE, not any status: the transition out of a live state is the moment the transcript
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
@@ -1484,19 +1783,34 @@ export class SessionService {
          *
          * `void` for the same reason the summary is: this runs inside the adapter pump, and awaiting
          * a send here would hold the pump open across the next turn's first events. */
+        // Read BEFORE the drain, which takes the message off the queue synchronously: the goal below
+        // must still learn that a queued message is about to be the next turn.
+        const queuedNext = !ev.payload.interrupted && (this.queued.get(id)?.length ?? 0) > 0;
+        // A drain an earlier held settle was owed is this settle's to decide now: paid below if the
+        // turn ended on its own, and forgotten if the user stopped it.
+        this.drainOwed.delete(id);
         if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
         /* …and then the goal, if this session is pursuing one. AFTER the drain and never instead of
            it: a message the user typed during the turn is the next turn, and the goal picks up
            behind it (`GoalService.onSettled` sees the queue and stands down). `void` for the
            reason above — this runs inside the adapter pump, and a continuation's own first events
            must not be waited for from inside it. */
-        void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true }).catch(() => {});
+        const seen = this.turnSeen.get(id);
+        this.turnSeen.delete(id);
+        const turn = seen && { continuation: seen.continuation, toolCalls: seen.toolCalls, wallMs: Date.now() - seen.startedAt, finalText: seen.finalText };
+        void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true, queuedNext, ...(turn ? { turn } : {}) }).catch(() => {});
       }
       if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
         for (const settle of this.settleWaiters.get(id) ?? []) settle();
       }
-      if (settled && this.toolTurns.delete(id) && fronting) {
-        const measured: Promise<void> = this.recordTurnChanges(id, fronting, ev.ts)
+      // Consumed on every settle, whatever follows: a checkout git cannot measure (`fronting` null —
+      // a plain folder) is exactly where a turn's pictures land, and must not leave the flag set.
+      const hadTools = settled && this.toolTurns.delete(id);
+      if (hadTools) {
+        const measured: Promise<void> = Promise.all([
+          fronting ? this.recordTurnChanges(id, fronting, ev.ts) : null,
+          started ? this.recordTurnMedia(id, started, ev.ts) : null,
+        ]).then(() => {})
           .finally(() => { if (this.measuring.get(id) === measured) this.measuring.delete(id); });
         this.measuring.set(id, measured);
       }

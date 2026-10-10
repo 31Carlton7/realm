@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { ToolCard, ToolCwd, ToolGroup, RESULT_CLAMP } from "./ToolCard";
-import { editStat } from "./tool-summary";
+import { editStat, failureReason, mcpParts, statedExit, toolVerb } from "./tool-summary";
 import * as summaryModule from "./tool-summary";
 import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
 import { stampLabel, stampTitle } from "./timestamps";
 import { Transcript } from "./Transcript";
-import type { Block, Transcript as TranscriptModel } from "./transcript-model";
+import { waitingToolIds, type Block, type PendingPermission, type Transcript as TranscriptModel } from "./transcript-model";
 
 const block = (content: string, isError = false): ToolBlock =>
   ({ kind: "tool", toolUseId: "t1", name: "Bash", input: { command: "ls" }, result: { content, isError }, ts: 0 });
@@ -90,7 +90,7 @@ describe("ToolCard copy buttons (A-M3)", () => {
     openCard();
     fireEvent.click(screen.getByRole("button", { name: "Copy result" }));
     expect(writeText).toHaveBeenCalledWith(content);
-    fireEvent.click(screen.getByRole("button", { name: "Copy input" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy arguments" }));
     expect(writeText).toHaveBeenLastCalledWith(expect.stringContaining("ls"));
   });
 });
@@ -241,7 +241,7 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
     expect(row).toHaveTextContent("Sub-agent worked for");
     // Open while the child is still working — the one thing this treatment must not do is collapse
     // live activity out of sight.
-    expect(cards().map((c) => c.querySelector(".tool-name")!.textContent)).toEqual(["Task", "Read", "Bash"]);
+    expect(cards().map((c) => c.querySelector(".tool-name")!.textContent)).toEqual(["Delegate", "Read", "Run"]);
   });
 });
 
@@ -261,7 +261,7 @@ describe("tool-run summary line", () => {
       tool("t2", "Read", { file_path: "/a" }, 2_000),
       tool("t3", "exec_command", { command: "pwd" }, 373_000),
     ]);
-    expect(s).toEqual({ tools: 3, files: 1, commands: 2, durationMs: 372_000 });
+    expect(s).toMatchObject({ tools: 3, files: 1, commands: 2, reads: 1, durationMs: 372_000 });
   });
 
   it("renders the ledger line, dropping the parts that are zero", () => {
@@ -338,7 +338,9 @@ describe("an edit's row names the file it changed, one way for every agent", () 
       input: { file_path: "/w/app/web/lib/orgs.ts", old_string: "a", new_string: "a\nb" } });
     expect(file!.querySelector(".tool-file-dir")!.textContent).toBe("web/lib/");
     expect(file!.querySelector(".tool-file-name")!.textContent).toBe("orgs.ts");
-    expect(file!.querySelector(".tool-file-mark")).not.toBeNull();
+    // The file's mark is the row's lead glyph now, drawn once rather than beside the path as well.
+    expect(document.querySelector(".tool-status [data-glyph]")).toHaveAttribute("data-glyph", "typescript");
+    expect(file!.querySelector("svg")).toBeNull();
     expect(file!.title).toBe("/w/app/web/lib/orgs.ts");
     expect(stat).toBe("+1");
     // The raw-path chip is gone for an edit: the file IS the target.
@@ -487,6 +489,7 @@ describe("copy ✓ (§6 icon swap)", () => {
     try {
       mount("x");
       openCard();
+      fireEvent.click(screen.getByRole("button", { name: "Show raw" }));
       const copy = screen.getByRole("button", { name: "Copy result" });
       expect(copy.querySelector(".copy-icon")).not.toBeNull();
       expect(copy.querySelector(".copied-icon")).not.toBeNull();
@@ -573,5 +576,262 @@ describe("when a turn finished", () => {
     const at = within(line as HTMLElement).getByTitle(stampTitle(ts));
     expect(at.textContent).toBe(stampLabel(ts, Date.now()));
     expect(at.getAttribute("datetime")).toBe(new Date(ts).toISOString());
+  });
+});
+
+/* The row's anatomy: [lead] [verb] [object] [meta] [›]. The verb is the act in a plain word, the same
+   for every agent, and the raw tool name moves to the tooltip and the accessible name. */
+describe("the row says what the act is, not what the tool is called", () => {
+  it("one verb per family of tools, whichever agent made the call", () => {
+    const cases: [string, string][] = [
+      ["Bash", "Run"], ["exec_command", "Run"],
+      ["Edit", "Edit"], ["MultiEdit", "Edit"], ["apply_patch", "Edit"], ["Write", "Write"],
+      ["Read", "Read"], ["Grep", "Search"], ["Glob", "Find files"],
+      ["WebFetch", "Fetch"], ["WebSearch", "Search web"], ["TodoWrite", "Plan"], ["Task", "Delegate"],
+      // An MCP call is its tool's own name said plainly, its server named apart.
+      ["mcp__linear__save_issue", "Save issue"], ["mcp__realm__realm-browser__browser_open", "Browser open"],
+      // A tool Realm has no word for keeps its bare name rather than gaining one it never had.
+      ["frobnicate", "frobnicate"],
+    ];
+    for (const [name, verb] of cases) expect(toolVerb(name), name).toBe(verb);
+    // An ACP agent names a call with a sentence; its stated kind is what the act was.
+    expect(toolVerb("Editing orgs.ts", "edit")).toBe("Edit");
+    expect(toolVerb("Running tests", "execute")).toBe("Run");
+  });
+
+  it("splits an MCP name into the server a person would name and its tool", () => {
+    expect(mcpParts("mcp__linear__save_issue")).toEqual({ server: "Linear", tool: "save_issue" });
+    expect(mcpParts("mcp__claude_ai_Linear__save_issue")).toEqual({ server: "Linear", tool: "save_issue" });
+    expect(mcpParts("mcp__realm__realm-browser__browser_open")).toEqual({ server: "Realm", tool: "browser_open" });
+    expect(mcpParts("Bash")).toBeNull();
+  });
+
+  it("draws the verb, the server before the object, and keeps the raw name in the title and the accessible name", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("t1", "mcp__linear__save_issue", { title: "Tool card redesign", team: "REA" })} />);
+    const row = screen.getByRole("button", { name: "mcp__linear__save_issue tool call" });
+    expect(row).toHaveAttribute("title", "mcp__linear__save_issue");
+    expect(row.querySelector(".tool-name")).toHaveTextContent(/^Save issue$/);
+    expect(row.querySelector(".tool-server")).toHaveTextContent("Linear");
+    expect(row.querySelector(".tool-summary")).toHaveTextContent("Tool card redesign");
+    // The vendor's own mark leads the row.
+    expect(row.querySelector(".tool-status [data-glyph]")).toHaveAttribute("data-glyph", "linear");
+  });
+
+  it("sets a command as code and a query as quoted prose, with where it looked", () => {
+    render(<>
+      <ToolCard sessionStatus="idle" block={tool("t1", "Bash", { command: "pnpm test\nexit" })} />
+      <ToolCard sessionStatus="idle" block={tool("t2", "Grep", { pattern: "isDelegationLine", path: "apps/desktop" })} />
+    </>);
+    const [run, search] = [...document.querySelectorAll(".tool-summary")];
+    expect(run).toHaveAttribute("data-form", "code");
+    expect(search).toHaveAttribute("data-form", "prose");
+    expect(search).toHaveTextContent("“isDelegationLine” in apps/desktop");
+  });
+
+  it("a settled call leads with what KIND of act it was — never a column of identical ticks", () => {
+    render(<>
+      <ToolCard sessionStatus="idle" block={tool("t1", "Bash", { command: "ls" })} />
+      <ToolCard sessionStatus="idle" block={tool("t2", "Grep", { pattern: "x" })} />
+      <ToolCard sessionStatus="idle" block={tool("t3", "Task", { description: "audit" })} />
+    </>);
+    const glyphs = [...document.querySelectorAll(".tool-status [data-glyph]")].map((g) => g.getAttribute("data-glyph"));
+    expect(glyphs).toEqual(["terminal", "search", "agents"]);
+    // The state layer is empty and not shown: a settled ok call carries no glyph for its state.
+    for (const status of document.querySelectorAll(".tool-status")) {
+      expect(status).not.toHaveAttribute("data-on");
+      expect(status.querySelector(".swap-on")!.childElementCount).toBe(0);
+    }
+  });
+});
+
+describe("the row's state reads without colour alone", () => {
+  const pending = (id: string, name: string, input: Record<string, unknown>): ToolBlock =>
+    ({ kind: "tool", toolUseId: id, name, input, result: null, ts: 0 });
+  const failed = (content: string): ToolBlock =>
+    ({ kind: "tool", toolUseId: "t1", name: "Bash", input: { command: "pnpm typecheck" }, result: { content, isError: true }, ts: 0 });
+
+  it("a call that never got a result says Stopped, in a word", () => {
+    render(<ToolCard sessionStatus="idle" block={pending("t1", "Bash", { command: "pnpm dev" })} />);
+    expect(document.querySelector(".tool-card")).toHaveAttribute("data-state", "none");
+    expect(document.querySelector(".tool-meta")).toHaveTextContent(/^Stopped$/);
+    expect(screen.getByRole("img", { name: "stopped" })).toBeInTheDocument();
+  });
+
+  it("a running call says how long it has been at it once that is worth reading, and not before", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(10_000);
+      render(<ToolCard sessionStatus="running" block={{ ...pending("t1", "Bash", { command: "pnpm test" }), ts: 9_000 }} />);
+      expect(document.querySelector(".tool-meta")).toBeNull(); // 1s in: a number would only flicker
+      act(() => { vi.advanceTimersByTime(13_000); });
+      expect(document.querySelector(".tool-meta")).toHaveTextContent(/^14s$/);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("a failed call shows the error's first line under its row, without opening it", () => {
+    render(<ToolCard sessionStatus="idle" block={failed("\n  src/main/index.ts(41,7): error TS2322: Type 'string' is not assignable\nmore")} />);
+    const reason = document.querySelector(".tool-reason")!;
+    expect(reason).toHaveTextContent(/^src\/main\/index.ts\(41,7\): error TS2322: Type 'string' is not assignable$/);
+    expect(reason).toHaveAttribute("title", expect.stringContaining("more"));
+    // Outside the expander: the body was never built.
+    expect(document.querySelector(".tool-body")).toBeNull();
+    expect(document.querySelector(".tool-meta")).toHaveTextContent(/^Failed$/);
+    expect(screen.getByRole("img", { name: "failed" })).toBeInTheDocument();
+  });
+
+  it("says the exit code only where the payload stated one", () => {
+    expect(statedExit("Exit code 2\nboom")).toEqual({ code: 2, rest: "boom" });
+    expect(statedExit("boom\n[exit 3]")).toEqual({ code: 3, rest: "boom" });
+    expect(statedExit("boom: exit code mentioned in passing")).toBeNull();
+    // The stated code is the meta, so the reason line skips it to the words that explain it.
+    expect(failureReason("Exit code 2\n\nsrc/a.ts: error")).toBe("src/a.ts: error");
+    render(<ToolCard sessionStatus="idle" block={failed("Exit code 2\nsrc/a.ts: error")} />);
+    expect(document.querySelector(".tool-meta")).toHaveTextContent(/^exit 2$/);
+    expect(document.querySelector(".tool-reason")).toHaveTextContent(/^src\/a.ts: error$/);
+  });
+
+  it("a reason line that only introduces what follows carries on into it", () => {
+    // "error during build:" alone says nothing; the line after it is the error.
+    expect(failureReason("Exit code 1\nerror during build:\n[vite]: Rollup failed to resolve import")).toBe("error during build: [vite]: Rollup failed to resolve import");
+    // A colon inside a line is a colon, not a lead-in.
+    expect(failureReason("src/a.ts: error\nmore")).toBe("src/a.ts: error");
+    expect(failureReason("Failed:")).toBe("Failed:");
+  });
+
+  it("an ok call draws no reason line and no state word", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("t1", "Bash", { command: "ls" })} />);
+    expect(document.querySelector(".tool-reason")).toBeNull();
+    expect(document.querySelector(".tool-meta")).toBeNull();
+  });
+});
+
+describe("a call blocked on the person says Waiting for you", () => {
+  const ask = (requestId: string, toolName: string, input: Record<string, unknown>): PendingPermission => ({ requestId, toolName, input, title: toolName });
+  const open = (id: string, name: string, input: Record<string, unknown>): Block => ({ kind: "tool", toolUseId: id, name, input, result: null, ts: 0 });
+
+  it("matches each open request to the last unresolved call with the same tool and the same input", () => {
+    const blocks = [open("a", "Bash", { command: "rm -rf out" }), open("b", "Bash", { command: "ls" }), open("c", "Bash", { command: "rm -rf out" })];
+    expect(waitingToolIds(blocks, [ask("r1", "Bash", { command: "rm -rf out" })])).toEqual(["c"]);
+    // Key order is not a different input; a different command is.
+    expect(waitingToolIds([open("a", "Edit", { file_path: "/a", old_string: "x" })], [ask("r1", "Edit", { old_string: "x", file_path: "/a" })])).toEqual(["a"]);
+    expect(waitingToolIds(blocks, [ask("r1", "Bash", { command: "rm -rf build" })])).toEqual([]);
+    // A permission may name a tool bare where its call carries the MCP prefix.
+    expect(waitingToolIds([open("m", "mcp__realm__realm-simulator__simulator_tap", { x: 1 })], [ask("r1", "simulator_tap", { x: 1 })])).toEqual(["m"]);
+  });
+
+  it("the matched row says it in a word and a shield; another call keeps spinning", () => {
+    const t: TranscriptModel = {
+      blocks: [open("a", "Bash", { command: "rm -rf out" }), say("meanwhile"), open("b", "Bash", { command: "pnpm test" })],
+      pendingPermissions: [ask("r1", "Bash", { command: "rm -rf out" })],
+      usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null,
+    };
+    render(<Transcript transcript={t} sessionStatus="waiting_permission" onDecide={() => {}} />);
+    const [a, b] = cards();
+    expect(a).toHaveAttribute("data-state", "waiting");
+    expect(a!.querySelector(".tool-meta")).toHaveTextContent(/^Waiting for you$/);
+    expect(within(a!).getByRole("img", { name: "waiting for you" })).toBeInTheDocument();
+    expect(a!.querySelector(".spinner")).toBeNull();
+    expect(b).toHaveAttribute("data-state", "running");
+  });
+});
+
+describe("a run's head names the work, not only how long it took", () => {
+  const edit = (id: string, add: number, del: number, ts = 0): ToolBlock => tool(id, "Edit", {
+    file_path: `/w/${id}.ts`,
+    old_string: Array.from({ length: del }, (_, i) => `old${i}`).join("\n"),
+    new_string: Array.from({ length: add }, (_, i) => `new${i}`).join("\n"),
+  }, ts);
+  const fail = (id: string, name: string, input: Record<string, unknown>, ts = 0): ToolBlock =>
+    ({ kind: "tool", toolUseId: id, name, input, result: { content: "Exit code 1\nboom", isError: true }, ts });
+  const run = (): ToolBlock[] => [
+    tool("r1", "Read", { file_path: "/w/a.ts" }), tool("r2", "Read", { file_path: "/w/b.ts" }),
+    edit("e1", 3, 1), edit("e2", 2, 1),
+    tool("c1", "Bash", { command: "pnpm test" }), fail("c2", "Bash", { command: "pnpm typecheck" }),
+    tool("g1", "Grep", { pattern: "x" }),
+  ];
+
+  it("counts reads, edits with their summed lines, searches and commands, and says what failed", () => {
+    const s = summarizeToolRun(run());
+    expect(s).toMatchObject({ reads: 2, edits: 2, add: 5, del: 2, searches: 1, commands: 2, failed: 1, liveStep: null });
+    render(<ToolGroup steps={steps(run())} sessionStatus="idle" />);
+    const row = screen.getByRole("button", { name: "7 tool calls" });
+    expect(row.querySelector(".tool-group-work")).toHaveTextContent("· 2 reads · 2 edits +5 −2 · 1 search · 2 commands");
+    expect(row.querySelector(".tool-group-failed")).toHaveTextContent("1 failed");
+    // The tooltip keeps the old counts line.
+    expect(row).toHaveAttribute("title", "7 tools · 4 files · 2 commands");
+  });
+
+  it("keeps the failure out of the part that yields, so no width can cut it", () => {
+    render(<ToolGroup steps={steps(run())} sessionStatus="idle" />);
+    const failed = document.querySelector(".tool-group-failed")!;
+    // A sibling of the ellipsized work, after it — never inside it.
+    expect(failed.closest(".tool-group-work")).toBeNull();
+    expect(failed.previousElementSibling).toHaveClass("tool-group-work");
+    expect(failed.querySelector("svg")).not.toBeNull(); // a glyph, so it is not colour alone
+  });
+
+  it("draws the work only as wide as the parts on its one line, so the failure follows the last count shown", () => {
+    // jsdom has no layout: the line is staged — the first two parts on it, the rest wrapped below.
+    const rect = (r: Partial<DOMRect>) => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}), ...r }) as DOMRect;
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (this.classList.contains("tool-group-work")) return rect({ left: 100, width: 300, top: 0 });
+      const parts = this.parentElement?.classList.contains("tool-group-work") ? [...this.parentElement.children] : null;
+      if (parts) { const i = parts.indexOf(this); return rect({ top: i < 2 ? 0 : 18, left: 100 + 80 * i, right: 100 + 80 * (i + 1) }); }
+      return rect({});
+    });
+    try {
+      render(<ToolGroup steps={steps(run())} sessionStatus="idle" />);
+      // THE mutant: no fit — the box keeps the width it shrank to, and "1 failed" stands a gap away.
+      expect((document.querySelector(".tool-group-work") as HTMLElement).style.maxWidth).toBe("160px");
+    } finally { spy.mockRestore(); }
+  });
+
+  it("drops the parts that are zero, and says nothing of failures where there were none", () => {
+    render(<ToolGroup steps={steps([tool("r1", "Read", { file_path: "/a" }), tool("r2", "Read", { file_path: "/b" })])} sessionStatus="idle" />);
+    expect(document.querySelector(".tool-group-work")).toHaveTextContent(/^· 2 reads$/);
+    expect(document.querySelector(".tool-group-failed")).toBeNull();
+  });
+
+  it("while live, says the call in flight rather than the counts so far", () => {
+    const live = [tool("r1", "Read", { file_path: "/w/a.ts" }), { ...tool("c1", "Bash", { command: "pnpm test" }), result: null }];
+    render(<ToolGroup steps={steps(live)} sessionStatus="running" />);
+    expect(document.querySelector(".tool-group-work")).toHaveTextContent(/^· Run pnpm test$/);
+  });
+
+  it("a run the turn ended on with a failure opens itself; one that recovered, or ended well, stays folded", () => {
+    const failedLast = [tool("r1", "Read", { file_path: "/a" }), fail("c1", "Bash", { command: "pnpm build" })];
+    const { unmount } = render(<ToolGroup steps={steps(failedLast)} sessionStatus="idle" endsTurn />);
+    expect(cards()).toHaveLength(2);
+    // And a manual collapse still wins.
+    fireEvent.click(screen.getByRole("button", { name: "2 tool calls" }));
+    expect(cards()).toHaveLength(0);
+    unmount();
+    // The agent went on after it: the failure is on the head, the run stays folded.
+    const { unmount: u2 } = render(<ToolGroup steps={steps(failedLast)} sessionStatus="idle" />);
+    expect(cards()).toHaveLength(0);
+    u2();
+    // A failure in the middle that the run recovered from does not open it either.
+    render(<ToolGroup steps={steps([fail("c1", "Bash", { command: "pnpm build" }), tool("r1", "Read", { file_path: "/a" })])} sessionStatus="idle" endsTurn />);
+    expect(cards()).toHaveLength(0);
+  });
+
+  it("in a transcript, a run the turn closed on is one that ends it; one the agent talked after is not", () => {
+    const model = (blocks: Block[]): TranscriptModel =>
+      ({ blocks, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null });
+    const failedRun: Block[] = [tool("r1", "Read", { file_path: "/a" }), fail("c1", "Bash", { command: "pnpm build" })];
+    const { unmount } = render(<Transcript transcript={model([...failedRun, { kind: "run", ms: 4_000, startedAt: 0, ts: 4_000 }])} sessionStatus="idle" onDecide={() => {}} />);
+    expect(cards()).toHaveLength(2);
+    unmount();
+    render(<Transcript transcript={model([...failedRun, say("I fixed it another way.")])} sessionStatus="idle" onDecide={() => {}} />);
+    expect(cards()).toHaveLength(0);
+  });
+});
+
+describe("a step in a run stands on the same lead column as every other row", () => {
+  it("the rail sits 4px left of the steps' glyphs, and a step's row is inset by exactly the rail's offset", () => {
+    render(<ToolGroup steps={steps([tool("r1", "Read", { file_path: "/a" }), { ...tool("c1", "Bash", { command: "x" }), result: null }])} sessionStatus="running" />);
+    // jsdom has no layout; the arithmetic is the stylesheet's and is held in styles.test. Here: the
+    // step cards are the ones the inset applies to.
+    for (const c of cards()) expect(c.parentElement).toHaveClass("tool-group-steps");
   });
 });

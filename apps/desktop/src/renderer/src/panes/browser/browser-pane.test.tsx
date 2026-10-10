@@ -685,7 +685,9 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
   async function mountPane() {
     const f = fakeBridges();
     setBrowserBridgesForTests(f.bridges);
-    render(<BrowserPane item={browserItem()} visible focused={false} />);
+    // The receipt for a finished save is one of the window's toasts, drawn by the host beside the pane.
+    const store = createAppStore(fakeApi());
+    render(<StoreContext.Provider value={store}><BrowserPane item={browserItem()} visible focused={false} /><Toasts /></StoreContext.Provider>);
     await act(async () => {});
     return f;
   }
@@ -707,17 +709,22 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
 
     expect(f.calls).toContain("save:b1:bd_1:/tmp/proj/downloads");
-    expect(screen.getByRole("status")).toHaveTextContent("Saved week-3.pdf to downloads/");
+    // News of something done is a toast that leaves on its own, not a strip that waits to be closed.
+    // THE mutant: the receipt written back into the strip, which stayed above the page until closed.
+    expect(document.querySelector(".toast")).toHaveTextContent("Saved week-3.pdf to downloads/");
+    expect(document.querySelector(".browser-notice")).toBeNull();
   });
 
-  it("a space with no project says so rather than inventing a destination", async () => {
+  it("a space whose folder is gone says so rather than inventing a destination", async () => {
     const f = await mountPane();
     f.setDownloadDir(null);
     await act(async () => { f.blockDownload(blocked()); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save" })); });
 
-    expect(screen.getByRole("status")).toHaveTextContent("no project folder");
+    expect(screen.getByRole("status")).toHaveTextContent("can't be found");
     expect(f.calls.some((c) => c.startsWith("save:"))).toBe(false);
+    // The Save stays, so the user can retry rather than being stranded.
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
   it("a failed save reports main's reason", async () => {

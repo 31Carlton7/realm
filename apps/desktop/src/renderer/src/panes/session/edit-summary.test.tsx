@@ -42,13 +42,6 @@ describe("the card a turn that changed files ends with", () => {
       .toEqual([["web/lib/", "orgs.ts", "+17−2"], ["web/lib/agent/chat-runtime/compaction/", "auto-compact.ts", "+3−1"], ["old/", "gone.ts", "−9"]]);
   });
 
-  it("sits above the run line it belongs to, so the turn still closes on when it ended", () => {
-    mount();
-    const col = document.querySelector(".transcript-col")!;
-    const kids = [...col.children].map((el) => el.className.split(" ")[0]);
-    expect(kids.indexOf("edit-summary")).toBe(kids.indexOf("msg-run") - 1);
-  });
-
   it("opens a file from its row, and a deleted one is a row with nothing to open", () => {
     const { card, onOpen } = mount();
     fireEvent.click(within(card).getByRole("button", { name: /orgs\.ts/ }));

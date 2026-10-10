@@ -1,5 +1,6 @@
-import { AGENT_SKILL_SUPPORT, type AgentKind, type Environment } from "@realm/contracts";
+import { AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, PERMISSION_MODES, type AgentKind, type Environment } from "@realm/contracts";
 import type { SkillsService } from "../skills/service";
+import { titleFromMessage } from "../sessions/service";
 
 /**
  * The dispatch recipe, extracted (Plan 18 W1) — the three resolutions every flow that spawns a
@@ -10,11 +11,9 @@ import type { SkillsService } from "../skills/service";
  * then fails to exist", and two copies of that is how exactly one of them starts leaking orphan
  * worktrees. `structure.test.ts` pins the single-copy fact.
  *
- * What is deliberately NOT here: permission-mode capping. `agent_run`'s cap is parent-relative
- * (min(parent's effective, requested)) and a durable run has no parent session to be relative to —
- * its rule is the flat one in `RunConstraintsSchema`, where `bypassPermissions` is not a value.
- * Sharing a "capping" helper between those two would mean inventing a fake parent for runs, and a
- * safety line that has to be lied to in order to be reused is the wrong abstraction.
+ * The permission-mode rule here (`childPermissionMode`) is for children of a SESSION — `agent_run`
+ * and the browser agent. A durable run has no parent session to be relative to; its rule is the flat
+ * one in `RunConstraintsSchema`, where `bypassPermissions` is not a value, and it does not use this.
  */
 
 /** A resolution that failed, carrying the words the caller shows verbatim. Callers phrase their own
@@ -125,3 +124,94 @@ export async function cleanupWorktree(created: Environment | null, environments:
 }
 
 export const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** More restrictive = lower. A child is never given a mode that ranks above its parent's. An unranked
+ *  mode (an adapter-specific string) ranks as `default`: capping over an unknown mode should fail
+ *  toward asking, not toward access.
+ *
+ *  `ask` TIES with `plan` rather than sitting beside it. They are two different read-only modes, not
+ *  two rungs of one ladder: neither lets the child change anything, so capping a child of one to the
+ *  other is safe in both directions, and giving either a lower number would claim an ordering between
+ *  them that does not exist. */
+export const MODE_RANK: Record<string, number> = { plan: 0, ask: 0, default: 1, acceptEdits: 2, bypassPermissions: 3 };
+export const rank = (mode: string): number => MODE_RANK[mode] ?? 1;
+
+/** A mode as the prompter's chip names it: "Full access", not `bypassPermissions`. */
+export function modeLabel(mode: string): string {
+  if (mode === "plan") return "Plan";
+  if (mode === "ask") return "Ask";
+  return PERMISSION_MODES.find((m) => m.id === mode)?.label ?? mode;
+}
+
+export type ChildMode = {
+  ok: true;
+  /** What the child's row is written with. */
+  mode: string;
+  /** A request that asked for more than the parent has, and was held to the parent's mode. */
+  capped: boolean;
+  /** The child runs in exactly the parent's mode. */
+  inherited: boolean;
+  /** The harness takes no permission mode, so the row says `default` whatever the parent's is. */
+  modeless: boolean;
+};
+
+/**
+ * The mode a child of a session runs in: `min(parent, requested ?? parent)`. A request can only
+ * tighten. A child of a Full access lead is Full access, because the person put the lead there and
+ * the child is doing the lead's work; a child of an Ask-each-time lead asks, on its own session.
+ *
+ * One harness case is not a min. Realm cannot set a permission mode on some harnesses (Cursor and the
+ * other ACP agents, `AGENT_SUPPORTS_PERMISSION_MODES`), so:
+ *   - a READ-ONLY child there is refused, naming the harnesses that can be held to it — a row saying
+ *     `plan` over an agent nothing restrains would be a promise Realm does not keep;
+ *   - anything else is written as `default`, as `resolveDefaultPermissionMode` does for a new session,
+ *     so the chip never claims a Full access Realm cannot deliver.
+ */
+export function childPermissionMode(parentMode: string, requested: string | undefined, childKind: AgentKind): ChildMode | Refusal {
+  const wanted = requested ?? parentMode;
+  const capped = rank(wanted) > rank(parentMode);
+  const mode = rank(wanted) < rank(parentMode) ? wanted : parentMode;
+  if (!AGENT_SUPPORTS_PERMISSION_MODES[childKind]) {
+    if (rank(mode) === 0) {
+      const can = (Object.keys(AGENT_SUPPORTS_PERMISSION_MODES) as AgentKind[])
+        .filter((k) => AGENT_SUPPORTS_PERMISSION_MODES[k] && k !== "fake").map((k) => AGENT_META[k].label);
+      return refuse(`refused: this sub-agent would run read-only (${modeLabel(mode)}), and Realm cannot hold ${AGENT_META[childKind].label} to a read-only mode. Run it on ${can.join(" or ")}, or leave the model out.`);
+    }
+    return { ok: true, mode: "default", capped, inherited: false, modeless: true };
+  }
+  return { ok: true, mode, capped, inherited: mode === parentMode, modeless: false };
+}
+
+/** A sentence that sets a sub-agent up rather than naming its task — the role and context leads open
+ *  their goals with. Skipped when a goal is turned into a name. */
+const BOILERPLATE = [
+  /^you(?: are|'re) (?:a|an|the|doing|researching|implementing)\b/i,
+  /^(?:read-only|research)(?:\s+(?:code|research))*\s+(?:task|research)[.:]/i,
+  /^(?:repo|repository|context|background):/i,
+  /^#+\s/,
+];
+
+/**
+ * A sub-agent's name when the caller gave it none: the task, not the boilerplate around it.
+ *
+ * Leads open their goals with a role ("You are implementing a feature in…") or a frame ("Read-only
+ * research task. Repo: /Users/…"), and a name cut from the first line reads as that frame every time —
+ * five rows of "Read-only research task. Repo: /…" tell the person nothing. So the goal is read a
+ * sentence at a time, the setting-up sentences are skipped, and the first one left is the name, cut
+ * at its first clause and clipped the way a session's title is. A goal that is all boilerplate keeps
+ * its first line, which is still better than nothing.
+ *
+ * Never prefixed with "Agent:": the child is drawn as a sub-agent wherever it appears — its mark,
+ * its place under the lead, the Agents tab — and in a forty-character title the prefix costs a fifth
+ * of the room.
+ */
+export function taskName(goal: string): string {
+  const sentences = goal.split("\n")
+    .flatMap((line) => line.trim().split(/(?<=[.!?])\s+/))
+    .map((x) => x.trim().replace(/^[-*•]\s+/, "").replace(/^(?:task|goal):\s*/i, ""))
+    .filter((x) => x !== "");
+  const task = sentences.find((x) => !BOILERPLATE.some((re) => re.test(x)));
+  if (task === undefined) return titleFromMessage(goal);
+  const clause = task.split(/;\s|\s[—–]\s/)[0]!.replace(/[.:]$/, "");
+  return titleFromMessage(clause);
+}

@@ -41,13 +41,24 @@
  * goes into a pane's virtual authenticator over in-process CDP and is cleared out again when the
  * request the user approved has settled. There is no `exportPasskeyKey`, and there is no shape in
  * `@realm/contracts` with a field a private key could be serialized into.
+ *
+ * `unlock` seals no secret at all: it seals a profile's unlock policy (Touch ID, password, a session,
+ * or none). It is sealed rather than written as a plain field so that a process that can edit
+ * Realm's files — an agent's shell among them — cannot write itself an `unattended` profile. Held
+ * only by Electron main, like `passkey`.
+ *
+ * `vault-key` seals a team's API keys (Teams Phase 2). Its own domain so a key's blob cannot be
+ * opened as a sign-in or an OAuth token, and so the door it leaves by (`withKeyValue`, into one HTTP
+ * request main makes) is the only one that can open it. `vault-allow` seals no secret: like `unlock`,
+ * it seals a setting an agent must not be able to write — a grant's "use without asking". Both are
+ * held only by Electron main.
  */
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
 
 /** Domain → the byte written into the header and mixed in as AAD. Codes are permanent: changing one
  *  makes every existing blob of that domain unopenable, which for credentials means silent data
  *  loss the user only discovers at a sign-in prompt. Add, never renumber. */
-export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5 } as const;
+export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8 } as const;
 export type SecretDomain = keyof typeof SECRET_DOMAINS;
 
 const VERSION = 1;

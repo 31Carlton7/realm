@@ -42,6 +42,11 @@ export const MentionRefSchema = z.discriminatedUnion("kind", [
   /** An application. The bundle id is what computer use is granted for; the path is only ever where
    *  main reads the icon from, and main checks it against its own scan before reading anything. */
   z.object({ kind: z.literal("app"), label: LabelSchema, name: z.string().min(1).max(120), bundleId: z.string().regex(BUNDLE_ID_RE), path: AbsolutePathSchema }),
+  /** A role on the space's team. Sending wakes it as this session's sub-agent; the server writes
+   *  `childId` (the sub-agent it started) or `refused` (why it could not) — whatever a client sent in
+   *  either is dropped first. */
+  z.object({ kind: z.literal("role"), label: LabelSchema, roleId: z.string().min(1).max(40),
+    childId: z.string().min(1).max(40).optional(), refused: z.string().min(1).max(400).optional() }),
 ]);
 export type MentionRef = z.infer<typeof MentionRefSchema>;
 /** A ref before the draft has given it a label — each kind's own fields, minus the one the store picks. */
@@ -174,6 +179,7 @@ export function mentionRefContext(refs: readonly MentionRef[], opts: {
 } = {}): string {
   const files = refs.filter((r) => r.kind === "file" || r.kind === "library");
   const apps = refs.filter((r): r is Extract<MentionRef, { kind: "app" }> => r.kind === "app");
+  const roles = refs.filter((r): r is Extract<MentionRef, { kind: "role" }> => r.kind === "role");
   const note = (path: string) => opts.withheld?.has(path) ? " (not attached: Realm does not hand over files that hold secrets)"
     : opts.missing?.has(path) ? " (not on disk any more, so not attached)" : "";
   let out = "";
@@ -191,6 +197,12 @@ export function mentionRefContext(refs: readonly MentionRef[], opts: {
         + `(${cli.map((a) => `\`mac ${MAC_CLI_APPS[a.bundleId]}\``).join(", ")}) — reach for it first and use computer use for what it cannot do. `
         + `Its instructions: ${opts.macSkill}\n`;
     }
+  }
+  if (roles.length > 0) {
+    out += `\n\nTeammates the user mentioned, one per chip above:\n${roles.map((r) => `  ${elementChipToken(r.label)} — ${r.childId
+      ? `Realm started ${r.label} as your sub-agent on this message (handle ${r.childId}); it works from its own brief`
+      : `not started: ${r.refused ?? "Realm could not start it"}`}`).join("\n")}\n`;
+    if (roles.some((r) => r.childId)) out += "Do not start them again. Collect their reports with agent_wait (agent_status lists them), then answer the user.\n";
   }
   return out;
 }

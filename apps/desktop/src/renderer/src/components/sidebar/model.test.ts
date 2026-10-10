@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Item, Session, SessionStatus } from "@realm/contracts";
 import { item, profile, session, space } from "../../state/store.test-fakes";
 import {
-  attentionRank, FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
+  agentsWaiting, attentionRank, FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
   rowsBySpace, sectionView, spaceRows, spaceTally, tallyOf, tallyWords, type SessionRow, type SidebarState,
 } from "./model";
 
@@ -17,8 +17,8 @@ function home(over: Partial<SidebarState> = {}): SidebarState {
     profiles: [profile("p1", "Work"), profile("p2", "School")],
     activeProfileId: "p1",
     activeSpaceId: "hw",
-    items: [], allItems: [], sessions: {}, allSessions: {}, sessionStatus: {}, sessionSpace: {}, sessionUpdatedAt: {},
-    quickChatId: null,
+    items: [], allItems: [], sessions: {}, allSessions: {}, sessionStatus: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {},
+    quickChatId: null, teams: {},
     ...over,
   };
 }
@@ -29,16 +29,17 @@ function seed(rows: { id: string; space: string; status?: SessionStatus; at?: nu
   const items: Item[] = []; const allItems: Item[] = [];
   const allSessions: Record<string, Session> = {}; const sessionStatus: Record<string, SessionStatus> = {};
   const sessionSpace: Record<string, string> = {}; const sessionUpdatedAt: Record<string, number> = {};
+  const sessionActivityAt: Record<string, number> = {};
   for (const r of rows) {
     const at = r.at ?? NOW;
-    const row = session(r.id, r.space, { title: r.title ?? `session ${r.id}`, status: r.status ?? "idle", updatedAt: at, createdAt: at, ...r.session });
+    const row = session(r.id, r.space, { title: r.title ?? `session ${r.id}`, status: r.status ?? "idle", updatedAt: at, activityAt: at, createdAt: at, ...r.session });
     allSessions[r.id] = row;
-    sessionStatus[r.id] = row.status; sessionSpace[r.id] = r.space; sessionUpdatedAt[r.id] = at;
+    sessionStatus[r.id] = row.status; sessionSpace[r.id] = r.space; sessionUpdatedAt[r.id] = at; sessionActivityAt[r.id] = at;
     const it = item(`i-${r.id}`, r.space, { kind: "session", refId: r.id, title: r.title ?? `session ${r.id}`, ...r.item });
     if (s.spaces.find((sp) => sp.id === r.space)?.profileId === s.activeProfileId) items.push(it);
     if (!it.archived) allItems.push(it);
   }
-  return { ...s, items, allItems, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, ...over };
+  return { ...s, items, allItems, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, ...over };
 }
 
 const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
@@ -64,6 +65,16 @@ describe("listedSessions — what the sidebar lists as a row", () => {
     expect(ids(listedSessions(s))).toEqual(["lead"]);
   });
 
+  it("keeps a sub-agent under an archived lead put away with it, and lists one whose lead is gone", () => {
+    // The space's Sessions page nests the same way (`nestChildren`), so its Active count is this list's.
+    const s = seed([
+      { id: "shelved", space: "hw", item: { archived: true } },
+      { id: "kid", space: "hw", session: { dispatchedBy: { kind: "agent_run", sessionId: "shelved" } } },
+      { id: "orphan", space: "hw", session: { dispatchedBy: { kind: "agent_run", sessionId: "deleted" } } },
+    ]);
+    expect(ids(listedSessions(s))).toEqual(["orphan"]);
+  });
+
   it("keeps a fork and an import — sessions the user owns, whatever started them", () => {
     const s = seed([{ id: "f", space: "hw", session: { dispatchedBy: { kind: "fork", sessionId: "x" } } }]);
     expect(ids(listedSessions(s))).toEqual(["f"]);
@@ -82,8 +93,15 @@ describe("listedSessions — what the sidebar lists as a row", () => {
 
   it("reads the LIVE status, space and activity, never the row's", () => {
     const s = seed([{ id: "a", space: "th", status: "idle", at: 1 }]);
-    const live = { ...s, sessionStatus: { a: "running" as const }, sessionSpace: { a: "lec" }, sessionUpdatedAt: { a: 99 } };
+    const live = { ...s, sessionStatus: { a: "running" as const }, sessionSpace: { a: "lec" }, sessionActivityAt: { a: 99 } };
     expect(listedSessions(live)[0]).toMatchObject({ status: "running", spaceId: "lec", at: 99 });
+  });
+
+  it("dates a row by its conversation, never by the last write to it", () => {
+    // THE MUTANT: `at` read off `updatedAt` again, which an init, a status or a cursor moves.
+    const s = seed([{ id: "a", space: "hw", at: 5, session: { updatedAt: 500 } }]);
+    const touched = { ...s, sessionUpdatedAt: { a: 900 } };
+    expect(listedSessions(touched)[0]!.at).toBe(5);
   });
 
   it("is unread only when read once and written past since", () => {
@@ -98,7 +116,7 @@ describe("spaceRows — one space's list", () => {
     expect(ids(spaceRows(listedSessions(s)))).toEqual(["new", "mid", "old"]);
   });
 
-  it("puts what needs you first, then what is working, then what is new — newest first within each", () => {
+  it("puts what needs you first, then what is working — newest first within each", () => {
     // THE MUTANT: recency alone. A session working since this morning last moved this morning, and
     // would sit under Show more behind every idle session touched since.
     const s = seed([
@@ -109,7 +127,34 @@ describe("spaceRows — one space's list", () => {
       { id: "broke", space: "hw", status: "error", at: NOW - 10 * MIN },
       { id: "idle-old", space: "hw", at: NOW - 120 * MIN },
     ]);
-    expect(ids(spaceRows(listedSessions(s)))).toEqual(["broke", "asks", "working", "news", "idle-new", "idle-old"]);
+    expect(ids(spaceRows(listedSessions(s)))).toEqual(["broke", "asks", "working", "idle-new", "news", "idle-old"]);
+  });
+
+  /** Eight idle sessions a minute apart, the fifth unread — a space as the user left it. */
+  const eight = () => seed(["a", "b", "c", "d", "e", "f", "g", "h"].map((id, i) => ({
+    id, space: "hw", at: NOW - i * MIN, session: { lastEventSeq: 9, seenSeq: id === "e" ? 4 : 9 },
+  })));
+
+  it("leaves a row where it is when it is opened and read", () => {
+    // THE MUTANT: unread as a rank of its own. Opening the session reads it, and the row it was
+    // clicked on jumps down the list — under Show more, here — from under the click.
+    const before = eight();
+    const read = { ...before, allSessions: { ...before.allSessions, e: { ...before.allSessions.e!, seenSeq: 9 } } };
+    expect(ids(spaceRows(listedSessions(before)))).toEqual(["a", "b", "c", "d", "e", "f", "g", "h"]);
+    expect(ids(spaceRows(listedSessions(read)))).toEqual(["a", "b", "c", "d", "e", "f", "g", "h"]);
+  });
+
+  it("leaves a row where it is when opening it writes to it — an init, a status passed through, a cursor", () => {
+    const before = eight();
+    const opened = { ...before, sessionUpdatedAt: { ...before.sessionUpdatedAt, e: NOW + MIN },
+      allSessions: { ...before.allSessions, e: { ...before.allSessions.e!, updatedAt: NOW + MIN } } };
+    expect(ids(spaceRows(listedSessions(opened)))).toEqual(["a", "b", "c", "d", "e", "f", "g", "h"]);
+  });
+
+  it("moves a row to the top when its conversation moves", () => {
+    const before = eight();
+    const prompted = { ...before, sessionActivityAt: { ...before.sessionActivityAt, e: NOW + MIN } };
+    expect(ids(spaceRows(listedSessions(prompted)))).toEqual(["e", "a", "b", "c", "d", "f", "g", "h"]);
   });
 
   const dispatched = (id: string, created: number, extra: Partial<Session> = {}) =>
@@ -134,7 +179,7 @@ describe("spaceRows — one space's list", () => {
     const s = seed([dispatched("f1", NOW - 50 * MIN), dispatched("f2", NOW - 49 * MIN), { id: "x", space: "hw", at: NOW }]);
     const asking = { ...s, sessionStatus: { ...s.sessionStatus, f2: "waiting_permission" as const } };
     const rows = spaceRows(listedSessions(asking));
-    expect(rows.map((r) => [r.kind, attentionRank(r)])).toEqual([["fan-out", 0], ["session", 3]]);
+    expect(rows.map((r) => [r.kind, attentionRank(r)])).toEqual([["fan-out", 0], ["session", 2]]);
   });
 
   it("leaves one dispatched session a row of its own", () => {
@@ -159,7 +204,7 @@ describe("spaceRows — one space's list", () => {
 
   it("sorts a fan-out by its newest session's activity", () => {
     const s = seed([dispatched("f1", NOW - 50 * MIN), dispatched("f2", NOW - 49 * MIN), { id: "x", space: "hw", at: NOW - 10 * MIN }]);
-    const moved = { ...s, sessionUpdatedAt: { ...s.sessionUpdatedAt, f1: NOW } };
+    const moved = { ...s, sessionActivityAt: { ...s.sessionActivityAt, f1: NOW } };
     expect(spaceRows(listedSessions(moved)).map((r) => r.kind)).toEqual(["fan-out", "session"]);
   });
 
@@ -323,5 +368,44 @@ describe("recentDays — every session by time", () => {
     expect(days.map((d) => d.label)).toEqual(["Today", "Yesterday"]);
     expect(days[0]!.rows.map((r) => r.id)).toEqual(["today"]);
     expect(days[1]!.rows.map((r) => r.kind)).toEqual(["fan-out"]);
+  });
+});
+
+describe("a sub-agent's request rolls up onto its lead", () => {
+  const child = (lead: string) => ({ dispatchedBy: { kind: "agent_run" as const, sessionId: lead } });
+  /** "lead" in Homework, with two sub-agents waiting — one of them an older build's grandchild — and
+   *  one working; "orphan" is a waiting sub-agent whose lead this window does not hold. */
+  const s = () => seed([
+    { id: "lead", space: "hw", status: "idle", at: NOW - 30 * MIN },
+    { id: "own", space: "hw", status: "waiting_permission", at: NOW - 2 * MIN },
+    { id: "k1", space: "hw", status: "waiting_permission", at: NOW - 3 * MIN, session: child("lead") },
+    { id: "k2", space: "hw", status: "running", session: child("lead") },
+    { id: "g1", space: "hw", status: "waiting_permission", at: NOW - 5 * MIN, session: child("k2") },
+    { id: "orphan", space: "hw", status: "waiting_permission", at: NOW - MIN, session: child("gone") },
+    { id: "quiet", space: "hw", status: "idle", at: NOW },
+  ]);
+
+  it("a waiting sub-agent of a listed lead is not a Needs you row; a lead's own request still is", () => {
+    // THE MUTANT: the old needsYou — one row per waiting child, at the top of the sidebar.
+    expect(needsYou(s()).map((r) => r.session.id).sort()).toEqual(["orphan", "own"]);
+  });
+
+  it("a waiting sub-agent whose lead this window does not hold keeps its own row — no request is lost", () => {
+    // THE MUTANT: drop every waiting child — "orphan"'s request would be nowhere in the sidebar.
+    expect(needsYou(s()).map((r) => r.session.id)).toContain("orphan");
+  });
+
+  it("counts per ROOT lead, across an older build's grandchild, and names the one that has waited longest", () => {
+    // THE MUTANT: count under the immediate parent — g1 would land on k2, which has no row.
+    expect(agentsWaiting(s()).get("lead")).toMatchObject({ count: 2, first: "g1" });
+    const row = listedSessions(s()).find((r) => r.id === "lead")!;
+    expect(row).toMatchObject({ agentsWaiting: 2, firstWaiting: "g1" });
+  });
+
+  it("puts a lead whose sub-agents wait at the top of its space, with what waits on you itself", () => {
+    // THE MUTANT: rank a lead by its own status alone — idle, and under the newer quiet session.
+    const rows = rowsBySpace(listedSessions(s())).get("hw")!;
+    expect(attentionRank(rows.find((r) => r.id === "lead")!)).toBe(0);
+    expect(rows.map((r) => r.id).indexOf("lead")).toBeLessThan(rows.map((r) => r.id).indexOf("quiet"));
   });
 });

@@ -39,11 +39,12 @@
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
-.theme-import textarea, .tool-body pre, .tool-stat, .tool-summary, .tool-well, .wt-path, button.md-path, kbd,
+.theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
-.edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where {
+.edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
+.subagent-where[data-branch] {
   letter-spacing: normal;
 }
 
@@ -815,47 +816,7 @@ kbd { font: 11px var(--font-mono); }
 /* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
 .group-label { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding: 12px 8px 4px; }
 
-.pinned-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding-bottom: 4px; }
-.tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; aspect-ratio: 1; border-radius: var(--r-ctl);
-  background: var(--rl-panel); color: var(--rl-text-bright); padding: 4px; min-width: 0; }
-.tile:hover { background: linear-gradient(var(--rl-hover), var(--rl-hover)) var(--rl-panel); }
-.tile-title { font-size: 10px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
-.tile-rename { aspect-ratio: auto; grid-column: 1 / -1; padding: 0; }
 
-/* The call feed borrows the column's rows wholesale — `.item`, `.item-row`, `.group-label` — and owns
-   only what a call row has that a session row does not: a mono name, and a figure at the trailing
-   edge. `.activity-call` and `.activity-duration` are the sheet's own classes, so the two surfaces
-   cannot drift into two different ways of printing the same tool name.
-
-   The inset is its own: the feed stands in the column without a section around it, so it inherits
-   none of the 16px every other row in this column sits inside, and without it every row and the
-   empty line would sit flush against the window's own edge.
-   The heading of a run keeps its own top padding except at the very top, where `.space-body`'s
-   clearance under the fade is already the gap. */
-.sb-activity { padding-inline: 16px; }
-.sb-activity > div:first-child > .group-label { padding-top: 0; }
-.sb-activity .activity-call { flex: 1; min-width: 0; }
-/* The heading carries both facts the rows stop repeating: whose session, and which server. The
-   session is the unbounded half and takes the slack; the server's name is short and reserved, which
-   is the yielding order this row needs stated. */
-.sb-activity-head { display: flex; align-items: baseline; gap: 8px; }
-.sb-activity-session { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.sb-activity-server { flex: none; font-size: 11px; color: var(--rl-text-faint); }
-.sb-activity .activity-duration { flex: none; }
-.sb-activity .item-row:disabled { opacity: 1; color: var(--rl-text-faint); }
-/* Nothing to show is its own composition, not a sentence left where the rows would have been. It
-   centres in the column it has to itself, and it carries the one route that leads to a call
-   happening — which is what an empty surface owes the reader beyond the news that it is empty.
-   `.space-body`'s scroll and fade are dropped for this state: there is nothing under the band. */
-.sb-activity-blank { overflow: hidden; mask-image: none; -webkit-mask-image: none; padding-block: 0; }
-.sb-activity-empty { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 24px 12px; text-align: center; color: var(--rl-text-faint); }
-.sb-activity-empty-line { margin: 6px 0 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
-.sb-activity-empty-sub { margin: 0; font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); text-wrap: balance; }
-/* A real button, the empty pane's own idiom: the one route out of an empty surface should not be
-   quieter than the sentence explaining it. */
-.sb-activity-empty .btn { margin-top: 10px; }
 .item-list { display: flex; flex-direction: column; gap: 1px; }
 .item { position: relative; display: flex; align-items: center; border-radius: var(--r-ctl); min-height: 32px; font-size: 14px; }
 /* No hover fill. A Mac sidebar does not light a row the pointer passes over — Finder's, Mail's and
@@ -869,6 +830,9 @@ kbd { font: 11px var(--font-mono); }
    --hover-2 only reads on its own opaque ground, and this column is macOS material. */
 .item[data-active] { background: var(--rl-active); }
 .item[data-active] .item-row { color: var(--rl-text-bright); }
+/* A session with something you have not read: its title in ink at the title weight, the second
+   half of the unread mark beside the dot — the half that does not depend on telling blue from green. */
+.sb-row[data-unread] .item-title { color: var(--rl-text-bright); font-weight: var(--fw-title); }
 .item-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; padding: 5px 8px; font-weight: var(--fw-medium); color: var(--rl-text-dim); border-radius: var(--r-ctl); corner-shape: squircle; }
 /* One elastic column, and it is the title. The status dot and the glyph both used to carry
    `margin-left: auto`, which splits the free space BETWEEN them: a session that was both running and
@@ -2009,6 +1973,25 @@ kbd { font: 11px var(--font-mono); }
 .ip-generate .ip-grid { padding: 0; border-top: var(--hairline-w) solid var(--rl-hairline); padding-top: 10px; }
 .ip-error { color: var(--rl-warning); font-size: 12px; }
 
+/* ── Realmite maker ──────────────────────────────────────────────────────────
+   The creature at hero size with its four states under it, beside a row of choices per part. Each
+   choice is the creature itself with that part on, so the row reads as previews; the one picked
+   wears the accent ring, the selection's colour everywhere else in the app. */
+.rmt-maker { display: flex; align-items: flex-start; gap: 28px; }
+.rmt-maker-stage { flex: none; width: 236px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.rmt-maker-hero { display: grid; place-items: center; padding: 12px 0 4px; }
+.rmt-maker-states { list-style: none; margin: 0; padding: 0; display: flex; gap: 10px; }
+.rmt-maker-states li { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.rmt-maker-actions { display: flex; gap: 8px; }
+.rmt-maker-parts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rmt-maker-row { display: flex; align-items: center; gap: 12px; min-height: 40px; }
+.rmt-maker-name { flex: none; width: 64px; font-size: 13px; line-height: 16px; color: var(--ink-2); }
+.rmt-maker-options { display: flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
+.rmt-maker-option { width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: none; border-radius: var(--r-ctl); background: transparent; }
+.rmt-maker-option:hover { background: var(--hover); }
+.rmt-maker-option[aria-checked="true"] { background: var(--hover-2); box-shadow: inset 0 0 0 1.5px var(--rl-accent); }
+.rmt-maker-option:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
+
 .group-new { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; padding: 4px 8px; border-radius: var(--r-ctl);
   font-size: 12px; color: var(--rl-text-faint); }
 .group-new:hover { background: var(--rl-hover); color: var(--rl-text-dim); }
@@ -2175,7 +2158,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-slot { flex: 1; min-width: 0; min-height: 0; display: flex; }
 /* A side pane's browser tab behind the one showing: mounted, so its view lives, and out of the flow. */
 .pane-slot[hidden] { display: none; }
-.pane-placeholder { flex: 1; display: grid; place-content: center; text-align: center; gap: 6px; color: var(--rl-text-dim); }
+.pane-placeholder { flex: 1; display: grid; place-content: center; justify-items: center; text-align: center; gap: 6px; color: var(--rl-text-dim); }
 /* A pane whose subject is a FOLDER, when there is nothing in it to show. It was one grey sentence
    with an absolute path inlined into it — a line nobody reads to the end of. What a person needs is
    which folder, where, and the one thing they can still do with it. */
@@ -2711,8 +2694,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Plan 23 W4's blocked-download bar. A ROW between the chrome and the view host, never a floating
    toast: the native view composites over anything inside its rectangle, so a toast there would be
    invisible (W2's no-overlay invariant). Its height comes out of the view's, which the pane's
-   ResizeObserver already syncs. */
-.browser-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: var(--hairline-w) solid var(--rl-hairline); background: var(--rl-hover); }
+   ResizeObserver already syncs. It has no fill of its own: it sits on the chrome's ground, like
+   `.browser-chrome` and `.browser-suggest`, so it reads as part of the toolbar track above it. */
+.browser-notice { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: var(--hairline-w) solid var(--rl-hairline); }
 .browser-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
 .browser-notice-text strong { font-weight: var(--fw-title); color: var(--rl-text-bright); }
 /* Plan 26 W7b's find strip: the download bar's row, holding a field. A strip ABOVE the view like every
@@ -3369,10 +3353,12 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    watch", a pointer to activity, not a session verdict. */
 .status-dot[data-status="driving"] { background: var(--rl-accent); }
 /* Something happened here while you were looking elsewhere. Accent for `driving`'s reason — it is a
-   pointer, not a verdict — and hollow, so it reads as "unread" rather than as one more running
-   session. It is only ever drawn on a row that has no status dot, so the two never sit side by side
-   asking a reader to tell them apart at seven pixels. */
-.status-dot[data-status="unseen"] { background: transparent; box-shadow: inset 0 0 0 2px var(--rl-accent); }
+   pointer, not a verdict — and filled, as Mail's unread dot is. It was a hollow 2px ring, the
+   faintest mark in the column, and a finished turn nobody had read went unnoticed beside it. The dot
+   is told from running (success) and waiting (warning) by hue, and never by hue alone: an unread row
+   also brightens and lifts its title (`.sb-row[data-unread]`), which no other state does. It is only
+   ever drawn on a row with no status dot, so the two never sit side by side. */
+.status-dot[data-status="unseen"] { background: var(--rl-accent); }
 /* Machines (Plan 25 W3). Three values, and only three, because the rest of the vocabulary already
    means what a machine needs: `running` is running and `failed` is an error.
    `machine-off` is DECLARED rather than defaulted, so a typo in a status cannot silently render as
@@ -3957,27 +3943,57 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* Each sub-agent is several lines — model, task, what it is doing or what it said — so the list is
    one of cards with air between them, not rows under a rule (design.md). */
 .subagents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.subagent-card { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; padding: 10px 12px 11px; text-align: left;
+/* A card is the sub-agent; its summary is the disclosure, and what opens under it — the request to
+   answer, the brief, what can be done — is part of the same card rather than a panel of its own. */
+.subagent-card { display: flex; flex-direction: column; min-width: 0;
   border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); color: var(--ink);
-  transition: background-color var(--dur-hover) ease, box-shadow var(--dur-slow) ease; }
-/* The fill arrives at once and only its release fades — design.md's hover rule. */
-.subagent-card:hover { background: var(--rl-hover); transition: box-shadow var(--dur-slow) ease; }
-.subagent-card:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
+  transition: box-shadow var(--dur-slow) ease; }
+.subagent-summary { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; padding: 10px 12px 11px; text-align: left;
+  border: none; border-radius: var(--r-panel); background: transparent; color: inherit; font: inherit; }
+.subagent-summary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
 /* Asked for from a transcript line: lit long enough to be found, then let go. */
-.subagent[data-flash] .subagent-card { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 60%, transparent); }
-.subagent-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.subagent[data-flash] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 60%, transparent); }
+.subagent-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.subagent-caret { flex: none; display: inline-flex; margin-left: -2px; color: var(--ink-3); transition: transform var(--dur-hover) ease; }
+.subagent-caret[data-open] { transform: rotate(90deg); }
 .subagent-mark { flex: none; }
-.subagent-model { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-label); }
-.subagent-harness { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-3); }
+/* The title is the unbounded item and gives way first; the state and its time keep their width. */
+.subagent-task { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 18px; font-weight: var(--fw-label); color: var(--ink); }
 .subagent-state { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
 .subagent-state > svg { color: var(--ink-3); }
 .subagent[data-state="failed"] .subagent-state > svg, .subagent[data-state="timeout"] .subagent-state > svg { color: var(--rl-danger); }
+.subagent[data-state="waiting"] .subagent-state { color: var(--ink); }
 .subagent-time { color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.subagent-task { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 13px; line-height: 18px; color: var(--ink); }
-.subagent-doing { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-3); }
+/* What it runs on, where and how: one line of facts under the title, each giving way to the next. */
+.subagent-facts { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 16px; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.subagent-model { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-harness, .subagent-where, .subagent-mode, .subagent-budget { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
+.subagent-where[data-branch] { font-family: var(--font-mono); }
+.subagent-mode { display: inline-flex; align-items: center; gap: 4px; }
+/* The facts are separate things, so they read as a list rather than one run-on phrase. */
+.subagent-facts > .subagent-model ~ span:not(.subagent-budget)::before { content: "·"; margin-right: 6px; color: var(--ink-3); }
+.subagent-mode > svg { flex: none; }
+.subagent-budget { flex-shrink: 1; margin-left: auto; font-variant-numeric: tabular-nums; }
+.subagent-doing { display: flex; align-items: center; gap: 6px; min-width: 0; padding-left: 16px; font-size: 12px; line-height: 16px; color: var(--ink-3); }
 .subagent-doing > svg { flex: none; }
 .subagent-doing-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.subagent-report { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+.subagent-report, .subagent-note { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; padding-left: 16px; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+/* The agents a child runs inside its own harness, under it. */
+.subagent-inner { list-style: none; margin: -4px 0 0; padding: 0 12px 8px 28px; display: flex; flex-direction: column; gap: 2px; }
+.subagent-inner-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 26px; padding: 0 6px; border: none; border-radius: var(--r-ctl);
+  background: transparent; color: var(--ink-2); font: inherit; font-size: 12px; text-align: left; transition: background-color var(--dur-hover) ease; }
+.subagent-inner-row:hover { background: var(--rl-hover); transition: none; }
+.subagent-inner-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-inner-where { flex: none; color: var(--ink-3); }
+.subagent-nested { padding: 0 8px 8px 20px; }
+.subagent-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 10px 28px; }
+.subagent-goal { margin: 0; max-height: 160px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; font-size: 13px; line-height: 18px; color: var(--ink-2); --fade-h: 16px; --fade-top-h: 16px; }
+.subagent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: -7px; }
+.subagent-message { display: flex; align-items: center; gap: 6px; }
+.subagent-message input { flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 9px; border: none; border-radius: var(--r-ctl); background: var(--field); color: var(--ink); font: inherit; font-size: 13px; outline: none; }
+.subagent-message input:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.subagent-message input::placeholder { color: var(--ink-3); }
+.subagents-since { margin-left: auto; font-weight: var(--fw-medium); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
 .subagents-build { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 8px 16px 16px; }
 .subagents-build-head { display: flex; flex-direction: column; gap: 8px; }
@@ -4027,12 +4043,20 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagents-chooser-empty { margin: 0; padding: 10px 8px; font-size: 13px; color: var(--ink-2); }
 
 /* A sub-agent in its lead's transcript: one ledger line, the tool row's shape, with the model it runs
-   on and its clock pushed to the end — "Subagent finished · Write the migration". */
+   on and its clock pushed to the end — "Sub-agent finished · Write the migration". */
 /* The task is prose the lead wrote, not an identifier, so it is set as prose — the tool row's mono
    chip is for the command or path a call acts on. */
 .delegation-line-task { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-2); }
 .delegation-line-task::before { content: "· "; color: var(--ink-3); }
-.delegation-line-model { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); }
+/* The model yields first, then the task: in a narrow pane a model chip that would not shrink pushed the
+   row past its card — the task went to nothing, the clock off the edge and the transcript scrolled
+   sideways (design.md §Composition, yielding order). */
+.delegation-line-model { flex: 0 1000 auto; min-width: 0; overflow: hidden; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); }
+.delegation-line-model > svg { flex: none; }
+.delegation-line-model > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The wait's line is its words and nothing beside them, so the 45% a verb leaves its task does not
+   apply: "Collected 4 re…" was cut with the row empty after it. */
+.delegation-line .tool-row > .tool-name:last-child { max-width: none; }
 .delegation-line-time { flex: none; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .delegation-line[data-state="done"] .tool-status { color: var(--ink-3); }
 .delegation-line[data-state="failed"] .tool-status, .delegation-line[data-state="timeout"] .tool-status { color: var(--rl-danger); }
@@ -4177,29 +4201,34 @@ button.edit-file:hover { background: var(--rl-hover); }
    off results, statuses and data attributes only. Central icons (commercial) are NOT vendored —
    Hugeicons remain — and glimm/cuelume/dialkit are omitted per the recipe's own outs. */
 
-/* Plan 9 W2 — BUI ThinkingState (coding) is the tool row's language now. Collapsed still reads as
-   a plain row on the transcript; the card only becomes a card when it opens. The row leads with the
-   status glyph (spinner → muted ink-3 check, driven by the block's real settled state), then the
-   name at 12.5/550 ink, the target as a mono field-fill chip (ToolChips' chip), measured +/− counts
-   on edits, and a trailing chevron. */
+/* A tool call's row: [lead 16] [verb] [object — yields first] [meta] [›]. Nothing in it moves when
+   the state changes. The lead slot carries the KIND of act at rest (the file's own mark for a read or
+   an edit) and the state in its place while the state is the news; the verb is a plain word for the
+   act ("Run", "Edit"), bounded; the object is what it was done to, set as what it is — a path in its
+   three parts, a command in mono, a query or a description as prose — and is the one item of
+   unbounded length, so it gives way first; the meta is reserved and says the state in a word. */
 .tool-card { border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; }
-.tool-card[data-open] { background: var(--rl-panel); box-shadow: var(--rl-edge); }
-.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
+.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px 4px var(--tool-pad, 8px); border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
-/* Open, the row is the card's head rather than a free-standing control: it keeps the card's top
-   corners and squares off against the body's divider. Rounding all four corners left the hover
-   fill curving away from the hairline at both ends — two dark notches sitting on the divider. */
-.tool-card[data-open] > .tool-row { border-radius: var(--r-ctl) var(--r-ctl) 0 0; corner-shape: squircle; }
+/* Open, the card is not a box: the row keeps its hover fill to say which call the body under it
+   belongs to, and the body hangs under the verb column on the transcript's own ground. */
+.tool-card[data-open] > .tool-row { background: var(--rl-hover); }
 .tool-chevron { color: var(--rl-text-faint); transition: transform var(--dur-base) var(--ease-in-out-strong); flex: none; margin-left: auto; }
 /* Direct children throughout: a card now contains its sub-agent's cards, and a descendant selector
    would have opening the parent rotate every chevron and unfold every body beneath it. */
 .tool-card[data-open] > .tool-row > .tool-chevron, .tool-group[data-open] > .tool-group-row > .tool-chevron { transform: rotate(90deg); }
-.tool-name { font-size: 13px; font-weight: var(--fw-label); flex: none; }
-/* An edit's target (ToolCard's `ToolFile`): the file type's mark, the directory dimmed and the name
-   bright — the edit card's own row, so the call and the turn's summary name a file one way. The path
-   gives way first; the mark and any "and 2 more" keep their width. */
+.tool-name { font-size: 13px; font-weight: var(--fw-label); flex: none; white-space: nowrap; }
+/* The verb is short by construction, but an MCP tool's own name is not: bounded, so a long one can
+   never take the object's width the way the raw `mcp__…` name used to. */
+.tool-row > .tool-name { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+.tool-object { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
+/* Who answered an MCP call, before what it was asked — the server reads as a name, not a chip. */
+.tool-server { flex: none; font-size: 13px; color: var(--ink-3); }
+.tool-server::after { content: " ·"; }
+/* A read's or an edit's object (ToolCard's `ToolFile`): the directory dimmed and the name bright —
+   the edit card's own row, so the call and the turn's summary name a file one way. The directory
+   gives way first; the name and any "and 2 more" keep their width. */
 .tool-file { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
-.tool-file-mark { flex: none; color: var(--ink-2); }
 .tool-file-path { min-width: 0; display: flex; white-space: nowrap; }
 .tool-file-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--rl-text-faint); }
 .tool-file-name { flex: none; color: var(--rl-text-bright); font-weight: var(--fw-title); }
@@ -4222,34 +4251,126 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-body-clip, .sb-section-clip, .sched-runs-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
-/* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the collapsed row is
-   `Worked for <duration> ›` at 13/500 — shimmering (BUI's working treatment) while the run is live,
-   settled ink-2 once every step has its result — and the opened trace hangs off ThinkingState's solid
-   1px rail (the dashed connector is gone: BUI truth). */
+/* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the head is
+   `Worked for <duration>` at 13/500 — shimmering while the run is live — then the run's work in quiet
+   ink ("6 reads · 2 edits +31 −4"), or the call in flight while live, and any failures last, reserved
+   so no width can cut them. The opened trace hangs off a solid 1px rail. */
 .tool-group { border-radius: var(--r-ctl); font-size: 12px; }
-.tool-group-row { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.tool-group-row { display: flex; align-items: center; gap: 4px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
-.tool-group-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tool-group-summary { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The work yields a PART at a time, from the right, never a character: an ellipsis on the whole run
+   cut "+7 −3" to "+7 -…" beside a "1 failed" that kept its width, and a count cut mid-number is a
+   different count. Each part is one unit on a single line the height of one line; a part that does
+   not fit wraps onto a second line the box does not show, and the title still says the whole run.
+   Only the FIRST part may ellipsize — it is all the row has to say when even it does not fit, as is
+   the call in flight while the run works. */
+.tool-group-work { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; height: 18px; line-height: 18px; overflow: hidden;
+  font-weight: var(--fw-label); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-group-work > span { flex: none; white-space: pre; }
+.tool-group-work > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del { font: 11px var(--font-mono); }
+.tool-group-failed { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: var(--fw-label); color: var(--rl-danger); }
+.tool-group-failed-dot { color: var(--ink-3); }
+/* The head's parts are one sentence, so the gap beside each "·" is a word space, as it is inside the
+   work; only the chevron stands off it. */
+.tool-group-row > .tool-chevron { margin-left: 4px; }
 /* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
    Driven by data-working — the group's own unsettled steps — never by a demo clock. */
 .shimmer-text, .tool-group[data-working] .tool-group-summary, .composer-thinking span {
   background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
   background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: shimmer-text 1.4s linear infinite; }
-.tool-group-steps { margin-left: 15px; padding-left: 12px; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+/* The rail sits 4px left of the steps' lead glyphs, and the glyphs on the same column as every other
+   row's: the rail is at 3, a step's row starts its glyph 4 past it, and 3 + 1 + 4 is a free row's 8. */
+.tool-group-steps { margin-left: 3px; padding-left: 0; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+.tool-group-steps > .tool-card { --tool-pad: 4px; }
 /* A sub-agent's ledger hangs off the Task call that spawned it. 24px sets its label under the tool
    NAME rather than under the status glyph, so the rail reads as belonging to that row. */
 .tool-group[data-subagent] { margin-left: 24px; }
-/* The target chip: ToolChips' field-fill chip — mono 11.5, hairline ring, truncating. */
-.tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2);
-  font: 12px var(--font-mono); font-variant-numeric: tabular-nums; background: var(--field); box-shadow: var(--shadow-hairline);
-  border-radius: var(--r-chip); padding: 3px 6px; }
-.tool-status { display: grid; place-items: center; width: 16px; color: var(--rl-text-faint); flex: none; }
-.tool-card[data-state="ok"] .tool-status { color: var(--ink-3); } /* BUI: the settled check is muted, not green */
-.tool-card[data-state="error"] .tool-status { color: var(--rl-danger); }
-.tool-card[data-state="running"] .tool-status { color: var(--ink-2); } /* §3: nothing running-related uses accent */
-.tool-body { border-top: var(--hairline-w) solid var(--rl-hairline); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+/* The object as text: prose by default, mono only where it IS code (a command, a glob). No fill and no
+   ring — a column of ringed chips down a ledger reads as outlines, not as a list. */
+.tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-2); }
+.tool-summary[data-form="code"] { font: 12px var(--font-mono); }
+.tool-where { color: var(--ink-3); }
+.tool-status { display: grid; place-items: center; width: 16px; height: 16px; color: var(--ink-3); flex: none; }
+.tool-status > span { display: grid; place-items: center; }
+.tool-status::after { grid-area: 1 / 1; }
+.tool-card[data-state="error"] > .tool-row .tool-status { color: var(--rl-danger); }
+.tool-card[data-state="waiting"] > .tool-row .tool-status { color: var(--rl-warning); }
+.tool-card[data-state="running"] > .tool-row .tool-status { color: var(--ink-2); } /* nothing running-related uses accent */
+/* The state in a word beside the glyph, so it never rests on colour or shape alone. Reserved: it
+   keeps its width while the object gives way. */
+.tool-meta { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
+/* A state word is read, not skipped: "Stopped" and a running call's time take the secondary ink, which
+   clears 4.5:1 on both faces where the tertiary measured 3.35:1 on dark. */
+.tool-meta[data-tone="quiet"] { color: var(--ink-2); }
+.tool-meta[data-tone="warning"] { color: var(--rl-warning); }
+.tool-meta[data-tone="danger"] { color: var(--rl-danger); }
+/* Why a call failed, under its row and outside the expander, set from the verb column. */
+.tool-reason { padding: 0 8px 4px calc(var(--tool-pad, 8px) + 24px); font-size: 12px; line-height: 16px; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
+/* Under the verb column (row padding 8 + lead 16 + gap 8), with no rule and no fill of its own: the
+   panels inside are the surfaces. */
+.tool-body { padding: 6px 0 10px calc(var(--tool-pad, 8px) + 24px); display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity var(--dur-press) ease; }
+/* One panel per call: the panel a fenced block is — the signature curve on the card rung, a fill and
+   no ring, a head of what it shows and how to copy it, unruled from the body. */
+.tool-panel { display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-frame); overflow: hidden; padding-bottom: 6px; }
+.tool-panel[data-tone="terminal"] { background: var(--rl-terminal-bg); }
+.tool-panel-head { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 10px 0 14px; min-width: 0; }
+.tool-panel-label { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.tool-panel-label > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tool-panel-acts { flex: none; display: flex; align-items: center; gap: 2px; }
+.tool-panel-cwd { font: 11px var(--font-mono); color: var(--ink-3); }
+.tool-panel-exit { flex: none; font: 11px var(--font-mono); color: var(--ink-3); }
+.tool-panel-exit[data-bad] { color: var(--rl-danger); }
+.tool-panel-path { display: flex; font: 12px var(--font-mono); color: var(--ink-2); }
+.tool-panel-note { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tool-panel-label > .tool-panel-note:not(:first-child) { flex: none; }
+.tool-panel-query { color: var(--ink); }
+.tool-panel-host { flex: none; font-weight: var(--fw-title); color: var(--ink); }
+.tool-panel-prompt { padding: 0 14px 6px; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+.tool-panel-subhead { padding-top: 6px; }
+.tool-panel-copy { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 6px; border-radius: var(--r-chip);
+  font-size: 12px; color: var(--ink-3); }
+.tool-panel-copy:hover { background: var(--rl-hover); color: var(--ink); }
+.tool-panel-copy .swap-on { color: var(--rl-success); }
+/* Inside a panel the drawn pieces give up their own fill: the panel is the surface. */
+.tool-panel .cmd-line { padding: 2px 14px 6px; }
+.tool-panel .term-out { padding: 0 14px 6px; border-radius: 0; background: none; }
+.tool-panel .code-block { border-radius: 0; background: none; }
+.tool-panel .code-gutter { background: none; }
+.tool-panel .matches { padding: 0 6px; }
+.tool-panel .match-file { background: none; }
+.tool-panel .match-file:has(.match-row) .match-path { border-bottom: none; }
+.tool-panel .tool-expand { margin: 2px 0 0 14px; }
+.tool-panel-text { margin: 0; padding: 0 14px 6px; font: 12px/1.6 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 320px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
+.tool-panel-text[data-form="prose"] { font: 13px/1.55 var(--font-ui); }
+/* The wells' shared rule (`.tool-body pre`) outranks a panel's own classes; inside a panel the panel
+   is the surface, and a code body keeps its gutter's line height or the two drift out of register. */
+.tool-panel .tool-panel-text { padding: 0 14px 6px; border-radius: 0; background: none; max-height: 320px; }
+.tool-body .code-body { padding: 8px 10px; border-radius: 0; background: none; max-height: none; font: 12px/1.65 var(--font-mono); }
+.tool-panel-text[data-error] { color: var(--rl-danger); }
+/* An edit's panel is its diff, so the diff takes the panel's grammar here: the card-rung curve and
+   fill with no ring, and a head that is chrome for the panel rather than a section ruled off it.
+   The foot keeps clear of the curve, so a changed last line never squares a painted corner. */
+.tool-body .fd-file { border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-frame); box-shadow: none; padding-bottom: 8px; }
+.tool-body .fd-head { min-height: 32px; padding: 4px 10px 0 14px; border-bottom: none; }
+/* An MCP call's arguments: the key in quiet ink, the value as what it is. */
+.tool-args { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 14px; margin: 0; padding: 0 14px 6px; }
+.tool-arg { display: contents; }
+.tool-arg dt { font-size: 12px; line-height: 18px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-arg dd { margin: 0; min-width: 0; font-size: 12px; line-height: 18px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"] { font-family: var(--font-mono); }
+/* The exact payloads, behind one quiet word under the panel. The word stands on the panel's content
+   column (14px in, as its command, output and "Show all" do), not on the panel's edge, where it read
+   as a second verb under the row's. Its 6px of hover padding is taken out of that 14. */
+.tool-raw { display: flex; flex-direction: column; gap: 8px; }
+.tool-raw-toggle { align-self: flex-start; padding: 2px 6px; margin-left: 8px; border-radius: var(--r-chip); font-size: 12px; color: var(--ink-3); }
+.tool-raw-toggle:hover { background: var(--rl-hover); color: var(--ink); }
 .tool-section { display: flex; flex-direction: column; }
 /* Copy ✓ rides §6's icon swap (the shared rule down in the motion block); the tick's colour is the
    only part of it that belongs to this button. */
@@ -4424,14 +4545,17 @@ button.edit-file:hover { background: var(--rl-hover); }
 .todo-list { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
 .todo-list li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
 .todo-dot { flex: none; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%;
-  box-shadow: inset 0 0 0 1.5px var(--rl-line-strong); color: var(--rl-accent-contrast); transform: translateY(2px); }
+  box-shadow: inset 0 0 0 1.5px var(--mark-strong); color: var(--rl-accent-contrast); transform: translateY(2px); }
 .todo-list li[data-status="in_progress"] { color: var(--rl-text-bright); }
 .todo-list li[data-status="in_progress"] .todo-dot { box-shadow: inset 0 0 0 1.5px var(--rl-accent); background:
   radial-gradient(circle, var(--rl-accent) 0 3.5px, transparent 3.5px); }
 .todo-list li[data-status="completed"] { color: var(--rl-text-faint); }
 /* Struck through, not hidden: the plan's history is the point — what the agent decided to do and in
    what order — and a list that deletes its finished items reads as a list that changed its mind. */
-.todo-list li[data-status="completed"] .todo-text { text-decoration: line-through; text-decoration-color: var(--mark-strong); }
+/* The strike is the state, so it is the text's own ink: at a mark's 8% it vanished on the light face
+   and "done" was said by colour alone. A pending dot is a mark, not an edge (design.md §Surfaces), so
+   softening the edges never takes the "to do" off a list. */
+.todo-list li[data-status="completed"] .todo-text { text-decoration: line-through; text-decoration-color: currentColor; }
 .todo-list li[data-status="completed"] .todo-dot { box-shadow: none; background: var(--rl-success); }
 
 /* ── Search results (Grep / Glob) ─────────────────────────────────────────── */
@@ -4569,7 +4693,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    description line, and they separate themselves the way .permission-options' do — a hover fill on a
    rounded row, with a hairline between them as well saying the same thing twice. */
 .question-card { border-radius: var(--r-panel); padding: 16px; background: var(--surface); box-shadow: var(--shadow-card);
-  display: flex; flex-direction: column; gap: 10px; }
+  display: flex; flex-direction: column; gap: 10px; container: question-card / inline-size; }
 .question-head { display: flex; align-items: flex-start; gap: 10px; }
 .question-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: var(--fw-label); line-height: 1.4; color: var(--ink); text-wrap: balance; }
 .question-pager { display: flex; align-items: center; gap: 2px; flex: none; font-size: 11px; color: var(--rl-text-faint); }
@@ -4601,7 +4725,10 @@ button.edit-file:hover { background: var(--rl-hover); }
 .question-other-submit { flex: none; font-size: 12px; padding: 4px 12px; }
 
 .question-footer { display: flex; align-items: center; gap: 10px; margin: 2px -16px -16px; padding: 8px 16px; border-top: var(--hairline-w) solid var(--line); }
-.question-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
+/* Each hint is one unit — its key and its words — so a narrow card flows them onto a second line
+   whole instead of breaking every hint into a stacked column of keys over words. */
+.question-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; font-size: 11px; color: var(--rl-text-faint); }
+.question-hints > span { white-space: nowrap; }
 .question-hints kbd { margin-right: 3px; padding: 0 4px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 11px; }
 .question-continue { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .question-continue kbd { opacity: .7; }
@@ -4617,6 +4744,16 @@ button.edit-file:hover { background: var(--rl-hover); }
 .question-from-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .question-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
 .question-tag::before { content: "·"; margin-right: 6px; }
+/* A card too narrow for who is asking, the asker's word, the pager and the close on one line gives the
+   line up rather than its words: the asker's word goes under the name, both wrap whole, and the pager
+   and close stay at the top. Ellipsized to fit, the two read "F… · D…" — a line that names nobody. */
+@container question-card (max-width: 440px) {
+  .question-head { align-items: flex-start; }
+  .question-from { flex-wrap: wrap; row-gap: 2px; padding-top: 4px; }
+  .question-from-name { white-space: normal; overflow-wrap: anywhere; flex: 1 1 0; min-width: 0; }
+  .question-tag { flex: 1 0 100%; max-width: none; padding-left: 20px; white-space: normal; overflow-wrap: anywhere; }
+  .question-tag::before { content: none; }
+}
 .question-message, .question-detail { margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-2); text-wrap: pretty; }
 .question-detail { margin-top: -6px; }
 .question-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -4883,10 +5020,38 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   background: transparent; color: var(--rl-text-dim); font-size: 11px; font-weight: var(--fw-label);
   transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .composer-queue-item .queue-send:hover { background: var(--surface); color: var(--rl-text-bright); }
+.composer-queue-item .queue-send-glyph { display: none; }
+@container (max-width: 420px) {
+  .composer-queue-item .queue-send { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; }
+  .composer-queue-item .queue-send-glyph { display: block; }
+  .composer-queue-item .queue-send-label { display: none; }
+}
 .composer-queue-item .queue-drop { flex: none; display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
   color: var(--rl-text-faint); transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .composer-queue-item .queue-drop:hover { background: var(--surface); color: var(--rl-text-bright); }
+/* The edit button, in the remove button's box so the row's controls are one set. */
+.composer-queue-item .queue-icon { flex: none; display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
+  color: var(--rl-text-faint); transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+.composer-queue-item .queue-icon:hover:not(:disabled) { background: var(--surface); color: var(--rl-text-bright); }
+.composer-queue-item :is(.queue-icon, .queue-send):disabled { opacity: .45; }
+.composer-queue-item .queue-send:disabled:hover { background: transparent; color: var(--rl-text-dim); }
+/* A message being edited: the row grows to hold the field, its controls keep to the field's first
+   line — each centred in a box the height of that line, so they sit where they sat at rest. */
+.composer-queue-item[data-editing] { align-items: flex-start; }
+.composer-queue-item[data-editing] > :is(.queue-position, .queue-held, .queue-attach, .queue-send) { display: flex; align-items: center; height: 22px; }
+.composer-queue-item[data-editing] > .queue-drop { margin-top: 2px; }
+/* The field is the row's text grown into an input: the same size and ink, wrapping instead of
+   ellipsizing, and only as tall as what is typed (up to six lines, then it scrolls). */
+.composer-queue-item .queue-edit { flex: 1; min-width: 0; margin: 0; padding: 2px 6px; resize: none;
+  field-sizing: content; min-height: 22px; max-height: calc(6 * 18px + 4px);
+  font: inherit; font-size: 12px; line-height: 18px; color: var(--rl-text-bright);
+  background: var(--surface); border: 0; border-radius: calc(var(--r-chip) - 5px); /* concentric with the row's 5px inset */
+  box-shadow: 0 0 0 var(--hairline-w) var(--rl-line); outline: none; }
+.composer-queue-item .queue-edit:focus-visible { box-shadow: 0 0 0 var(--hairline-w) var(--rl-accent); }
+/* Says why Send now is off — the message is being written, not waiting. */
+.composer-queue-item .queue-held { flex: none; font-size: 11px; color: var(--rl-text-faint); white-space: nowrap; }
 
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
    attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a
@@ -5189,11 +5354,16 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    the context chips and the effort/permission chips on the LEFT; plain-text model chip and the
    circular send on the RIGHT. */
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 12px 8px; }
-/* The left group never wraps (§3): it clips, and Composer.tsx measures scrollWidth > clientWidth to
-   collapse the permission chip into the model menu instead. Children must not shrink, or ellipsizing
-   chips would eat the overflow the measurement is looking for. */
-.composer-opts { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+/* The left group never wraps and never yields: it is the "+" and the permission mode, and the mode is
+   the one chip on the row that says how much the session may do unasked — it used to fold into the
+   model menu when the row ran short, which hid "Full access" in exactly the narrow panes where a
+   reader has the least else to go on. So the row yields in a stated order instead (design.md: a row
+   whose items compete for width): the model chip's level and bolt first (both are in its tooltip),
+   then the mode's long word for its short one, and last the model's name ellipsizes — the harness's
+   mark stays beside it. The mode's glyph and word are never what gives. */
+.composer-opts { display: flex; align-items: center; gap: 4px; flex: none; flex-wrap: nowrap; }
 .composer-opts > * { flex: none; }
+.perm-short { display: none; }
 /* The branch group (§3): still one button, still the way into the diff pane.
    `--branch-reserved` is everything of FIXED width the row has to fit before the branch name gets
    any: the card's margins and padding, the "+" and mode chips, the model chip and the send button,
@@ -5270,7 +5440,14 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 @container (max-width: 360px) {
   .composer-git .git-branch .chip-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
-.composer-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+/* The right group is what gives, and inside it only the model chip: the send button never shrinks. */
+.composer-actions { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
+.composer-actions > .model-chip { flex: 0 1 auto; }
+.composer-actions > :not(.model-chip) { flex: none; }
+/* Measured on the built app (Fable 5.1 at High, Ask each time): the whole row fits down to a 440px
+   pane; without the level it fits to 380 with the mode's long word, and to 328 with its short one. */
+@container (max-width: 440px) { .composer-actions .model-chip :is(.chip-effort, .chip-fast) { display: none; } }
+@container (max-width: 380px) { .composer-opts .perm-long { display: none; } .composer-opts .perm-short { display: inline; } }
 .composer-attach { color: var(--ink-3); }
 .composer-attach:hover { color: var(--ink); background: var(--rl-hover); }
 /* Drop target (§4 focus-ring formula, at full strength so it reads through a dragged file's ghost).
@@ -5351,6 +5528,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
   transition: background-color var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
 .agents-chip > svg { flex: none; color: var(--rl-accent); }
+.agents-chip-needs { display: inline-flex; align-items: center; gap: 6px; }
+.agents-chip-sep { color: var(--rl-text-faint); }
 .agents-chip:hover, .agents-chip[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 .agents-pop { width: 340px; max-width: calc(100vw - 24px); }
 .agents-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 4px;
@@ -5544,6 +5723,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .search-field,
 :root[data-squircle] .palette,
 :root[data-squircle] .md-code,
+:root[data-squircle] .tool-panel,
+:root[data-squircle] .tool-body .fd-file,
 :root[data-squircle] .ui-block,
 :root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
@@ -5832,6 +6013,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    `overflow: hidden` still clips a square, which costs nothing here: the only child is a `<pre>`
    with no background of its own, so there is nothing at the corners for the square clip to reveal. */
 :root[data-squircle] .md-code { --sq-fill: var(--surface); box-shadow: none; }
+/* A tool call's panel is a fenced block's panel on the card rung, painted the same way. */
+:root[data-squircle] .tool-panel { --sq-fill: var(--rl-frame); box-shadow: none;
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
+:root[data-squircle] .tool-panel[data-tone="terminal"] { --sq-fill: var(--rl-terminal-bg); }
+:root[data-squircle] .tool-body .fd-file { --sq-fill: var(--rl-frame); box-shadow: none;
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* A drawn block is the same panel the code it replaced was, painted the same way. */
 :root[data-squircle] .ui-block { --sq-fill: var(--surface); box-shadow: none; }
 /* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */
@@ -6187,7 +6374,7 @@ select { appearance: none; padding-right: 22px;
   .menu-list, .mention-list, .skill-picker-list, .mp-list, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
   /* the transcript and everything it draws inside itself */
-  .transcript, .md pre, .msg-error pre, .tool-well, .tool-body pre, .permission-details pre, .app-view-request-well,
+  .transcript, .md pre, .msg-error pre, .tool-well, .tool-panel-text, .tool-body pre, .permission-details pre, .app-view-request-well,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display, .ui-block-scroll, .ui-diagram,
   /* the diff pane */
   .diff-list, .diff-hunks, .diff-review-body, .commit-message,
@@ -6196,13 +6383,13 @@ select { appearance: none; padding-right: 22px;
   .lecture-list, .install-cmd code, .code-preview, .cli-job-output,
   /* documents — the home's lists, and the new code file's languages, included */
   .documents-picker-list, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
-  .docs-home-scroll, .code-file-languages,
+  .docs-home-scroll, .code-file-languages, .pdf-view, .pdf-strip,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
   .composer-todos .todo-list, .agents-pop .delegation-list,
   /* the sub-agent panel: the column itself, and the two prose panels it caps */
   .subagent-body, .subagent-prose-scroll,
-  /* a session's Agents tab: its list of sub-agents, and the composer's model chooser */
-  .subagents-scroll, .subagents-chooser-list,
+  /* a session's Agents tab: its list of sub-agents, a card's brief, and the composer's model chooser */
+  .subagents-scroll, .subagent-goal, .subagents-chooser-list,
   /* the Google Fonts browser's result list */
   .font-results,
   /* a blank browser tab's tools, in a pane short enough to need it, and the page a failed load leaves */
@@ -6218,7 +6405,9 @@ select { appearance: none; padding-right: 22px;
      comments waiting in Submit review */
   .cr-col-body, .cr-summary, .cr-diffs, .cr-tree-rows, .cr-pending,
   /* the media viewer's zoomed picture, whose bars are where it is in the picture */
-  .media-viewer-canvas[data-pans]
+  .media-viewer-canvas[data-pans],
+  /* a team's Review pane: its list of batches, and the one being read */
+  .rv-scroll, .rv-detail-scroll
 ) { scrollbar-width: thin; }
 /* The sidebar's list is the one scroller that cannot take the standard properties, and it is worth
    the fork because two separate things go wrong without it.
@@ -6937,6 +7126,20 @@ select { appearance: none; padding-right: 22px;
 .memory-readers { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 16px; }
 .memory-reader { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--rl-text-bright); }
 .memory-path-row .env-path { word-break: normal; overflow-wrap: anywhere; }
+/* The memory repo's rows. Its state is words, toned only where a save would be refused. */
+.memory-repo-actions { flex: none; display: flex; align-items: center; gap: 8px; }
+.memory-repo-status[data-tone="warning"] { color: var(--rl-warning); }
+.memory-repo-status[data-tone="danger"] { color: var(--rl-danger); }
+.memory-repo-head { flex: none; color: var(--rl-text-dim); }
+.memory-repo-log { margin: 0; list-style: none; gap: 6px; }
+.memory-repo-log li { display: flex; align-items: baseline; gap: 12px; font-size: 13px; line-height: 18px; }
+.memory-repo-log-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+.memory-repo-log-when { flex: none; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* Sync: the remote's URL typed in place, the privacy question asked in place, and the one command
+   that resolves a diverged repo — copyable, never run by Realm. */
+.memory-repo .env-path { word-break: normal; overflow-wrap: anywhere; }
+.memory-sync-confirm { flex-basis: 100%; display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; color: var(--rl-text-bright); }
+.memory-resolve-row .install-cmd { min-width: 0; max-width: 100%; margin-top: 8px; }
 /* A heading inside the folded diagnostic is a sub-heading, not a peer of the rows around it. */
 .memory-sub { font-size: 13px; color: var(--rl-text-dim); }
 .settings-note code { font: 12px var(--font-mono); }
@@ -7342,6 +7545,11 @@ select { appearance: none; padding-right: 22px;
 /* The Tasks lens is the one tab that is a LIST BESIDE A PANEL rather than a single column of form,
    so it opts out of the 720px measure the other tabs are set in. Nothing else does. */
 .page-content[data-wide] { max-width: none; }
+/* A page that ends in a decision keeps it in a bar under the column, outside the scroller, so the
+   decision is on screen from the first frame and never in the dissolve (design.md). */
+.page-scroll[data-foot] { flex-direction: column; }
+.page-foot { flex: none; width: 100%; max-width: 720px; padding: 12px 0 16px; }
+.page-foot.tp-page { max-width: 860px; }
 /* ── Narrow pane (Plan 12 W3, responsive pass) ────────────────────────────
    A 180px rail beside a 60px reading column is two unusable columns, so under ~640px of PANE the
    page stands its parts up: the rail becomes a scrolling tab strip above the content, the head lets
@@ -7409,6 +7617,61 @@ select { appearance: none; padding-right: 22px;
 .ship-sha { font-size: 11px; }
 .ship-row a { display: inline-flex; align-items: center; gap: 3px; color: var(--rl-accent); text-decoration: none; }
 .ship-row a:hover { text-decoration: underline; }
+/* ——— A space's Sessions page. One-line rows on the canvas, 40px tall: the title is the row's
+   unbounded item, the state words beside it give way first, and the agents' count, the time and the
+   mark keep fixed places at the end so they line up down the list. The whole row opens its session
+   (the open button's ::before covers it); the controls on it stand above that layer. ——— */
+/* The wide measure, cut to what a row can use: past ~1100px the time is too far from the title for
+   the eye to join them. Measured with and without the rail in the page, so it stays centred. */
+.page:has(.page-content[data-wide] .space-sessions) { --page-measure: 1148px; }
+.page:has(.page-rail):has(.page-content[data-wide] .space-sessions) { --page-measure: 1348px; }
+.space-sessions-toolbar .space-sessions-new { margin-left: auto; }
+.space-sessions-count { margin-left: 4px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.space-sessions-head { margin: 20px 0 6px; padding-left: 32px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.space-sessions-group:first-of-type .space-sessions-head { margin-top: 6px; }
+.space-sessions-list, .space-sessions-children { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.space-sessions-children { margin-top: 2px; }
+.space-sessions-row { position: relative; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px; border-radius: var(--r-row); }
+.space-sessions-row[data-child] { height: 36px; }
+.space-sessions-row:hover, .space-sessions-row[data-hit] { background: var(--rl-hover); }
+.space-sessions-row:has(.space-sessions-open:focus-visible) { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+.space-sessions-gutter { flex: none; width: 16px; display: grid; place-items: center; color: var(--rl-text-faint); }
+.space-sessions-caret { position: relative; z-index: 1; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: none; background: none; color: inherit; }
+.space-sessions-open { flex: 1 1 auto; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0;
+  border: none; background: none; color: inherit; font: inherit; text-align: left; outline: none; }
+.space-sessions-open::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.space-sessions-open > svg { flex: none; }
+.space-sessions-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.space-sessions-row[data-unread] .space-sessions-title { font-weight: var(--fw-title); }
+.space-sessions-row[data-empty] .space-sessions-title { color: var(--rl-text-dim); }
+.space-sessions-snippet { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.space-sessions-snippet[data-tone="warning"] { color: var(--rl-warning); }
+.space-sessions-snippet[data-tone="danger"] { color: var(--rl-danger); }
+.space-sessions-agents { position: relative; z-index: 1; flex: none; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px;
+  border: none; border-radius: var(--r-ctl); background: none; color: var(--rl-text-dim); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; }
+.space-sessions-agents:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.space-sessions-time { flex: none; width: 64px; text-align: right; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.space-sessions-dot { flex: none; width: 12px; display: grid; place-items: center; }
+/* The time is in the secondary ink: the tertiary measured 3.35:1 on the dark canvas, under the floor
+   every ink tier has to clear (design.md, "Quiet text is text"). */
+/* A row's own controls, under the pointer or the keyboard (or while a delete waits on its second
+   ask): they take the mark's place at the far end, and the time stays. The state words give way. */
+.space-sessions-actions { position: relative; z-index: 1; flex: none; display: none; align-items: center; gap: 2px; margin-right: -4px; }
+.space-sessions-actions .btn { --btn-h: 28px; padding: 0 10px; }
+.space-sessions-row:is(:hover, :has(:focus-visible), [data-armed]) .space-sessions-actions { display: flex; }
+.space-sessions-row:is(:hover, :has(:focus-visible), [data-armed]):has(.space-sessions-actions) .space-sessions-dot { display: none; }
+.space-sessions-row .rename { flex: 1; min-width: 0; }
+.space-sessions-none { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.space-sessions-start { margin-top: 12px; }
+/* A narrow pane: the state words give way first, then the count's noun — the number stays. The
+   title keeps the slack; the time and the mark keep their places. */
+@container (max-width: 640px) {
+  .space-sessions-snippet, .space-sessions-noun { display: none; }
+  /* The search gives up width before New session gives up its line. */
+  .space-sessions-search { flex: 1 1 120px; width: auto; min-width: 0; }
+}
 /* ——— The Tasks lens: durable runs beside a detail panel. The list keeps `.page-list` metrics; the
    panel is a fixed 340px column so the list's own columns do not reflow as runs are selected. ——— */
 /* Bounded even though the tab opts out of `.page-content`'s 720px measure: the opt-out exists to fit
@@ -8237,6 +8500,29 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .mac-group-hint { margin-top: 2px; }
 .mac-row-actions { flex: none; display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 1px; }
 .mac-row-actions .btn-quiet { white-space: nowrap; }
+/* Settings ▸ Lab. A check's command and a device's controls sit under the row's words, in the row:
+   breaking the card for them would read as a second list. */
+.lab-check .install-cmd, .lab-reach .install-cmd { flex-basis: 100%; margin-top: 4px; }
+.lab-inline-switch { flex-basis: 100%; display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.lab-device-glyph { flex: none; color: var(--rl-text-dim); }
+/* A second list under the registry: its head stands off the card above, as a section head does. */
+.scope-group-label.lab-seen-head { margin-top: 20px; }
+.lab-udid { font: 12px var(--font-mono); color: var(--rl-text-dim); user-select: text; }
+.lab-device-controls { display: flex; align-items: center; gap: 8px; }
+.lab-device-controls select { min-width: 0; max-width: 240px; }
+.lab-accounts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* An account is a named thing on the phone, removed as one: a chip, in the tint that holds on a card. */
+.lab-account { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 2px 0 8px; border-radius: var(--r-chip);
+  background: var(--accent-tint); color: var(--accent-ink); font-size: 13px; line-height: 18px; }
+.lab-account-handle { font: 12px var(--font-mono); }
+.lab-udid, .lab-account-handle { letter-spacing: normal; }
+.lab-account-remove { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent; color: inherit; }
+.lab-account-remove:hover { background: color-mix(in srgb, var(--rl-accent) 14%, transparent); }
+.lab-account-add { display: inline-flex; align-items: center; gap: 6px; }
+.lab-account-add .settings-text { width: 120px; height: 28px; padding: 0 9px; font: inherit; font-size: 13px;
+  border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); }
+.lab-account-add .settings-text::placeholder { color: var(--rl-text-faint); }
+.lab-account-add .settings-text:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 /* The command Realm is about to run, shown before it runs. */
 .mac-grant-cmd code { font: 12px var(--font-mono); color: var(--rl-text-bright); }
 /* Settings ▸ Computer use: one card per space — its mark, its name and its switch — and under it the
@@ -8410,6 +8696,19 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .documents-bar > svg { flex: none; }
 .documents-bar span { flex: 1; min-width: 0; }
 .documents-bar .btn-quiet { flex: none; color: inherit; }
+/* A file from outside the space: a quiet line, not a warning — nothing is wrong, the pane only reads
+   it. Where it lives yields first (it is the unbounded part); what it is and the way out keep theirs. */
+.documents-outside {
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding: 5px 12px; font-size: 12px;
+  border-bottom: var(--hairline-w) solid var(--rl-line); color: var(--rl-text-dim);
+}
+.documents-outside > svg { flex: none; color: var(--rl-text-faint); }
+.documents-outside-says { flex: none; }
+.documents-outside-where { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-faint); }
+.documents-outside .btn-quiet { flex: none; }
+/* Outside the space the name is not the rename affordance, so it does not answer the pointer. */
+span.documents-name:hover { background: none; }
+.documents-unshown { flex: 1 1 auto; }
 .documents-error { padding: 8px 12px; font-size: 12px; color: var(--rl-danger); background: var(--red-tint); }
 
 .documents-editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
@@ -8627,7 +8926,98 @@ button.cr-finding-where:hover { text-decoration: underline; }
 
 /* ---- Plan 22: previews, lecture sheets ---------------------------------------------------- */
 .documents-frame { width: 100%; height: 100%; border: 0; background: var(--rl-panel); display: block; }
-.documents-frame[data-kind="pdf"] { background: #525659; }
+
+/* ── PDFs (PdfView.tsx) ──────────────────────────────────────────────────
+   Pages are white paper on the PANE's own ground — what every other document stands on — not on the
+   slate Chromium's viewer brought with it. The column is spaced by the page grid (24 above the first
+   page and below the last, 16 between), never by rules; the numbers live in pdf-layout.ts, which
+   places every page. The scroller does NOT dissolve: the dissolve is a mask, and over a white sheet it
+   fades the paper into the window's material, which drew a grey band across the top and foot of every
+   page in view. A page passing a fixed edge is simply cut there, as it is in Preview. */
+.pdf-body { position: relative; display: flex; min-height: 0; min-width: 0; background: var(--rl-panel); }
+.pdf-view { flex: 1 1 auto; min-width: 0; position: relative; overflow: auto; background: var(--rl-panel); outline: none; }
+.pdf-view:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
+.pdf-pages { position: relative; }
+/* A page not yet drawn is a sheet of the frame's tone at the page's size — no spinner, no shimmer. Once
+   drawn it is paper: the object shadow a file wears wherever it is shown, and the picture outline
+   (white at low alpha on dark, black on light) drawn over its edge, so a white page on the light
+   ground still has one. Pages are never inverted for dark mode: the file is the file. */
+.pdf-page { position: absolute; overflow: hidden; border-radius: var(--r-sm); background: var(--rl-frame);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+.pdf-page[data-painted] { background: #fff; box-shadow: var(--rl-object-shadow); }
+:root[data-mode="light"] .pdf-page { outline-color: rgba(0, 0, 0, 0.14); }
+/* On the light face the pane's canvas is near-white too, and white paper on it had no edge at all
+   (255 on 249, the outline the only line). Light PDFs stand on the frame — the ground a step under
+   the canvas that wells and the sidebar use — so the sheet reads by its fill before its outline. The
+   placeholder sheet takes the canvas in exchange, so it still reads against that ground. */
+:root[data-mode="light"] :is(.pdf-body, .pdf-view, .pdf-strip:not([data-floating])) { background: var(--rl-frame); }
+:root[data-mode="light"] .pdf-page:not([data-painted]), :root[data-mode="light"] .pdf-thumb-page:not([data-painted]) { background: var(--rl-panel); }
+/* The first paint fades in where it lands; a redraw at a new zoom swaps in with no fade at all. */
+.pdf-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  transition: opacity var(--dur-fast) ease; }
+.pdf-page:not([data-painted]) .pdf-canvas { opacity: 0; }
+/* pdf.js's text layer: transparent text laid exactly over the drawn glyphs, so a drag selects and
+   copies the page's own words. These are pdf.js's own rules (web/pdf_viewer.css), less the parts of
+   its viewer Realm does not use; the find marks are kept out of the positioning they would inherit. */
+.textLayer { position: absolute; inset: 0; overflow: clip; text-align: initial; line-height: 1; opacity: 1;
+  text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText; z-index: 1;
+  --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size)); }
+.textLayer :is(span, br):not(.pdf-hit) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+.textLayer > :not(.markedContent, .pdf-hit), .textLayer .markedContent span:not(.markedContent, .pdf-hit) {
+  z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.textLayer .markedContent { display: contents; }
+.textLayer span[role="img"] { user-select: none; }
+.textLayer br::selection { background: transparent; }
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; user-select: none; }
+.textLayer.selecting .endOfContent { top: 0; }
+/* Find's hits, laid on the paper. Both faces show a white page, so both take the same marks: the
+   accent at two strengths, the current hit the stronger. */
+.pdf-hit { border-radius: var(--r-sm); background: color-mix(in srgb, var(--rl-accent) 28%, transparent); }
+.pdf-hit[data-current] { background: color-mix(in srgb, var(--rl-accent) 55%, transparent); }
+.pdf-links { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.pdf-link { position: absolute; pointer-events: auto; border-radius: var(--r-sm); }
+.pdf-link:hover { background: color-mix(in srgb, var(--rl-accent) 12%, transparent); }
+/* The page strip: a column on the pane's own ground beside the pages, told apart by being its own
+   scroller rather than by a rule. Narrow, it is a sheet over the pages and takes a sheet's lift. */
+.pdf-strip { flex: none; width: 132px; overflow: auto; display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 24px 0; background: var(--rl-panel); }
+.pdf-strip[data-floating] { position: absolute; z-index: 3; inset: 0 auto 0 0; background: var(--surface); box-shadow: var(--shadow-overlay); }
+.pdf-thumb { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: none; background: none; }
+.pdf-thumb-page { position: relative; display: block; overflow: hidden; border-radius: var(--r-sm); background: var(--rl-frame);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+.pdf-thumb-page[data-painted] { background: #fff; box-shadow: var(--rl-object-shadow); }
+:root[data-mode="light"] .pdf-thumb-page { outline-color: rgba(0, 0, 0, 0.1); }
+/* The page being read is the selection, and selection is the accent: a ring outside the sheet,
+   changing at once as the reader moves. */
+.pdf-thumb[aria-current="page"] .pdf-thumb-page { box-shadow: 0 0 0 2px var(--rl-accent); }
+.pdf-thumb-number { font-size: 11px; line-height: 14px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
+.pdf-thumb[aria-current="page"] .pdf-thumb-number { color: var(--rl-text-bright); }
+.pdf-thumb:focus-visible { outline: none; }
+.pdf-thumb:focus-visible .pdf-thumb-page { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.pdf-message { display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center;
+  font-size: 13px; color: var(--rl-text-dim); background: var(--rl-panel); }
+.pdf-message p { margin: 0; max-width: 52ch; }
+
+/* The viewer's controls, in the document's own head row where other kinds keep Rich | Source. */
+.documents-head-tools { flex: none; display: flex; align-items: center; margin-left: auto; min-width: 0; }
+.documents-head:has(.pdf-tools) { padding-block: 4px; }
+.pdf-tools { display: flex; align-items: center; gap: 8px; }
+.pdf-tools-page, .pdf-tools-zoom, .pdf-find { display: flex; align-items: center; gap: 2px; }
+.pdf-tools-of { padding: 0 4px 0 2px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); white-space: nowrap; }
+.pdf-page-field, .pdf-find-field {
+  height: 24px; padding: 0 6px; border: none; border-radius: var(--r-chip); background: var(--field);
+  box-shadow: var(--shadow-hairline); color: var(--rl-text-bright); font: inherit; font-size: 12px; outline: none; }
+.pdf-page-field { width: 5ch; text-align: center; font-variant-numeric: tabular-nums; }
+.pdf-page-field:focus, .pdf-find-field:focus { box-shadow: 0 0 0 1px var(--rl-accent); }
+.pdf-find-glyph { flex: none; margin-right: 4px; color: var(--rl-text-faint); }
+.pdf-find-field { width: 160px; }
+.pdf-find-count { padding: 0 6px; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--rl-text-dim); white-space: nowrap; }
+.pdf-tools-fit { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--r-ctl);
+  font-size: 12px; color: var(--rl-text-dim); white-space: nowrap;
+  transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.pdf-tools-fit:hover { background: var(--rl-hover); color: var(--rl-text-bright); transition: none; }
 /* ── Quick Look renders (QuickLookView.tsx) ──────────────────────────────
    A picture of a document, on the same slate ground Chromium's PDF viewer uses — a rendered page is
    white, and floating a white sheet on the pane's own dark ground reads as a broken layout rather
@@ -9598,3 +9988,433 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
    loads on its own as the reader scrolls up toward it, so it is the keyboard's way in and a marker of
    where the drawn part begins, not a button anyone has to find. */
 .transcript-earlier { display: block; margin: 4px auto 20px; }
+
+/* Settings ▸ Sign-ins ▸ Unlock. The one rung that removes a gate keeps its tone on its ink, never as a
+   resting fill (design.md, Controls): a wash under a warning is a second warning about one setting. */
+.unlock-policy .settings-tab[data-tone="warning"] { color: var(--rl-warning); }
+.unlock-unattended-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.unlock-confirm p { margin: 0; line-height: 1.55; }
+.unlock-confirm-list { margin: 0; padding-left: 18px; list-style: disc; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; color: var(--rl-text-dim); }
+
+/* ── Teams (Phase 1): the sidebar's Review row and Team fold, the Review pane, the team's pages ──
+   Drawn from the iterated mocks (.verify/backlog-oct8/teams-mocks/teams.css), only from Realm's own
+   tokens: radii on the ladder, type on the ladder, state in green, orange and red alone. */
+
+/* A role sits one step further in than a session, under the Team row's title, its Realmite in the
+   gutter where a scheduled session wears its clock. The creature is drawn whole, never tinted. */
+.sb-team-roles .sb-row > .item-row { padding-left: 46px; }
+.sb-realmite { color: inherit; }
+.sb-realmite > svg { display: block; }
+
+/* shared */
+.t-dim { color: var(--rl-text-dim); }
+.t-faint { color: var(--rl-text-faint); }
+.t-num { font-variant-numeric: tabular-nums; }
+.t-mono { font-family: var(--font-mono); font-size: 12px; }
+.t-mono, .tp-file code, .tp-record-source { letter-spacing: normal; }
+.t-sep::before { content: "·"; margin: 0 6px; color: var(--rl-text-faint); }
+.t-glyph { flex: none; display: inline-grid; place-items: center; color: var(--rl-text-dim); }
+.t-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+.t-dot[data-s="working"] { background: var(--rl-success); }
+.t-dot[data-s="waiting"] { background: var(--rl-warning); }
+.t-dot[data-s="idle"] { background: var(--mark); }
+.t-dot[data-s="failed"] { background: var(--rl-danger); }
+
+/* The Review pane: the batches beside the one being read (Mail). */
+.rv { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); height: 100%; min-height: 0; }
+.rv-list { display: flex; flex-direction: column; min-height: 0; border-right: var(--hairline-w) solid var(--rl-divider); }
+.rv-list-head { display: flex; align-items: baseline; gap: 8px; padding: 18px 16px 10px; }
+.rv-list-head h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); letter-spacing: -0.01em; }
+.rv-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 10px 16px; display: flex; flex-direction: column; gap: 6px; }
+.rv-empty { margin: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-group { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); padding: 12px 8px 4px; }
+.rv-card { width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 10px;
+  border-radius: var(--r-row); text-align: left; background: transparent; }
+.rv-card:hover { background: var(--rl-hover); }
+.rv-card[data-selected] { background: var(--rl-active); }
+.rv-card:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
+.rv-thumb { grid-row: span 3; width: 44px; height: 78px; border-radius: var(--r-chip); object-fit: cover; background: var(--inset);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); }
+.rv-thumb-glyph { grid-row: span 3; width: 44px; height: 44px; border-radius: var(--r-ctl); display: grid; place-items: center;
+  background: var(--rl-card); color: var(--rl-text-dim); }
+.rv-title { font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-meta { grid-column: 2 / 4; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-age { font-size: 12px; line-height: 20px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.rv-state { grid-column: 2 / 4; display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+
+.rv-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.rv-detail-scroll { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px 24px; }
+.rv-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+/* A long batch's stepper (sixteen DMs) goes under the title rather than squeezing it into a column. */
+.rv-head-text { flex: 1 1 320px; min-width: 0; }
+.rv-head h1 { margin: 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); letter-spacing: -0.012em; color: var(--rl-text-bright); text-wrap: balance; }
+.rv-byline { display: flex; flex-wrap: wrap; align-items: center; margin-top: 2px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-byline b { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.rv-stepper { flex: none; }
+.rv-version { margin: 10px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-strip { display: grid; gap: 10px; margin: 20px 0 6px; }
+.rv-slide { position: relative; aspect-ratio: 9 / 16; border-radius: var(--r-row); overflow: hidden; background: var(--inset); padding: 0;
+  box-shadow: var(--rl-object-shadow); }
+.rv-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rv-slide::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }
+.rv-slide:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.rv-slide-n { position: absolute; left: 8px; bottom: 8px; font-size: 11px; line-height: 14px; padding: 2px 6px; border-radius: var(--r-chip);
+  background: color-mix(in srgb, var(--page) 72%, transparent); color: var(--rl-text-bright); font-variant-numeric: tabular-nums; }
+.rv-strip-note { margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.rv-files { margin-top: 16px; }
+
+.rv-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 22px; }
+.rv-section h3 { margin: 0 0 8px; font-size: 15px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.rv-made { margin-top: 22px; }
+.rv-caption { padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
+  font-size: 14px; line-height: 20px; color: var(--rl-text-bright); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-checks { margin: 0; padding: 0; list-style: none; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-checks li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); position: relative; }
+.rv-checks li + li::before { content: ""; position: absolute; top: 0; left: 14px; right: 14px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-checks .ok { color: var(--rl-success); display: grid; }
+.rv-checks .warn { color: var(--rl-warning); display: grid; }
+.rv-checks .quiet { color: var(--rl-text-faint); display: grid; }
+.rv-checks small { display: block; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+
+/* The decision stays put while the deliverable scrolls: outside the scroller, so never in its dissolve. */
+.rv-decide-wrap { flex: none; }
+.rv-decide { display: flex; align-items: center; gap: 10px; padding: 12px 28px 14px; }
+.rv-decide-note { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-ask { display: flex; align-items: center; gap: 8px; padding: 12px 28px 0; }
+.rv-ask-field { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none; }
+.rv-ask-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+
+/* The team's kill switch, at the head of its Review, and the line that says it is on. */
+.rv-hold { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; }
+.rv-held { display: flex; align-items: center; gap: 8px; margin: 0 10px 8px; padding: 8px 10px 8px 12px; border-radius: var(--r-row);
+  background: color-mix(in srgb, var(--rl-warning) 12%, transparent); color: var(--rl-text-bright); font-size: 13px; line-height: 18px; }
+.rv-held > svg { flex: none; color: var(--rl-warning); }
+.rv-held > span { flex: 1; min-width: 0; }
+
+/* Generic deliverables (panes/team/renderers): each format drawn in one frame under the head, so a
+   change of format moves nothing else on the pane. A frame is the caption's card — a step above the
+   ground under its rim — and text that IS the deliverable reads at the body size, at a reading measure. */
+.rv-deliverable { margin-top: 20px; }
+.rv-deliverable > * + * { margin-top: 12px; }
+.rv-meta-rows { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0 0 12px; }
+.rv-meta-rows > div { display: flex; gap: 6px; min-width: 0; font-size: 13px; line-height: 18px; }
+.rv-meta-rows dt { color: var(--rl-text-dim); }
+.rv-meta-rows dd { margin: 0; min-width: 0; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.rv-frame { margin: 0; padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
+  font-size: 14px; line-height: 20px; color: var(--rl-text-bright); min-width: 0; }
+.rv-text, .rv-mail-body, .rv-message-text { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 72ch; }
+.rv-doc { padding: 18px 22px; }
+.rv-doc .rv-md { max-width: 72ch; }
+.rv-mail { padding: 0; }
+.rv-mail-head { margin: 0; padding: 4px 16px; }
+.rv-mail-head > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 7px 0; position: relative; }
+.rv-mail-head > div + div::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-mail-head dt { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-mail-head dd { margin: 0; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.rv-mail-subject dd { font-weight: var(--fw-medium); }
+.rv-mail-body { padding: 14px 16px 16px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-message { display: flex; flex-direction: column; gap: 8px; }
+.rv-message-who { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+/* The picture or the PDF page as the object it is: a frame a person picks up, at the width it reads at. */
+.rv-picture { display: block; padding: 0; max-width: min(100%, 560px); border-radius: var(--r-row); overflow: hidden; background: var(--inset);
+  box-shadow: var(--rl-object-shadow); position: relative; }
+.rv-picture img { display: block; width: 100%; height: auto; }
+.rv-picture::after, .rv-pdf-page::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }
+.rv-picture:focus-visible, .rv-pdf-page:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.rv-pdf { margin: 0; display: flex; flex-direction: column; gap: 10px; max-width: min(100%, 560px); }
+/* The page is the preview's own pixels — white paper on both faces, because the file is the file — and
+   the ground under it is the pane's until it arrives. */
+.rv-pdf-page { position: relative; display: block; padding: 0; width: 100%; border-radius: var(--r-chip); overflow: hidden;
+  background: var(--rl-frame); box-shadow: var(--rl-object-shadow); }
+.rv-pdf-page img { display: block; width: 100%; height: auto; }
+.rv-pdf-blank { display: grid; place-items: center; align-content: center; gap: 8px; aspect-ratio: 8.5 / 11; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-pdf-foot { display: flex; align-items: center; gap: 10px; }
+.rv-pdf-name { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.rv-pdf-name small { font-size: 12px; color: var(--rl-text-dim); }
+.rv-links { list-style: none; padding: 6px 16px; }
+.rv-links li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 8px 0; position: relative; }
+.rv-links li + li::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-links .msg-chip { gap: 4px; font-size: 13px; }
+.rv-link-where { min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.rv-table { padding: 0; }
+.rv-table .md-scroll { max-height: 480px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-table .rv-strip-note { margin-top: 6px; }
+.rv-diff { min-width: 0; }
+/* Edit, then approve: the control at the text's corner, and the field that takes its place. */
+.rv-editable { position: relative; }
+.rv-edit { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; }
+.rv-editing { display: flex; flex-direction: column; gap: 10px; }
+.rv-edit-field { width: 100%; min-height: 120px; resize: vertical; padding: 10px 12px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; line-height: 20px; outline: none; }
+.rv-edit-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.rv-edit-foot { display: flex; align-items: center; gap: 8px; }
+.rv-edit-note { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+
+/* The post sheet (mock 04): the consequence in a sentence, the facts in a card of rows, and a button
+   that says the action and its time. */
+.sheet:has(.ps) .sheet-head h3 { font-size: 18px; line-height: 24px; }
+.ps-lede { margin: 0 0 14px; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
+.ps-rows { margin: 0; padding: 0 14px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.ps-rows > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 11px 0; position: relative; }
+.ps-rows > div + div::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.ps-rows dt { font-size: 14px; line-height: 20px; color: var(--rl-text-dim); }
+.ps-rows dd { margin: 0; min-width: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.ps-rows small { font-size: 14px; color: var(--rl-text-dim); }
+.ps-clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-check { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.ps-check input { margin: 0; translate: 0 2px; }
+.ps-why { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.ps-foot { display: flex; align-items: center; gap: 8px; width: 100%; }
+.ps-foot-note { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+
+/* The team's pages, in the space page's column. */
+.page-content.tp-page { max-width: 860px; }
+.tp-lede { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-dim); max-width: 64ch; }
+.tp-empty { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tp-make-note { margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.tp-make { align-items: center; }
+.tp-make .tp-make-note { margin-right: auto; }
+.tp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 12px; }
+.tp-card { padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; }
+button.tp-card:hover { border-color: var(--rl-line-strong); }
+button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.tp-card-note { justify-content: center; align-items: flex-start; }
+/* Its words stand on the note's left edge, the pill's padding hung outside it: `.page .btn-quiet`
+   outranked a bare padding-left: 0 and set "New role…" 10px in from the sentence above. */
+.tp-card-note .tp-card-new { margin-left: -10px; }
+.tp-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tp-card-name { font-size: 15px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-card-line { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tp-card-foot { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.tp-mark { width: 32px; height: 32px; border-radius: var(--r-ctl); display: grid; place-items: center; flex: none; color: var(--rl-text-bright); }
+/* A role page's hero: the creature large beside its name, as the maker shows it. */
+.tp-hero { flex: none; display: grid; place-items: center; width: 168px; height: 168px; margin: -8px 4px -8px -8px; align-self: center; }
+.tp-role-head { padding-bottom: 26px; }
+.tp-pick[data-on] { border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-card-rim)); }
+.tp-pick-box { margin-left: auto; }
+.tp-meter { position: relative; flex: 1; height: 4px; border-radius: var(--r-sm); background: var(--mark); overflow: hidden; max-width: 120px; }
+.tp-meter > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-sm); background: var(--rl-text-dim); transition: width var(--dur-pop) var(--ease-out-strong); }
+.tp-meter[data-high] > i { background: var(--rl-warning); }
+.tp-meter-wide { max-width: 160px; flex: none; width: 160px; }
+.tp-state { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The role's name is the card's unbounded data and keeps the width; the state beside it is the part
+   that yields first, to an ellipsis — "Creator Man…" beside a whole "Next run today 9:00 AM" had the
+   order backwards (design.md §Composition, yielding order). */
+.tp-card-head .tp-state { flex: 0 1000 auto; min-width: 0; }
+.tp-card-head .tp-state .t-dot { flex: none; }
+.tp-state-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.tp-wait { display: flex; flex-direction: column; gap: 6px; }
+.tp-wait-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px;
+  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-wait-row img { width: 36px; height: 64px; border-radius: var(--r-chip); object-fit: cover; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); }
+.tp-wait-row .tp-mark { width: 36px; height: 36px; background: var(--rl-hover); color: var(--rl-text-dim); }
+.tp-wait-text { min-width: 0; }
+
+.tp-feed { margin: 0; padding: 0; list-style: none; }
+.tp-feed li { display: grid; grid-template-columns: 64px 18px minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 6px 0;
+  font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.tp-feed time { font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.tp-feed .t-glyph { align-self: center; }
+.tp-feed small { color: var(--rl-text-dim); font-size: 13px; }
+
+.tp-props { display: grid; grid-template-columns: 150px minmax(0, 1fr); border-radius: var(--r-panel); background: var(--rl-card);
+  border: var(--hairline-w) solid var(--rl-card-rim); overflow: hidden; }
+.tp-props > div { padding: 10px 16px; font-size: 14px; line-height: 20px; position: relative; min-width: 0; overflow-wrap: anywhere; }
+.tp-props > div:nth-child(odd) { color: var(--rl-text-dim); }
+.tp-props > div:nth-child(even) { color: var(--rl-text-bright); }
+.tp-props > div:nth-child(n+3)::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-props > div:nth-child(odd):nth-child(n+3)::before { left: 16px; }
+.tp-props > div:nth-child(even):nth-child(n+3)::before { right: 16px; }
+.tp-props > .tp-prop-full { grid-column: 1 / -1; color: var(--rl-text-bright); }
+/* The path is mono; the words after it are prose and read in the interface's face (design.md §Typography). */
+.tp-file { margin: -4px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); overflow-wrap: anywhere; }
+.tp-file code { font-family: var(--font-mono); font-size: 12px; background: none; padding: 0; color: inherit; }
+
+.tp-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; }
+.tp-table th { text-align: left; font-weight: var(--fw-medium); color: var(--rl-text-dim); font-size: 12px; padding: 0 12px 6px 0; }
+.tp-table td { padding: 9px 12px 9px 0; color: var(--rl-text-bright); border-top: var(--hairline-w) solid var(--rl-card-rim); vertical-align: middle; white-space: nowrap; }
+.tp-table td.t-dim { color: var(--rl-text-dim); }
+.tp-table td.num, .tp-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tp-table td.tp-what { white-space: normal; width: 40%; }
+.tp-run-link { padding: 0; background: none; color: inherit; text-align: left; font: inherit; }
+.tp-run-link:hover { color: var(--rl-text-bright); text-decoration: underline; }
+
+.tp-chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--r-chip); font-size: 12px; line-height: 16px;
+  background: var(--rl-hover); color: var(--rl-text-bright); white-space: nowrap; }
+.tp-chip[data-tone="ok"] { background: var(--green-tint); color: var(--green); }
+.tp-chip[data-tone="warn"] { background: var(--orange-tint); color: var(--orange); }
+.tp-chip[data-tone="bad"] { background: color-mix(in srgb, var(--rl-danger) 14%, transparent); color: var(--rl-danger); }
+
+.tp-brief-wrap { position: relative; }
+.tp-brief { display: block; width: 100%; min-height: 96px; padding: 14px 16px 26px; border-radius: var(--r-panel); background: var(--rl-card);
+  border: var(--hairline-w) solid var(--rl-card-rim); font: inherit; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); resize: none; outline: none; overflow: hidden; }
+.tp-brief:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.tp-brief-state { position: absolute; right: 14px; bottom: 8px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.tp-role-head { align-items: center; }
+.tp-message { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-message-field { width: 100%; padding: 4px 4px; border: none; background: transparent; font: inherit; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
+.tp-message-foot { display: flex; align-items: center; gap: 8px; }
+.tp-message-foot .tp-make-note { margin-right: auto; }
+.tp-inline { flex-direction: row; align-items: center; }
+.tp-inline-field { flex: 1; min-width: 0; height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); font: inherit; outline: none; }
+.tp-row-button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 0; background: none; text-align: left; color: inherit; }
+.settings-row.tp-row-link { padding: 0; }
+.settings-row.tp-row-link > .tp-row-button { padding: 14px 16px; border-radius: inherit; }
+.settings-row.tp-row-link > .tp-row-button:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
+.tp-danger { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+/* A team's kinds of record (dynamic Teams): a section the type does not name, drawn as written under
+   Other; a text section as prose at the reading measure; and the page a person shapes a kind on —
+   settings rows whose controls are text fields, a shape's segmented control and a comma list. */
+.tp-new-type { align-self: flex-start; margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; }
+.tp-other + .tp-other { margin-top: 12px; }
+.tp-other > .settings-row-title { margin: 0 0 6px; color: var(--rl-text-dim); }
+.tp-prose { padding: 12px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-prose p { max-width: 72ch; }
+.tp-prose p { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); }
+.tp-prose p + p { margin-top: 8px; }
+.tp-type-card { text-align: left; color: inherit; }
+.tp-type-card code { font-size: 12px; }
+.settings-row > .tp-type-name { width: min(160px, 24%); }
+.tp-type-status { align-items: center; }
+.tp-type-status > select { margin-left: auto; }
+.tp-type-section { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tp-type-section > .settings-tabs { flex: none; margin: 0; }
+.tp-type-section > .icon-btn, .tp-type-section > .btn { margin-left: auto; flex: none; }
+.tp-type-field, .tp-type-list > .settings-text { flex: none; width: min(220px, 40%); height: 28px; padding: 0 9px; font: inherit; font-size: 13px;
+  border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
+.tp-type-field:focus, .tp-type-list > .settings-text:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.tp-type-list { display: flex; align-items: center; gap: 12px; }
+.tp-type-list > .settings-row-detail { flex: none; }
+.tp-type-list > .settings-text { flex: 1; width: auto; max-width: 420px; }
+.tp-type-dated { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tp-type-preview { min-height: 0; }
+/* A folder that records use is fixed: its field reads as a value, not as something to type in. */
+.settings-row > .settings-text:disabled { background: transparent; color: var(--rl-text-dim); }
+.tp-record-source { width: 100%; min-height: 420px; padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card);
+  border: var(--hairline-w) solid var(--rl-card-rim); font-family: var(--font-mono); font-size: 13px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
+.tp-record-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 0; }
+
+/* The column's sections: a member of Creators or Roles sits under its group, lit when open. */
+.settings-tab.page-rail-tab.tp-sub { padding-left: 34px; }
+.settings-tab.page-rail-tab.tp-sub-role { padding-left: 34px; }
+.tp-rail-realmite { display: grid; place-items: center; width: 16px; height: 16px; }
+.tp-rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-rail-count { flex: none; }
+
+/* Making a role: starters, the Realmite maker, and three choices on one row. */
+.tp-role-form { gap: 14px; }
+.tp-starters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tp-starters-label { font-size: 12px; color: var(--rl-text-dim); }
+.tp-starter { display: inline-flex; align-items: center; gap: 6px; }
+.tp-form-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.tp-sheet-error { margin-right: auto; font-size: 12px; color: var(--rl-danger); }
+
+/* Choosing who is on a team: shelves of starter cards, the person's own, and the week they share. */
+.tp-shelf { display: flex; flex-direction: column; gap: 10px; }
+.tp-shelf .settings-head { margin-bottom: 0; }
+.tp-shelf-note { margin-top: -4px; }
+.tp-pick[data-there] .tp-pick-box { color: var(--rl-text-dim); }
+.tp-pick-acts { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.tp-card-custom { border-style: dashed; background: transparent; }
+.tp-card-custom:hover { background: var(--rl-card); }
+.tp-mark-add { background: var(--rl-hover); color: var(--rl-text-dim); }
+.tp-picker { gap: 22px; }
+.tp-said { display: flex; flex-direction: column; gap: 12px; }
+/* A field's own problem, said under it in words. */
+.tp-field-error { font-size: 12px; line-height: 16px; color: var(--rl-danger); }
+.tp-picker-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
+.tp-picker-foot > .btn { flex: none; }
+.tp-shares-line { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 auto 0 0; min-width: 0; flex: 1 1 auto; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tp-shares-line[data-over] { color: var(--rl-warning); }
+/* Over, the words say it and the offer to raise takes the meter's place. */
+.tp-shares-line[data-over] .tp-meter { display: none; }
+.tp-shares-line .btn-quiet { margin-left: -7px; }
+.tp-shares-line .tp-meter-wide { width: 120px; }
+.tp-refusal { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px;
+  border-radius: var(--r-panel); background: var(--orange-tint); color: var(--rl-text-bright); }
+.tp-refusal > svg { color: var(--orange); }
+.tp-refusal-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tp-refusal-text .settings-row-name { color: var(--rl-text-bright); }
+.tp-refusal-text .settings-row-detail { color: var(--rl-text-dim); }
+.tp-form-row.tp-form-row-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
+.tp-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 30px; }
+.tp-skill { padding-right: 2px; }
+.tp-skill-x { display: grid; place-items: center; width: 18px; height: 18px; border-radius: var(--r-sm); color: var(--rl-text-dim); background: none; }
+.tp-skill-x:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tp-skill-add { width: auto; min-width: 0; flex: 1 1 140px; }
+.tp-remove-who { display: flex; align-items: center; gap: 10px; }
+
+/* ── The team's Vault (VaultPage.tsx, mock 06) ────────────────────────────────────────────────────
+   Sign-ins and keys are the settings grammar's meshed run of rows, each a button that opens who may
+   use it; the glyph sits in the gutter, the name over its detail, and the last use at the far end in
+   the quiet ink. The grant sheet groups one role's rows (may use, where, without asking) as a card. */
+.tv-row { align-items: center; }
+.tv-glyph { flex: none; width: 20px; display: grid; place-items: center; color: var(--rl-text-dim); }
+.tv-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tv-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-detail { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.tv-used { flex: none; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
+/* The Policies page (read-only): a row's value in force at its end, in the secondary ink; a connection's
+   tools unfold under it in the same card, set in from the glyph's column so they read as its members. */
+.tpol-value { flex: none; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
+.tpol-chevron { flex: none; color: var(--rl-text-dim); }
+.settings-row.tpol-tool { padding-left: 48px; }
+.settings-row.tpol-tool + .settings-row::before, .settings-row + .settings-row.tpol-tool::before { left: 48px; }
+.tv-uses td.tv-where { white-space: normal; }
+.tv-who { display: inline-flex; align-items: center; gap: 6px; }
+.tv-foot { display: flex; align-items: center; gap: 8px; width: 100%; }
+.tv-grants { gap: 8px; }
+.tv-grant { display: flex; flex-direction: column; }
+.tv-grant-who { flex: none; display: grid; place-items: center; width: 32px; height: 32px; }
+.tv-hosts { flex-wrap: wrap; gap: 8px; }
+.tv-hosts .settings-row-main { flex: none; }
+.tv-host { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--r-ctl); font-size: 13px; line-height: 18px;
+  color: var(--rl-text-dim); border: var(--hairline-w) solid var(--rl-line); }
+.tv-host[data-on] { color: var(--rl-text-bright); border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-line)); }
+
+/* Teams, Phase 4: handoffs, a role's goal, budgets and run caps, and an engine's back-off. */
+.tp-banner { display: flex; flex-direction: column; gap: 6px; }
+.tp-banner-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px 10px 14px;
+  border-radius: var(--r-panel); background: var(--orange-tint); border: var(--hairline-w) solid color-mix(in srgb, var(--orange) 22%, transparent); }
+.tp-banner-glyph { color: var(--orange); }
+.tp-banner-text { font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.tp-handoffs { margin: 0; padding: 0; list-style: none; }
+.tp-handoffs li { display: grid; grid-template-columns: 64px 48px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 0;
+  font-size: 13px; line-height: 18px; color: var(--rl-text-bright); border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-handoffs li:first-child { border-top: none; }
+.tp-handoffs time { font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.tp-handoff-pair { display: inline-flex; align-items: center; gap: 2px; color: var(--rl-text-faint); }
+.tp-handoff-text { min-width: 0; }
+.tp-handoff-text small { color: var(--rl-text-dim); font-size: 13px; }
+.tp-num-form { display: inline-flex; align-items: center; gap: 4px; }
+.tp-num-unit { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tp-num-field { width: 56px; height: 28px; padding: 0 7px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; outline: none; }
+.tp-num-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+.tp-step { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.tp-step-label { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); white-space: nowrap; }
+.tp-step select { height: 28px; font-size: 13px; }
+.tp-budget-form { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; flex: none; max-width: 60%; }
+.settings-row.tp-edges-row { flex-wrap: wrap; }
+.tp-edges { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 60%; }
+.tp-edge { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 6px; border-radius: var(--r-ctl); font-size: 13px; line-height: 18px;
+  color: var(--rl-text-dim); background: none; border: var(--hairline-w) solid var(--rl-line); }
+.tp-edge:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tp-edge[aria-pressed="true"] { color: var(--rl-text-bright); background: var(--rl-hover); border-color: color-mix(in srgb, var(--rl-accent) 45%, transparent); }
+.tp-goal { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px;
+  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-goal-glyph { color: var(--rl-text-dim); }
+.tp-goal-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tp-goal-objective { font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.tp-goal-line { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tp-goal-new { align-self: flex-start; }
+
+/* The Team fold's way to add one: a row like the roles above it, in the quieter ink. */
+.sb-team-add .item-title, .sb-team-add .sb-gutter { color: var(--rl-text-dim); }
+

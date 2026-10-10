@@ -1,4 +1,4 @@
-import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges } from "@realm/contracts";
+import { AskCardSchema, askCardFromAskUserQuestion, bareToolName, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -170,6 +170,9 @@ export type Transcript = {
    *  after the settle — sometimes after the next message has already gone — and must still sit with
    *  its own turn. Optional: absent on every transcript nothing has been measured in. */
   changes?: Record<number, TurnChanges>;
+  /** The media each turn left on disk (`files_made`), keyed the same way and for the same reason as
+   *  `changes`. Nothing draws it yet; the documents home counts it to know the index has moved. */
+  made?: Record<number, FilesMade>;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -192,6 +195,24 @@ const ASKING_TOOL = /^AskUserQuestion$|realm-ui__ui_ask$/;
 const sameInput = (a: unknown, b: unknown): boolean => stable(a) === stable(b);
 const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) =>
   x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : x);
+
+/** The calls the agent is blocked on, by id: for each open permission, the last call still without a
+ *  result that names the same tool with the same input. The decision itself stays in the request
+ *  card at the column's foot; this only lets the call's own row say it is waiting rather than spin
+ *  as if it were running. A request no visible call matches is left to the foot card alone. Names are
+ *  compared bare as well, because a permission can name a tool without the `mcp__server__` prefix
+ *  its call carries. */
+export function waitingToolIds(blocks: readonly Block[], pending: readonly PendingPermission[]): string[] {
+  const out: string[] = [];
+  for (const p of pending) {
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const b = blocks[i]!;
+      if (b.kind !== "tool" || b.result !== null || out.includes(b.toolUseId)) continue;
+      if ((b.name === p.toolName || bareToolName(b.name) === bareToolName(p.toolName)) && sameInput(b.input, p.input)) { out.push(b.toolUseId); break; }
+    }
+  }
+  return out;
+}
 
 export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null });
 
@@ -415,6 +436,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     // Beside the blocks, not among them: it belongs to a run line that is already on screen.
     case "turn_changes":
       return { ...t, changes: { ...t.changes, [e.payload.settledAt]: e.payload } };
+    case "files_made":
+      return { ...t, made: { ...t.made, [e.payload.settledAt]: e.payload } };
     case "feedback": {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };

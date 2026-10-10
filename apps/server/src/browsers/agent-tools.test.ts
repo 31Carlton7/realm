@@ -22,9 +22,12 @@ function setup(opts: {
   bridgeResults?: Record<string, unknown>;
   /** W5: stands in for `BrowserAgentService.checkMutation`. Omitted = no constraints dep at all. */
   checkMutation?: (tool: string, url?: string) => string | null;
-  /** Plan 23: the space's project root. `null` = a space with no project, which has no download
-   *  destination and must refuse. */
+  /** Plan 23: the space's project root. `null` = a space with no project, whose downloads then land
+   *  in the space's own folder. */
   projectRoot?: string | null;
+  /** The space's own folder, as `spaces.get` reports it. `null` = the space no longer exists, which is
+   *  the one case with no download destination. */
+  spaceFolder?: string | null;
   /** Plan 26: the space's folder — `browser_upload`'s default readable root. `null` = the harness
    *  cannot say where the space lives, and every path is then shown in full. */
   spaceRoot?: string | null;
@@ -36,12 +39,14 @@ function setup(opts: {
   /** Laya's shadow, or whatever stands in for it. Omitted = no observer at all. */
   observe?: ActObserver;
   assist?: LayaAssist;
+  /** The team vault's check. Omitted = no vault at all, every session a person's own. */
+  vault?: BrowserAgentToolsDeps["vault"];
 } = {}) {
   const rows = new Map<string, Browser>();
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", favicon: "", createdAt: 1, updatedAt: 1 });
   rows.set("bX", { id: "bX", spaceId: "spaceOTHER", url: "https://other.com/", title: "Other", favicon: "", createdAt: 1, updatedAt: 1 });
 
-  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean }[], bridge: [] as { op: string; params: Record<string, unknown> }[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
+  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean; preapproved?: boolean }[], bridge: [] as { op: string; params: Record<string, unknown> }[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
   const bridgeResults: Record<string, unknown> = {
     describe: { open: true, url: "https://example.com/checkout", title: "Example", element: { role: "button", name: "Submit order", tag: "button", inputType: null } },
     snapshot: { url: "https://example.com/", title: "Example", text: '[ref=11] button "Submit order"', elementCount: 1 },
@@ -68,6 +73,12 @@ function setup(opts: {
         return root === null ? [] : [{ id: "p1", spaceId, name: "Notes", rootPath: root, defaultBranch: "main", createdAt: 1, updatedAt: 1 }];
       },
     },
+    spaces: {
+      get: () => {
+        const folder = opts.spaceFolder === undefined ? "/tmp/space" : opts.spaceFolder;
+        return folder === null ? null : { folderPath: folder };
+      },
+    },
     browserService: {
       open: ({ spaceId, url }) => {
         calls.opened.push(url);
@@ -91,7 +102,7 @@ function setup(opts: {
     },
     broker: {
       gate: async (_sessionId, toolKey, title, input, toolName, gateOpts) => {
-        calls.gates.push({ toolKey, toolName, title, input, alwaysPrompt: gateOpts?.alwaysPrompt === true });
+        calls.gates.push({ toolKey, toolName, title, input, alwaysPrompt: gateOpts?.alwaysPrompt === true, ...(gateOpts?.preapproved ? { preapproved: true } : {}) });
         return opts.gate ?? { allowed: true };
       },
     },
@@ -111,6 +122,7 @@ function setup(opts: {
   if (opts.streamAt) deps.simulatorStreams = { streamAt: opts.streamAt };
   if (opts.observe) deps.observe = opts.observe;
   if (opts.assist) deps.assist = opts.assist;
+  if (opts.vault) deps.vault = opts.vault;
   // A walk waits on this clock rather than on real time: a click that changes nothing is a five-second
   // wait on a real page, and a moment here.
   const clock = { t: 0, now: () => clock.t, sleep: async (ms: number) => { clock.t += ms; } };
@@ -162,6 +174,19 @@ describe("gating — the named mutants", () => {
     await call("browser_read", { browserId: "b1", kind: "console" });
     await call("browser_screenshot", { browserId: "b1" });
     expect(calls.gates).toEqual([]);
+  });
+
+  it("a key it cannot press is refused before the card, alone or in a batch; a chord goes through", async () => {
+    const { call, calls } = setup();
+    const alone = await call("browser_act", { browserId: "b1", action: { kind: "key", key: "Hyper+q" } });
+    expect(alone.isError).toBe(true);
+    expect(text(alone)).toContain(`"Hyper" in "Hyper+q" is not a modifier`);
+    const batched = await call("browser_batch", { actions: [{ tool: "browser_act", arguments: { browserId: "b1", action: { kind: "key", key: "BrowserBack" } } }] });
+    expect(text(batched)).toContain("use browser_navigate");
+    expect(calls.gates).toEqual([]);
+    await call("browser_act", { browserId: "b1", action: { kind: "key", key: "a", modifiers: ["meta"] } });
+    expect(calls.gates.map((g) => g.toolKey)).toEqual(["browser_act"]);
+    expect(calls.bridge.find((b) => b.op === "act")?.params.action).toEqual({ kind: "key", key: "a", modifiers: ["meta"] });
   });
 
   it("the act permission title names the action, attributes the label to the PAGE, and names the host", async () => {
@@ -329,6 +354,13 @@ describe("results and scoping", () => {
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("no browser");
     expect(calls.bridge).toEqual([]);
+  });
+
+  it("browser_list says how to bring back a pane that is not open", async () => {
+    const { call } = setup({ bridgeResults: { describe: { open: false, url: "", title: "", element: null } } });
+    // THE MUTANT: the old "pane not open in the app" on its own. The agent reads that the pane is gone
+    // and stops, beside the one tool that would bring it back (125 such calls in the log).
+    expect(text(await call("browser_list", {}))).toContain("pane not open in the app (realm-workspace__pane_show brings it back)");
   });
 
   it("browser_list only lists this space's panes", async () => {
@@ -593,7 +625,60 @@ describe("browser_credentials / browser_fill_credential", () => {
     const { call, calls } = setup();
     await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
     const sent = calls.bridge.find((b) => b.op === "fillCredential")!;
-    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "profileId", "ref"]);
+    expect(Object.keys(sent.params).sort()).toEqual(["browserId", "credentialId", "profileId", "ref", "spaceId"]);
+  });
+
+  describe("a team's role (the vault)", () => {
+    type Use = { secret: { id: string; name: string }; host: string; how?: string; refused?: string };
+    const vaultWith = (check: Awaited<ReturnType<NonNullable<BrowserAgentToolsDeps["vault"]>["check"]>>, granted: string[] | null = null) => {
+      const notes: Use[] = [];
+      const vault: NonNullable<BrowserAgentToolsDeps["vault"]> = {
+        check: async () => check,
+        note: (_ctx, use) => { notes.push(use); },
+        grantedSignins: () => granted,
+      };
+      return { vault, notes };
+    };
+
+    it("is refused without a card or a fill when it holds no grant, and the refusal is logged", async () => {
+      // THE MUTANT: a role's fill that raises the person's card anyway, or reaches main.
+      const { vault } = vaultWith({ refuse: "refused: Growth Analyst holds no grant for example.com · ada." });
+      const { call, calls } = setup({ vault });
+      const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(r.isError).toBe(true);
+      expect(text(r)).toMatch(/holds no grant/);
+      expect(calls.gates).toEqual([]);
+      expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
+    });
+
+    it("asks on its card under a grant alone, and names the team, role and run to main", async () => {
+      const { vault, notes } = vaultWith({ unattended: false, roleId: "R1", runId: "run1", hosts: ["example.com"] });
+      const { call, calls } = setup({ vault });
+      await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(calls.gates.map((g) => [g.alwaysPrompt, g.preapproved ?? false])).toEqual([[true, false]]);
+      expect(calls.bridge.find((b) => b.op === "fillCredential")!.params).toMatchObject({ spaceId: "space1", roleId: "R1", runId: "run1" });
+      expect(notes).toEqual([{ secret: { id: "cred-1", kind: "signin", name: "example.com · ada" }, host: "example.com", how: "card" }]);
+    });
+
+    it("skips the card only when the check says a sealed allow covers the fill", async () => {
+      const { vault, notes } = vaultWith({ unattended: true, roleId: "R1", runId: "run1", hosts: ["example.com"] });
+      const { call, calls } = setup({ vault });
+      await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(calls.gates.map((g) => [g.alwaysPrompt, g.preapproved ?? false])).toEqual([[false, true]]);
+      expect(notes.at(-1)).toMatchObject({ how: "unattended" });
+    });
+
+    it("lists a role only the sign-ins it was granted", async () => {
+      const { vault } = vaultWith({ unattended: false, roleId: "R1", runId: "run1", hosts: [] }, []);
+      const { call } = setup({ vault });
+      expect(text(await call("browser_credentials", {}))).not.toContain("cred-1");
+    });
+
+    it("names the session's space to main, so a team's sign-ins are offered in that team alone", async () => {
+      const { call, calls } = setup();
+      await call("browser_credentials", {});
+      expect(calls.bridge.find((b) => b.op === "credentials")!.params).toEqual({ profileId: "profile-work", spaceId: "space1" });
+    });
   });
 
   it("names the SESSION's profile to main on every credential op — sign-ins are a profile's own", async () => {
@@ -786,13 +871,38 @@ describe("browser_download", () => {
     expect(Object.keys(sent.params).sort()).toEqual(["browserId", "dir", "ref"]);
   });
 
-  it("a space with NO project refuses, before any prompt — no invented destination", async () => {
-    const { call, calls } = setup({ projectRoot: null });
+  it("a space with NO project downloads into the space's own folder, behind the same card", async () => {
+    /* Most spaces have no project (15 of the owner's 17). The mutants: the old refusal, a fallback to
+       ~/Downloads or some Realm-owned directory, and a fallback that skips the permission gate. */
+    const { call, calls } = setup({ projectRoot: null, spaceFolder: "/Users/x/Realm/school/ee" });
+    const r = await call("browser_download", { browserId: "b1", ref: 11 });
+    expect(r.isError).toBeFalsy();
+    expect(calls.gates).toHaveLength(1);
+    expect(calls.bridge.find((b) => b.op === "download")!.params.dir).toBe("/Users/x/Realm/school/ee/downloads");
+    expect(text(r)).toContain("downloads/");
+  });
+
+  it("a project still wins over the space folder", async () => {
+    const { call, calls } = setup({ projectRoot: "/p", spaceFolder: "/s" });
+    await call("browser_download", { browserId: "b1", ref: 11 });
+    expect(calls.bridge.find((b) => b.op === "download")!.params.dir).toBe("/p/downloads");
+  });
+
+  it("a space that no longer exists refuses, before any prompt — no invented destination", async () => {
+    // Main's absolute-path guard is the only other defence against a null or relative `dir`.
+    const { call, calls } = setup({ projectRoot: null, spaceFolder: null });
     const r = await call("browser_download", { browserId: "b1", ref: 11 });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("no project");
+    expect(text(r)).toContain("no longer exists");
     expect(calls.gates).toHaveLength(0);
     expect(calls.bridge.some((b) => b.op === "download")).toBe(false);
+  });
+
+  it("the success text names downloads/ and never sends the agent looking for a project", async () => {
+    const { call } = setup({ projectRoot: null });
+    const r = await call("browser_download", { browserId: "b1", ref: 11 });
+    expect(text(r)).toContain("downloads/week-3.pdf");
+    expect(text(r)).not.toContain("project");
   });
 
   it("MUTANT 7: a page-authored filename cannot break out of the tool result's prose", async () => {
@@ -844,11 +954,18 @@ describe("browser_download", () => {
   });
 
   it("MUTANT 8: a BATCHED download repeats every validation — it does not route around the destination rule", async () => {
-    const { call, calls } = setup({ projectRoot: null });
+    const { call, calls } = setup({ projectRoot: null, spaceFolder: null });
     const r = await call("browser_batch", { actions: [{ tool: "browser_download", arguments: { browserId: "b1", ref: 11 } }] });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("no project");
+    expect(text(r)).toContain("no longer exists");
     expect(calls.bridge.some((b) => b.op === "download")).toBe(false);
+  });
+
+  it("a batched download in a space with no project lands where the plain tool's does", async () => {
+    const { call, calls } = setup({ projectRoot: null });
+    const r = await call("browser_batch", { actions: [{ tool: "browser_download", arguments: { browserId: "b1", ref: 11 } }] });
+    expect(r.isError).toBeFalsy();
+    expect(calls.bridge.find((b) => b.op === "download")!.params.dir).toBe("/tmp/space/downloads");
   });
 
   it("MUTANT 8: a batched download still honors the constraint check", async () => {
@@ -1701,6 +1818,8 @@ describe("browser_do", () => {
     const r = await walk(s, { path: ["Docs"] });
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("pane is not open in the app");
+    // …and what to do about it: the tool that brings it back, with the id already filled in.
+    expect(text(r)).toContain('Call realm-workspace__pane_show with {"browserId": "b1"}');
     expect(s.calls.gates).toEqual([]);
     // THE MUTANT: walk anyway, and the first read retries its way to the same answer five seconds later.
     expect(s.calls.bridge.filter((b) => b.op === "snapshot")).toEqual([]);

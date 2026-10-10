@@ -28,6 +28,8 @@ export type StubServerOptions = {
   /** A fixed result per tool name, returned instead of the echo — a result with `structuredContent`,
    *  say, the way a tool with a view answers. */
   results?: Record<string, CallToolResult>;
+  /** How long every `tools/call` takes to answer — a slow upstream, for the gateway's heartbeat. */
+  delayMs?: number;
 };
 
 export type StubResource = { uri: string; name?: string; mimeType?: string; text?: string; blob?: string; _meta?: Record<string, unknown>; listMeta?: Record<string, unknown> };
@@ -93,6 +95,7 @@ export function makeStubServer(opts: StubServerOptions = {}): StubServer {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     opts.onCall?.(name, args);
+    if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
     // Checked before `failNext` so a test can set both and know exactly which one fires — not that any
     // test needs to today, but a silent priority order is the kind of thing that bites later.
     if (forcedThrows > 0) {

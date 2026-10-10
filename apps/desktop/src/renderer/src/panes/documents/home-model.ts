@@ -104,6 +104,29 @@ export function checkoutFileOf(rel: string, root: string): HomeFile {
   };
 }
 
+/**
+ * Kinds the pane draws from text it reads itself — a document, a deck, source, LaTeX — and so the ones
+ * it can draw for a file OUTSIDE its root. The rest it shows through a frame the preview server feeds
+ * from the root (a guide, a PDF, a Quick Look render), which reaches nothing outside it; those, and
+ * media, go to the viewer.
+ */
+const OUTSIDE_KINDS: ReadonlySet<DocumentKind> = new Set<DocumentKind>(["doc", "slides", "code", "latex"]);
+
+/** A tab outside the pane's root is on the strip by its absolute path; one inside it never is. It is
+ *  read-only: the pane writes, makes and renames files only inside the space's folder. */
+export const isOutsideTab = (tab: string): boolean => tab.startsWith("/");
+
+/**
+ * The tab a home row opens as in the pane, or null for a row the viewer shows instead. A file inside
+ * the root is its relative path, for any kind the pane has an editor or a page for; a file elsewhere —
+ * the REPORT.md an agent wrote in another worktree — is its absolute path, for the kinds the pane
+ * draws from text, so it reads as markdown or as highlighted source rather than as a picture of one.
+ */
+export function paneTabOf(f: Pick<HomeFile, "rel" | "abs">): string | null {
+  if (f.rel !== null) return documentKindFor(f.rel) !== "unsupported" ? f.rel : null;
+  return f.abs && OUTSIDE_KINDS.has(documentKindFor(f.abs)) ? f.abs : null;
+}
+
 /** The same file listed by two sections is one file: the later section drops it. Keyed on where the
  *  file IS, so a relative and an absolute spelling of one path agree. */
 export function withoutShown(files: readonly HomeFile[], shown: ReadonlySet<string>): HomeFile[] {

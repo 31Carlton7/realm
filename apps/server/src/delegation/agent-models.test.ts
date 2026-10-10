@@ -41,11 +41,11 @@ function standIn(kind: AgentKind, models: AgentModel[] | null, counts: { probes:
   return { adapter, seen };
 }
 
-async function boot(opts: { parentKind?: AgentKind; parentModel?: string | null; parentMode?: string; leadScript?: FakeScript } = {}) {
+async function boot(opts: { parentKind?: AgentKind; parentModel?: string | null; parentMode?: string; leadScript?: FakeScript; cursorScript?: FakeScript } = {}) {
   const counts = { probes: 0 };
   const claude = standIn("claude", null, counts, [...(opts.leadScript ?? []), ...CHILD]);
   const codex = standIn("codex", CODEX, counts);
-  const cursor = standIn("acp:cursor", CURSOR, counts);
+  const cursor = standIn("acp:cursor", CURSOR, counts, opts.cursorScript);
   app = await createApp({
     home: tempDir("realm-am-"), port: 0,
     adapters: { claude: claude.adapter, codex: codex.adapter, "acp:cursor": cursor.adapter },
@@ -143,11 +143,59 @@ describe("agent_start with a model by name", () => {
     expect(counts.probes).toBe(after);
   });
 
-  it("a named model does not loosen the permission cap — bypass still degrades to default", async () => {
+  it("a child on another harness takes the lead's mode the same way — Full access under a Full access lead", async () => {
     const { ctx } = await boot({ parentMode: "bypassPermissions" });
+    await app.sessions.probe();
+    await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-6 Luna" } });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", permissionMode: "bypassPermissions" });
+  });
+
+  it("a named model does not loosen the cap — a request above the lead is held to the lead's mode", async () => {
+    const { ctx } = await boot({ parentMode: "default" });
     await app.sessions.probe();
     await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-6 Luna", permissionMode: "bypassPermissions" } });
     expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", permissionMode: "default" });
+  });
+
+  it("refuses a read-only lead's child on Cursor, which Realm cannot hold to read-only — and creates nothing", async () => {
+    // The bug this kills: a plan lead naming a Cursor model minted a child whose row said plan while
+    // nothing restrained it.
+    const { ctx } = await boot({ parentMode: "plan" });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { agentKind: "acp:cursor" } });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("cannot hold Cursor to a read-only mode");
+    expect(children(ctx)).toEqual([]);
+  });
+
+  it("a running Cursor child is stopped, and says why, when its lead goes read-only — and kept when the lead goes to Ask each time", async () => {
+    // THE MUTANT: skip the stop — the Cursor child keeps editing at default under a lead the person
+    // just made read-only, which is the promise the spawn-time refusal exists to keep.
+    const long: FakeScript = [{ on: "You are a delegated agent.", emit: Array.from({ length: 200 }, (_, i) => ({ kind: "text" as const, text: `step ${i}` })) }];
+    const { ctx } = await boot({ parentMode: "bypassPermissions", cursorScript: long });
+    await app.sessions.probe();
+    await app.agentRuns.start(ctx, { goal: "go", constraints: { agentKind: "acp:cursor" } });
+    const [child] = children(ctx);
+    await waitFor(() => app.sessions.get(child!.id).status === "running");
+
+    await app.sessions.setOptions(ctx.sessionId, { permissionMode: "default" });
+    expect(text(app.agentRuns.status(ctx))).toContain(`${child!.id}: running`);
+
+    await app.sessions.setOptions(ctx.sessionId, { permissionMode: "plan" });
+    const note = "Stopped when the session that started it went to Plan: Realm cannot hold Cursor to a read-only mode.";
+    expect(app.agentRuns.record(child!.id)?.stopNote).toBe(note);
+    const r = await app.agentRuns.wait(ctx, {});
+    expect(text(r)).toContain("did NOT finish (stopped)");
+    expect(text(r)).toContain(note);
+  }, 20_000);
+
+  it("writes default for a Cursor child of a Full access lead, and says why", async () => {
+    const { ctx } = await boot({ parentMode: "bypassPermissions" });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { agentKind: "acp:cursor" } });
+    expect(r.isError).toBe(false);
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "acp:cursor", permissionMode: "default" });
+    expect(text(r)).toContain("Realm cannot set a permission mode on Cursor");
   });
 });
 
@@ -259,6 +307,45 @@ describe("the lead's list of its sub-agents", () => {
     c.close();
   });
 
+  it("says each child's budget and how much of it is spent — time waiting on the user is not charged", async () => {
+    // THE MUTANT: report wall time as spent — a child held on a prompt reads as over its budget for a
+    // wait the user caused, which the engine does not charge it for.
+    const asks: FakeScript = [{ on: "You are a delegated agent.", emit: [
+      { kind: "tool", name: "Bash", input: { command: "pnpm test" }, needsPermission: true, result: "ok" },
+      { kind: "text", text: "FINAL: tests pass" },
+    ] }];
+    const { ctx } = await boot({ leadScript: asks });
+    const c = await client(app.port);
+    await app.agentRuns.start(ctx, { goal: "run the tests" });
+    const [child] = children(ctx);
+    await waitFor(() => app.sessions.get(child!.id).status === "waiting_permission");
+    await new Promise((r) => setTimeout(r, 600));
+    const waiting = (await c.call<{ children: (Child & { budgetMs: number | null; working: { ms: number; at: number } | null })[] }>("delegation.children", { sessionId: ctx.sessionId })).children[0]!;
+    expect(waiting.budgetMs).toBe(5000);
+    expect(waiting.working!.ms).toBeLessThan(waiting.working!.at - waiting.startedAt - 500);
+    const ask = app.sessions.events(child!.id, 0, 500).map((e) => e.event).find((e) => e.type === "permission_request");
+    await app.sessions.respondPermission(child!.id, ask!.type === "permission_request" ? ask!.payload.requestId : "", "allow");
+    await app.agentRuns.wait(ctx, {});
+    await waitFor(() => app.agentRuns.record(child!.id)?.workedMs !== undefined);
+    const rec = app.agentRuns.record(child!.id)!;
+    expect(rec.workedMs!).toBeLessThan(rec.settledAt! - rec.startedAt! - 500);
+    c.close();
+  }, 20_000);
+
+  it("lists a sub-agent's own sub-agents under it — the ones started before a sub-agent could no longer start any", async () => {
+    // THE MUTANT: list one level — a grandchild from an older build has no place in the tab at all.
+    const { ctx } = await boot();
+    const c = await client(app.port);
+    await app.agentRuns.start(ctx, { goal: "go" });
+    const [child] = children(ctx);
+    const grandchild = app.sessions.create({ spaceId: ctx.spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: "default",
+      dispatchedBy: { kind: "agent_run", sessionId: child!.id } });
+    const kids = (await c.call<{ children: (Child & { children?: Child[] })[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
+    expect(kids.map((k) => k.session.id)).toEqual([child!.id]);
+    expect(kids[0]!.children?.map((k) => k.session.id)).toEqual([grandchild.session.id]);
+    c.close();
+  });
+
   it("delegation.models offers the catalog on its routes, and names what the lead itself runs", async () => {
     const { ctx } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
     await app.sessions.probe();
@@ -338,6 +425,25 @@ describe("the scripted agent plays an orchestration for real", () => {
     expect(evs).toContainEqual(expect.objectContaining({ type: "tool_call", payload: expect.objectContaining({ name: "mcp__realm__realm-agent__agent_start" }) }));
     const result = evs.find((e) => e.type === "tool_result");
     expect(result?.type === "tool_result" && result.payload).toMatchObject({ isError: false, content: expect.stringContaining("on Codex · GPT-6 Luna") });
+  });
+
+  it("a scripted agent_wait hears the gateway keep it alive before the answer arrives", async () => {
+    // End to end over the real wire: the gateway's notices on the call's own stream, counted by the
+    // fake's client and said under the result. THE MUTANT: the gateway sends nothing during a call.
+    process.env.REALM_MCP_HEARTBEAT_MS = "20";
+    try {
+      const { ctx } = await boot({ leadScript: [{ on: "Build this with", emit: [
+        { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Take your time over the tests" } },
+        { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      ] }, { on: "Take your time", emit: [{ kind: "text", paceMs: 25, text: "FINAL: one two three four five six seven eight nine ten" }] }] });
+      await app.sessions.send(ctx.sessionId, { text: "Build this with a sub-agent.", attachments: [] });
+      const results = () => app.sessions.events(ctx.sessionId, 0, 500).map((e) => e.event).filter((e) => e.type === "tool_result");
+      await waitFor(() => results().length === 2);
+      const waited = results()[1];
+      expect(waited?.type === "tool_result" && waited.payload.content).toMatch(/All 1 delegated agent finished[\s\S]*\((\d+) progress notices? came before this answer\)$/);
+    } finally {
+      delete process.env.REALM_MCP_HEARTBEAT_MS;
+    }
   });
 
   it("a stand-in answers to a real harness's name, with the catalog it was given", async () => {

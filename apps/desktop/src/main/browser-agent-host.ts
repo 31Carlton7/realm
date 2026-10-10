@@ -5,7 +5,7 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
 import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { axElementAt, readAxSnapshot } from "./device-ax";
@@ -91,6 +91,8 @@ export type BrowserAgentHostDeps = {
   pageState(browserId: string): { url: string; title: string; loading?: boolean; error?: BrowserLoadError | null } | null;
   /** The clock a page's network quiet is measured on. A test seam; `Date.now` otherwise. */
   now?: () => number;
+  /** How long a screenshot waits for the page to paint. A test seam; `SCREENSHOT_TIMEOUT_MS` otherwise. */
+  screenshotTimeoutMs?: number;
   /**
    * The encrypted secret store (`secret-store.ts`), for the `fillCredential` op alone.
    *
@@ -106,12 +108,15 @@ export type BrowserAgentHostDeps = {
    * carries the profile of the calling session's space, which realm-server resolved.
    */
   secrets?: {
-    listCredentials(profileId: string): BrowserCredential[];
+    /** The sign-ins an agent in `spaceId` is offered: the profile's own and that team's (the team
+     *  vault). Null is a caller that cannot say its space, and is offered the profile's own alone. */
+    listCredentials(profileId: string, spaceId: string | null): BrowserCredential[];
     getCredential(profileId: string, id: string): BrowserCredential | null;
     withCredentialValue(
       profileId: string,
       id: string,
       use: (value: string) => Promise<void>,
+      scope: { spaceId: string | null },
     ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }>;
     /** Mint a password for an origin, keep it, and type it — the generated half of the fill op. Same
      *  callback shape as `withCredentialValue`, so this dependency cannot hand the host the password
@@ -155,6 +160,15 @@ export type BrowserAgentHostDeps = {
   readFile?(path: string): Promise<Uint8Array>;
 };
 
+/** Who a fill was for, as realm-server named it: the team, its role and the role's run. Empty for a
+ *  person's own session. */
+type FillWho = { spaceId?: string; roleId?: string; runId?: string };
+function fillWho(params: Record<string, unknown>): FillWho {
+  const out: FillWho = {};
+  for (const k of ["spaceId", "roleId", "runId"] as const) if (typeof params[k] === "string" && params[k]) out[k] = params[k] as string;
+  return out;
+}
+
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
  *  refusal belongs to `act`), and an unmapped code degrades to `error` rather than inventing a row. */
 const FILL_OUTCOMES: Partial<Record<string, CredentialAuditEntry["outcome"]>> = {
@@ -179,6 +193,9 @@ const REQUESTS_MAX = 500;
  *  enough to be invisible to a person and to a twenty-step batch; long enough for the renderer to
  *  dispatch the click handler and for the CDP event to cross the debugger. */
 const CHOOSER_SETTLE_MS = 150;
+/** How long a screenshot waits for a frame. A page on screen captures in well under a second; one that
+ *  is not on screen never does, and this is how long it takes to say so. */
+const SCREENSHOT_TIMEOUT_MS = 5_000;
 
 type Attached = {
   binding: CdpBinding;
@@ -613,7 +630,8 @@ export class BrowserAgentHost {
         // No profile named, no sign-ins: a call that cannot say whose it is asking for is answered as
         // a profile with nothing saved, never as somebody's.
         const profileId = typeof params.profileId === "string" ? params.profileId : "";
-        return { credentials: profileId ? this.d.secrets?.listCredentials(profileId) ?? [] : [] };
+        const spaceId = typeof params.spaceId === "string" && params.spaceId ? params.spaceId : null;
+        return { credentials: profileId ? this.d.secrets?.listCredentials(profileId, spaceId) ?? [] : [] };
       }
       /**
        * Fill a sign-in into `ref`: one the user enrolled, named by `credentialId`, or one the store
@@ -632,6 +650,10 @@ export class BrowserAgentHost {
       case "fillCredential": {
         const ref = Number(params.ref);
         const profileId = typeof params.profileId === "string" ? params.profileId : "";
+        // The calling session's space, and — for a team's role — the role and its run, as realm-server
+        // resolved them. A team's sign-in fills only in its own space; the rest is for the audit line.
+        const spaceId = typeof params.spaceId === "string" && params.spaceId ? params.spaceId : null;
+        const who = fillWho(params);
         const store = this.d.secrets;
         const generate = readGenerate(params.generate);
         let fill: CredentialFill;
@@ -653,11 +675,11 @@ export class BrowserAgentHost {
           // filled. A value that will not normalize refuses without reaching the page at all.
           const approved = normalizeOrigin(String(params.origin ?? ""));
           if (notThisProfile) {
-            this.auditFill("", approved ?? "", "no_store");
+            this.auditFill("", approved ?? "", "no_store", who);
             return { ok: false, refused: "no_store", error: "this pane belongs to another profile, so there is no store here to keep a new password in — none was generated or filled" } satisfies BrowserActResult;
           }
           if (!store || approved === null) {
-            this.auditFill("", approved ?? "", "no_store");
+            this.auditFill("", approved ?? "", "no_store", who);
             return { ok: false, refused: "no_store", error: "Realm has nowhere to keep a new password right now (macOS is not offering an encryption key), so none was generated or filled" } satisfies BrowserActResult;
           }
           origin = approved;
@@ -675,14 +697,16 @@ export class BrowserAgentHost {
           };
         } else {
           const id = String(params.credentialId ?? "");
-          const credential = notThisProfile ? null : store?.getCredential(profileId, id) ?? null;
+          const found = notThisProfile ? null : store?.getCredential(profileId, id) ?? null;
+          // Another team's sign-in is answered as one that does not exist, before anything is asked.
+          const credential = found && (found.spaceId === undefined || found.spaceId === spaceId) ? found : null;
           if (!store || !credential) {
-            this.auditFill(id, "", "no_credential");
+            this.auditFill(id, "", "no_credential", who);
             return { ok: false, refused: "no_credential", error: "no saved sign-in is enrolled under that id — the user adds them in Realm's Settings, under Sign-ins" } satisfies BrowserActResult;
           }
           credentialId = credential.id;
           origin = credential.origin;
-          fill = { origin, kind: "saved", reveal: (type) => store.withCredentialValue(profileId, credential.id, type) };
+          fill = { origin, kind: "saved", reveal: (type) => store.withCredentialValue(profileId, credential.id, type, { spaceId }) };
         }
         const entry = this.ensure(browserId);
         // No `markAct` here, unlike `act`. Every mark is drawn by evaluating script in the page, and
@@ -695,10 +719,10 @@ export class BrowserAgentHost {
         } catch {
           // Bare, like the executor's own: a thrown CDP error can carry the characters it was
           // dispatching, and nothing about it may reach a tool result.
-          this.auditFill(credentialId, origin, "error");
+          this.auditFill(credentialId, origin, "error", who);
           return { ok: false, error: `the ${generate ? "new" : "saved"} sign-in could not be typed into that field` } satisfies BrowserActResult;
         }
-        this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error");
+        this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error", who);
         // The id travels back only for a generated fill, and only as metadata: it is how the agent
         // fills this same new password into a confirm field without ever being told what it is.
         return result.ok && generate && credentialId
@@ -707,12 +731,12 @@ export class BrowserAgentHost {
       }
       /**
        * Download the file behind `ref`, into the directory the SERVER resolved from the space's
-       * project. The op is gated server-side like any other mutating act; what happens here is the
+       * project or folder. The op is gated server-side like any other mutating act; what happens here is the
        * arm → click → await, with the grant's lifetime bounded by this op.
        *
        * `dir` arrives from realm-server rather than being computed here because only the server knows
-       * the space's project. It is required to be absolute: this op writes to disk, and a relative
-       * path would resolve against whatever cwd Electron happens to have.
+       * the space's project and folder. It is required to be absolute: this op writes to disk, and a
+       * relative path would resolve against whatever cwd Electron happens to have.
        */
       case "download": {
         const governor = this.d.downloads;
@@ -744,7 +768,14 @@ export class BrowserAgentHost {
       }
       case "screenshot": {
         const entry = this.ensure(browserId);
-        const shot = (await entry.binding.send("Page.captureScreenshot", { format: "jpeg", quality: 70 })) as { data?: string };
+        // A view that is not on screen never paints, and the capture waits for a frame that never
+        // comes; give up while the agent can still do something else (`paneNotPaintingError`).
+        let timer: NodeJS.Timeout | undefined;
+        const unpainted = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(paneNotPaintingError(browserId))), this.d.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS);
+        });
+        const shot = (await Promise.race([entry.binding.send("Page.captureScreenshot", { format: "jpeg", quality: 70 }), unpainted])
+          .finally(() => clearTimeout(timer))) as { data?: string };
         if (!shot.data) throw new Error("screenshot produced no data");
         const failed = this.d.pageState(browserId)?.error ?? null;
         return { data: shot.data, mimeType: "image/jpeg", ...(failed ? { loadError: failed } : {}) } satisfies BrowserScreenshotResult;
@@ -851,8 +882,8 @@ export class BrowserAgentHost {
 
   /** One audit line per fill attempt: timestamp, origin, credentialId, outcome — and never the
    *  value, the page's text, or the length of anything. */
-  private auditFill(credentialId: string, origin: string, outcome: CredentialAuditEntry["outcome"]): void {
-    this.d.secrets?.audit({ ts: Date.now(), origin, credentialId, outcome });
+  private auditFill(credentialId: string, origin: string, outcome: CredentialAuditEntry["outcome"], who: FillWho = {}): void {
+    this.d.secrets?.audit({ ts: Date.now(), origin, credentialId, outcome, ...who });
   }
 
   /** Get-or-create the attachment. A cached binding whose view died is dropped and re-attached —
@@ -860,7 +891,7 @@ export class BrowserAgentHost {
   private ensure(browserId: string): Attached {
     if (!this.d.hasView(browserId)) {
       this.attached.delete(browserId); // a cached binding whose view died
-      throw new Error(`browser ${browserId}'s pane is not open in the app — the user must open (or reopen) the browser pane before tools can drive it`);
+      throw new Error(paneNotOpenError(browserId));
     }
     // Ahead of the cache hit, so EVERY op refreshes the view's recency and not just the one that
     // attached — a long agent task in a background browser is exactly what must not be evicted.

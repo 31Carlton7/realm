@@ -1,4 +1,4 @@
-import type { Item, Profile, Session, SessionStatus, Space } from "@realm/contracts";
+import type { Item, Profile, Session, SessionStatus, Space, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
 import { isUnread, STATUS_LABEL } from "../../state/attention";
 import { spaceActivity } from "../../state/store";
 import { CHILD_ORIGINS } from "../../panes/session-labels";
@@ -29,9 +29,14 @@ export type SidebarState = {
   allSessions: Readonly<Record<string, Session>>;
   sessionStatus: Readonly<Record<string, SessionStatus>>;
   sessionSpace: Readonly<Record<string, string>>;
+  /** When each session's status last moved: how long Needs you has waited. Never an order. */
   sessionUpdatedAt: Readonly<Record<string, number>>;
+  /** When each session's conversation last moved (`AppState.sessionActivityAt`): the order. */
+  sessionActivityAt: Readonly<Record<string, number>>;
   /** The quick chat's session, which belongs to no list. */
   quickChatId: string | null;
+  /** Every team space's snapshot (`team.overview`), by space id. Absent for a space with no team. */
+  teams: Readonly<Record<string, TeamSpace>>;
 };
 
 /** How many rows a section shows before "Show more". */
@@ -60,9 +65,14 @@ export type SessionRow = {
   unread: boolean;
   /** Started by a schedule (a durable run's session). */
   scheduled: boolean;
-  /** When it last moved, live. */
+  /** When its conversation last moved — a prompt, a reply, a turn ending — live. What rows are
+   *  ordered by; selecting or reading a session leaves it alone. */
   at: number;
   createdAt: number;
+  /** How many of its sub-agents are waiting on a request, and the one that has waited longest — said
+   *  on this row, and answered in its Agents tab, rather than as rows of their own in Needs you. */
+  agentsWaiting: number;
+  firstWaiting: string | null;
 };
 
 /** A fan-out's sessions, drawn as ONE row that unfolds to them. */
@@ -104,7 +114,112 @@ export function spaceOfSession(s: SidebarState, session: Session): string {
 }
 
 /** A sub-agent a session started — listed under its lead's running-agents control, never as a row. */
-const isChild = (session: Session | undefined): boolean => !!session?.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind);
+export const isChild = (session: Pick<Session, "dispatchedBy"> | undefined): boolean => !!session?.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind);
+
+/** What `nestChildren` needs of a row: which session it is, where it lives, and who started it. */
+export type NestableRow = { id: string; spaceId: string; session: Pick<Session, "dispatchedBy"> | undefined; createdAt: number };
+
+/** A lead and the agents it started, or a session standing on its own (`agents` empty). */
+export type Nested<T> = { row: T; agents: T[] };
+
+/**
+ * Which rows are leads and which are their agents — the one definition of "lead / agent" that the
+ * sidebar, the space's Sessions page and anything else that lists sessions share.
+ *
+ * A row is an agent when its session was started by another (`isChild`) and that other is among
+ * `rows` in the same space. It goes under its TOP-MOST such ancestor, so the nest is one level deep
+ * and a grandchild sits beside its parent under the lead the person started. A child whose lead is
+ * not here — deleted, or in another space — stands at the top level as itself: dropping it would lose
+ * a session nobody put away. Fan-outs (`user-dispatch`) have no lead and are not nested.
+ *
+ * Top-level rows keep the order they came in; each lead's agents are in the order they were made.
+ */
+export function nestChildren<T extends NestableRow>(rows: readonly T[]): Nested<T>[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const leadOf = (row: T): T | null => {
+    let lead: T | null = null;
+    const seen = new Set<string>([row.id]);
+    for (let at = row; isChild(at.session);) {
+      const parent = byId.get(at.session!.dispatchedBy!.sessionId ?? "");
+      if (!parent || parent.spaceId !== row.spaceId || seen.has(parent.id)) break;
+      seen.add(parent.id);
+      lead = parent; at = parent;
+    }
+    return lead;
+  };
+  const out = new Map<string, Nested<T>>();
+  const agentsOf = new Map<string, T[]>();
+  for (const r of rows) {
+    const lead = leadOf(r);
+    if (!lead) { out.set(r.id, { row: r, agents: [] }); continue; }
+    const held = agentsOf.get(lead.id);
+    if (held) held.push(r); else agentsOf.set(lead.id, [r]);
+  }
+  for (const [id, agents] of agentsOf) out.get(id)!.agents = agents.sort((a, b) => a.createdAt - b.createdAt);
+  return [...out.values()];
+}
+
+/** The agent most of these sessions run on — the one a list of them need not keep naming. Ties go to
+ *  the agent seen first. Null for no sessions. */
+export function spaceUsualAgent(rows: readonly { session: Pick<Session, "agentKind"> | undefined }[]): Session["agentKind"] | null {
+  const counts = new Map<Session["agentKind"], number>();
+  let best: Session["agentKind"] | null = null;
+  for (const r of rows) {
+    const kind = r.session?.agentKind;
+    if (!kind) continue;
+    const n = (counts.get(kind) ?? 0) + 1;
+    counts.set(kind, n);
+    if (best === null || n > counts.get(best)!) best = kind;
+  }
+  return best;
+}
+
+/** How far up a chain of sub-agents `rootLeadOf` looks. Delegation is one level deep now and was two;
+ *  the cap is what keeps a cycle in bad data from hanging the sidebar. */
+const MAX_HOPS = 4;
+
+/** The session a sub-agent's chain of leads ends at — the one the person started — or null when
+ *  this window does not hold a link in the chain. A session that is nobody's sub-agent is its own. */
+export function rootLeadOf(s: SidebarState, session: Session): string | null {
+  let at: Session | undefined = session;
+  for (let hop = 0; hop < MAX_HOPS && isChild(at); hop++) {
+    const lead: string | null | undefined = at!.dispatchedBy?.sessionId;
+    at = lead ? sessionOf(s, lead) : undefined;
+    if (!at) return null;
+  }
+  return isChild(at) ? null : at!.id;
+}
+
+/** The sessions the sidebar lists as rows, by id — `listedSessions`' rule, without building rows
+ *  (which would ask `agentsWaiting`, and so this, again). */
+function listedIds(s: SidebarState): Set<string> {
+  const rows = sessionItems(s).map((item) => {
+    const session = sessionOf(s, item.refId);
+    return { id: item.refId, item, session, spaceId: s.sessionSpace[item.refId] ?? item.spaceId, createdAt: session?.createdAt ?? item.createdAt };
+  });
+  return new Set(nestChildren(rows).map((n) => n.row).filter((r) => !r.item.archived).map((r) => r.id));
+}
+
+/**
+ * Sub-agents waiting on a request, by the listed lead they roll up to: how many, and the one that has
+ * waited longest. A sub-agent whose lead is not a row this window lists is not here — it keeps a
+ * Needs you row of its own (`needsYou`), so no request is ever left with nowhere to be seen.
+ */
+export function agentsWaiting(s: SidebarState, listed: ReadonlySet<string> = listedIds(s)): Map<string, { count: number; first: string; since: number }> {
+  const out = new Map<string, { count: number; first: string; since: number }>();
+  for (const [id, status] of Object.entries(s.sessionStatus)) {
+    if (status !== "waiting_permission") continue;
+    const session = sessionOf(s, id);
+    if (!session || !isChild(session)) continue;
+    const lead = rootLeadOf(s, session);
+    if (!lead || !listed.has(lead)) continue;
+    const since = s.sessionUpdatedAt[id] ?? session.updatedAt;
+    const held = out.get(lead);
+    if (!held) out.set(lead, { count: 1, first: id, since });
+    else out.set(lead, { count: held.count + 1, ...(since < held.since ? { first: id, since } : { first: held.first, since: held.since }) });
+  }
+  return out;
+}
 
 /** Every live item the window knows of, each once. The window's own list carries every space of its
  *  profile (there is no room any more) and is the fresher of the two, so for those spaces it alone
@@ -126,27 +241,103 @@ export function liveItems(s: SidebarState): Item[] {
  * Every session the sidebar lists as a row, in any space of any profile.
  *
  * A row is a live session ITEM: an archived session is put away (it is on its space's page), the
- * quick chat has no item at all, and a sub-agent is its lead's business. The item's title is the
+ * quick chat has no item at all, and a sub-agent is its lead's business (`nestChildren`) — unless its
+ * lead is gone, when it is a row like any other. The item's title is the
  * row's, because a rename in the sidebar changes the item and not the session.
  */
 export function listedSessions(s: SidebarState): SessionRow[] {
+  const roles = roleSessionIds(s.teams);
+  return nestChildren(sessionRows(s)).map((n) => n.row).filter((r) => !r.item.archived && !roles.has(r.id));
+}
+
+/* ── Teams ─────────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The sessions a team's roles ran. Work a clock or a role starts is not work the person started
+ * (design.md), so these are not rows of their own: a role's row carries their state, and its page
+ * lists them. Waiting on a permission, one is still in Needs you — a question is never left with
+ * nowhere to be seen.
+ */
+export function roleSessionIds(teams: Readonly<Record<string, TeamSpace>>): Set<string> {
+  const out = new Set<string>();
+  for (const t of Object.values(teams)) for (const id of t.runSessionIds) out.add(id);
+  return out;
+}
+
+/** A team's reviews waiting on a person, oldest first. */
+export function waitingReviews(team: TeamSpace | undefined): TeamReviewSummary[] {
+  return (team?.reviews ?? []).filter((r) => r.state === "waiting").sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** The one mark a role's row wears at its far end — a session row's vocabulary: working, waiting on
+ *  you, or the unread ring when its last run finished unseen. Idle, queued and paused say nothing
+ *  there (the tooltip does). */
+export function roleMark(role: TeamRole): { mark: "running" | "waiting_permission" | "unseen"; label: string } | null {
+  if (role.state === "waiting") return { mark: "waiting_permission", label: "waiting on you" };
+  if (role.state === "working") return { mark: "running", label: "working" };
+  return role.unread ? { mark: "unseen", label: "finished a run you have not read" } : null;
+}
+
+/** The Team row's tally: its roles, counted the way a section counts its sessions. */
+export function teamTally(team: TeamSpace): Tally {
+  const t: Tally = { waiting: 0, running: 0, failed: 0, unread: 0 };
+  for (const r of team.roles) {
+    if (r.state === "waiting") t.waiting++;
+    else if (r.state === "working") t.running++;
+    else if (r.unread) t.unread++;
+  }
+  return t;
+}
+
+/** A review waiting on a person, as a Needs you row. */
+export type ReviewNeedsRow = { review: TeamReviewSummary; spaceId: string; since: number };
+
+/** Every review waiting on a person, in every space this window knows, oldest first. */
+export function reviewsNeedingYou(s: SidebarState): ReviewNeedsRow[] {
+  const known = new Set(s.spaces.map((sp) => sp.id));
+  return Object.values(s.teams).filter((t) => known.has(t.spaceId))
+    .flatMap((t) => waitingReviews(t).map((review) => ({ review, spaceId: t.spaceId, since: review.createdAt })))
+    .sort((a, b) => a.since - b.since);
+}
+
+/** A session item as a row, with the live facts laid over it. `waiting` is `agentsWaiting`'s answer,
+ *  for a caller building many rows at once. */
+export function sessionRowOf(s: SidebarState, item: Item, waiting: ReturnType<typeof agentsWaiting> = agentsWaiting(s)): SessionRow {
+  const session = sessionOf(s, item.refId);
+  return {
+    kind: "session", id: item.refId, item, session,
+    title: item.title || session?.title || "",
+    spaceId: s.sessionSpace[item.refId] ?? item.spaceId,
+    status: s.sessionStatus[item.refId] ?? session?.status,
+    unread: session ? isUnread(session) : false,
+    scheduled: session?.dispatchedBy?.kind === "run",
+    at: s.sessionActivityAt[item.refId] ?? session?.activityAt ?? item.createdAt,
+    createdAt: session?.createdAt ?? item.createdAt,
+    agentsWaiting: waiting.get(item.refId)?.count ?? 0,
+    firstWaiting: waiting.get(item.refId)?.first ?? null,
+  };
+}
+
+/**
+ * Every session item the window holds, put away or not, each once — sub-agents included. Archived
+ * rows are here so that an agent under an archived lead stays under it rather than surfacing as a
+ * row of its own. The window's own list is trusted for its spaces, as in `liveItems`; the quick chat
+ * has no item.
+ */
+export function sessionRows(s: SidebarState): SessionRow[] {
+  const waiting = agentsWaiting(s);
+  return sessionItems(s).map((item) => sessionRowOf(s, item, waiting));
+}
+
+/** `sessionRows`' items: every session item, put away or not, each once, the quick chat left out. */
+function sessionItems(s: SidebarState): Item[] {
+  const mine = new Set(s.spaces.filter((sp) => sp.profileId === s.activeProfileId).map((sp) => sp.id));
   const seen = new Set<string>();
-  const out: SessionRow[] = [];
-  for (const item of liveItems(s)) {
+  const out: Item[] = [];
+  for (const item of [...s.items, ...s.allItems.filter((x) => !mine.has(x.spaceId))]) {
     if (item.kind !== "session" || seen.has(item.refId) || item.refId === s.quickChatId) continue;
     seen.add(item.refId);
-    const session = sessionOf(s, item.refId);
-    if (isChild(session)) continue;
-    out.push({
-      kind: "session", id: item.refId, item, session,
-      title: item.title || session?.title || "",
-      spaceId: s.sessionSpace[item.refId] ?? item.spaceId,
-      status: s.sessionStatus[item.refId] ?? session?.status,
-      unread: session ? isUnread(session) : false,
-      scheduled: session?.dispatchedBy?.kind === "run",
-      at: s.sessionUpdatedAt[item.refId] ?? session?.updatedAt ?? item.updatedAt,
-      createdAt: session?.createdAt ?? item.createdAt,
-    });
+    out.push(item);
   }
   return out;
 }
@@ -155,7 +346,7 @@ export function listedSessions(s: SidebarState): SessionRow[] {
 export function tallyOf(rows: readonly SessionRow[]): Tally {
   const t: Tally = { waiting: 0, running: 0, failed: 0, unread: 0 };
   for (const r of rows) {
-    if (r.status === "waiting_permission") t.waiting++;
+    if (r.status === "waiting_permission" || r.agentsWaiting > 0) t.waiting++;
     else if (r.status === "running") t.running++;
     else if (r.status === "error") t.failed++;
     else if (r.unread) t.unread++;
@@ -181,6 +372,8 @@ export function spaceTally(s: SidebarState, spaceId: string, rows: readonly Sess
   for (const r of rows) {
     if (r.spaceId === spaceId && r.status !== "waiting_permission" && r.status !== "running" && r.status !== "error" && r.unread) t.unread++;
   }
+  // A batch in Review is waiting on you as surely as a session's question is.
+  t.waiting += waitingReviews(s.teams[spaceId]).length;
   return t;
 }
 
@@ -189,18 +382,21 @@ const fanOutCandidate = (r: SessionRow): boolean =>
   r.session?.dispatchedBy?.kind === "user-dispatch" && r.session.dispatchedBy.sessionId === null;
 
 /**
- * How much a row asks for a look: waiting on you or failed, then working, then something new, then
- * the rest. A section shows what needs you before what is merely recent — a session working for an
- * hour last moved when it started, and ordering by that alone would bury it under "Show more".
+ * How much a row asks for a look: waiting on you or failed, then working, then the rest. A section
+ * shows what needs you before what is merely recent — a session working for an hour last moved when
+ * it started, and ordering by that alone would bury it under "Show more".
+ *
+ * Unread is NOT a rank. Opening a session reads it, and a rank that reading changes is a row that
+ * jumps away from under the click that selected it; the ring on the row says it is unread.
  */
 export function attentionRank(r: ListRow): number {
   if (r.kind === "fan-out") {
     const t = r.tally;
-    return t.waiting + t.failed > 0 ? 0 : t.running > 0 ? 1 : t.unread > 0 ? 2 : 3;
+    return t.waiting + t.failed > 0 ? 0 : t.running > 0 ? 1 : 2;
   }
-  if (r.status === "waiting_permission" || r.status === "error") return 0;
-  if (r.status === "running") return 1;
-  return r.unread ? 2 : 3;
+  // A lead whose sub-agents wait is waiting on you too: the request is answered from it.
+  if (r.status === "waiting_permission" || r.status === "error" || r.agentsWaiting > 0) return 0;
+  return r.status === "running" ? 1 : 2;
 }
 
 /**
@@ -276,20 +472,28 @@ export type NeedsYouRow = {
  * longest-waiting first, then the failed.
  *
  * Waiting is always listed: a question nobody sees is a session stuck for as long as nobody looks,
- * whether or not it has a row (a sub-agent's question blocks its lead) and whether or not it was put
- * away. A failure is listed until it is read — a session opened since it failed has told you — and
- * only where it is a row the person owns: a sub-agent's failure is reported to its lead, and an
- * archived session is one they put away.
+ * whether or not it was put away. A sub-agent's request is the one exception, and only where its
+ * lead is a row: it is said on the lead's row as a count and answered in the lead's Agents tab,
+ * because the person started the lead, not the child (`agentsWaiting`). A sub-agent whose lead this
+ * window does not list keeps its own row here — a request is never left with nowhere to be seen. A
+ * failure is listed until it is read — a session opened since it failed has told you — and only
+ * where it is a row the person owns: a sub-agent's failure is reported to its lead, and an archived
+ * session is one they put away.
  */
 export function needsYou(s: SidebarState): NeedsYouRow[] {
   const titles = new Map<string, string>();
   for (const item of liveItems(s)) if (item.kind === "session") titles.set(item.refId, item.title);
+  const listed = listedIds(s);
   const out: NeedsYouRow[] = [];
   for (const [id, status] of Object.entries(s.sessionStatus)) {
     if (status !== "waiting_permission" && status !== "error") continue;
     if (id === s.quickChatId) continue;
     const session = sessionOf(s, id);
     if (!session) continue;
+    if (status === "waiting_permission" && isChild(session)) {
+      const lead = rootLeadOf(s, session);
+      if (lead && listed.has(lead)) continue;
+    }
     if (status === "error") {
       const caughtUp = session.seenSeq > 0 && session.lastEventSeq <= session.seenSeq;
       if (caughtUp || isChild(session) || !titles.has(id)) continue;
@@ -328,10 +532,10 @@ export function pinnedItems(s: SidebarState, spaces: readonly Space[]): Item[] {
  * first, then whichever moved most recently (`spaceActivity`). A sorted copy: turning the setting
  * off lands on the hand-made order, untouched.
  */
-export function orderSpaces(spaces: readonly Space[], byActivity: boolean, s: Pick<SidebarState, "sessionStatus" | "sessionSpace" | "sessionUpdatedAt">): Space[] {
+export function orderSpaces(spaces: readonly Space[], byActivity: boolean, s: Pick<SidebarState, "sessionStatus" | "sessionSpace" | "sessionActivityAt">): Space[] {
   if (!byActivity) return [...spaces];
   const score = (id: string) => spaceActivity(s.sessionStatus as Record<string, SessionStatus>, s.sessionSpace as Record<string, string>,
-    s.sessionUpdatedAt as Record<string, number>, id);
+    s.sessionActivityAt as Record<string, number>, id);
   return [...spaces].sort((a, b) => score(b.id) - score(a.id));
 }
 

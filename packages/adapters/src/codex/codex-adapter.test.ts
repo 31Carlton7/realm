@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { HIDDEN_ANSWER, type SessionEvent, type SessionEventOf, type SessionEventType } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
-import type { AgentHandle, StartOptions } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS, type AgentHandle, type StartOptions } from "../types";
 
 /**
  * Every assertion in this file is gated on a real child process: node cold start, module load and at least one
@@ -633,6 +633,66 @@ describe("CodexAdapter", () => {
     await stopped.handle.dispose();
   });
 
+  describe("an MCP tool approval", () => {
+    const reply = (evs: SessionEvent[]) => JSON.parse(texts(evs)[0]!.slice("elicited ".length)) as Record<string, unknown>;
+
+    it("is a tool permission card naming the tool, and Allow runs it", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      const req = of(evs, "permission_request")[0]!.payload;
+      expect(req).toMatchObject({ toolName: "mcp__realm__realm-agent__agent_peers", input: { scope: "space" },
+        title: 'Allow the realm MCP server to run tool "realm-agent__agent_peers"?', suggestions: [] });
+      expect(req.ask).toBeUndefined();
+      expect(statuses(evs).at(-1)).toBe("waiting_permission");
+      handle.respondPermission(req.requestId, "allow");
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      expect(reply(evs)).toEqual({ action: "accept", content: {}, _meta: null });
+      expect(of(evs, "permission_response")[0]!.payload).toEqual({ requestId: req.requestId, decision: "allow" });
+      await handle.dispose();
+    });
+
+    it("never asks Codex to remember the grant, even for Always allow", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "allow_always");
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      expect(reply(evs)).toEqual({ action: "accept", content: {}, _meta: null });
+      await handle.dispose();
+    });
+
+    it("declines on Deny", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      expect(reply(evs)).toEqual({ action: "decline", content: null, _meta: null });
+      await handle.dispose();
+    });
+
+    it("cancels when the turn is stopped", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      await handle.interrupt();
+      await waitFor(() => expect(texts(evs).join("")).toContain("elicited"));
+      expect(reply(evs)).toEqual({ action: "cancel", content: null, _meta: null });
+      await handle.dispose();
+    });
+
+    it("leaves a plain empty form refused, as before", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITEMPTY", attachments: [] });
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      expect(reply(evs)).toMatchObject({ action: "decline" });
+      expect(of(evs, "permission_request")[0]!.payload.ask?.refused).toMatch(/nothing to fill in/);
+      expect(statuses(evs)).not.toContain("waiting_permission");
+      await handle.dispose();
+    });
+  });
+
   it("steers into a live turn rather than starting a second one", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "HANG", attachments: [] });
@@ -1090,6 +1150,12 @@ describe("codexMcpConfig", () => {
     // still up, and the answer the user gives afterwards goes nowhere.
     expect(GATEWAY_TOOL_TIMEOUT_SEC).toBeGreaterThan(15 * 60);
     expect((codexMcpConfig([http])!.mcp_servers as Record<string, Record<string, unknown>>).vercel!.tool_timeout_sec).toBe(GATEWAY_TOOL_TIMEOUT_SEC);
+  });
+
+  it("waits as long as Claude does on the gateway — an agent_wait at its full hour is not cut off at sixteen minutes", () => {
+    // THE MUTANT: the old 16-minute literal. A Codex lead's 30-minute agent_wait was killed half-way.
+    expect(GATEWAY_TOOL_TIMEOUT_SEC * 1000).toBe(GATEWAY_TOOL_TIMEOUT_MS);
+    expect(GATEWAY_TOOL_TIMEOUT_SEC).toBeGreaterThan(60 * 60);
   });
 
   it("omits empty args and env rather than sending empty collections", () => {

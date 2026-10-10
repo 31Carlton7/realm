@@ -17,6 +17,35 @@ describe("FakeAdapter", () => {
     expect(got.indexOf("permission_request")).toBeLessThan(got.indexOf("tool_result"));
     await h.dispose();
   });
+  it("runs a scripted permission without a card under Full access, set at start or later, and still asks a question", async () => {
+    // THE MUTANT: needsPermission ignores the mode — a Full access child would hold on a card the
+    // real agents never raise, and a live check could not prove a child inherited Full access.
+    const script = [{ on: "go", emit: [
+      { kind: "tool" as const, name: "Bash", input: { command: "ls" }, needsPermission: true, result: "a b" },
+      { kind: "tool" as const, name: "AskUserQuestion", input: { questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] }, needsPermission: true, result: "answered" },
+    ] }];
+    const turn = async (h: ReturnType<FakeAdapter["start"]>): Promise<string[]> => {
+      const asked: string[] = [];
+      const done = (async () => { for await (const e of h.events) {
+        if (e.type === "permission_request") { asked.push(e.payload.toolName); h.respondPermission(e.payload.requestId, "allow"); }
+        if (e.type === "status" && e.payload.status === "idle" && asked.includes("AskUserQuestion")) break;
+      } })();
+      await h.send({ text: "go", attachments: [] });
+      await done;
+      return asked;
+    };
+    const born = new FakeAdapter({ script }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions" });
+    expect(await turn(born)).toEqual(["AskUserQuestion"]);
+    await born.dispose();
+    const raised = new FakeAdapter({ script }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+    await raised.setOptions({ permissionMode: "bypassPermissions" });
+    expect(await turn(raised)).toEqual(["AskUserQuestion"]);
+    await raised.dispose();
+    const asks = new FakeAdapter({ script }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+    expect(await turn(asks)).toEqual(["Bash", "AskUserQuestion"]);
+    await asks.dispose();
+  });
+
   it("paces a text step a word at a time when asked, and ends it on the whole text", async () => {
     const a = new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "one two  three", paceMs: 5 }] }] });
     const h = a.start({ cwd: "/tmp", mcpServers: [] });
@@ -72,6 +101,55 @@ describe("FakeAdapter", () => {
     const c = (async () => { for await (const e of h.events) { types.push(e.type); if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "deny"); if (e.type === "status" && e.payload.status === "idle" && types.includes("permission_response")) break; } })();
     h.send({ text: "x", attachments: [] }); await c;
     expect(types).not.toContain("tool_result"); await h.dispose();
+  });
+});
+describe("FakeAdapter, scripting a goal", () => {
+  /** The text of every whole message one turn of `text` produced. */
+  async function say(a: FakeAdapter, text: string): Promise<string[]> {
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const said: string[] = []; let running = false;
+    const c = (async () => { for await (const e of h.events) {
+      if (e.type === "status" && e.payload.status === "running") running = true;
+      if (e.type === "assistant_text") said.push(e.payload.text);
+      if (e.type === "status" && e.payload.status === "idle" && running) break;
+    } })();
+    await h.send({ text, attachments: [] }); await c;
+    await h.dispose();
+    return said;
+  }
+
+  it("picks a goal's turn by its number, and falls back to the objective's own entry", async () => {
+    // THE mutant ignores `turn`: the first entry for the objective answers every continuation, and a
+    // live check cannot script "turn 3 closes the goal".
+    const a = new FakeAdapter({ script: [
+      { on: "ship it", turn: 3, emit: [{ kind: "text", text: "third" }] },
+      { on: "ship it", emit: [{ kind: "text", text: "any other" }] },
+    ] });
+    expect(await say(a, "Continue working towards this objective:\n\nship it\n\nThis is turn 3. You have used 0 tokens.")).toEqual(["third"]);
+    expect(await say(a, "Continue working towards this objective:\n\nship it\n\nThis is turn 30. You have used 0 tokens.")).toEqual(["any other"]);
+    expect(await say(a, "ship it")).toEqual(["any other"]);
+  });
+
+  it("idles: one line and no tool call", async () => {
+    const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "idle" }] }] });
+    expect(await say(a, "x")).toEqual(["Nothing has changed since the last turn."]);
+  });
+
+  it("calls a tool with the arguments the message ends with, over the scripted ones", async () => {
+    const a = new FakeAdapter({ script: [{ on: "read", emit: [{ kind: "call", tool: "realm-browser__browser_read", input: { kind: "text", browserId: "unset" }, argsFromMessage: true }] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const calls: unknown[] = [];
+    const c = (async () => { for await (const e of h.events) { if (e.type === "tool_call") calls.push(e.payload.input); if (e.type === "tool_result") break; } })();
+    await h.send({ text: 'S6 read {"browserId": "b42"}', attachments: [] }); await c;
+    // THE MUTANT: the scripted input as written. The live check can then never name a pane it only
+    // learned the id of at run time.
+    expect(calls).toEqual([{ kind: "text", browserId: "b42" }]);
+    await h.dispose();
+  });
+
+  it("says why it cannot list tools when it was handed no gateway", async () => {
+    const a = new FakeAdapter({ script: [{ on: "x", emit: [{ kind: "list" }] }] });
+    expect(await say(a, "x")).toEqual(["tools/list failed: no Realm gateway was handed to this session"]);
   });
 });
 describe("FakeAdapter lifecycle", () => {

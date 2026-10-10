@@ -13,7 +13,7 @@ import { fakeApi, item, profile, session, space } from "../../state/store.test-f
 
 const DAY = 86_400_000;
 const chat = (id: string, spaceId: string, at: number, over: Partial<Session> = {}): Session =>
-  session(id, spaceId, { title: `chat ${id}`, updatedAt: at, createdAt: at, ...over });
+  session(id, spaceId, { title: `chat ${id}`, activityAt: at, createdAt: at, ...over });
 
 async function mount(sessions: Session[], extra: { archived?: string[] } = {}) {
   const spaces = [space("s1", "p1", "Work"), space("s2", "p1", "Homework"), space("s3", "p2", "Lectures")];

@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useState } from "react";
-import { itemIdOfLeaf } from "@realm/contracts";
+import { AGENT_META, itemIdOfLeaf, type Item } from "@realm/contracts";
 import { sessionMark } from "../../state/attention";
 import { useApp } from "../../state/store";
 import { RenameInput } from "../RenameInput";
@@ -12,12 +12,17 @@ import { useArchiveAnywhere } from "./use-sidebar-model";
 /**
  * A tally at a row's far end: how many are waiting on you and how many are working, each a count
  * with the mark the rows themselves wear — the dot keeps the far end, so a column of sections lines
- * its marks up with the session rows under them. Failures and unread are in the words (the row's
- * accessible name and tooltip); Needs you and the rows carry those marks.
+ * its marks up with the session rows under them. Unread joins them only when nothing is waiting or
+ * working, as a session row wears it only with no state to show: a folded space whose only news is a
+ * finished turn would otherwise say nothing at all. Failures are in the words (the row's accessible
+ * name and tooltip); Needs you and the rows carry that mark.
  */
 export function TallyMarks({ tally }: { tally: Tally }) {
   return (
     <>
+      {tally.unread > 0 && tally.waiting + tally.running === 0 && (
+        <span className="item-tally"><span className="item-count">{tally.unread}</span><span className="status-dot item-status" data-status="unseen" /></span>
+      )}
       {tally.waiting > 0 && (
         <span className="item-tally"><span className="item-count">{tally.waiting}</span><span className="status-dot item-status" data-status="waiting_permission" /></span>
       )}
@@ -44,11 +49,18 @@ export function ListRowView({ row, where, nested = false, onChanged }: { row: Li
  * takes); ⌘-click opens it BESIDE the one in focus — the window's one split. The row of the session
  * in focus is lit, whichever space it is in. A session a schedule started wears a clock — in
  * the gutter under its section's icon when nested, so its title stays on the column the others use.
+ *
+ * `pinned` is the same row under Pinned: its lead is the agent's mark rather than the chat glyph, its
+ * space goes to the name and the tooltip rather than the line (the title is what tells pins apart),
+ * and the one action under the pointer is Unpin — what a person does to a pin.
  */
-export function SessionRowView({ row, where, nested = false, onChanged }: { row: SessionRow; where?: string; nested?: boolean; onChanged: () => void }) {
+export function SessionRowView({ row, where, nested = false, pinned = false, onChanged }: {
+  row: SessionRow; where?: string; nested?: boolean; pinned?: boolean; onChanged: () => void;
+}) {
   const layout = useApp((s) => s.layout);
   const focused = useApp((s) => (s.layout ? itemIdOfLeaf(s.layout, s.focusedLeafId) === row.item.id : false));
   const revealSession = useApp((s) => s.revealSession);
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
   const openItemBeside = useApp((s) => s.openItemBeside);
   const run = useApp((s) => s.run);
   const archive = useArchiveAnywhere(onChanged);
@@ -56,37 +68,65 @@ export function SessionRowView({ row, where, nested = false, onChanged }: { row:
   const [dragging, setDragging] = useState(false);
   const { onContextMenu, element } = useItemContextMenu(() => setRenaming(true), { onChanged });
   const mark = sessionMark(row.status, row.unread);
-  const named = `${row.title}${row.scheduled ? ", from a schedule" : ""}${where ? ` in ${where}` : ""}`;
+  const agents = row.agentsWaiting > 0 ? `${row.agentsWaiting} sub-agent${row.agentsWaiting === 1 ? " needs" : "s need"} you` : "";
+  const named = `${row.title}${row.scheduled ? ", from a schedule" : ""}${where ? ` in ${where}` : ""}${agents ? `, ${agents}` : ""}`;
+  const said = mark ? `${named} — ${mark.label}` : named;
+  const agent = row.session ? AGENT_META[row.session.agentKind] : null;
+  // A lead with sub-agents waiting opens on the one that has waited longest, in its Agents tab, where
+  // the request is answered.
+  const open = async () => {
+    await revealSession(row.id, row.spaceId);
+    if (row.firstWaiting) await openAgentsTab(row.id, { childId: row.firstWaiting });
+  };
   return (
     // Every space of the profile is loaded, so any row can be dragged into the view or lit as its focus.
-    <div className="item sb-row" data-nested={nested || undefined} data-active={focused || undefined} data-actions="1"
+    <div className="item sb-row" data-nested={nested || undefined} data-active={focused || undefined} data-unread={mark?.mark === "unseen" || undefined} data-actions="1"
       data-dragging={dragging || undefined} draggable
       onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", row.item.id); e.dataTransfer.effectAllowed = "move"; setDragging(true); }}
       onDragEnd={() => setDragging(false)} onContextMenu={onContextMenu(row.item)}>
       {renaming ? <RenameInput item={row.item} onDone={() => { setRenaming(false); onChanged(); }} /> : (
         <>
-          <button type="button" className="item-row" aria-label={mark ? `${named} — ${mark.label}` : named}
-            onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : revealSession(row.id, row.spaceId)))}>
+          <button type="button" className="item-row" aria-label={said} title={pinned ? said : undefined}
+            onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : open()))}>
             {nested
               ? <span className="sb-gutter" title={row.scheduled ? "Started by a schedule" : undefined}>{row.scheduled && <Icon name="clock" size={12} />}</span>
-              : <Icon name={row.scheduled ? "clock" : "session"} size={16} />}
+              : <Icon name={pinned && agent ? agent.icon : row.scheduled ? "clock" : "session"} size={16} />}
             <span className="item-title">{row.title}</span>
-            {where && <span className="item-where">{where}</span>}
+            {where && !pinned && <span className="item-where">{where}</span>}
             <span className="item-trail">
+              {row.agentsWaiting > 0 && (
+                <span className="item-tally" title={agents}><span className="item-count">{row.agentsWaiting}</span><span className="status-dot item-status" data-status="waiting_permission" /></span>
+              )}
               {mark && <span className="status-dot item-status" data-status={mark.mark} title={mark.mark === "unseen" ? "New since you were here" : mark.label} />}
               {/* The pane glyph W1 draws, for a session on screen in a split: which side it is. */}
               {layout && <ItemGlyph layout={layout} itemId={row.item.id} />}
             </span>
           </button>
           <span className="item-actions">
-            <button type="button" className="item-shelf" aria-label={`Archive ${row.title}`} title="Archive" onClick={() => archive(row.item)}>
-              <Icon name="archive" size={12} />
-            </button>
+            {pinned
+              ? <UnpinButton item={row.item} onChanged={onChanged} />
+              : (
+                <button type="button" className="item-shelf" aria-label={`Archive ${row.title}`} title="Archive" onClick={() => archive(row.item)}>
+                  <Icon name="archive" size={12} />
+                </button>
+              )}
           </span>
         </>
       )}
       {element}
     </div>
+  );
+}
+
+/** A pin's one action under the pointer. The menu's Unpin, a click closer. */
+export function UnpinButton({ item, onChanged }: { item: Item; onChanged: () => void }) {
+  const updateItem = useApp((s) => s.updateItem);
+  const run = useApp((s) => s.run);
+  return (
+    <button type="button" className="item-shelf" aria-label={`Unpin ${item.title}`} title="Unpin"
+      onClick={() => run(async () => { await updateItem({ id: item.id, pinned: false }); onChanged(); })}>
+      <Icon name="unpin" size={12} />
+    </button>
   );
 }
 

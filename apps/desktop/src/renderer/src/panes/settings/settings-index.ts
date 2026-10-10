@@ -9,7 +9,7 @@ export type SettingsTab =
   | "general" | "appearance" | "keys" | "notifications"
   | "engines" | "usage"
   | "signins"
-  | "permissions" | "computer-use"
+  | "permissions" | "computer-use" | "lab"
   | "import" | "archived";
 
 /**
@@ -27,7 +27,7 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
   ] },
   { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }] },
   { label: "Browser", tabs: [{ id: "signins", label: "Sign-ins", icon: "key" }] },
-  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }] },
+  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }, { id: "lab", label: "Lab", icon: "serverStack" }] },
   { label: "Data", tabs: [{ id: "import", label: "Import", icon: "inboxDownload" }, { id: "archived", label: "Archived", icon: "archive" }] },
 ];
 
@@ -151,12 +151,21 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "saved-signins", tab: "signins", label: "Saved sign-ins", terms: "password credential login account generated agent sign-up" },
   { id: "passkeys", tab: "signins", label: "Passkeys", terms: "webauthn" },
   { id: "touch-id", tab: "signins", label: "Touch ID", terms: "fingerprint presence biometric" },
+  { id: "unlock-policy", tab: "signins", label: "Unlock sign-ins with", terms: "touch id password session without asking unattended lab mac mini headless policy" },
 
   // Permissions
   { id: "computer-control", tab: "computer-use", label: "Computer control", terms: "accessibility screen recording grant macos" },
   { id: "computer-spaces", tab: "computer-use", label: "Computer control in each space", terms: "realm-computer apps always allowed bundle switch drive" },
   { id: "mac-apps", tab: "permissions", label: "Apps on this Mac", terms: "calendar reminders contacts mail messages notes automation full disk access grant macos" },
   { id: "realm-access", tab: "permissions", label: "Realm's own access", terms: "files folders full disk grant macos" },
+
+  // Lab
+  { id: "lab-mode", tab: "lab", label: "This Mac is a lab", terms: "mac mini always on unattended headless team phones" },
+  { id: "lab-readiness", tab: "lab", label: "Ready to be left alone", terms: "checklist sleep pmset power failure restart automatic login filevault display dummy hdmi disk space network ups touch id keyboard" },
+  { id: "lab-update-hour", tab: "lab", section: "Update window", label: "Install updates at", terms: "update window drain night hour" },
+  { id: "lab-update-cap", tab: "lab", section: "Update window", label: "Wait for running work", terms: "update drain cap runs" },
+  { id: "lab-devices", tab: "lab", label: "Devices", terms: "iphone phone simulator android udid accounts team registry" },
+  { id: "lab-reach", tab: "lab", section: "Reach this Mac", label: "From your laptop", terms: "screen sharing vnc machine remote bonjour local address" },
 
   // Import
   { id: "import", tab: "import", label: "Import from the agent CLIs", terms: "claude codex cursor transcripts memory skills history", page: true },

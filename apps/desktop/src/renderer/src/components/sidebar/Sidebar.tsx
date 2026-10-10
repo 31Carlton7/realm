@@ -1,10 +1,10 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useApp, useProfileSpaces } from "../../state/store";
 import { usePageNavHost } from "../page-nav";
 import { useDissolve } from "../ScrollFades";
 import { NeedsYou } from "./NeedsYou";
-import { PinnedGrid } from "./PinnedGrid";
+import { PinnedList } from "./PinnedList";
 import { ProfileSwitcher } from "./ProfileSwitcher";
 import { RecentList } from "./RecentList";
 import { SidebarHeader } from "./SidebarHeader";
@@ -117,17 +117,18 @@ function PageNavColumn({ label, back, title, setSlot }: {
   );
 }
 
-/** The profile's own favourites, from any of its spaces, small. */
+/** The profile's own favourites, from any of its spaces, with the state their rows below wear. */
 function Pinned({ onChanged }: { onChanged: () => void }) {
   const state = useSidebarState();
   const spaces = useProfileSpaces();
   const items = useMemo(() => pinnedItems(state, spaces), [state, spaces]);
+  const spaceName = useCallback((id: string) => spaces.find((sp) => sp.id === id)?.name, [spaces]);
   const open = useOpenAnywhere();
   if (items.length === 0) return null;
   return (
     <section className="sb-pinned" aria-label="Pinned">
       <div className="group-label">Pinned</div>
-      <PinnedGrid items={items} onOpen={open} onChanged={onChanged} />
+      <PinnedList items={items} state={state} spaceName={spaceName} onOpen={open} onChanged={onChanged} />
     </section>
   );
 }
