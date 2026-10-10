@@ -19,7 +19,7 @@ const fireChange = (p: { environmentId: string; path: string; hash: string | nul
   act(() => { for (const cb of [...listeners]) cb(p); });
 };
 
-import { DocumentsPane } from "./DocumentsPane";
+import { DocumentsPane, unshownReason } from "./DocumentsPane";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 import { exited } from "../../components/popover-exit.test-fakes";
@@ -327,5 +327,15 @@ describe("the code editor's own cursors follow the caret, not the terminal", () 
 
     act(() => store.setState({ terminalCursorBlink: true, caret: { ...CARET_DEFAULT, animation: "solid" } }));
     await waitFor(async () => expect(await rate()).toBe("0ms"));
+  });
+});
+
+describe("a file the pane cannot show", () => {
+  it("says why in a sentence, from the read's refusal", () => {
+    const err = (code: string, message = "x") => Object.assign(new Error(message), { code });
+    expect(unshownReason("/a/huge.md", err("TOO_LARGE"))).toEqual({ says: "huge.md is too large to show here. The pane opens files up to 2 MB.", gone: false });
+    expect(unshownReason("/a/blob.json", err("BINARY"))).toEqual({ says: "blob.json is not text, so the pane cannot show it.", gone: false });
+    expect(unshownReason("/a/latin.ts", err("NOT_UTF8"))).toEqual({ says: "latin.ts is not UTF-8 text, so the pane cannot show it.", gone: false });
+    expect(unshownReason("/a/gone.md", err("INTERNAL", "ENOENT: no such file or directory, stat '/a/gone.md'"))).toEqual({ says: "gone.md is no longer on disk.", gone: true });
   });
 });

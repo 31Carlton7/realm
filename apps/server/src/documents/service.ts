@@ -1,5 +1,5 @@
 import { readdir, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import {
   documentTemplate, emptyGuideProgress, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace, type GuideProgress,
@@ -38,6 +38,10 @@ export class DocumentService {
     /** Plan 22: the loopback listener guides and PDFs are framed from. Optional so the unit tests
      *  that never preview need not bind a port. */
     preview?: DocumentPreviewServer;
+    /** Whether a session recorded this absolute path, or a person added it to the Library
+     *  (`ArtifactsStore.records`): the files outside the root this pane may READ. Absent, it reads
+     *  nothing outside the root, which is what every test that never lists a file wants. */
+    recorded?: (abs: string) => boolean;
   }) {
     this.watcher = new DocumentWatcher((abs, hash) => this.onFileChanged(abs, hash));
   }
@@ -175,7 +179,7 @@ export class DocumentService {
     const root = this.rootOf(ws);
     // Validate every path before storing any of them — a rejected tab must not leave the strip
     // half-written.
-    const abs = openPaths.map((rel) => resolveInRoot(root, rel));
+    const abs = openPaths.map((p) => this.resolveReadable(root, p));
     const updated = this.d.documents.setTabs(documentsId, openPaths, activePath);
     if (!updated) throw new NotFoundError("documents", documentsId);
     await this.syncWatches(documentsId, new Set(abs));
@@ -250,7 +254,7 @@ export class DocumentService {
    */
   async read(documentsId: string, path: string): Promise<{ text: string; hash: string }> {
     const ws = this.get(documentsId);
-    const abs = resolveInRoot(this.rootOf(ws), path);
+    const abs = this.resolveReadable(this.rootOf(ws), path);
     const r = await readDocument(abs, { refuseBinary: true });
     // Reading is what a tab opening does, so it is also the moment the watcher must learn this file's
     // current content — otherwise the first outside edit is compared against nothing.
@@ -307,6 +311,23 @@ export class DocumentService {
 
   // ---------------------------------------------------------------- internals
 
+  /**
+   * A path this pane may READ: one under the root, as every tab is, or the ABSOLUTE path of a file a
+   * session made or was given somewhere else — another worktree's REPORT.md, a script in a scratch
+   * folder — which the pane's home lists under "This session" and shows read-only.
+   *
+   * Read, never written: `write`, `createFile`, `renameFile` and `list` keep `resolveInRoot`, which
+   * refuses every absolute path, so nothing outside the root is ever changed through this pane. The
+   * match is the recorded string exactly — a `..` composed onto a recorded folder is not recorded.
+   */
+  private resolveReadable(root: string, path: string): string {
+    if (!isAbsolute(path) || path.includes("\0")) return resolveInRoot(root, path);
+    if (!this.d.recorded?.(path)) {
+      throw new RpcError("BAD_PATH", `${path} is outside this space's folder, and no session recorded it`);
+    }
+    return path;
+  }
+
   private titleFor(envPath: string): string {
     return `Documents · ${basename(envPath) || "Space"}`;
   }
@@ -349,7 +370,8 @@ export class DocumentService {
       if (!ws || seen.has(ws.environmentId)) continue;
       const env = this.d.environments.get(ws.environmentId);
       if (!env) continue;
-      const rel = relInRoot(env.path, abs);
+      // A file outside the root is on the strip by its absolute path, and is named by it here too.
+      const rel = relInRoot(env.path, abs) ?? (ws.openPaths.includes(abs) ? abs : null);
       if (rel === null) continue;
       seen.add(ws.environmentId);
       this.d.rpc.broadcast("documents.fileChanged", { environmentId: ws.environmentId, path: rel, hash });

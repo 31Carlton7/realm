@@ -13,7 +13,7 @@ import {
   canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected, type Buffer,
 } from "./buffers";
 import { DocumentsHome } from "./DocumentsHome";
-import { folderName } from "./home-model";
+import { folderName, isOutsideTab, tildePath } from "./home-model";
 import { NewMenu, iconFor } from "./NewMenu";
 import { PreviewFrame } from "./PreviewFrame";
 import { publishShownFile } from "./shown-file";
@@ -32,6 +32,21 @@ const isBinaryKind = (path: string): boolean => {
 };
 
 const baseName = (p: string) => p.split("/").pop() ?? p;
+
+/**
+ * Why a file the pane was asked to open cannot be shown, in a sentence, from the read's refusal. Said
+ * in the pane, where the file was asked for — an empty editor, or a grey stage, says nothing.
+ */
+export function unshownReason(path: string, error: unknown): { says: string; gone: boolean } {
+  const name = baseName(path);
+  const code = (error as { code?: unknown } | null)?.code;
+  const message = error instanceof Error ? error.message : String(error);
+  if (code === "NOT_FOUND" || /ENOENT|no such file/i.test(message)) return { says: `${name} is no longer on disk.`, gone: true };
+  if (code === "TOO_LARGE") return { says: `${name} is too large to show here. The pane opens files up to 2 MB.`, gone: false };
+  if (code === "BINARY") return { says: `${name} is not text, so the pane cannot show it.`, gone: false };
+  if (code === "NOT_UTF8") return { says: `${name} is not UTF-8 text, so the pane cannot show it.`, gone: false };
+  return { says: `${name} could not be read: ${message}`, gone: false };
+}
 
 /**
  * The rich editor is code-split (Plan 17's bundle-weight mitigation): TipTap and ProseMirror are a
@@ -77,6 +92,9 @@ export function DocumentsPane({ item }: PaneProps) {
    *  which is the whole point: the file exists first, and naming it is the next optional keystroke. */
   const [renaming, setRenaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Tabs whose file was asked for and could not be read — too large, not text, gone — with why. The
+   *  tab stays, saying so in the pane, rather than an error far from it and nothing where it was. */
+  const [unshown, setUnshown] = useState<Record<string, { says: string; gone: boolean }>>({});
   // "rich" for prose, "source" for the markdown behind it. Per-pane, not per-file: switching
   // documents keeps the mode the user chose.
   const [mode, setMode] = useState<"rich" | "source">("rich");
@@ -180,8 +198,14 @@ export function DocumentsPane({ item }: PaneProps) {
       if (isBinaryKind(path)) {
         setBuffers((prev) => ({ ...prev, [path]: opened(path, "", "") }));
       } else {
-        const { text, hash } = await readDocument(documentsId, path);
-        setBuffers((prev) => ({ ...prev, [path]: opened(path, text, hash) }));
+        try {
+          const { text, hash } = await readDocument(documentsId, path);
+          setBuffers((prev) => ({ ...prev, [path]: opened(path, text, hash) }));
+          setUnshown((prev) => { const { [path]: _was, ...rest } = prev; return rest; });
+        } catch (e) {
+          setBuffers((prev) => ({ ...prev, [path]: opened(path, "", "") }));
+          setUnshown((prev) => ({ ...prev, [path]: unshownReason(path, e) }));
+        }
       }
     }
     setActive(path);
@@ -214,6 +238,7 @@ export function DocumentsPane({ item }: PaneProps) {
 
   const closeTab = useCallback((path: string) => {
     setBuffers((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
+    setUnshown((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
     const remaining = Object.keys(buffersRef.current).filter((p) => p !== path);
     const nextActive = activeRef.current === path ? (remaining[0] ?? null) : activeRef.current;
     setActive(nextActive);
@@ -223,7 +248,8 @@ export function DocumentsPane({ item }: PaneProps) {
   // ---- autosave ----------------------------------------------------------------------------------
   const save = useCallback(async (path: string) => {
     const b = buffersRef.current[path];
-    if (!b || !canSave(b)) return;
+    // A file outside the space is read-only: nothing here writes it, whatever its buffer says.
+    if (!b || !canSave(b) || isOutsideTab(path)) return;
     const res = await writeDocument(documentsId, path, b.text, b.baseHash);
     if (res.ok) setBuffer(path, (cur) => (cur.text === b.text ? saved(cur, res.hash) : cur));
     else setBuffer(path, (cur) => writeRejected(cur, res.currentText, res.currentHash));
@@ -337,10 +363,11 @@ export function DocumentsPane({ item }: PaneProps) {
       {buf && !showingHome && (
         <>
           <DocumentHead
-            buffer={buf} kind={kind} mode={mode} onSetMode={setMode}
+            buffer={buf} kind={unshown[buf.path] ? "unsupported" : kind} mode={mode} onSetMode={setMode}
             renaming={renaming} onRenaming={setRenaming}
             onRename={(stem) => renameActive(buf.path, stem)} onToolsSlot={setHeadSlot}
           />
+          {isOutsideTab(buf.path) && !unshown[buf.path] && <OutsideNote path={buf.path} />}
           {buf.conflict && (
             <ConflictBar
               onKeepMine={() => { setBuffer(buf.path, keepMine); void save(buf.path); }}
@@ -352,15 +379,18 @@ export function DocumentsPane({ item }: PaneProps) {
             // polite status, and a file vanishing under an open editor is not a polite update.
             <div className="documents-bar warn" role="alert">
               <Icon name="alert" size={12} />
-              <span>This file was deleted on disk. Saving will re-create it.</span>
+              <span>{isOutsideTab(buf.path) ? "This file was deleted on disk." : "This file was deleted on disk. Saving will re-create it."}</span>
             </div>
           )}
-          <Editor
-            buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
-            reveal={reveal?.path === buf.path ? reveal : null} headSlot={headSlot} filePath={shownPath}
-            onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
-            onSave={() => { void save(buf.path); }}
-          />
+          {unshown[buf.path] ? <Unshown path={buf.path} reason={unshown[buf.path]!} /> : (
+            <Editor
+              buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
+              reveal={reveal?.path === buf.path ? reveal : null} headSlot={headSlot} filePath={shownPath}
+              readOnly={isOutsideTab(buf.path)}
+              onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
+              onSave={() => { void save(buf.path); }}
+            />
+          )}
         </>
       )}
     </div>
@@ -400,7 +430,7 @@ function TabStrip({ tabs, active, buffers, home, onHome, onSelect, onClose, menu
               {/* One dot for "not yet on disk", so the tab strip answers "is my work saved?" at a
                   glance. A conflicted tab is marked differently — it needs a decision, not a wait. */}
               {b?.conflict ? <span className="documents-dot conflict" aria-label="Needs attention" />
-                : b?.dirty ? <span className="documents-dot" aria-label="Unsaved" /> : null}
+                : b?.dirty && !isOutsideTab(path) ? <span className="documents-dot" aria-label="Unsaved" /> : null}
             </button>
             <button className="documents-tab-close icon-btn" aria-label={`Close ${baseName(path)}`}
               onClick={() => onClose(path)}><Icon name="close" size={12} /></button>
@@ -425,14 +455,20 @@ function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onR
   onToolsSlot: (el: HTMLElement | null) => void;
 }) {
   const structured = structuredViewFor(kind);
-  const state = buffer.conflict ? "conflict" : buffer.missing ? "missing" : buffer.dirty ? "dirty" : "clean";
-  /* Realm never writes a PDF, so "Saved" beside one claims something nobody did. It still says when
-     the file is gone or needs a decision. */
-  const stateLabel = { conflict: "Needs a decision", missing: "Deleted on disk", dirty: "Saving…", clean: kind === "pdf" ? "" : "Saved" }[state];
+  /* Realm never writes a PDF, and outside the space nothing is saved, so "Saved" beside either would
+     claim a write nobody did. It still says when the file is gone or needs a decision. */
+  const readOnly = isOutsideTab(buffer.path);
+  const state = buffer.missing ? "missing" : readOnly ? "read-only" : buffer.conflict ? "conflict" : buffer.dirty ? "dirty" : "clean";
+  const stateLabel = { conflict: "Needs a decision", missing: "Deleted on disk", dirty: "Saving…", clean: kind === "pdf" ? "" : "Saved", "read-only": "Read-only" }[state];
   return (
     <div className="documents-head">
       <Icon name={iconFor(buffer.path)} size={14} className="documents-head-glyph" />
-      {renaming
+      {readOnly
+        ? <span className="documents-name" title={buffer.path}>
+            {documentStem(buffer.path)}
+            {kind === "code" && documentExtension(buffer.path) && <span className="documents-name-ext">.{documentExtension(buffer.path)}</span>}
+          </span>
+        : renaming
         // Keyed by PATH. The field seeds its value once, on mount, and the active document can change
         // underneath an open field — creating a second document does exactly that. Unkeyed, the field
         // kept the previous document's name, and the next blur committed it onto the new one: a
@@ -492,6 +528,41 @@ function structuredViewFor(kind: DocumentKind): "rich" | "grid" | "preview" | "p
 const structuredLabel = (v: "rich" | "grid" | "preview" | "pdf" | "render"): string =>
   v === "grid" ? "Grid" : v === "preview" ? "Preview" : v === "pdf" ? "PDF" : v === "render" ? "Preview" : "Rich";
 
+/**
+ * The quiet line under a file from outside the space: where it is, that the pane only reads it, and
+ * the way to the folder it is in. Read-only because the pane writes only inside the space's folder —
+ * the boundary an agent's own documents tools keep too.
+ */
+function OutsideNote({ path }: { path: string }) {
+  const folder = tildePath(path.slice(0, path.lastIndexOf("/")) || "/");
+  return (
+    <div className="documents-outside" title={path}>
+      <Icon name="padlock" size={12} />
+      <span className="documents-outside-says">Outside this space · read-only</span>
+      <span className="documents-outside-where">{folder}</span>
+      <button type="button" className="btn-quiet" onClick={() => { void window.realm?.files?.reveal?.(path); }}>Show in Finder</button>
+    </div>
+  );
+}
+
+/** A file the pane was asked for and cannot show — too large, not text, gone — said where it was
+ *  asked for, with the ways out the Finder still has. */
+function Unshown({ path, reason }: { path: string; reason: { says: string; gone: boolean } }) {
+  return (
+    <div className="pane-empty documents-unshown" role="status">
+      {/* off-ladder: an empty state's mark, drawn at the 28 the pane's other empty states use. */}
+      <div className="pane-empty-tile" aria-hidden="true"><Icon name="documents" size={28} /></div>
+      <p className="pane-empty-line">{reason.says}</p>
+      {!reason.gone && (
+        <div className="docs-home-empty-actions">
+          <button type="button" className="btn" onClick={() => { void window.realm?.files?.reveal?.(path); }}>Show in Finder</button>
+          <button type="button" className="btn" onClick={() => { void window.realm?.openAttachment?.(path); }}>Open with the default app</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onTakeTheirs: () => void }) {
   return (
     <div className="documents-bar conflict" role="alert">
@@ -507,10 +578,12 @@ function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onT
  * The editor host. W2 adds the rich Markdown editor for `doc` and `slides`; the source view remains for
  * every kind and is the only view for `sheet` and `latex` until W3 and W5 replace it.
  */
-function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, onChange, onSave }: {
+function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, readOnly, onChange, onSave }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; documentsId: string;
   /** Where a PDF's controls go, and the file on disk for its Open in Preview. */
   headSlot: HTMLElement | null; filePath: string | null;
+  /** A file outside the space: drawn by the same editor, which takes no edits. */
+  readOnly: boolean;
   /** A line asked for from outside the pane. The code editor goes to it; the rich views have no lines
    *  to go to, and open where the reader left off. */
   reveal: { line: number } | null;
@@ -550,7 +623,7 @@ function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, o
                 document's editor state onto another's. */}
             {structured === "grid"
               ? <SheetEditor key={buffer.path} path={buffer.path} text={buffer.text} onChange={onChange} />
-              : <RichTextEditor key={buffer.path} text={buffer.text} onChange={onChange}
+              : <RichTextEditor key={buffer.path} text={buffer.text} onChange={onChange} readOnly={readOnly}
                   scrollKey={`doc:${documentsId}:rich:${buffer.path}`} />}
           </Suspense>
         ) : kind === "code" ? (
@@ -558,12 +631,12 @@ function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, o
             {/* Keyed by path for the same reason the rich editor is: a new file gets a new editor
                 rather than one document's undo history diffed onto another's. */}
             <CodeEditor key={buffer.path} path={buffer.path} text={buffer.text}
-              onChange={onChange} onSave={onSave} blinkCaret={blinkCaret} reveal={reveal}
+              onChange={onChange} onSave={onSave} blinkCaret={blinkCaret} reveal={reveal} readOnly={readOnly}
               scrollKey={`doc:${documentsId}:code:${buffer.path}`} />
           </Suspense>
         ) : (
-          <textarea className="documents-source" ref={sourceScroll} value={buffer.text} spellCheck={false}
-            aria-label={`Edit ${baseName(buffer.path)}`} onChange={(e) => onChange(e.target.value)} />
+          <textarea className="documents-source" ref={sourceScroll} value={buffer.text} spellCheck={false} readOnly={readOnly}
+            aria-label={`${readOnly ? "Read" : "Edit"} ${baseName(buffer.path)}`} onChange={(e) => onChange(e.target.value)} />
         )}
       </div>
     </div>

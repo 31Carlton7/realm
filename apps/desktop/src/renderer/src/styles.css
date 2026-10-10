@@ -8696,6 +8696,19 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .documents-bar > svg { flex: none; }
 .documents-bar span { flex: 1; min-width: 0; }
 .documents-bar .btn-quiet { flex: none; color: inherit; }
+/* A file from outside the space: a quiet line, not a warning — nothing is wrong, the pane only reads
+   it. Where it lives yields first (it is the unbounded part); what it is and the way out keep theirs. */
+.documents-outside {
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding: 5px 12px; font-size: 12px;
+  border-bottom: var(--hairline-w) solid var(--rl-line); color: var(--rl-text-dim);
+}
+.documents-outside > svg { flex: none; color: var(--rl-text-faint); }
+.documents-outside-says { flex: none; }
+.documents-outside-where { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-faint); }
+.documents-outside .btn-quiet { flex: none; }
+/* Outside the space the name is not the rename affordance, so it does not answer the pointer. */
+span.documents-name:hover { background: none; }
+.documents-unshown { flex: 1 1 auto; }
 .documents-error { padding: 8px 12px; font-size: 12px; color: var(--rl-danger); background: var(--red-tint); }
 
 .documents-editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
