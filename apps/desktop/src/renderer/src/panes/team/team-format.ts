@@ -233,6 +233,11 @@ export function activitySentence(a: TeamActivity, actorName: string): { text: st
     case "dismissed": return { text: `You put away ${a.object}`, detail: null };
     case "read_record": return { text: `${actorName} read ${a.object}'s record`, detail: null };
     case "updated_record": return { text: `${actorName === "You" ? "You" : actorName} updated ${a.object}'s record`, detail: str("line") };
+    case "made_record_type": return { text: `You made a kind of record: ${a.object}`, detail: str("folder") ? `${str("folder")}/` : null };
+    case "edited_record_type": return { text: `You changed ${a.object}`, detail: Array.isArray(d.changed) ? (d.changed as string[]).join(", ") : null };
+    case "archived_record_type": return { text: `You archived ${a.object}`, detail: str("folder") ? `its files stay in ${str("folder")}/` : "its files stay" };
+    case "adopted_record_type": return { text: `${a.object} became a kind of record`, detail: d.why === "template" ? "with the creator starters"
+      : d.why === "first-record" ? "with its first record" : str("folder") ? `from the files in ${str("folder")}/` : null };
     case "refused": return typeof d.ticketId === "string" ? refusedAct(a) : { text: `${a.object} needs your yes again`, detail: "a file changed after you approved it" };
     case "handed_off": return { text: `${actorName} handed work to ${a.object}`, detail: [str("note") ? `“${str("note")}”` : null, str("record")].filter(Boolean).join(" · ") || null };
     case "mentioned": return { text: `${str("by") ?? "A session"} mentioned ${a.object}`, detail: str("note") ? `“${str("note")}”` : null };

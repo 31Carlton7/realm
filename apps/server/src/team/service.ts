@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
-  CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink, creatorRecordTemplate,
-  ACT_PACING, actKindFor, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, sessionEvent, usageDeltas, weekStart,
+  CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
+  ACT_PACING, CREATOR_PRESET, actKindFor, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTemplate, recordTitle, sessionEvent, usageDeltas, weekStart,
+  type RecordType,
   type ActTicket, type AgentKind, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewKind, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
   type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type TeamRole, type TeamSpace, type UpdateRoleInput, type WokeOn,
@@ -18,6 +19,7 @@ import { bytesHash, itemHash } from "./item-hash";
 import { applyRecordEdit, type RecordEdit } from "./records";
 import type { TeamExtras } from "./handoffs/service";
 import type { ItemInsert, ReviewRow, RoleRow, TeamStore } from "./store";
+import type { RecordTypeService } from "./record-types/service";
 
 type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown): void };
 
@@ -35,7 +37,7 @@ export type SubmitInput = {
 };
 
 export type RecordUpdateInput =
-  | { path: string; op: "create"; name: string }
+  | { path: string; op: "create"; name: string; type?: string | undefined }
   | { path: string; op: "add"; section?: string | undefined; entry: string }
   | { path: string; op: "replace"; match: string; entry: string }
   | { path: string; op: "remove"; match: string };
@@ -74,6 +76,8 @@ export class TeamService {
     schedules: Pick<ScheduleService, "createForRole" | "forRole" | "update" | "remove">;
     sessions: Pick<SessionService, "get" | "events" | "publishServerEvent">;
     repos: Pick<MemoryRepoService, "config" | "create" | "defaultPath" | "read" | "writeFile" | "lastChange">;
+    /** The kinds of record the team keeps (team/record-types): their folders, words and templates. */
+    recordTypes: RecordTypeService;
     /** The space's folder — where a review's files must live. */
     rootForSpace: (spaceId: string) => string | null;
     spaceExists: (spaceId: string) => boolean;
@@ -147,7 +151,8 @@ export class TeamService {
       repoMoved: repo !== null && resolve(repo) !== resolve(this.d.repos.defaultPath(owner)),
       sharesUsd: teamShares(roles),
       formerRoles: this.d.store.roles(spaceId, true).filter((r) => r.archived).map((r) => ({ id: r.id, name: r.name, realmite: r.realmite })),
-      recordCount: repo ? this.recordFiles(repo).length : 0,
+      recordCount: repo ? this.recordFiles(spaceId, repo).length : 0,
+      recordTypes: this.d.recordTypes.views(spaceId),
       runSessionIds: this.runSessionIds(spaceId),
       ...(this.extras?.spaceExtras(spaceId) ?? {
         limits: { teamMaxLive: this.teamMaxLive(spaceId), realmMaxUnattended: this.slots(), teamRunning: 0, realmRunning: 0, teamQueued: 0, backoff: [] },
@@ -202,6 +207,13 @@ export class TeamService {
     }
     for (const r of custom) this.createRole({ ...r, spaceId }, { quiet: true });
     this.extras?.seedEdges?.(spaceId, picked.map((t) => t.id));
+    // The creator starters keep creator records: such a team is made with the Creator type, as v51
+    // classes the teams made before it. Kept once either way — a second click adds nothing.
+    const creators = picked.some((t) => t.group === "creators");
+    this.d.recordTypes.ensureMeta(spaceId, creators ? "creator-campaigns" : null, creators ? 1 : null);
+    if (creators && !this.d.recordTypes.list(spaceId, true).some((t) => t.key === CREATOR_PRESET.key || t.folder === CREATOR_PRESET.folder)) {
+      this.d.recordTypes.ensurePreset(spaceId, CREATOR_PRESET.key, "user", "template");
+    }
     if (fresh) this.log(spaceId, "user", "made_team", null, { roles: [...picked.map((t) => t.id), ...custom.map((r) => r.name)] });
     this.changed(spaceId);
     return this.space(spaceId);
@@ -424,7 +436,7 @@ export class TeamService {
       "",
       "Team rules (Realm):",
       "- Deliver with `review_submit` (the realm-team tools). Never send, post, sign or pay: a person approves everything in Review, then presses each post or send themselves, one at a time, at Realm's paced slots. No tool lets you post, send or DM, and none ever will.",
-      "- Records are Markdown files under `creators/` in the team's memory. Read them with `record_list` and `record_read`; change them with `record_update`. An account names where its sign-in is kept, never a password or key.",
+      this.d.recordTypes.preambleLine(role.spaceId),
       "- Save what you make inside this space's folder; Review only takes files from there.",
       `- This run stops at ${usd(role.runCapUsd)} or ${Math.round(role.runCapMs / 60_000)} minutes, whichever comes first.`,
       ...(this.d.preambleExtra?.(role.id) ?? []),
@@ -576,7 +588,7 @@ export class TeamService {
     if (input.record) {
       const repo = this.repoPath(ctx.spaceId);
       if (!repo) throw new RpcError("TEAM_NO_REPO", "this team has no memory repo, so it has no records");
-      recordPath = this.recordRel(input.record);
+      recordPath = this.recordRel(ctx.spaceId, input.record);
       if (!existsSync(join(repo, recordPath))) throw new RpcError("TEAM_RECORD_NOT_FOUND", `${recordPath} is not a record — record_list lists them`);
       record = parseRecord(readFileSync(join(repo, recordPath), "utf8"));
     }
@@ -875,7 +887,7 @@ export class TeamService {
   recordFor(spaceId: string, recordPath: string): ParsedRecord | null {
     const repo = this.repoPath(spaceId);
     if (!repo) return null;
-    const abs = join(repo, this.recordRel(recordPath));
+    const abs = join(repo, this.recordRel(spaceId, recordPath));
     return existsSync(abs) ? parseRecord(readFileSync(abs, "utf8")) : null;
   }
 
@@ -884,79 +896,110 @@ export class TeamService {
     return cfg && existsSync(join(cfg.path, ".git")) ? cfg.path : null;
   }
 
-  private recordFiles(repo: string): string[] {
-    const dir = join(repo, "creators");
-    if (!existsSync(dir)) return [];
-    return readdirSync(dir).filter((f) => f.endsWith(".md") && !f.startsWith("_") && !f.startsWith(".")).sort().map((f) => `creators/${f}`);
+  /** Every record file the team's types hold — or, for a team with none, v50's `creators/`. */
+  private recordFiles(spaceId: string, repo: string): string[] {
+    return this.d.recordTypes.folders(spaceId).flatMap((f) => this.d.recordTypes.files(repo, f));
   }
 
-  /** A record's path, normalised: `nathan-beyenhof`, `creators/nathan-beyenhof` and the `.md` all
-   *  name `creators/nathan-beyenhof.md`. Never outside `creators/`. */
-  recordRel(given: string): string {
-    let p = given.trim().replace(/^\[\[|\]\]$/g, "").replace(/^\/+/, "");
-    if (!p.startsWith("creators/")) p = `creators/${p}`;
-    if (!p.endsWith(".md")) p = `${p}.md`;
-    if (p.split("/").some((part) => part === ".." || part === "") || p.split("/").length !== 2)
-      throw new RpcError("TEAM_RECORD_PATH", `${given} is not a record path — records are creators/<name>.md`);
-    return p;
+  /** A record's path, normalised: `<folder>/<name>.md`, `<folder>/<name>`, or `<name>` alone where the
+   *  team keeps one kind. Never outside a type's folder (record-types/service.ts). */
+  recordRel(spaceId: string, given: string): string { return this.d.recordTypes.recordRel(spaceId, given); }
+
+  /** A record as its list shows it: its type's key, its name as the type reads it, its status. */
+  private summaryOf(spaceId: string, rel: string, text: string, updatedAt: number): TeamRecordSummary {
+    const type = this.d.recordTypes.typeOfPath(spaceId, rel);
+    const parsed = parseRecord(text);
+    const folder = rel.slice(0, rel.indexOf("/") + 1);
+    return {
+      path: rel, kind: type?.key ?? CREATOR_PRESET.key,
+      name: parsed ? (type ? recordTitle(type, parsed) : parsed.title) : rel.slice(folder.length, -3),
+      status: parsed ? recordField(parsed, type?.statusField ?? "status") : null,
+      updatedAt,
+    };
   }
 
-  records(spaceId: string): TeamRecordSummary[] {
+  /** The team's records, every kind's or one kind's (by key, folder or name). */
+  records(spaceId: string, type?: string): TeamRecordSummary[] {
     const repo = this.repoPath(spaceId);
     if (!repo) return [];
-    return this.recordFiles(repo).map((path) => {
+    let files = this.recordFiles(spaceId, repo);
+    if (type) {
+      const t = this.d.recordTypes.resolve(spaceId, type);
+      // v50's only kind, named on a team that keeps none: its folder is still where records are read.
+      const legacy = !t && this.d.recordTypes.list(spaceId).length === 0 && /^creators?\/?$/i.test(type.trim());
+      if (!t && !legacy) throw new RpcError("TEAM_RECORD_TYPE", `this team keeps no kind called ${type} — ${this.typeWords(spaceId)}`);
+      const folder = t ? t.folder : CREATOR_PRESET.folder;
+      files = files.filter((f) => f.startsWith(`${folder}/`));
+    }
+    return files.map((path) => {
       const abs = join(repo, path);
-      const text = readFileSync(abs, "utf8");
-      const parsed = parseRecord(text);
-      return {
-        path, kind: "creators",
-        name: parsed?.title ?? path.slice("creators/".length, -3),
-        status: parsed ? recordField(parsed, "status") : null,
-        updatedAt: Math.round(statSync(abs).mtimeMs),
-      };
+      return this.summaryOf(spaceId, path, readFileSync(abs, "utf8"), Math.round(statSync(abs).mtimeMs));
     });
+  }
+
+  /** The kinds a team keeps, in words for a refusal. */
+  private typeWords(spaceId: string): string {
+    const types = this.d.recordTypes.list(spaceId);
+    return types.length ? `it keeps ${types.map((t) => `${t.key} (${t.folder}/)`).join(", ")}` : "it keeps no kinds of record yet";
   }
 
   async record(spaceId: string, path: string): Promise<TeamRecord> {
     const repo = this.repoPath(spaceId);
     if (!repo) throw new RpcError("TEAM_NO_REPO", "this team has no memory repo, so it has no records");
-    const rel = this.recordRel(path);
+    const rel = this.recordRel(spaceId, path);
     const abs = join(repo, rel);
     if (!existsSync(abs)) throw new RpcError("TEAM_RECORD_NOT_FOUND", `${rel} is not a record`);
     const markdown = readFileSync(abs, "utf8");
-    const parsed = parseRecord(markdown);
     const last = await this.d.repos.lastChange(repo, rel);
-    return {
-      path: rel, kind: "creators", name: parsed?.title ?? rel.slice("creators/".length, -3),
-      status: parsed ? recordField(parsed, "status") : null,
-      updatedAt: last?.at ?? Math.round(statSync(abs).mtimeMs),
-      markdown, absPath: abs, lastAuthor: last?.author ?? null,
-    };
+    return { ...this.summaryOf(spaceId, rel, markdown, last?.at ?? Math.round(statSync(abs).mtimeMs)), markdown, absPath: abs, lastAuthor: last?.author ?? null };
+  }
+
+  /**
+   * The type a new record is made as: the one named, the team's only one — or, for a team that keeps
+   * none, the Creator preset, adopted then (v50's one kind, so a team made before types keeps working).
+   */
+  private typeForNew(spaceId: string, given: string | undefined, path: string | undefined, actor: string): RecordType {
+    const types = this.d.recordTypes.list(spaceId);
+    if (given?.trim()) {
+      const t = this.d.recordTypes.resolve(spaceId, given);
+      if (t) return t;
+      if (types.length === 0 && /^creators?\/?$/i.test(given.trim())) return this.d.recordTypes.ensurePreset(spaceId, CREATOR_PRESET.key, actor, "first-record");
+      throw new RpcError("TEAM_RECORD_TYPE", `this team keeps no kind called ${given} — ${this.typeWords(spaceId)}`);
+    }
+    if (path?.includes("/")) {
+      const folder = path.replace(/^\/+/, "").split("/")[0]!;
+      const t = types.find((x) => x.folder === folder);
+      if (t) return t;
+    }
+    if (types.length === 1) return types[0]!;
+    if (types.length === 0) return this.d.recordTypes.ensurePreset(spaceId, CREATOR_PRESET.key, actor, "first-record");
+    throw new RpcError("TEAM_RECORD_TYPE", `say which kind of record to make with \`type\` — ${this.typeWords(spaceId)}`);
   }
 
   /** The person's own edit of a record — the whole file, committed under their name. */
   async writeRecord(spaceId: string, path: string, markdown: string): Promise<TeamRecord> {
-    const rel = this.recordRel(path);
+    const rel = this.recordRel(spaceId, path);
     await this.d.repos.writeFile({ scope: "space", id: spaceId }, rel, markdown);
     this.log(spaceId, "user", "updated_record", parseRecord(markdown)?.title ?? rel, { path: rel });
     this.changed(spaceId);
     return this.record(spaceId, rel);
   }
 
-  /** A new record from the template, by the person. */
-  async createRecord(spaceId: string, name: string): Promise<TeamRecord> {
+  /** A new record from its type's template, by the person. */
+  async createRecord(spaceId: string, name: string, type?: string): Promise<TeamRecord> {
     const repo = this.repoPath(spaceId);
     if (!repo) throw new RpcError("TEAM_NO_REPO", "this team has no memory repo yet");
-    const rel = this.recordRel(recordSlug(name));
+    const t = this.typeForNew(spaceId, type, undefined, "user");
+    const rel = this.recordRel(spaceId, `${t.folder}/${recordSlug(name)}`);
     if (existsSync(join(repo, rel))) throw new RpcError("TEAM_RECORD_EXISTS", `${rel} already exists`);
-    return this.writeRecord(spaceId, rel, creatorRecordTemplate(name.trim()));
+    return this.writeRecord(spaceId, rel, recordTemplate(t, name.trim()));
   }
 
   /** `record_read`, for a role: the file, and a line in the run's log. */
   readForAgent(ctx: { sessionId: string; spaceId: string }, path: string): string {
     const repo = this.repoPath(ctx.spaceId);
     if (!repo) throw new RpcError("TEAM_NO_REPO", "this team has no memory repo, so it has no records yet");
-    const rel = this.recordRel(path);
+    const rel = this.recordRel(ctx.spaceId, path);
     const text = this.d.repos.read(repo, rel);
     const run = this.runFor(ctx.sessionId);
     this.log(ctx.spaceId, run?.roleId ? `role:${run.roleId}` : "realm", "read_record", parseRecord(text)?.title ?? rel, { path: rel }, run ?? ctx);
@@ -965,18 +1008,24 @@ export class TeamService {
 
   /** `record_update`, for a role: one line changed (or a new record made), stamped with the session,
    *  committed under the role's name. Refuses a secret's shape, as every memory write does. */
-  async updateForAgent(ctx: { sessionId: string; spaceId: string }, input: RecordUpdateInput): Promise<{ path: string; line: string | null; changed: boolean }> {
+  async updateForAgent(ctx: { sessionId: string; spaceId: string }, input: RecordUpdateInput): Promise<{ path: string; line: string | null; changed: boolean; note: string | null }> {
     const repo = this.repoPath(ctx.spaceId);
     if (!repo) throw new RpcError("TEAM_NO_REPO", "this team has no memory repo, so it has no records yet");
     const run = this.runFor(ctx.sessionId);
     const role = run?.roleId ? this.d.store.role(run.roleId) : null;
-    const rel = input.op === "create" ? this.recordRel(input.path || recordSlug(input.name)) : this.recordRel(input.path);
+    const actor = role ? `role:${role.id}` : "realm";
+    const made = input.op === "create" ? this.typeForNew(ctx.spaceId, input.type, input.path || undefined, actor) : null;
+    const rel = made
+      ? this.recordRel(ctx.spaceId, input.path ? (input.path.includes("/") ? input.path : `${made.folder}/${input.path}`) : `${made.folder}/${recordSlug(input.op === "create" ? input.name : "")}`)
+      : this.recordRel(ctx.spaceId, input.path);
+    if (made && !rel.startsWith(`${made.folder}/`)) throw new RpcError("TEAM_RECORD_PATH", `${rel} is not in ${made.many}'s folder, ${made.folder}/`);
     const abs = join(repo, rel);
     let content: string;
     let line: string | null = null;
+    let note: string | null = null;
     if (input.op === "create") {
       if (existsSync(abs)) throw new RpcError("TEAM_RECORD_EXISTS", `${rel} already exists — read it and change a line with record_update`);
-      content = creatorRecordTemplate(input.name.trim());
+      content = recordTemplate(made!, input.name.trim());
     } else {
       if (!existsSync(abs)) throw new RpcError("TEAM_RECORD_NOT_FOUND", `${rel} is not a record — make it with op "create"`);
       const before = readFileSync(abs, "utf8");
@@ -987,11 +1036,17 @@ export class TeamService {
       // The log says the FACT: the bullet and its provenance tail are the file's grammar, and printed
       // in the activity feed they read as "· - … [source: realm:session/…; added: …]".
       content = r.content; line = r.line === null ? null : parseMemoryEntry(r.line)?.text ?? r.line;
+      // A section the type does not name is the person's Markdown too: kept, and said.
+      const type = this.d.recordTypes.typeOfPath(ctx.spaceId, rel);
+      const section = input.op === "add" ? input.section?.trim() : undefined;
+      if (type && section && !type.sections.some((s) => s.heading.toLowerCase() === section.toLowerCase())) {
+        note = `${type.many} do not name a section "${section}" (${type.sections.map((s) => s.heading).join(", ") || "none"}); it is kept, and shows under Other.`;
+      }
     }
     const out = await this.d.repos.writeFile({ scope: "space", id: ctx.spaceId }, rel, content, role?.name);
     this.log(ctx.spaceId, role ? `role:${role.id}` : "realm", "updated_record", parseRecord(content)?.title ?? rel, { path: rel, op: input.op, line }, run ?? ctx);
     this.changed(ctx.spaceId);
-    return { path: rel, line, changed: out.changed };
+    return { path: rel, line, changed: out.changed, note };
   }
 
   /* ═══════════════════════════════ activity ═══════════════════════════════ */

@@ -162,6 +162,10 @@ import { ActService, type TicketPress } from "./team/acts/service";
 import { ActStore } from "./team/acts/store";
 import { FakeActAdapter, NotConnectedAdapter, type ActAdapter } from "./team/acts/adapters";
 import { registerActMethods } from "./team/acts/rpc";
+import { RecordTypeStore } from "./team/record-types/store";
+import { RecordTypeService } from "./team/record-types/service";
+import { adoptRecordTypes } from "./team/record-types/adopt";
+import { registerRecordTypeMethods } from "./team/record-types/rpc";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
@@ -1437,8 +1441,18 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     proofDir: join(opts.home, "team-proof"),
     rpc,
   });
+  /* The kinds of record each team keeps (team/record-types). Their words reach the record tools'
+     descriptions, so a change re-lists the space's sessions; the tool list itself never changes. */
+  const recordTypeStore = new RecordTypeStore(db);
+  const recordTypes = new RecordTypeService({
+    store: recordTypeStore,
+    repoPath: (id) => team?.repoPath(id) ?? null,
+    spaceExists: (id) => Boolean(spaces.get(id)),
+    log: (spaceId, actor, verb, object, detail) => { teamStore.appendActivity({ spaceId, actor, verb, object, detail }); },
+    changed: (spaceId) => { rpc.broadcast("team.changed", { spaceId }); mcpGateway.notifyPolicyChanged(spaceId); },
+  });
   team = new TeamService({
-    store: teamStore, runs, schedules, sessions, repos: memoryRepos, acts: acts,
+    store: teamStore, runs, schedules, sessions, repos: memoryRepos, acts: acts, recordTypes,
     rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
     spaceExists: (id) => Boolean(spaces.get(id)),
     enabledSkills: (id) => skills.list(id).skills.filter((s) => s.enabled && s.valid).map((s) => s.id),
@@ -1452,7 +1466,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
   });
   team.attach(handoffs);
-  mcpGateway.registerProvider(createTeamAgentProvider({ team, mcp, more: createHandoffTools({ handoffs, teamStore }) }));
+  mcpGateway.registerProvider(createTeamAgentProvider({ team, types: recordTypes, mcp, more: createHandoffTools({ handoffs, teamStore }) }));
   const teamFinal = team;
   vault = new VaultService({
     store: new VaultStore(db), team: teamStore, runs, bridge: browserBridge,
@@ -1576,6 +1590,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerVaultMethods(rpc, vault, (id) => Boolean(spaces.get(id)));
   registerLabMethods(rpc, lab);
   registerActMethods(rpc, acts!, (id) => Boolean(spaces.get(id)));
+  registerRecordTypeMethods(rpc, recordTypes, (id) => Boolean(spaces.get(id)));
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
@@ -1584,6 +1599,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // this first tick, and it must not race the recovery that decides which runs are still alive.
   schedules.start();
   team.start();
+  // A folder of records that no type claims — a team made from "any" roles that a person later gave
+  // creators/ files — is adopted here, once: what migration v51 could not see from SQL.
+  try {
+    adoptRecordTypes({ teamSpaceIds: () => teamStore.teamSpaceIds().filter((id) => Boolean(spaces.get(id))), repoPath: (id) => teamFinal.repoPath(id), store: recordTypeStore, types: recordTypes });
+  } catch (e) { console.error(`[team] record types reconcile failed: ${e instanceof Error ? e.message : String(e)}`); }
   handoffs.start();
   lab.start();
   acts!.start();

@@ -11,7 +11,7 @@ describe("REALM_READ_ONLY_TOOLS", () => {
       "realm-agent__agent_peers", "realm-agent__agent_status",
       "realm-schedule__schedule_list",
       "realm-docs__docs_search", "realm-docs__docs_read", "realm-docs__docs_state",
-      "realm-team__record_list", "realm-team__review_status",
+      "realm-team__record_list", "realm-team__record_types", "realm-team__review_status",
       "realm-memory__memory_index", "realm-memory__memory_read", "realm-memory__memory_search",
       "realm-goal__goal_status",
       "realm-vault__vault_list",

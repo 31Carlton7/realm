@@ -19,6 +19,7 @@ import { BROWSER_READ_ONLY_TOOLS } from "./browser-agent";
  *   - `docs_search`, `docs_read` — the text of files in the space's folder;
  *   - `docs_state` — which files the space's Documents panes have open;
  *   - `record_list` — the team's record files, by name;
+ *   - `record_types` — the kinds of record the team keeps: folders, fields and sections;
  *   - `review_status` — where this session's submissions to Review stand;
  *   - `memory_index`, `memory_read`, `memory_search` — the memory repo, which refuses a secret's shape
  *     on every write;
@@ -46,6 +47,7 @@ export const REALM_READ_ONLY_TOOLS: readonly string[] = [
   "realm-docs__docs_read",
   "realm-docs__docs_state",
   "realm-team__record_list",
+  "realm-team__record_types",
   "realm-team__review_status",
   "realm-memory__memory_index",
   "realm-memory__memory_read",

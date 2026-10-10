@@ -906,6 +906,7 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
       "mcp__realm__realm-docs__docs_read",
       "mcp__realm__realm-docs__docs_state",
       "mcp__realm__realm-team__record_list",
+      "mcp__realm__realm-team__record_types",
       "mcp__realm__realm-team__review_status",
       "mcp__realm__realm-memory__memory_index",
       "mcp__realm__realm-memory__memory_read",

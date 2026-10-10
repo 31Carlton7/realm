@@ -1026,4 +1026,57 @@ export const migrations: string[] = [
     space_id TEXT PRIMARY KEY REFERENCES spaces(id) ON DELETE CASCADE,
     held_at INTEGER NOT NULL);
   `,
+  // v51 — record types (dynamic Teams, PR 1). A team keeps the kinds of record it needs, each a folder
+  // of Markdown files in the space's memory repo; v50 knew only `creators/` with four fixed sections.
+  // `team_meta` is one row per team: the template it was made from (NULL for one made before
+  // templates, or from "any" roles), copied rather than linked. `team_record_types` is one row per
+  // kind: its key (what tools name), its words, its folder (one segment, unique in the space), and the
+  // head fields and sections Realm draws, as JSON. `preset` names the preset it came from.
+  // Found by its own text in its test (`team/migrate-dynamic.test.ts`), never by number: at merge it
+  // stays ahead of the deliverables and risk-class migrations whatever its index.
+  //
+  // Backfilled, and safe to meet twice (INSERT OR IGNORE on keys that already hold): every team gets
+  // a meta row, classed `creator-campaigns` when it has a Creator Manager or Content Producer from the
+  // templates, a slideshow review or a review about a `creators/` record, or any act ticket — and each
+  // such team gets the Creator type with exactly v50's sections. A team with no such signal gets no
+  // type here; a `creators/` folder in its repo is adopted at boot (`team/record-types/adopt.ts`).
+  // No existing row changes, nothing is deleted, and no file moves.
+  `
+  CREATE TABLE IF NOT EXISTS team_meta (
+    space_id TEXT PRIMARY KEY REFERENCES spaces(id) ON DELETE CASCADE,
+    template TEXT,
+    template_version INTEGER,
+    created_at INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS team_record_types (
+    id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    one TEXT NOT NULL, many TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    glyph TEXT NOT NULL DEFAULT 'records',
+    title_field TEXT NOT NULL DEFAULT '#',
+    status_field TEXT,
+    statuses_json TEXT NOT NULL DEFAULT '[]',
+    head_json TEXT NOT NULL DEFAULT '[]',
+    sections_json TEXT NOT NULL DEFAULT '[]',
+    preset TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE UNIQUE INDEX IF NOT EXISTS team_record_types_key ON team_record_types(space_id, key);
+  CREATE UNIQUE INDEX IF NOT EXISTS team_record_types_folder ON team_record_types(space_id, folder);
+  INSERT OR IGNORE INTO team_meta (space_id, template, template_version, created_at)
+    SELECT space_id, CASE WHEN creator THEN 'creator-campaigns' ELSE NULL END, CASE WHEN creator THEN 1 ELSE NULL END, made
+    FROM (
+      SELECT r.space_id AS space_id, MIN(r.created_at) AS made,
+        (EXISTS (SELECT 1 FROM team_roles r2 WHERE r2.space_id = r.space_id AND r2.template IN ('creator-manager', 'content-producer'))
+          OR EXISTS (SELECT 1 FROM team_reviews v WHERE v.space_id = r.space_id AND (v.kind = 'slideshows' OR v.record_path LIKE 'creators/%'))
+          OR EXISTS (SELECT 1 FROM team_act_tickets t WHERE t.space_id = r.space_id)) AS creator
+      FROM team_roles r GROUP BY r.space_id);
+  INSERT OR IGNORE INTO team_record_types (id, space_id, key, one, many, folder, glyph, title_field, status_field, statuses_json, head_json, sections_json, preset, sort_order, archived, created_at, updated_at)
+    SELECT hex(randomblob(13)), space_id, 'creator', 'Creator', 'Creators', 'creators', 'records', '#', 'Status',
+      '["prospect","contacted","signed","paused","ended"]',
+      '[{"key":"Status"},{"key":"Contact"},{"key":"Sends from"}]',
+      '[{"heading":"Deal","shape":"properties"},{"heading":"Accounts","shape":"entries","parts":["vault","device","consent"]},{"heading":"Deadlines","shape":"list","dated":true},{"heading":"Content","shape":"list","dated":true}]',
+      'creator', 0, 0, created_at, created_at
+    FROM team_meta WHERE template = 'creator-campaigns';
+  `,
 ];
