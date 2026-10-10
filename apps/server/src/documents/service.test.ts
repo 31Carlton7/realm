@@ -258,6 +258,10 @@ describe("documents RPC — a file outside the space the session recorded", () =
     const { app, c, space, documentsId } = await setup();
     const { abs } = await outsideFile(app, c, space.id, "x".repeat(3 * 1024 * 1024));
     expect((await c.call("documents.read", { documentsId, path: abs })).error?.code).toBe("TOO_LARGE");
+    // Its tab stays on the strip saying so, and watching a file too large to read must not fail the save.
+    const ws = await c.call("documents.setTabs", { documentsId, openPaths: [abs], activePath: abs });
+    expect(ws.error).toBeUndefined();
+    expect(ws.result.openPaths).toEqual([abs]);
     c.close();
   });
 

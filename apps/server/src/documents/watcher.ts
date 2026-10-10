@@ -62,7 +62,9 @@ export class DocumentWatcher {
       w.on("change", (_e, name) => { if (name) this.onDirEvent(dir, name.toString()); });
     }
     entry.files.add(abs);
-    if (!this.known.has(abs)) this.known.set(abs, (await readIfExists(abs))?.hash ?? null);
+    /* A tab whose file the pane could not read — too large, say — is still on the strip saying so, and
+       watching it must not fail the strip's save: the first change is then heard as one. */
+    if (!this.known.has(abs)) this.known.set(abs, (await readIfExists(abs).catch(() => null))?.hash ?? null);
   }
 
   /** Stop watching one file, tearing the directory watcher down once nothing in it is open. */
