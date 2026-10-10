@@ -7,6 +7,8 @@ import { openDatabase } from "../db/database";
 import { TeamStore } from "./store";
 import { TeamService } from "./service";
 import { createTeamAgentProvider } from "./agent-tools";
+import { ActStore } from "./acts/store";
+import { ActService } from "./acts/service";
 
 /**
  * Generic deliverables in Review: a submission is files, text, meta and an optional proposed action,
@@ -63,6 +65,25 @@ describe("review_submit, generic", () => {
     expect(r).toMatchObject({ kind: "links", format: "links" });
   });
 
+  it("issues a ticket for a new channel action under any label, by its verb", () => {
+    const { team, ctx, db, store, folder } = setup();
+    writeFileSync(join(folder, "out/01.png"), "png");
+    const r = team.submit(ctx, { kind: "posts for Nathan", title: "Posts", items: [
+      { files: ["out/01.png"], body: "#ad", action: { connector: "channel:tiktok", verb: "post", account: "@versed.nathan" } },
+      { files: [], body: "a reply", action: { connector: "mcp:gmail", verb: "send", account: "me@x.co", to: "d@y.co" } },
+    ] });
+    team.approve(r.id);
+    const at = new Date(2026, 9, 9, 14).getTime();
+    const acts = new ActService({
+      store: new ActStore(db, () => at), team: store, rootForSpace: () => folder, record: () => null,
+      presses: { consume: async () => ({ pressed: false, label: false, slotAt: null }) },
+      adapter: () => ({ status: () => ({ connected: false, label: "x", why: "x" }), act: async () => ({ ok: false, error: "x", screenshot: null }) }),
+      proofDir: join(folder, "..", "proof"), rpc: { broadcast: () => {} } as never, clock: () => at,
+    });
+    // THE MUTANT: issue reading the legacy label only — "posts for Nathan" is no slideshow, and nothing is issued.
+    expect(acts.issue(r.id).map((t) => ({ kind: t.kind, channel: t.channel, account: t.account }))).toEqual([{ kind: "post", channel: "tiktok", account: "@versed.nathan" }]);
+  });
+
   it("reads a `target` as the action the legacy label always made of it", () => {
     const { team, ctx } = setup();
     const r = team.submit(ctx, { kind: "message", title: "DM", items: [{ files: [], body: "hi", target: { channel: "Instagram", account: "@a", to: "@b" } }] });
@@ -93,9 +114,10 @@ describe("edit, then approve", () => {
     const [first, second] = team.review(r.id).items;
     const next = team.editItem(r.id, first!.id, "Hi Dana,\nthanks for the call on Monday.\nCarlton");
     expect(next).toMatchObject({ version: 2, state: "waiting", editedItems: [1] });
+    // THE MUTANT: the old hash kept — read straight from the row, before any read re-hashes it.
+    expect(store.items(r.id, 2)[0]!.contentHash).toBe(team.hashItem(team.review(r.id).root!, [], "Hi Dana,\nthanks for the call on Monday.\nCarlton"));
     const d = team.review(r.id);
     expect(d.items[0]).toMatchObject({ body: "Hi Dana,\nthanks for the call on Monday.\nCarlton", editedBy: "user", meta: { Subject: "Pilot" }, format: "email", action: { verb: "send" } });
-    // THE MUTANT: the old hash kept — Approve would cover bytes nobody saw.
     expect(d.items[0]!.contentHash).not.toBe(first!.contentHash);
     expect(d.items[1]).toMatchObject({ body: "Second reply", editedBy: null, contentHash: second!.contentHash });
     expect(d.previous.map((i) => i.body)).toEqual(["Hi Dana,\nthanks for Monday.\nCarlton", "Second reply"]);

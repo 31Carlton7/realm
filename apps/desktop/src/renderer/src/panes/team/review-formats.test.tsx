@@ -90,6 +90,16 @@ describe("one renderer per format, in the same frame", () => {
     expect(screen.getByRole("heading", { name: "Before it can send" })).toBeInTheDocument();
   });
 
+  it("draws an email with an attachment as the card, then the file — the text still once", async () => {
+    const withFile = detail("rattach", "Invoice", [it0("rattach", { files: ["out/invoice.pdf"], body: "Invoice attached.", format: "email",
+      action: { connector: "mcp:gmail", verb: "send", account: "me@versed.app", to: "ap@acme.com" } })]);
+    await mount([withFile]);
+    await waitFor(() => expect(document.querySelector(".rv-mail")).not.toBeNull());
+    // THE MUTANT: `drawsBody` left to the no-files rule — an email with a file draws its text twice.
+    expect(screen.getAllByText("Invoice attached.")).toHaveLength(1);
+    expect(document.querySelector(".rv-files")).toHaveTextContent("invoice.pdf");
+  });
+
   it("names a link by the title its line gave, and otherwise by its host and path — never by a made-up title", async () => {
     await mount(FORMATS);
     fireEvent.click(document.querySelector('[data-review="rlinks"]')!);
