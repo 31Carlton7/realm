@@ -325,3 +325,23 @@ describe("behaviour after v51, on the fixture home", () => {
     expect(count(await boot(home))).toBe(first);
   });
 });
+
+describe("the dry run on a copy of a home", () => {
+  it("reports what v51 and the reconcile would add, loses nothing, and leaves the home byte-identical", async () => {
+    const { dryRunMigrations, dryRunWords } = await import("./migrate-dry-run");
+    const { createHash } = await import("node:crypto");
+    const { readFileSync } = await import("node:fs");
+    const { path } = v50Home();
+    const hash = () => createHash("sha256").update(readFileSync(path)).digest("hex");
+    const was = hash();
+    const r = dryRunMigrations(path);
+    expect(hash()).toBe(was);
+    expect(new DatabaseSync(path, { readOnly: true }).prepare("SELECT MAX(version) AS v FROM schema_version").get()).toEqual({ v: V51_AT });
+    expect(r).toMatchObject({ from: V51_AT, to: migrations.length, lost: {} });
+    // Four teams classed, three Creator types, then the reconcile's two adoptions and their lines.
+    expect(r.added).toMatchObject({ team_meta: 4, team_record_types: 5, team_activity: 2 });
+    expect(r.adoptions.map((a) => a.folder).sort()).toEqual(["creators", "leads"]);
+    expect(r.teams.find((t) => t.spaceId === VERSED)).toMatchObject({ name: "Versed", template: "creator-campaigns", types: ["creator (creators/)", "lead (leads/)"] });
+    expect(dryRunWords(r)).toContain("Lost or rewritten rows: none");
+  });
+});
