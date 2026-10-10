@@ -645,7 +645,7 @@ function DefaultModelRow() {
         </div>
       )}
       {!agentsProbed && <p className="env-empty">Checking the installed agents…</p>}
-      {offers.length > 0 && <p className="settings-hint">Applies to a session you start with ⌘N, a split, a new worktree, or a new space. A palette command that names an agent, the quick chat, and a question about a file start on the agent's own default.</p>}
+      {offers.length > 0 && <p className="settings-hint">Applies to a session you start with ⌘N, a split, a new worktree, a new space, or a New session command in the palette. The quick chat and a question about a file start on the agent's own default.</p>}
     </div>
   );
 }

@@ -270,7 +270,7 @@ describe("Model for new sessions", () => {
     await general({ agentProbe: [ready("claude"), ready("codex", codexCatalog)] });
     await waitFor(() => expect(model()).toBeInTheDocument());
     const hint = row().querySelector(".settings-hint");
-    expect(hint?.textContent).toBe("Applies to a session you start with ⌘N, a split, a new worktree, or a new space. A palette command that names an agent, the quick chat, and a question about a file start on the agent's own default.");
+    expect(hint?.textContent).toBe("Applies to a session you start with ⌘N, a split, a new worktree, a new space, or a New session command in the palette. The quick chat and a question about a file start on the agent's own default.");
     expect(row().lastElementChild).toBe(hint);
     expect(row()).not.toHaveAttribute("title");
     expect(model()).toHaveAttribute("title", "Last used follows the last message you sent on Claude, not counting the quick chat or a question about a file or pull request.");

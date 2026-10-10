@@ -240,3 +240,40 @@ describe("a model chosen for new sessions outranks the one last sent on", () => 
     expect(store.getState().defaultModels).toEqual({ claude: SONNET });
   });
 });
+
+describe("a session started on a named agent, with no model named", () => {
+  const SONNET = "claude-sonnet-5";
+  const LUNA = "gpt-6-luna";
+
+  it("starts on the model chosen for that agent, though another agent was used last", async () => {
+    const { store, made } = await setup({ settings: { [SETTING_DEFAULT_MODELS]: { codex: LUNA, claude: SONNET } } });
+    await store.getState().newSession({ agentKind: "codex" });
+    expect(made()).toMatchObject({ agentKind: "codex", model: LUNA });
+  });
+
+  it("starts on the model last sent on with that agent where none is chosen", async () => {
+    const { store, made } = await setup({ settings: { [SETTING_LAST_MODELS]: { codex: LUNA, claude: OPUS } } });
+    await store.getState().newSession({ agentKind: "codex" });
+    expect(made()).toMatchObject({ agentKind: "codex", model: LUNA });
+    await store.getState().newSession({ agentKind: "claude" });
+    expect(made()).toMatchObject({ agentKind: "claude", model: OPUS });
+  });
+
+  it("starts on the harness's own default where the agent has neither", async () => {
+    const { store, made } = await setup({ settings: { [SETTING_DEFAULT_MODELS]: { claude: SONNET }, [SETTING_LAST_MODELS]: { claude: OPUS } } });
+    await store.getState().newSession({ agentKind: "codex" });
+    expect(made()).toMatchObject({ agentKind: "codex", model: null });
+  });
+
+  it("leaves a session asked for on the harness's own default on it", async () => {
+    const { store, made } = await setup({ settings: { [SETTING_DEFAULT_MODELS]: { claude: SONNET }, [SETTING_LAST_MODELS]: { claude: OPUS } } });
+    await store.getState().newSession({ agentKind: "claude", model: null });
+    expect(made().model).toBeNull();
+  });
+
+  it("leaves a named model as it was named", async () => {
+    const { store, made } = await setup({ settings: { [SETTING_DEFAULT_MODELS]: { claude: SONNET } } });
+    await store.getState().newSession({ agentKind: "claude", model: "claude-haiku-4-5" });
+    expect(made().model).toBe("claude-haiku-4-5");
+  });
+});

@@ -2064,7 +2064,8 @@ export type AppState = {
   releaseQueuedPrompt(sessionId: string, queuedId: string): Promise<void>;
   /** Create a session, open its item in the main view, and open its transcript. It goes to
    *  `input.spaceId`, else the current space — the space of the session in focus. When `edge` is
-   *  supplied with a target leaf, it opens there the way a dragged row would. */
+   *  supplied with a target leaf, it opens there the way a dragged row would. With no `model`
+   *  named it starts on the one `newSessionInstant` would pick for that agent. */
   newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
    *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model chosen for
@@ -3344,11 +3345,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       rememberModel(row.agentKind, row.model);
       rememberAgent(row.agentKind);
     };
-    /** `newSession`, answering with the session it made — null when there was no space to make it in. */
+    const startingOn = (agentKind: AgentKind): string | null =>
+      startingModel(agentKind, { chosen: get().defaultModels[agentKind] ?? null, last: get().lastModels[agentKind] ?? null, agentProbe: get().agentProbe });
+    /** `newSession`, answering with the session it made — null when there was no space to make it in.
+     *  A caller that names an agent and no model, as the palette's "New Claude session" does, gets
+     *  the model that agent's sessions start on. `model: null` is a model named: the harness's own
+     *  default, asked for. */
     const makeSession = async (input: Parameters<AppState["newSession"]>[0], targetLeafId: string | null, edge: DropEdge | undefined): Promise<string | null> => {
       const { spaceId, ...rest } = input;
       const sid = spaceFor(spaceId); if (!sid) return null;
-      const { session, itemId } = await api.createSession({ ...rest, spaceId: sid });
+      const model = rest.model === undefined ? startingOn(rest.agentKind) : rest.model;
+      const { session, itemId } = await api.createSession({ ...rest, model, spaceId: sid });
       rememberAgent(rest.agentKind);
       if (inProfile(sid)) mergeSession(session);
       await adoptItem(sid, itemId, targetLeafId, false, edge);
@@ -3359,7 +3366,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  for new sessions, else the model last sent on, each if that harness still offers it. */
     const instantPick = (): { agentKind: AgentKind; model: string | null } => {
       const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
-      return { agentKind, model: startingModel(agentKind, { chosen: get().defaultModels[agentKind] ?? null, last: get().lastModels[agentKind] ?? null, agentProbe: get().agentProbe }) };
+      return { agentKind, model: startingOn(agentKind) };
     };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
