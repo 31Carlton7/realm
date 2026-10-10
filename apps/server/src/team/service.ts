@@ -766,7 +766,10 @@ export class TeamService {
     const aimed = items.find((i) => itemTarget(i)?.account) ?? null;
     const target = aimed ? itemTarget(aimed) : null;
     const family = verbFamily(reviewVerb(kind, items));
-    if (target?.account) {
+    // Consent on a record is about a managed account a channel act goes out as — every legacy label's
+    // target, and a new action on a `channel:`. A connector's tool sends as its own sign-in instead.
+    const managed = !!aimed && (isLegacyLabel(kind) || itemActKind(kind, aimed) !== null);
+    if (target?.account && managed) {
       // The account on the channel it goes to: @versed.nathan on Instagram is not the TikTok one.
       const ch = target.channel?.toLowerCase() ?? "";
       const acct = record ? recordAccounts(record).find((a) => a.handle?.toLowerCase() === target.account!.toLowerCase()

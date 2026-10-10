@@ -55,8 +55,10 @@ describe("review_submit, generic", () => {
     expect(d.items[1]).toMatchObject({ files: ["out/brief.pdf"], format: "pdf", action: null });
     // THE MUTANT: the summary reading only `target` — a new action's account vanishes from the card.
     expect(d).toMatchObject({ format: "email", account: "me@versed.app", channels: [] });
-    // A connector's tool is not a channel act: Realm says it will not do it, rather than claiming a slot.
-    expect(d.checks.at(-1)).toMatchObject({ ok: null, title: "Realm does not send this yet" });
+    // A connector's tool is not a channel act: Realm says it will not do it, rather than claiming a slot,
+    // and asks no creator's consent for a mailbox that sends as itself.
+    // THE MUTANT: the consent check on every account — "me@versed.app has no consent on record".
+    expect(d.checks).toEqual([{ ok: null, title: "Realm does not send this yet", detail: "It proposes send send_message through mcp:gmail. Approving marks it ready; do it yourself for now." }]);
   });
 
   it("with no label, stands the first item's format in, so the card says what it holds", () => {
