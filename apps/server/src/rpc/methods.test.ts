@@ -4,7 +4,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { sessionEvent } from "@realm/contracts";
+import { DEFAULT_MODELS_KEY, sessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { SessionEventsStore } from "../store/sessions";
 import { waitFor } from "../test-utils";
@@ -338,6 +338,40 @@ describe("environments over rpc", () => {
     c.close();
   });
 
+});
+
+const SONNET = "claude-sonnet-5";
+
+/** A space, with Sonnet 5 chosen for new Claude sessions. `create` asks for a Claude session there
+ *  over the wire, with whatever else it is handed. */
+async function sonnetChosen() {
+  const { c } = await boot();
+  const prof = (await c.call("profiles.create", { name: "Work" })).result;
+  const space = (await c.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+  await c.call("settings.set", { key: DEFAULT_MODELS_KEY, value: { claude: SONNET } });
+  const create = async (more: Record<string, unknown> = {}) =>
+    (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude", ...more })).result.session;
+  return { c, create };
+}
+
+describe("the model chosen for new sessions, over rpc", () => {
+  it("sessions.create with no model starts the session on the model chosen for its agent", async () => {
+    const { c, create } = await sonnetChosen();
+    expect((await create()).model).toBe(SONNET);
+    c.close();
+  });
+
+  it("sessions.create with model null starts the session on the harness's own default, though a model is chosen", async () => {
+    const { c, create } = await sonnetChosen();
+    expect((await create({ model: null })).model).toBeNull();
+    c.close();
+  });
+
+  it("a user dispatch that copies a null model stays on it, though a model is chosen", async () => {
+    const { c, create } = await sonnetChosen();
+    expect(await create({ model: null, userDispatched: true })).toMatchObject({ model: null, dispatchedBy: { kind: "user-dispatch", sessionId: null } });
+    c.close();
+  });
 });
 
 /** Plan 7 W3 over the wire: the diff contract, the write verbs, and the cache invalidation that

@@ -3574,6 +3574,15 @@ describe("narrow panes", () => {
     expect(bodiesFor(".page-scroll").join(" ")).not.toMatch(/mask-image/);
   });
 
+  it("gives each agent of the model row a line of its own, and cuts a long model name inside its select", () => {
+    const grid = bodiesFor(".default-models").join(" ");
+    expect(grid).toContain("display: grid");
+    expect(grid).toContain("grid-template-columns: max-content minmax(0, 1fr)");
+    const select = bodiesFor(".default-models > select").join(" ");
+    expect(select).toContain("min-width: 0");
+    expect(select).toContain("max-width: 100%");
+  });
+
   it("a stacked settings row opts out of the narrow pass's wrap, which means the opposite in a column", () => {
     /* The narrow block wraps every `.settings-row` and gives its label `flex-basis: 100%` — both of
        which mean "the label takes its own line" in a ROW and something else entirely in a column: a

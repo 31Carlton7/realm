@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODELS_KEY, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveDefaultModel, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -56,7 +56,14 @@ export function titleFromMessage(text: string): string {
   return one.length > TITLE_MAX ? `${one.slice(0, TITLE_MAX - 1).trimEnd()}…` : one;
 }
 
-export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; model: string | null; effort: string | null; permissionMode: string | null; title?: string;
+export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projectId: string | null; environmentId?: string | null; effort: string | null; permissionMode: string | null; title?: string;
+  /** The model the session starts on. A model that is named travels verbatim, and `null` is a name:
+   *  it asks for the harness's own default, which is what a copy of a session left on that default
+   *  carries and what a press on the picker's default row means. Left out, `create` starts the
+   *  session on the model the person chose for its agent (`SessionService.defaultModel`) — so a
+   *  creator with no say about the model names nothing, and one added later cannot start on another
+   *  model than the rest by never having heard of the setting. */
+  model?: string | null;
   /** Plan 13 W1: the dispatch origin recorded on the row when a delegation tool (or W2's dispatch
    *  gesture) creates the session. Absent/null for every user-created session — never defaulted. */
   dispatchedBy?: import("@realm/contracts").DispatchedBy | null;
@@ -261,6 +268,29 @@ export class SessionService {
   get(id: string): Session { const s = this.d.sessions.get(id); if (!s) throw new NotFoundError("session", id); return s; }
   events(id: string, afterSeq: number, limit: number): StoredSessionEvent[] { this.get(id); return this.d.events.listAfter(id, afterSeq, limit); }
 
+  /**
+   * The model a session on `kind` starts on when its creator names none: the one the person chose
+   * for new sessions on that agent (`DEFAULT_MODELS_KEY`), where the agent still offers it, else
+   * `null`, the harness's own default.
+   *
+   * Read when it is asked for, so a choice changed in Settings moves the next session and none made
+   * before it. "Still offers it" is judged against the probe cache as it stands — the list the
+   * picker last drew — and never against a probe started here: a probe spawns a process per agent
+   * and can run to half a minute, and `create` answers at once. With no probe held, an agent with a
+   * curated list is checked against that one, and an agent with neither keeps the id
+   * (`offeredModel`).
+   *
+   * Public for the two callers that cannot leave the model out of a create and have it settled
+   * there. `agent_run` names the child's model in its report before the child's session exists. It
+   * asks here and names the answer on the create, where leaving the model out would have it report
+   * a guess. A failover handoff moves a session that exists already onto the next agent in its
+   * chain, which names no model, so it has no create to leave the model out of.
+   */
+  defaultModel(kind: AgentKind): string | null {
+    const live = this.probeCache.peek()?.value.find((r) => r.kind === kind)?.models;
+    return resolveDefaultModel(kind, this.d.settings.get(DEFAULT_MODELS_KEY), live);
+  }
+
   /* Two signatures for one function, because `unlisted` is the only thing that makes `itemId` null
      and every other caller may go on relying on it. An overload says that in the type instead of
      asking four call sites to assert it. */
@@ -275,7 +305,8 @@ export class SessionService {
     const title = input.title?.trim() || DEFAULT_TITLE;
     // A named mode travels verbatim; null (the instant-create paths) is the user's configured default.
     const permissionMode = input.permissionMode ?? resolveDefaultPermissionMode(input.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY));
-    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode, environmentId: env.id, title, dispatchedBy: input.dispatchedBy ?? null });
+    const model = input.model !== undefined ? input.model : this.defaultModel(input.agentKind);
+    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model, effort: input.effort, permissionMode, environmentId: env.id, title, dispatchedBy: input.dispatchedBy ?? null });
     /* An UNLISTED session gets no item, and so appears in no list anywhere — see `sessions.create`'s
        schema for what that is for. No broadcast either: nothing about this space's items changed,
        and telling every client otherwise would have them all re-fetch to find that out. */

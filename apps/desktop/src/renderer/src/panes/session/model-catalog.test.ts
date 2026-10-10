@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
   agentRowHint, billingLead, chipLabel, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows, holdRows,
-  modelAbout, modelLabel, modelRows, resolveModelName, usableModel, type FastMode, type ModelRow,
+  modelAbout, modelLabel, modelRows, resolveModelName, startingModel, usableModel, type FastMode, type ModelRow,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
@@ -94,6 +94,36 @@ describe("usableModel — a remembered model, if the harness still offers it", (
   it("reads only its own kind's catalog", () => {
     // THE MUTANT: any probe's list — Codex's catalog would vouch for a Claude id it does not run.
     expect(usableModel("claude", "gpt-6-luna", [probe("codex", codexCatalog)])).toBeNull();
+  });
+});
+
+describe("startingModel — a chosen model, else the one last sent on", () => {
+  const codex = [probe("codex", codexCatalog)];
+
+  it("starts on the chosen model whatever was sent on last", () => {
+    expect(startingModel("codex", { chosen: "gpt-6-luna", last: "gpt-5.6-terra", agentProbe: codex })).toBe("gpt-6-luna");
+    expect(startingModel("codex", { chosen: "gpt-6-luna", last: null, agentProbe: codex })).toBe("gpt-6-luna");
+  });
+
+  it("starts on the model last sent on where none is chosen", () => {
+    expect(startingModel("codex", { chosen: null, last: "gpt-5.6-terra", agentProbe: codex })).toBe("gpt-5.6-terra");
+  });
+
+  it("starts on the harness's own default where neither is set", () => {
+    expect(startingModel("codex", { chosen: null, last: null, agentProbe: codex })).toBeNull();
+  });
+
+  it("passes over a chosen model the harness no longer lists, for the one last sent on", () => {
+    expect(startingModel("codex", { chosen: "gpt-4-retired", last: "gpt-5.6-terra", agentProbe: codex })).toBe("gpt-5.6-terra");
+  });
+
+  it("falls to the harness's own default when the harness lists neither", () => {
+    expect(startingModel("codex", { chosen: "gpt-4-retired", last: "gpt-3-retired", agentProbe: codex })).toBeNull();
+    expect(startingModel("codex", { chosen: "gpt-4-retired", last: null, agentProbe: codex })).toBeNull();
+  });
+
+  it("never starts one agent on a model only another agent lists", () => {
+    expect(startingModel("claude", { chosen: "gpt-6-luna", last: "gpt-5.6-terra", agentProbe: codex })).toBeNull();
   });
 });
 

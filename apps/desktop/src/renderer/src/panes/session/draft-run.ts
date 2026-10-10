@@ -21,8 +21,10 @@ export type DraftRun = {
   permissionMode: string | null;
 };
 
-export function draftRun(agentKind: AgentKind): DraftRun {
-  return { agentKind, model: null, effort: null, fastMode: false, permissionMode: null };
+/** A draft nobody has picked anything on yet. `model` is the one the person chose for new sessions
+ *  on that agent, where the prompter starts on it; left out, the harness's own default. */
+export function draftRun(agentKind: AgentKind, model: string | null = null): DraftRun {
+  return { agentKind, model, effort: null, fastMode: false, permissionMode: null };
 }
 
 /** `o` applied to a draft the way `sessions.setOptions` applies it to a session's row. */

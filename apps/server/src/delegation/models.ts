@@ -49,7 +49,7 @@ export type ModelResolution = { ok: true; choice: ModelChoice } | { ok: false; r
 
 /**
  * The words that name a HARNESS rather than a model. A name made only of these ("Codex", "have
- * Cursor do it") is a request for that agent on its own default model, and one of these beside a
+ * Cursor do it") is a request for that agent with no model named, and one of these beside a
  * model's name ("Fable through Cursor") is a request for that route. Exhaustive so a new kind is a
  * compile error here rather than an agent nobody can name.
  */
@@ -224,10 +224,10 @@ export function resolveModelName(name: string, models: readonly DelegableModel[]
   if (query.length === 0) return { ok: false, reason: "unknown", message: `refused: "${name}" names no model. ${menuSentence(models, harnessOnly(models, opts))}` };
   const kind = opts.kind ?? null;
 
-  // A harness on its own: "Codex", "have Cursor do it". Its default model, which is what that agent
-  // runs when nobody pins one — never a guess at which of its models was meant. A harness that is not
-  // ready keeps its refusal back while the name is tried as a model: "Grok" is also a model Cursor
-  // runs, and that is a better answer than "grok is not installed".
+  // A harness on its own: "Codex", "have Cursor do it". It resolves to no model, which the caller
+  // answers as it does for any agent with none named — never a guess at which of its models was
+  // meant. A harness that is not ready keeps its refusal back while the name is tried as a model:
+  // "Grok" is also a model Cursor runs, and that is a better answer than "grok is not installed".
   let notReady: string | null = null;
   const harnesses = query.map(harnessOf);
   if (harnesses.every((h) => h !== null) && new Set(harnesses).size === 1) {

@@ -93,7 +93,8 @@ export type ViewerState = {
   detached: string | null;
   /** How a session made on the first send will run — its agent and model, and the level, fast mode
    *  and permission set on the prompter's card — chosen in the viewer's own prompter while there is
-   *  no session yet. Null takes the last agent used, as it comes. */
+   *  no session yet. Null takes the last agent used, on the model chosen for new sessions on it
+   *  (`defaultModels`) where the harness still offers one, and otherwise as it comes. */
   pick: DraftRun | null;
   /** Marking up the file on show: what has been drawn on it so far, and the size of the picture it
    *  was drawn against. Null is not marking. The marks are the file's, so moving to another file puts

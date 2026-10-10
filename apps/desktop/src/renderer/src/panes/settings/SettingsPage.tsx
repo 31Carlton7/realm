@@ -11,12 +11,13 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
   type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
   CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
 import type { ThemeSeed } from "@realm/contracts";
-import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { Fragment, useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
 import { CommandCopy } from "../../components/CommandCopy";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
+import { chipLabel, modelIdOn, modelLabel, modelRows, usableModel } from "../session/model-catalog";
 import { useApp, type CliJob, type SettingsPageTab, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
@@ -555,6 +556,110 @@ function OpenFilesInRow() {
           <option value="realm">Realm</option>
         </select>
       )}
+    </div>
+  );
+}
+
+/**
+ * The model new sessions start on, one choice per agent.
+ *
+ * Left alone, a session started with ⌘N or one of its kin starts on the model of the last message
+ * sent on its agent (`lastModels`). The first option says so and names that model as the prompter's
+ * chip will name it, because a setting shows the value in force. Choosing a model here fixes it: a
+ * message sent on another model once then no longer moves where the next session starts.
+ *
+ * A chosen model reaches further than Last used does. The server starts every session from one
+ * place (`SessionService.create`), and one made there with no model named starts on the model
+ * chosen for its agent — the quick chat, a lecture's sessions, a delegated review, a browser agent,
+ * and a fork or a sub-agent put on another agent than its source's, among them. A session that
+ * failover hands to the next agent in its chain goes on the same way. Where a chip names the model
+ * before its session exists (a question about a file or a pull request, Code review's reviewer, a
+ * new scheduled task) the window reads the choice itself and names it. None of these follows the
+ * last-used memory, so with Last used they start on the harness's own default. A session whose
+ * model is named is left on it: a copy keeps its source's model, a pick made before the session
+ * exists wins, the harness's own default included, and a scheduled task's runs start on what its
+ * card names, which is the harness's own default for a task saved with no model.
+ *
+ * Per agent because a model belongs to the harness that lists it, and every agent's choice is on the
+ * row at once, each beside its agent's name. A switcher between agents would show one value and hide
+ * the rest, and a lone select with no name would read as the model of every new session, which it
+ * is not while ⌘N starts another agent. Only an agent the probe found ready is listed — one that is
+ * missing or signed out would be a choice nobody could watch take effect, and one not yet probed
+ * would be a guess — and its models are the picker's own rows (`modelRows`), so a model is named
+ * here as it is there. A ready agent that lists no models is on the row only while it holds a
+ * choice: `usableModel` lets a choice stand where there is no list to check it against, so that
+ * choice is in force, and a choice in force has to be seen and taken back somewhere.
+ *
+ * A chosen model its agent no longer lists keeps its own option, marked, as an editor since removed
+ * does: a select with nothing chosen would say no choice was made when one was. A line under the
+ * name then says that the agent's sessions start as they do on Last used, since what was asked for
+ * and what happens differ: the rule passes that model over, in the window (`startingModel`) and on
+ * the server (`resolveDefaultModel`). Whether a model is still listed is `usableModel`'s answer,
+ * the same one both take.
+ *
+ * The hint under the selects says how far the row reaches, as the row before this one does for the
+ * permission mode and for its reason: the starts that follow it whole, and the rest, which a chosen
+ * model reaches and Last used does not. Without it a person on Last used would expect the quick
+ * chat to follow the last message too. It is a line on the page and not a tooltip on the row, which
+ * would open over the other agents' selects and stay there. What Last used follows is on each
+ * select, beside the option it explains.
+ */
+function DefaultModelRow() {
+  const chosen = useApp((s) => s.defaultModels);
+  const lastModels = useApp((s) => s.lastModels);
+  const agentProbe = useApp((s) => s.agentProbe);
+  const agentsProbed = useApp((s) => s.agentsProbed);
+  const probeAgents = useApp((s) => s.probeAgents);
+  const refreshDefaultModels = useApp((s) => s.refreshDefaultModels);
+  const setDefaultModel = useApp((s) => s.setDefaultModel);
+  const run = useApp((s) => s.run);
+  useEffect(() => { void run(() => probeAgents()); void run(() => refreshDefaultModels()); }, [run, probeAgents, refreshDefaultModels]);
+  const offers = SELECTABLE_AGENT_KINDS.flatMap((kind) => {
+    if (agentAvailability(kind, agentProbe).state !== "ready") return [];
+    const models = modelRows({ kind, model: null, agentProbe, canSwitchAgent: false }).flatMap((row) => {
+      const id = modelIdOn(row, kind);
+      return typeof id === "string" ? [{ id, label: modelLabel({ ...row, kind }) }] : [];
+    });
+    const stored = chosen[kind] ?? null;
+    if (models.length === 0 && stored === null) return [];
+    const last = usableModel(kind, lastModels[kind] ?? null, agentProbe);
+    return [{
+      kind: kind as AgentKind, agent: AGENT_META[kind].label, models, stored,
+      unnamed: stored !== null && !models.some((m) => m.id === stored),
+      gone: stored !== null && usableModel(kind, stored, agentProbe) === null,
+      lastName: chipLabel(kind, last, modelRows({ kind, model: last, agentProbe, canSwitchAgent: false })),
+    }];
+  });
+  const pick = (o: (typeof offers)[number]) => (
+    <select aria-label={`Model for new ${o.agent} sessions`} value={o.stored ?? ""}
+      title={`Last used follows the last message you sent on ${o.agent}, not counting the quick chat or a question about a file or pull request.`}
+      onChange={(e) => run(() => setDefaultModel(o.kind, e.target.value === "" ? null : e.target.value))}>
+      <option value="">Last used (now {o.lastName})</option>
+      {o.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+      {o.unnamed && <option value={o.stored!}>{o.gone ? `${o.stored} — not offered` : o.stored}</option>}
+    </select>
+  );
+  return (
+    <div className="settings-row" data-stack={offers.length > 0 || undefined} data-setting="default-model">
+      <div className="settings-row-main">
+        <span className="settings-row-name">Model for new sessions</span>
+        {agentsProbed && offers.length === 0 && <span className="settings-row-desc">No agent that is installed and signed in lists its models.</span>}
+        {offers.filter((o) => o.gone).map((o) => (
+          <span key={o.kind} className="settings-row-desc">{o.agent} no longer lists {o.stored}. New {o.agent} sessions start as they do on Last used (now {o.lastName}).</span>
+        ))}
+      </div>
+      {offers.length > 0 && (
+        <div className="default-models">
+          {offers.map((o) => (
+            <Fragment key={o.kind}>
+              <span className="settings-row-name">{o.agent}</span>
+              {pick(o)}
+            </Fragment>
+          ))}
+        </div>
+      )}
+      {!agentsProbed && <p className="env-empty">Checking the installed agents…</p>}
+      {offers.length > 0 && <p className="settings-hint">Applies to a session you start with ⌘N, a split, a new worktree, a new space, or a New session command in the palette. A model you choose also applies to every other session that starts with no model named, such as the quick chat. With Last used, those start on the agent's own default.</p>}
     </div>
   );
 }
@@ -1273,6 +1378,7 @@ function GeneralTab() {
             </>
           )}
         </div>
+        <DefaultModelRow />
       </div>
 
       {/* The switch the sidebar's space sections take their order from (Plan 27). It used to appear

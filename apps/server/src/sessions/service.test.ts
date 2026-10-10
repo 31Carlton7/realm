@@ -4,9 +4,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { FakeAdapter } from "@realm/adapters";
+import { FakeAdapter, fakeStandIn, type AgentAdapter } from "@realm/adapters";
 import { createApp, type App } from "../app";
-import { DEFAULT_PERMISSION_MODE_KEY } from "@realm/contracts";
+import { DEFAULT_MODELS_KEY, DEFAULT_PERMISSION_MODE_KEY, type AgentKind, type AgentModel } from "@realm/contracts";
 import { titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
@@ -1111,5 +1111,90 @@ describe("default permission mode for new sessions (Plan 12 W6)", () => {
     await app.sessions.stopAll();
     expect((await c.call("sessions.send", { id: session.id, text: "again" })).error.code).toBe("DAEMON_DRAINING");
     c.close();
+  });
+});
+
+/**
+ * An app whose Claude and Codex are the scripted agent under those names, a space in it, and `chosen`
+ * stored as the models chosen for new sessions. Claude reports no list of its own, so its curated
+ * one stands. Codex has no curated list, and reports `codex` as its live one, which the app holds
+ * only once somebody has probed. `make` creates a session the way a creator inside the server does,
+ * naming a model only where it is handed one, and `probes` counts the probes the adapters have been
+ * asked for.
+ */
+async function modelsChosen(chosen: unknown, codex: AgentModel[] | null = null) {
+  const fake = new FakeAdapter({ script: [] });
+  const probes = { n: 0 };
+  const standIn = (kind: AgentKind, models: AgentModel[] | null): AgentAdapter => {
+    const real = fakeStandIn(fake, kind, models);
+    return { ...real, probe: async () => { probes.n++; return real.probe(); } };
+  };
+  app = await createApp({ home: tempDir("realm-"), port: 0, adapters: { claude: standIn("claude", null), codex: standIn("codex", codex) } });
+  const c = await client(app.port);
+  const p = (await c.call("profiles.create", { name: "W" })).result;
+  const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+  await c.call("settings.set", { key: DEFAULT_MODELS_KEY, value: chosen });
+  c.close();
+  const make = (agentKind: AgentKind, named: { model?: string | null } = {}) =>
+    app.sessions.create({ spaceId: sp.id, agentKind, projectId: null, effort: null, permissionMode: null, ...named }).session;
+  return { make, probes };
+}
+
+describe("the model chosen for new sessions", () => {
+  const SONNET = "claude-sonnet-5";
+  const LUNA = "gpt-6-luna";
+  const ASTRA = "gpt-6-astra";
+
+  it("starts a session created with no model named on the model chosen for its agent", async () => {
+    const { make } = await modelsChosen({ claude: SONNET });
+    expect(make("claude").model).toBe(SONNET);
+  });
+
+  it("leaves a session created with a null model on the harness's own default, though a model is chosen", async () => {
+    const { make } = await modelsChosen({ claude: SONNET });
+    expect(make("claude", { model: null }).model).toBeNull();
+  });
+
+  it("starts a session created with a model id on that id, whatever is chosen and whatever the lists carry", async () => {
+    const { make } = await modelsChosen({ claude: SONNET });
+    expect(make("claude", { model: "claude-retired-9" }).model).toBe("claude-retired-9");
+  });
+
+  it("starts on a chosen model the agent's live list carries", async () => {
+    const { make } = await modelsChosen({ codex: LUNA }, [{ id: ASTRA, label: "GPT-6 Astra" }, { id: LUNA, label: "GPT-6 Luna" }]);
+    await app.sessions.probe();
+    expect(make("codex").model).toBe(LUNA);
+  });
+
+  it("passes over a chosen model the agent's live list no longer carries", async () => {
+    const { make } = await modelsChosen({ codex: LUNA }, [{ id: ASTRA, label: "GPT-6 Astra" }]);
+    await app.sessions.probe();
+    expect(make("codex").model).toBeNull();
+  });
+
+  it("passes over a chosen model the curated list does not carry, where no live list is held", async () => {
+    const { make } = await modelsChosen({ claude: "claude-retired-9" });
+    expect(make("claude").model).toBeNull();
+  });
+
+  it("keeps a chosen model for an agent with neither a live list nor a curated one", async () => {
+    const { make } = await modelsChosen({ codex: LUNA });
+    expect(make("codex").model).toBe(LUNA);
+  });
+
+  it("does not use the choice made for another agent", async () => {
+    const { make } = await modelsChosen({ codex: LUNA });
+    expect(make("claude").model).toBeNull();
+  });
+
+  it("changes nothing when the stored row is not a map", async () => {
+    const { make } = await modelsChosen(LUNA);
+    expect(make("codex").model).toBeNull();
+  });
+
+  it("judges a chosen model by the probe it already holds, and starts none of its own", async () => {
+    const { make, probes } = await modelsChosen({ codex: LUNA }, [{ id: ASTRA, label: "GPT-6 Astra" }]);
+    expect(make("codex").model).toBe(LUNA);
+    expect(probes.n).toBe(0);
   });
 });

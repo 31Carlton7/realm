@@ -16,7 +16,7 @@ import {
   besidePane, clampPanelShare, columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type Room, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_MODELS_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readDefaultModels, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
@@ -40,8 +40,8 @@ import type { ThemePref } from "../theme/useTheme";
 import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
-import { draftRun, withOptions } from "../panes/session/draft-run";
-import { usableModel } from "../panes/session/model-catalog";
+import { draftRun, withOptions, type DraftRun } from "../panes/session/draft-run";
+import { startingModel, usableModel } from "../panes/session/model-catalog";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
@@ -797,7 +797,8 @@ export const SETTING_PANE_ALPHA = "ui.paneAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
 /** Per agent kind, the model of the last message the user sent — what "+"/⌘N put the next session
- *  of that kind on. `null` is a send on the harness's own default, and is remembered as one. */
+ *  of that kind on, where no model is chosen for it (`DEFAULT_MODELS_KEY`). `null` is a send on
+ *  the harness's own default, and is remembered as one. */
 export const SETTING_LAST_MODELS = "ui.lastModels";
 /** Whether the app keeps its decorative motion off for good. See `lowPower`. */
 const SETTING_LOW_POWER = "ui.lowPower";
@@ -1117,8 +1118,16 @@ export type AppState = {
    *  (then instant-create falls back to FALLBACK_AGENT). */
   lastAgentKind: AgentKind | null;
   /** The model of the last message sent on each agent kind (`SETTING_LAST_MODELS`). A kind absent
-   *  from it has never been sent on, and starts on its harness's default. */
+   *  from it has never been sent on, and starts on its harness's default unless a model is chosen
+   *  for it (`defaultModels`). */
   lastModels: Partial<Record<AgentKind, string | null>>;
+  /** The model chosen for new sessions on each agent kind (`DEFAULT_MODELS_KEY`), as the window
+   *  last read it. It outranks `lastModels`: a kind with a choice starts on it whatever was sent on
+   *  last. The server reads the same row for every session made with no model named
+   *  (`SessionService.create`), so the window names a model from this only where it has to say one
+   *  before a session exists: ⌘N and its kin, a prompter with no session behind it yet, Code review's
+   *  first reviewer, and a new scheduled task, whose card names the model its runs start on. */
+  defaultModels: Partial<Record<AgentKind, string>>;
   /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
   renamingItemId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
@@ -2046,11 +2055,13 @@ export type AppState = {
   releaseQueuedPrompt(sessionId: string, queuedId: string): Promise<void>;
   /** Create a session, open its item in the main view, and open its transcript. It goes to
    *  `input.spaceId`, else the current space — the space of the session in focus. When `edge` is
-   *  supplied with a target leaf, it opens there the way a dragged row would. */
+   *  supplied with a target leaf, it opens there the way a dragged row would. With no `model`
+   *  named it starts on the one `newSessionInstant` would pick for that agent. */
   newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
-   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model last sent
-   *  on with that agent (`lastModels`, else the adapter's default) and the default permission mode;
+   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model chosen for
+   *  new sessions on that agent (`defaultModels`), else the one last sent on with it (`lastModels`),
+   *  else the adapter's default, and the default permission mode;
    *  its prompter gets the keyboard. Everything else is changed on the prompter's chips afterwards. `spaceId`
    *  names the space (a space section's own +); omitted, the current space. */
   newSessionInstant(targetLeafId?: string | null, edge?: DropEdge, spaceId?: string | null): Promise<void>;
@@ -2377,7 +2388,11 @@ export type AppState = {
    *  transcript; this closes a view of them. */
   closeSessionDock(sessionId: string): void;
   /** Open the quick chat, making its session if there is not one already. A second call is a no-op:
-   *  there is one quick chat, and a button that stacked windows would be a way to lose one. */
+   *  there is one quick chat, and a button that stacked windows would be a way to lose one. Its
+   *  session is made with no model named, so the server starts it on the model chosen for new
+   *  sessions on its agent, or on the harness's own default where none is chosen. Naming one here
+   *  would be a second copy of that rule, and naming the model last sent on would carry the
+   *  last-used memory into a chat that is kept out of it. */
   openQuickChat(): Promise<void>;
   /** Close it, which DELETES the session — the window is the only place it was ever shown, so
    *  leaving the row behind would be leaving litter nobody asked to keep. */
@@ -2404,13 +2419,17 @@ export type AppState = {
   /** The agent and model the viewer's prompter will make a session with, while it has none. */
   pickViewerAgent(agentKind: AgentKind, model: string | null): void;
   /** The level, fast mode or permission set on the viewer's prompter while it has no session: held
-   *  for the one its first send makes. */
+   *  for the one its first send makes. With nothing picked yet it is held beside the last agent and
+   *  the model chosen for new sessions on it (`defaultModels`), which is what the first send would
+   *  start. A pick names its model, `null` being the harness's own default asked for by name, so
+   *  only a viewer with no pick takes the chosen model. */
   setViewerOptions(o: SessionOptions): void;
   /**
    * Ask about the viewed file: the message goes to the viewer's session — made now, in its space, if
    * there was none — carrying the file through the same attachment wire the prompter uses, with any
    * files dropped on the viewer's prompter after it. The first send marks where this viewer's
-   * exchange begins in that session's transcript.
+   * exchange begins in that session's transcript. A session made here with nothing picked starts
+   * on the model chosen for new sessions on its agent (`defaultModels`), as the quick chat's does.
    */
   sendFromViewer(text: string): Promise<void>;
   refreshGitInfo(cwd: string): Promise<void>;
@@ -2595,6 +2614,12 @@ export type AppState = {
    *  consumed server-side at `sessions.create`. The bypass confirm lives in the page, not here:
    *  by the time this runs the user has already said it twice. */
   setDefaultPermissionMode(mode: string): Promise<void>;
+  /** Read `DEFAULT_MODELS_KEY` again. A window reads it when it boots, and another window may
+   *  have changed it since. */
+  refreshDefaultModels(): Promise<void>;
+  /** Choose the model new sessions on one agent start on. `null` takes the choice back, and new
+   *  sessions on that agent start on the model last sent on again. */
+  setDefaultModel(kind: AgentKind, model: string | null): Promise<void>;
   setMidTurnMode(mode: MidTurnMode): Promise<void>;
   /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
   refreshTcc(): Promise<void>;
@@ -3319,22 +3344,34 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       rememberModel(row.agentKind, row.model);
       rememberAgent(row.agentKind);
     };
-    /** `newSession`, answering with the session it made — null when there was no space to make it in. */
+    const startingOn = (agentKind: AgentKind): string | null =>
+      startingModel(agentKind, { chosen: get().defaultModels[agentKind] ?? null, last: get().lastModels[agentKind] ?? null, agentProbe: get().agentProbe });
+    const chosenFor = (agentKind: AgentKind): string | null =>
+      usableModel(agentKind, get().defaultModels[agentKind] ?? null, get().agentProbe);
+    const viewerDraft = (pick: DraftRun | null): DraftRun => {
+      const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
+      return pick ?? draftRun(agentKind, chosenFor(agentKind));
+    };
+    /** `newSession`, answering with the session it made — null when there was no space to make it in.
+     *  A caller that names an agent and no model, as the palette's "New Claude session" does, gets
+     *  the model that agent's sessions start on. `model: null` is a model named: the harness's own
+     *  default, asked for. */
     const makeSession = async (input: Parameters<AppState["newSession"]>[0], targetLeafId: string | null, edge: DropEdge | undefined): Promise<string | null> => {
       const { spaceId, ...rest } = input;
       const sid = spaceFor(spaceId); if (!sid) return null;
-      const { session, itemId } = await api.createSession({ ...rest, spaceId: sid });
+      const model = rest.model === undefined ? startingOn(rest.agentKind) : rest.model;
+      const { session, itemId } = await api.createSession({ ...rest, model, spaceId: sid });
       rememberAgent(rest.agentKind);
       if (inProfile(sid)) mergeSession(session);
       await adoptItem(sid, itemId, targetLeafId, false, edge);
       await get().openSession(session.id);
       return session.id;
     };
-    /** What a session made with no other say is put on: the last agent, and the model last sent on it
-     *  if that harness still offers it. */
+    /** What a session made with no other say is put on: the last agent, and on it the model chosen
+     *  for new sessions, else the model last sent on, each if that harness still offers it. */
     const instantPick = (): { agentKind: AgentKind; model: string | null } => {
       const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
-      return { agentKind, model: usableModel(agentKind, get().lastModels[agentKind] ?? null, get().agentProbe) };
+      return { agentKind, model: startingOn(agentKind) };
     };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
@@ -3929,7 +3966,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().refreshProjects(space.id);
       }
       if (stopped()) return;
-      const { session, itemId } = await api.createSession({ spaceId: space.id, agentKind: input.agentKind, model: input.model ?? null, projectId });
+      const { session, itemId } = await api.createSession({ spaceId: space.id, agentKind: input.agentKind, model: input.model, projectId });
       rememberAgent(input.agentKind);
       if (inProfile(space.id)) mergeSession(session);
       if (stopped()) return;
@@ -4114,7 +4151,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     return {
       booted: false,
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
-      allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
+      allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, defaultModels: {}, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
       libraryRevision: 0,
@@ -4139,7 +4176,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels, defaultModels] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -4154,6 +4191,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.getAvatar().catch(() => null),
           api.getSetting(SETTING_SIDE_PANES_HIDDEN),
           api.getSetting(SETTING_LAST_MODELS),
+          api.getSetting(DEFAULT_MODELS_KEY),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         /* The panes' own value, or — in a home saved while one control moved both — the value that
@@ -4187,7 +4225,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
           // has said", and the answer to that for a destructive step is to keep asking.
           confirmDelete: askDelete !== false,
-          lastAgentKind: agent.success ? agent.data : null, lastModels: parseLastModels(lastModels),
+          lastAgentKind: agent.success ? agent.data : null, lastModels: parseLastModels(lastModels), defaultModels: readDefaultModels(defaultModels),
           easterEggs: eggs === true, konamiUnlocked: konami === true,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
@@ -6647,7 +6685,7 @@ await get().refreshCustomThemes().catch(() => {});
       },
       setViewerOptions(o) {
         const v = get().viewer;
-        if (v) set({ viewer: { ...v, pick: withOptions(v.pick ?? draftRun(get().lastAgentKind ?? FALLBACK_AGENT), o) } });
+        if (v) set({ viewer: { ...v, pick: withOptions(viewerDraft(v.pick), o) } });
       },
       async sendFromViewer(text) {
         const v = get().viewer; if (!v) return;
@@ -6661,12 +6699,13 @@ await get().refreshCustomThemes().catch(() => {});
           const home = file.from?.spaceId ?? v.spaceId;
           const sid = home && get().spaces.some((sp) => sp.id === home) ? home : get().activeSpaceId;
           if (!sid) return;
-          const agentKind = v.pick?.agentKind ?? get().lastAgentKind ?? FALLBACK_AGENT;
-          const created = await api.createSession({ spaceId: sid, agentKind, model: v.pick?.model ?? null, effort: v.pick?.effort ?? null,
-            ...(v.pick?.permissionMode ? { permissionMode: v.pick.permissionMode } : {}) });
+          const draft = viewerDraft(v.pick);
+          const agentKind = draft.agentKind;
+          const created = await api.createSession({ spaceId: sid, agentKind, model: draft.model, effort: draft.effort,
+            ...(draft.permissionMode ? { permissionMode: draft.permissionMode } : {}) });
           // Fast mode is a column a session is made without: set before the send starts the agent, which
           // reads the row, so the first answer is already a fast one.
-          const session = v.pick?.fastMode ? await api.setSessionOptions(created.session.id, { fastMode: true }) : created.session;
+          const session = draft.fastMode ? await api.setSessionOptions(created.session.id, { fastMode: true }) : created.session;
           rememberAgent(agentKind);
           mergeSession(session);
           sessionId = session.id;
@@ -7148,6 +7187,16 @@ await get().refreshCustomThemes().catch(() => {});
         const prefs = get().settingsPrefs; if (!prefs) return;
         await api.setSetting(DEFAULT_PERMISSION_MODE_KEY, mode);
         set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
+      },
+      async refreshDefaultModels() {
+        set({ defaultModels: readDefaultModels(await api.getSetting(DEFAULT_MODELS_KEY)) });
+      },
+      async setDefaultModel(kind, model) {
+        const defaultModels = readDefaultModels(await api.getSetting(DEFAULT_MODELS_KEY));
+        if (model === null) delete defaultModels[kind];
+        else defaultModels[kind] = model;
+        await api.setSetting(DEFAULT_MODELS_KEY, defaultModels);
+        set({ defaultModels });
       },
       async setMidTurnMode(mode) {
         await api.setSetting(MID_TURN_MODE_KEY, mode);

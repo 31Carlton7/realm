@@ -197,6 +197,14 @@ describe("CommandPalette", () => {
     expect(store.getState().lastAgentKind).toBe("codex");
   });
 
+  it("a per-agent one-shot starts on the model chosen for new sessions on that agent", async () => {
+    const { store, api } = await mount({ settings: { "sessions.defaultModels": { codex: "gpt-6-luna" } } });
+    fireEvent.change(input(), { target: { value: "new codex" } });
+    fireEvent.click(screen.getByRole("option", { name: /New Codex session/ }));
+    await waitFor(() => expect(api.calls).toContain("createSession:codex"));
+    expect(Object.values(store.getState().sessions)[0]).toMatchObject({ agentKind: "codex", model: "gpt-6-luna" });
+  });
+
   it("Close pane / Rename entries exist only with a focused non-empty leaf; Rename arms renamingItemId", async () => {
     const { store } = await mount();
     expect(screen.queryByRole("option", { name: /Close pane/ })).toBeNull(); // layout is empty

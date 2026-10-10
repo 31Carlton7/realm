@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "../../panes/session/Composer";
 import { draftRun, draftSession as draftAsSession } from "../../panes/session/draft-run";
+import { usableModel } from "../../panes/session/model-catalog";
 import { Transcript } from "../../panes/session/Transcript";
 import { useMediaFiles } from "../../panes/session/media/use-media";
 import { FALLBACK_AGENT, useApp, type PickedAttachment } from "../../state/store";
@@ -51,6 +52,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
   const modelFavorites = useApp((s) => s.modelFavorites);
   const modelInfo = useApp((s) => s.modelInfo);
   const agentProbe = useApp((s) => s.agentProbe);
+  const defaultModels = useApp((s) => s.defaultModels);
   const fastSupport = useApp((s) => s.fastSupport);
   const effortSupport = useApp((s) => s.effortSupport);
   const submitKey = useApp((s) => s.submitKey);
@@ -98,7 +100,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
   /* No session yet: the prompter still has to say which agent and model the first send will start,
      and the picker is how that is chosen — so it is handed a session the size of that choice. */
   const pickKind = viewer.pick?.agentKind ?? lastAgentKind ?? FALLBACK_AGENT;
-  const pickModel = viewer.pick?.model ?? null;
+  const pickModel = viewer.pick ? viewer.pick.model : usableModel(pickKind, defaultModels[pickKind] ?? null, agentProbe);
   const draftSession = useMemo(() => draftAsSession({ ...(viewer.pick ?? draftRun(pickKind)), agentKind: pickKind, model: pickModel },
     { id: VIEWER_SLOT, spaceId: viewer.spaceId ?? "", projectId: null, cwd: "" }), [viewer.spaceId, viewer.pick, pickKind, pickModel]);
   const session = owner ?? draftSession;

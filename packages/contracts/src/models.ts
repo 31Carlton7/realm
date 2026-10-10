@@ -1,4 +1,5 @@
-import type { AgentKind } from "./entities";
+import { AgentKindSchema, type AgentKind } from "./entities";
+import { AGENT_MODELS } from "./presets";
 
 /**
  * Model IDENTITY across harnesses — the one thing that makes a model-first picker possible.
@@ -65,6 +66,60 @@ export function readEffortSupport(raw: unknown): Record<string, string[]> {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
   return Object.fromEntries(Object.entries(raw).filter((kv): kv is [string, string[]] =>
     Array.isArray(kv[1]) && kv[1].every((l) => typeof l === "string")));
+}
+
+/**
+ * The `settings` row holding the model the person chose for new sessions on each agent (Settings ▸
+ * General): `{ [agentKind]: modelId }`. An agent absent from it has no choice made.
+ *
+ * The row has two readers, and they have to give one answer. The server reads it in
+ * `SessionService.create`, the one place a session is started from: a session created there with no
+ * model named starts on the chosen one, whoever asked for it, so a creator added later is covered
+ * without having heard of the row. (An imported conversation is written as a record of what ran, and
+ * names its transcript's model. A session that failover hands to another agent exists already, and
+ * is given the answer a new one on that agent would get.) The window reads it only where it has to
+ * say the model before a session exists — ⌘N and its kin, a prompter that shows a model chip over a
+ * session not made yet, Code review's first reviewer, and a new scheduled task. Both read the row
+ * with `readDefaultModels` and check the id with `offeredModel`, which is all `resolveDefaultModel`
+ * is: a chip that named one model over a session the server then started on another would be the
+ * setting contradicting itself.
+ */
+export const DEFAULT_MODELS_KEY = "sessions.defaultModels";
+
+/** The row as a map: entries of a known agent kind with a model id. A choice is always a model, so a
+ *  null, an empty id, a value of another shape and a row that is not a map are no choice, and read as
+ *  none made — settings rows are user-editable JSON. */
+export function readDefaultModels(raw: unknown): Partial<Record<AgentKind, string>> {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const out: Partial<Record<AgentKind, string>> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const kind = AgentKindSchema.safeParse(k);
+    if (kind.success && typeof v === "string" && v.trim() !== "") out[kind.data] = v;
+  }
+  return out;
+}
+
+/**
+ * A model id, if its agent still offers it — else `null`, the harness's own default.
+ *
+ * Checked against the agent's live list where a probe has read one (`live`), else against the curated
+ * `AGENT_MODELS`. An agent with neither (unprobed, or a harness that cannot enumerate) has nothing to
+ * check against, so the id stands as stored and the adapter has the last word on it. Without the
+ * check, a model retired since it was chosen or last sent on would start a session on an id its CLI
+ * rejects at the first message.
+ */
+export function offeredModel(kind: AgentKind, model: string | null, live: readonly { id: string }[] | null | undefined): string | null {
+  if (model === null) return null;
+  const known: ReadonlyArray<{ id: string }> = live !== null && live !== undefined && live.length > 0 ? live : AGENT_MODELS[kind];
+  if (known.length === 0) return model;
+  return known.some((m) => m.id === model) ? model : null;
+}
+
+/** The model the person chose for new sessions on `kind`, where its agent still offers it — else
+ *  `null`. `raw` is the `DEFAULT_MODELS_KEY` row as stored, and `live` the agent's own list as
+ *  `offeredModel` takes it. One function, so the choice cannot come to be read or checked two ways. */
+export function resolveDefaultModel(kind: AgentKind, raw: unknown, live: readonly { id: string }[] | null | undefined): string | null {
+  return offeredModel(kind, readDefaultModels(raw)[kind] ?? null, live);
 }
 
 /**

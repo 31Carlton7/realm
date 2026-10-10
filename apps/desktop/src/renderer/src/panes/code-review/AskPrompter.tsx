@@ -6,6 +6,7 @@ import { SpaceIcon } from "../../components/SpaceIcon";
 import { FALLBACK_AGENT, useApp, type PickedAttachment } from "../../state/store";
 import { Composer } from "../session/Composer";
 import { draftRun, draftSession as draftAsSession, withOptions, type DraftRun } from "../session/draft-run";
+import { usableModel } from "../session/model-catalog";
 import { Transcript } from "../session/Transcript";
 import { codeReview } from "./code-review-api";
 
@@ -33,6 +34,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
   const draft = useApp((s) => s.drafts[ASK_SLOT] ?? "");
   const attachments = useApp((s) => s.pendingAttachments[ASK_SLOT] ?? NO_ATTACHMENTS);
   const agentProbe = useApp((s) => s.agentProbe);
+  const defaultModels = useApp((s) => s.defaultModels);
   const modelFavorites = useApp((s) => s.modelFavorites);
   const modelInfo = useApp((s) => s.modelInfo);
   const fastSupport = useApp((s) => s.fastSupport);
@@ -52,10 +54,15 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
   const closePageOverlay = useApp((s) => s.closePageOverlay);
   const run = useApp((s) => s.run);
   const [thread, setThread] = useState<{ sessionId: string; spaceId: string } | null>(null);
-  /* What the first question starts, while there is no session to change: the picker's model, and the
-     level, fast mode and permission its card and chips set — each held here exactly as a session's
-     row would hold it, and handed to the session `codeReview.ask` makes. */
-  const [pick, setPick] = useState<DraftRun>(() => draftRun(lastAgentKind ?? FALLBACK_AGENT));
+  /* What the first question starts, while there is no session to change. Untouched, the box shows the
+     agent it opened on, on the model chosen for new sessions on it (`defaultModels`) where its harness
+     still offers it, else on the harness's own default. What the person sets is held in `picked` as a
+     session's row would hold it, and handed to the session `codeReview.ask` makes: the picker's model,
+     that default included, and the level, fast mode and permission its card and chips set. */
+  const [startKind] = useState(() => lastAgentKind ?? FALLBACK_AGENT);
+  const [picked, setPicked] = useState<DraftRun | null>(null);
+  const chosen = usableModel(startKind, defaultModels[startKind] ?? null, agentProbe);
+  const pick = useMemo(() => picked ?? draftRun(startKind, chosen), [picked, startKind, chosen]);
   const [sends, setSends] = useState(0);
   const [asking, setAsking] = useState(false);
   /* The exchange folds away: it stands over the request, and once its answer is read the request is
@@ -86,7 +93,9 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
     setAsking(true);
     try {
       const sent = attachments;
-      const r = await codeReview.ask({ ref: pr, spaceId: place.spaceId, projectId: place.projectId, agentKind: owner?.agentKind ?? pick.agentKind, model: pick.model,
+      const agentKind = owner?.agentKind ?? pick.agentKind;
+      const model = agentKind !== pick.agentKind && pick.model === chosen ? usableModel(agentKind, defaultModels[agentKind] ?? null, agentProbe) : pick.model;
+      const r = await codeReview.ask({ ref: pr, spaceId: place.spaceId, projectId: place.projectId, agentKind, model,
         effort: pick.effort, fastMode: pick.fastMode, permissionMode: pick.permissionMode,
         text, attachments: sent.map(({ path, mime }) => ({ path, mime })) });
       for (const a of sent) removeAttachment(ASK_SLOT, a.path);
@@ -144,10 +153,10 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
         onStop={() => { if (continuing) run(() => interruptSession(continuing.id)); }}
         onOptions={(o) => {
           if (continuing) run(() => setSessionOptions(continuing.id, o));
-          else setPick((p) => withOptions(p, o));
+          else setPicked((p) => withOptions(p ?? pick, o));
         }}
         onPickModel={(kind, modelId) => {
-          if (!continuing) { setPick((p) => ({ ...p, agentKind: kind, model: modelId })); return; }
+          if (!continuing) { setPicked((p) => ({ ...(p ?? pick), agentKind: kind, model: modelId })); return; }
           if (modelId !== null) run(() => setSessionOptions(continuing.id, { model: modelId }));
         }}
         onMode={NOOP} planReturn={null}

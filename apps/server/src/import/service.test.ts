@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { IMPORT_MEMORY_MARKER_OPEN, IMPORTED_SPACE_NAME } from "@realm/contracts";
+import { DEFAULT_MODELS_KEY, IMPORT_MEMORY_MARKER_OPEN, IMPORTED_SPACE_NAME } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { dbPath } from "../paths";
 import { EnvironmentsStore } from "../store/environments";
@@ -56,7 +56,7 @@ type Harness = {
    *  facts that must survive one (the imported-source set). */
   freshService(): ImportService;
   sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore;
-  spaces: SpacesStore; profiles: ProfilesStore; memory: MemoryService;
+  spaces: SpacesStore; profiles: ProfilesStore; memory: MemoryService; settings: SettingsStore;
   workProfileId: string; realmSpaceId: string; realmProjectRoot: string;
 };
 
@@ -90,7 +90,7 @@ function harness(): Harness {
   const rpc = { broadcast: () => {} } as unknown as RpcServer;
   const deps = { home, db, rpc, spaces, profiles, projects, environments, sessions, events, items, settings, memory, roots };
   const imports = new ImportService(deps);
-  return { home, roots, imports, freshService: () => new ImportService(deps), sessions, events, items, spaces, profiles, memory,
+  return { home, roots, imports, freshService: () => new ImportService(deps), sessions, events, items, spaces, profiles, memory, settings,
     workProfileId: work.id, realmSpaceId: realm.id, realmProjectRoot };
 }
 
@@ -240,6 +240,25 @@ describe("ImportService.apply — sessions", () => {
     expect(events[0]!.event.ts).toBe(1_780_000_000_000);
     expect(session.lastEventSeq).toBe(events[3]!.seq);
     expect(h.items.list(h.realmSpaceId).some((i) => i.refId === session.id)).toBe(true);
+  });
+
+  it("keeps the model its transcript names, though another is chosen for new sessions on its agent", () => {
+    h.settings.set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 1));
+    const key = h.imports.scan().sessions[0]!.key;
+    applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
+    expect(h.sessions.listAll()[0]).toMatchObject({ agentKind: "claude", model: "claude-opus-5" });
+  });
+
+  it("leaves a conversation whose transcript names no model on none, though one is chosen for its agent", () => {
+    h.settings.set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    write(join(h.roots.claude, "projects", "-a", "c2.jsonl"), jsonl([
+      { type: "ai-title", aiTitle: "Session c2", sessionId: "c2" },
+      { type: "user", sessionId: "c2", cwd: h.realmProjectRoot, isSidechain: false, timestamp: new Date(1_780_000_000_000).toISOString(), message: { role: "user", content: [{ type: "text", text: "ask" }] } },
+    ]));
+    const key = h.imports.scan().sessions[0]!.key;
+    applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
+    expect(h.sessions.listAll()[0]).toMatchObject({ agentKind: "claude", model: null });
   });
 
   it("carries the provider id when the cwd still exists, so the session can be resumed", () => {

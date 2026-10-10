@@ -321,7 +321,7 @@ export class RunService {
         try {
           const created = this.d.sessions.create({
             spaceId: run.spaceId, agentKind: run.agentKind, projectId: null, environmentId: env.value.environmentId,
-            model, effort, permissionMode,
+            ...(run.constraints === null && run.scheduleId === null ? {} : { model }), effort, permissionMode,
             title: clip(run.title, 40),
             dispatchedBy: { sessionId: null, kind: "run" },
           });

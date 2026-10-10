@@ -7,8 +7,8 @@ import {
 } from "@realm/contracts";
 import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
-import { FALLBACK_AGENT, useApp } from "../../state/store";
-import { chipLabel, formatEffort, modelRows, type EffortControl, type FastMode, type ModelRow } from "../session/model-catalog";
+import { FALLBACK_AGENT, useApp, type AgentProbe } from "../../state/store";
+import { chipLabel, formatEffort, modelRows, usableModel, type EffortControl, type FastMode, type ModelRow } from "../session/model-catalog";
 import { ModelPicker } from "../session/ModelPicker";
 import {
   EMPTY_DRAFT, REVIEW_EVENTS, canReview, canSubmit, isOwnRequest, postsLine, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerPhrase,
@@ -34,9 +34,15 @@ export function ReviewerName({ label, level }: { label: string; level: string | 
 }
 
 /** The reviewer a profile starts with, before one is picked: the agent last used where it can review,
- *  on its own default model, level and speed. */
-const firstReviewer = (lastAgentKind: AgentKind | null): ReviewerPick =>
-  ({ agentKind: lastAgentKind && canReview(lastAgentKind) ? lastAgentKind : FALLBACK_AGENT, model: null, effort: null, fastMode: false });
+ *  on the model chosen for new sessions on that agent (`defaultModels`) where its harness still
+ *  offers it and otherwise on the harness's own default, at that model's own level and speed. The
+ *  button names the reviewer's model before the review's session exists, so it is worked out here and
+ *  named to `codeReview.review`. A saved pick is a model named, the harness's own default included,
+ *  and is never run through this: the choice in Settings reaches only a reviewer nobody has picked. */
+const firstReviewer = (lastAgentKind: AgentKind | null, defaultModels: Partial<Record<AgentKind, string>>, agentProbe: AgentProbe[]): ReviewerPick => {
+  const agentKind = lastAgentKind && canReview(lastAgentKind) ? lastAgentKind : FALLBACK_AGENT;
+  return { agentKind, model: usableModel(agentKind, defaultModels[agentKind] ?? null, agentProbe), effort: null, fastMode: false };
+};
 
 /**
  * Review with… — ONE control with a second target on it, the shape Codex gives its own: the
@@ -62,6 +68,7 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
 }) {
   const lastAgentKind = useApp((s) => s.lastAgentKind);
   const agentProbe = useApp((s) => s.agentProbe);
+  const defaultModels = useApp((s) => s.defaultModels);
   const favorites = useApp((s) => s.modelFavorites);
   const info = useApp((s) => s.modelInfo);
   const effortSupport = useApp((s) => s.effortSupport);
@@ -70,7 +77,7 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
   const refreshModelCatalog = useApp((s) => s.refreshModelCatalog);
   const run = useApp((s) => s.run);
   const [held, hold] = useHeldReviewer(profileId);
-  const pick = held ?? firstReviewer(lastAgentKind);
+  const pick = held ?? firstReviewer(lastAgentKind, defaultModels, agentProbe);
   // The levels each model takes and what is known of its fast mode, which the body names before the
   // menu is ever opened — loaded as a session pane loads them, for a page that may be opened first.
   useEffect(() => {
@@ -92,7 +99,7 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
   /* A change is the profile's at once: there is no Save for a pick. Laid over the pick as it is now
      rather than as this render saw it, so a level set straight after a model lands on that model. */
   const choose = (patch: Partial<ReviewerPick>) => {
-    const next = { ...(heldReviewer(profileId) ?? firstReviewer(lastAgentKind)), ...patch };
+    const next = { ...(heldReviewer(profileId) ?? firstReviewer(lastAgentKind, defaultModels, agentProbe)), ...patch };
     hold(next);
     run(() => codeReview.setReviewerPick(profileId, next));
   };

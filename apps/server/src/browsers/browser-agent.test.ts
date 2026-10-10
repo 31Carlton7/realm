@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { DEFAULT_MODELS_KEY } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
+import { SettingsStore } from "../store/settings";
 import { SpacesStore } from "../store/spaces";
 import { waitFor } from "../test-utils";
 import { createRealmAgentProvider, RUN_TOOL_NAME } from "./browser-agent";
@@ -99,6 +101,13 @@ describe("browser_agent_run — the delegated session", () => {
     expect(app.sessions.get(child.id).status).toBe("idle");
     expect(text(result)).toContain("FINAL: clicked the button, count is 1");
     expect(result.isError).toBe(false);
+  });
+
+  it("starts the child on the model chosen for new sessions on its agent", async () => {
+    const { spaceId, parentId } = await boot({ parentKind: "claude" });
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    expect(childOf(spaceId, parentId)).toMatchObject({ agentKind: "claude", model: "claude-sonnet-5" });
   });
 
   it("NEVER inherits bypassPermissions — a bypass parent's child runs default (the safety line)", async () => {

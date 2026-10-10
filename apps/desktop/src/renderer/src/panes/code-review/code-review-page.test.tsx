@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MODEL_EFFORTS_KEY, PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
+import { DEFAULT_MODELS_KEY, MODEL_EFFORTS_KEY, PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
 
 /** The page's calls, answered from what each test sets, and every one kept. Nothing reaches a socket
  *  — and so nothing reaches gh, or GitHub. */
@@ -11,6 +11,7 @@ let detail: PrDetail;
 let review: PrReview | null = null;
 let instructions = "";
 let reviewerPick: ReviewerPick | null = null;
+let thread: { sessionId: string | null; spaceId: string | null } = { sessionId: null, spaceId: null };
 vi.mock("../../rpc/client", () => ({
   rpc: () => ({
     on: () => () => {},
@@ -26,7 +27,7 @@ vi.mock("../../rpc/client", () => ({
         case "codeReview.reviewGet": return { review };
         case "codeReview.pins": return { pins: [] };
         case "codeReview.places": return { places: [{ spaceId: "s1", projectId: null, name: "Versed", path: "/tmp/versed", repo: null, branch: null }] };
-        case "codeReview.thread": return { sessionId: null, spaceId: null };
+        case "codeReview.thread": return thread;
         case "codeReview.ask": return { sessionId: "01HQ000000000000000000ASK1", itemId: null };
         case "codeReview.instructions": return { text: instructions };
         case "codeReview.setInstructions": instructions = params.text; return { text: params.text };
@@ -45,8 +46,8 @@ vi.mock("../../rpc/client", () => ({
 import { CodeReviewPage } from "./CodeReviewPage";
 import { forgetHeld } from "./held";
 import { exited } from "../../components/popover-exit.test-fakes";
-import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
+import { SETTING_LAST_AGENT, SETTING_LAST_MODELS, StoreContext, createAppStore } from "../../state/store";
+import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 /* The overlay draws its page through the registry, which the panes fill by side effect. */
 import "../index";
 import { PageNavProvider } from "../../components/page-nav";
@@ -92,6 +93,7 @@ beforeEach(() => {
   review = null;
   instructions = "";
   reviewerPick = null;
+  thread = { sessionId: null, spaceId: null };
 });
 afterEach(() => cleanup());
 
@@ -107,6 +109,45 @@ const called = (method: string) => calls.filter((c) => c.method === method);
 const openRequest = async () => {
   fireEvent.click(await screen.findByRole("button", { name: /^Stream the tokenizer/ }));
   return screen.findByRole("heading", { level: 2, name: "Stream the tokenizer" });
+};
+
+const SONNET = "claude-sonnet-5";
+/** Sonnet 5 chosen for new Claude sessions in Settings, as the store reads it at boot. */
+const sonnetChosen = { [DEFAULT_MODELS_KEY]: { claude: SONNET } };
+/** Codex's list as its probe reads it: the harness's own default row leads it in the picker. */
+const codexLive = [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", isDefault: true }, { id: "gpt-6-luna", label: "GPT-6-Luna" }];
+const askBox = () => screen.getByRole("region", { name: "Ask about this pull request" });
+const askChip = () => within(askBox()).getByRole("button", { name: "Model" });
+/** The model the question box's chip names, without the level or the bolt beside it. */
+const askNames = () => askChip().querySelector(".chip-label")?.textContent;
+/** Asks a first question in the box, and answers with what `codeReview.ask` was sent. */
+const askFirst = async () => {
+  const field = within(askBox()).getByRole("textbox", { name: /message/i });
+  fireEvent.change(field, { target: { value: "Is the stream right?" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  await waitFor(() => expect(called("codeReview.ask")).toHaveLength(1));
+  return called("codeReview.ask")[0]!.params;
+};
+/** Opens the question box's model picker and presses the row of that name. */
+const pressInAsk = async (name: string | RegExp) => {
+  fireEvent.click(askChip());
+  const row = within(await screen.findByRole("dialog", { name: "Model picker" })).getByRole("option", { name });
+  fireEvent.pointerDown(row);
+  fireEvent.click(row);
+};
+/** The session this pull request was asked about in before: a Codex one, in the space the box does
+ *  not ask in. */
+const ELSEWHERE = "01HQ000000000000000000THR1";
+/** The request opened with that thread behind it and `settings` stored, once the box has loaded the
+ *  thread. The next question starts a session, since the thread is in another place, and the box
+ *  draws the same chip with the thread loaded as without it: so the wait is on the store's copy of
+ *  the thread, then on the render that follows it. */
+const askedElsewhere = async (settings: Record<string, unknown>) => {
+  thread = { sessionId: ELSEWHERE, spaceId: "s2" };
+  const { store } = await mount({ settings: { ...settings }, sessions: [session(ELSEWHERE, "s2", { agentKind: "codex" })] });
+  await openRequest();
+  await waitFor(() => expect(store.getState().transcripts[ELSEWHERE]).toBeDefined());
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 };
 
 describe("setting up", () => {
@@ -453,6 +494,52 @@ describe("Review with…", () => {
     await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
     expect(called("codeReview.setInstructions")[0]!.params).toEqual({ profileId: "p1", text: "Skip style nits.\nI care most about the data model. Tell me where we might be overcomplicating things." });
   });
+
+  it("names the model chosen for new sessions on its agent before a reviewer is picked, and reviews on it", async () => {
+    await mount({ settings: sonnetChosen });
+    await openRequest();
+    fireEvent.click(screen.getByRole("button", { name: "Review with Sonnet 5" }));
+    await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
+    expect(called("codeReview.review")[0]!.params).toMatchObject({ agentKind: "claude", model: SONNET });
+  });
+
+  it("reviews on a saved reviewer's own model, though another is chosen for its agent", async () => {
+    reviewerPick = { agentKind: "claude", model: "claude-opus-5-5", effort: null, fastMode: false };
+    await mount({ settings: sonnetChosen });
+    await openRequest();
+    fireEvent.click(await screen.findByRole("button", { name: "Review with Opus 5.5" }));
+    await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
+    expect(called("codeReview.review")[0]!.params).toMatchObject({ agentKind: "claude", model: "claude-opus-5-5" });
+  });
+
+  it("leaves a saved reviewer on its harness's own default where the pick names it, though a model is chosen", async () => {
+    reviewerPick = { agentKind: "claude", model: null, effort: null, fastMode: false };
+    await mount({ settings: sonnetChosen });
+    await openRequest();
+    fireEvent.click(await screen.findByRole("button", { name: "Review with Fable 5.1" }));
+    await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
+    expect(called("codeReview.review")[0]!.params).toMatchObject({ agentKind: "claude", model: null });
+  });
+
+  it("passes over a chosen model the reviewer's live list no longer carries", async () => {
+    const { store } = await mount({ settings: sonnetChosen,
+      agentProbe: [{ kind: "claude", available: true, version: "1", loggedIn: true, reason: null, models: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }] }] });
+    await act(() => store.getState().probeAgents());
+    await openRequest();
+    fireEvent.click(screen.getByRole("button", { name: "Review with Fable 5.1" }));
+    await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
+    expect(called("codeReview.review")[0]!.params).toMatchObject({ agentKind: "claude", model: null });
+  });
+
+  it("keeps the chosen model as the reviewer's when only its level is set before one is picked", async () => {
+    await mount({ settings: sonnetChosen });
+    await openRequest();
+    const picker = await openPicker(await openMenu());
+    fireEvent.keyDown(within(picker).getByRole("slider", { name: "Effort" }), { key: "End" });
+    await waitFor(() => expect(called("codeReview.setReviewerPick")).toHaveLength(1));
+    expect(called("codeReview.setReviewerPick")[0]!.params).toEqual({ profileId: "p1", pick: { agentKind: "claude", model: SONNET, effort: "max", fastMode: false } });
+    expect(screen.getByRole("button", { name: "Review with Sonnet 5 Max" })).toBeInTheDocument();
+  });
 });
 
 describe("Ask about this pull request", () => {
@@ -474,6 +561,98 @@ describe("Ask about this pull request", () => {
     fireEvent.keyDown(box, { key: "Enter" });
     await waitFor(() => expect(called("codeReview.ask")).toHaveLength(1));
     expect(called("codeReview.ask")[0]!.params).toMatchObject({ effort: "max", fastMode: true, permissionMode: null, model: null });
+  });
+
+  it("names the model chosen for new sessions on its agent, and asks the first question on it", async () => {
+    await mount({ settings: sonnetChosen });
+    await openRequest();
+    expect(askNames()).toBe("Sonnet 5");
+    expect(await askFirst()).toMatchObject({ agentKind: "claude", model: SONNET });
+  });
+
+  it("names the agent's own default and asks for it by name where none is chosen, whatever was sent on last", async () => {
+    await mount({ settings: { [DEFAULT_MODELS_KEY]: { codex: "gpt-6-luna" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5" } } });
+    await openRequest();
+    expect(askNames()).toBe("Fable 5.1");
+    expect(await askFirst()).toMatchObject({ agentKind: "claude", model: null });
+  });
+
+  it("takes the choice made for the agent the box opens on, not another agent's", async () => {
+    await mount({ settings: { [SETTING_LAST_AGENT]: "codex", [DEFAULT_MODELS_KEY]: { claude: SONNET, codex: "gpt-6-luna" } } });
+    await openRequest();
+    expect(askNames()).toBe("gpt-6-luna");
+    expect(await askFirst()).toMatchObject({ agentKind: "codex", model: "gpt-6-luna" });
+  });
+
+  it("passes over a chosen model the agent's live list no longer carries", async () => {
+    const { store } = await mount({ settings: sonnetChosen,
+      agentProbe: [{ kind: "claude", available: true, version: "1", loggedIn: true, reason: null, models: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }] }] });
+    await act(() => store.getState().probeAgents());
+    await openRequest();
+    expect(askNames()).toBe("Fable 5.1");
+    expect(await askFirst()).toMatchObject({ agentKind: "claude", model: null });
+  });
+
+  it("stays on the agent's own default once its row is pressed in the box, though a model is chosen", async () => {
+    const { store } = await mount({ settings: { [SETTING_LAST_AGENT]: "codex", [DEFAULT_MODELS_KEY]: { codex: "gpt-6-luna" } },
+      agentProbe: [{ kind: "codex", available: true, version: "1", loggedIn: true, reason: null, models: codexLive }] });
+    await act(() => store.getState().probeAgents());
+    await openRequest();
+    expect(askNames()).toBe("GPT-6-Luna");
+    await pressInAsk("GPT-5.6");
+    await waitFor(() => expect(askNames()).toBe("GPT-5.6"));
+    expect(await askFirst()).toMatchObject({ agentKind: "codex", model: null });
+  });
+
+  it("asks on a model pressed in the box, over the chosen one", async () => {
+    await mount({ settings: sonnetChosen });
+    await openRequest();
+    await pressInAsk(/^Claude Haiku 4\.5/);
+    await waitFor(() => expect(askNames()).toBe("Haiku 4.5"));
+    expect(await askFirst()).toMatchObject({ agentKind: "claude", model: "claude-haiku-4-5" });
+  });
+
+  it("keeps the chosen model when only the level is changed before the first question", async () => {
+    await mount({ settings: sonnetChosen });
+    await openRequest();
+    fireEvent.click(askChip());
+    fireEvent.keyDown(await screen.findByRole("slider", { name: "Effort" }), { key: "End" });
+    await waitFor(() => expect(askChip().querySelector(".chip-effort")).toHaveTextContent("Max"));
+    expect(askNames()).toBe("Sonnet 5");
+    expect(await askFirst()).toMatchObject({ agentKind: "claude", model: SONNET, effort: "max" });
+  });
+
+  it("asks on the agent of a thread in another space without the model chosen for the box's own agent", async () => {
+    await askedElsewhere(sonnetChosen);
+    expect(askNames()).toBe("Sonnet 5");
+    expect(await askFirst()).toMatchObject({ agentKind: "codex", model: null });
+  });
+
+  it("asks on the agent of a thread in another space without the box's chosen model after only the level is changed, at that level", async () => {
+    await askedElsewhere(sonnetChosen);
+    fireEvent.click(askChip());
+    fireEvent.keyDown(await screen.findByRole("slider", { name: "Effort" }), { key: "End" });
+    await waitFor(() => expect(askChip().querySelector(".chip-effort")).toHaveTextContent("Max"));
+    expect(askNames()).toBe("Sonnet 5");
+    expect(await askFirst()).toMatchObject({ agentKind: "codex", model: null, effort: "max" });
+  });
+
+  it("asks on the model chosen for the agent of a thread in another space, where the box's own agent is another", async () => {
+    await askedElsewhere({ [DEFAULT_MODELS_KEY]: { claude: SONNET, codex: "gpt-6-luna" } });
+    expect(askNames()).toBe("Sonnet 5");
+    expect(await askFirst()).toMatchObject({ agentKind: "codex", model: "gpt-6-luna" });
+  });
+
+  it("asks on the own default of the agent of a thread in another space where no model is chosen, whatever was sent on last", async () => {
+    await askedElsewhere({ [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5", codex: "gpt-6-luna" } });
+    expect(await askFirst()).toMatchObject({ agentKind: "codex", model: null });
+  });
+
+  it("sends a model pressed in the box with the agent of a thread in another space, as before a model could be chosen", async () => {
+    await askedElsewhere({});
+    await pressInAsk(/^Claude Haiku 4\.5/);
+    await waitFor(() => expect(askNames()).toBe("Haiku 4.5"));
+    expect(await askFirst()).toMatchObject({ agentKind: "codex", model: "claude-haiku-4-5" });
   });
 });
 

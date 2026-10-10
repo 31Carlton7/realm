@@ -7,6 +7,7 @@ import { Menu, type MenuItem } from "../../components/Menu";
 import { PageRail } from "../../components/page-nav";
 import { useDissolve } from "../../components/ScrollFades";
 import { SpaceIcon } from "../../components/SpaceIcon";
+import { usableModel } from "../session/model-catalog";
 import { SessionPane } from "../session/SessionPane";
 import { summarize } from "../session/session-summary";
 import { ScheduleModal, type ModalOpen } from "./ScheduleModal";
@@ -40,6 +41,14 @@ const NO_RUNS: Run[] = [];
  * moves one between them, and a list that showed only the vantage space would lose a task the moment
  * it moved. New tasks start in the vantage space (`item.spaceId`), the one the page was opened from.
  *
+ * New task opens on the agent last used, on the model the person chose for new sessions on that
+ * agent (`defaultModels`) where it still offers it (`usableModel`). The choice is laid on the draft
+ * here, where the chip under Advanced shows it before anything is saved, because a task is a pick
+ * and a pick names its model: a task saved with none runs on the harness's own default, and that is
+ * what its card and its row name. Left for the run to fill in, the card would name one model and
+ * the run start on another. A saved task opens as it was saved. A suggestion is a new task with its
+ * words written for it, so it opens on the same model.
+ *
  * A run is unread until its session has been read (`runUnread`), off the same mark the sidebar
  * keeps, so opening the run anywhere clears it here.
  */
@@ -50,6 +59,8 @@ export function SchedulesPage({ item, visible, focused = false }: PaneProps) {
   const history = useApp((s) => s.scheduleRuns);
   const sessions = useApp((s) => s.allSessions);
   const lastAgentKind = useApp((s) => s.lastAgentKind);
+  const agentProbe = useApp((s) => s.agentProbe);
+  const defaultModels = useApp((s) => s.defaultModels);
   const refreshSchedules = useApp((s) => s.refreshSchedules);
   const refreshScheduleRuns = useApp((s) => s.refreshScheduleRuns);
   const loadOlderScheduleRuns = useApp((s) => s.loadOlderScheduleRuns);
@@ -110,7 +121,8 @@ export function SchedulesPage({ item, visible, focused = false }: PaneProps) {
     select(s.id, fired.lastRunId);
   });
   const defaultKind = lastAgentKind ?? FALLBACK_AGENT;
-  const openNew = () => setModal({ draft: blankDraft(vantage, defaultKind) });
+  const chosen = usableModel(defaultKind, defaultModels[defaultKind] ?? null, agentProbe);
+  const openNew = () => setModal({ draft: { ...blankDraft(vantage, defaultKind), model: chosen } });
 
   return (
     <div className="page schedules-page">
@@ -149,7 +161,7 @@ export function SchedulesPage({ item, visible, focused = false }: PaneProps) {
             <ul className="sched-suggested">
               {suggested.map((t) => (
                 <li key={t.title}>
-                  <button type="button" className="sched-suggestion" onClick={() => setModal({ draft: draftOfSuggestion(t, vantage, defaultKind) })}>
+                  <button type="button" className="sched-suggestion" onClick={() => setModal({ draft: { ...draftOfSuggestion(t, vantage, defaultKind), model: chosen } })}>
                     <span className="sched-suggestion-name">{t.title}</span>
                     <span className="sched-suggestion-blurb">{t.blurb}</span>
                   </button>
