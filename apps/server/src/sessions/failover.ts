@@ -29,8 +29,10 @@ import type { SendMessage } from "./service";
  * is coherent because it answers every clause of the objection rather than ignoring it:
  *
  *  - the `providerSessionId` is CLEARED, so nothing resumes a thread the new agent never had;
- *  - `model` and `effort` are cleared, because model ids are per-kind and asking Codex for
- *    `claude-opus-5` is a lie the adapter would have to invent an answer to;
+ *  - `model` and `effort` go, because model ids are per-kind and asking Codex for `claude-opus-5`
+ *    is a lie the adapter would have to invent an answer to. The chain names an agent and no model,
+ *    so the session takes the model a new session on that agent starts on with none named. That is
+ *    the one chosen for new sessions on it, else null, the harness's own default;
  *  - the transcript so far is carried as TEXT, the same mechanism forks use and for the same reason
  *    (no adapter can import another vendor's conversation);
  *  - and a `handoff` event is persisted, so the transcript states where the voice changed instead of
@@ -85,6 +87,14 @@ export type FailoverDeps = {
    * the thirty seconds in which the credential changed.
    */
   probe: (opts: { force: boolean }) => Promise<ProbeResult[]>;
+  /**
+   * The model a session made on `kind` with no model named starts on: the one the person chose for
+   * new sessions on that agent, else null, its harness's own default. `SessionService.defaultModel`.
+   * A chain names agents and no models, so a handoff is such a start. The handoff asks for the model
+   * itself because the session exists already and never passes through `create`, which settles
+   * every other start with no model named. Left out (a test's harness), a handoff lands on null.
+   */
+  defaultModel?: (kind: AgentKind) => string | null;
   /** Injectable so tests do not spend real seconds on the backoff ladder. */
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (t: ReturnType<typeof setTimeout>) => void;
@@ -325,8 +335,8 @@ export class FailoverService {
       id: session.id, agentKind: to,
       // All three are per-kind and none of them survives the move. A stale providerSessionId would
       // ask the new adapter to resume a thread it has never heard of; a stale model id would ask it
-      // for a model from another vendor's catalogue.
-      providerSessionId: null, model: null, effort: null,
+      // for a model from another vendor's catalogue. The model is the one chosen for `to`, if any.
+      providerSessionId: null, model: this.d.defaultModel?.(to) ?? null, effort: null,
     });
     turn.tried = [...turn.tried, session.agentKind];
     this.d.emit(session.id, sessionEvent("handoff", {

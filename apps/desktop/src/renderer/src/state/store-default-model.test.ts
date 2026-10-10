@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { PANE_DIVIDER, PANE_MIN } from "@realm/contracts";
-import { SETTING_DEFAULT_MODELS, SETTING_LAST_MODELS, createAppStore } from "./store";
+import { DEFAULT_MODELS_KEY, PANE_DIVIDER, PANE_MIN } from "@realm/contracts";
+import { SETTING_LAST_MODELS, createAppStore } from "./store";
 import { fakeApi, item, session } from "./store.test-fakes";
 
 /* The most recent model used is the default for the next session (backlog 2026-10-08, item 1): the
@@ -130,7 +130,7 @@ describe("the last model sent on is the next session's default", () => {
 
 describe("a model chosen for new sessions outranks the one last sent on", () => {
   const SONNET = "claude-sonnet-5";
-  const chose = (models: Record<string, unknown>, more: Record<string, unknown> = {}) => setup({ settings: { [SETTING_DEFAULT_MODELS]: models, ...more } });
+  const chose = (models: Record<string, unknown>, more: Record<string, unknown> = {}) => setup({ settings: { [DEFAULT_MODELS_KEY]: models, ...more } });
 
   it("starts ⌘N on the chosen model after a send on another one", async () => {
     const { store, made } = await chose({ claude: SONNET });
@@ -144,7 +144,7 @@ describe("a model chosen for new sessions outranks the one last sent on", () => 
     const { api, store } = await chose({ claude: SONNET });
     await store.getState().sendMessage("se1", "hi");
     expect(store.getState().defaultModels).toEqual({ claude: SONNET });
-    expect(api.data.settings[SETTING_DEFAULT_MODELS]).toEqual({ claude: SONNET });
+    expect(api.data.settings[DEFAULT_MODELS_KEY]).toEqual({ claude: SONNET });
     expect(api.data.settings[SETTING_LAST_MODELS]).toEqual({ claude: OPUS });
   });
 
@@ -152,7 +152,7 @@ describe("a model chosen for new sessions outranks the one last sent on", () => 
     const { api, store, made } = await chose({ claude: SONNET }, { [SETTING_LAST_MODELS]: { claude: OPUS } });
     await store.getState().setDefaultModel("claude", null);
     expect(store.getState().defaultModels).toEqual({});
-    expect(api.data.settings[SETTING_DEFAULT_MODELS]).toEqual({});
+    expect(api.data.settings[DEFAULT_MODELS_KEY]).toEqual({});
     await store.getState().newSessionInstant();
     expect(made().model).toBe(OPUS);
   });
@@ -185,7 +185,7 @@ describe("a model chosen for new sessions outranks the one last sent on", () => 
   it("reads `sessions.defaultModels` at boot, and a value that is no choice as none made", async () => {
     expect((await chose({ claude: SONNET, codex: "gpt-6-luna" })).store.getState().defaultModels).toEqual({ claude: SONNET, codex: "gpt-6-luna" });
     expect((await chose({ claude: null, codex: "", nope: SONNET, "acp:cursor": 5, "acp:goose": "   " })).store.getState().defaultModels).toEqual({});
-    expect((await setup({ settings: { [SETTING_DEFAULT_MODELS]: SONNET } })).store.getState().defaultModels).toEqual({});
+    expect((await setup({ settings: { [DEFAULT_MODELS_KEY]: SONNET } })).store.getState().defaultModels).toEqual({});
     expect((await setup()).store.getState().defaultModels).toEqual({});
   });
 
@@ -195,22 +195,22 @@ describe("a model chosen for new sessions outranks the one last sent on", () => 
 
   it("writes a choice into what is stored now, so one made in another window for another agent is kept", async () => {
     const { api, store } = await chose({ claude: SONNET });
-    api.data.settings[SETTING_DEFAULT_MODELS] = { claude: SONNET, codex: "gpt-6-luna" };
+    api.data.settings[DEFAULT_MODELS_KEY] = { claude: SONNET, codex: "gpt-6-luna" };
     await store.getState().setDefaultModel("claude", OPUS);
-    expect(api.data.settings[SETTING_DEFAULT_MODELS]).toEqual({ claude: OPUS, codex: "gpt-6-luna" });
+    expect(api.data.settings[DEFAULT_MODELS_KEY]).toEqual({ claude: OPUS, codex: "gpt-6-luna" });
     expect(store.getState().defaultModels).toEqual({ claude: OPUS, codex: "gpt-6-luna" });
   });
 
   it("writes choices and nothing else, so an entry stored as no choice is not carried into the next write", async () => {
     const { api, store } = await chose({ claude: SONNET });
-    api.data.settings[SETTING_DEFAULT_MODELS] = { claude: SONNET, codex: null, "acp:cursor": "" };
+    api.data.settings[DEFAULT_MODELS_KEY] = { claude: SONNET, codex: null, "acp:cursor": "" };
     await store.getState().setDefaultModel("claude", OPUS);
-    expect(api.data.settings[SETTING_DEFAULT_MODELS]).toEqual({ claude: OPUS });
+    expect(api.data.settings[DEFAULT_MODELS_KEY]).toEqual({ claude: OPUS });
   });
 
   it("drops a choice taken back in another window when asked again", async () => {
     const { api, store } = await chose({ claude: SONNET, codex: "gpt-6-luna" });
-    api.data.settings[SETTING_DEFAULT_MODELS] = { claude: SONNET, codex: null };
+    api.data.settings[DEFAULT_MODELS_KEY] = { claude: SONNET, codex: null };
     await store.getState().refreshDefaultModels();
     expect(store.getState().defaultModels).toEqual({ claude: SONNET });
   });
@@ -225,7 +225,7 @@ describe("a model chosen for new sessions outranks the one last sent on", () => 
 
   it("reads a choice made in another window when asked again", async () => {
     const { api, store, made } = await chose({});
-    api.data.settings[SETTING_DEFAULT_MODELS] = { claude: SONNET };
+    api.data.settings[DEFAULT_MODELS_KEY] = { claude: SONNET };
     await store.getState().newSessionInstant();
     expect(made().model).toBeNull();
     await store.getState().refreshDefaultModels();
@@ -246,7 +246,7 @@ describe("a session started on a named agent, with no model named", () => {
   const LUNA = "gpt-6-luna";
 
   it("starts on the model chosen for that agent, though another agent was used last", async () => {
-    const { store, made } = await setup({ settings: { [SETTING_DEFAULT_MODELS]: { codex: LUNA, claude: SONNET } } });
+    const { store, made } = await setup({ settings: { [DEFAULT_MODELS_KEY]: { codex: LUNA, claude: SONNET } } });
     await store.getState().newSession({ agentKind: "codex" });
     expect(made()).toMatchObject({ agentKind: "codex", model: LUNA });
   });
@@ -260,20 +260,57 @@ describe("a session started on a named agent, with no model named", () => {
   });
 
   it("starts on the harness's own default where the agent has neither", async () => {
-    const { store, made } = await setup({ settings: { [SETTING_DEFAULT_MODELS]: { claude: SONNET }, [SETTING_LAST_MODELS]: { claude: OPUS } } });
+    const { store, made } = await setup({ settings: { [DEFAULT_MODELS_KEY]: { claude: SONNET }, [SETTING_LAST_MODELS]: { claude: OPUS } } });
     await store.getState().newSession({ agentKind: "codex" });
     expect(made()).toMatchObject({ agentKind: "codex", model: null });
   });
 
   it("leaves a session asked for on the harness's own default on it", async () => {
-    const { store, made } = await setup({ settings: { [SETTING_DEFAULT_MODELS]: { claude: SONNET }, [SETTING_LAST_MODELS]: { claude: OPUS } } });
+    const { api, store, made } = await setup({ settings: { [DEFAULT_MODELS_KEY]: { claude: SONNET }, [SETTING_LAST_MODELS]: { claude: OPUS } } });
+    const inputs: unknown[] = [];
+    const create = api.createSession;
+    api.createSession = async (input) => { inputs.push(input); return create(input); };
     await store.getState().newSession({ agentKind: "claude", model: null });
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toMatchObject({ agentKind: "claude", model: null });
     expect(made().model).toBeNull();
   });
 
   it("leaves a named model as it was named", async () => {
-    const { store, made } = await setup({ settings: { [SETTING_DEFAULT_MODELS]: { claude: SONNET } } });
+    const { store, made } = await setup({ settings: { [DEFAULT_MODELS_KEY]: { claude: SONNET } } });
     await store.getState().newSession({ agentKind: "claude", model: "claude-haiku-4-5" });
     expect(made().model).toBe("claude-haiku-4-5");
+  });
+});
+
+/** What opening the quick chat asked the server to make, with `settings` stored. */
+async function quickChatAsks(settings: Record<string, unknown>) {
+  const { api, store } = await setup({ settings });
+  const inputs: unknown[] = [];
+  const create = api.createUnlistedSession;
+  api.createUnlistedSession = async (input) => { inputs.push(input); return create(input); };
+  await store.getState().openQuickChat();
+  return inputs;
+}
+
+describe("the quick chat", () => {
+  it("names no model where one is chosen for its agent, leaving the server to start it on that one", async () => {
+    expect(await quickChatAsks({ [DEFAULT_MODELS_KEY]: { claude: "claude-sonnet-5" } })).toStrictEqual([{ agentKind: "claude", spaceId: "s1" }]);
+  });
+
+  it("names no model where none is chosen, whatever was sent on last", async () => {
+    expect(await quickChatAsks({ [SETTING_LAST_MODELS]: { claude: OPUS } })).toStrictEqual([{ agentKind: "claude", spaceId: "s1" }]);
+  });
+});
+
+describe("first run's first session", () => {
+  it("names no model, leaving the server to start it on the one chosen for its agent", async () => {
+    const { api, store } = await setup({ settings: { [DEFAULT_MODELS_KEY]: { claude: "claude-sonnet-5" }, [SETTING_LAST_MODELS]: { claude: OPUS } } });
+    const inputs: { model?: string | null }[] = [];
+    const create = api.createSession;
+    api.createSession = async (input) => { inputs.push(input); return create(input); };
+    await store.getState().completeOnboarding({ name: "First", agentKind: "claude", folder: null, icon: "folder", color: "#7c6cff" });
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]!.model).toBeUndefined();
   });
 });

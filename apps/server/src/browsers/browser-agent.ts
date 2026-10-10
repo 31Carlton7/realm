@@ -215,7 +215,7 @@ export class BrowserAgentService {
     let created;
     try {
       created = this.d.sessions.create({
-        spaceId: ctx.spaceId, agentKind, projectId: null, model: null, effort: null, permissionMode,
+        spaceId: ctx.spaceId, agentKind, projectId: null, effort: null, permissionMode,
         title: clip(`Browser agent: ${goal.split("\n")[0]}`, 40),
         // The dispatch origin (Plan 13 W1) — the seam W2's Tasks lens reads.
         dispatchedBy: { sessionId: ctx.sessionId, kind: "browser_agent_run" },

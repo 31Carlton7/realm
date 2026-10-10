@@ -1,4 +1,4 @@
-import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, type AgentKind, type ModelInfo } from "@realm/contracts";
+import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, offeredModel, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
@@ -233,11 +233,7 @@ export function modelIdOn(row: ModelRow, harness: AgentKind): string | null | un
  * nothing to check against, so the id stands as stored and the adapter has the last word on it.
  */
 export function usableModel(kind: AgentKind, model: string | null, agentProbe: AgentProbe[]): string | null {
-  if (model === null) return null;
-  const probed = agentProbe.find((p) => p.kind === kind)?.models ?? null;
-  const known: ReadonlyArray<{ id: string }> = probed !== null && probed.length > 0 ? probed : AGENT_MODELS[kind];
-  if (known.length === 0) return model;
-  return known.some((m) => m.id === model) ? model : null;
+  return offeredModel(kind, model, agentProbe.find((p) => p.kind === kind)?.models);
 }
 
 /**

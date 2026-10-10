@@ -1842,6 +1842,12 @@ export const Methods = {
    *  `permissionMode: null` (the instant-create paths, which never ask) means "the user's configured
    *  default" — resolved server-side from `DEFAULT_PERMISSION_MODE_KEY`, in ONE place, so the palette,
    *  ⌘N and "+" can never disagree about what a new session is allowed to do.
+   *  `model` left out means "the model the person chose for new sessions on this agent" — resolved
+   *  server-side from `DEFAULT_MODELS_KEY`, in the same one place, so a caller with no say about the
+   *  model cannot start on another one than the next caller does. `model: null` is a model NAMED: the
+   *  harness's own default, asked for, which is what a copy of a session left on that default sends
+   *  and what a press on the picker's default row means. A defaulted null could not tell the two
+   *  apart, and every start that named nothing would skip the choice. An id travels verbatim.
    *  `userDispatched` (Plan 13 W2, the ⌘⇧↩ gesture) records `dispatchedBy: { kind: "user-dispatch",
    *  sessionId: null }` on the row — the Tasks lens's seam. Deliberately a boolean and not a
    *  DispatchedBy: the agent origins (`agent_run`/`browser_agent_run`/`review`) are recorded by the
@@ -1857,7 +1863,7 @@ export const Methods = {
    *
    * `itemId` is null for exactly those, and for nothing else.
    */
-  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), permissionMode: z.string().nullable().default(null), title: z.string().optional(), userDispatched: z.boolean().default(false), unlisted: z.boolean().default(false) }), result: z.object({ session: SessionSchema, itemId: IdSchema.nullable() }) },
+  "sessions.create": { params: z.object({ spaceId: IdSchema, agentKind: AgentKindSchema, projectId: IdSchema.nullable().default(null), environmentId: IdSchema.nullable().default(null), model: z.string().nullable().optional(), effort: z.string().nullable().default(null), permissionMode: z.string().nullable().default(null), title: z.string().optional(), userDispatched: z.boolean().default(false), unlisted: z.boolean().default(false) }), result: z.object({ session: SessionSchema, itemId: IdSchema.nullable() }) },
   /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */

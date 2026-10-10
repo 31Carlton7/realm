@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type StartOptions } from "@realm/adapters";
+import { DEFAULT_MODELS_KEY } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 
@@ -119,6 +120,46 @@ describe("failover over rpc", () => {
     expect((await c.call("sessions.get", { id: session.id })).result.agentKind).toBe("fake");
     expect(second.starts).toHaveLength(0);
     c.close();
+  });
+});
+
+/**
+ * A session on the scripted agent whose first turn runs into a usage limit, in a space whose chain
+ * hands it to Codex. `chosen` is stored as the models chosen for new sessions, and `named` is what
+ * `sessions.create` is sent beside the agent. Answers once the turn has been replayed on Codex, with
+ * the session's row as it was made and as the handoff left it.
+ */
+async function handedOver(chosen: Record<string, string>, named: { model?: string | null } = {}) {
+  const { c, sp, second } = await setup({ first: "usage limit reached", second: "ok" });
+  await c.call("settings.set", { key: DEFAULT_MODELS_KEY, value: chosen });
+  await c.call("failover.set", { spaceId: sp.id, policy: { retry: true, chain: ["codex"] } });
+  const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", ...named })).result;
+  await c.call("sessions.send", { id: session.id, text: "go" });
+  await waitFor(() => second.starts.length === 1);
+  const after = (await c.call("sessions.get", { id: session.id })).result;
+  c.close();
+  return { made: session, after, started: second.starts[0]! };
+}
+
+describe("a handoff and the model chosen for new sessions", () => {
+  it("lands the session on the model chosen for the agent it hands to, and starts that agent on it", async () => {
+    const { after, started } = await handedOver({ codex: "gpt-6-luna" });
+    expect(after).toMatchObject({ agentKind: "codex", model: "gpt-6-luna" });
+    expect(started.model).toBe("gpt-6-luna");
+  });
+
+  it("lands the session on no model where none is chosen for the agent it hands to, whatever it ran on", async () => {
+    const { made, after, started } = await handedOver({}, { model: "fake" });
+    expect(made.model).toBe("fake");
+    expect(after).toMatchObject({ agentKind: "codex", model: null });
+    expect(started.model).toBeNull();
+  });
+
+  it("does not carry the choice made for the agent that failed over to the agent it hands to", async () => {
+    const { made, after, started } = await handedOver({ fake: "fake" });
+    expect(made.model).toBe("fake");
+    expect(after).toMatchObject({ agentKind: "codex", model: null });
+    expect(started.model).toBeNull();
   });
 });
 

@@ -376,6 +376,87 @@ describe("the prompter docked under it", () => {
   });
 });
 
+describe("a file with no session to ask", () => {
+  const SONNET = "claude-sonnet-5";
+  const orphan = { files: [{ path: "/x/orphan.png", from: { sessionId: "deleted", spaceId: "s2", sessionTitle: "Gone", kind: "output" as const } }] };
+  async function openOrphan(over: FakeData = {}) {
+    bridge([media("/x/orphan.png")]);
+    const m = await mount([], over);
+    const made: unknown[] = [];
+    const create = m.api.createSession;
+    m.api.createSession = async (input) => { made.push(input); return create(input); };
+    act(() => m.store.getState().openViewer(orphan));
+    return { ...m, made, dialog: await screen.findByRole("dialog", { name: "orphan.png" }) };
+  }
+  const chip = (dialog: HTMLElement) => within(dialog).getByRole("button", { name: "Model" });
+  const ask = async (dialog: HTMLElement, api: { sent: { id: string }[] }) => {
+    const box = within(dialog).getByRole("textbox", { name: "Message" });
+    fireEvent.change(box, { target: { value: "What is this?" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    return api.sent[0]!.id;
+  };
+
+  it("names the model chosen for new sessions, and starts the session its first question makes on it", async () => {
+    const { store, api, dialog } = await openOrphan({ settings: { "sessions.defaultModels": { claude: SONNET } } });
+    expect(chip(dialog)).toHaveTextContent("Sonnet 5");
+    const id = await ask(dialog, api);
+    expect(store.getState().sessions[id]).toMatchObject({ agentKind: "claude", model: SONNET });
+  });
+
+  it("names the agent's own default and asks for it by name where none is chosen, whatever was sent on last", async () => {
+    const { store, api, made, dialog } = await openOrphan({ settings: { "sessions.defaultModels": { codex: "gpt-6-luna" }, "ui.lastModels": { claude: "claude-opus-5-5" } } });
+    expect(chip(dialog)).toHaveTextContent("Fable 5.1");
+    const id = await ask(dialog, api);
+    expect(made[0]).toHaveProperty("model", null);
+    expect(store.getState().sessions[id]).toMatchObject({ agentKind: "claude", model: null });
+  });
+
+  it("takes the choice made for the agent the question starts on, not another agent's", async () => {
+    const { store, api, dialog } = await openOrphan({ settings: { "ui.lastAgentKind": "codex", "sessions.defaultModels": { claude: SONNET, codex: "gpt-6-luna" } } });
+    expect(chip(dialog)).toHaveTextContent("gpt-6-luna");
+    const id = await ask(dialog, api);
+    expect(store.getState().sessions[id]).toMatchObject({ agentKind: "codex", model: "gpt-6-luna" });
+  });
+
+  it("passes over a chosen model the agent's live catalog no longer lists", async () => {
+    const live = [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }];
+    const { store, api, made, dialog } = await openOrphan({ settings: { "sessions.defaultModels": { claude: SONNET } },
+      agentProbe: [{ kind: "claude", available: true, version: "1", loggedIn: true, reason: null, models: live }] });
+    await act(() => store.getState().probeAgents());
+    expect(chip(dialog)).toHaveTextContent("Fable 5.1");
+    const id = await ask(dialog, api);
+    expect(made[0]).toHaveProperty("model", null);
+    expect(store.getState().sessions[id]).toMatchObject({ model: null });
+  });
+
+  it("keeps the agent's own default when the person picks it by name, though a model is chosen", async () => {
+    const { store, api, made, dialog } = await openOrphan({ settings: { "sessions.defaultModels": { claude: SONNET } } });
+    act(() => store.getState().pickViewerAgent("claude", null));
+    expect(chip(dialog)).toHaveTextContent("Fable 5.1");
+    const id = await ask(dialog, api);
+    expect(made[0]).toHaveProperty("model", null);
+    expect(store.getState().sessions[id]).toMatchObject({ model: null });
+  });
+
+  it("starts on the model the person picked in the prompter, over the chosen one", async () => {
+    const { store, api, dialog } = await openOrphan({ settings: { "sessions.defaultModels": { claude: SONNET } } });
+    act(() => store.getState().pickViewerAgent("claude", "claude-haiku-4-5"));
+    expect(chip(dialog)).toHaveTextContent("Haiku 4.5");
+    const id = await ask(dialog, api);
+    expect(store.getState().sessions[id]).toMatchObject({ model: "claude-haiku-4-5" });
+  });
+
+  it("keeps the chosen model when only the level is changed before the first question", async () => {
+    const { store, api, dialog } = await openOrphan({ settings: { "sessions.defaultModels": { claude: SONNET } } });
+    act(() => store.getState().setViewerOptions({ effort: "high" }));
+    expect(store.getState().viewer!.pick).toMatchObject({ agentKind: "claude", model: SONNET, effort: "high" });
+    expect(chip(dialog)).toHaveTextContent("Sonnet 5");
+    const id = await ask(dialog, api);
+    expect(store.getState().sessions[id]).toMatchObject({ model: SONNET, effort: "high" });
+  });
+});
+
 describe("marking up a picture", () => {
   /** jsdom implements no PointerEvent; a MouseEvent under its name carries the fields React reads. */
   const pointer = (target: Element, type: string, x: number, y: number) =>

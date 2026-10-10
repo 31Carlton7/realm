@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { parseOnce, sessionEvent, type Run, type Schedule, type StoredSessionEvent } from "@realm/contracts";
-import { createAppStore, StoreContext, type AgentProbe } from "../../state/store";
+import { DEFAULT_MODELS_KEY, parseOnce, sessionEvent, type Run, type Schedule, type StoredSessionEvent } from "@realm/contracts";
+import { createAppStore, SETTING_LAST_AGENT, SETTING_LAST_MODELS, StoreContext, type AgentProbe } from "../../state/store";
 import { fakeApi, item, runRow, session, type FakeData } from "../../state/store.test-fakes";
 import { exited } from "../../components/popover-exit.test-fakes";
 import { SchedulesPage } from "./SchedulesPage";
@@ -286,6 +286,108 @@ describe("the Schedule a task modal", () => {
     expect(within(dialog).getByLabelText<HTMLTextAreaElement>("Instructions").value).toContain("agent_peers");
     expect(within(dialog).getByLabelText<HTMLSelectElement>("Repeat").value).toBe("weekly");
     expect(within(dialog).getByRole("button", { name: "Create" })).toBeEnabled();
+  });
+});
+
+const SONNET = "claude-sonnet-5";
+/** Sonnet 5 chosen for new Claude sessions in Settings, as the store reads it at boot: a row of its
+ *  own for each test, since the fake keeps what it is handed and writes to it. */
+const sonnetChosen = () => ({ [DEFAULT_MODELS_KEY]: { claude: SONNET } });
+/** Claude's list as a probe reads it once Sonnet 5 has gone from it. */
+const claudeLive: AgentProbe = { kind: "claude", available: true, version: "1", loggedIn: true, reason: null,
+  models: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }] };
+/** Codex's list as its probe reads it: the harness's own default row leads it in the picker. */
+const codexLive: AgentProbe = { kind: "codex", available: true, version: "1", loggedIn: true, reason: null,
+  models: [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", isDefault: true }, { id: "gpt-6-luna", label: "GPT-6-Luna" }] };
+/** The modal's Advanced section, opened: the Model row and its chip are drawn there. */
+const advanced = (dialog: HTMLElement) => { fireEvent.click(within(dialog).getByRole("button", { name: "Advanced" })); return dialog; };
+/** New task's modal, opened on its Advanced section. */
+const newTask = async () => {
+  fireEvent.click(within(column()).getByRole("button", { name: "New task" }));
+  return advanced(await screen.findByRole("dialog", { name: "Schedule a task" }));
+};
+const modelChip = (dialog: HTMLElement) => within(dialog).getByRole("button", { name: "Model" });
+/** The model the modal's chip names, without the level or the bolt beside it. */
+const modelNamed = (dialog: HTMLElement) => modelChip(dialog).querySelector(".chip-label")?.textContent;
+/** Names the task in the modal, creates it, and answers with the constraints it was saved with. */
+const createdWith = async (dialog: HTMLElement, store: ReturnType<typeof createAppStore>) => {
+  fireEvent.change(within(dialog).getByLabelText("Task name"), { target: { value: "Nightly" } });
+  fireEvent.change(within(dialog).getByLabelText("Instructions"), { target: { value: "Sweep the inbox." } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+  await waitFor(() => expect(store.getState().schedules.s1).toHaveLength(1));
+  return store.getState().schedules.s1![0]!.constraints;
+};
+
+describe("the model a task opens on", () => {
+  it("names the model chosen for new sessions on its agent on a new task, and saves the task on it", async () => {
+    const { store } = await mount({ settings: sonnetChosen() });
+    const dialog = await newTask();
+    expect(modelNamed(dialog)).toBe("Sonnet 5");
+    expect(await createdWith(dialog, store)).toEqual({ agentKind: "claude", model: SONNET });
+  });
+
+  it("names the agent's own default and saves no model where none is chosen, whatever was sent on last", async () => {
+    const { store } = await mount({ settings: { [DEFAULT_MODELS_KEY]: { codex: "gpt-6-luna" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5" } } });
+    const dialog = await newTask();
+    expect(modelNamed(dialog)).toBe("Fable 5.1");
+    expect(await createdWith(dialog, store)).toEqual({ agentKind: "claude" });
+  });
+
+  it("takes the choice made for the agent a new task opens on, not another agent's", async () => {
+    const { store } = await mount({ settings: { [SETTING_LAST_AGENT]: "codex", [DEFAULT_MODELS_KEY]: { claude: SONNET, codex: "gpt-6-luna" } } });
+    const dialog = await newTask();
+    expect(modelNamed(dialog)).toBe("gpt-6-luna");
+    expect(await createdWith(dialog, store)).toEqual({ agentKind: "codex", model: "gpt-6-luna" });
+  });
+
+  it("opens a suggested task on the chosen model too, and saves it on it", async () => {
+    const { store } = await mount({ settings: sonnetChosen() });
+    fireEvent.click(within(column()).getByRole("button", { name: /^Weekly review/ }));
+    const dialog = advanced(await screen.findByRole("dialog", { name: "Schedule a task" }));
+    expect(modelNamed(dialog)).toBe("Sonnet 5");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(store.getState().schedules.s1).toHaveLength(1));
+    expect(store.getState().schedules.s1![0]!.constraints).toEqual({ agentKind: "claude", model: SONNET });
+  });
+
+  it("opens a suggested task on the agent's own default where no model is chosen, whatever was sent on last", async () => {
+    const { store } = await mount({ settings: { [DEFAULT_MODELS_KEY]: { codex: "gpt-6-luna" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5" } } });
+    fireEvent.click(within(column()).getByRole("button", { name: /^Weekly review/ }));
+    const dialog = advanced(await screen.findByRole("dialog", { name: "Schedule a task" }));
+    expect(modelNamed(dialog)).toBe("Fable 5.1");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(store.getState().schedules.s1).toHaveLength(1));
+    expect(store.getState().schedules.s1![0]!.constraints).toEqual({ agentKind: "claude" });
+  });
+
+  it("passes over a chosen model the agent's live list no longer carries", async () => {
+    const { store } = await mount({ settings: sonnetChosen(), agentProbe: [claudeLive] });
+    await act(() => store.getState().probeAgents());
+    const dialog = await newTask();
+    expect(modelNamed(dialog)).toBe("Fable 5.1");
+    expect(await createdWith(dialog, store)).toEqual({ agentKind: "claude" });
+  });
+
+  it("opens a saved task that names no model on the agent's own default, though a model is chosen, and saves it so", async () => {
+    const { api } = await mount({ settings: sonnetChosen(), schedules: [schedule({ constraints: { agentKind: "claude" } })] });
+    fireEvent.click(task("Morning triage"));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Morning triage" }));
+    const dialog = advanced(await screen.findByRole("dialog", { name: "Edit task" }));
+    expect(modelNamed(dialog)).toBe("Fable 5.1");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.calls).toContain("updateSchedule:sch1"));
+    expect(api.data.schedules.find((s) => s.id === "sch1")!.constraints).toEqual({ agentKind: "claude" });
+  });
+
+  it("saves no model once the agent's own default row is pressed on a new task, though a model is chosen", async () => {
+    const { store } = await mount({ settings: { [SETTING_LAST_AGENT]: "codex", [DEFAULT_MODELS_KEY]: { codex: "gpt-6-luna" } }, agentProbe: [codexLive] });
+    await act(() => store.getState().probeAgents());
+    const dialog = await newTask();
+    expect(modelNamed(dialog)).toBe("GPT-6-Luna");
+    fireEvent.click(modelChip(dialog));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Model picker" })).getByRole("option", { name: "GPT-5.6" }));
+    await waitFor(() => expect(modelNamed(dialog)).toBe("GPT-5.6"));
+    expect(await createdWith(dialog, store)).toEqual({ agentKind: "codex" });
   });
 });
 

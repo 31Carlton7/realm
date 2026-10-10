@@ -988,7 +988,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     /** Mirrors the server: no item row at all, so the session appears in no list anywhere. */
     createUnlistedSession: async (input) => {
       calls.push(`createUnlistedSession:${input.agentKind}`);
-      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, title: input.title ?? "Fake agent session" });
+      const s = session(`se${++n}`, input.spaceId, { agentKind: input.agentKind, model: input.model ?? null, title: input.title ?? "Fake agent session" });
       data.sessions.push(s);
       return { session: s };
     },

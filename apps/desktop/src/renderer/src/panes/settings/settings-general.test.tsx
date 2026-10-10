@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { FILES_OPEN_IN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY } from "@realm/contracts";
+import { DEFAULT_MODELS_KEY, FILES_OPEN_IN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY } from "@realm/contracts";
 import { SettingsPage } from "./SettingsPage";
 import { SETTINGS_INDEX } from "./settings-index";
-import { SETTING_DEFAULT_MODELS, SETTING_LAST_MODELS, StoreContext, createAppStore, type AgentProbe } from "../../state/store";
+import { SETTING_LAST_MODELS, StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
 
 const pageItem = item("set-s1", "s1", { kind: "settings-page", title: "Settings", refId: PAGE_REF_IDS["settings-page"] });
@@ -122,29 +122,29 @@ describe("Model for new sessions", () => {
     await waitFor(() => expect(model().value).toBe(""));
     fireEvent.change(model(), { target: { value: "claude-sonnet-5" } });
     await waitFor(() => expect(store.getState().defaultModels).toEqual({ claude: "claude-sonnet-5" }));
-    expect(api.data.settings[SETTING_DEFAULT_MODELS]).toEqual({ claude: "claude-sonnet-5" });
+    expect(api.data.settings[DEFAULT_MODELS_KEY]).toEqual({ claude: "claude-sonnet-5" });
     expect(model().value).toBe("claude-sonnet-5");
   });
 
   it("shows a stored choice, and lists what the agent's live catalog lists where it has one", async () => {
     const live = [{ id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }, { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" }];
-    await general({ agentProbe: [ready("claude", live)], settings: { [SETTING_DEFAULT_MODELS]: { claude: "claude-sonnet-5-5" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5" } } });
+    await general({ agentProbe: [ready("claude", live)], settings: { [DEFAULT_MODELS_KEY]: { claude: "claude-sonnet-5-5" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5" } } });
     await waitFor(() => expect(model().value).toBe("claude-sonnet-5-5"));
     expect(texts(model())).toEqual(["Last used (now Opus 5.5)", "Opus 5.5", "Sonnet 5.5"]);
   });
 
   it("takes a choice back with Last used, by removing its agent's entry and no other", async () => {
     const { api } = await general({ agentProbe: [ready("claude"), ready("codex", codexCatalog)],
-      settings: { [SETTING_DEFAULT_MODELS]: { claude: "claude-sonnet-5", codex: "gpt-6-luna" } } });
+      settings: { [DEFAULT_MODELS_KEY]: { claude: "claude-sonnet-5", codex: "gpt-6-luna" } } });
     await waitFor(() => expect(model().value).toBe("claude-sonnet-5"));
     fireEvent.change(model(), { target: { value: "" } });
-    await waitFor(() => expect(api.data.settings[SETTING_DEFAULT_MODELS]).toEqual({ codex: "gpt-6-luna" }));
+    await waitFor(() => expect(api.data.settings[DEFAULT_MODELS_KEY]).toEqual({ codex: "gpt-6-luna" }));
     expect(model().value).toBe("");
   });
 
   it("shows every listed agent's choice at once, each under its agent's name and with its own last model", async () => {
     const { api } = await general({ agentProbe: [ready("claude"), ready("codex", codexCatalog)],
-      settings: { "ui.lastAgentKind": "codex", [SETTING_DEFAULT_MODELS]: { codex: "gpt-6-luna" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5", codex: "gpt-5.6-sol" } } });
+      settings: { "ui.lastAgentKind": "codex", [DEFAULT_MODELS_KEY]: { codex: "gpt-6-luna" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5", codex: "gpt-5.6-sol" } } });
     await waitFor(() => expect(names()).toEqual(["Model for new sessions", "Claude", "Codex"]));
     expect(row()).toHaveAttribute("data-stack");
     expect(model("Claude").value).toBe("");
@@ -152,7 +152,7 @@ describe("Model for new sessions", () => {
     expect(texts(model("Codex"))).toEqual(["Last used (now GPT-5.6-Sol)", "GPT-5.6-Sol", "GPT-6-Luna"]);
     expect(model("Codex").value).toBe("gpt-6-luna");
     fireEvent.change(model("Codex"), { target: { value: "gpt-5.6-sol" } });
-    await waitFor(() => expect(api.data.settings[SETTING_DEFAULT_MODELS]).toEqual({ codex: "gpt-5.6-sol" }));
+    await waitFor(() => expect(api.data.settings[DEFAULT_MODELS_KEY]).toEqual({ codex: "gpt-5.6-sol" }));
     expect(model("Claude").value).toBe("");
   });
 
@@ -165,19 +165,19 @@ describe("Model for new sessions", () => {
   });
 
   it("keeps a ready agent that lists no models on the row while it holds a choice, so the choice can be seen and taken back", async () => {
-    const { api } = await general({ agentProbe: [ready("claude"), ready("codex")], settings: { [SETTING_DEFAULT_MODELS]: { codex: "gpt-6-luna" } } });
+    const { api } = await general({ agentProbe: [ready("claude"), ready("codex")], settings: { [DEFAULT_MODELS_KEY]: { codex: "gpt-6-luna" } } });
     await waitFor(() => expect(model("Codex").value).toBe("gpt-6-luna"));
     expect(texts(model("Codex")).slice(1)).toEqual(["gpt-6-luna"]);
     expect(lines()).toEqual([]);
     fireEvent.change(model("Codex"), { target: { value: "" } });
-    await waitFor(() => expect(api.data.settings[SETTING_DEFAULT_MODELS]).toEqual({}));
+    await waitFor(() => expect(api.data.settings[DEFAULT_MODELS_KEY]).toEqual({}));
     await waitFor(() => expect(screen.queryByRole("combobox", { name: "Model for new Codex sessions" })).toBeNull());
     expect(names()).toEqual(["Model for new sessions", "Claude"]);
   });
 
   it("marks a chosen model that an agent's live list has dropped, after the models it lists, and names what its sessions start on", async () => {
     await general({ agentProbe: [ready("codex", codexCatalog)],
-      settings: { [SETTING_DEFAULT_MODELS]: { codex: "gpt-4-retired" }, [SETTING_LAST_MODELS]: { codex: "gpt-6-luna" } } });
+      settings: { [DEFAULT_MODELS_KEY]: { codex: "gpt-4-retired" }, [SETTING_LAST_MODELS]: { codex: "gpt-6-luna" } } });
     await waitFor(() => expect(model("Codex").value).toBe("gpt-4-retired"));
     expect(texts(model("Codex"))).toEqual(["Last used (now GPT-6-Luna)", "GPT-5.6-Sol", "GPT-6-Luna", "gpt-4-retired — not offered"]);
     expect(lines()).toEqual(["Codex no longer lists gpt-4-retired. New Codex sessions start as they do on Last used (now GPT-6-Luna)."]);
@@ -190,7 +190,7 @@ describe("Model for new sessions", () => {
 
   it("keeps a chosen model its agent no longer lists, marks it, and says what new sessions start on instead", async () => {
     await general({ agentProbe: [ready("claude"), ready("codex", codexCatalog)],
-      settings: { [SETTING_DEFAULT_MODELS]: { claude: "claude-retired-1", codex: "gpt-6-luna" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5" } } });
+      settings: { [DEFAULT_MODELS_KEY]: { claude: "claude-retired-1", codex: "gpt-6-luna" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5" } } });
     await waitFor(() => expect(model().value).toBe("claude-retired-1"));
     expect(model().selectedOptions[0]!.textContent).toBe("claude-retired-1 — not offered");
     expect(lines()).toEqual(["Claude no longer lists claude-retired-1. New Claude sessions start as they do on Last used (now Opus 5.5)."]);
@@ -199,7 +199,7 @@ describe("Model for new sessions", () => {
 
   it("does not call a chosen model gone when the agent lists it and the picker shows it under another id", async () => {
     const twins = [{ id: "gpt-6-luna", label: "GPT-6-Luna" }, { id: "gpt-6-luna-0901", label: "GPT 6 Luna" }];
-    await general({ agentProbe: [ready("codex", twins)], settings: { [SETTING_DEFAULT_MODELS]: { codex: "gpt-6-luna" } } });
+    await general({ agentProbe: [ready("codex", twins)], settings: { [DEFAULT_MODELS_KEY]: { codex: "gpt-6-luna" } } });
     await waitFor(() => expect(model("Codex").value).toBe("gpt-6-luna"));
     expect(model("Codex").selectedOptions[0]!.textContent).toBe("gpt-6-luna");
     expect(lines()).toEqual([]);
@@ -209,7 +209,7 @@ describe("Model for new sessions", () => {
     const api = fakeApi({ agentProbe: [ready("claude")] });
     const store = createAppStore(api);
     await store.getState().boot();
-    api.data.settings[SETTING_DEFAULT_MODELS] = { claude: "claude-sonnet-5" };
+    api.data.settings[DEFAULT_MODELS_KEY] = { claude: "claude-sonnet-5" };
     render(<StoreContext.Provider value={store}><SettingsPage item={pageItem} visible /></StoreContext.Provider>);
     await waitFor(() => expect(model().value).toBe("claude-sonnet-5"));
   });
@@ -266,11 +266,11 @@ describe("Model for new sessions", () => {
     expect(names()[0]).toBe(SETTINGS_INDEX.find((e) => e.id === "default-model")!.label);
   });
 
-  it("says under the selects which sessions the row reaches and which it leaves alone, and on each select what Last used follows", async () => {
+  it("says under the selects how far the row reaches, a chosen model further than Last used, and on each select what Last used follows", async () => {
     await general({ agentProbe: [ready("claude"), ready("codex", codexCatalog)] });
     await waitFor(() => expect(model()).toBeInTheDocument());
     const hint = row().querySelector(".settings-hint");
-    expect(hint?.textContent).toBe("Applies to a session you start with ⌘N, a split, a new worktree, a new space, or a New session command in the palette. The quick chat and a question about a file start on the agent's own default.");
+    expect(hint?.textContent).toBe("Applies to a session you start with ⌘N, a split, a new worktree, a new space, or a New session command in the palette. A model you choose also applies to every other session that starts with no model named, such as the quick chat. With Last used, those start on the agent's own default.");
     expect(row().lastElementChild).toBe(hint);
     expect(row()).not.toHaveAttribute("title");
     expect(model()).toHaveAttribute("title", "Last used follows the last message you sent on Claude, not counting the quick chat or a question about a file or pull request.");

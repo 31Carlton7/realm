@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_ALIASES, canonicalModelKey, fastSupportKey, readEffortSupport, readFastSupport } from "./models";
+import { DEFAULT_MODELS_KEY, MODEL_ALIASES, canonicalModelKey, fastSupportKey, offeredModel, readDefaultModels, readEffortSupport, readFastSupport, resolveDefaultModel } from "./models";
 
 describe("the remembered fast-mode answers", () => {
   it("files the harness default under its own entry, apart from any named model", () => {
@@ -21,6 +21,75 @@ describe("the remembered reasoning levels", () => {
     expect(readEffortSupport({ "claude:": ["low", "high"], "claude:claude-haiku-4-5": [], "x:y": "high", "z:": [1], "w:": null }))
       .toEqual({ "claude:": ["low", "high"], "claude:claude-haiku-4-5": [] });
     for (const junk of [null, undefined, 3, "x", [["low"]], []]) expect(readEffortSupport(junk)).toEqual({});
+  });
+});
+
+const SONNET = "claude-sonnet-5";
+const LUNA = "gpt-6-luna";
+/** Codex's list as a probe reads it. Codex has no curated list, so this is all there is to check one
+ *  of its models against. */
+const codexLive = [{ id: LUNA }, { id: "gpt-6-astra" }];
+
+describe("the models chosen for new sessions", () => {
+  it("is stored under the key the Settings row has always written", () => {
+    expect(DEFAULT_MODELS_KEY).toBe("sessions.defaultModels");
+  });
+
+  it("reads the row as a map from agent to model id", () => {
+    expect(readDefaultModels({ claude: SONNET, codex: LUNA })).toEqual({ claude: SONNET, codex: LUNA });
+  });
+
+  it("drops an entry that is not a non-empty model id for a known agent", () => {
+    expect(readDefaultModels({ claude: null, codex: "", nope: SONNET, "acp:cursor": 5, "acp:goose": "   ", fake: ["fake"] })).toEqual({});
+  });
+
+  it("reads a row that is not a map as no choice made", () => {
+    for (const junk of [null, undefined, 3, SONNET, [SONNET], []]) expect(readDefaultModels(junk)).toEqual({});
+  });
+
+  it("offers a model the agent's live list carries, and passes over one it does not", () => {
+    expect(offeredModel("codex", LUNA, codexLive)).toBe(LUNA);
+    expect(offeredModel("codex", "gpt-4-retired", codexLive)).toBeNull();
+  });
+
+  it("goes by the live list over the curated one where an agent has both", () => {
+    expect(offeredModel("claude", "claude-sonnet-5-5", [{ id: "claude-sonnet-5-5" }])).toBe("claude-sonnet-5-5");
+    expect(offeredModel("claude", SONNET, [{ id: "claude-opus-5-5" }])).toBeNull();
+  });
+
+  it("goes by the curated list where no live list is held, and an empty live list is none", () => {
+    for (const live of [null, undefined, []]) {
+      expect(offeredModel("claude", SONNET, live)).toBe(SONNET);
+      expect(offeredModel("claude", "claude-retired-9", live)).toBeNull();
+    }
+  });
+
+  it("lets a model stand for an agent with neither list", () => {
+    for (const live of [null, undefined, []]) expect(offeredModel("codex", LUNA, live)).toBe(LUNA);
+  });
+
+  it("leaves the harness's own default as it is, whatever the lists carry", () => {
+    expect(offeredModel("codex", null, codexLive)).toBeNull();
+    expect(offeredModel("claude", null, null)).toBeNull();
+  });
+
+  it("resolves an agent's choice to the id stored for it, where the agent still offers it", () => {
+    expect(resolveDefaultModel("codex", { claude: SONNET, codex: LUNA }, codexLive)).toBe(LUNA);
+    expect(resolveDefaultModel("claude", { claude: SONNET, codex: LUNA }, null)).toBe(SONNET);
+  });
+
+  it("resolves a choice the agent no longer offers to none", () => {
+    expect(resolveDefaultModel("codex", { codex: "gpt-4-retired" }, codexLive)).toBeNull();
+    expect(resolveDefaultModel("claude", { claude: "claude-retired-9" }, null)).toBeNull();
+  });
+
+  it("resolves an agent with no choice of its own to none, whatever another agent has chosen", () => {
+    expect(resolveDefaultModel("codex", { claude: SONNET }, null)).toBeNull();
+    expect(resolveDefaultModel("codex", {}, codexLive)).toBeNull();
+  });
+
+  it("resolves a row that is not a map to none, even for an agent whose ids are never checked", () => {
+    for (const junk of [null, LUNA, [LUNA], 7]) expect(resolveDefaultModel("codex", junk, null)).toBeNull();
   });
 });
 

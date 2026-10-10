@@ -53,7 +53,7 @@ function harness() {
   const broadcasts: { event: string; payload: unknown }[] = [];
   const createSession = (input: CreateSessionInput) => {
     const session = sessionsStore.create({
-      spaceId: input.spaceId, projectId: input.projectId, agentKind: input.agentKind, model: input.model,
+      spaceId: input.spaceId, projectId: input.projectId, agentKind: input.agentKind, model: input.model ?? null,
       effort: input.effort, permissionMode: input.permissionMode ?? "default",
       environmentId: input.environmentId!, title: input.title ?? "s", dispatchedBy: input.dispatchedBy ?? null,
     });

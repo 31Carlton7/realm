@@ -1240,6 +1240,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     resend: (id, msg) => sessions.resendTurn(id, msg),
     stop: (id) => sessions.stopAgent(id),
     probe: (opts) => sessions.probe(opts),
+    defaultModel: (kind) => sessions.defaultModel(kind),
   });
   // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
   // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or

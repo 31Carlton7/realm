@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import type { StartOptions } from "@realm/adapters";
+import { DEFAULT_MODELS_KEY } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 
@@ -102,6 +103,55 @@ describe("fork + search over rpc (Plan 16)", () => {
 
     // The ancestor's transcript is byte-identical across all of it.
     expect(JSON.stringify((await c.call("sessions.events", { id: session.id, afterSeq: 0 })).result)).toBe(eventsBefore);
+    c.close();
+  });
+});
+
+/**
+ * A session on the scripted agent that has run one turn in a repository, started on `model`, and
+ * the checkpoint that turn took. `chosen` is stored as the models chosen for new sessions once the
+ * ancestor exists, so what the ancestor itself started on is never what is under test. `fork` forks
+ * from the checkpoint over the wire, onto `agentKind` where one is named, and answers with the new
+ * session. Claude is the scripted agent under another name: somewhere for a fork to go.
+ */
+async function forkable(model: string | null, chosen: Record<string, string>) {
+  const home = tempDir("realm-forkmodel-");
+  if (!resolve(home).startsWith(resolve(tmpdir()))) throw new Error(`refusing to run against ${home}`);
+  const fake = new FakeAdapter({ script: [], delayMs: 5 });
+  app = await createApp({ home, port: 0, adapters: { fake, claude: fake } });
+  const c = await client(app.port);
+  const p = (await c.call("profiles.create", { name: "Work" })).result;
+  const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+  git(sp.folderPath, "init", "-q", "-b", "main");
+  writeFileSync(join(sp.folderPath, "a.txt"), "one\n");
+  git(sp.folderPath, "add", "."); git(sp.folderPath, "commit", "-qm", "init");
+  const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", model })).result;
+  await c.call("sessions.send", { id: session.id, text: "go" });
+  await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+  const env = (await c.call("environments.list", { spaceId: sp.id })).result[0];
+  const [checkpoint] = (await c.call("checkpoints.list", { environmentId: env.id, sessionId: session.id })).result;
+  await c.call("settings.set", { key: DEFAULT_MODELS_KEY, value: chosen });
+  const fork = async (agentKind?: string) =>
+    (await c.call("sessions.fork", { checkpointId: checkpoint.id, ...(agentKind ? { agentKind } : {}) })).result.session;
+  return { c, fork };
+}
+
+describe("the model a fork starts on", () => {
+  it("starts a fork onto another agent on the model chosen for that agent, not on its ancestor's", { timeout: 20_000 }, async () => {
+    const { c, fork } = await forkable("fake", { claude: "claude-sonnet-5" });
+    expect(await fork("claude")).toMatchObject({ agentKind: "claude", model: "claude-sonnet-5" });
+    c.close();
+  });
+
+  it("keeps the ancestor's model in a fork on the same agent, though another is chosen for it", { timeout: 20_000 }, async () => {
+    const { c, fork } = await forkable("fake-older", { fake: "fake" });
+    expect(await fork()).toMatchObject({ agentKind: "fake", model: "fake-older" });
+    c.close();
+  });
+
+  it("keeps the harness's own default in a fork of a session left on it, though a model is chosen for its agent", { timeout: 20_000 }, async () => {
+    const { c, fork } = await forkable(null, { fake: "fake" });
+    expect(await fork()).toMatchObject({ agentKind: "fake", model: null });
     c.close();
   });
 });

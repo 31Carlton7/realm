@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { allItems, findLeafOfItem } from "@realm/contracts";
-import { createAppStore } from "./store";
+import { DEFAULT_MODELS_KEY, allItems, findLeafOfItem } from "@realm/contracts";
+import { SETTING_LAST_MODELS, createAppStore } from "./store";
 import { fakeApi, item, space } from "./store.test-fakes";
 
 /** A booted store on space s1 with one session pane open, the state a student starts a lecture from. */
@@ -102,6 +102,30 @@ describe("wrapUpLecture", () => {
     expect(sess.title).toBe("Wrap up · Caches");
     // Beside, not replacing: both panes are on screen.
     expect(allItems(store.getState().layout!)).toHaveLength(2);
+  });
+});
+
+/** A student with Sonnet 5 chosen for new Claude sessions, who last sent on Opus 5.5 — and every
+ *  session the store then asks the server to make, as it was asked for. */
+async function withSonnetChosen() {
+  const { api, store } = await booted({ settings: { [DEFAULT_MODELS_KEY]: { claude: "claude-sonnet-5" }, [SETTING_LAST_MODELS]: { claude: "claude-opus-5-5" } } });
+  const asked: unknown[] = [];
+  const create = api.createSession;
+  api.createSession = async (input) => { asked.push(input); return create(input); };
+  return { store, asked };
+}
+
+describe("the model a lecture's sessions are asked for", () => {
+  it("names no model for the lecture's assistant, leaving the server to start it on the one chosen for its agent", async () => {
+    const { store, asked } = await withSonnetChosen();
+    await store.getState().startLecture("Pipelining hazards");
+    expect(asked).toStrictEqual([{ spaceId: "s1", agentKind: "claude", title: "Lecture assistant · Pipelining hazards" }]);
+  });
+
+  it("names no model for the wrap-up, leaving the server to start it on the one chosen for its agent", async () => {
+    const { store, asked } = await withSonnetChosen();
+    await store.getState().wrapUpLecture({ path: "lectures/2026-09-02-caches.md", title: "Caches", date: "2026-09-02", hasTranscript: true, sizeBytes: 10 });
+    expect(asked).toStrictEqual([{ spaceId: "s1", agentKind: "claude", title: "Wrap up · Caches" }]);
   });
 });
 

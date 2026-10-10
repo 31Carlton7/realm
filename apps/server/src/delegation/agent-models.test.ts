@@ -2,12 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, fakeStandIn, type AgentAdapter, type FakeScript, type StartOptions } from "@realm/adapters";
-import type { AgentKind, AgentModel } from "@realm/contracts";
+import { DEFAULT_MODELS_KEY, type AgentKind, type AgentModel } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { ItemsStore } from "../store/items";
+import { SettingsStore } from "../store/settings";
 import { waitFor } from "../test-utils";
 
 /**
@@ -149,6 +150,17 @@ describe("agent_start with a model by name", () => {
     await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-6 Luna", permissionMode: "bypassPermissions" } });
     expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", permissionMode: "default" });
   });
+
+  it("a model named in full starts the child on that model, though another is chosen for its harness", async () => {
+    const { ctx, seen } = await boot();
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { codex: "gpt-6-astra" });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "GPT-6 Luna" } });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", model: "gpt-6-luna" });
+    expect(text(r)).toContain("on Codex · GPT-6 Luna");
+    await waitFor(() => seen.codex.length === 1);
+    expect(seen.codex[0]!.model).toBe("gpt-6-luna");
+  });
 });
 
 describe("no model named", () => {
@@ -167,6 +179,67 @@ describe("no model named", () => {
     const { ctx } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
     await app.agentRuns.start(ctx, { goal: "go", constraints: { agentKind: "codex" } });
     expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", model: null });
+  });
+
+  it("a child on another harness starts on the model chosen for that harness, and the report names it", async () => {
+    const { ctx, seen } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { codex: "gpt-6-luna" });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { agentKind: "codex" } });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", model: "gpt-6-luna" });
+    expect(text(r)).toContain("on Codex · GPT-6 Luna");
+    await waitFor(() => seen.codex.length === 1);
+    expect(seen.codex[0]!.model).toBe("gpt-6-luna");
+  });
+
+  it("a child on the lead's own harness keeps the lead's model, though another is chosen for that harness", async () => {
+    const { ctx } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    const r = await app.agentRuns.start(ctx, { goal: "go" });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "claude", model: "claude-opus-5-5" });
+    expect(text(r)).toContain("on Claude · Claude Opus 5.5");
+  });
+
+  it("a child of a lead left on its harness's own default stays on it, though a model is chosen for that harness", async () => {
+    const { ctx } = await boot({ parentKind: "claude", parentModel: null });
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    const r = await app.agentRuns.start(ctx, { goal: "go" });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "claude", model: null });
+    expect(text(r)).toContain("on Claude · Fable 5.1");
+  });
+});
+
+describe("a harness named alone", () => {
+  it("starts its child on the model chosen for that harness, and the report names it", async () => {
+    const { ctx, seen } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { codex: "gpt-6-luna" });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "Codex" } });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", model: "gpt-6-luna" });
+    expect(text(r)).toContain("on Codex · GPT-6 Luna");
+    await waitFor(() => seen.codex.length === 1);
+    expect(seen.codex[0]!.model).toBe("gpt-6-luna");
+  });
+
+  it("starts its child on that harness's own default where no model is chosen for it, though one is chosen for the lead's", async () => {
+    const { ctx, seen } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "Codex" } });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "codex", model: null });
+    expect(text(r)).toContain("on Codex · GPT-5.6");
+    await waitFor(() => seen.codex.length === 1);
+    expect(seen.codex[0]!.model).toBeNull();
+  });
+
+  it("starts its child on the model chosen for the lead's own harness when that is the one named, not on the lead's model", async () => {
+    const { ctx, seen } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "Claude" } });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "claude", model: "claude-sonnet-5" });
+    expect(text(r)).toContain("on Claude · Claude Sonnet 5");
+    await waitFor(() => seen.claude.length === 1);
+    expect(seen.claude[0]!.model).toBe("claude-sonnet-5");
   });
 });
 

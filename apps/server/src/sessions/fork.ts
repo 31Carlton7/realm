@@ -172,11 +172,12 @@ export class ForkService {
       await this.d.git.extract({ cwd: forked.path, state: cp.state });
 
       // Per-kind settings survive only a same-kind fork. `permissionMode` goes too: the modes each
-      // harness names are its own, and `createSession` resolves the new kind's default from null.
+      // harness names are its own. On another kind `createSession` resolves the mode and the model,
+      // the mode from null and the model from being left out.
       const sameKind = kind === ancestor.agentKind;
       ({ session, itemId } = this.d.createSession({
         spaceId: env.spaceId, projectId: null, agentKind: kind,
-        model: sameKind ? ancestor.model : null,
+        ...(sameKind ? { model: ancestor.model } : {}),
         effort: sameKind ? ancestor.effort : null,
         permissionMode: sameKind ? ancestor.permissionMode : null,
         environmentId: forked.id, title: forkTitle(ancestor.title),

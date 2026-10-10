@@ -25,7 +25,8 @@ import { SkillIdSchema } from "./skills";
  *   "Opus 5.5", or an id). The server resolves it against the models the agents on this Mac reported
  *   (`delegation/models.ts`) to the harness that runs it, so it needs no `agentKind` beside it; with
  *   one, the name is looked up on that harness alone. Omitted, the child runs on its parent's model
- *   when it runs on its parent's harness, and on the harness's default otherwise.
+ *   when it runs on its parent's harness, and otherwise on the model chosen for new sessions on its
+ *   own harness (`DEFAULT_MODELS_KEY`), or on that harness's default where none is chosen.
  */
 export const AgentRunConstraintsSchema = z.object({
   agentKind: AgentKindSchema.optional(),

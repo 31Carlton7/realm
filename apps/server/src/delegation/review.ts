@@ -196,7 +196,7 @@ export class ReviewService {
     const agentKind = requestedKind && AGENT_SUPPORTS_PLAN_MODE[requestedKind] ? requestedKind : (this.d.fallbackKind ?? "claude");
     const label = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? env.path;
     const created = this.d.sessions.create({
-      spaceId: env.spaceId, agentKind, projectId: null, environmentId: env.id, model: null, effort: null,
+      spaceId: env.spaceId, agentKind, projectId: null, environmentId: env.id, effort: null,
       permissionMode: PLAN_PERMISSION_MODE, // HARD: never the parent's mode, never a requested one
       title: clip(`Review: ${label}`, 40),
       dispatchedBy: { sessionId: parent?.sessionId ?? null, kind: "review" },

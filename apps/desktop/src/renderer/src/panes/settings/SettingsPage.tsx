@@ -563,10 +563,22 @@ function OpenFilesInRow() {
 /**
  * The model new sessions start on, one choice per agent.
  *
- * Left alone, a new session starts on the model of the last message sent on its agent
- * (`lastModels`). The first option says so and names that model as the prompter's chip will name
- * it, because a setting shows the value in force. Choosing a model here fixes it: a message sent on
- * another model once then no longer moves where the next session starts.
+ * Left alone, a session started with ⌘N or one of its kin starts on the model of the last message
+ * sent on its agent (`lastModels`). The first option says so and names that model as the prompter's
+ * chip will name it, because a setting shows the value in force. Choosing a model here fixes it: a
+ * message sent on another model once then no longer moves where the next session starts.
+ *
+ * A chosen model reaches further than Last used does. The server starts every session from one
+ * place (`SessionService.create`), and one made there with no model named starts on the model
+ * chosen for its agent — the quick chat, a lecture's sessions, a delegated review, a browser agent,
+ * and a fork or a sub-agent put on another agent than its source's, among them. A session that
+ * failover hands to the next agent in its chain goes on the same way. Where a chip names the model
+ * before its session exists (a question about a file or a pull request, Code review's reviewer, a
+ * new scheduled task) the window reads the choice itself and names it. None of these follows the
+ * last-used memory, so with Last used they start on the harness's own default. A session whose
+ * model is named is left on it: a copy keeps its source's model, a pick made before the session
+ * exists wins, the harness's own default included, and a scheduled task's runs start on what its
+ * card names, which is the harness's own default for a task saved with no model.
  *
  * Per agent because a model belongs to the harness that lists it, and every agent's choice is on the
  * row at once, each beside its agent's name. A switcher between agents would show one value and hide
@@ -581,14 +593,16 @@ function OpenFilesInRow() {
  * A chosen model its agent no longer lists keeps its own option, marked, as an editor since removed
  * does: a select with nothing chosen would say no choice was made when one was. A line under the
  * name then says that the agent's sessions start as they do on Last used, since what was asked for
- * and what happens differ: the rule passes that model over (`startingModel`). Whether a model is
- * still listed is `usableModel`'s answer, the same one the rule takes.
+ * and what happens differ: the rule passes that model over, in the window (`startingModel`) and on
+ * the server (`resolveDefaultModel`). Whether a model is still listed is `usableModel`'s answer,
+ * the same one both take.
  *
- * The hint under the selects says which starts the row reaches and which ignore it, as the row
- * before this one does for the permission mode and for its reason: without it the row is a wish for
- * the starts it does not reach. It is a line on the page and not a tooltip on the row, which would
- * open over the other agents' selects and stay there. What Last used follows is on each select,
- * beside the option it explains.
+ * The hint under the selects says how far the row reaches, as the row before this one does for the
+ * permission mode and for its reason: the starts that follow it whole, and the rest, which a chosen
+ * model reaches and Last used does not. Without it a person on Last used would expect the quick
+ * chat to follow the last message too. It is a line on the page and not a tooltip on the row, which
+ * would open over the other agents' selects and stay there. What Last used follows is on each
+ * select, beside the option it explains.
  */
 function DefaultModelRow() {
   const chosen = useApp((s) => s.defaultModels);
@@ -645,7 +659,7 @@ function DefaultModelRow() {
         </div>
       )}
       {!agentsProbed && <p className="env-empty">Checking the installed agents…</p>}
-      {offers.length > 0 && <p className="settings-hint">Applies to a session you start with ⌘N, a split, a new worktree, a new space, or a New session command in the palette. The quick chat and a question about a file start on the agent's own default.</p>}
+      {offers.length > 0 && <p className="settings-hint">Applies to a session you start with ⌘N, a split, a new worktree, a new space, or a New session command in the palette. A model you choose also applies to every other session that starts with no model named, such as the quick chat. With Last used, those start on the agent's own default.</p>}
     </div>
   );
 }

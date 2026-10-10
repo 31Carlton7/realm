@@ -1,11 +1,12 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
-import { RUN_BLOCK_SENTINEL } from "@realm/contracts";
+import { DEFAULT_MODELS_KEY, RUN_BLOCK_SENTINEL } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { RunsStore } from "../store/runs";
+import { SettingsStore } from "../store/settings";
 import { waitFor } from "../test-utils";
 
 /**
@@ -109,6 +110,44 @@ describe("durable runs — the happy path", () => {
     await settled(plain.id);
     expect(app.sessions.get(runOf(plain.id).sessionId!)).toMatchObject({ effort: null, fastMode: false });
     expect(fake.seen.at(-1)).toMatchObject({ fastMode: false });
+  });
+
+  it("starts its session on the harness's own default when its constraints name no model, though one is chosen for its agent", async () => {
+    const { spaceId, fake } = await boot();
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    const { run } = create(spaceId, { constraints: { agentKind: "claude" } });
+    await settled(run.id);
+    expect(app.sessions.get(runOf(run.id).sessionId!)).toMatchObject({ agentKind: "claude", model: null });
+    expect(fake.seen.at(-1)!.model).toBeNull();
+  });
+
+  it("starts its session on the model chosen for its agent when it was started by hand with no constraints", async () => {
+    const { spaceId, fake } = await boot();
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { fake: "fake" });
+    const { run } = create(spaceId);
+    await settled(run.id);
+    expect(runOf(run.id)).toMatchObject({ constraints: null, scheduleId: null });
+    expect(app.sessions.get(runOf(run.id).sessionId!)).toMatchObject({ agentKind: "fake", model: "fake" });
+    expect(fake.seen.at(-1)!.model).toBe("fake");
+  });
+
+  it("starts its session on the harness's own default when a task with no constraints fired it, though a model is chosen for its agent", async () => {
+    const { spaceId, fake } = await boot();
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { fake: "fake" });
+    const { run } = create(spaceId, { scheduleId: "sch1" });
+    await settled(run.id);
+    expect(runOf(run.id)).toMatchObject({ constraints: null, scheduleId: "sch1" });
+    expect(app.sessions.get(runOf(run.id).sessionId!)).toMatchObject({ agentKind: "fake", model: null });
+    expect(fake.seen.at(-1)!.model).toBeNull();
+  });
+
+  it("keeps the model its constraints name, though another is chosen for its agent", async () => {
+    const { spaceId, fake } = await boot();
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    const { run } = create(spaceId, { constraints: { agentKind: "claude", model: "claude-haiku-4-5" } });
+    await settled(run.id);
+    expect(app.sessions.get(runOf(run.id).sessionId!)).toMatchObject({ agentKind: "claude", model: "claude-haiku-4-5" });
+    expect(fake.seen.at(-1)!.model).toBe("claude-haiku-4-5");
   });
 
   it("writes one terminal run_done row naming the run", async () => {

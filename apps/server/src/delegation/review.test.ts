@@ -8,7 +8,7 @@ import { FakeAdapter, type FakeScript, type McpServerConfig } from "@realm/adapt
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { PLAN_PERMISSION_MODE, reviewResultKey } from "@realm/contracts";
+import { DEFAULT_MODELS_KEY, PLAN_PERMISSION_MODE, reviewResultKey } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -124,6 +124,15 @@ describe("the read-only cap — hard, per agent kind (the write-permission mutan
     expect(reviewer.permissionMode).toBe(PLAN_PERMISSION_MODE);
   });
 
+});
+
+describe("the reviewer's model", () => {
+  it("starts a delegated review on the model chosen for new sessions on its agent", async () => {
+    const { spaceId, parentId, envId } = await boot({ parentKind: "claude" });
+    new SettingsStore(app.db).set(DEFAULT_MODELS_KEY, { claude: "claude-sonnet-5" });
+    await app.reviews.runTool({ sessionId: parentId, spaceId }, { environmentId: envId });
+    expect(reviewerOf(spaceId)).toMatchObject({ agentKind: "claude", model: "claude-sonnet-5" });
+  });
 });
 
 describe("the verdict lands — KV + broadcast + notification, and stops there", () => {

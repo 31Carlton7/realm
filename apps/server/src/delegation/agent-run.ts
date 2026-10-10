@@ -9,7 +9,7 @@ import type { RpcServer } from "../rpc/server";
 import { titleFromMessage, type SessionService } from "../sessions/service";
 import type { SkillsService } from "../skills/service";
 import { MAX_RUNS_PER_PARENT, type ActiveRun, type DelegationEngine, type SettledRun } from "./engine";
-import { delegableModels, modelMenu, resolveModelName, type ModelResolution, type ProbedAgent } from "./models";
+import { delegableModels, modelMenu, resolveModelName, type ModelChoice, type ModelResolution, type ProbedAgent } from "./models";
 
 export const AGENT_RUN_TOOL_NAME = "agent_run";
 export const AGENT_START_TOOL_NAME = "agent_start";
@@ -125,7 +125,7 @@ const rank = (mode: string): number => MODE_RANK[mode] ?? 1;
 export class AgentRunService {
   constructor(private readonly d: {
     settings: SettingsLike;
-    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt">;
+    sessions: Pick<SessionService, "create" | "send" | "get" | "events" | "interrupt" | "defaultModel">;
     rpc: Pick<RpcServer, "broadcast">;
     /** The shared settle/drain + run registry — the SAME instance `BrowserAgentService` uses. */
     engine: DelegationEngine;
@@ -205,25 +205,49 @@ export class AgentRunService {
    * a real Mac, and an ambiguous "GPT-6" is no less ambiguous for asking again.
    *
    * No model named: the harness `resolveAgentKind` picks, and on the LEAD'S harness the lead's own
-   * model. A person who put their session on Opus 5.5 and asked it to hand work out means Opus 5.5
-   * unless they said otherwise; the harness default is only right for a child on a harness the lead
-   * is not on, where the lead's model id would mean nothing.
+   * model, that harness's own default included. A person who put their session on Opus 5.5 and
+   * asked it to hand work out means Opus 5.5 unless they said otherwise. On a harness the lead is
+   * not on, the lead's model id would mean nothing, so the child starts as any session made there
+   * with no model named does (`unnamedOn`).
+   *
+   * A harness named on its own ("Codex") names an agent and no model too, and `unnamedOn` answers
+   * it whichever harness the lead is on: the lead's own harness, named alone, does not take the
+   * lead's model. The resolver answers the name with a null model, and no other name resolves to
+   * null. `place` does not pass that null on as the harness's own default. Passed on, "Codex" in
+   * `constraints.model` and `codex` in `constraints.agentKind` would start two children of a lead
+   * on another harness on two models.
    */
   private async place(constraints: AgentRunConstraints | undefined, parent: Session): Promise<ModelResolution> {
     if (constraints?.model === undefined) {
       const kind = resolveAgentKind(constraints?.agentKind, parent.agentKind, this.d.fallbackKind);
-      const model = kind === parent.agentKind ? parent.model : null;
+      if (kind !== parent.agentKind) return { ok: true, choice: this.unnamedOn(kind) };
+      const model = parent.model;
       return { ok: true, choice: { kind, model, label: model === null ? DEFAULT_MODEL_LABEL[kind] : this.labelOf(kind, model) } };
     }
     const m = this.d.models;
     if (!m) return { ok: false, reason: "unknown", message: "refused: this Realm has no list of models to resolve constraints.model against — leave it out, or name constraints.agentKind." };
     const name = constraints.model;
-    const attempt = (rows: readonly ProbedAgent[]) =>
-      resolveModelName(name, delegableModels(rows, m.kinds), { kind: constraints.agentKind, kinds: m.kinds, probes: rows });
+    const attempt = (rows: readonly ProbedAgent[]): ModelResolution => {
+      const named = resolveModelName(name, delegableModels(rows, m.kinds), { kind: constraints.agentKind, kinds: m.kinds, probes: rows });
+      return named.ok && named.choice.model === null ? { ok: true, choice: this.unnamedOn(named.choice.kind) } : named;
+    };
     const known = m.known();
     const first = attempt(known?.rows ?? []);
     if (first.ok || first.reason !== "unknown" || (known && Date.now() - known.at < CATALOG_MAX_AGE_MS)) return first;
     return attempt(await m.refresh());
+  }
+
+  /**
+   * What a child runs on where no model is named and its harness is not the lead's, or is named on
+   * its own. That is the model a session made on that harness with no model named starts on
+   * (`SessionService.defaultModel`): the one the person chose for it, else the harness's own
+   * default. The label is the name the report gives it. Leaving the model out of the create would
+   * start the same session, but the report names the child's model before its session exists, so
+   * this asks for the model and the create names it.
+   */
+  private unnamedOn(kind: AgentKind): ModelChoice {
+    const model = this.d.sessions.defaultModel(kind);
+    return { kind, model, label: model === null ? DEFAULT_MODEL_LABEL[kind] : this.labelOf(kind, model) };
   }
 
   /** A model id's name, from the catalog when it is in it — the report should say "Claude Opus 5.5",
@@ -623,7 +647,7 @@ function childMessage(goal: string): string {
  * `model: "GPT-6 Luna"`, not in an apology about not being GPT-6 Luna.
  */
 const MODELS_BY_NAME =
-  "A sub-agent can run on a DIFFERENT model from yours: name it in constraints.model the way a person would — \"GPT-6 Luna\", \"Fable\", \"Opus 5.5\", \"Sonnet\" — or by id (\"gpt-6-luna\", \"claude-opus-5-5\"), and Realm runs it on the agent that has that model (Codex for GPT, Claude for Claude), so constraints.agentKind is not needed. A family name means its newest model (\"Fable\" is the newest Fable); a harness alone (\"Codex\") runs that agent's default. Leave model out and the sub-agent runs on your own model. When the user names models for the work — \"have GPT-6 Luna write the tests\", \"implement this plan with Fable and Sonnet sub-agents\" — do exactly that: one sub-agent per named model, each given its part.";
+  "A sub-agent can run on a DIFFERENT model from yours: name it in constraints.model the way a person would — \"GPT-6 Luna\", \"Fable\", \"Opus 5.5\", \"Sonnet\" — or by id (\"gpt-6-luna\", \"claude-opus-5-5\"), and Realm runs it on the agent that has that model (Codex for GPT, Claude for Claude), so constraints.agentKind is not needed. A family name means its newest model (\"Fable\" is the newest Fable); a harness alone (\"Codex\") runs the model chosen for that agent's new sessions, else its default. Leave model out and the sub-agent runs on your own model. When the user names models for the work — \"have GPT-6 Luna write the tests\", \"implement this plan with Fable and Sonnet sub-agents\" — do exactly that: one sub-agent per named model, each given its part.";
 
 /** The models line a description ends on, when there is a catalog to list — ready harnesses only,
  *  because naming a model the caller would then be refused is worse than naming nothing. */
@@ -650,7 +674,7 @@ function spawnInputSchema(menu: readonly string[]): Tool["inputSchema"] {
       constraints: {
         type: "object",
         properties: {
-          model: { type: "string", description: `The model to run the sub-agent on, by name: "GPT-6 Luna", "Fable" (its newest), "Opus 5.5", "Sonnet", or an id like "gpt-6-luna". Realm picks the agent that runs it. A harness name alone ("Codex", "Cursor") runs that agent's default model. Omitted: your own model. A name Realm cannot place, or one that could mean two models, is refused with the names it knows.${availableNow(menu)}` },
+          model: { type: "string", description: `The model to run the sub-agent on, by name: "GPT-6 Luna", "Fable" (its newest), "Opus 5.5", "Sonnet", or an id like "gpt-6-luna". Realm picks the agent that runs it. A harness name alone ("Codex", "Cursor") runs the model chosen for that agent's new sessions, else its default model. Omitted: your own model. A name Realm cannot place, or one that could mean two models, is refused with the names it knows.${availableNow(menu)}` },
           agentKind: { type: "string", enum: [...AgentKindSchema.options], description: "Agent for the child. Rarely needed: constraints.model already picks the agent. With a model, the name is looked up on this agent only. Omitted with no model: the caller's own kind (with a claude fallback when that kind cannot take Realm's skills)." },
           environmentId: { type: "string", description: "Run in this EXISTING environment of the caller's space. Mutually exclusive with newWorktree." },
           newWorktree: { type: ["boolean", "string"], description: "Create a fresh git worktree for the child: true titles it from the goal, a string titles it verbatim. Mutually exclusive with environmentId. Give PARALLEL agents separate worktrees — several agents editing one checkout will clobber each other." },
