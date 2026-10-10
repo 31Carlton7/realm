@@ -10360,6 +10360,12 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tv-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tv-detail { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .tv-used { flex: none; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
+/* The Policies page (read-only): a row's value in force at its end, in the secondary ink; a connection's
+   tools unfold under it in the same card, set in from the glyph's column so they read as its members. */
+.tpol-value { flex: none; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
+.tpol-chevron { flex: none; color: var(--rl-text-dim); }
+.settings-row.tpol-tool { padding-left: 48px; }
+.settings-row.tpol-tool + .settings-row::before, .settings-row + .settings-row.tpol-tool::before { left: 48px; }
 .tv-uses td.tv-where { white-space: normal; }
 .tv-who { display: inline-flex; align-items: center; gap: 6px; }
 .tv-foot { display: flex; align-items: center; gap: 8px; width: 100%; }

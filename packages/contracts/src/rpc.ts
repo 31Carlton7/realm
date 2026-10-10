@@ -35,6 +35,7 @@ import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchem
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { ActTicketSchema } from "./team-acts";
+import { TeamPoliciesSchema } from "./risk-class";
 import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
 import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
 import { SetRoleHandoffsSchema, SetTeamLimitsSchema } from "./team-handoffs";
@@ -1656,6 +1657,10 @@ export const Methods = {
   "team.ticketPost": { params: z.object({ id: IdSchema }), result: ActTicketSchema },
   "team.ticketCancel": { params: z.object({ id: IdSchema }), result: ActTicketSchema },
   "team.actsHold": { params: z.object({ spaceId: IdSchema, held: z.boolean() }), result: z.object({ held: z.boolean() }) },
+  // The team's Policies page, read-only: every tool a role here could call, with its risk class, who
+  // decided it, and whether a call asks first today. Listing a server's tools connects to it, as a
+  // session's own tool list does.
+  "team.policies": { params: z.object({ spaceId: IdSchema }), result: TeamPoliciesSchema },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),

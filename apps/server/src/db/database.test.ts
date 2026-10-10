@@ -1946,15 +1946,17 @@ describe("migration — a session's activity", () => {
   });
 });
 
-describe("migrations 46–50, as the five branches that held each other's slots merged", () => {
-  it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, then act tickets", () => {
+describe("migrations 46–53, as the eight branches that held each other's slots merged", () => {
+  it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, act tickets, record types, deliverables, then tool classes", () => {
     expect(migrations.filter((m) => m.trim() === "SELECT 1;")).toEqual([]);
-    // Dynamic Teams' v51+ follow; these five keep their slots.
-    expect(migrations.length).toBeGreaterThanOrEqual(50);
+    expect(migrations).toHaveLength(53);
     expect(migrations[45]).toContain("CREATE TABLE IF NOT EXISTS vault_grants");
     expect(migrations[46]).toContain("CREATE TABLE IF NOT EXISTS team_handoffs");
     expect(migrations[47]).toContain("CREATE TABLE IF NOT EXISTS lab_devices");
     expect(migrations[48]).toContain("ALTER TABLE sessions ADD COLUMN activity_at");
     expect(migrations[49]).toContain("CREATE TABLE IF NOT EXISTS team_act_tickets");
+    expect(migrations[50]).toContain("CREATE TABLE IF NOT EXISTS team_record_types");
+    expect(migrations[51]).toContain("ALTER TABLE team_review_items ADD COLUMN action_json");
+    expect(migrations[52]).toContain("CREATE TABLE IF NOT EXISTS tool_classes");
   });
 });

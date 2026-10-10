@@ -5,6 +5,7 @@ import { Menu } from "../../components/Menu";
 import { Sheet } from "../../components/Sheet";
 import { MODES, RoleSheet, modelLabel } from "./RoleSheet";
 import { MakeTeam } from "./TeamPicker";
+import { PoliciesPage } from "./PoliciesPage";
 import { VaultPage } from "./VaultPage";
 import { NewRecordTypePage, RecordPage, RecordTypePage, RecordsPage, typeGlyph, typeOfPath } from "./RecordPages";
 import { BackoffNote, HandoffLines, HandsOffTo, MentionWake, RoleBudget, RoleGoalPanel, TeamBudget } from "./HandoffParts";
@@ -18,7 +19,7 @@ import {
 /* ═══════════════════════════════ the column ═══════════════════════════════ */
 
 export const isTeamTab = (tab: SpacePageTab): boolean =>
-  tab === "team" || tab === "records" || tab === "roles" || tab === "vault" || tab === "activity" || tab.startsWith("role:") || tab.startsWith("record:")
+  tab === "team" || tab === "records" || tab === "roles" || tab === "policies" || tab === "vault" || tab === "activity" || tab.startsWith("role:") || tab.startsWith("record:")
   || tab.startsWith("records:") || tab.startsWith("recordtype:");
 
 /** The kind of record a team tab is about: its list, one of its records, or its fields. */
@@ -35,6 +36,7 @@ export function tabRecordType(tab: SpacePageTab, team: TeamSpace | undefined): T
 export function teamTabLabel(tab: SpacePageTab, team: TeamSpace | undefined): string {
   if (tab === "activity") return "Activity";
   if (tab === "roles") return "Roles";
+  if (tab === "policies") return "Policies";
   if (tab === "vault") return "Vault";
   if (tab.startsWith("role:")) return team?.roles.find((r) => r.id === tab.slice(5))?.name ?? "Role";
   if (tab === "recordtype:new") return "New record type";
@@ -86,6 +88,7 @@ export function TeamRailList({ spaceId, team, tab, pick }: { spaceId: string; te
       })}
       {row("roles", "Roles", "user", inRoles ? undefined : team.roles.length)}
       {inRoles && team.roles.map((r) => row(`role:${r.id}`, r.name, r, undefined, true))}
+      {row("policies", "Policies", "shield")}
       {row("vault", "Vault", "padlock")}
       {row("activity", "Activity", "activity")}
     </fieldset>
@@ -105,6 +108,7 @@ export function TeamPage({ spaceId, tab }: { spaceId: string; tab: SpacePageTab 
   }
   if (tab === "activity") return <ActivityPage spaceId={spaceId} team={team} />;
   if (tab === "roles") return <RolesPage spaceId={spaceId} team={team} />;
+  if (tab === "policies") return <PoliciesPage spaceId={spaceId} team={team} />;
   if (tab === "vault") return <VaultPage spaceId={spaceId} team={team} />;
   if (tab.startsWith("record:")) return <RecordPage key={tab} spaceId={spaceId} path={tab.slice(7)} team={team} />;
   if (tab.startsWith("role:")) {

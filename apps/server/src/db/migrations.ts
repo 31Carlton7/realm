@@ -1112,4 +1112,23 @@ export const migrations: string[] = [
   UPDATE team_review_items SET format = 'images'
     WHERE format IS NULL AND (SELECT kind FROM team_reviews r WHERE r.id = review_id) = 'slideshows';
   `,
+  // v53 — tool classes (dynamic Teams, PR 3), after record types and deliverables, and found by its
+  // text, never its number. A person's word on what a connector's tool does to the world (the
+  // dynamic-Teams plan, §4.2): only these OVERRIDES are stored — Realm's own tools and the vendor
+  // table are code (`risk-class.ts`), and a server's annotations are read live. `connector` is
+  // `mcp:<server row id>`, `realm:<provider>` or `surface:<origin or bundle id>`; `tool` is a name, or
+  // `*` for the whole connector. `seal` is main's stamp, required before a row may LOWER a class below
+  // what Realm derived; a row without one only ever raises. Per profile, because a connector's tools
+  // do the same thing in every space of it. Nothing to backfill: nobody has said anything yet.
+  `
+  CREATE TABLE IF NOT EXISTS tool_classes (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    connector TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    class TEXT NOT NULL,
+    verb TEXT,
+    seal TEXT,
+    set_at INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, connector, tool));
+  `,
 ];

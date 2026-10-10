@@ -917,7 +917,7 @@ export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "sub
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history"
   /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): the Overview, the records
      and one of them, a role, the log. */
-  | "team" | "records" | "roles" | "vault" | "activity" | `role:${string}` | `record:${string}`
+  | "team" | "records" | "roles" | "policies" | "vault" | "activity" | `role:${string}` | `record:${string}`
   /* A kind of record's list, and the page its fields are shaped on (`recordtype:new` makes one). */
   | `records:${string}` | `recordtype:${string}`;
 /** The profile page's rail (Plan 14 W2). */
