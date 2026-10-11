@@ -46,8 +46,8 @@ export type CheckpointDeps = {
   environments: EnvironmentsStore;
   sessions: SessionsStore;
   git: CheckpointGit;
-  /** Whether a session in this environment is mid-turn. Injected rather than imported: `SessionService`
-   *  calls INTO this service on every turn, so it cannot also be a dependency. */
+  /** Whether a session in this environment is mid-turn or has a run working in the background. Injected,
+   *  not imported: `SessionService` calls INTO this service on every turn, so it cannot be a dependency. */
   isEnvironmentBusy?: (environmentId: string) => boolean;
   /** Stop one session's agent between turns, so a rewind armed for its next start is the next thing it
    *  does. Injected for `isEnvironmentBusy`'s reason; absent, a rewind restore falls back to files only
@@ -277,10 +277,10 @@ export class CheckpointService {
    *
    * Order, and why each step is where it is:
    *
-   *  1. Refuse while an agent is mid-turn in that environment. Rewriting a working tree under a running
-   *     tool call corrupts whatever it is halfway through, and no checkpoint can undo a half-written file.
-   *     An agent idle between turns is writing nothing, and refusing over it made a restore impossible
-   *     for as long as the session that had just run stayed open — which is the moment Undo is for.
+   *  1. Refuse while an agent is mid-turn in that environment, or has a run working in the background.
+   *     Rewriting a working tree under a running tool call corrupts whatever it is halfway through, and no
+   *     checkpoint can undo a half-written file. An agent idle with nothing running is writing nothing, and
+   *     refusing over it made a restore impossible while its session stayed open — the moment Undo is for.
    *  2. Re-read the hazard and require the acknowledgement to match it exactly. The user said yes to
    *     numbers; if the agent has written another file since, those numbers are not the ones they saw.
    *  3. Capture the CURRENT state as a `pre-restore` checkpoint. If this fails, nothing is restored —
@@ -300,7 +300,7 @@ export class CheckpointService {
     const env = this.environment(cp.environmentId);
 
     if (this.d.isEnvironmentBusy?.(env.id)) {
-      throw new RpcError("CHECKPOINT_ENVIRONMENT_BUSY", "an agent is mid-turn in this checkout; stop it before restoring");
+      throw new RpcError("CHECKPOINT_ENVIRONMENT_BUSY", "an agent is working in this checkout; stop it before restoring");
     }
     const preview = await this.preview(id);
     if (!preview.intact) {

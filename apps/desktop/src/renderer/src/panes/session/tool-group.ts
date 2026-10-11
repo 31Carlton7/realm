@@ -14,8 +14,11 @@ export const isDelegationWait = (b: ToolBlock): boolean => bareToolName(b.name) 
 /** Calls that never fold into a run. A fan-out is two starts and a wait in a row — a run by the rule
  *  below — and a run collapses to "Worked for 8s" once it settles, which hid the one thing a reader
  *  of a delegation wants to see: each sub-agent, and how it ended. A call that drew a view is the
- *  same case: the view is what the call was for, and a ledger line is no place to keep it. */
-const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegationWait(b) || b.view !== undefined;
+ *  same case: the view is what the call was for, and a ledger line is no place to keep it. So is a
+ *  call that left a run working in the background. Its launch returns in a second, which settles the
+ *  ledger around it, and the card that says the run is still going, and later how it ended, would
+ *  sit folded inside "Worked for 2s" for the whole run. */
+const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegationWait(b) || b.view !== undefined || b.background !== undefined;
 
 /** §2.8: "the agent's work is a quiet ledger" — a run of consecutive tool calls collapses to one
  *  summary line ("18 tools · 5 files · 2 commands · 6m 12s") that expands into its steps.

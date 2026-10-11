@@ -4,9 +4,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { FakeAdapter } from "@realm/adapters";
+import { AsyncQueue, FakeAdapter, type AgentHandle } from "@realm/adapters";
 import { createApp, type App } from "../app";
-import { DEFAULT_PERMISSION_MODE_KEY } from "@realm/contracts";
+import { DEFAULT_PERMISSION_MODE_KEY, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
@@ -37,6 +37,24 @@ async function boot(fake = new FakeAdapter({ script: [{ on: "go", emit: [{ kind:
   const p = (await c.call("profiles.create", { name: "W" })).result;
   const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
   return { home, c, sp };
+}
+
+/**
+ * An adapter of the scripted kind whose handle says only what the test pushes onto `said`. What the
+ * app's own wiring has to be shown against wherever a session is at rest with a run still working
+ * in the background, which the scripted adapter has no step for.
+ */
+class SpokenFor extends FakeAdapter {
+  readonly said = new AsyncQueue<SessionEvent>();
+  readonly sent: string[] = [];
+  override start(): AgentHandle {
+    return {
+      events: this.said,
+      send: async (m) => { this.sent.push(m.text); },
+      respondPermission: () => {}, interrupt: async () => {}, setOptions: async () => {}, stopTask: async () => {},
+      dispose: async () => { this.said.close(); },
+    };
+  }
 }
 
 describe("SessionService over rpc", () => {
@@ -241,6 +259,136 @@ describe("SessionService over rpc", () => {
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
     const res = await c.call("sessions.respondPermission", { id: session.id, requestId: "bperm_stale", decision: "allow" });
     expect(res.ok).toBe(true);
+    c.close();
+  });
+
+  it("sessions.stopTask refuses a session that does not exist", async () => {
+    const { c } = await boot();
+    expect((await c.call("sessions.stopTask", { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", toolUseId: "toolu_01" })).error.code).toBe("NOT_FOUND");
+    c.close();
+  });
+
+  it("sessions.stopTask answers ok for a session with no live process, where nothing is left to stop", async () => {
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    expect((await c.call("sessions.stopTask", { id: session.id, toolUseId: "toolu_01" })).result).toEqual({ ok: true });
+    expect(app.sessions.isLive(session.id)).toBe(false);
+    c.close();
+  });
+
+  it("sessions.stopTask says so, in words for a person, when the session's agent cannot stop one run", async () => {
+    const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: "ok" }] }] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => c.eventTypes(session.id).includes("usage"));
+    const res = await c.call("sessions.stopTask", { id: session.id, toolUseId: "toolu_01" });
+    expect(res.error).toMatchObject({ code: "STOP_TASK_UNSUPPORTED", message: "This agent has no way to stop one run." });
+    c.close();
+  });
+
+  it("puts a session back to running, through the app's wiring, when the server's own card is answered in a turn", async () => {
+    const asks = new FakeAdapter({ script: [{ on: "ask", emit: [{ kind: "call", tool: "realm-ui__ui_ask", input: { questions: [
+      { id: "db", prompt: "Which database?", kind: "choice", options: [{ label: "Postgres" }, { label: "SQLite" }] },
+    ] } }] }], delayMs: 2 });
+    const { c, sp } = await boot(asks);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "ask" });
+    await waitFor(() => c.eventTypes(session.id).includes("permission_request"));
+    const req = c.events.find((e) => e.event === "session.event" && e.payload.event.type === "permission_request")!.payload.event.payload.requestId;
+    await c.call("sessions.respondPermission", { id: session.id, requestId: req, decision: "allow", answers: { db: "Postgres" } });
+    await waitFor(() => c.eventTypes(session.id).includes("usage"));
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    const statuses = (await c.call("sessions.events", { id: session.id })).result.filter((s: Any) => s.event.type === "status").map((s: Any) => s.event.payload);
+    expect(statuses).toEqual([{ status: "idle" }, { status: "running" }, { status: "waiting_permission" }, { status: "running" }, { status: "idle" }]);
+    c.close();
+  });
+
+  it("holds a goal's next turn, through the app's wiring, until the run its session left working has reported", async () => {
+    const agent = new SpokenFor({ script: [] });
+    const { c, sp } = await boot(agent);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("goals.start", { sessionId: session.id, objective: "ship it" });
+    const turns = async () => (await c.call("goals.get", { sessionId: session.id })).result.goal.turns as number;
+    agent.said.push(sessionEvent("status", { status: "running" }));
+    agent.said.push(sessionEvent("background_task", { toolUseId: "toolu_run", status: "running" }));
+    agent.said.push(sessionEvent("status", { status: "idle" }));
+    await waitFor(async () => (await turns()) === 1);
+    await new Promise((r) => setTimeout(r, 150));
+    const sentWhileTheRunWorked = [...agent.sent];
+    agent.said.push(sessionEvent("background_task", { toolUseId: "toolu_run", status: "stopped", outcome: "completed" }));
+    agent.said.push(sessionEvent("status", { status: "running" }));
+    agent.said.push(sessionEvent("status", { status: "idle" }));
+    await waitFor(() => agent.sent.length === 2);
+    expect(sentWhileTheRunWorked).toEqual(["ship it"]);
+    expect(agent.sent[1]).toContain("ship it");
+    c.close();
+  });
+
+  it("continues a goal, through the app's wiring, at the marked settle of the report it stood down for", async () => {
+    const agent = new SpokenFor({ script: [] });
+    const { c, sp } = await boot(agent);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("goals.start", { sessionId: session.id, objective: "ship it" });
+    const turns = async () => (await c.call("goals.get", { sessionId: session.id })).result.goal.turns as number;
+    agent.said.push(sessionEvent("status", { status: "running" }));
+    agent.said.push(sessionEvent("background_task", { toolUseId: "toolu_run", status: "running" }));
+    agent.said.push(sessionEvent("status", { status: "idle" }));
+    await waitFor(async () => (await turns()) === 1);
+    agent.said.push(sessionEvent("background_task", { toolUseId: "toolu_run", status: "stopped", outcome: "completed" }));
+    agent.said.push(sessionEvent("status", { status: "running" }));
+    agent.said.push(sessionEvent("status", { status: "idle", unprompted: true }));
+    await waitFor(() => agent.sent.length === 2);
+    expect(agent.sent[1]).toContain("ship it");
+    c.close();
+  });
+
+  it("sends a goal's next turn once, through the app's wiring, when the run ended inside the turn that launched it", async () => {
+    const agent = new SpokenFor({ script: [] });
+    const { c, sp } = await boot(agent);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("goals.start", { sessionId: session.id, objective: "ship it" });
+    agent.said.push(sessionEvent("status", { status: "running" }));
+    agent.said.push(sessionEvent("background_task", { toolUseId: "toolu_run", status: "running" }));
+    agent.said.push(sessionEvent("background_task", { toolUseId: "toolu_run", status: "stopped", outcome: "completed" }));
+    agent.said.push(sessionEvent("status", { status: "idle" }));
+    await waitFor(() => agent.sent.length === 2);
+    agent.said.push(sessionEvent("status", { status: "running" }));
+    agent.said.push(sessionEvent("status", { status: "idle", unprompted: true }));
+    await waitFor(async () => (await c.call("sessions.events", { id: session.id })).result.some((s: Any) => s.event.type === "status" && s.event.payload.unprompted === true));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(agent.sent).toHaveLength(2);
+    c.close();
+  });
+
+  it("pauses a goal, through the app's wiring, when its session's only run is stopped at rest", async () => {
+    const agent = new SpokenFor({ script: [] });
+    const { c, sp } = await boot(agent);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("goals.start", { sessionId: session.id, objective: "ship it" });
+    const goal = async () => (await c.call("goals.get", { sessionId: session.id })).result.goal;
+    agent.said.push(sessionEvent("status", { status: "running" }));
+    agent.said.push(sessionEvent("background_task", { toolUseId: "toolu_run", status: "running" }));
+    agent.said.push(sessionEvent("status", { status: "idle" }));
+    await waitFor(async () => (await goal()).turns === 1);
+    await c.call("sessions.stopTask", { id: session.id, toolUseId: "toolu_run" });
+    await waitFor(async () => (await goal()).status === "paused");
+    expect((await goal()).note).toBe("You stopped the turn.");
+    c.close();
+  });
+
+  it("pauses a goal, through the app's wiring, when Stop is pressed on its session at rest while a run works", async () => {
+    const agent = new SpokenFor({ script: [] });
+    const { c, sp } = await boot(agent);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("goals.start", { sessionId: session.id, objective: "ship it" });
+    const goal = async () => (await c.call("goals.get", { sessionId: session.id })).result.goal;
+    agent.said.push(sessionEvent("status", { status: "running" }));
+    agent.said.push(sessionEvent("background_task", { toolUseId: "toolu_run", status: "running" }));
+    agent.said.push(sessionEvent("status", { status: "idle" }));
+    await waitFor(async () => (await goal()).turns === 1);
+    await c.call("sessions.interrupt", { id: session.id });
+    await waitFor(async () => (await goal()).status === "paused");
+    expect((await goal()).note).toBe("You stopped the turn.");
     c.close();
   });
 

@@ -1,4 +1,4 @@
-import { AGENT_META, NOTIFICATIONS_DISABLED_KEY, formatUsd, type McpServerStatus, type Notification, type NotificationCategory, type Session, type SessionEvent } from "@realm/contracts";
+import { AGENT_META, NOTIFICATIONS_DISABLED_KEY, formatUsd, turnSettled, type McpServerStatus, type Notification, type NotificationCategory, type Session, type SessionEvent } from "@realm/contracts";
 import type { ProbeResult } from "@realm/adapters";
 import type { RpcServer } from "../rpc/server";
 import type { SettingsStore } from "../store/settings";
@@ -9,11 +9,9 @@ import type { NotificationRelay } from "./relay";
  *  durable fact (survives restart) rather than one process's memory. */
 export const LAST_PROBE_KEY = "notifications.lastProbe";
 
-/** Session-status transitions that count as a turn SETTLING. `waiting_permission` is in the from-set
- *  only for the crash path (an adapter dying under an unanswered card) — an answered permission goes
- *  back through `running` first, so it can never settle out of the from-set spuriously. */
-const SETTLED_FROM = new Set(["running", "waiting_permission"]);
-const SETTLED_TO = new Set(["idle", "ended", "error"]);
+/** What the feed calls a settle, by the status it settled into. Which transitions ARE one is for
+ *  `turnSettled` to say: out of `waiting_permission` too, since a turn can end under a card still
+ *  open, and never on the `idle` that only closes a card raised between turns. */
 const SETTLE_WORD: Record<string, string> = { idle: "Finished a turn", ended: "Ended", error: "Failed" };
 
 /**
@@ -146,10 +144,10 @@ export class NotificationsService {
       this.d.rpc.broadcast("notifications.changed", { notification: null, unread: this.d.store.unreadCount() });
       return;
     }
-    if (ev.type === "status" && SETTLED_FROM.has(session.status) && SETTLED_TO.has(ev.payload.status)) {
+    if (ev.type === "status" && turnSettled(session.status, ev.payload)) {
       // A crash under an unanswered card leaves no permission_response behind — close the row honestly
       // rather than leaving it "pending" for a session that can no longer answer.
-      if (session.status === "waiting_permission") {
+      if (session.status === "waiting_permission" && (ev.payload.status === "ended" || ev.payload.status === "error")) {
         for (const open of this.d.store.listOpenForSession("permission", session.id)) {
           if (open.refId) this.resolveOpen("permission", open.refId, "The session ended before this was answered");
         }

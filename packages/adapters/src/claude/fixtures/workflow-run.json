@@ -1,0 +1,350 @@
+[
+ {
+  "type": "system",
+  "subtype": "init",
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb",
+  "model": "claude-opus-5-5",
+  "cwd": "/tmp/capture/cwd",
+  "permissionMode": "default",
+  "claude_code_version": "2.1.281",
+  "tools": [
+   "Bash",
+   "Edit",
+   "Read",
+   "Workflow"
+  ],
+  "uuid": "67acd99a-0356-44b1-90b0-fca90c0d4b81"
+ },
+ {
+  "type": "assistant",
+  "message": {
+   "id": "msg_fake_2",
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_fake_2",
+     "name": "Workflow",
+     "input": {
+      "script": "export const meta = { name: 'probe-run', description: 'Probe run with two agents', phases: [{ title: 'Work' }] }\nphase('Work')\nconst a = await agent('PROBE-AGENT-A say alpha', { label: 'a' })\nconst b = await agent('PROBE-AGENT-B say beta', { label: 'b' })\nreturn { a, b }"
+     }
+    }
+   ]
+  },
+  "parent_tool_use_id": null,
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb",
+  "uuid": "0ee6cbc5-4edc-4007-9ac4-7c75d3d15b95"
+ },
+ {
+  "type": "system",
+  "subtype": "background_tasks_changed",
+  "tasks": [
+   {
+    "task_id": "w1m36gxx5",
+    "task_type": "local_workflow",
+    "description": "Probe run with two agents"
+   }
+  ],
+  "uuid": "2282e1b4-afb6-4173-9a5e-09a26477401c",
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb"
+ },
+ {
+  "type": "system",
+  "subtype": "task_started",
+  "task_id": "w1m36gxx5",
+  "tool_use_id": "toolu_fake_2",
+  "description": "Probe run with two agents",
+  "task_type": "local_workflow",
+  "workflow_name": "probe-run",
+  "prompt": "export const meta = { name: 'probe-run', description: 'Probe run with two agents', phases: [{ title: 'Work' }] }\nphase('Work')\nconst a = await agent('PROBE-AGENT-A say alpha', { label: 'a' })\nconst b = await agent('PROBE-AGENT-B say beta', { label: 'b' })\nreturn { a, b }",
+  "uuid": "a529b39d-18a9-4361-baf7-a917637acfc3",
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb"
+ },
+ {
+  "type": "user",
+  "message": {
+   "role": "user",
+   "content": [
+    {
+     "tool_use_id": "toolu_fake_2",
+     "type": "tool_result",
+     "content": "Workflow launched in background. Task ID: w1m36gxx5\nSummary: Probe run with two agents\nTranscript dir: /tmp/capture/config/projects/-tmp-capture-cwd/27cbdd8d-49dc-4797-9b42-49c0754cdbdb/subagents/workflows/wf_e7f5f79f-cf9\nScript file: /tmp/capture/config/projects/-tmp-capture-cwd/27cbdd8d-49dc-4797-9b42-49c0754cdbdb/workflows/scripts/probe-run-wf_e7f5f79f-cf9.js\n(Edit this file with Write/Edit and re-invoke Workflow with {scriptPath: \"/tmp/capture/config/projects/-tmp-capture-cwd/27cbdd8d-49dc-4797-9b42-49c0754cdbdb/workflows/scripts/probe-run-wf_e7f5f79f-cf9.js\"} to iterate without resending the script.)\nRun ID: wf_e7f5f79f-cf9\nTo resume after editing the script: Workflow({scriptPath: \"/tmp/capture/config/projects/-tmp-capture-cwd/27cbdd8d-49dc-4797-9b42-49c0754cdbdb/workflows/scripts/probe-run-wf_e7f5f79f-cf9.js\", resumeFromRunId: \"wf_e7f5f79f-cf9\"}) \u2014 completed agents return cached results (cached results may themselves be empty \u2014 inspect journal.jsonl before assuming there is something to recover).\n\nYou will be notified when it completes. Use /workflows to watch live progress.",
+     "is_error": false
+    }
+   ]
+  },
+  "parent_tool_use_id": null,
+  "tool_use_result": {
+   "status": "async_launched",
+   "taskId": "w1m36gxx5",
+   "taskType": "local_workflow",
+   "workflowName": "probe-run",
+   "runId": "wf_e7f5f79f-cf9",
+   "summary": "Probe run with two agents",
+   "transcriptDir": "/tmp/capture/config/projects/-tmp-capture-cwd/27cbdd8d-49dc-4797-9b42-49c0754cdbdb/subagents/workflows/wf_e7f5f79f-cf9",
+   "scriptPath": "/tmp/capture/config/projects/-tmp-capture-cwd/27cbdd8d-49dc-4797-9b42-49c0754cdbdb/workflows/scripts/probe-run-wf_e7f5f79f-cf9.js"
+  },
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb",
+  "uuid": "9d76e07d-891d-431a-95a7-9f1863048252"
+ },
+ {
+  "type": "system",
+  "subtype": "task_progress",
+  "task_id": "w1m36gxx5",
+  "tool_use_id": "toolu_fake_2",
+  "description": "Work: a",
+  "usage": {
+   "total_tokens": 11,
+   "tool_uses": 1,
+   "duration_ms": 28
+  },
+  "last_tool_name": "a",
+  "summary": "Probe run with two agents",
+  "workflow_progress": [
+   {
+    "type": "workflow_phase",
+    "index": 1,
+    "title": "Work"
+   },
+   {
+    "type": "workflow_agent",
+    "index": 1,
+    "label": "a",
+    "phaseIndex": 1,
+    "phaseTitle": "Work",
+    "agentId": "ae678cb811145d3c3",
+    "model": "claude-opus-5-5",
+    "state": "progress",
+    "startedAt": 1791668548872,
+    "queuedAt": 1791668548871,
+    "attempt": 1,
+    "lastToolName": "Bash",
+    "lastToolSummary": "touch probe-made-by-agent.txt",
+    "promptPreview": "PROBE-AGENT-A say alpha",
+    "promptFramed": true,
+    "lastProgressAt": 1791668548879,
+    "tokens": 11,
+    "toolCalls": 1
+   }
+  ],
+  "uuid": "e56228c2-847e-44bc-9c79-2598727f12a1",
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb"
+ },
+ {
+  "type": "assistant",
+  "message": {
+   "id": "msg_fake_4",
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "Started the run."
+    }
+   ]
+  },
+  "parent_tool_use_id": null,
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb",
+  "uuid": "8229bf06-412b-4e87-8f97-3cca1db779dc"
+ },
+ {
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "num_turns": 2,
+  "result": "Started the run.",
+  "origin": {
+   "kind": "human"
+  },
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb",
+  "total_cost_usd": 0.00042,
+  "duration_ms": 84,
+  "usage": {
+   "input_tokens": 20,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "output_tokens": 10,
+   "output_tokens_details": {
+    "thinking_tokens": 0
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 0,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "",
+   "iterations": [],
+   "speed": "standard"
+  },
+  "uuid": "6ed008fd-852c-4834-b77c-b80647974990"
+ },
+ {
+  "type": "system",
+  "subtype": "task_progress",
+  "task_id": "w1m36gxx5",
+  "tool_use_id": "toolu_fake_2",
+  "description": "Work: b",
+  "usage": {
+   "total_tokens": 22,
+   "tool_uses": 1,
+   "duration_ms": 80
+  },
+  "last_tool_name": "b",
+  "summary": "Probe run with two agents",
+  "workflow_progress": [
+   {
+    "type": "workflow_phase",
+    "index": 1,
+    "title": "Work"
+   },
+   {
+    "type": "workflow_agent",
+    "index": 1,
+    "label": "a",
+    "phaseIndex": 1,
+    "phaseTitle": "Work",
+    "agentId": "ae678cb811145d3c3",
+    "model": "claude-opus-5-5",
+    "state": "done",
+    "startedAt": 1791668548872,
+    "queuedAt": 1791668548871,
+    "attempt": 1,
+    "lastToolName": "Bash",
+    "lastToolSummary": "touch probe-made-by-agent.txt",
+    "promptPreview": "PROBE-AGENT-A say alpha",
+    "promptFramed": true,
+    "lastProgressAt": 1791668548935,
+    "tokens": 11,
+    "toolCalls": 1,
+    "durationMs": 63,
+    "resultPreview": "alpha"
+   },
+   {
+    "type": "workflow_agent",
+    "index": 2,
+    "label": "b",
+    "phaseIndex": 1,
+    "phaseTitle": "Work",
+    "agentId": "a32f956d957aab256",
+    "model": "claude-opus-5-5",
+    "state": "done",
+    "startedAt": 1791668548936,
+    "queuedAt": 1791668548936,
+    "attempt": 1,
+    "promptPreview": "PROBE-AGENT-B say beta",
+    "promptFramed": true,
+    "lastProgressAt": 1791668548941,
+    "tokens": 11,
+    "toolCalls": 0,
+    "durationMs": 5,
+    "resultPreview": "beta"
+   }
+  ],
+  "uuid": "a1ca066a-f80d-4f43-bc0a-3089eff40dae",
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb"
+ },
+ {
+  "type": "system",
+  "subtype": "background_tasks_changed",
+  "tasks": [],
+  "uuid": "0b44dc0a-e79b-452d-a507-9e6fb7324a65",
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb"
+ },
+ {
+  "type": "system",
+  "subtype": "task_updated",
+  "task_id": "w1m36gxx5",
+  "patch": {
+   "status": "completed",
+   "end_time": 1791668548942
+  },
+  "uuid": "17d4b0fc-744e-43e5-98ef-8a61c0d114e5",
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb"
+ },
+ {
+  "type": "system",
+  "subtype": "task_notification",
+  "task_id": "w1m36gxx5",
+  "tool_use_id": "toolu_fake_2",
+  "status": "completed",
+  "output_file": "/tmp/capture/tmp",
+  "summary": "Dynamic workflow \"Probe run with two agents\" completed",
+  "usage": {
+   "total_tokens": 22,
+   "tool_uses": 1,
+   "duration_ms": 75
+  },
+  "uuid": "dbc436dc-c0cc-4446-a32f-13a733f0fbcd",
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb"
+ },
+ {
+  "type": "system",
+  "subtype": "init",
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb",
+  "model": "claude-opus-5-5",
+  "cwd": "/tmp/capture/cwd",
+  "permissionMode": "default",
+  "claude_code_version": "2.1.281",
+  "tools": [
+   "Bash",
+   "Edit",
+   "Read",
+   "Workflow"
+  ],
+  "uuid": "536c30af-7347-4b60-b70f-df1ebf9ba0ee"
+ },
+ {
+  "type": "assistant",
+  "message": {
+   "id": "msg_fake_7",
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "The run finished. REPORT."
+    }
+   ]
+  },
+  "parent_tool_use_id": null,
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb",
+  "uuid": "bb927336-5823-4ebe-89b6-57f01c6ae977"
+ },
+ {
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "num_turns": 1,
+  "result": "The run finished. REPORT.",
+  "origin": {
+   "kind": "task-notification"
+  },
+  "session_id": "27cbdd8d-49dc-4797-9b42-49c0754cdbdb",
+  "total_cost_usd": 0.0008400000000000001,
+  "duration_ms": 7,
+  "usage": {
+   "input_tokens": 10,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "output_tokens": 5,
+   "output_tokens_details": {
+    "thinking_tokens": 0
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 0,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "",
+   "iterations": [],
+   "speed": "standard"
+  },
+  "uuid": "01b19f07-e8aa-40f3-acf7-331fde0850a7"
+ }
+]

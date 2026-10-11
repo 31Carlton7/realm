@@ -2646,6 +2646,68 @@ describe("a side pane's tab strip", () => {
   });
 });
 
+/** A CSS length as a number of pixels, for `0` and `-4px` alike. */
+const lengthPx = (value: string): number => parseFloat(value);
+
+/** How far a hit-area overlay reaches past its control on each side, read from its `inset`. The
+ *  shorthand is read the way CSS reads it and negated, so a reach outward is a positive number. */
+const reachOf = (selector: string): { top: number; right: number; bottom: number; left: number } => {
+  const parts = (/(?:^|;\s*)inset:\s*([^;]+)/.exec(bodiesFor(selector).join("; "))?.[1] ?? "").trim().split(/\s+/).map(lengthPx);
+  const [top = NaN, right = top, bottom = top, left = right] = parts;
+  return { top: -top, right: -right, bottom: -bottom, left: -left };
+};
+
+describe("the running-agents list, where a run can be stopped by itself", () => {
+  it("keeps a stop control's hit area inside its own row, so a press never lands on the run above or below", () => {
+    const rowHeight = Number(/min-height: (\d+)px/.exec(bodiesFor(".delegation-item").join(" "))?.[1]);
+    const control = Number(/--btn-h: (\d+)px/.exec(bodiesFor(".agents-row > .delegation-stop").join(" "))?.[1]);
+    const rowEnd = Number(/padding-right: (\d+)px/.exec(bodiesFor(".agents-row").join(" "))?.[1]);
+    const reach = reachOf(".agents-row > .delegation-stop::after");
+    expect(control).toBeGreaterThan(0);
+    expect(control).toBeLessThanOrEqual(rowHeight);
+    const room = (rowHeight - control) / 2;
+    expect(reach.top).toBeLessThanOrEqual(room);
+    expect(reach.bottom).toBeLessThanOrEqual(room);
+    expect(reach.right).toBeLessThanOrEqual(rowEnd);
+    expect(reach.left).toBeLessThanOrEqual(0);
+    expect(reachOf(".icon-btn::after").top).toBeGreaterThan(room);
+  });
+
+  it("lets the name give way first and nothing else, so the watch button takes the slack and the control and its empty slot keep their width", () => {
+    const watch = bodiesFor(".agents-row > .delegation-item").join(" ");
+    expect(watch).toContain("flex: 1 1 0");
+    expect(watch).toContain("min-width: 0");
+    const name = bodiesFor(".delegation-title").join(" ");
+    expect(name).toContain("min-width: 0");
+    expect(name).toContain("text-overflow: ellipsis");
+    expect(bodiesFor(".delegation-dim").join(" ")).toContain("flex: none");
+    expect(bodiesFor(".agents-row > .delegation-item > svg").join(" ")).toContain("flex: none");
+    const control = bodiesFor(".agents-row > .delegation-stop").join(" ");
+    const slot = bodiesFor(".agents-row > .delegation-stop-slot").join(" ");
+    for (const body of [control, slot]) expect(body).toContain("flex: none");
+    expect(/width: (\d+)px/.exec(slot)?.[1]).toBe(/width: (\d+)px/.exec(control)?.[1]);
+    expect(/--btn-h: (\d+)px/.exec(control)?.[1]).toBe(/width: (\d+)px/.exec(control)?.[1]);
+  });
+
+  it("makes a row of the list's item under its own class, so the list under a tool card is left as it was", () => {
+    expect(bodiesFor(".agents-row").join(" ")).toContain("display: flex");
+    const selectors = RULES.flatMap((r) => r.selectors);
+    expect(selectors.filter((sel) => /delegation-stop/.test(sel) && !sel.startsWith(".agents-row > "))).toEqual([]);
+    expect(selectors.filter((sel) => /\.delegation-list.*\bli\b/.test(sel))).toEqual([]);
+  });
+});
+
+describe("a workflow's own words, drawn over its script", () => {
+  it("are clamped by lines, so a paragraph an agent wrote cannot push its script off the card", () => {
+    for (const sel of [".wf-description", ".wf-phase-title", ".wf-phase-detail"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toMatch(/-webkit-line-clamp: \d+/);
+      expect(body, sel).toContain("display: -webkit-box");
+      expect(body, sel).toContain("overflow: hidden");
+    }
+  });
+});
+
 describe("dividers", () => {
   /** The table-list idiom: a rule drawn between every pair of adjacent rows. */
   const ADJACENT = /^(\.[a-z-]+) \+ \1$/;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Checkpoint, TurnChanges } from "@realm/contracts";
+import { sessionEvent, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { editTotals, turnEdits, undoOffer } from "./turn-edits";
-import type { Block } from "./transcript-model";
+import { reduceAll, type Block } from "./transcript-model";
 
 const S = "s1";
 const user = (text: string, ts: number): Block => ({ kind: "user", text, ts });
@@ -94,6 +94,39 @@ describe("what a turn changed", () => {
     expect(cards.get("run:2")!.checkpointId).toBe("cp1");
     expect(cards.get("run:5")!.checkpointId).toBe("cp2");
     expect(turns.map((t) => t.checkpointId)).toEqual(["cp1", "cp2"]);
+  });
+});
+
+/**
+ * The log of a message typed while a background run's card stood open between turns, as the server
+ * writes it. The adapter says `waiting_permission` for the whole of that turn and never `running`.
+ * The turn edits a file and ends under the card, the card is answered, and the server measures the
+ * checkout at the `idle` that follows, keyed by that event's time.
+ */
+const UNDER_A_CARD = [
+  sessionEvent("user_message", { text: "launch it", attachments: [] }, 100),
+  sessionEvent("status", { status: "running" }, 110),
+  sessionEvent("assistant_text", { messageId: "m1", text: "launched" }, 150),
+  sessionEvent("status", { status: "idle" }, 200),
+  sessionEvent("status", { status: "waiting_permission", betweenTurns: true }, 300),
+  sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] }, 300),
+  sessionEvent("user_message", { text: "fix the mapper", attachments: [] }, 400),
+  sessionEvent("status", { status: "waiting_permission" }, 400),
+  sessionEvent("tool_call", { toolUseId: "e1", name: "Edit", input: { file_path: "/w/app/a.ts", old_string: "x", new_string: "y" }, parentToolUseId: null }, 420),
+  sessionEvent("tool_result", { toolUseId: "e1", content: "ok", isError: false }, 430),
+  sessionEvent("assistant_text", { messageId: "m2", text: "fixed" }, 450),
+  sessionEvent("permission_response", { requestId: "r1", decision: "allow" }, 500),
+  sessionEvent("status", { status: "idle" }, 510),
+  sessionEvent("turn_changes", measuredAt(510, "cp1", [{ path: "a.ts", oldPath: null, status: "modified", additions: 4, deletions: 2 }]), 520),
+];
+
+describe("what a turn changed under a card open between turns", () => {
+  it("draws git's account of a turn that ran under a card open between turns", () => {
+    const t = reduceAll(UNDER_A_CARD);
+    const { cards } = turnEdits(t.blocks, opts({ changes: t.changes, checkpoints: [cp("cp1", 390)] }));
+    expect([...cards.keys()]).toEqual(["run:6"]);
+    expect(cards.get("run:6")).toMatchObject({ source: "git", checkpointId: "cp1", asked: "fix the mapper", totalFiles: 1 });
+    expect(cards.get("run:6")!.files.map((f) => [f.shown, f.additions, f.deletions])).toEqual([["a.ts", 4, 2]]);
   });
 });
 

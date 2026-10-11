@@ -16,7 +16,7 @@ import { AnsweredQuestion } from "./QuestionCard";
 import { ToolCard, ToolCwd, ToolGroup } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, goalTurnLabel, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { blockKey, goalTurnLabel, lastUserMessage, type Block, type PendingPermission, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
 import { EditSummary } from "./EditSummary";
@@ -253,7 +253,47 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed }: {
+/** Every kind of card a pending request is drawn as (`PendingRequest`). */
+const PENDING_CARDS = ".permission-card, .question-card, .plan-decision";
+
+/**
+ * Which pending cards must not take the keyboard as they appear, and a count that draws the cards
+ * afresh when the keyboard is handed to them after all.
+ *
+ * A card holds back when it arrived live with the session at rest (`PendingPermission.atRest`) and
+ * appeared while this pane already had the keyboard: the person may be typing, and the next Space,
+ * Return or digit would answer it. A card that is already pending when the transcript first draws
+ * is what the person opened the session to answer, and a card that appears while another pane has
+ * the keyboard waits for them, so neither holds back. Every hold is dropped when the pane loses the
+ * keyboard, so coming back to it gives the first card the keyboard as it always did.
+ *
+ * `comeToAnswer` goes up each time the person is brought to this session from a list, a
+ * notification or "Respond to pending permission". The holds are dropped then too, and the cards
+ * are drawn afresh, because two of the three kinds take the keyboard only as they mount. Not when
+ * the keyboard is already inside a pending card: the person is answering, and a card drawn afresh
+ * would lose what they have typed into it.
+ */
+function useHeldCards(permissions: readonly PendingPermission[], focused: boolean, comeToAnswer: number): { held: ReadonlySet<string>; generation: number } {
+  const known = useRef<Set<string> | null>(null);
+  const held = useRef(new Set<string>());
+  const [generation, setGeneration] = useState(0);
+  if (known.current === null) known.current = new Set(permissions.map((p) => p.requestId));
+  if (!focused) held.current.clear();
+  for (const p of permissions) {
+    if (known.current.has(p.requestId)) continue;
+    known.current.add(p.requestId);
+    if (p.atRest && focused) held.current.add(p.requestId);
+  }
+  useEffect(() => {
+    if (comeToAnswer === 0 || held.current.size === 0) return;
+    if (document.activeElement?.closest(PENDING_CARDS)) return;
+    held.current.clear();
+    setGeneration((n) => n + 1);
+  }, [comeToAnswer]);
+  return { held: held.current, generation };
+}
+
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, comeToAnswer = 0, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** Draw the scroll track down the log's left edge (ScrollTrack.tsx) — every session pane's. Off in the
    *  quick chat, whose 380px window is one short exchange with no scrollback to find a place in. */
@@ -290,8 +330,12 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   /** Put a passage the reader selected into the prompter as a quote. Absent — the read-only mounts —
    *  leaves the selection bar its Copy button and no Quote, rather than a Quote that does nothing. */
   onQuote?: (text: string) => void;
-  /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
+  /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4), unless
+   *  it appeared under the person's hands with the session at rest (`useHeldCards`). */
   focused?: boolean;
+  /** Goes up each time the person is brought to this session to act on it, which hands a card that
+   *  held back the keyboard (`useHeldCards`). The pane passes the store's `keyboardFor` count. */
+  comeToAnswer?: number;
   /** The session's working directory — the base a message's bare filenames are joined against when
    *  it names no directory of its own. Null in tests and wherever the session is not yet known. */
   cwd?: string | null;
@@ -360,6 +404,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   const lastLen = lastText && "text" in lastText ? lastText.text?.length ?? 0 : 0;
   // Permission cards only make sense while the adapter is actually waiting; stale requests (crash, restart) are closed server-side.
   const permissions = sessionStatus === "waiting_permission" ? transcript.pendingPermissions : [];
+  const cards = useHeldCards(permissions, focused, comeToAnswer);
   /* The newest answer in the transcript — the only message that wears an action bar.
      A bar under every finished message meant forty of them in a long session, all but one of which
      acted on something the reader had scrolled past; the copy the reader actually reaches for is
@@ -723,7 +768,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         {/* Only what really is a permission keeps the Allow / Allow always / Deny gate — a question
             and a plan get cards of their own (`PendingRequest`). */}
         {permissions.map((p, i) => (
-          <PendingRequest key={p.requestId} permission={p} autoFocus={focused && i === 0}
+          <PendingRequest key={cards.generation === 0 ? p.requestId : `${p.requestId}:${cards.generation}`} permission={p} autoFocus={focused && i === 0 && !cards.held.has(p.requestId)}
             enter={isEntering(permKey(p.requestId))} onDecide={(...decision) => onDecide(p.requestId, ...decision)} />
         ))}
         {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock.

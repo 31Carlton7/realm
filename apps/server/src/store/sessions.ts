@@ -192,6 +192,23 @@ export class SessionsStore {
 
 type EventRow = { seq: number; session_id: string; ts: number; type: string; payload_json: string };
 
+/** One `permission_request` or `permission_response` row, folded into the requests still open. A
+ *  row that cannot be parsed, or that names no request, is read past. */
+function foldPermission(open: Set<string>, r: Pick<EventRow, "type" | "payload_json">): void {
+  let requestId: unknown; try { requestId = (JSON.parse(r.payload_json) as { requestId?: unknown }).requestId; } catch { return; }
+  if (typeof requestId !== "string") return;
+  if (r.type === "permission_request") open.add(requestId); else open.delete(requestId);
+}
+
+/** One `background_task` row, folded into the calls whose run is still working. A row that cannot
+ *  be parsed, or that names no call, is read past. */
+function foldBackgroundTask(running: Set<string>, r: Pick<EventRow, "payload_json">): void {
+  let toolUseId: unknown, status: unknown;
+  try { ({ toolUseId, status } = JSON.parse(r.payload_json) as { toolUseId?: unknown; status?: unknown }); } catch { return; }
+  if (typeof toolUseId !== "string") return;
+  if (status === "running") running.add(toolUseId); else running.delete(toolUseId);
+}
+
 export class SessionEventsStore {
   /** `artifacts` is optional so every existing construction site (and every store test) keeps
    *  working: an events store with no index simply does not maintain one, which is the right
@@ -264,12 +281,33 @@ export class SessionEventsStore {
   findDanglingPermissions(sessionId: string): string[] {
     const rows = this.db.prepare("SELECT type, payload_json FROM session_events WHERE session_id = ? AND type IN ('permission_request', 'permission_response') ORDER BY seq").all(sessionId) as Pick<EventRow, "type" | "payload_json">[];
     const open = new Set<string>();
-    for (const r of rows) {
-      let requestId: unknown; try { requestId = (JSON.parse(r.payload_json) as { requestId?: unknown }).requestId; } catch { continue; }
-      if (typeof requestId !== "string") continue;
-      if (r.type === "permission_request") open.add(requestId); else open.delete(requestId);
-    }
+    for (const r of rows) foldPermission(open, r);
     return [...open];
+  }
+  /** toolUseIds whose newest `background_task` says `running`, oldest first: the runs the log leaves
+   *  working in the background. A stop is the only thing that takes one off the list, and it comes
+   *  from the agent's process, so a process that is gone leaves its runs here for good. */
+  findRunningBackgroundTasks(sessionId: string): string[] {
+    const rows = this.db.prepare("SELECT payload_json FROM session_events WHERE session_id = ? AND type = 'background_task' ORDER BY seq").all(sessionId) as Pick<EventRow, "payload_json">[];
+    const running = new Set<string>();
+    for (const r of rows) foldBackgroundTask(running, r);
+    return [...running];
+  }
+  /**
+   * What a session's log leaves open, both lists from one pass over it: the cards nobody answered
+   * (`findDanglingPermissions`) and the runs nothing stopped (`findRunningBackgroundTasks`).
+   *
+   * For boot, which closes both for every session there is. Asked one after the other, the two
+   * walked each session's whole log twice, and this is the largest table the database has.
+   */
+  findUnclosed(sessionId: string): { permissions: string[]; runs: string[] } {
+    const rows = this.db.prepare("SELECT type, payload_json FROM session_events WHERE session_id = ? AND type IN ('permission_request', 'permission_response', 'background_task') ORDER BY seq").all(sessionId) as Pick<EventRow, "type" | "payload_json">[];
+    const open = new Set<string>(), running = new Set<string>();
+    for (const r of rows) {
+      if (r.type === "background_task") foldBackgroundTask(running, r);
+      else foldPermission(open, r);
+    }
+    return { permissions: [...open], runs: [...running] };
   }
   /** The newest persisted event's timestamp, or null when the session has none. The last moment the
    *  log has evidence for — which is where a run interrupted by a crash is dated. */

@@ -959,6 +959,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       // The shadow reads a card's answer as the `user` label for the step it was raised for.
       layaShadow.permissionEvent(sessionId, ev);
     },
+    restore: (sessionId) => sessionService?.restoreStatus(sessionId),
   });
   hubElicit = createHubElicitation({ broker: browserBroker, serverName: (id) => mcpServersStore.get(id)?.name ?? null });
   const artifacts = new ArtifactsStore(db, settings);
@@ -992,7 +993,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         // Wait for the session to actually go quiet. A rapid exchange otherwise pays for a recap per
         // turn, each superseded by the next before anybody reads it.
         debounceMs: RECAP_DEBOUNCE_MS,
-        isIdle: (id) => sessionsStore.get(id)?.status === "idle",
+        isIdle: (id): boolean => sessions.atRest(id),
       })
     : undefined;
   /* The friend packs. Restored at boot from the words this Realm was given — the packs themselves
@@ -1009,6 +1010,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     deliver: (sessionId, text, tag) =>
       sessions.send(sessionId, { text, attachments: [], ...(tag === "goal-start" ? {} : { goal: tag === "goal-budget" ? "budget" as const : "continuation" as const }) }),
     queued: (sessionId) => sessions.queuedFor(sessionId).length > 0,
+    busy: (sessionId) => sessions.hasRunAlive(sessionId),
     log: (line) => console.log(line),
   });
   const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, summaries, planLimits, documents, goals, views: appViews,

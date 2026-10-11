@@ -7,8 +7,8 @@ import { useApp } from "../../state/store";
 import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
 import { labelOf, stillWorking } from "./DelegatedRuns";
 import { Markdown } from "./Markdown";
-import { ToolCard } from "./ToolCard";
-import { findToolNode, flattenRun, formatDuration, summarizeToolRun, withEnter, type ToolNode } from "./tool-group";
+import { ToolCard, nestedStatus } from "./ToolCard";
+import { findToolNode, flattenRun, formatDuration, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
 import type { Block } from "./transcript-model";
 import { useElapsed } from "./use-elapsed";
 
@@ -24,10 +24,14 @@ import { useElapsed } from "./use-elapsed";
  * open state is how one comes to be drawn over the other.
  *
  * A `Task`/`Agent`/`Workflow` sub-agent has no session, no row and no pane — it lives and dies inside
- * the CLI process. What it DOES leave is real and complete: every call it makes arrives in the
- * parent's transcript carrying its launching call's id (`parentToolUseId`), which is what
- * `findToolNode` hangs them off. Those calls, in order, with their results, are the whole of a
+ * the CLI process. What a `Task` or an `Agent` DOES leave is real and complete: every call it makes
+ * arrives in the parent's transcript carrying its launching call's id (`parentToolUseId`), which is
+ * what `findToolNode` hangs them off. Those calls, in order, with their results, are the whole of a
  * sub-agent's visible working life. This is that, and nothing invented around it.
+ *
+ * A `Workflow` leaves less. Its agents' calls are not sent to the transcript at all, since no frame
+ * names the launching call as its parent. There is no list to draw, and the panel says that in one
+ * sentence rather than waiting on calls that cannot come.
  *
  * It draws the transcript's own `ToolCard`, unchanged, because a sub-agent's calls ARE tool calls and
  * a second renderer for them would be a fork of the one that already reads well. What the panel adds
@@ -53,7 +57,7 @@ export function SubagentPanel({ sessionId, toolUseId, anchorRef, onClose }: {
      dismiss, and it does not need to be listed: it TOGGLES, so a click there closes the panel by its
      own route and re-opening on the same mousedown is not something either handler can do. */
   useDockDismiss({ pinned, onClose, keepOpenIn: [ref] });
-  const label = node ? labelOf(node.block.input) : "Sub-agent";
+  const label = node ? labelOf(node.block.name, node.block.input) : "Sub-agent";
 
   return createPortal(
     <div ref={ref} className="subagent-dock pane-dock" role="dialog" aria-label={`Sub-agent: ${label}`}
@@ -67,7 +71,8 @@ export function SubagentPanel({ sessionId, toolUseId, anchorRef, onClose }: {
         {/* The trash, not a ×. This panel is a VIEW opened at a moment and finished with: there is
             no object under it to keep and nothing of it in the space, so a close that promised to
             preserve something would be promising what it cannot deliver (design.md). The sub-agent
-            itself is untouched — it goes on working, and its calls go on landing in the transcript. */}
+            itself is untouched — it goes on working, and its calls, where it sends any, go on landing
+            in the transcript. */}
         <button type="button" className="icon-btn" aria-label="Close this sub-agent view" title="Close"
           onClick={onClose}>
           <Icon name="trash" size={14} />
@@ -93,6 +98,26 @@ export function SubagentPanel({ sessionId, toolUseId, anchorRef, onClose }: {
 
 const NO_BLOCKS: readonly Block[] = [];
 
+/** The clock's last word for a run whose end the harness described, in the harness's own word. A
+ *  blocking sub-agent, and a stop that carried no word, read "finished" as they always did. */
+const ENDED: Record<NonNullable<ToolBlock["outcome"]>, string> = { completed: "finished", failed: "failed", stopped: "stopped" };
+
+/** What stands where a workflow's calls would be listed. Its agents work inside the harness and
+ *  their calls never reach this transcript. Without it the panel would say "nothing yet" for the
+ *  whole of a run, and "without calling any tools" at the end of one that called plenty. */
+const WORKFLOW_CALLS = "Its agents’ calls don’t reach this transcript.";
+
+/**
+ * A call's result, where that result is what its sub-agent reported.
+ *
+ * A call that left its run working in the background returned at once with a launch receipt, such
+ * as "Async agent launched successfully" or a workflow's task id and script path. A receipt reports
+ * nothing. What the run found comes back later, as the agent's own next turn. The block tells the
+ * two apart and the tool's name does not, so a launch that was refused, which never ran in the
+ * background at all, still shows why.
+ */
+const reportOf = (block: ToolBlock): ToolBlock["result"] => (block.background === undefined ? block.result : null);
+
 /** How long it has been going, ticking while it is — and what it came to, once it is not. Stopped,
  *  the clock is the span it ran for rather than a number that keeps climbing after the agent left. */
 function Clock({ block }: { block: Extract<Block, { kind: "tool" }> }) {
@@ -100,7 +125,7 @@ function Clock({ block }: { block: Extract<Block, { kind: "tool" }> }) {
   const live = useElapsed(block.ts, working);
   return (
     <span className="subagent-elapsed" data-working={working || undefined}>
-      {working ? formatDuration(live) : "finished"}
+      {working ? formatDuration(live) : block.outcome ? ENDED[block.outcome] : "finished"}
     </span>
   );
 }
@@ -131,6 +156,7 @@ function Body({ block, nested, sessionStatus }: {
   // transcript's own entrance for blocks arriving at its bottom edge.
   const steps = useMemo(() => withEnter(nested, () => false), [nested]);
   const counts = useMemo(() => summarizeToolRun(flattenRun(nested)), [nested]);
+  const report = reportOf(block);
 
   return (
     <>
@@ -150,17 +176,17 @@ function Body({ block, nested, sessionStatus }: {
         {nested.length === 0
           /* Not an error, and not an empty list either. A sub-agent that has not called anything yet
              is thinking, and a background one may run for a minute before its first call lands. */
-          ? <p className="subagent-empty">{stillWorking(block) ? "Nothing yet — it is still working out what to do." : "It finished without calling any tools."}</p>
+          ? <p className="subagent-empty">{block.name === "Workflow" ? WORKFLOW_CALLS : stillWorking(block) ? "Nothing yet — it is still working out what to do." : "It finished without calling any tools."}</p>
           : <div className="subagent-steps">
-              {steps.map((s) => <ToolCard key={s.key} block={s.block} sessionStatus={sessionStatus} nested={s.nested} />)}
+              {steps.map((s) => <ToolCard key={s.key} block={s.block} sessionStatus={nestedStatus(block, sessionStatus)} nested={s.nested} />)}
             </div>}
       </section>
       {/* The report, which is the whole point of having delegated: what the parent is handed back.
           Drawn only once it exists — a heading over nothing would claim a result that has not come. */}
-      {block.result && (
-        <section className="subagent-report" data-error={block.result.isError || undefined}>
-          <h3 className="subagent-head">{block.result.isError ? "It failed" : "What it reported"}</h3>
-          <Prose text={block.result.content} />
+      {report && (
+        <section className="subagent-report" data-error={report.isError || undefined}>
+          <h3 className="subagent-head">{report.isError ? "It failed" : "What it reported"}</h3>
+          <Prose text={report.content} />
         </section>
       )}
     </>

@@ -186,3 +186,60 @@ describe("turnDurations — how long the agent worked on each turn", () => {
     expect(out.map((t) => t.ms)).toEqual([5 * MIN]);
   });
 });
+
+describe("turnDurations — a turn that opens under a card raised between turns", () => {
+  const MIN = 60_000;
+  const at = (min: number, status: string) => ({ ts: day(2, 9) + min * MIN, status });
+  const marked = (min: number, status: string) => ({ ...at(min, status), betweenTurns: true });
+  const outputAt = (min: number | null) => () => (min === null ? null : day(2, 9) + min * MIN);
+
+  it("times a turn whose card was answered while it ran from the wait that opened it to its settle", () => {
+    const out = turnDurations([at(0, "waiting_permission"), at(2, "running"), at(10, "idle")], outputAt(4));
+    expect(out.map((t) => t.ms)).toEqual([10 * MIN]);
+  });
+
+  it("measures a turn that ended under the card to the agent's last output, not to the card's answer", () => {
+    const out = turnDurations([at(0, "waiting_permission"), at(60, "idle")], outputAt(7));
+    expect(out.map((t) => t.ms)).toEqual([7 * MIN]);
+  });
+
+  it("dates a turn that ended under the card at the status that settled it", () => {
+    const out = turnDurations([at(0, "waiting_permission"), at(60, "idle")], outputAt(7));
+    expect(out.map((t) => t.endedAt)).toEqual([at(60, "idle").ts]);
+  });
+
+  it("counts nothing for a wait that no output followed, which is what an older log holds between turns", () => {
+    expect(turnDurations([at(0, "waiting_permission"), at(60, "idle")], outputAt(null))).toEqual([]);
+  });
+
+  it("counts nothing for such a wait when it is given no reader of the log at all", () => {
+    expect(turnDurations([at(0, "waiting_permission"), at(60, "idle")])).toEqual([]);
+  });
+
+  it("opens no turn on a wait marked betweenTurns", () => {
+    expect(turnDurations([marked(0, "waiting_permission"), marked(5, "idle")], outputAt(3))).toEqual([]);
+  });
+
+  it("opens the turn at the unmarked wait that follows the card's own marked one", () => {
+    const out = turnDurations([marked(0, "waiting_permission"), at(3, "waiting_permission"), at(60, "idle")], outputAt(9));
+    expect(out.map((t) => t.ms)).toEqual([6 * MIN]);
+  });
+
+  it("asks for the output between the wait that opened the turn and the status that settled it", () => {
+    const asked: unknown[] = [];
+    const opened = at(3, "waiting_permission"); const settled = at(60, "idle");
+    turnDurations([marked(0, "waiting_permission"), opened, settled], (from, to) => { asked.push([from, to]); return null; });
+    expect(asked).toEqual([[opened, settled]]);
+  });
+
+  it("takes a later wait out of such a turn as it does out of any, once running has followed", () => {
+    const out = turnDurations([at(0, "waiting_permission"), at(1, "running"), at(5, "waiting_permission"), at(8, "running"), at(10, "idle")], outputAt(2));
+    expect(out.map((t) => t.ms)).toEqual([7 * MIN]);
+  });
+
+  it("asks nothing of the log about a turn that running opened", () => {
+    const asked: unknown[] = [];
+    turnDurations([at(0, "running"), at(4, "waiting_permission"), at(60, "idle")], (from, to) => { asked.push([from, to]); return null; });
+    expect(asked).toEqual([]);
+  });
+});

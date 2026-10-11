@@ -23,7 +23,7 @@
  * work — closing it costs nothing, because the session resumes from its provider id on the next send
  * — and the thing a warm handle could actually break (exec'ing a bundle that has been deleted) is
  * already prevented by `ensureLive` refusing to start a COLD one. So the number the drain waits on is
- * the same one the tray shows and the quit dialog names: turns in flight, and tasks.
+ * the same one the tray shows and the quit dialog names: turns and background runs in flight, tasks.
  */
 export const QUIESCENT_HOLD_MS = 10_000;
 

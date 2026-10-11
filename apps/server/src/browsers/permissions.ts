@@ -112,10 +112,21 @@ export class BrowserPermissionBroker {
     permissionMode: (sessionId: string) => string;
     /** Persist + broadcast one session event through the session's normal event path. */
     emit: (sessionId: string, ev: SessionEvent) => void;
+    /** The broker's last card for a session has closed, so the session's own status stands again.
+     *  Which status that is belongs to whoever hears the adapter: the broker used to answer `running`
+     *  itself, and a card answered with no turn in flight left the session reading Running for good. */
+    restore: (sessionId: string) => void;
   }) {}
 
   owns(requestId: string): boolean {
     return requestId.startsWith(REQUEST_PREFIX);
+  }
+
+  /** Whether a card of the broker's is open for this session. While one is, the session has to go on
+   *  reading `waiting_permission` whatever its adapter reports, or the transcript stops drawing it. */
+  holds(sessionId: string): boolean {
+    for (const p of this.pending.values()) if (p.sessionId === sessionId) return true;
+    return false;
   }
 
   /** The user's answer, routed here by `SessionService.respondPermission`. Unknown ids are ignored
@@ -152,12 +163,11 @@ export class BrowserPermissionBroker {
     p.settle({ decision });
   }
 
-  /** The session is waiting on nothing of the broker's any more, so it is running again — and not
-   *  before: a card still open beside the one just answered must keep its session waiting, or the
-   *  transcript stops drawing it. */
+  /** The session is waiting on nothing of the broker's any more, so its own status is restored — and
+   *  not before: a card still open beside the one just answered must keep its session waiting, or
+   *  the transcript stops drawing it. */
   private settled(sessionId: string): void {
-    for (const p of this.pending.values()) if (p.sessionId === sessionId) return;
-    this.d.emit(sessionId, sessionEvent("status", { status: "running" }));
+    if (!this.holds(sessionId)) this.d.restore(sessionId);
   }
 
   /** A session ended or was deleted: its prompts die with it (denied), its allow-always set is
@@ -170,6 +180,27 @@ export class BrowserPermissionBroker {
       p.settle({ decision: "deny", cancelled: true });
     }
     this.always.delete(sessionId);
+  }
+
+  /**
+   * The session's work was stopped, so every card of the broker's still open for it is closed as
+   * denied, and the transcript is told. A gate takes no abort signal, so without this a card outlives
+   * the turn that raised it: it stays on screen, still answerable, for a tool call nobody is waiting
+   * on, and keeps its session reading `waiting_permission` after Stop. Unlike `release` the session
+   * lives on, so its allow-always grants stay. Returns whether there was anything to close.
+   */
+  withdraw(sessionId: string): boolean {
+    let closed = false;
+    for (const [id, p] of this.pending) {
+      if (p.sessionId !== sessionId) continue;
+      this.pending.delete(id);
+      clearTimeout(p.timer);
+      this.d.emit(sessionId, sessionEvent("permission_response", { requestId: id, decision: "deny" }));
+      p.settle({ decision: "deny", cancelled: true });
+      closed = true;
+    }
+    if (closed) this.settled(sessionId);
+    return closed;
   }
 
   /**

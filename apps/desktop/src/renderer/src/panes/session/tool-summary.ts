@@ -1,5 +1,6 @@
 import type { IconName } from "@realm/ui";
 import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff } from "./rich/diff";
+import { workflowMeta } from "./rich/workflow-meta";
 
 /**
  * The simulator's input tools, whose line is the agent's `intent` — what the step is for, which says
@@ -7,6 +8,31 @@ import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff } from "./rich/diff";
  * (`mcp__realm__realm-simulator__simulator_tap`) and a permission card bare, so both are matched.
  */
 const SIMULATOR_INPUT = new Set(["simulator_tap", "simulator_double_tap", "simulator_long_press", "simulator_swipe", "simulator_type", "simulator_press"]);
+
+/**
+ * What a `Workflow` call is called, wherever it is named: its row, its permission card, the
+ * running-agents list with its watch and stop controls, the sub-agent panel. One function, so the
+ * list can never offer to stop a run under a name the card beside it does not use.
+ *
+ * The name is the script's own, read out of its `meta` by workflow-meta.ts, in a call where that
+ * script is what runs, which is one that carries neither a `scriptPath` nor a `name`. With either,
+ * the harness runs the file or the saved workflow and not the script the model sent beside it. The
+ * permission card is handed the script that runs, while the call's row keeps the model's. A name
+ * read from `meta` there is one the card never showed, for a script that is not running. Such a
+ * call is named by its file, which the harness takes before a name, then by the saved workflow,
+ * then by the tool, and never "Sub-agent", which a workflow is not.
+ *
+ * The input's `description` and `title` are not read at all. The harness ignores both, so a name
+ * taken from either is one nothing else on screen agrees with.
+ */
+export function workflowLabel(input: Record<string, unknown>): string {
+  const field = (k: string) => (typeof input[k] === "string" ? (input[k] as string).trim() : "");
+  const path = field("scriptPath"), named = field("name");
+  const script = input["script"];
+  const meta = typeof script === "string" && path === "" && named === "" ? workflowMeta(script) : null;
+  if (meta) return meta.name;
+  return path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1) || named || "Workflow";
+}
 
 /** One-line summary of a tool call's input, per well-known tool; else the first string field. */
 export function toolSummary(name: string, input: Record<string, unknown>): string {
@@ -20,6 +46,7 @@ export function toolSummary(name: string, input: Record<string, unknown>): strin
     case "WebFetch": return str("url") ?? "";
     case "WebSearch": return str("query") ?? "";
     case "Task": case "Agent": return str("description") ?? str("prompt") ?? "";
+    case "Workflow": return workflowLabel(input);
     case "TodoWrite": return "update todos";
     case "exec_command": return str("command") ?? "";
     case "apply_patch": {

@@ -18,6 +18,7 @@ function bring(enabled = true) {
     goals: new GoalsStore(db),
     deliver: async () => {},
     queued: () => false,
+    busy: () => false,
   });
   const provider = createGoalProvider({ goals, mcp: { providerEnabled: () => enabled } });
   const ctx = { sessionId: "s1", spaceId: "sp1" };

@@ -77,10 +77,23 @@ function isPromptEntry(msg: { message?: unknown; isSynthetic?: boolean; shouldQu
  * can report what came of it. The claim is deliberately narrow — the SDK forks to a NEW session id on
  * resume rather than continuing the old one, so "the request was accepted" is the strongest thing
  * that is true, and it is what `resumeOutcome: "continued"` means here.
+ *
+ * Two things here come off the harness's own account of a message rather than off its content.
+ *
+ * `taskIdOf` answers with the harness's task id for a background run this mapper has announced and
+ * not yet seen stop, by the call that launched it. It is the only way one run can be stopped
+ * (`Query.stopTask` takes that id and nothing else), and it is kept here, set on the running signal
+ * and dropped on the stop, so that an id the harness never announced as a run of this session — a
+ * shell command has a task id too — and one whose run has already ended are both unknown.
+ *
+ * An `error` mapped from a `result` whose `origin` is `task-notification` carries `unprompted`. That
+ * turn was the harness's own, started to report on a run that finished in the background, so no
+ * message of Realm's is behind it and a retry would have nothing true to send again.
  */
 export function createSdkMapper(opts: { resumed?: boolean } = {}) {
   const streamMsgIds = new Map<string | null, string>(); // parent_tool_use_id -> current streaming message id
   const emittedText = new Set<string>();
+  const taskIds = new Map<string, string>();
   /**
    * The chain cursor, in three slots rather than two.
    *
@@ -110,6 +123,7 @@ export function createSdkMapper(opts: { resumed?: boolean } = {}) {
   return {
     /** Where the last SETTLED turn left the provider's chain. Both nulls until a turn has completed. */
     chain(): ChainCursor { return { ...settled }; },
+    taskIdOf(toolUseId: string): string | undefined { return taskIds.get(toolUseId); },
     map(msg: SDKMessage): SessionEvent[] {
       trackChainEntry(msg);
       const out: SessionEvent[] = [];
@@ -139,7 +153,12 @@ export function createSdkMapper(opts: { resumed?: boolean } = {}) {
           // Nothing else on the wire says it: its launching call returns immediately and then the
           // agent works for minutes in silence. See background-task.ts for the whole shape.
           const task = backgroundTaskFrom(msg);
-          if (task) out.push(sessionEvent("background_task", task));
+          if (task) {
+            const { taskId, ...payload } = task;
+            if (task.status === "stopped") taskIds.delete(task.toolUseId);
+            else if (taskId) taskIds.set(task.toolUseId, taskId);
+            out.push(sessionEvent("background_task", payload));
+          }
           break;
         }
         case "stream_event": {
@@ -188,7 +207,7 @@ export function createSdkMapper(opts: { resumed?: boolean } = {}) {
           break;
         }
         case "result": {
-          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number }; result?: string; errors?: string[]; fast_mode_state?: string; fast_mode_disabled_reason?: string };
+          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number }; result?: string; errors?: string[]; fast_mode_state?: string; fast_mode_disabled_reason?: string; origin?: { kind?: string } };
           // No context figure here, deliberately. `input_tokens + cache_read + cache_creation` off
           // this result reads like the size of the prompt just sent, and it is not: the SDK's
           // per-turn `usage` sums every REQUEST the turn made, so a turn with thirty tool calls
@@ -205,7 +224,9 @@ export function createSdkMapper(opts: { resumed?: boolean } = {}) {
           out.push(sessionEvent("usage", { costUsd: r.total_cost_usd, inputTokens: r.usage?.input_tokens ?? 0, outputTokens: r.usage?.output_tokens ?? 0, numTurns: r.num_turns,
             ...(fast === undefined ? {} : { fastMode: fast }),
             ...(reason === undefined ? {} : { fastModeReason: reason }) }));
-          if (r.subtype !== "success" || r.is_error) out.push(sessionEvent("error", { message: r.errors?.join("\n") || r.result || r.subtype }));
+          if (r.subtype !== "success" || r.is_error) {
+            out.push(sessionEvent("error", { message: r.errors?.join("\n") || r.result || r.subtype, ...(r.origin?.kind === "task-notification" ? { unprompted: true as const } : {}) }));
+          }
           emittedText.clear();
           streamMsgIds.clear();
           // The turn is over: freeze its chain cursor and start the next one empty. Frozen rather than

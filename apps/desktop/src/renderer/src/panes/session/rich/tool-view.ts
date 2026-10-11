@@ -1,5 +1,6 @@
 import { isPlayablePath } from "@realm/contracts";
 import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff, type FileDiff } from "./diff";
+import { workflowMeta, type WorkflowMeta } from "./workflow-meta";
 
 /** What a tool call's input and result should be DRAWN as, rather than dumped as JSON and text.
  *
@@ -24,7 +25,11 @@ export type ToolInputView =
   | { kind: "todos"; todos: Todo[] }
   | { kind: "command"; command: string; cwd: string | null; description: string | null }
   | { kind: "request"; url: string | null; query: string | null; prompt: string | null }
-  | { kind: "upload"; host: string; element: string; files: UploadFile[] };
+  | { kind: "upload"; host: string; element: string; files: UploadFile[] }
+  /** A workflow launch. `meta` is what the script says of itself. It is null where workflow-meta.ts
+   *  cannot read that whole, and the view is then the script alone. `args` is the call's `args` as
+   *  JSON text and `resumeFromRunId` the run it resumes. Each is null where the call carries none. */
+  | { kind: "workflow"; meta: WorkflowMeta | null; script: string; args: string | null; resumeFromRunId: string | null };
 
 /** One file a `browser_upload` is about to send. `path` is present only for a file resolved OUTSIDE
  *  the space's folder — the server puts it there precisely so the card can quote it, because that is
@@ -79,6 +84,40 @@ export function parseUploadFiles(input: Record<string, unknown>): UploadFile[] |
   return out;
 }
 
+/** The keys of a `Workflow` call its view accounts for: the three it draws, and the two the harness
+ *  says it ignores. A call that carries any other key keeps the raw well. */
+const WORKFLOW_KEYS = new Set(["script", "args", "resumeFromRunId", "description", "title"]);
+
+/**
+ * A `Workflow` launch as the script it carries, or null where that script is not the whole of what
+ * would run.
+ *
+ * Claimed only for a call whose `script` is its one account of the work, which is a call that
+ * carries no key outside `WORKFLOW_KEYS`. A `scriptPath` runs the FILE whatever `script` says. That
+ * was observed: the harness reads the file, and the call in the transcript still holds the script
+ * the model wrote. A card that drew `script` there would show a reader code that is not the code.
+ * A `name` asks for a saved workflow, and nothing observed says which of the two runs when a call
+ * sends both. A key this file has never heard of may change what runs as those two do. Each keeps
+ * the raw well, where every key is in view.
+ *
+ * `args` and `resumeFromRunId` change what a run does, so they are drawn with the script rather
+ * than left in the JSON under it. A resume that is not a run id is not understood, and the view is
+ * declined. The input's own `description` and `title` are never read, because the harness ignores
+ * both.
+ *
+ * Bounded like every drawn result. A script, or its arguments, from `DRAW_LIMIT` on stays raw.
+ */
+function workflowView(input: Record<string, unknown>): ToolInputView | null {
+  const script = input["script"];
+  if (typeof script !== "string" || script.trim() === "" || script.length >= DRAW_LIMIT) return null;
+  if (!Object.keys(input).every((key) => WORKFLOW_KEYS.has(key))) return null;
+  const resume = input["resumeFromRunId"];
+  if (resume !== undefined && (typeof resume !== "string" || resume === "")) return null;
+  const args = input["args"] === undefined ? null : JSON.stringify(input["args"], null, 2);
+  if (args !== null && args.length >= DRAW_LIMIT) return null;
+  return { kind: "workflow", meta: workflowMeta(script), script, args, resumeFromRunId: typeof resume === "string" ? resume : null };
+}
+
 export function toolInputView(name: string, input: Record<string, unknown>): ToolInputView | null {
   if (DIFF_TOOLS.has(name)) {
     const files = fileDiffsFor(name, input);
@@ -100,6 +139,7 @@ export function toolInputView(name: string, input: Record<string, unknown>): Too
     const url = str(input, "url"), query = str(input, "query");
     return url || query ? { kind: "request", url, query, prompt: str(input, "prompt") } : null;
   }
+  if (name === "Workflow") return workflowView(input);
   return null;
 }
 

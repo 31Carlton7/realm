@@ -22,14 +22,20 @@ export type Block =
    *  `parent_tool_use_id`, set only on a sub-agent's own calls. Absent is the ordinary case: the
    *  agent made the call itself, and every adapter that reports no hierarchy at all leaves it
    *  absent throughout, so those transcripts nest nothing and read exactly as before. */
-  /** `background` is set only on a call that launched a BACKGROUND sub-agent: `running` from the
-   *   moment the launch result lands, `stopped` when the harness notifies. Absent on every ordinary
-   *   call, including a blocking sub-agent — whose "still going" is simply `result === null`. */
+  /** `background` is set only on a call that left a sub-agent or a workflow working in the
+   *   BACKGROUND: `running` from the moment the harness announces the run, `stopped` when it
+   *   notifies. Absent on every ordinary call, including a blocking sub-agent — whose "still going"
+   *   is simply `result === null`. */
+  /** `outcome` is how that run ended, in the harness's own word, kept from the stop that carried
+   *   one. `stopped` is a person or the turn ending it, and `failed` its own error. Absent while the
+   *   run works and on every call that left nothing in the background. Absent too on a stop that
+   *   said nothing, which is one written before runs carried an outcome. The stop Realm writes for
+   *   a run whose process is gone says `stopped`. */
   /** `toolKind` and `paths` are an ACP call's own account of itself (the `tool_call` event's `kind`
    *  and `paths`) — absent for every other agent, whose tool names say both. */
   /** `view` is the view an MCP server drew for this call (MCP Apps), carried by its result — absent
    *   on every call that drew none, and on every call from before views existed. */
-  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; toolKind?: string; paths?: string[]; view?: AppViewRef; ts: number }
+  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; outcome?: "completed" | "failed" | "stopped"; toolKind?: string; paths?: string[]; view?: AppViewRef; ts: number }
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
@@ -117,7 +123,17 @@ export type Block =
 
 export type Rating = "up" | "down";
 /** `ask` is set when the request is a question — the card Realm wrote for it (`permission_request.ask`). */
-export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string; ask?: AskCard };
+/** `once` is set when the request has no "always" answer to keep, as `permission_request.once` says.
+ *  Whoever raised the request set it, and its card offers Allow and Deny. It is copied and never
+ *  worked out here, because the request's `suggestions` say nothing reliable about it and are not
+ *  kept at all. */
+/** `atRest` is set on a request that arrived LIVE with no turn in flight (`markArrivalAtRest`): a
+ *  run working in the background asked while the session was at rest, where the person may be
+ *  typing in the prompter. Its card does not take the keyboard when it appears under their hands
+ *  (`useHeldCards` in Transcript.tsx). The mark is decided once, as the request arrives, so a turn
+ *  that opens later under the card cannot hand the card the keyboard either. Absent on a request
+ *  raised in a turn, and on one read back from the log. */
+export type PendingPermission = { requestId: string; toolName: string; input: Record<string, unknown>; title: string; ask?: AskCard; once?: true; atRest?: true };
 export type Usage = { costUsd: number; inputTokens: number; outputTokens: number; numTurns: number;
   /** How much of the window the conversation occupies, as the harness measured it — see the `usage`
    *  event's own note for why this is never derived from the numbers beside it. Undefined for every
@@ -152,7 +168,17 @@ export type Transcript = {
     efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
   /** The run in flight: when it started, and the permission-prompt time to take off its clock.
    *  `waitingSince` is the open half of that accounting. Null between runs. */
-  run: { startedAt: number; waitedMs: number; waitingSince: number | null } | null;
+  /** `underCard` is the memory of a run that opened under a card it did not raise: a turn that began
+   *  while a background run's request stood open between turns. The status says `waiting_permission`
+   *  for the whole of such a turn, so the run is working and not waiting, and when it settles with
+   *  the memory still set its line is measured to the last thing it produced (`ownOutputSince`). A
+   *  `running` clears it, since the card was then answered first and the settle is the turn's own. */
+  run: { startedAt: number; waitedMs: number; waitingSince: number | null; underCard?: true } | null;
+  /** Set while the last status event said the session is between turns (`status.betweenTurns`): a
+   *  card raised with no turn in flight, or the `idle` that follows its answer. The status alone
+   *  cannot tell that wait from one in a turn, and the prompter draws them apart. Absent everywhere
+   *  else, and gone at the next status event that does not carry it. */
+  betweenTurns?: true;
   /** What the reader made of each answer, keyed by `messageId`. Only rated messages appear: absent
    *  is "not judged", which is a different state from either verdict and must stay tellable. */
   feedback: Record<string, Rating>;
@@ -262,6 +288,37 @@ function unsettledTurn(blocks: readonly Block[]): { startedAt: number; lastTs: n
 const derivedRun = (u: { startedAt: number; failed: boolean }, ts: number): Block =>
   ({ kind: "run", ms: Math.max(0, ts - u.startedAt), startedAt: u.startedAt, ts, derived: true, ...(u.failed ? { failed: true } : {}) });
 
+/**
+ * When the trailing turn last produced something of its own at or after `since`, or null where it
+ * has produced nothing since then.
+ *
+ * It measures a turn that ended under a card it did not raise (`run.underCard`). The settle of such
+ * a turn arrives when the card is answered, which can be an hour after the agent's last word, so the
+ * last thing the turn produced is where its work ended. A call made under a sub-agent is not the
+ * turn's own. A run working in the background sends those whether or not a turn is in flight, and
+ * counted here they would draw a line for a wait that no turn stood behind. The walk ends where
+ * `unsettledTurn`'s does, at the line or the message before the turn.
+ */
+function ownOutputSince(blocks: readonly Block[], since: number): number | null {
+  let latest: number | null = null;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]!;
+    if (b.kind === "run" || b.kind === "user") break;
+    if (!AGENT_OUTPUT.has(b.kind) || (b.kind === "tool" && b.parentToolUseId !== undefined)) continue;
+    if (b.ts >= since && (latest === null || b.ts > latest)) latest = b.ts;
+  }
+  return latest;
+}
+
+/** A transcript carrying what the last status event said of `betweenTurns`. It is the same object
+ *  where that changes nothing, which is every status of a session with no card between turns. */
+function withBetweenTurns(t: Transcript, betweenTurns: boolean): Transcript {
+  if (betweenTurns) return t.betweenTurns ? t : { ...t, betweenTurns: true };
+  if (t.betweenTurns === undefined) return t;
+  const { betweenTurns: _earlier, ...rest } = t;
+  return rest;
+}
+
 /** Pure reducer: normalized session events → what the transcript renders. Deltas accumulate into the open
  *  streaming assistant block; the final `assistant_text` replaces it. */
 /**
@@ -275,6 +332,13 @@ const derivedRun = (u: { startedAt: number; failed: boolean }, ts: number): Bloc
  * turn can be kept by.
  */
 export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = false, seq?: number): Transcript {
+  const next = reduceEvent(t, e, markUnseen, seq);
+  return e.type === "status" ? withBetweenTurns(next, e.payload.betweenTurns === true) : next;
+}
+
+/** One event's effect on everything but the `betweenTurns` mark, which `reduceTranscript` lays over
+ *  whatever a status event leaves. */
+function reduceEvent(t: Transcript, e: SessionEvent, markUnseen: boolean, seq: number | undefined): Transcript {
   const blocks = t.blocks.slice(); const last = blocks.at(-1);
   if (markUnseen && !blocks.some((b) => b.kind === "unseen-mark")) blocks.push({ kind: "unseen-mark", ts: e.ts });
   switch (e.type) {
@@ -337,11 +401,12 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       // those arrive naming a real `tool_use_id` — the Bash call's. Marking that block `stopped`
       // would be recording an agent's end on a call that never had an agent behind it.
       if (e.payload.status === "stopped" && b.background !== "running") return t;
-      blocks[i] = { ...b, background: e.payload.status };
+      const { outcome: _earlier, ...call } = b;
+      blocks[i] = { ...call, background: e.payload.status, ...(e.payload.status === "stopped" && e.payload.outcome ? { outcome: e.payload.outcome } : {}) };
       return { ...t, blocks };
     }
     case "permission_request": {
-      const p: PendingPermission = { requestId: e.payload.requestId, toolName: e.payload.toolName, input: e.payload.input, title: e.payload.title, ...(e.payload.ask ? { ask: e.payload.ask } : {}) };
+      const p: PendingPermission = { requestId: e.payload.requestId, toolName: e.payload.toolName, input: e.payload.input, title: e.payload.title, ...(e.payload.ask ? { ask: e.payload.ask } : {}), ...(e.payload.once ? { once: e.payload.once } : {}) };
       const card = questionOf(e.payload);
       if (card && !blocks.some((b) => b.kind === "question" && b.requestId === p.requestId)) {
         const question: Block = { kind: "question", requestId: p.requestId, card, input: e.payload.input, ts: e.ts };
@@ -475,10 +540,11 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
         // adapter re-announced it as the last permission cleared — and must NOT restart the clock.
         case "running":
           if (!run) return { ...t, run: { startedAt: e.ts, waitedMs: 0, waitingSince: null } };
-          if (run.waitingSince === null) return t;
-          return { ...t, run: { ...run, waitedMs: run.waitedMs + (e.ts - run.waitingSince), waitingSince: null } };
+          if (run.waitingSince === null && !run.underCard) return t;
+          return { ...t, run: { startedAt: run.startedAt, waitedMs: run.waitedMs + (run.waitingSince === null ? 0 : e.ts - run.waitingSince), waitingSince: null } };
         case "waiting_permission":
-          if (!run || run.waitingSince !== null) return t;
+          if (!run) return e.payload.betweenTurns ? t : { ...t, run: { startedAt: e.ts, waitedMs: 0, waitingSince: null, underCard: true } };
+          if (run.waitingSince !== null) return t;
           return { ...t, run: { ...run, waitingSince: e.ts } };
         // idle / error / ended all settle the run. Each also arrives with no run open — an adapter
         // announces `idle` when it boots and `ended` after the `idle` that closed the last turn — and
@@ -486,23 +552,40 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
         // turn produced something without ever starting one (`unsettledTurn`), which still gets its
         // line, dated at the last thing it produced rather than at whenever the adapter went quiet.
         default: {
-          if (!run) {
+          const until = run?.underCard ? ownOutputSince(t.blocks, run.startedAt) : null;
+          if (!run || (run.underCard && until === null)) {
             const open = unsettledTurn(t.blocks);
-            if (!open) return t;
+            if (!open) return run ? { ...t, run: null } : t;
             blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
-            return { ...t, blocks };
+            return { ...t, blocks, run: null };
           }
           const waited = run.waitedMs + (run.waitingSince === null ? 0 : e.ts - run.waitingSince);
           // A stop wins over a failure: the harness's diagnostic for a cancelled turn is about the
           // API call it cut short, and the reader pressed stop — that is what the line has to say.
           const failed = e.payload.status === "error" || last?.kind === "error";
-          blocks.push({ kind: "run", ms: Math.max(0, e.ts - run.startedAt - waited), startedAt: run.startedAt, ts: e.ts,
+          blocks.push({ kind: "run", ms: Math.max(0, until === null ? e.ts - run.startedAt - waited : until - run.startedAt), startedAt: run.startedAt, ts: e.ts,
             ...(e.payload.interrupted ? { stopped: true } : failed ? { failed: true } : {}) });
           return { ...t, blocks, run: null };
         }
       }
     }
   }
+}
+
+/**
+ * `after`, with the request this event raised marked as arrived at rest, when the event is a request
+ * and `before` had no turn in flight.
+ *
+ * It is laid over the reducer where an event arrived live, whether it is applied at once or waited
+ * out a load of its session, and never while a log is read back. A card that appears under a
+ * person's typing must not take the keyboard: the next Space, Return or digit would answer it. A
+ * card that is already there when the person opens the session is what they came to answer, and
+ * takes the keyboard as it always did.
+ */
+export function markArrivalAtRest(before: Transcript, after: Transcript, e: SessionEvent): Transcript {
+  if (e.type !== "permission_request" || before.run !== null) return after;
+  const { requestId } = e.payload;
+  return { ...after, pendingPermissions: after.pendingPermissions.map((p) => (p.requestId === requestId ? { ...p, atRest: true as const } : p)) };
 }
 
 // Wrapped rather than passed directly: `reduce` hands its callback an index as the third argument,

@@ -617,7 +617,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
       data-peek={peek || undefined}
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
-      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track
+      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} comeToAnswer={keyboardFor} cwd={session.cwd} track
         saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         // A plan, or an answer, handed to other models: this session's Agents tab, with it as the work.
@@ -644,7 +644,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
             onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId, session.id))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
-        : <DraftedComposer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
+        : <DraftedComposer session={session} status={status} betweenTurns={transcript.betweenTurns} gitInfo={gitInfo} todos={todos} quote={quote}
             onOpenDiff={() => run(() => openDiff(session.environmentId))}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}

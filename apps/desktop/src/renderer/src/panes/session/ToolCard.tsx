@@ -14,7 +14,49 @@ import { DelegationLine, DelegationWait, isDelegationLine, isDelegationWait } fr
 import { useElapsed } from "./use-elapsed";
 import { AppView } from "../app-view/AppView";
 
-type ToolState = "running" | "ok" | "error" | "none";
+type ToolState = "running" | "ok" | "error" | "stopped" | "none";
+
+/** What the status slot is called in each state, for a reader who cannot see its glyph. */
+const STATE_NAME: Record<ToolState, string> = { running: "running", ok: "done", error: "failed", stopped: "stopped", none: "no result" };
+
+/**
+ * The state a card's row draws.
+ *
+ * For an ordinary call that is its result: present or not, an error or not, and a spinner only while
+ * the session is still live to produce one.
+ *
+ * A call that left a run working in the background is read off the RUN instead, because its result
+ * says nothing about the run. The launch returns in a second with a receipt, and the run goes on
+ * for minutes, usually past the end of the turn. The card is running for as long as the harness
+ * says so, whatever the session's status. Afterwards it wears how the harness said the run ended:
+ * done, failed or stopped. A stop that carried no word falls back to the result, which is what it
+ * always drew. Such a stop was written before runs kept an outcome. The stop Realm writes for a run
+ * whose process is gone says stopped.
+ */
+function toolState(block: ToolBlock, live: boolean): ToolState {
+  if (block.background === "running") return "running";
+  if (block.outcome === "failed") return "error";
+  if (block.outcome === "stopped") return "stopped";
+  if (block.outcome === "completed") return "ok";
+  return block.result ? (block.result.isError ? "error" : "ok") : live ? "running" : "none";
+}
+
+/**
+ * The status that the calls made under a call are drawn with, in the ledger hung off its card and in
+ * the sub-agent panel's list.
+ *
+ * A run working in the background works whatever the session's status, and a background agent's
+ * calls arrive while the session is idle. Drawn with the session's status they read as finished.
+ * The ledger folds and stops its clock, and the call in flight shows an empty slot named "no
+ * result", all under a card that is still spinning. So for as long as the harness says the run is
+ * working, its calls are drawn as a working session draws them, and they settle when the run does.
+ *
+ * It reads the block's own `background` and nothing wider. A blocking sub-agent's unfinished call
+ * counts as still working too, in a session that died under it as much as in a live one, and
+ * nothing says that one still runs.
+ */
+export const nestedStatus = (block: ToolBlock, sessionStatus: SessionStatus): SessionStatus =>
+  (block.background === "running" ? "running" : sessionStatus);
 
 /** How long the copy button holds its ✓ before cross-fading back to the copy glyph (§6 icon swap). */
 const COPIED_MS = 1400;
@@ -124,8 +166,9 @@ type ToolCardProps = {
 };
 
 /** A tool call the agent made: BUI ThinkingState's coding-row shape (Plan 9 W2) — a leading status
- *  glyph whose spinner→muted-check progression is the block's REAL settled state (result present),
- *  never a clock; the tool name; the target as a mono chip (ToolChips' chip language); measured
+ *  glyph whose spinner→muted-check progression is the block's REAL settled state (result present,
+ *  or for a call that left a run in the background, that run ended, as `toolState` reads it), never
+ *  a clock; the tool name; the target as a mono chip (ToolChips' chip language); measured
  *  +/− counts where the edit's payload carries both sides. Click still expands input + result.
  *
  *  Memoized because a streaming answer re-renders the whole transcript around it. The reducer rebuilds
@@ -148,7 +191,7 @@ function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardP
   const everOpened = useRef(false);
   everOpened.current ||= open;
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
-  const state: ToolState = block.result ? (block.result.isError ? "error" : "ok") : live ? "running" : "none";
+  const state = toolState(block, live);
   const summary = clip(toolSummary(block.name, block.input));
   /* An edit names its file and its counts, from the call's own two sides where it carries them, or
      from the diff an ACP agent's result carries (map-acp.ts). */
@@ -173,12 +216,13 @@ function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardP
     <div className="tool-card" data-tool-use-id={block.toolUseId}
       data-state={state} data-open={open || undefined} data-enter={enter || undefined}>
       <button className="tool-row" aria-expanded={open} aria-label={`${block.name} tool call`} onClick={(e) => setOpen(expand(e, !open))}>
-        <span className="tool-status" aria-label={state === "running" ? "running" : state === "ok" ? "done" : state === "error" ? "failed" : "no result"}>
+        <span className="tool-status" aria-label={STATE_NAME[state]}>
           {/* 16, not the 14 the settled glyphs use: the orb fills the status slot, and 40 dots at
               0.12–1 opacity carry far less weight than a 1.5px stroke, so it reads lighter even so. */}
           {state === "running" && <Spinner size={16} />}
           {state === "ok" && <Icon name="check" size={14} />}
           {state === "error" && <Icon name="errorCircle" size={14} />}
+          {state === "stopped" && <Icon name="stop" size={14} />}
         </span>
         <span className="tool-name">{block.name}</span>
         {target ? <ToolFile path={target.path} more={target.more} />
@@ -207,7 +251,7 @@ function ToolCardBody({ block, sessionStatus, enter = false, nested }: ToolCardP
       {/* The sub-agent's own ledger, hanging off the call that spawned it and ABOVE the expander:
           what the child is doing is the thing worth seeing, and burying it under the raw input and
           result wells would make it something the reader has to go looking for. */}
-      {nested && nested.length > 0 && <ToolGroup steps={nested} sessionStatus={sessionStatus} subagent />}
+      {nested && nested.length > 0 && <ToolGroup steps={nested} sessionStatus={nestedStatus(block, sessionStatus)} subagent />}
       {/* §6 expands the row by transitioning grid-template-rows 0fr→1fr, which only animates if the
           content is in the DOM on both sides of the flip. So the body is built on first open and
           stays built: collapsing animates too, and re-opening is instant. `inert` keeps the hidden

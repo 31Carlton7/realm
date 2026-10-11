@@ -72,6 +72,42 @@ describe("SessionsStore + SessionEventsStore", () => {
     expect(ev.hasType(sess.id, "permission_request")).toBe(true);
     expect(ev.hasType(sess.id, "usage")).toBe(false);
   });
+  it("findRunningBackgroundTasks reports only the calls whose last background_task is running", () => {
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = s.create(input(space.id, env.id));
+    const other = s.create(input(space.id, env.id));
+    expect(ev.findRunningBackgroundTasks(sess.id)).toEqual([]);
+    const task = (toolUseId: string, status: "running" | "stopped") => sessionEvent("background_task", { toolUseId, status });
+    ev.append(sess.id, task("done", "running")); ev.append(sess.id, task("done", "stopped"));
+    ev.append(sess.id, task("alive", "running"));
+    ev.append(sess.id, task("resumed", "running")); ev.append(sess.id, task("resumed", "stopped")); ev.append(sess.id, task("resumed", "running"));
+    ev.append(sess.id, task("never-started", "stopped"));
+    ev.append(other.id, task("elsewhere", "running"));
+    expect(ev.findRunningBackgroundTasks(sess.id)).toEqual(["alive", "resumed"]);
+  });
+  it("findRunningBackgroundTasks reads past a row it cannot parse", () => {
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = s.create(input(space.id, env.id));
+    ev.append(sess.id, sessionEvent("background_task", { toolUseId: "alive", status: "running" }));
+    for (const payload of ["null", "{not json", "{\"status\":\"running\"}"]) {
+      db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, 'background_task', ?)").run(sess.id, 1, payload);
+    }
+    expect(ev.findRunningBackgroundTasks(sess.id)).toEqual(["alive"]);
+  });
+  it("findUnclosed reports a session's unanswered requests and its running calls from one read of its log", () => {
+    const { db, space, env } = fresh(); const s = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = s.create(input(space.id, env.id));
+    const other = s.create(input(space.id, env.id));
+    const req = (id: string) => sessionEvent("permission_request", { requestId: id, toolName: "Bash", input: {}, title: "?", suggestions: [] });
+    const task = (toolUseId: string, status: "running" | "stopped") => sessionEvent("background_task", { toolUseId, status });
+    ev.append(sess.id, req("answered")); ev.append(sess.id, task("done", "running"));
+    ev.append(sess.id, sessionEvent("permission_response", { requestId: "answered", decision: "allow" }));
+    ev.append(sess.id, req("open")); ev.append(sess.id, task("alive", "running")); ev.append(sess.id, task("done", "stopped"));
+    ev.append(sess.id, sessionEvent("status", { status: "idle" }));
+    db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, 'background_task', ?)").run(sess.id, 1, "{not json");
+    ev.append(other.id, req("elsewhere")); ev.append(other.id, task("elsewhere", "running"));
+    expect(ev.findUnclosed(sess.id)).toEqual({ permissions: ["open"], runs: ["alive"] });
+  });
   it("rejects a session for an unknown space", () => {
     const { db, env } = fresh();
     expect(() => new SessionsStore(db).create(input("01ARZ3NDEKTSV4RRFFQ69G5FAV", env.id))).toThrow(NotFoundError);

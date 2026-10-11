@@ -162,6 +162,29 @@ describe("UsageService.records — the page about you", () => {
     });
   });
 
+  it("measures a turn that opened and ended under a card raised between turns to the agent's own last output", () => {
+    makeSession("s1");
+    const t = (min: number) => day(2, 9) + min * MIN;
+    appendEvent("s1", t(0), "status", { status: "waiting_permission", betweenTurns: true });
+    appendEvent("s1", t(1), "status", { status: "waiting_permission" });
+    appendEvent("s1", t(3), "assistant_text", { messageId: "m1", text: "The run finished." });
+    appendEvent("s1", t(6), "tool_call", { toolUseId: "t1", name: "Read", input: {}, parentToolUseId: null });
+    appendEvent("s1", t(20), "tool_call", { toolUseId: "t2", name: "Bash", input: {}, parentToolUseId: "toolu_background" });
+    appendEvent("s1", t(25), "tool_result", { toolUseId: "t1", content: "ok", isError: false });
+    appendUsage("s1", t(26), { costUsd: 0, inputTokens: 1, outputTokens: 1, numTurns: 1 });
+    appendEvent("s1", t(60), "permission_response", { requestId: "r1", decision: "allow" });
+    status("s1", t(60), "idle");
+    expect(service().records().longestTurn).toEqual({ ms: 5 * MIN, endedAt: t(60), sessionId: "s1", title: "Session s1", spaceId: spaceA });
+  });
+
+  it("finds no turn in a wait between turns that an older log left unmarked, whatever was said before it", () => {
+    makeSession("s1");
+    appendEvent("s1", day(2, 9) - MIN, "assistant_text", { messageId: "m1", text: "Started the run." });
+    status("s1", day(2, 9), "waiting_permission");
+    status("s1", day(2, 9) + 30 * MIN, "idle");
+    expect(service().records().longestTurn).toBeNull();
+  });
+
   it("counts days the way the calendar does — only what was sent, so a day of agent work alone is not a day", () => {
     makeSession("s1");
     send("s1", day(14, 9));

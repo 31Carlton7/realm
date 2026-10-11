@@ -993,6 +993,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });
   reg("sessions.queued", async (p) => ({ queued: d.sessions.queuedPrompts(p.id) }));
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
+  reg("sessions.stopTask", async (p) => { await d.sessions.stopTask(p.id, p.toolUseId); return { ok: true as const }; });
   reg("sessions.recordFeedback", (p) => { d.sessions.recordFeedback(p.id, p.messageId, p.rating); return { ok: true as const }; });
   reg("sessions.saved", (p) => ({ seqs: d.savedTurns.forSession(p.id) }));
   reg("sessions.setSaved", (p) => {

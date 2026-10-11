@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, turnSettled, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -150,6 +150,28 @@ export class SessionService {
   private secrets = new SecretAnswers();
   /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
   private draining = false;
+  /**
+   * What each live session's ADAPTER last said its status was: the payload of the last `status` its
+   * pump delivered, and never one that came through `emitExternal` or that this service composed.
+   *
+   * A session has two producers of status, the adapter and the server's own permission broker, and
+   * only the adapter knows whether a turn is in flight. So the row's status is not enough to answer
+   * two questions, and this is what answers them: whether a session that reads `waiting_permission`
+   * has a turn behind the wait (`turnInFlight`), and what it goes back to when the broker's last
+   * card closes (`restoreStatus`). Dropped when the handle ends, because nothing is known after it.
+   */
+  private adapterStatus = new Map<string, SessionEventPayload<"status">>();
+  /**
+   * The runs each live session has working in the background (a workflow, a background sub-agent):
+   * the tool-use ids whose last `background_task` said `running`, from the events the pump already
+   * passes through here.
+   *
+   * A run goes on after its launching turn has settled, so the session reads idle while its agents
+   * may still be writing the checkout. This is what lets the rest of the server know: a restore is
+   * refused, the session counts as working, and its goal waits (`hasRunAlive`). Dropped when the
+   * handle ends, because a run does not outlive the process it runs in.
+   */
+  private runsAlive = new Map<string, Set<string>>();
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
      *  before: no retries, no handoffs, an error is an error. */
@@ -161,9 +183,11 @@ export class SessionService {
      *  nicety here: a server built without it simply shows nothing. */
     documents?: { openPath(p: { spaceId: string; environmentId?: string; path: string; openedBy?: string }): Promise<unknown> };
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
-     *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
-     *  behaves exactly as before. */
-    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void; release(sessionId: string): void };
+     *  session's pending prompts + allow-always grants. `holds` says whether the broker has a card
+     *  open for a session, which keeps that session waiting whatever its adapter reports meanwhile,
+     *  and `withdraw` closes those cards as denied when its work is stopped or its process ends.
+     *  Optional — a harness without browser tools behaves exactly as before. */
+    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void; release(sessionId: string): void; holds(sessionId: string): boolean; withdraw(sessionId: string): boolean };
     /** Computer use granted by a mention, per session (`computer/session-grants.ts`): what an
      *  `@Messages` in a delivered message writes, and what a deleted session takes with it. Optional —
      *  a harness without it treats an app mention as text and grants nothing. */
@@ -201,7 +225,7 @@ export class SessionService {
     goals?: {
       onUsage(sessionId: string, reading: SessionEventPayload<"usage">): void;
       onError(sessionId: string): void;
-      onSettled(sessionId: string, opts: { interrupted: boolean }): Promise<unknown>;
+      onSettled(sessionId: string, opts: { interrupted: boolean; unprompted: boolean }): Promise<unknown>;
     };
     /** The views MCP servers draw for tool calls (`apps/views.ts`): told every call the agent
      *  reports, and asked, when its result arrives, for the view that call drew. Optional — without
@@ -311,18 +335,56 @@ export class SessionService {
    * delegation and run services send into children they have just created — reads the setting.
    */
   async send(id: string, msg: SendMessage, delivery: "auto" | "queue" | "steer" = "auto"): Promise<void> {
-    // `waiting_permission` counts: the turn has not ended, it is blocked on a card the user has not
-    // answered. The prompter draws both states the same way for the same reason, and a message typed
-    // against an open permission card is the one most likely to be a correction.
-    const status = this.d.sessions.get(id)?.status;
-    const turnInFlight = status === "running" || status === "waiting_permission";
-    if (turnInFlight) {
+    // `waiting_permission` counts while a turn is behind it: that turn has not ended, it is blocked
+    // on a card the user has not answered, and a message typed against it is the one most likely to
+    // be a correction. A wait raised between turns has no turn to wait behind (`turnInFlight`).
+    if (this.turnInFlight(id)) {
       const mode = delivery === "auto" ? resolveMidTurnMode(this.d.settings.get(MID_TURN_MODE_KEY)) : delivery;
       if (mode === "queue") { this.enqueue(id, msg); return; }
       await this.steer(id, msg);
       return;
     }
     await this.deliver(id, msg);
+  }
+
+  /**
+   * Whether a turn is in flight on this session: what a new message queues behind, or steers.
+   *
+   * `running` is one. `waiting_permission` is one too, unless the adapter's own last word says the
+   * wait has no turn behind it: it raised the card between turns (`betweenTurns`), or it is at rest
+   * and the card is the server broker's. A background run's agent asks for a tool this way minutes
+   * after the launching turn settled, and a message typed then has nothing to wait for. Queued, it
+   * would sit behind a turn that is not there until some later turn happened to settle, and steered,
+   * it would interrupt nothing and end the run. A session with no process has no turn either: its
+   * wait is the broker's card alone, and a message queued behind that card stayed in the queue when
+   * the card closed, with no turn there to settle and send it. With a live adapter that has said
+   * nothing yet, a wait is taken for a turn in flight, as it always was.
+   */
+  private turnInFlight(id: string): boolean {
+    const status = this.d.sessions.get(id)?.status;
+    return status === "running" || (status === "waiting_permission" && this.live.has(id) && !this.adapterAtRest(id));
+  }
+
+  /** Whether the adapter's own last word says no turn is in flight: it is idle, or it waits on a card
+   *  it raised between turns. False when nothing is known of it, which is not the same as at rest. */
+  private adapterAtRest(id: string): boolean {
+    const said = this.adapterStatus.get(id);
+    return said !== undefined && (said.status === "idle" || (said.status === "waiting_permission" && said.betweenTurns === true));
+  }
+
+  /**
+   * Whether the session is at rest: it reads `idle`, or it waits on a card with no turn in flight
+   * behind the wait, as it does when a background run's agent asks minutes after the last turn.
+   *
+   * The recap asks, because it waits for a session to go quiet before it writes. Asked whether the
+   * row read `idle`, it found that wait, took it for a turn that would settle and bring the recap
+   * round again, and wrote nothing. A card's answer between turns is no settle, so that turn's
+   * recap and hint were lost until some later turn ended. A turn whose own settle waits for a card
+   * is still in flight, and its recap waits with it.
+   */
+  atRest(id: string): boolean {
+    const status = this.d.sessions.get(id)?.status;
+    return status === "idle" || (status === "waiting_permission" && !this.turnInFlight(id));
   }
 
   /**
@@ -367,8 +429,11 @@ export class SessionService {
    * settle makes the new message the next turn rather than the tail of the old one.
    *
    * Bounded, so an adapter that never reports the settle costs a pause rather than the message.
+   *
+   * The server's own cards for the session are withdrawn first, for the reason `interrupt` gives.
    */
   private async interruptAndSettle(id: string, handle: AgentHandle): Promise<void> {
+    this.d.browserPermissions?.withdraw(id);
     const status = this.d.sessions.get(id)?.status;
     if (status !== "running" && status !== "waiting_permission") { await handle.interrupt(); return; }
     let done!: () => void;
@@ -649,6 +714,14 @@ export class SessionService {
     return { interrupted };
   }
 
+  /**
+   * Stop the session's turn, and with it everything that turn had going.
+   *
+   * Every card raised for that work is closed too. The adapter denies its own, and the server's are
+   * withdrawn here: a card of the broker's otherwise outlives the stop, and because a session reads
+   * `waiting_permission` for as long as the broker holds one, that card would come back on screen
+   * after Stop, still answerable, for a tool call nobody is waiting on.
+   */
   async interrupt(id: string): Promise<void> {
     this.get(id);
     // Interrupting a session also cancels its delegated browser-agent run (W5): the child is
@@ -659,7 +732,75 @@ export class SessionService {
     // A scheduled retry dies with the turn it belonged to. Resuming work somebody just cancelled is
     // the rudest thing failover could do, and the one that would make people turn it off.
     this.d.failover?.cancel(id);
-    await this.live.get(id)?.handle.interrupt();
+    const live = this.live.get(id);
+    const resting = live !== undefined && !this.turnInFlight(id);
+    if (live) this.d.browserPermissions?.withdraw(id);
+    await live?.handle.interrupt();
+    if (resting) this.tellGoalStopped(id);
+  }
+
+  /**
+   * Tell the session's goal that the person stopped it, where no settle will: Stop pressed with no
+   * turn in flight, or the run's own stop control pressed on the last thing the session had going
+   * (`stopTask`).
+   *
+   * A goal that stood down for a run waits for the run's report, and a stopped workflow sends none.
+   * Stop on a card raised between turns closes it with an `idle` that is no settle either. Untold,
+   * the goal stayed active with nothing in flight and nothing to continue it, could not be resumed
+   * because it was not paused, and went back to work by itself at the next thing the person typed.
+   * A turn that Stop ends needs none of this: its own settle is marked as stopped, and that is
+   * where the goal is told. A run's own stop control marks no settle, so a turn it ends is asked
+   * about once the stop has been answered.
+   */
+  private tellGoalStopped(id: string): void {
+    void this.d.goals?.onSettled(id, { interrupted: true, unprompted: false }).catch(() => {});
+  }
+
+  /**
+   * Whether this run is the only one alive on the session. Asked before the run is stopped, while
+   * it is still on the list.
+   *
+   * Where it holds, and no turn is in flight once the stop has been answered, stopping the run
+   * leaves nothing of the session's at work, and two things that would go on waiting for work that
+   * is not coming are settled with it. The server's own cards are closed: with nothing else at work
+   * they are the run's agents asking, or a view's own question, which goes with them. Left open,
+   * such a card kept the session reading Needs permission for an agent that was gone, and Allow on
+   * it still ran the action. And the session's goal is told (`tellGoalStopped`). With a turn still
+   * in flight or another run alive, whose a card is cannot be known, and both are left alone.
+   *
+   * The turn is asked about after the stop and not before it, because the stop can be what ends
+   * it. A turn that ended under the run's first card owes its settle to that card. The harness
+   * closes the card as it kills the run, and the adapter pays the settle while the stop is still
+   * out. Asked before, that turn read as in flight: the goal stood down at its settle to wait for
+   * a report a stopped workflow never sends, and nothing told it of the stop.
+   */
+  private isOnlyRun(id: string, toolUseId: string): boolean {
+    const alive = this.runsAlive.get(id);
+    return alive?.size === 1 && alive.has(toolUseId);
+  }
+
+  /**
+   * Stop one run the session's agent left working in the background, and leave any turn alone
+   * (`isOnlyRun` has what goes with it). `toolUseId` is the launching call, as a transcript has it.
+   *
+   * A session with no live handle answers ok, with nothing sent: its process is gone and the run
+   * with it, and the row was closed when the handle ended (`closeDanglingRuns`). So does a run the
+   * handle never announced or has already seen stop, which the handle itself resolves quietly. Two
+   * things are errors, each in words a person can be shown, because the answer becomes a toast: an
+   * agent with no way to stop one run, where the control is never offered, and a refusal from the
+   * harness, which the handle has already put in Realm's words (`AgentHandle.stopTask`).
+   */
+  async stopTask(id: string, toolUseId: string): Promise<void> {
+    this.get(id);
+    const handle = this.live.get(id)?.handle;
+    if (!handle) return;
+    if (!handle.stopTask) throw new RpcError("STOP_TASK_UNSUPPORTED", "This agent has no way to stop one run.");
+    const only = this.isOnlyRun(id, toolUseId);
+    try { await handle.stopTask(toolUseId); }
+    catch (e) { throw new RpcError("STOP_TASK_FAILED", e instanceof Error && e.message ? e.message : "The agent could not stop that run."); }
+    if (!only || this.turnInFlight(id)) return;
+    this.d.browserPermissions?.withdraw(id);
+    this.tellGoalStopped(id);
   }
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): void {
     this.get(id);
@@ -689,9 +830,104 @@ export class SessionService {
    * browser permission broker's `permission_request`/`permission_response`/`status` events (Plan 11
    * W3). Same `onEvent` path the pump uses, so persistence rules, status rows and broadcasts cannot
    * diverge between the two producers.
+   *
+   * One thing is added on the way, because the broker cannot know it: a `waiting_permission` it
+   * raises while the adapter is at rest, or on a session with no process, is marked `betweenTurns`,
+   * as the adapter marks its own.
    */
   emitExternal(id: string, ev: SessionEvent): void {
+    if (ev.type === "status" && ev.payload.status === "waiting_permission" && (this.adapterAtRest(id) || !this.live.has(id))) {
+      this.onEvent(id, sessionEvent("status", { ...ev.payload, betweenTurns: true }, ev.ts));
+      return;
+    }
     this.onEvent(id, ev);
+  }
+
+  /**
+   * The broker's last card for this session has closed: say again what the ADAPTER last said, which
+   * is the only producer that knows whether a turn is in flight.
+   *
+   *  - `running`, in a turn, or when a live adapter has said nothing yet: back to work.
+   *  - nothing at all, while the adapter has a card of its own open: the session is still waiting.
+   *  - `idle` marked `betweenTurns`, when the adapter is at rest: no turn ends here. One that ended
+   *    while the card was open was settled when the adapter said so, and must not settle twice.
+   *  - with no process, that same `idle` where the row still reads the wait, and nothing otherwise:
+   *    a session nothing runs in cannot go back to work, and `ended` has to stay its last word.
+   *
+   * The broker used to say `running` itself every time. With no turn in flight nothing ended that:
+   * the session read Running, queued what was typed into it, and offered a Stop with nothing to stop.
+   */
+  restoreStatus(id: string): void {
+    const said = this.adapterStatus.get(id);
+    if (said?.status === "waiting_permission") return;
+    if (!this.live.has(id)) {
+      if (this.d.sessions.get(id)?.status === "waiting_permission") this.onEvent(id, sessionEvent("status", { status: "idle", betweenTurns: true }));
+      return;
+    }
+    this.onEvent(id, sessionEvent("status", said?.status === "idle" ? { status: "idle", betweenTurns: true } : { status: "running" }));
+  }
+
+  /**
+   * One event off a live handle's pump, which is the adapter speaking.
+   *
+   * Two things are read here and nowhere else, because only this path is the adapter's own: its
+   * last status (`adapterStatus`) and which of its background runs are alive (`runsAlive`).
+   *
+   * And one event is added after it. While the broker has a card open for the session, a `running`
+   * or an `idle` from the adapter is followed by `waiting_permission`, so the card stays on screen:
+   * the transcript draws a card only under that status, and the tool call behind a hidden card waits
+   * out the broker's whole timeout. The adapter's own status is logged and settled on first, so a
+   * turn that ends under the card settles when it ends, but it does not move the row (`onEvent`).
+   * `ended` and `error` stay the last word: a session waiting on a gone process is never answered.
+   *
+   * Two idles under that card end no turn. A process's first word can be an `idle`, which Codex
+   * says as it boots, ahead of the `running` of the message that started it. It is passed on marked
+   * `betweenTurns`, because the row reads the wait, and an unmarked `idle` out of a wait is a
+   * settle: the turn that had not begun was closed, its checkpoint spent, and a goal took a step.
+   * And an `idle` that only repeats the adapter's last word is dropped. Codex says `idle` twice as
+   * a turn ends, and with the row held at the wait the second read as a second turn ending: the
+   * queue sent two messages and a goal sent two continuations.
+   */
+  private onAdapterEvent(id: string, ev: SessionEvent): void {
+    const last = this.adapterStatus.get(id);
+    if (ev.type === "status") this.adapterStatus.set(id, ev.payload);
+    const ran = this.runsAlive.has(id);
+    if (ev.type === "background_task") {
+      const alive = this.runsAlive.get(id) ?? new Set<string>();
+      if (ev.payload.status === "running") alive.add(ev.payload.toolUseId); else alive.delete(ev.payload.toolUseId);
+      if (alive.size > 0) this.runsAlive.set(id, alive); else this.runsAlive.delete(id);
+    }
+    const moves = ev.type === "status" && (ev.payload.status === "running" || ev.payload.status === "idle");
+    const held = moves && this.d.browserPermissions?.holds(id) === true;
+    let said = ev;
+    if (held && ev.type === "status" && ev.payload.status === "idle") {
+      if (last?.status === "idle") return;
+      if (last === undefined) said = sessionEvent("status", { ...ev.payload, betweenTurns: true }, ev.ts);
+    }
+    this.onEvent(id, said, held);
+    if (ran !== this.runsAlive.has(id)) this.restateStatus(id);
+    if (ev.type !== "status" || (ev.payload.status !== "running" && ev.payload.status !== "idle")) return;
+    if (!this.d.browserPermissions?.holds(id)) return;
+    this.onEvent(id, sessionEvent("status", { status: "waiting_permission", ...(ev.payload.status === "idle" ? { betweenTurns: true } : {}) }));
+  }
+
+  /**
+   * Say the session's status again, as its row has it, when a run of its own has started or stopped.
+   *
+   * A session with a run alive counts as working (`statusCounts`), and whoever shows that count
+   * reads it again only when a status is announced. A run stopped by hand at rest is followed by no
+   * status at all, so the tray went on saying the session was working, and the Mac was kept awake
+   * for it, until some session's status next happened to change. A status said twice moves nothing
+   * in a window. Not while the server shuts down, and not for a session that has gone.
+   */
+  private restateStatus(id: string): void {
+    const row = this.closing ? null : this.d.sessions.get(id);
+    if (row) this.d.rpc.broadcast("session.status", { sessionId: id, status: row.status });
+  }
+
+  /** Whether this session has a run working in the background right now (`runsAlive`). */
+  hasRunAlive(id: string): boolean {
+    return this.runsAlive.has(id);
   }
   /**
    * Record what the reader thought of one answer. Goes down the same `onEvent` path as everything
@@ -879,6 +1115,8 @@ export class SessionService {
     this.rewindTurns.delete(id);
     this.toolTurns.delete(id);
     this.measuring.delete(id);
+    this.adapterStatus.delete(id);
+    this.runsAlive.delete(id);
     // The terminal belongs to the session: deleting the session must not leave its pty running.
     const term = s.terminalItemId ? this.d.items.get(s.terminalItemId) : null;
     if (term) this.closeTerminalItem(term.refId);
@@ -895,18 +1133,18 @@ export class SessionService {
     for (const s of this.d.sessions.list(spaceId)) await this.delete(s.id);
   }
   /**
-   * What the daemon would tell a person: how many sessions are mid-turn, and how many are stopped
-   * waiting for an answer.
+   * What the daemon would tell a person: how many sessions are working — mid-turn, or with a run still
+   * working in the background, card open or not — and how many are stopped waiting for an answer.
    *
    * Statuses rather than handles, deliberately. `liveCount` below is larger — a session keeps its
    * adapter handle after a turn ends, until the adapter itself exits — and "3 working" has to mean
-   * three turns in flight, not three warm subprocesses.
+   * three sessions with work in flight, not three warm subprocesses.
    */
   statusCounts(): { working: number; needsYou: number } {
     let working = 0, needsYou = 0;
     for (const s of this.d.sessions.listAll()) {
-      if (s.status === "running") working++;
-      else if (s.status === "waiting_permission") needsYou++;
+      if (s.status === "waiting_permission") needsYou++;
+      if (s.status === "running" || this.runsAlive.has(s.id)) working++;
     }
     return { working, needsYou };
   }
@@ -937,20 +1175,23 @@ export class SessionService {
   /**
    * Boot: no adapter survives a restart. Live statuses become idle; `ended` (an adapter that exited — after `error` on a
    * crash) is resumable when we hold a providerSessionId, otherwise it stays terminal. Permissions the user never
-   * answered are closed with synthetic persisted denies so clients don't render stale cards.
+   * answered are closed with synthetic persisted denies so clients don't render stale cards, and a run the log leaves
+   * working in the background is closed with a synthetic stop, for the same reason and dated where the evidence stops.
    */
   markStaleOnBoot(): void {
     for (const s of this.d.sessions.listAll()) {
       // Read BEFORE the synthetic denies below append rows of their own — they carry `Date.now()`,
       // and dating the run's terminator at one of them would put the crash at boot time.
       const lastRealTs = this.d.events.lastTs(s.id);
-      for (const requestId of this.d.events.findDanglingPermissions(s.id)) {
+      const left = this.d.events.findUnclosed(s.id);
+      for (const requestId of left.permissions) {
         const deny = sessionEvent("permission_response", { requestId, decision: "deny" });
         this.persist(s.id, deny);
         // A synthetic deny is still an answer: the feed's permission row must stop reading "pending"
         // the same way it would for a real one.
         this.d.notifications?.handleSessionEvent(s, deny);
       }
+      this.closeDanglingRuns(s.id, lastRealTs ?? undefined, left.runs);
       // The row is reset below, but the EVENT LOG is what the transcript replays, and a session that
       // died mid-turn left `running` as its last word there. Nothing would ever close that run, so the
       // next turn's settle would report a span reaching back across the crash. The synthetic idle is
@@ -990,6 +1231,47 @@ export class SessionService {
     await l.handle.dispose();
     await l.pump; // pump ends when the adapter closes its event stream (right after `ended`)
     this.live.delete(id);
+  }
+
+  /**
+   * A session with no live handle has no run working in the background: close every one its log
+   * still says is running, with a stop Realm writes itself.
+   *
+   * Only a notification from the agent's process ever stops a run, and a process that is gone sends
+   * none — a quit, a crash, Stop all agents, a handoff to another agent. Left alone, such a run
+   * stays `running` in the log for good: a row in the dock counting up for days, a spinner on its
+   * card, and a stop control that has nothing behind it. The stop says the run was `stopped`, and
+   * so does Claude Code when the conversation resumes: a run did not finish if its process went
+   * first. Without the word its card drew the check of a run that completed.
+   *
+   * Called where a handle goes away (`handleEnded`), at boot, where shutdown's dropped events are
+   * made good, and after a conversation rewind, which can cut a run's stop off the end of the log.
+   * `ts` dates the stops where the caller's evidence stops, where that is not now, and `runs` is
+   * the list where boot has read it already. A failure is only logged: no caller may fail for this.
+   */
+  private closeDanglingRuns(id: string, ts?: number, runs?: readonly string[]): void {
+    try {
+      for (const toolUseId of runs ?? this.d.events.findRunningBackgroundTasks(id)) {
+        const stored = this.persist(id, sessionEvent("background_task", { toolUseId, status: "stopped", outcome: "stopped" }, ts));
+        this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
+      }
+    } catch (e) {
+      console.error(`[sessions] could not close the background runs of ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * A live handle's pump has ended: what was known of that process is forgotten, and the server's
+   * cards and the runs it left open are closed. A card left open came back at the next process's
+   * first `running`, still answerable. Not during shutdown: events are dropped, and boot closes both.
+   */
+  private handleEnded(id: string): void {
+    this.adapterStatus.delete(id);
+    this.runsAlive.delete(id);
+    if (this.closing || !this.d.sessions.get(id)) return;
+    try { this.d.browserPermissions?.withdraw(id); }
+    catch (e) { console.error(`[sessions] could not close the cards of ${id}: ${e instanceof Error ? e.message : String(e)}`); }
+    this.closeDanglingRuns(id);
   }
 
   /** Append + bump last_event_seq atomically. */
@@ -1111,13 +1393,14 @@ export class SessionService {
     return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, skillsInjected, reported });
   }
 
-  /** Whether a session in this environment is mid-turn — what stops a restore rewriting a working tree
-   *  under a running tool call. A handle alone is not that: a session keeps its adapter between turns,
-   *  and one idle there is writing nothing. */
+  /** Whether a session in this environment is mid-turn, or has a run working in the background — what
+   *  stops a restore rewriting a working tree under a running tool call. A handle alone is not that:
+   *  a session keeps its adapter between turns, and one idle there with no run is writing nothing. */
   isEnvironmentBusy(environmentId: string): boolean {
     for (const id of this.live.keys()) {
       const s = this.d.sessions.get(id);
-      if (s?.environmentId === environmentId && (s.status === "running" || s.status === "waiting_permission")) return true;
+      if (s?.environmentId !== environmentId) continue;
+      if (s.status === "running" || s.status === "waiting_permission" || this.runsAlive.has(id)) return true;
     }
     return false;
   }
@@ -1246,9 +1529,9 @@ export class SessionService {
       this.forkInFlight.set(id, fork);
     }
     const pump = (async () => {
-      try { for await (const ev of handle.events) this.onEvent(id, ev); }
+      try { for await (const ev of handle.events) this.onAdapterEvent(id, ev); }
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
-      finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.d.gateway.release(id); } }
+      finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.d.gateway.release(id); this.handleEnded(id); } }
     })();
     this.live.set(id, { handle, pump, skillsInjected: skills !== undefined });
     return handle;
@@ -1273,6 +1556,7 @@ export class SessionService {
     if (this.live.has(input.sessionId)) return false;
     this.d.events.truncate(input.sessionId, input.throughSeq);
     this.d.sessions.setRewindFork(input.sessionId, input.fork);
+    this.closeDanglingRuns(input.sessionId, this.d.events.lastTs(input.sessionId) ?? undefined);
     return true;
   }
 
@@ -1405,7 +1689,17 @@ export class SessionService {
     return view ? { ...ev, payload: { ...ev.payload, view } } : ev;
   }
 
-  private onEvent(id: string, raw: SessionEvent): void {
+  /**
+   * One event onto a session's rail: the hooks that read it, the row, the log and the broadcasts.
+   *
+   * `held` is for a `running` or an `idle` the adapter says while the server's broker has a card open
+   * for the session (`onAdapterEvent`). Everything is done for it except that the row keeps the wait
+   * it reads and no `session.status` goes out. A window draws a card only while the session's status
+   * is that wait. Told the adapter's status and then the wait again, it took the card off the screen
+   * and put it back: the highlight returned to Allow, a half-typed answer was gone, and a key
+   * pressed for something else answered the card.
+   */
+  private onEvent(id: string, raw: SessionEvent, held = false): void {
     if (this.closing) return; // shutdown: the row keeps its last real status; markStaleOnBoot resets it
     const before = this.d.sessions.get(id);
     if (!before) return; // deleted underneath a still-draining pump
@@ -1432,7 +1726,7 @@ export class SessionService {
     // genuinely happened, and a transcript that hid it would leave the following `retrying` or
     // `handoff` line with nothing to explain. `before` is the row as it was when the turn failed —
     // the handoff rewrites `agentKind`, so reading it afterwards would name the wrong agent.
-    if (ev.type === "error" && !rewindRefused) this.d.failover?.onError(before, ev.payload.message);
+    if (ev.type === "error" && !rewindRefused && !ev.payload.unprompted) this.d.failover?.onError(before, ev.payload.message);
     // …and goal mode hears about it too: three errored turns in a row is what stops a goal from
     // continuing into a wall it cannot see (a missing CLI errors and settles in milliseconds).
     // Same exemption: the turn is being re-sent plainly, so it has not failed yet.
@@ -1457,18 +1751,19 @@ export class SessionService {
     // is reported. Counted even on a turn that errored: the tokens were still spent.
     if (ev.type === "usage") this.d.goals?.onUsage(id, ev.payload);
     if (ev.type === "status") {
-      this.d.sessions.update({ id, status: ev.payload.status });
-      this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });
+      if (!held) {
+        this.d.sessions.update({ id, status: ev.payload.status });
+        this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });
+      }
       // The end of a turn, from any live status — the same moment the transcript banks its run line.
       // Read here, ahead of `noteTurnCursor` below, which claims the checkpoint for its own purposes.
-      const settled = (before.status === "running" || before.status === "waiting_permission")
-        && ev.payload.status !== "running" && ev.payload.status !== "waiting_permission";
+      const settled = turnSettled(before.status, ev.payload);
       const fronting = settled ? this.d.checkpoints?.frontingCheckpoint(id) ?? null : null;
       // A SETTLE, not any status: the transition out of a live state is the moment the transcript
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
       // until the log is the log. `void`, because a turn is never held up for a nicety.
-      if (ev.payload.status === "idle" && before.status !== "idle") {
+      if (ev.payload.status === "idle" && before.status !== "idle" && !ev.payload.betweenTurns) {
         // Where the provider's chain now stands, taken on the settle and nowhere else: this is the one
         // moment the answer is complete (the turn's `result` has been mapped) and not yet overwritten
         // (the next turn has not begun). Synchronous and first, ahead of every `void` below — one of
@@ -1490,7 +1785,7 @@ export class SessionService {
            behind it (`GoalService.onSettled` sees the queue and stands down). `void` for the
            reason above — this runs inside the adapter pump, and a continuation's own first events
            must not be waited for from inside it. */
-        void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true }).catch(() => {});
+        void this.d.goals?.onSettled(id, { interrupted: ev.payload.interrupted === true, unprompted: ev.payload.unprompted === true }).catch(() => {});
       }
       if (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error") {
         for (const settle of this.settleWaiters.get(id) ?? []) settle();

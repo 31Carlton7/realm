@@ -21,16 +21,27 @@ const LIVE = JSON.parse(readFileSync(join(here, "fixtures", "background-tasks.js
 
 const at = (subtype: string, i = 0) => LIVE.filter((m) => (m as { subtype: string }).subtype === subtype)[i]!;
 
+/**
+ * One workflow run, captured the same way (Claude Code 2.1.281): the `Workflow` call, its launch
+ * receipt, the turn that ends while the run is still working, the run's end, and the turn Claude
+ * Code then starts by itself to report. What it settles that the agent capture could not: a
+ * workflow's start carries no `is_backgrounded` at all, so a parser that waits for that field never
+ * marks one, and the call reads as finished for the whole of the run.
+ */
+const WORKFLOW = JSON.parse(readFileSync(join(here, "fixtures", "workflow-run.json"), "utf8")) as unknown[];
+
+const wf = (subtype: string, i = 0) => WORKFLOW.filter((m) => (m as { subtype?: string }).subtype === subtype)[i]!;
+
 describe("backgroundTaskFrom", () => {
   it("reads a backgrounded agent's start off the live capture", () => {
     expect(backgroundTaskFrom(at("task_started"))).toEqual({
-      toolUseId: "toolu_01Fb1nhsQsro42fKpn1NAdHR", status: "running",
+      toolUseId: "toolu_01Fb1nhsQsro42fKpn1NAdHR", status: "running", taskId: "afdbbdc3dc8394a04",
     });
   });
 
   it("reads its stop, with the harness's own summary", () => {
     expect(backgroundTaskFrom(at("task_notification", 1))).toEqual({
-      toolUseId: "toolu_01Fb1nhsQsro42fKpn1NAdHR", status: "stopped", summary: "done",
+      toolUseId: "toolu_01Fb1nhsQsro42fKpn1NAdHR", status: "stopped", summary: "done", outcome: "completed", taskId: "afdbbdc3dc8394a04",
     });
   });
 
@@ -55,6 +66,45 @@ describe("backgroundTaskFrom", () => {
     expect(backgroundTaskFrom({ type: "system", subtype: "task_notification" })).toBeNull();
     expect(backgroundTaskFrom(null)).toBeNull();
   });
+
+  it("still ignores a blocking sub-agent, whose call stays open by itself", () => {
+    expect(backgroundTaskFrom({ ...(at("task_started") as object), is_backgrounded: false })).toBeNull();
+  });
+});
+
+describe("backgroundTaskFrom, on a workflow's run", () => {
+  it("reads a workflow's start off the capture, though it carries no is_backgrounded", () => {
+    expect(wf("task_started")).not.toHaveProperty("is_backgrounded");
+    expect(backgroundTaskFrom(wf("task_started"))).toEqual({ toolUseId: "toolu_fake_2", status: "running", taskId: "w1m36gxx5" });
+  });
+
+  it("reads a workflow's stop with the harness's summary and how the run ended", () => {
+    expect(backgroundTaskFrom(wf("task_notification"))).toEqual({
+      toolUseId: "toolu_fake_2", status: "stopped", summary: 'Dynamic workflow "Probe run with two agents" completed', outcome: "completed", taskId: "w1m36gxx5",
+    });
+  });
+
+  it("ignores a workflow that a sub-agent started, as it ignores anything else one starts", () => {
+    expect(backgroundTaskFrom({ ...(wf("task_started") as object), owned_by_subagent: true })).toBeNull();
+  });
+
+  it("says nothing of a workflow's progress, its update, or the changed-set snapshot", () => {
+    for (const subtype of ["task_progress", "task_updated", "background_tasks_changed"]) {
+      expect(backgroundTaskFrom(wf(subtype)), subtype).toBeNull();
+    }
+  });
+
+  it.each(["stopped", "failed"] as const)("keeps the harness's own word for a run that %s", (status) => {
+    expect(backgroundTaskFrom({ ...(wf("task_notification") as object), status })).toMatchObject({ status: "stopped", outcome: status });
+  });
+
+  it("leaves a way of ending it does not know unstated, rather than reading it as one of the three", () => {
+    expect(backgroundTaskFrom({ ...(wf("task_notification") as object), status: "killed" })).not.toHaveProperty("outcome");
+  });
+
+  it("carries no task id for a message that names none", () => {
+    expect(backgroundTaskFrom({ ...(wf("task_started") as object), task_id: 7 })).toEqual({ toolUseId: "toolu_fake_2", status: "running" });
+  });
 });
 
 describe("the mapper over the whole live capture", () => {
@@ -75,4 +125,32 @@ describe("the mapper over the whole live capture", () => {
      against a block that was never marked running. Asserting it stays visible at this layer keeps
      that division honest — if it were filtered here too, the fold's guard would be untested and
      would rot. `transcript-model` owns the other half of this test. */
+});
+
+describe("the mapper over the whole workflow capture", () => {
+  it("emits one running and one stopped event for the run without the harness's task id on either", () => {
+    const m = createSdkMapper();
+    const out = WORKFLOW.flatMap((msg) => m.map(msg as never));
+    expect(out.flatMap((e) => (e.type === "background_task" ? [e.payload] : []))).toEqual([
+      { toolUseId: "toolu_fake_2", status: "running" },
+      { toolUseId: "toolu_fake_2", status: "stopped", summary: 'Dynamic workflow "Probe run with two agents" completed', outcome: "completed" },
+    ]);
+  });
+
+  it("knows the run's task id by its launching call from the start until the stop", () => {
+    const m = createSdkMapper();
+    const seen: (string | undefined)[] = [];
+    for (const msg of [wf("background_tasks_changed"), wf("task_started"), wf("task_progress"), wf("task_notification")]) {
+      m.map(msg as never);
+      seen.push(m.taskIdOf("toolu_fake_2"));
+    }
+    expect(seen).toEqual([undefined, "w1m36gxx5", "w1m36gxx5", undefined]);
+  });
+
+  it("knows no task id for the shell command a sub-agent ran, which is a task and not a run", () => {
+    const m = createSdkMapper();
+    for (const msg of LIVE.slice(0, 4)) m.map(msg as never);
+    expect(m.taskIdOf("toolu_01Fb1nhsQsro42fKpn1NAdHR")).toBe("afdbbdc3dc8394a04");
+    expect(m.taskIdOf("toolu_01FN9wFwCG8JCtBRYqpWjvZu")).toBeUndefined();
+  });
 });

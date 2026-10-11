@@ -63,6 +63,14 @@ describe("liveApi wire params", () => {
     ]);
   });
 
+  it("asks the server to stop one background run by the call that launched it, and interrupts nothing", async () => {
+    calls.length = 0;
+    await liveApi().stopBackgroundRun("se1", "toolu_01WorkflowCall");
+    expect(calls).toEqual([
+      { method: "sessions.stopTask", params: { id: "se1", toolUseId: "toolu_01WorkflowCall" } },
+    ]);
+  });
+
   it("passes terminal writes through byte for byte — no newline is added on the way out", async () => {
     calls.length = 0;
     await liveApi().writeTerminal("t1", "npm install -g @anthropic-ai/claude-code");

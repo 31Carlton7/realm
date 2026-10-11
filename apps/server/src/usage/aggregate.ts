@@ -200,13 +200,34 @@ export function buildBreakdown(
 /** One `status` event as the turn walk reads it. `status` is a string rather than `SessionStatus`
  *  because it comes straight off `json_extract`, and a value this build has never heard of must
  *  fall through the walk rather than be cast into one it has. */
-export type StatusSample = { ts: number; status: string };
+export type StatusSample = { ts: number; status: string;
+  /** The event's own mark: a wait raised with no turn in flight, and the `idle` that closes it. */
+  betweenTurns?: boolean };
+
+/**
+ * When the agent last said or did something at the top level between two of a session's status
+ * events, as a time, or null when it did nothing there. What `turnDurations` asks about a turn that
+ * opened under a card.
+ *
+ * A `waiting_permission` with no turn open and no `betweenTurns` mark is such a turn: it began
+ * while a card raised between turns was still up, so the session went on reading the wait and never
+ * said `running`. The agent is at work under that card, not waiting on it. If `running` follows,
+ * the card was answered and the turn goes on as any other, timed from where it opened. If the turn
+ * closes first, it ended under the card, and its settle came only with the card's answer, however
+ * long that took: so its length runs to the agent's last output, and a wait that no output followed
+ * counts for nothing. Logs written before the mark existed hold such waits between turns, with no
+ * turn behind them. Walked as it was, a turn like this was left out of the figures altogether.
+ *
+ * A function and not more rows for the walk, because the turn is rare and output is most of a log:
+ * the reader that answers looks up the one span instead of loading every event of every session.
+ */
+export type LastOutputBetween<S extends StatusSample> = (opened: S, settled: S) => number | null;
 
 /**
  * The working time of every finished turn in one session's status history, in event order.
  *
- * A turn opens on `running` and closes on the first `idle`, `error` or `ended` after it. Two things
- * keep the figure about the AGENT rather than about the clock:
+ * A turn opens on `running`, or under a card (`LastOutputBetween`), and closes on the first `idle`,
+ * `error` or `ended` after it. Two things keep the figure about the AGENT, not about the clock:
  *
  * - Time spent `waiting_permission` is taken out. A turn left on a prompt overnight is a measure of
  *   the night, and the page's "longest turn" would otherwise belong to whoever went to bed with a
@@ -219,22 +240,31 @@ export type StatusSample = { ts: number; status: string };
  * A second `running` inside an open turn is the same turn: "send now" and a delivered queue both
  * restate it without the agent ever stopping.
  */
-export function turnDurations(statuses: readonly StatusSample[]): { ms: number; endedAt: number }[] {
+export function turnDurations<S extends StatusSample>(statuses: readonly S[], lastOutput: LastOutputBetween<S> = () => null): { ms: number; endedAt: number }[] {
   const out: { ms: number; endedAt: number }[] = [];
   let start: number | null = null;
   let waitingSince: number | null = null;
   let waited = 0;
-  for (const { ts, status } of statuses) {
+  let underCard: S | null = null;
+  for (const sample of statuses) {
+    const { ts, status } = sample;
     if (status === "running") {
+      underCard = null;
       if (start === null) { start = ts; waited = 0; waitingSince = null; }
       else if (waitingSince !== null) { waited += ts - waitingSince; waitingSince = null; }
     } else if (status === "waiting_permission") {
-      if (start !== null && waitingSince === null) waitingSince = ts;
+      if (start !== null) { if (waitingSince === null) waitingSince = ts; }
+      else if (sample.betweenTurns !== true) { start = ts; waited = 0; waitingSince = null; underCard = sample; }
     } else if (status === "idle" || status === "error" || status === "ended") {
       if (start === null) continue;
-      const pause = waited + (waitingSince !== null ? ts - waitingSince : 0);
-      out.push({ ms: Math.max(0, ts - start - pause), endedAt: ts });
-      start = null; waitingSince = null; waited = 0;
+      if (underCard !== null) {
+        const last = lastOutput(underCard, sample);
+        if (last !== null) out.push({ ms: Math.max(0, last - start), endedAt: ts });
+      } else {
+        const pause = waited + (waitingSince !== null ? ts - waitingSince : 0);
+        out.push({ ms: Math.max(0, ts - start - pause), endedAt: ts });
+      }
+      start = null; waitingSince = null; waited = 0; underCard = null;
     }
   }
   return out;
