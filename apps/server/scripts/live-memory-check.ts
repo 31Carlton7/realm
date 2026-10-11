@@ -88,7 +88,7 @@ const PROMPT = "Without using any tools: reply with the exact values of PROBE_A 
 
 async function checkClaude(memory: MemoryService, injection: { pluginPath: string; root: string }, cwd: string) {
   console.log("\n=== claude ===");
-  const systemContext = memory.systemContextFor({ spaceId: SPACE, kind: "claude", cwd, skillsInjected: true });
+  const systemContext = memory.systemContextFor({ spaceId: SPACE, kind: "claude", cwd, isolated: true });
   ok("MemoryService built a context carrying both tokens", !!systemContext?.includes(USER_TOKEN) && !!systemContext?.includes(REALM_TOKEN));
   const adapter = new ClaudeAdapter();
   const handle = adapter.start({ cwd, mcpServers: [], skills: injection, systemContext, permissionMode: "default" });
@@ -109,7 +109,7 @@ async function checkClaude(memory: MemoryService, injection: { pluginPath: strin
 
 async function checkCodex(memory: MemoryService, cwd: string) {
   console.log("\n=== codex ===");
-  const systemContext = memory.systemContextFor({ spaceId: SPACE, kind: "codex", cwd, skillsInjected: false });
+  const systemContext = memory.systemContextFor({ spaceId: SPACE, kind: "codex", cwd, isolated: false });
   ok("MemoryService built a codex context carrying the Realm token and never CLAUDE.md", !!systemContext?.includes(REALM_TOKEN) && !systemContext?.includes(USER_TOKEN));
   const adapter = new CodexAdapter();
   const handle = adapter.start({ cwd, mcpServers: [], systemContext, permissionMode: "default" });

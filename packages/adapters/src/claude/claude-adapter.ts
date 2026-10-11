@@ -328,7 +328,7 @@ export class ClaudeAdapter implements AgentAdapter {
       // mutating tools stay double-gated on purpose).
       allowedTools: claudeAllowedTools(opts.mcpServers),
       // Realm's skills library as a local plugin, and `settingSources: []` so it is the ONLY library
-      // this session has. The two go together and neither works alone for what Realm wants:
+      // this session has. The two go together unless the person keeps their own setup (`ownSetup`):
       //
       //   - without `plugins`, there is no way to add a skills directory at all;
       //   - without `settingSources: []`, the user's own `~/.claude/skills` (29 of them here) load
@@ -338,9 +338,9 @@ export class ClaudeAdapter implements AgentAdapter {
       // dropping `settingSources` takes the command count from 53 to 147.
       //
       // The cost is real and deliberate: `settingSources: []` also drops the user's `~/.claude/CLAUDE.md`
-      // and the repo's `.claude/` settings. That is why the option is only present when the space
-      // actually has enabled skills — a space that manages none is left exactly as it was.
-      ...(opts.skills ? { settingSources: [], plugins: [{ type: "local" as const, path: opts.skills.pluginPath, skipMcpDiscovery: true }] } : {}),
+      // and the repo's `.claude/` settings. That is why the option is only present when the space has
+      // enabled skills and `ownSetup` is absent. A space that manages none is left exactly as it was.
+      ...(opts.skills ? { ...(opts.ownSetup ? {} : { settingSources: [] }), plugins: [{ type: "local" as const, path: opts.skills.pluginPath, skipMcpDiscovery: true }] } : {}),
       env: { ...process.env, ...opts.env },
       stderr: onStderr,
       pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,

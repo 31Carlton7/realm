@@ -793,6 +793,24 @@ describe("ClaudeAdapter skills", () => {
     await handle.dispose();
   });
 
+  it("passes the staged plugin and leaves settingSources unset when the session keeps the person's own setup", async () => {
+    const { handle, options } = capture({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" }, ownSetup: true });
+    await handle.send({ text: "hi", attachments: [] });
+    const o = options()!;
+    expect(o.plugins).toEqual([{ type: "local", path: "/tmp/realm-plugin", skipMcpDiscovery: true }]);
+    expect("settingSources" in o).toBe(false);
+    await handle.dispose();
+  });
+
+  it("touches neither option for ownSetup alone, when Realm is not managing this session's skills", async () => {
+    const { handle, options } = capture({ ownSetup: true });
+    await handle.send({ text: "hi", attachments: [] });
+    const o = options()!;
+    expect(o.plugins).toBeUndefined();
+    expect("settingSources" in o).toBe(false);
+    await handle.dispose();
+  });
+
   it("appends systemContext to the claude_code preset prompt — W3's memory channel, and the only route the user's CLAUDE.md has back into a settingSources: [] session", async () => {
     const { handle, options } = capture({
       systemContext: "REALM CONTEXT 4417",

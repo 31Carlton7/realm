@@ -935,3 +935,30 @@ export function steerNote(kind: import("./entities").AgentKind): string {
     ? `Sends now. ${label} stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting.`
     : `Sends now, into the turn ${label} is already running. Nothing is interrupted.`;
 }
+
+/**
+ * Settings key for whether a Claude session keeps the person's own Claude Code setup beside what Realm
+ * adds: their `settings.json`, hooks, plugins, skills and commands, and the MCP servers of every scope
+ * (user and local in `.claude.json`, the repository's `.mcp.json`).
+ *
+ * It decides something only for a session that is handed Realm's skills library. The Claude adapter
+ * starts that one with `settingSources: []`, which shuts all of the above out, and this key is what
+ * stops it. A session with no library loads the person's setup whatever is stored here.
+ *
+ * Read server-side by `SessionService`, where a session's start options are built, so a change
+ * reaches a session when its agent process next starts and restarts nothing.
+ */
+export const CLAUDE_OWN_SETUP_KEY = "claude.ownSetup";
+
+/** Whether the stored value switches it on. Only JSON `true` does: an unset key, `false` and anything
+ *  unrecognised read as off, which is how every session started before the key existed. */
+export function resolveClaudeOwnSetup(stored: unknown): boolean {
+  return stored === true;
+}
+
+/** What Settings says about it. The row and the search index both print the label from here, so a
+ *  result and the row it lands on read the same. */
+export const CLAUDE_OWN_SETUP_COPY = {
+  label: "Use my Claude Code setup",
+  detail: "Claude sessions load your own Claude Code settings, hooks, plugins, skills, and MCP servers beside what Realm adds. When this is off, a Claude session in a space with skills on loads only what Realm adds. A change takes effect the next time a session's agent starts.",
+} as const;

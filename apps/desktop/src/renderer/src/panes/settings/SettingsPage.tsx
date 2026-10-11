@@ -1,7 +1,7 @@
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
 import { CaretSettings } from "../../components/settings/CaretSettings";
-import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
+import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, CLAUDE_OWN_SETUP_COPY,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
   EDITOR_NAMES, resolveEditor, type OpenFilesIn, type TerminalDockEdge, } from "@realm/contracts";
@@ -1169,6 +1169,7 @@ function GeneralTab() {
   const prefs = useApp((s) => s.settingsPrefs);
   const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
   const setDefaultPermissionMode = useApp((s) => s.setDefaultPermissionMode);
+  const setClaudeOwnSetup = useApp((s) => s.setClaudeOwnSetup);
   const setMidTurnMode = useApp((s) => s.setMidTurnMode);
   const midTurnMode = useApp((s) => s.midTurnMode);
   const sidebarActivityOrder = useApp((s) => s.sidebarActivityOrder);
@@ -1271,6 +1272,17 @@ function GeneralTab() {
                 {unsupported.length > 0 && ` ${labels(unsupported)} sessions ignore it and start on the agent's own default.`}
               </p>
             </>
+          )}
+        </div>
+        <div className="settings-row" data-setting="claude-own-setup">
+          <div className="settings-row-main">
+            <span className="settings-row-name">{CLAUDE_OWN_SETUP_COPY.label}</span>
+            <span className="settings-row-desc">{CLAUDE_OWN_SETUP_COPY.detail}</span>
+          </div>
+          {prefs === null ? <p className="env-empty">Loading preferences…</p> : (
+            <input type="checkbox" role="switch" className="switch" aria-label={CLAUDE_OWN_SETUP_COPY.label}
+              checked={prefs.claudeOwnSetup}
+              onChange={(e) => run(() => setClaudeOwnSetup(e.target.checked))} />
           )}
         </div>
       </div>

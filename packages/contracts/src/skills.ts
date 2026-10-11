@@ -118,7 +118,7 @@ export type Skill = z.infer<typeof SkillSchema>;
 export type SkillSupport = "injected" | "unsupported";
 
 export const AGENT_SKILL_SUPPORT = {
-  // claude-adapter.ts: `plugins: [{ type: "local", path }]` + `settingSources: []`.
+  // claude-adapter.ts: `plugins: [{ type: "local", path }]`, with `settingSources: []` unless `claude.ownSetup` is on.
   claude: "injected",
   // codex-adapter.ts: `skills/extraRoots/set` on the app-server connection, after the thread exists.
   codex: "injected",

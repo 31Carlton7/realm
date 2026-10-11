@@ -404,8 +404,8 @@ export class SkillsService {
    * nothing to hand over.
    *
    * Null is load-bearing on the Claude side: being given a library is also what makes that session
-   * isolate itself from the user's own `~/.claude` settings, so "no skills" has to mean "no option",
-   * not "an empty option".
+   * isolate itself from the user's own `~/.claude` settings while `CLAUDE_OWN_SETUP_KEY` is off, so
+   * "no skills" has to mean "no option", not "an empty option".
    *
    * Never throws. A session that cannot be given skills is a session with fewer skills; it is not a
    * session that fails to start, and no `SKILL.md` anyone can write may change that.

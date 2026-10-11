@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
-import { newId, sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
+import { CLAUDE_OWN_SETUP_KEY, newId, sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 
@@ -76,6 +76,22 @@ async function startSession(c: Any, spaceId: string, agentKind: string) {
   const { session } = (await c.call("sessions.create", { spaceId, agentKind })).result;
   await c.call("sessions.send", { id: session.id, text: "go" });
   return session;
+}
+
+/** Puts one valid skill in Realm's library, which switches it on in every space of the home. */
+function librarySkill(home: string) {
+  mkdirSync(join(home, "skills", "mac"), { recursive: true });
+  writeFileSync(join(home, "skills", "mac", "SKILL.md"), "---\nname: mac\ndescription: does mac.\n---\n");
+}
+
+/** Writes the user's own CLAUDE.md and answers how memory.sources says it reaches a session. */
+function userMemory(c: Any, claudeDir: string) {
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(join(claudeDir, "CLAUDE.md"), "user memory");
+  return async (sessionId: string): Promise<string> => {
+    const { sources } = (await c.call("memory.sources", { sessionId })).result;
+    return sources.find((s: Any) => s.path === join(claudeDir, "CLAUDE.md")).via;
+  };
 }
 
 describe("memory over rpc", () => {
@@ -161,6 +177,62 @@ describe("memory over rpc", () => {
     c.close();
   });
 
+  it("passes ownSetup to a Claude session with skills on once the person keeps their own setup", async () => {
+    const { c, spA, home, claude } = await boot();
+    librarySkill(home);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    expect(claude.starts[0]!.skills).toBeTruthy();
+    expect(claude.starts[0]!.ownSetup).toBe(true);
+    c.close();
+  });
+
+  it("with the person's own setup kept the CLAUDE.md is NOT re-injected though skills are on: the CLI loads it itself", async () => {
+    const { c, spA, home, claudeDir, claude } = await boot();
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(join(claudeDir, "CLAUDE.md"), "USER_MEMORY_MARKER_9317");
+    librarySkill(home);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    expect(claude.starts[0]!.skills).toBeTruthy();
+    expect(claude.starts[0]!.systemContext).not.toContain("USER_MEMORY_MARKER_9317");
+    c.close();
+  });
+
+  it("leaves ownSetup off the start options while the stored value is not a JSON true, so the session starts as it always did", async () => {
+    const { c, spA, home, claude } = await boot();
+    librarySkill(home);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: "true" });
+    await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    expect(claude.starts[0]!.skills).toBeTruthy();
+    expect("ownSetup" in claude.starts[0]!).toBe(false);
+    c.close();
+  });
+
+  it("never passes ownSetup to a Codex session, which has no setup of Claude's to keep", async () => {
+    const { c, spA, home, codex } = await boot();
+    librarySkill(home);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    await startSession(c, spA.id, "codex");
+    await waitFor(() => codex.starts.length === 1);
+    expect(codex.starts[0]!.skills).toBeTruthy();
+    expect("ownSetup" in codex.starts[0]!).toBe(false);
+    c.close();
+  });
+
+  it("does not pass ownSetup to a Claude session with no library, where nothing isolates it in the first place", async () => {
+    const { c, spA, claude } = await boot();
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    expect(claude.starts[0]!.skills).toBeUndefined();
+    expect("ownSetup" in claude.starts[0]!).toBe(false);
+    c.close();
+  });
+
   it("memory.sources reports per session: codex sessions carry their own thread's instructionSources", async () => {
     const { c, spA, spB } = await boot();
     const a = await startSession(c, spA.id, "codex");
@@ -192,6 +264,40 @@ describe("memory over rpc", () => {
     expect(srcCl.sources.find((s: Any) => s.path === join(claudeDir, "CLAUDE.md"))).toMatchObject({ origin: "user", exists: true, via: "cli" });
     const srcCu = (await c.call("memory.sources", { sessionId: cu.id })).result;
     expect(srcCu).toMatchObject({ agent: "acp:cursor", channel: "none", basis: "none", sources: [] });
+    c.close();
+  });
+
+  it("memory.sources for a Claude session that is not live follows the setting: realm while its skills isolate it, cli once the person keeps their own setup", async () => {
+    const { c, spA, home, claudeDir } = await boot();
+    const via = userMemory(c, claudeDir);
+    librarySkill(home);
+    const { session } = (await c.call("sessions.create", { spaceId: spA.id, agentKind: "claude" })).result;
+    expect(await via(session.id)).toBe("realm");
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    expect(await via(session.id)).toBe("cli");
+    c.close();
+  });
+
+  it("memory.sources keeps saying cli for a live session that was started keeping the person's own setup, though the setting is switched off afterwards", async () => {
+    const { c, spA, home, claudeDir, claude } = await boot();
+    const via = userMemory(c, claudeDir);
+    librarySkill(home);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    const session = await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: false });
+    expect(await via(session.id)).toBe("cli");
+    c.close();
+  });
+
+  it("memory.sources keeps saying realm for a live session that was started isolated, though the setting is switched on afterwards", async () => {
+    const { c, spA, home, claudeDir, claude } = await boot();
+    const via = userMemory(c, claudeDir);
+    librarySkill(home);
+    const session = await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    expect(await via(session.id)).toBe("realm");
     c.close();
   });
 

@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, CLAUDE_OWN_SETUP_KEY, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveClaudeOwnSetup, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -84,7 +84,11 @@ export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): str
 /** How long a steer waits for the interrupted turn to settle before sending anyway. */
 const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
 
-type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
+type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean;
+  /** Whether THIS handle was started isolated from the person's own Claude Code setup: a Claude
+   *  session handed the library while `CLAUDE_OWN_SETUP_KEY` was off. The memory pane reads it for a
+   *  live session, because a change of that setting waits for the agent process to start again. */
+  isolated: boolean };
 
 /**
  * Owns the session trio: DB row + sidebar item + live adapter handle. Adapter handles are started lazily on the
@@ -1099,16 +1103,21 @@ export class SessionService {
    * What durable context this session's agent loads (memory.sources). The Codex report comes from THIS
    * session's own persisted `init` event and nowhere else — the store query is keyed by the session id,
    * which is what keeps one session's `instructionSources` from ever dressing up another's pane.
+   *
+   * Whether a Claude session is isolated is this session's own fact too. A live one answers with what
+   * its handle was started with (`Live.isolated`). One that is not live answers with what a start
+   * would do now: the space's library and `CLAUDE_OWN_SETUP_KEY`, the two things `ensureLive` reads.
    */
   memorySources(id: string): MemorySources {
     const s = this.get(id);
-    const skillsInjected = this.d.skills.wouldInject(s.spaceId, s.agentKind);
+    const isolated = this.live.get(id)?.isolated
+      ?? (s.agentKind === "claude" && this.d.skills.wouldInject(s.spaceId, s.agentKind) && !resolveClaudeOwnSetup(this.d.settings.get(CLAUDE_OWN_SETUP_KEY)));
     let reported: string[] | null = null;
     if (s.agentKind === "codex") {
       const ev = this.d.events.lastOfType(id, "init");
       reported = ev?.type === "init" ? ev.payload.instructionSources ?? null : null;
     }
-    return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, skillsInjected, reported });
+    return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, isolated, reported });
   }
 
   /** Whether a session in this environment is mid-turn — what stops a restore rewriting a working tree
@@ -1165,23 +1174,26 @@ export class SessionService {
     // Realm's skills library, staged for this space and handed over per-invocation (W1). Null for an
     // agent that has no route for it and for a space with nothing enabled — and null must stay null
     // rather than becoming an empty root, because on Claude the option's presence is also what isolates
-    // the session from the user's own settings. An agent_run child with a `skills` constraint (Plan 13
-    // W1) stages the narrowed subset under its own session-keyed stage instead of the space's shared
-    // one, so other live sessions' symlinked trees are never rebuilt out from under them.
+    // the session from the user's own settings unless `ownSetup`. An agent_run child with a `skills`
+    // constraint (Plan 13 W1) stages the narrowed subset under its own session-keyed stage instead of the
+    // space's shared one, so other live sessions' symlinked trees are never rebuilt out from under them.
     const only = this.d.browserAgents?.skillsFilter?.(id) ?? null;
     const skills = (only
       ? this.d.skills.injectionFor(s.spaceId, s.agentKind, { only, stageId: id })
       : this.d.skills.injectionFor(s.spaceId, s.agentKind)) ?? undefined;
+    const claudeLibrary = s.agentKind === "claude" && skills !== undefined;
+    const ownSetup = claudeLibrary && resolveClaudeOwnSetup(this.d.settings.get(CLAUDE_OWN_SETUP_KEY));
+    const isolated = claudeLibrary && !ownSetup;
     // The ONLY MCP config any agent ever receives (W3): one `realm` gateway entry, minted fresh per
     // session start by `gateway.register`. Third-party server endpoints, API keys and OAuth tokens never
     // leave realm-server — an agent reaches them only by proxy, through the Bearer token below, which
     // `onLog` (like every other log line here) never sees.
     const mcpServers = [this.d.gateway.register(id, s.spaceId)];
-    // The session's durable context (W3): THIS space's Realm memory document, plus — when the skills
-    // injection above is active on a Claude session — the CLAUDE.md content that `settingSources: []`
-    // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
-    // isolation on, so the re-injection can never disagree with it.
-    const baseContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    // The session's durable context (W3): THIS space's Realm memory document, plus the CLAUDE.md content
+    // that `settingSources: []` would otherwise silently drop, when the Claude session above starts
+    // isolated. `isolated` is the two facts the adapter keys the isolation on, a library and no
+    // `ownSetup`, so the re-injection can never disagree with it.
+    const baseContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, isolated });
     // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
@@ -1218,6 +1230,7 @@ export class SessionService {
     const startOptions: import("@realm/adapters").StartOptions & { resumeAt?: string | null; resumeDropsTurn?: string | null } = {
       cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
       skills,
+      ...(ownSetup ? { ownSetup: true as const } : {}),
       systemContext,
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
       // under, for a log line or a bug report to read. Nothing reads them back.
@@ -1250,7 +1263,7 @@ export class SessionService {
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
       finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.d.gateway.release(id); } }
     })();
-    this.live.set(id, { handle, pump, skillsInjected: skills !== undefined });
+    this.live.set(id, { handle, pump, skillsInjected: skills !== undefined, isolated });
     return handle;
   }
 

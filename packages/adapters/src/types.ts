@@ -29,7 +29,8 @@ export type McpServerConfig =
  *
  * Absent (`undefined`) means "Realm is not managing skills for this session" — every adapter must then
  * behave exactly as it did before this option existed. That is not the same as an empty library: see
- * ClaudeAdapter, where being handed a library also isolates the session from the user's own settings.
+ * ClaudeAdapter, where being handed a library also isolates the session from the user's own settings
+ * unless `StartOptions.ownSetup` keeps them.
  */
 export type SkillsInjection = {
   /** Claude Code: `plugins: [{ type: "local", path: pluginPath }]`. */
@@ -54,6 +55,12 @@ export type StartOptions = {
   /** Omitted for agents Realm cannot inject skills into (see AGENT_SKILL_SUPPORT), and for a space
    *  whose enabled skill set is empty. */
   skills?: SkillsInjection;
+  /** The session keeps the person's own Claude Code setup beside Realm's library (`CLAUDE_OWN_SETUP_KEY`).
+   *  Only the Claude adapter reads it, and only together with `skills`: it loads the library as a plugin
+   *  and leaves `settingSources` unset, so the CLI loads its settings files, skills and MCP servers as it
+   *  does by default (held to the real CLI in `apps/server/scripts/live-claude-setup-check.ts`). Absent
+   *  is the only off, so a session that does not ask starts exactly as it did before the option existed. */
+  ownSetup?: true;
   resume?: string | null;
   env?: Record<string, string>;
   /**
