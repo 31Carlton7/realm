@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { findSidePane, type DelegatedRun } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
+import { labelOf } from "./DelegatedRuns";
 import { SessionMeta, SessionPane } from "./SessionPane";
+import { toolSummary } from "./tool-summary";
 import { reduceAll } from "./transcript-model";
 import { sessionEvent } from "@realm/contracts";
 
@@ -309,5 +311,349 @@ describe("a delegation call links the sessions it started", () => {
     // a shell command.
     await mountWith(call("Bash", `grep found ${KID_ID} in the log`));
     expect(links()).toEqual([]);
+  });
+});
+
+/** A workflow's script, naming itself the way the harness requires. */
+const SCRIPT = "export const meta = { name: 'probe-run', description: 'Probe run with two agents' }\nreturn await agent('PROBE-AGENT-A say alpha')";
+
+/**
+ * One name for a `Workflow` call. The running-agents list and the call's own row used to work it out
+ * separately. The list took the input's `description` and the row took the first string in the
+ * input, so the list could offer to stop a run under a name its card did not use.
+ */
+describe("a Workflow call", () => {
+  const both = (input: Record<string, unknown>) => [labelOf("Workflow", input), toolSummary("Workflow", input)];
+
+  it("is called by its script's own name, in the list and on its row alike", () => {
+    expect(both({ script: SCRIPT })).toEqual(["probe-run", "probe-run"]);
+  });
+
+  it("never takes its name from the input's description or title, which the harness ignores", () => {
+    expect(both({ script: SCRIPT, description: "Tidy the README", title: "Tidy" })).toEqual(["probe-run", "probe-run"]);
+    expect(both({ description: "Tidy the README", title: "Tidy" })).toEqual(["Workflow", "Workflow"]);
+  });
+
+  it("is called by the saved workflow it asks for when it carries no script", () => {
+    expect(both({ name: "deploy-all", args: { target: "staging" } })).toEqual(["deploy-all", "deploy-all"]);
+  });
+
+  it("is called by its file's name when a script path is all it carries", () => {
+    const input = { scriptPath: "/tmp/capture/workflows/scripts/probe-run-wf_e7f5f79f-cf9.js", resumeFromRunId: "wf_e7f5f79f-cf9" };
+    expect(both(input)).toEqual(["probe-run-wf_e7f5f79f-cf9.js", "probe-run-wf_e7f5f79f-cf9.js"]);
+  });
+
+  it("is called by its file when it carries a script path, whatever script the model sent with it", () => {
+    expect(both({ script: SCRIPT, scriptPath: "/x/deploy-prod.js" })).toEqual(["deploy-prod.js", "deploy-prod.js"]);
+  });
+
+  it("is called by the saved workflow it names, whatever script the model sent with it", () => {
+    expect(both({ script: SCRIPT, name: "deploy-all" })).toEqual(["deploy-all", "deploy-all"]);
+  });
+
+  it("is called the same on its permission card and on its row for a saved-script launch", () => {
+    const file = "export const meta = { name: 'what-the-file-says', description: 'The script on disk' }\nreturn await agent('go')";
+    const card = toolSummary("Workflow", { script: file, scriptPath: "/x/deploy-prod.js" });
+    const row = labelOf("Workflow", { scriptPath: "/x/deploy-prod.js" });
+    expect([card, row]).toEqual(["deploy-prod.js", "deploy-prod.js"]);
+  });
+
+  it("is called by its file when it carries a script path and a name, since the harness takes the path first", () => {
+    expect(both({ name: "deploy-all", scriptPath: "/x/deploy-prod.js" })).toEqual(["deploy-prod.js", "deploy-prod.js"]);
+  });
+
+  it("is called Workflow when nothing names it, and never Sub-agent", () => {
+    expect(both({})).toEqual(["Workflow", "Workflow"]);
+    expect(both({ script: "return await agent('go')" })).toEqual(["Workflow", "Workflow"]);
+    expect(both({ scriptPath: "/tmp/capture/workflows/scripts/" })).toEqual(["Workflow", "Workflow"]);
+  });
+
+  it("takes no name from text further down its script", () => {
+    expect(both({ script: "await agent('go', { name: 'decoy' })\nexport const meta = { name: 'late', description: 'x' }" })).toEqual(["Workflow", "Workflow"]);
+  });
+
+  it("leaves every other tool's label as it was", () => {
+    expect(labelOf("Task", { description: "audit the mapper", prompt: "Audit every mapper." })).toBe("audit the mapper");
+    expect(labelOf("Agent", { prompt: "  Audit every mapper.  " })).toBe("Audit every mapper.");
+    expect(labelOf("Agent", {})).toBe("Sub-agent");
+    expect(toolSummary("Task", { description: "audit the mapper", prompt: "Audit every mapper." })).toBe("audit the mapper");
+  });
+});
+
+/** A stop the test answers by hand, so the time the call is out can be looked at. */
+function held(api: ReturnType<typeof fakeApi>): { allow: () => void; refuse: (why: string) => void } {
+  const answer = { allow: () => {}, refuse: (_why: string) => {} };
+  api.stopBackgroundRun = () => new Promise<void>((resolve, reject) => {
+    answer.allow = resolve;
+    answer.refuse = (why) => reject(new Error(why));
+  });
+  return answer;
+}
+
+/**
+ * The stop control on a background run's row, which ends one run and leaves the session alone.
+ *
+ * Mounted inside a `.panel`, as the app mounts a session's bar and its pane, because where the
+ * keyboard goes when the list empties is found from the panel the control stands in.
+ */
+describe("the stop control on a background run's row", () => {
+  const launch = (id: string, name: string, input: Record<string, unknown>) => [
+    sessionEvent("tool_call", { toolUseId: id, name, input, parentToolUseId: null }),
+    sessionEvent("background_task", { toolUseId: id, status: "running" }),
+    sessionEvent("tool_result", { toolUseId: id, content: "Workflow launched in background. Task ID: w1m36gxx5", isError: false }),
+  ];
+  const workflow = (id: string, input: Record<string, unknown> = { script: SCRIPT }) => launch(id, "Workflow", input);
+  const blocking = (id: string, description: string) => sessionEvent("tool_call", { toolUseId: id, name: "Task", input: { description }, parentToolUseId: null });
+  const ended = (id: string, outcome: "completed" | "failed" | "stopped") => sessionEvent("background_task", { toolUseId: id, status: "stopped", outcome });
+  const dockText = () => [...document.querySelectorAll(".agents-pop .delegation-item .delegation-title")].map((n) => n.textContent);
+  const stops = () => screen.queryAllByRole("button", { name: /^Stop / });
+  const stopOf = (label: string) => screen.findByRole("button", { name: `Stop ${label}` });
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".agents-pop .delegation-list > li")];
+
+  async function mountWith(events: ReturnType<typeof sessionEvent>[], delegatedRuns: Record<string, DelegatedRun[]> = {}) {
+    const api = fakeApi({ items: ITEMS, sessions: SESSIONS, delegatedRuns });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll(events) } } });
+    await store.getState().openItem("i9");
+    const tree = (bar: (typeof ITEMS.s1)[number]) =>
+      <StoreContext.Provider value={store}><div className="panel"><SessionMeta item={bar} /><SessionPane item={ITEMS.s1[0]!} visible /></div></StoreContext.Provider>;
+    const view = render(tree(ITEMS.s1[0]!));
+    const show = (next: ReturnType<typeof sessionEvent>[]) => act(() => store.setState({ transcripts: { se1: { lastSeq: 1, t: reduceAll(next) } } }));
+    return { api, store, show, turnBarTo: (bar: (typeof ITEMS.s1)[number]) => view.rerender(tree(bar)) };
+  }
+
+  it("is drawn on a top-level row whose call is running in the background, and on no other row", async () => {
+    await mountWith([
+      blocking("t1", "audit the mapper"),
+      ...launch("a1", "Agent", { description: "Agent 1: hold 10m" }),
+      sessionEvent("tool_call", { toolUseId: "n1", name: "Agent", input: { description: "nested under the Task" }, parentToolUseId: "t1" }),
+      sessionEvent("background_task", { toolUseId: "n1", status: "running" }),
+    ], { se1: [KID] });
+    await openAgents();
+    await waitFor(() => expect(dockText()).toEqual(["Agent: audit the mapper", "audit the mapper", "Agent 1: hold 10m"]));
+    expect(stops().map((b) => b.getAttribute("aria-label"))).toEqual(["Stop Agent 1: hold 10m"]);
+  });
+
+  it("is not drawn on a call that has only been made, before the harness says its run is working", async () => {
+    await mountWith([sessionEvent("tool_call", { toolUseId: "w1", name: "Workflow", input: { script: SCRIPT }, parentToolUseId: null })]);
+    await openAgents();
+    await waitFor(() => expect(dockText()).toEqual(["probe-run"]));
+    expect(stops()).toEqual([]);
+  });
+
+  it("is named, like the watch control beside it, by the workflow's own name, whatever description the call carries", async () => {
+    await mountWith(workflow("w1", { script: SCRIPT, description: "Tidy the README" }));
+    await openAgents();
+    expect(await stopOf("probe-run")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Watch probe-run" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Tidy the README|Sub-agent/ })).toBeNull();
+  });
+
+  it("is a native button whose tooltip says what it stops and what goes on", async () => {
+    await mountWith(workflow("w1"));
+    await openAgents();
+    const stop = await stopOf("probe-run");
+    expect(stop).toHaveAttribute("title", "Stop this run. The session goes on.");
+    expect(stop.tagName).toBe("BUTTON");
+  });
+
+  it("takes the room of the words in the agent, which the watch button's tooltip says as a sentence on its row and which stay on a row without it", async () => {
+    await mountWith([blocking("t1", "audit the mapper"), ...workflow("w1")]);
+    await openAgents();
+    await stopOf("probe-run");
+    expect(screen.getByRole("button", { name: "Watch probe-run" })).toHaveAttribute("title", "Runs in the agent.");
+    expect(screen.getByRole("button", { name: "Watch probe-run" })).not.toHaveTextContent("in the agent");
+    expect(screen.getByRole("button", { name: "Watch audit the mapper" })).toHaveTextContent("in the agent");
+    expect(screen.getByRole("button", { name: "Watch audit the mapper" })).not.toHaveAttribute("title");
+  });
+
+  it("leaves an empty slot of its own width on the rows with nothing to stop, so every time ends on one edge", async () => {
+    await mountWith([blocking("t1", "audit the mapper"), ...workflow("w1")], { se1: [KID] });
+    await openAgents();
+    await stopOf("probe-run");
+    expect(rows().map((li) => li.className)).toEqual(["agents-row", "agents-row", "agents-row"]);
+    expect(rows().map((li) => li.lastElementChild!.className)).toEqual(["delegation-stop-slot", "delegation-stop-slot", "icon-btn delegation-stop"]);
+  });
+
+  it("leaves a list with nothing to stop exactly as it was: no row class, no slot, one button a row", async () => {
+    await mountWith([blocking("t1", "audit the mapper")], { se1: [KID] });
+    await openAgents();
+    await waitFor(() => expect(dockText()).toEqual(["Agent: audit the mapper", "audit the mapper"]));
+    expect(rows().map((li) => li.className)).toEqual(["", ""]);
+    expect(rows().map((li) => [...li.children].map((c) => c.tagName))).toEqual([["BUTTON"], ["BUTTON"]]);
+    expect(document.querySelector(".delegation-stop-slot")).toBeNull();
+  });
+
+  it("keeps the row class and the empty slot on the rows that remain when the only run that could be stopped has left", async () => {
+    const { show } = await mountWith([blocking("t1", "audit the mapper"), ...workflow("w1")]);
+    await openAgents();
+    await stopOf("probe-run");
+    show([blocking("t1", "audit the mapper"), ...workflow("w1"), ended("w1", "stopped")]);
+    await waitFor(() => expect(dockText()).toEqual(["audit the mapper"]));
+    expect(rows().map((li) => li.className)).toEqual(["agents-row"]);
+    expect(rows().map((li) => li.lastElementChild!.className)).toEqual(["delegation-stop-slot"]);
+  });
+
+  it("draws a list opened after that run has left with no row class and no slot, as a list that never had one", async () => {
+    const { show } = await mountWith([blocking("t1", "audit the mapper"), ...workflow("w1")]);
+    await openAgents();
+    await stopOf("probe-run");
+    show([blocking("t1", "audit the mapper"), ...workflow("w1"), ended("w1", "stopped")]);
+    await waitFor(() => expect(dockText()).toEqual(["audit the mapper"]));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(document.querySelector(".agents-pop")).toBeNull());
+    await openAgents();
+    await waitFor(() => expect(dockText()).toEqual(["audit the mapper"]));
+    expect(rows().map((li) => li.className)).toEqual([""]);
+    expect(document.querySelector(".delegation-stop-slot")).toBeNull();
+  });
+
+  it("draws the rows of a session the bar has turned to with no row class and no slot when that session has nothing to stop", async () => {
+    const { store, turnBarTo } = await mountWith(workflow("w1"));
+    await openAgents();
+    await stopOf("probe-run");
+    act(() => store.setState({ transcripts: { ...store.getState().transcripts, se3: { lastSeq: 0, t: reduceAll([blocking("t9", "check the tests")]) } } }));
+    turnBarTo(ITEMS.s1[2]!);
+    await waitFor(() => expect(dockText()).toEqual(["check the tests"]));
+    expect(rows().map((li) => li.className)).toEqual([""]);
+    expect(document.querySelector(".delegation-stop-slot")).toBeNull();
+  });
+
+  it("leaves the keyboard where it was when the bar turns to another session with the list open", async () => {
+    const { store, turnBarTo } = await mountWith(workflow("w1"));
+    await openAgents();
+    await stopOf("probe-run");
+    act(() => store.setState({ transcripts: { ...store.getState().transcripts, se3: { lastSeq: 0, t: reduceAll([blocking("t9", "check the tests")]) } } }));
+    document.querySelector<HTMLElement>(".composer-input")!.focus();
+    turnBarTo(ITEMS.s1[2]!);
+    await waitFor(() => expect(dockText()).toEqual(["check the tests"]));
+    expect(document.activeElement).toHaveClass("composer-input");
+  });
+
+  it("stops its run alone on one press, by the id of the call that launched it, and leaves the list open", async () => {
+    const { api, store } = await mountWith([...workflow("w1"), ...workflow("w2", { script: SCRIPT.replace("probe-run", "other-run") })]);
+    await openAgents();
+    fireEvent.click(await stopOf("other-run"));
+    await waitFor(() => expect(api.calls).toContain("stopBackgroundRun:se1:w2"));
+    expect(api.calls.filter((c) => c.startsWith("stopBackgroundRun") || c.startsWith("interrupt"))).toEqual(["stopBackgroundRun:se1:w2"]);
+    expect(document.querySelector(".agents-pop")).not.toBeNull();
+    expect(store.getState().sessionDock.se1).toBeUndefined();
+  });
+
+  it("ignores the second click of a double-click, so the run that moved up under the pointer is not stopped", async () => {
+    const other = workflow("w2", { script: SCRIPT.replace("probe-run", "other-run") });
+    const { api, show } = await mountWith([...workflow("w1"), ...other]);
+    await openAgents();
+    fireEvent.click(await stopOf("probe-run"), { detail: 1 });
+    await waitFor(() => expect(api.calls).toContain("stopBackgroundRun:se1:w1"));
+    show([...workflow("w1"), ended("w1", "stopped"), ...other]);
+    await waitFor(() => expect(dockText()).toEqual(["other-run"]));
+    fireEvent.click(await stopOf("other-run"), { detail: 2 });
+    await act(async () => { await new Promise((res) => setTimeout(res, 1)); });
+    expect(api.calls.filter((c) => c.startsWith("stopBackgroundRun"))).toEqual(["stopBackgroundRun:se1:w1"]);
+    expect(await stopOf("other-run")).toBeEnabled();
+  });
+
+  it("still stops on a first click, which the platform counts as one", async () => {
+    const { api } = await mountWith(workflow("w1"));
+    await openAgents();
+    fireEvent.click(await stopOf("probe-run"), { detail: 1 });
+    await waitFor(() => expect(api.calls).toContain("stopBackgroundRun:se1:w1"));
+  });
+
+  it("still stops on a key press, which carries no click count", async () => {
+    const { api } = await mountWith(workflow("w1"));
+    await openAgents();
+    fireEvent.click(await stopOf("probe-run"), { detail: 0 });
+    await waitFor(() => expect(api.calls).toContain("stopBackgroundRun:se1:w1"));
+  });
+
+  it("is disabled while the call is out, keeping its shape, its words and the list", async () => {
+    const { api } = await mountWith(workflow("w1"));
+    const answer = held(api);
+    await openAgents();
+    const stop = await stopOf("probe-run");
+    expect(stop).toBeEnabled();
+    fireEvent.click(stop);
+    await waitFor(() => expect(stop).toBeDisabled());
+    expect(stop).toHaveClass("icon-btn", "delegation-stop");
+    expect(stop).toHaveAttribute("title", "Stop this run. The session goes on.");
+    expect(document.querySelector(".agents-pop")).not.toBeNull();
+    await act(async () => { answer.allow(); });
+  });
+
+  it("is enabled again when the server refuses, with the server's sentence in a toast and the list still open", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { api, store } = await mountWith(workflow("w1"));
+      const answer = held(api);
+      await openAgents();
+      const stop = await stopOf("probe-run");
+      fireEvent.click(stop);
+      await waitFor(() => expect(stop).toBeDisabled());
+      await act(async () => { answer.refuse("Claude Code did not stop this run."); });
+      await waitFor(() => expect(stop).toBeEnabled());
+      expect(store.getState().toasts.map((t) => t.text)).toContain("Claude Code did not stop this run.");
+      expect(document.querySelector(".agents-pop")).not.toBeNull();
+    } finally { quiet.mockRestore(); }
+  });
+
+  it("takes the list with it when its row was the last, and hands the keyboard to the session's prompter", async () => {
+    const { api, show } = await mountWith(workflow("w1"));
+    await openAgents();
+    const stop = await stopOf("probe-run");
+    stop.focus();
+    fireEvent.click(stop);
+    await waitFor(() => expect(api.calls).toContain("stopBackgroundRun:se1:w1"));
+    show([...workflow("w1"), ended("w1", "stopped")]);
+    await waitFor(() => expect(document.querySelector(".agents-pop")).toBeNull());
+    expect(dock()).toBeNull();
+    expect(document.activeElement).toHaveClass("composer-input");
+  });
+
+  it("moves the keyboard nowhere when the last run ends by itself", async () => {
+    const { show } = await mountWith(workflow("w1"));
+    await openAgents();
+    (await screen.findByRole("button", { name: "Watch probe-run" })).focus();
+    show([...workflow("w1"), ended("w1", "completed")]);
+    await waitFor(() => expect(dock()).toBeNull());
+    expect(document.activeElement).not.toHaveClass("composer-input");
+  });
+
+  it("moves the keyboard nowhere for a stop the server refused, when that run later ends by itself", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { api, show } = await mountWith(workflow("w1"));
+      const answer = held(api);
+      await openAgents();
+      const stop = await stopOf("probe-run");
+      fireEvent.click(stop);
+      await waitFor(() => expect(stop).toBeDisabled());
+      await act(async () => { answer.refuse("Claude Code did not stop this run."); });
+      await waitFor(() => expect(stop).toBeEnabled());
+      show([...workflow("w1"), ended("w1", "completed")]);
+      await waitFor(() => expect(dock()).toBeNull());
+      expect(document.activeElement).not.toHaveClass("composer-input");
+    } finally { quiet.mockRestore(); }
+  });
+
+  it("moves the keyboard nowhere when the bar turns to another session while a stop is out", async () => {
+    const { api, turnBarTo } = await mountWith(workflow("w1"));
+    const answer = held(api);
+    await openAgents();
+    const stop = await stopOf("probe-run");
+    stop.focus();
+    fireEvent.click(stop);
+    await waitFor(() => expect(stop).toBeDisabled());
+    turnBarTo(ITEMS.s1[2]!);
+    await waitFor(() => expect(document.querySelector(".agents-pop")).toBeNull());
+    expect(document.activeElement).not.toHaveClass("composer-input");
+    await act(async () => { answer.allow(); });
+  });
+
+  it("carries no mark that keeps an agent out, because it grants nothing and starts nothing", async () => {
+    await mountWith(workflow("w1"));
+    await openAgents();
+    expect((await stopOf("probe-run")).closest("[data-no-agent]")).toBeNull();
   });
 });

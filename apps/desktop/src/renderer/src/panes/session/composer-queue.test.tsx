@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import type { AgentKind, MidTurnMode, PlanLimits, QueuedPrompt } from "@realm/contracts";
+import { sessionEvent, type AgentKind, type MidTurnMode, type PlanLimits, type QueuedPrompt, type SessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { SessionPane } from "./SessionPane";
@@ -145,6 +145,65 @@ describe("what the Stop button says a typed message will do", () => {
     const title = stop().getAttribute("title") ?? "";
     expect(title).toContain("into the turn Codex is running");
     expect(title).not.toContain("stops this turn");
+  });
+});
+
+/**
+ * The pane on a session that waits on a card, with the log that led there. Two waits share the one
+ * status. A card raised in a turn has that turn behind it, and a message typed then queues or
+ * steers. A card raised between turns, by a run working in the background, has none, and the server
+ * delivers a message typed then at once. Only the log's last status event tells them apart.
+ */
+async function mountWaiting(events: SessionEvent[]) {
+  const it0 = item("i9", "s1", { kind: "session", refId: "se1", title: "s" });
+  const api = fakeApi({ sessions: [session("se1", "s1", { status: "waiting_permission", agentKind: "fake" })], items: { s1: [it0] } });
+  const store = createAppStore(api);
+  await store.getState().boot();
+  store.setState({ sessionStatus: { se1: "waiting_permission" }, transcripts: { se1: { lastSeq: 0, t: reduceAll(events) } } });
+  render(<StoreContext.Provider value={store}><SessionPane item={it0} visible /></StoreContext.Provider>);
+  await act(async () => { await new Promise((res) => setTimeout(res, 1)); });
+  return { api };
+}
+
+describe("the corner button while a card is open", () => {
+  const card = sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] });
+  const betweenTurns = [sessionEvent("status", { status: "waiting_permission", betweenTurns: true }), card];
+  const inATurn = [sessionEvent("status", { status: "running" }), sessionEvent("status", { status: "waiting_permission" }), card];
+  const corner = () => document.querySelector<HTMLButtonElement>(".composer-send")!;
+  const type = (value: string) => fireEvent.change(screen.getByRole("textbox", { name: /message/i }), { target: { value } });
+
+  it("is Send, with a resting session's tooltip, in a wait raised between turns", async () => {
+    await mountWaiting(betweenTurns);
+    type("also fix the test");
+    expect(corner().getAttribute("aria-label")).toBe("Send");
+    expect(corner().getAttribute("data-state")).toBe("send");
+    expect(corner().getAttribute("title")).toBe("Send (⌘↵)");
+  });
+
+  it("is Stop, with the mid-turn tooltip, in a wait raised in a turn", async () => {
+    await mountWaiting(inATurn);
+    type("also fix the test");
+    expect(corner().getAttribute("aria-label")).toBe("Stop");
+    expect(corner().getAttribute("data-state")).toBe("stop");
+    expect(corner().getAttribute("title")).toContain("⌘↵ queues your message for when this turn ends");
+  });
+
+  it("sends the draft on a click in a wait raised between turns, and stops nothing", async () => {
+    const { api } = await mountWaiting(betweenTurns);
+    type("also fix the test");
+    fireEvent.click(corner());
+    await waitFor(() => expect(api.calls).toContain("sendMessage:se1=also fix the test"));
+    expect(api.calls.filter((c) => c.startsWith("interrupt"))).toEqual([]);
+  });
+
+  it("is Stop again once a turn has started under that card", async () => {
+    await mountWaiting([...betweenTurns, sessionEvent("user_message", { text: "go on", attachments: [] }), sessionEvent("status", { status: "waiting_permission" })]);
+    expect(corner().getAttribute("aria-label")).toBe("Stop");
+  });
+
+  it("is Stop in a wait whose log has not been read, as every wait was", async () => {
+    await mountWaiting([]);
+    expect(corner().getAttribute("aria-label")).toBe("Stop");
   });
 });
 

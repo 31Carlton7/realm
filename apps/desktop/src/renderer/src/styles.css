@@ -43,7 +43,8 @@
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
-.edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where {
+.edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
+.wf-resume code {
   letter-spacing: normal;
 }
 
@@ -4467,6 +4468,29 @@ button.edit-file:hover { background: var(--rl-hover); }
   font: 11px var(--font-mono); color: var(--rl-accent); }
 .upl-note { font-size: 11px; color: var(--rl-text-faint); }
 
+/* ── A workflow launch ────────────────────────────────────────────────────── */
+/* What the script says it is, then the script. The description and the phases are the script's own
+   words about itself, so they are set as reading text in the secondary ink, as a claim to weigh and
+   not as a heading. They wrap at any width, because the card can be as narrow as the sidebar's
+   Needs you list. The script and its arguments are drawn as code blocks, under captions in the
+   voice of the wells' own labels. */
+.wf { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wf-description { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.wf-caption { margin-top: 2px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
+.wf-phases { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.wf-phase { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.wf-phase-title { font-size: 13px; line-height: 1.5; color: var(--ink); }
+.wf-phase-detail { font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+/* Bounded like every drawn payload, by lines here rather than by a scroller. An agent writes these
+   words, and a paragraph of them must not push the script it describes off the card. The cut shows
+   its ellipsis, and nothing is lost behind it, because the whole `meta` is in the script underneath. */
+.wf-description, .wf-phase-title, .wf-phase-detail { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.wf-description { -webkit-line-clamp: 6; }
+.wf-phase-title { -webkit-line-clamp: 2; }
+.wf-phase-detail { -webkit-line-clamp: 3; }
+.wf-resume { margin: 0; font-size: 12px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.wf-resume code { background: none; padding: 0; font: 12px var(--font-mono); color: var(--ink); }
+
 /* The permission card's preview of what it is about to approve. Given the card's own width and no
    inner card of its own — it is the subject of the question, not an attachment to it. */
 .permission-preview { margin: 2px 0 2px; }
@@ -4523,6 +4547,11 @@ button.edit-file:hover { background: var(--rl-hover); }
 .permission-tool code { font: 12px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 .permission-details summary { font-size: 11px; color: var(--rl-text-dim); }
 .permission-details pre { margin-top: 6px; }
+/* What allowing sets going, on the one card that has such a thing to say, a workflow launch. A plain
+   sentence at the answers' own size and ink, read last before them. It takes no tone and no fill,
+   because the card already wears its one warning mark, and a wash under a sentence is a second
+   warning about one request. */
+.permission-caution { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
 
 /* Numbered options: kbd chip, label, shortcut hint; the selected row is an --rl-active pill (§2.7 —
    selected is a fill, never an outline). Focus and selection are kept in step by the component. */
@@ -5364,6 +5393,26 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    accent is what says it is still true once the pointer has moved away. */
 .delegation-item[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
 .delegation-item[data-selected] > svg:first-child { color: var(--rl-accent); }
+/* A row of the list once a run in it can be stopped by itself. The `li` is the row, holding the
+   watch button and, after it, that run's stop control. That holds in this list only, because
+   `.delegation-item` is also the row under a tool card, which has no second control. A list that
+   has had nothing to stop since it opened is left exactly as it was. One that has had a run to stop
+   keeps this shape until it closes, so its rows do not jump sideways when that run leaves.
+   Yielding order: the NAME gives way first, and nothing else gives way at all. The watch button
+   takes the row's slack and hands the shortfall to the name inside it. The mark, the time, the
+   status dot and the stop control each keep their own width. A row with nothing to stop keeps an
+   empty slot as wide as the control, so every row's time ends on one edge. */
+.agents-row { display: flex; align-items: center; gap: 4px; padding-right: 4px; }
+.agents-row > .delegation-item { flex: 1 1 0; min-width: 0; }
+.agents-row > .delegation-item > svg { flex: none; }
+.agents-row > .delegation-stop, .agents-row > .delegation-stop-slot { flex: none; width: 22px; }
+/* The sidebar's row controls' size, under design.md's 40 by 40, because the row is 26px tall and the
+   next one starts a pixel below it. The hit area is cut back from an icon button's 6px a side for
+   the same reason. A stop cannot be taken back, so a press meant for one run must never land on its
+   neighbour's. The hit area reaches nothing above or below, nothing toward the watch button, and
+   only as far as the row's own end. */
+.agents-row > .delegation-stop { --btn-h: 22px; }
+.agents-row > .delegation-stop::after { inset: 0 -4px 0 0; }
 
 /* ── Over-strip: the branch group, on a tab of its own above the card ─────────────────
    The to-do strip's geometry exactly — same frame fill, same 10px side inset, the same 10px of

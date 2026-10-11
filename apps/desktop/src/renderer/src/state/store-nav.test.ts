@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { allItems, navEntry } from "@realm/contracts";
+import { allItems, navEntry, sessionEvent } from "@realm/contracts";
 import { createAppStore } from "./store";
 import { fakeApi, item, session, space, type FakeData } from "./store.test-fakes";
+import { emptyTranscript } from "../panes/session/transcript-model";
+
+/** A card from a run working in the background: it arrives with no turn in flight. */
+const AT_REST_REQUEST = sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "touch probe.txt" }, title: "Allow Bash?", suggestions: [] });
 
 const boot = async (overrides: FakeData = {}) => {
   const api = fakeApi(overrides);
@@ -184,5 +188,31 @@ describe("a page overlay when another space is made current", () => {
        leave is a stop in that pane's trail — one entry for what was asked for, two if the space
        switch opened something on the way. */
     expect(store.getState().paneHistory[focused(store)]?.entries.length ?? 0).toBe(1);
+  });
+});
+
+describe("a request that arrives while its session is at rest", () => {
+  const stored = (seq: number) => ({ seq, sessionId: "se1", event: AT_REST_REQUEST });
+  const pending = (store: ReturnType<typeof createAppStore>) => store.getState().transcripts.se1!.t.pendingPermissions[0];
+
+  it("is marked as arrived at rest when it arrives live", async () => {
+    const { store } = await boot({ sessions: [session("se1", "s1")] });
+    store.setState({ transcripts: { se1: { lastSeq: 0, t: emptyTranscript() } } });
+    store.getState().applySessionEvent({ ...stored(1), ephemeral: false });
+    expect(pending(store)).toHaveProperty("atRest", true);
+  });
+
+  it("is not marked when it is read back as the session is opened", async () => {
+    const { store } = await boot({ sessions: [session("se1", "s1")], sessionEvents: { se1: [stored(1)] } });
+    await store.getState().openSession("se1");
+    expect(pending(store)).not.toHaveProperty("atRest");
+  });
+
+  it("is marked when it arrived live while the session was still being opened", async () => {
+    const { store } = await boot({ sessions: [session("se1", "s1")] });
+    const opening = store.getState().openSession("se1");
+    store.getState().applySessionEvent({ ...stored(1), ephemeral: false });
+    await opening;
+    expect(pending(store)).toHaveProperty("atRest", true);
   });
 });

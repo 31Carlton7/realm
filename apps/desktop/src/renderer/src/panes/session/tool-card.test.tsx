@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
+import { Icon } from "@realm/ui";
 import { ToolCard, ToolCwd, ToolGroup, RESULT_CLAMP } from "./ToolCard";
 import { editStat } from "./tool-summary";
 import * as summaryModule from "./tool-summary";
@@ -137,6 +138,62 @@ describe("tool-run grouping (§5: group consecutive tools under a collapsed summ
     expect(items.map((i) => i.kind)).toEqual(["block", "block", "group"]);
     expect(items[1]!.kind === "block" && items[1]!.block).toBe(chart);
   });
+
+  it("never folds a call that left a run working in the background, because its card is where the run is seen going", () => {
+    const launched: ToolBlock = { ...tool("w1", "Workflow", {}), background: "running" };
+    const items = groupTranscript([tool("t1", "Read", {}), tool("t2", "Read", {}), launched, tool("t4", "Read", {}), tool("t5", "Read", {})]);
+    expect(items.map((i) => i.kind)).toEqual(["group", "block", "group"]);
+    expect(items[1]!.kind === "block" && items[1]!.block).toBe(launched);
+  });
+
+  it("keeps that call standing alone once its run has ended, so how it ended is not folded away either", () => {
+    const ended: ToolBlock = { ...tool("w1", "Workflow", {}), background: "stopped", outcome: "failed" };
+    const items = groupTranscript([tool("t1", "Read", {}), ended, tool("t3", "Read", {})]);
+    expect(items.map((i) => i.kind)).toEqual(["block", "block", "block"]);
+  });
+});
+
+describe("a call that left a run working in the background", () => {
+  const receipt = { content: "Workflow launched in background. Task ID: w1m36gxx5", isError: false };
+  const launch = (over: Partial<ToolBlock>): ToolBlock =>
+    ({ kind: "tool", toolUseId: "w1", name: "Workflow", input: {}, result: receipt, ts: 0, ...over });
+  const status = () => document.querySelector<HTMLElement>(".tool-status")!;
+  const glyph = (name: string) => render(<Icon name={name} size={14} />).container.innerHTML;
+
+  it("draws as running while its run works, in a session that has gone idle and with its launch result in", () => {
+    render(<ToolCard sessionStatus="idle" block={launch({ background: "running" })} />);
+    expect(status()).toHaveAttribute("aria-label", "running");
+    expect(document.querySelector(".tool-card")).toHaveAttribute("data-state", "running");
+    expect(status().querySelector(".spinner")).not.toBeNull();
+  });
+
+  it("draws the check and the name done for a run that completed", () => {
+    render(<ToolCard sessionStatus="idle" block={launch({ background: "stopped", outcome: "completed" })} />);
+    expect(status()).toHaveAttribute("aria-label", "done");
+    expect(document.querySelector(".tool-card")).toHaveAttribute("data-state", "ok");
+    expect(status().innerHTML).toBe(glyph("check"));
+  });
+
+  it("draws the error glyph and the name failed for a run that failed, though its launch succeeded", () => {
+    render(<ToolCard sessionStatus="idle" block={launch({ background: "stopped", outcome: "failed" })} />);
+    expect(status()).toHaveAttribute("aria-label", "failed");
+    expect(document.querySelector(".tool-card")).toHaveAttribute("data-state", "error");
+    expect(status().innerHTML).toBe(glyph("errorCircle"));
+  });
+
+  it("draws the stop glyph and the name stopped for a run that was stopped", () => {
+    render(<ToolCard sessionStatus="idle" block={launch({ background: "stopped", outcome: "stopped" })} />);
+    expect(status()).toHaveAttribute("aria-label", "stopped");
+    expect(document.querySelector(".tool-card")).toHaveAttribute("data-state", "stopped");
+    expect(status().innerHTML).toBe(glyph("stop"));
+    expect(glyph("stop")).not.toBe(glyph("check"));
+  });
+
+  it("draws a stop that carried no word about how it ended as it always did, from the launch's own result", () => {
+    render(<ToolCard sessionStatus="idle" block={launch({ background: "stopped" })} />);
+    expect(status()).toHaveAttribute("aria-label", "done");
+    expect(status().innerHTML).toBe(glyph("check"));
+  });
 });
 
 /** A tool call a sub-agent made: same shape, plus the Task call it was made under. */
@@ -242,6 +299,44 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
     // Open while the child is still working — the one thing this treatment must not do is collapse
     // live activity out of sight.
     expect(cards().map((c) => c.querySelector(".tool-name")!.textContent)).toEqual(["Task", "Read", "Bash"]);
+  });
+});
+
+/** A background `Agent` call with two calls of its sub-agent under it, the second still in flight.
+ *  Its own frames reach the transcript with a parent id while the session is idle. */
+const backgroundAgent = (over: Partial<ToolBlock>): ToolBlock =>
+  ({ kind: "tool", toolUseId: "a1", name: "Agent", input: { description: "hold 10m" }, result: { content: "Async agent launched successfully.", isError: false }, ts: 0, ...over });
+const underAgent = (parent: string) => [
+  { key: "tool:s1", block: sub("s1", parent, "Read", { file_path: "/a.ts" }), enter: false, nested: [] },
+  { key: "tool:s2", block: sub("s2", parent, "Bash", { command: "pnpm test" }, 0, false), enter: false, nested: [] },
+];
+const statusOf = (toolUseId: string) => document.querySelector<HTMLElement>(`.tool-card[data-tool-use-id="${toolUseId}"] .tool-status`);
+
+describe("the ledger under a call whose sub-agent works in the background", () => {
+  it("keeps a background sub-agent's ledger working under its card in a session that has gone idle", () => {
+    render(<ToolCard sessionStatus="idle" nested={underAgent("a1")} block={backgroundAgent({ background: "running" })} />);
+    expect(document.querySelector(".tool-group")).toHaveAttribute("data-working");
+    expect(document.querySelector(".tool-group")).toHaveAttribute("data-open");
+  });
+
+  it("draws that sub-agent's call in flight as running, where it showed an empty slot named no result", () => {
+    render(<ToolCard sessionStatus="idle" nested={underAgent("a1")} block={backgroundAgent({ background: "running" })} />);
+    expect(statusOf("s2")).toHaveAttribute("aria-label", "running");
+    expect(statusOf("s2")!.querySelector(".spinner")).not.toBeNull();
+  });
+
+  it("lets that ledger settle when the run stops", () => {
+    const { rerender } = render(<ToolCard sessionStatus="idle" nested={underAgent("a1")} block={backgroundAgent({ background: "running" })} />);
+    rerender(<ToolCard sessionStatus="idle" nested={underAgent("a1")} block={backgroundAgent({ background: "stopped", outcome: "completed" })} />);
+    expect(document.querySelector(".tool-group")).not.toHaveAttribute("data-working");
+    expect(document.querySelector(".tool-group")).not.toHaveAttribute("data-open");
+    expect(statusOf("s2")).toBeNull();
+  });
+
+  it("leaves a blocking sub-agent's ledger under the session's own status, since nothing says it still runs", () => {
+    render(<ToolCard sessionStatus="idle" nested={underAgent("task1")}
+      block={{ kind: "tool", toolUseId: "task1", name: "Task", input: { description: "audit the mapper" }, result: null, ts: 0 }} />);
+    expect(document.querySelector(".tool-group")).not.toHaveAttribute("data-working");
   });
 });
 

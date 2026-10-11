@@ -37,7 +37,7 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
-import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
+import { emptyTranscript, lastUserMessage, markArrivalAtRest, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { draftRun, withOptions } from "../panes/session/draft-run";
@@ -368,6 +368,9 @@ export type Api = {
   /** `mentions.files` — the session's checkout ranked for the `@` list, secrets left out server-side. */
   mentionFiles(sessionId: string, query: string, limit?: number): Promise<ProjectFilesResult>;
   interruptSession(id: string): Promise<void>;
+  /** `sessions.stopTask`: stop one run the session's agent left working in the background, named by
+   *  the call that launched it. The session and its turn go on. */
+  stopBackgroundRun(id: string, toolUseId: string): Promise<void>;
   /** `sessions.dequeue` — drop a queued message before its turn comes. */
   dequeuePrompt(id: string, queuedId: string): Promise<void>;
   /** `sessions.releaseQueued` — send one queued message now. Server-side by id, so the mentions and
@@ -2047,6 +2050,11 @@ export type AppState = {
    *  A no-op while a turn is live, and a no-op when the user has not sent anything yet. */
   retryLastTurn(id: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
+  /** Stop ONE run this session left working in the background, a workflow or a background sub-agent,
+   *  by the id of the call that launched it. That is the id the transcript holds. It is not an
+   *  interrupt, so the turn and every other run go on. It rejects with the server's own sentence when
+   *  the run could not be stopped, for whoever called it to show. */
+  stopBackgroundRun(sessionId: string, toolUseId: string): Promise<void>;
   /** Write this session's transcript out as Markdown, to a file the USER names in a native dialog.
    *  Resolves the saved path, or null when they cancelled — and null too where there is no bridge to
    *  ask with (jsdom, and a renderer that loaded before the preload). */
@@ -5545,13 +5553,14 @@ await get().refreshCustomThemes().catch(() => {});
           const seenSeq = row && row.seenSeq > 0 ? row.seenSeq : null;
           let { lastSeq, t } = get().transcripts[id] ?? prev;
           let marked = get().newSinceSeq[id] !== undefined;
-          for (const e of [...events, ...(loading.get(id) ?? [])]) {
+          for (const [at, e] of [...events, ...(loading.get(id) ?? [])].entries()) {
             if (e.seq <= lastSeq) continue;
             // The FIRST event past the mark carries it. `reduceTranscript` refuses a second one, so
             // re-entering this loop on a later page cannot draw two rules.
             const mark = seenSeq !== null && !marked && e.seq > seenSeq;
             if (mark) marked = true;
-            t = reduceTranscript(t, e.event, mark, e.seq);
+            const reduced = reduceTranscript(t, e.event, mark, e.seq);
+            t = at < events.length ? reduced : markArrivalAtRest(t, reduced, e.event);
             lastSeq = e.seq;
           }
           setTranscript(id, { lastSeq, t });
@@ -5605,7 +5614,8 @@ await get().refreshCustomThemes().catch(() => {});
         if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
         // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
         // write rather than racing the frame that would have applied them.
-        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: reduceTranscript(drainInto(ev.sessionId, cur.t), ev.event, false, ev.seq) }, also);
+        const before = drainInto(ev.sessionId, cur.t);
+        setTranscript(ev.sessionId, { lastSeq: ev.seq, t: markArrivalAtRest(before, reduceTranscript(before, ev.event, false, ev.seq), ev.event) }, also);
         // Watching a transcript move IS reading it. Same predicate the notifications auto-read uses —
         // this session is the focused pane — because "which pane has the keyboard" is the only thing
         // the renderer actually knows about attention. A pane in the background, or restored behind
@@ -5821,6 +5831,7 @@ await get().refreshCustomThemes().catch(() => {});
         await api.sendMessage(id, msg.text, msg.attachments ?? [], mentions);
       },
       async interruptSession(id) { await api.interruptSession(id); },
+      async stopBackgroundRun(sessionId, toolUseId) { await api.stopBackgroundRun(sessionId, toolUseId); },
       /**
        * Export the transcript the pane is showing.
        *

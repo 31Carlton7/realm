@@ -5,6 +5,7 @@ import { useDissolve } from "../../../components/ScrollFades";
 import { DiffView, PathLabel } from "./DiffView";
 import { grammarForPath, highlightToHtml } from "./highlight";
 import type { MatchGroup, ToolInputView, ToolResultView, Todo, UploadFile } from "./tool-view";
+import type { WorkflowMeta } from "./workflow-meta";
 
 /** The drawn forms of a tool call's input and result (AICSS's tool/structured-output blocks, fitted
  *  to the tools Realm's agents actually call). Each one is chosen by `tool-view.ts` and rendered
@@ -14,6 +15,9 @@ import type { MatchGroup, ToolInputView, ToolResultView, Todo, UploadFile } from
 /** Rows drawn before a list folds behind an expander — a `Grep` across a monorepo returns thousands
  *  of matches, and the reader's question is almost always answered by the first screen. */
 const ROW_CLAMP = 40;
+/** Phases of a workflow drawn before the same fold. A script declares a handful; the fold is there
+ *  for the one that declares fifty, so the script under them stays within reach. */
+const PHASE_CLAMP = 10;
 /** Lines of a file preview or command output shown before the same fold. */
 const LINE_CLAMP = 200;
 
@@ -243,6 +247,55 @@ export function UploadView({ host, element, files }: { host: string; element: st
   );
 }
 
+/**
+ * A workflow launch: what the script says it is, then the script.
+ *
+ * The description and the phases are the script's own account of itself, read out of its `meta` by
+ * workflow-meta.ts and set as plain text. An agent wrote them, so nothing in them is rendered,
+ * linked or opened. The script under them is what runs, drawn as written. Where the `meta` cannot
+ * be read whole the script stands alone, because a header that had dropped half of what the script
+ * declares would read as the whole of it.
+ *
+ * The arguments and the run a launch resumes follow the script, since both change what it does.
+ * What allowing it sets going is not said here. That sentence is the permission card's, and a call
+ * that has already run draws this same view.
+ */
+export function WorkflowView({ meta, script, args, resumeFromRunId }: {
+  meta: WorkflowMeta | null; script: string; args: string | null; resumeFromRunId: string | null;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const phases = meta?.phases ?? [];
+  const shown = showAll || phases.length <= PHASE_CLAMP ? phases : phases.slice(0, PHASE_CLAMP);
+  return (
+    <div className="wf">
+      {meta && <p className="wf-description">{meta.description}</p>}
+      {phases.length > 0 && (
+        <>
+          <div className="wf-caption">Phases</div>
+          <ol className="wf-phases">
+            {shown.map((phase, i) => (
+              <li key={i} className="wf-phase">
+                <span className="wf-phase-title">{phase.title}</span>
+                {phase.detail && <span className="wf-phase-detail">{phase.detail}</span>}
+              </li>
+            ))}
+          </ol>
+          {!showAll && phases.length > PHASE_CLAMP && <More label={`Show all ${phases.length} phases`} onClick={() => setShowAll(true)} />}
+        </>
+      )}
+      <div className="wf-caption">Script</div>
+      <CodeBlock text={script} lang="javascript" />
+      {args !== null && (
+        <>
+          <div className="wf-caption">Arguments</div>
+          <CodeBlock text={args} lang="json" />
+        </>
+      )}
+      {resumeFromRunId !== null && <p className="wf-resume">This launch resumes run <code>{resumeFromRunId}</code>.</p>}
+    </div>
+  );
+}
+
 /** The input view for a tool call, or null when there is no better drawing than the raw payload. */
 export function ToolInputBody({ view }: { view: ToolInputView }) {
   switch (view.kind) {
@@ -251,6 +304,7 @@ export function ToolInputBody({ view }: { view: ToolInputView }) {
     case "command": return <CommandView command={view.command} cwd={view.cwd} description={view.description} />;
     case "request": return <RequestView url={view.url} query={view.query} prompt={view.prompt} />;
     case "upload": return <UploadView host={view.host} element={view.element} files={view.files} />;
+    case "workflow": return <WorkflowView meta={view.meta} script={view.script} args={view.args} resumeFromRunId={view.resumeFromRunId} />;
   }
 }
 

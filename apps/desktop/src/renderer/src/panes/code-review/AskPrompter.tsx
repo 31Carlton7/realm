@@ -133,7 +133,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
           </button>
         )}
       </div>
-      <Composer compact session={session} status={asking ? "running" : status} gitInfo={null} hero={false} spaceName=""
+      <Composer compact session={session} status={asking ? "running" : status} betweenTurns={entry?.t.betweenTurns} gitInfo={null} hero={false} spaceName=""
         placeholder={`Ask about ${prName(detail.ref)}`}
         onOpenDiff={NOOP} draft={draft} onDraftChange={(t) => setDraft(ASK_SLOT, t)}
         attachments={attachments}

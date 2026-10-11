@@ -160,7 +160,7 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
       </div>
       {/* The pane's own prompter, in compact: no plan strip, no branch, no permission or mode chips,
           no under-strip. One card, the model, and send. */}
-      <Composer compact session={session} status={status} gitInfo={null} hero={false} spaceName=""
+      <Composer compact session={session} status={status} betweenTurns={transcript.betweenTurns} gitInfo={null} hero={false} spaceName=""
         onOpenDiff={NOOP} draft={draft} onDraftChange={(t) => setDraft(sessionId, t)}
         attachments={attachments}
         onAttachPick={() => run(() => attachFromPicker(sessionId))}

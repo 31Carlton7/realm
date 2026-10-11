@@ -121,6 +121,73 @@ describe("toolInputView", () => {
   });
 });
 
+/** A workflow script as the live capture launched one, with its `meta` and then its body. */
+const WORKFLOW = "export const meta = { name: 'probe-run', description: 'Probe run with two agents', phases: [{ title: 'Work' }] }\nphase('Work')\nreturn await agent('PROBE-AGENT-A say alpha', { label: 'a' })";
+
+describe("the view of a Workflow launch", () => {
+  it("draws a call whose script is its one account of the work, with what the script says of itself", () => {
+    expect(toolInputView("Workflow", { script: WORKFLOW })).toEqual({
+      kind: "workflow", script: WORKFLOW, args: null, resumeFromRunId: null,
+      meta: { name: "probe-run", description: "Probe run with two agents", phases: [{ title: "Work" }] },
+    });
+  });
+
+  it("draws the script alone when its meta cannot be read", () => {
+    const script = "const limit = 3\nreturn await agent('go')";
+    expect(toolInputView("Workflow", { script })).toEqual({ kind: "workflow", script, args: null, resumeFromRunId: null, meta: null });
+  });
+
+  it("is not claimed for a launch from a saved script, whose own script is not the one that runs", () => {
+    expect(toolInputView("Workflow", { script: WORKFLOW, scriptPath: "/tmp/runs/probe-run.js" })).toBeNull();
+    expect(toolInputView("Workflow", { scriptPath: "/tmp/runs/probe-run.js", resumeFromRunId: "wf_1" })).toBeNull();
+    expect(toolInputView("Workflow", { script: WORKFLOW, scriptPath: "" })).toBeNull();
+  });
+
+  it("is not claimed for a call with no script to draw", () => {
+    expect(toolInputView("Workflow", { script: "" })).toBeNull();
+    expect(toolInputView("Workflow", { script: "  \n\t" })).toBeNull();
+    expect(toolInputView("Workflow", { script: 42 })).toBeNull();
+    expect(toolInputView("Workflow", {})).toBeNull();
+  });
+
+  it("hands a script at or past the draw limit back to the raw well", () => {
+    const filler = (length: number) => `${WORKFLOW}\n${"x".repeat(length - WORKFLOW.length - 1)}`;
+    expect(filler(DRAW_LIMIT)).toHaveLength(DRAW_LIMIT);
+    expect(toolInputView("Workflow", { script: filler(DRAW_LIMIT) })).toBeNull();
+    expect(toolInputView("Workflow", { script: filler(DRAW_LIMIT - 1) })).toMatchObject({ kind: "workflow", meta: { name: "probe-run" } });
+  });
+
+  it("is not claimed for a call that also asks for a saved workflow by name", () => {
+    expect(toolInputView("Workflow", { script: WORKFLOW, name: "deploy-all" })).toBeNull();
+  });
+
+  it("is not claimed for a call that carries a key it does not account for", () => {
+    expect(toolInputView("Workflow", { script: WORKFLOW, remote: true })).toBeNull();
+    expect(toolInputView("Workflow", { script: WORKFLOW, args: {}, model: "opus" })).toBeNull();
+  });
+
+  it("carries the arguments as JSON and the run a launch resumes, which both change what it does", () => {
+    expect(toolInputView("Workflow", { script: WORKFLOW, args: { question: "Why is the build red?", depth: 2 }, resumeFromRunId: "wf_e7f5f79f-cf9" }))
+      .toMatchObject({ kind: "workflow", args: '{\n  "question": "Why is the build red?",\n  "depth": 2\n}', resumeFromRunId: "wf_e7f5f79f-cf9" });
+  });
+
+  it("is not claimed when the run it resumes is not a run id, or its arguments are too large to draw", () => {
+    expect(toolInputView("Workflow", { script: WORKFLOW, resumeFromRunId: 7 })).toBeNull();
+    expect(toolInputView("Workflow", { script: WORKFLOW, resumeFromRunId: "" })).toBeNull();
+    expect(toolInputView("Workflow", { script: WORKFLOW, args: { rows: "x".repeat(DRAW_LIMIT) } })).toBeNull();
+  });
+
+  it("does not read the input's own description or title, which the harness ignores", () => {
+    expect(toolInputView("Workflow", { script: WORKFLOW, description: "Tidy the README", title: "Tidy" }))
+      .toEqual(toolInputView("Workflow", { script: WORKFLOW }));
+  });
+
+  it("draws no other tool's script as a workflow", () => {
+    expect(toolInputView("Task", { script: WORKFLOW })).toBeNull();
+    expect(toolInputView("mcp__runner__Workflow", { script: WORKFLOW })).toBeNull();
+  });
+});
+
 describe("toolResultView", () => {
   it("draws a diff printed into ANY result, whichever tool printed it", () => {
     const patch = "--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b";

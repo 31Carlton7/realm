@@ -28,17 +28,40 @@ const OPTIONS: { decision: PermissionDecision; label: string; kbd: string }[] = 
  */
 const ALWAYS_LABEL: Record<string, string> = { computer_act: "Always allow in this space" };
 
-const optionsFor = (toolName: string): typeof OPTIONS => {
-  const label = ALWAYS_LABEL[toolName];
-  return label ? OPTIONS.map((o) => (o.decision === "allow_always" ? { ...o, label } : o)) : OPTIONS;
+/**
+ * The answers ONE request offers, in the order its rows are drawn. Every way of answering reads
+ * this one list: the rows, the highlight, the arrows' wrap, Enter, the digit keys and Submit.
+ *
+ * It is one list because the keys answer by POSITION. A row dropped from what is drawn while a key
+ * went on indexing the full three would number Deny "2" on screen and send Allow always for it,
+ * and an adapter with no rule to keep reads that as Allow.
+ *
+ * A request marked `once` has no "always" to keep, so that answer is not in its list at all. The
+ * card says nothing about the missing row, because the note would stand on every such card.
+ */
+const optionsFor = (permission: Pick<PendingPermission, "toolName" | "once">): typeof OPTIONS => {
+  const label = ALWAYS_LABEL[permission.toolName];
+  return OPTIONS.filter((o) => o.decision !== "allow_always" || !permission.once)
+    .map((o) => (o.decision === "allow_always" && label ? { ...o, label } : o));
 };
 
-/** The agent wants to run a tool: Allow (once) / Allow always / Deny.
+/** What allowing a workflow sets going, said on this card and nowhere else, between what the script
+ *  is and the answers. The view above it is the same one a finished call's card draws, which has
+ *  nothing left to warn of. "Can", because the script decides how many agents it starts and the
+ *  payload states no count. */
+const WORKFLOW_CAUTION = "This script can start sub-agents that keep working in the background. They can use many tokens.";
+
+/** The agent wants to run a tool: Allow (once) / Allow always / Deny. A request with no "always" to
+ *  keep offers Allow / Deny alone, as `optionsFor` decides.
  *
- *  Keyboard (U-H4): with `autoFocus` (the card sits in the focused pane) the Allow option takes
- *  focus on mount, so a bare Enter answers the hottest question in the app. Inside the card:
- *  Enter = the selected option, ⇧Enter = Allow always, ⌘⌫ = Deny, 1/2/3 pick an option outright,
- *  ↑/↓ move the selection, Esc denies. Buttons keep exact accessible names ("Allow", not "Allow 1")
+ *  Keyboard (U-H4): with `autoFocus` (the card sits in the focused pane, and was raised in a turn)
+ *  the Allow option takes focus on mount, so a bare Enter answers the hottest question in the app.
+ *  A card that appears under the person's hands with the session at rest is given no `autoFocus`,
+ *  because they may be typing in the prompter, where a Space, an Enter or a digit would then answer
+ *  it. It takes the keyboard when they come back to the session to answer. Inside the card:
+ *  Enter = the selected option, ⇧Enter = Allow always, ⌘⌫ = Deny, the digits pick the row that
+ *  wears them outright, ↑/↓ move the selection, Esc denies. Where Allow always is not offered,
+ *  ⇧Enter answers nothing. Buttons keep exact accessible names ("Allow", not "Allow 1")
  *  via aria-label; the number chips and footer hints are visual only. */
 export function PermissionCard({ permission, onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
   permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
@@ -54,6 +77,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
   const preview = toolInputView(permission.toolName, permission.input);
   const raw = useRef<HTMLPreElement>(null);
   useDissolve(raw);
+  const options = optionsFor(permission);
   const [selected, setSelected] = useState(0);
   const rows = useRef<(HTMLButtonElement | null)[]>([]);
   useEffect(() => { if (autoFocus) rows.current[0]?.focus(); }, [autoFocus]);
@@ -61,7 +85,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
   /** Move the selection and take focus with it, so the focused control and the highlighted row are
    *  never two different answers to the same question. */
   const select = (i: number) => {
-    const next = (i + OPTIONS.length) % OPTIONS.length;
+    const next = (i + options.length) % options.length;
     setSelected(next);
     rows.current[next]?.focus();
   };
@@ -73,17 +97,18 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       // preventDefault, so the browser's own Enter→click never double-fires); Enter on the details
       // <summary> is left entirely to native toggle semantics and decides nothing.
       const control = e.target instanceof HTMLElement ? e.target.closest("button, summary") : null;
+      if (control && !(control instanceof HTMLButtonElement)) return;
+      if (e.shiftKey && permission.once) { e.preventDefault(); return; }
       if (control instanceof HTMLButtonElement) { e.preventDefault(); control.click(); return; }
-      if (control) return;
-      e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : OPTIONS[selected]!.decision);
+      e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : options[selected]!.decision);
     } else if (e.key === "Backspace" && e.metaKey) { e.preventDefault(); onDecide("deny"); }
     else if (e.key === "Escape" && ownsEscape) { e.preventDefault(); e.stopPropagation(); onDecide("deny"); }
     else if (e.key === "ArrowDown") { e.preventDefault(); select(selected + 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); select(selected - 1); }
     // Bare digits only: ⌘1–9 is the app's switch-space binding, and a permission decision is the
     // last thing that may fire off a modifier chord it does not own.
-    else if (e.key >= "1" && e.key <= String(OPTIONS.length) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault(); onDecide(OPTIONS[Number(e.key) - 1]!.decision);
+    else if (e.key >= "1" && e.key <= String(options.length) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault(); onDecide(options[Number(e.key) - 1]!.decision);
     }
   };
 
@@ -103,8 +128,9 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       <div className="permission-tool"><Icon name={toolIcon(permission.toolName)} size={16} /><span className="tool-name">{permission.toolName}</span>{summary && <code>{summary}</code>}</div>
       {preview && <div className="permission-preview"><ToolInputBody view={preview} /></div>}
       <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre ref={raw}>{prettyJson(permission.input)}</pre></details>
+      {preview?.kind === "workflow" && <p className="permission-caution">{WORKFLOW_CAUTION}</p>}
       <div className="permission-options">
-        {optionsFor(permission.toolName).map((o, i) => (
+        {options.map((o, i) => (
           <button key={o.decision} ref={(el) => { rows.current[i] = el; }} className="permission-option"
             aria-label={o.label} data-selected={i === selected || undefined} data-decision={o.decision}
             onFocus={() => setSelected(i)} onClick={() => onDecide(o.decision)}>
@@ -118,7 +144,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
         <div className="permission-hints">
           <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span>{ownsEscape && <span><kbd>esc</kbd> Deny</span>}
         </div>
-        <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(OPTIONS[selected]!.decision)}>
+        <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(options[selected]!.decision)}>
           Submit <kbd>↩</kbd>
         </button>
       </div>

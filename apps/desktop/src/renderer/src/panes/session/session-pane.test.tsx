@@ -61,6 +61,36 @@ describe("SessionPane", () => {
     expect(document.querySelector(".suggestions")).toBeNull();
   });
 
+  it("does not send on a repeated Enter, so a key still held when the keyboard arrives cannot send the draft", async () => {
+    const { api } = await mount();
+    const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "half a thought" } });
+    fireEvent.keyDown(box, { key: "Enter", repeat: true });
+    await act(async () => { await new Promise((res) => setTimeout(res, 1)); });
+    expect(sent).toEqual([]);
+    expect((box as HTMLTextAreaElement).value).toBe("half a thought");
+  });
+
+  it("still takes a repeated Enter for itself, so holding the key adds no lines to the draft", async () => {
+    await mount();
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "half a thought" } });
+    const notConsumed = fireEvent.keyDown(box, { key: "Enter", repeat: true });
+    expect(notConsumed).toBe(false);
+  });
+
+  it("does not send on a repeated ⌘↵ either", async () => {
+    const { api } = await mount();
+    const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "half a thought" } });
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true, repeat: true });
+    await act(async () => { await new Promise((res) => setTimeout(res, 1)); });
+    expect(sent).toEqual([]);
+    expect((box as HTMLTextAreaElement).value).toBe("half a thought");
+  });
+
   it("⌘⇧↩ is NOT a send — the composer leaves the dispatch chord for the window binding (Plan 13 W2)", async () => {
     const { api } = await mount();
     const sent: string[] = []; api.sendMessage = async (_id, text) => { sent.push(text); };
@@ -690,6 +720,102 @@ describe("permission keyboard (U-H4)", () => {
     const notPrevented = fireEvent.keyDown(summary, { key: "Enter" }); // true = default NOT prevented
     expect(notPrevented).toBe(true); // native <summary> Enter-toggle stays in charge
     expect(decided).toEqual([]);
+  });
+});
+
+/**
+ * A card raised while the session is at rest. A run working in the background asks for a tool after
+ * its launching turn has settled, which is when the person is typing the next message. The events
+ * are applied in the order the server sends them: for a status, the row first and then its event.
+ * The adapter says its wait before the request, and the server's broker says its request first.
+ */
+describe("a card raised while the session is at rest", () => {
+  const request = sessionEvent("permission_request", { requestId: "r9", toolName: "Bash", input: { command: "touch probe.txt" }, title: "Allow Bash?", suggestions: [] }, 3_100);
+  const markedWait = sessionEvent("status", { status: "waiting_permission", betweenTurns: true }, 3_000);
+  const launched = [sessionEvent("user_message", { text: "launch it", attachments: [] }, 1_000), sessionEvent("status", { status: "running" }, 1_100)];
+  const settled = [...launched, sessionEvent("assistant_text", { messageId: "m", text: "Started the run." }, 1_500), sessionEvent("status", { status: "idle" }, 2_000)];
+
+  async function mountTyping(status: "idle" | "running", events: Parameters<typeof reduceAll>[0], focused = true) {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: status }, transcripts: { se1: { lastSeq: events.length, t: reduceAll(events) } } });
+    const pane = (has: boolean) => <StoreContext.Provider value={store}>
+      <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible focused={has} />
+    </StoreContext.Provider>;
+    const { rerender } = render(pane(focused));
+    const prompter = screen.getByRole("textbox", { name: /message/i });
+    if (focused) prompter.focus();
+    let seq = events.length;
+    const hear = (event: Parameters<typeof reduceAll>[0][number]) => act(() => store.getState().applySessionEvent({ seq: ++seq, sessionId: "se1", ephemeral: false, event }));
+    const waits = () => act(() => store.getState().applySessionStatus("se1", "waiting_permission"));
+    const keyboardTo = (has: boolean) => rerender(pane(has));
+    const broughtHere = () => act(() => store.setState({ keyboardFor: { sessionId: "se1", n: (store.getState().keyboardFor?.n ?? 0) + 1 } }));
+    return { store, prompter, hear, waits, keyboardTo, broughtHere };
+  }
+
+  it("leaves the keyboard in the prompter when the card arrives while a draft is being typed", async () => {
+    const { prompter, hear, waits } = await mountTyping("idle", settled);
+    fireEvent.change(prompter, { target: { value: "and one more th" } });
+    waits(); hear(markedWait); hear(request);
+    await screen.findByRole("group", { name: /Permission request/ });
+    expect(prompter).toHaveFocus();
+  });
+
+  it("leaves the keyboard in the prompter when the card arrives with the prompter empty", async () => {
+    const { prompter, hear, waits } = await mountTyping("idle", settled);
+    hear(request); waits(); hear(markedWait);
+    await screen.findByRole("group", { name: /Permission request/ });
+    expect(prompter).toHaveFocus();
+  });
+
+  it("leaves the keyboard in the prompter when a turn opens under a card that arrived at rest", async () => {
+    const { prompter, hear, waits } = await mountTyping("idle", settled);
+    waits(); hear(markedWait); hear(request);
+    await screen.findByRole("group", { name: /Permission request/ });
+    hear(sessionEvent("status", { status: "waiting_permission" }, 4_000));
+    expect(prompter).toHaveFocus();
+  });
+
+  it("gives the keyboard to a card that held back when the person is brought to its session", async () => {
+    const { hear, waits, broughtHere } = await mountTyping("idle", settled);
+    waits(); hear(markedWait); hear(request);
+    await screen.findByRole("group", { name: /Permission request/ });
+    broughtHere();
+    expect(await screen.findByRole("button", { name: "Allow" })).toHaveFocus();
+  });
+
+  it("gives the keyboard to a card that held back when the person leaves the pane and comes back", async () => {
+    const { hear, waits, keyboardTo } = await mountTyping("idle", settled);
+    waits(); hear(markedWait); hear(request);
+    await screen.findByRole("group", { name: /Permission request/ });
+    keyboardTo(false);
+    keyboardTo(true);
+    expect(await screen.findByRole("button", { name: "Allow" })).toHaveFocus();
+  });
+
+  it("gives the keyboard to a card that arrived while another pane had it, once this pane has it", async () => {
+    const { hear, waits, keyboardTo } = await mountTyping("idle", settled, false);
+    waits(); hear(markedWait); hear(request);
+    await screen.findByRole("group", { name: /Permission request/ });
+    keyboardTo(true);
+    expect(await screen.findByRole("button", { name: "Allow" })).toHaveFocus();
+  });
+
+  it("leaves a card the person is answering as it is when they are brought to the session again", async () => {
+    const { hear, waits, broughtHere } = await mountTyping("idle", settled);
+    waits(); hear(markedWait); hear(request);
+    const card = await screen.findByRole("group", { name: /Permission request/ });
+    const deny = screen.getByRole("button", { name: "Deny" });
+    deny.focus();
+    broughtHere();
+    expect(screen.getByRole("group", { name: /Permission request/ })).toBe(card);
+    expect(deny).toHaveFocus();
+  });
+
+  it("still gives the keyboard to a card that arrives in a turn, though the prompter had it", async () => {
+    const { hear, waits } = await mountTyping("running", launched);
+    waits(); hear(sessionEvent("status", { status: "waiting_permission" }, 3_000)); hear(request);
+    expect(await screen.findByRole("button", { name: "Allow" })).toHaveFocus();
   });
 });
 

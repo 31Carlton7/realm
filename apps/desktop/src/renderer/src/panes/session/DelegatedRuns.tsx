@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { bareToolName, type DelegatedRun, type Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
@@ -7,6 +7,7 @@ import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useDissolve } from "../../components/ScrollFades";
 import { CHILD_ORIGINS, ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
 import { formatDuration, type ToolBlock } from "./tool-group";
+import { workflowLabel } from "./tool-summary";
 import type { Block } from "./transcript-model";
 import { useElapsed } from "./use-elapsed";
 
@@ -68,7 +69,7 @@ export function stillWorking(b: Extract<Block, { kind: "tool" }>): boolean {
  * were asked, but no jump — there is no pane to jump to. Pretending otherwise would be a button that
  * cannot work.
  */
-export function harnessSubagents(blocks: readonly Block[]): { id: string; label: string; startedAt: number }[] {
+export function harnessSubagents(blocks: readonly Block[]): HarnessRun[] {
   return blocks
     .filter((b): b is Extract<Block, { kind: "tool" }> =>
       b.kind === "tool" && stillWorking(b)
@@ -76,25 +77,33 @@ export function harnessSubagents(blocks: readonly Block[]): { id: string; label:
       && b.parentToolUseId === undefined)
     .map((b) => ({
       id: b.toolUseId,
-      // `name` is what a Workflow calls itself; `description` is Task's. Falling through both before
-      // the prompt, because a prompt's first eighty characters are usually boilerplate.
-      label: labelOf(b.input).slice(0, 80),
+      // A Task calls itself by its `description`, a Workflow by the name of what it runs (`labelOf`):
+      // either before the prompt, because a prompt's first eighty characters are usually boilerplate.
+      label: labelOf(b.name, b.input).slice(0, 80),
       // The START, not an elapsed span frozen at the moment this list was last rebuilt. A background
       // agent produces no transcript events while it runs, so the list is rebuilt once and then not
       // again for ten minutes — a precomputed duration would sit at "0s" for the entire run, next to
       // a header clock that ticks. The Dock's one clock subtracts this instead.
       startedAt: b.ts,
+      stoppable: b.background === "running",
     }));
 }
 
-/** What to call an in-flight sub-agent run. A Workflow names itself in its script's `meta`, which is
- *  the only place its name exists — so it is dug out rather than left as "Sub-agent". */
-export function labelOf(input: Record<string, unknown>): string {
+/**
+ * One row of the harness's own runs. `stoppable` is true for a run the harness announced as working
+ * in the background, the only kind it can be asked to stop by itself. A blocking sub-agent is part
+ * of the turn and ends with it. A stop names the run by its call's id alone, because the server
+ * knows which of the harness's tasks that call launched.
+ */
+export type HarnessRun = { id: string; label: string; startedAt: number; stoppable: boolean };
+
+/** What to call an in-flight sub-agent run. A Workflow is called what its row and its card call it.
+ *  That is `workflowLabel`: the name of what it runs, and never the input's `description`, which the
+ *  harness ignores. A Task or an Agent is called by its description, then its prompt. */
+export function labelOf(name: string, input: Record<string, unknown>): string {
+  if (name === "Workflow") return workflowLabel(input);
   const direct = input.description ?? input.name;
   if (typeof direct === "string" && direct.trim()) return direct.trim();
-  const script = typeof input.script === "string" ? input.script : "";
-  const named = script.match(/name:\s*['"`]([^'"`]+)['"`]/)?.[1];
-  if (named) return named;
   const prompt = input.prompt;
   return typeof prompt === "string" && prompt.trim() ? prompt.trim() : "Sub-agent";
 }
@@ -186,20 +195,83 @@ export function RunningAgents({ sessionId }: { sessionId: string }) {
   // opened ten minutes into a delegation. Every later change arrives on `delegation.changed`.
   useEffect(() => { run(() => refreshDelegatedRuns(sessionId)); }, [sessionId, refreshDelegatedRuns, run]);
   const inHarness = useMemo(() => harnessSubagents(blocks), [blocks]);
+  const { stopping, stop } = useStopRun(sessionId, [...(running ?? NO_RUNS).map((r) => r.sessionId), ...inHarness.map((h) => h.id)].join("\n"));
   if ((!running || running.length === 0) && inHarness.length === 0) return null;
-  return <Control sessionId={sessionId} running={running ?? NO_RUNS} harness={inHarness} />;
+  return <Control sessionId={sessionId} running={running ?? NO_RUNS} harness={inHarness} stopping={stopping} onStop={stop} />;
 }
 
 const NO_BLOCKS: readonly Block[] = [];
 const NO_RUNS: readonly DelegatedRun[] = [];
+const NO_STOPS: ReadonlySet<string> = new Set();
+
+/** The words a harness run's row says after its name. A row that carries a stop control gives their
+ *  width to the name, and its watch button's tooltip says the same thing as a sentence of its own
+ *  (`RUNS_IN_THE_AGENT`). They read the same on every row, which is what a tooltip is for. */
+const IN_THE_AGENT = "in the agent";
+
+/** What the watch button's tooltip says on a row whose words went to make room for the stop control.
+ *  A tooltip is read alone, away from the row's name, so it is a sentence and not the row's
+ *  fragment. */
+const RUNS_IN_THE_AGENT = "Runs in the agent.";
+
+/**
+ * Stopping one background run from the list, and where the keyboard goes when that empties it.
+ *
+ * `stopping` holds the calls whose stop is out. Their control is disabled until the server answers,
+ * so a second press cannot name a run the first has already ended. The control comes back on either
+ * answer, because the row leaves when the harness says the run stopped and not when the call
+ * returns. A refusal reaches the person through the store, whose `run` puts the server's sentence in
+ * a toast.
+ *
+ * The list, and the chip it hangs from, leave with the last row. Whatever held the keyboard there
+ * leaves with them, and the next key would land on nothing. So when every row that just left was one
+ * the person stopped from here, the keyboard goes to the prompter of the pane the control stood in.
+ * A run that ended by itself moves nothing. Neither does a stop the person has since walked away
+ * from, because focus anywhere else is theirs to keep. Nor does the bar turning to another session,
+ * whose list is empty for a reason that has nothing to do with a stop.
+ *
+ * `rows` is every row of the control by id, one a line, in the order they are drawn.
+ */
+function useStopRun(sessionId: string, rows: string): { stopping: ReadonlySet<string>; stop: (toolUseId: string, from: Element | null) => void } {
+  const stopBackgroundRun = useApp((s) => s.stopBackgroundRun);
+  const run = useApp((s) => s.run);
+  const [stopping, setStopping] = useState(NO_STOPS);
+  const asked = useRef(new Map<string, Element | null>());
+  const shown = useRef({ sessionId, rows: "" });
+  useLayoutEffect(() => {
+    const before = shown.current;
+    shown.current = { sessionId, rows };
+    if (before.sessionId !== sessionId) { asked.current.clear(); return; }
+    if (rows !== "" || before.rows === "") return;
+    const panes = before.rows.split("\n").map((id) => asked.current.get(id));
+    asked.current.clear();
+    const held = document.activeElement;
+    if (panes.includes(undefined) || (held !== null && held !== document.body && held.isConnected)) return;
+    panes.find((pane) => pane)?.querySelector<HTMLElement>(".composer-input")?.focus();
+  }, [sessionId, rows]);
+  const stop = useCallback((toolUseId: string, from: Element | null) => {
+    asked.current.set(toolUseId, from?.closest(".panel") ?? null);
+    setStopping((out) => new Set(out).add(toolUseId));
+    run(async () => {
+      try { await stopBackgroundRun(sessionId, toolUseId); }
+      catch (e) { asked.current.delete(toolUseId); throw e; }
+      finally { setStopping((out) => { const left = new Set(out); left.delete(toolUseId); return left; }); }
+    });
+  }, [sessionId, stopBackgroundRun, run]);
+  return { stopping, stop };
+}
 
 /** Split out so the hooks below only ever run for a session that actually has agents working — and
  *  so the open popover is discarded with the control rather than surviving until the next one. */
-function Control({ sessionId, running, harness }: {
+function Control({ sessionId, running, harness, stopping, onStop }: {
   sessionId: string;
   running: readonly DelegatedRun[];
   /** Sub-agents the harness is running in-process — no session, no pane, no preview. */
-  harness: { id: string; label: string; startedAt: number }[];
+  harness: HarnessRun[];
+  /** The runs whose stop is out, and the stop itself, from `useStopRun`. Both are held above this
+   *  control, which leaves with the last row while the answer to a stop may still be on its way. */
+  stopping: ReadonlySet<string>;
+  onStop: (toolUseId: string, from: Element | null) => void;
 }) {
   const sessions = useApp((s) => s.sessions);
   const [open, setOpen] = useState(false);
@@ -225,17 +297,46 @@ function Control({ sessionId, running, harness }: {
         <span className="agents-chip-count">{total} working</span>
       </button>
       {open && <AgentsPopover anchor={anchor} sessionId={sessionId} rows={rows} harness={harness}
-        since={since} elapsed={elapsed} count={count} onClose={() => setOpen(false)} />}
+        since={since} elapsed={elapsed} count={count} stopping={stopping}
+        onStop={(toolUseId) => onStop(toolUseId, anchor.current)} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count, onClose }: {
+/**
+ * The list the chip opens: a row for each agent working.
+ *
+ * A row is one button. It previews a delegated child or opens a harness run's panel, and the list
+ * closes behind either, because both hand the reader on to somewhere else. A harness run working in
+ * the background carries a second control after that button, which stops THAT run. It asks nothing
+ * first, as the session's own Stop asks nothing, and its tooltip says that the session goes on. The
+ * list stays open behind it, since stopping one run is not leaving the list. An agent may press it
+ * too, because it grants nothing and starts nothing.
+ *
+ * A stop cannot be taken back, and the harness ends a run within milliseconds. Its row leaves and
+ * the next run's control moves up under the pointer, where the second click of a double-click would
+ * stop a run nobody chose. So the control answers the first click of a multi-click and no later
+ * one. The platform counts clicks by place and time, whatever each lands on, so the count is still
+ * two on the row that moved up. The cost is that quick presses on successive rows at one spot are
+ * one multi-click. Only the first of them stops a run, until the person pauses for the system's
+ * double-click interval. A key press carries no count and always stops.
+ *
+ * The rows keep their shape for as long as the list is open. Once a row has carried a stop control,
+ * every row keeps the row class and its slot after that run has left. Worked out afresh on each
+ * render, the last such run leaving gave the slot's width back to the rows that remained, and their
+ * names and times jumped sideways under a pointer that had just pressed Stop. A list that never had
+ * a run to stop is drawn as it always was, and so is one opened after the run has left. The shape is
+ * kept for the session the list is open on. When the bar turns to another session with the list
+ * open, the list stays up and draws that session's rows by what that session has had to stop.
+ */
+function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count, stopping, onStop, onClose }: {
   anchor: RefObject<HTMLButtonElement | null>;
   sessionId: string;
   rows: DelegatedRun[];
-  harness: { id: string; label: string; startedAt: number }[];
+  harness: HarnessRun[];
   since: number; elapsed: number; count: string;
+  stopping: ReadonlySet<string>;
+  onStop: (toolUseId: string) => void;
   onClose: () => void;
 }) {
   const sessions = useApp((s) => s.sessions);
@@ -249,6 +350,9 @@ function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef: anchor, align: "right", onClose, returnFocusRef: anchor, exit: true });
   const watched = docked?.kind === "subagent" ? docked.toolUseId : null;
   const now = since + elapsed;
+  const hadStop = useRef<string | null>(null);
+  if (harness.some((h) => h.stoppable)) hadStop.current = sessionId;
+  const row = hadStop.current === sessionId ? "agents-row" : undefined;
   const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
     visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top right" };
   return createPortal(
@@ -267,7 +371,7 @@ function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count
           // session and the run are announced separately) still gets its origin from the run.
           const meta = r.owned ? ORIGIN_META[child?.dispatchedBy?.kind ?? "agent_run"] : ASKED_META;
           return (
-            <li key={r.sessionId}>
+            <li key={r.sessionId} className={row}>
               {/* A delegated child is a whole session — a transcript, a composer, permissions of its
                   own — so the preview is that session, as a tab of this one's side pane. */}
               <button type="button" className="delegation-item" title={meta.label}
@@ -282,22 +386,31 @@ function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count
                 <span className="delegation-dim">{formatDuration(now - r.startedAt)}</span>
                 {status && <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />}
               </button>
+              {row && <span className="delegation-stop-slot" aria-hidden="true" />}
             </li>
           );
         })}
         {/* The harness's own sub-agents. No session behind one of these and so no status dot — but
-            there IS something to watch: the calls it makes arrive in this transcript nested under its
-            launching call. The row opens them on the panel docked to this pane's right edge. */}
+            there IS something to watch: the calls a Task or an Agent makes arrive in this transcript
+            nested under its launching call, and the row opens them on the panel docked to this pane's
+            right edge. A workflow's agents send theirs nowhere this transcript can see, and its panel
+            says so. */}
         {harness.map((h) => (
-          <li key={h.id}>
+          <li key={h.id} className={row}>
             <button type="button" className="delegation-item" data-selected={watched === h.id || undefined}
-              aria-label={`Watch ${h.label}`} aria-pressed={watched === h.id}
+              aria-label={`Watch ${h.label}`} aria-pressed={watched === h.id} title={h.stoppable ? RUNS_IN_THE_AGENT : undefined}
               onClick={() => { toggleSessionDock(sessionId, { kind: "subagent", toolUseId: h.id }); close(); }}>
               <Icon name="bot" size={14} />
               <span className="delegation-title">{h.label}</span>
-              <span className="delegation-dim">in the agent</span>
+              {!h.stoppable && <span className="delegation-dim">{IN_THE_AGENT}</span>}
               <span className="delegation-dim">{formatDuration(Math.max(0, now - h.startedAt))}</span>
             </button>
+            {h.stoppable
+              ? <button type="button" className="icon-btn delegation-stop" aria-label={`Stop ${h.label}`} title="Stop this run. The session goes on."
+                  disabled={stopping.has(h.id)} onClick={(e) => { if (e.detail > 1) return; onStop(h.id); }}>
+                  <Icon name="stop" size={12} />
+                </button>
+              : row && <span className="delegation-stop-slot" aria-hidden="true" />}
           </li>
         ))}
       </ul>

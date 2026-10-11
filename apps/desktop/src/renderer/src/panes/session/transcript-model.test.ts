@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sessionEvent } from "@realm/contracts";
-import { blockKey, emptyTranscript, reduceAll, reduceTranscript } from "./transcript-model";
+import { blockKey, emptyTranscript, markArrivalAtRest, reduceAll, reduceTranscript, type Transcript } from "./transcript-model";
 
 describe("a plan the agent proposed", () => {
   const plan = (planId: string, payload: { text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }, ts: number) =>
@@ -240,6 +240,165 @@ describe("how long the run worked", () => {
   });
 });
 
+/**
+ * The wait the adapter says while a card is open and no turn is in flight: a background run's agent
+ * asked for a tool between turns. A turn can then begin under that card, when the harness starts a
+ * report turn by itself or the person types a message. For the whole of such a turn the adapter
+ * says the wait again without the mark. It says `running` only if the card is answered before the
+ * turn ends.
+ */
+const atRest = (ts: number) => sessionEvent("status", { status: "waiting_permission", betweenTurns: true }, ts);
+
+describe("a turn that starts under a card open between turns", () => {
+  const status = (s: "idle" | "running" | "waiting_permission" | "error" | "ended", ts: number) => sessionEvent("status", { status: s }, ts);
+  const said = (text: string, ts: number) => sessionEvent("assistant_text", { messageId: text, text }, ts);
+  const call = (id: string, ts: number, parentToolUseId: string | null = null) =>
+    sessionEvent("tool_call", { toolUseId: id, name: "Bash", input: { command: id }, parentToolUseId }, ts);
+  const runBlocks = (t: ReturnType<typeof emptyTranscript>) => t.blocks.filter((b) => b.kind === "run");
+  const before = [sessionEvent("user_message", { text: "launch it", attachments: [] }, 1_000), status("running", 1_100), said("launched", 1_500), status("idle", 2_000)];
+
+  it("gives a turn that opened under a card between turns its own run line", () => {
+    const t = reduceAll([...before, atRest(3_000), status("waiting_permission", 4_000), said("the report", 5_000), status("idle", 9_000)]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["user", "assistant", "run", "assistant", "run"]);
+    expect(runBlocks(t)[1]).toMatchObject({ startedAt: 4_000 });
+    expect(t.run).toBeNull();
+  });
+
+  it("measures a turn that ended under the card to its last output, not to the card's answer", () => {
+    const t = reduceAll([...before, atRest(3_000), status("waiting_permission", 4_000), said("the report", 5_000), call("b1", 6_000), status("idle", 3_600_000)]);
+    expect(runBlocks(t)[1]).toMatchObject({ ms: 2_000, startedAt: 4_000 });
+  });
+
+  it("dates that turn's line at the settle, the time the server files the turn's changes under", () => {
+    const t = reduceAll([...before, atRest(3_000), status("waiting_permission", 4_000), said("the report", 5_000), status("idle", 3_600_000)]);
+    expect(runBlocks(t)[1]).toMatchObject({ ts: 3_600_000 });
+    expect(runBlocks(t)[1]).not.toHaveProperty("derived");
+  });
+
+  it("measures a turn whose card was answered first to the settle, from where the turn opened", () => {
+    const t = reduceAll([...before, atRest(3_000), status("waiting_permission", 4_000), said("half", 5_000), status("running", 6_000), said("done", 7_000), status("idle", 9_000)]);
+    expect(runBlocks(t)[1]).toEqual({ kind: "run", ms: 5_000, startedAt: 4_000, ts: 9_000 });
+  });
+
+  it("takes off a wait of the turn's own that began after the card it opened under was answered", () => {
+    const t = reduceAll([...before, atRest(3_000), status("waiting_permission", 4_000), status("running", 6_000),
+      status("waiting_permission", 7_000), status("running", 8_500), said("done", 8_800), status("idle", 9_000)]);
+    expect(runBlocks(t)[1]).toMatchObject({ ms: 3_500, startedAt: 4_000 });
+  });
+
+  it("banks no line for an unmarked wait that no output followed", () => {
+    const settled = reduceAll(before);
+    const t = reduceAll([status("waiting_permission", 3_000), status("idle", 4_000)], settled);
+    expect(t.blocks).toEqual(settled.blocks);
+    expect(t.run).toBeNull();
+  });
+
+  it("takes a background sub-agent's own call for no output of the turn, since it arrives with no turn in flight", () => {
+    const t = reduceAll([...before, status("waiting_permission", 3_000), call("n1", 3_500, "a1"), status("idle", 4_000)]);
+    expect(runBlocks(t)).toHaveLength(1);
+  });
+
+  it("counts nothing the agent said before the wait as output that followed it", () => {
+    const t = reduceAll([sessionEvent("user_message", { text: "go", attachments: [] }, 1_000), said("an answer that never settled", 1_500),
+      status("waiting_permission", 3_000), status("idle", 4_000)]);
+    expect(runBlocks(t)).toEqual([{ kind: "run", ms: 500, startedAt: 1_000, ts: 1_500, derived: true }]);
+  });
+
+  it("opens no run on a wait marked between turns", () => {
+    const t = reduceAll([...before, atRest(3_000), said("stray", 3_500), sessionEvent("status", { status: "idle", betweenTurns: true }, 4_000)]);
+    expect(runBlocks(t)).toHaveLength(1);
+    expect(t.run).toBeNull();
+  });
+
+  it("calls a turn stopped under the card stopped, measured to its last output", () => {
+    const t = reduceAll([...before, atRest(3_000), status("waiting_permission", 4_000), said("half", 5_000),
+      sessionEvent("status", { status: "idle", interrupted: true }, 9_000)]);
+    expect(runBlocks(t)[1]).toEqual({ kind: "run", ms: 1_000, startedAt: 4_000, ts: 9_000, stopped: true });
+  });
+
+  it("ignores a wait raised under the card when the turn ends under it", () => {
+    const t = reduceAll([...before, atRest(3_000), status("waiting_permission", 4_000), said("half", 5_000),
+      status("waiting_permission", 6_000), said("done", 8_000), status("idle", 3_600_000)]);
+    expect(runBlocks(t)[1]).toEqual({ kind: "run", ms: 4_000, startedAt: 4_000, ts: 3_600_000 });
+  });
+
+  it("gives a turn that ends under the card with its process its line", () => {
+    const t = reduceAll([...before, atRest(3_000), status("waiting_permission", 4_000), said("the report", 5_000), status("ended", 9_000)]);
+    expect(runBlocks(t)[1]).toEqual({ kind: "run", ms: 1_000, startedAt: 4_000, ts: 9_000 });
+  });
+
+  it("takes off a wait raised under the card when the card the turn opened under is answered first", () => {
+    const t = reduceAll([...before, atRest(3_000), status("waiting_permission", 4_000), said("half", 5_000),
+      status("waiting_permission", 6_000), status("running", 7_500), said("done", 8_000), status("idle", 9_000)]);
+    expect(runBlocks(t)[1]).toEqual({ kind: "run", ms: 3_500, startedAt: 4_000, ts: 9_000 });
+  });
+});
+
+describe("a request that arrives with no turn in flight", () => {
+  const status = (s: "idle" | "running" | "waiting_permission", ts: number) => sessionEvent("status", { status: s }, ts);
+  const request = sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "touch probe.txt" }, title: "Allow Bash?", suggestions: [] }, 3_100);
+  const settled = [sessionEvent("user_message", { text: "launch it", attachments: [] }, 1_000), status("running", 1_100), status("idle", 2_000)];
+
+  const arrive = (before: Transcript) => markArrivalAtRest(before, reduceTranscript(before, request), request);
+
+  it("is marked as arrived at rest when the wait marked between turns comes first, as the adapter sends the two", () => {
+    expect(arrive(reduceAll([...settled, atRest(3_000)])).pendingPermissions[0]).toHaveProperty("atRest", true);
+  });
+
+  it("is marked as arrived at rest when it comes ahead of its wait, as the server's broker sends the two", () => {
+    expect(reduceTranscript(arrive(reduceAll(settled)), atRest(3_200)).pendingPermissions[0]).toHaveProperty("atRest", true);
+  });
+
+  it("is not marked when it arrives in a turn", () => {
+    const t = arrive(reduceAll([sessionEvent("user_message", { text: "go", attachments: [] }, 1_000), status("running", 1_100), status("waiting_permission", 3_000)]));
+    expect(t.pendingPermissions[0]).not.toHaveProperty("atRest");
+  });
+
+  it("is not marked when it is read back from the log, where the person opens a session to answer it", () => {
+    expect(reduceAll([...settled, atRest(3_000), request]).pendingPermissions[0]).not.toHaveProperty("atRest");
+  });
+
+  it("marks the request that arrived and no other", () => {
+    const earlier = sessionEvent("permission_request", { requestId: "r0", toolName: "Bash", input: { command: "ls" }, title: "Allow Bash?", suggestions: [] }, 1_200);
+    const t = arrive(reduceAll([sessionEvent("user_message", { text: "go", attachments: [] }, 1_000), status("running", 1_100), earlier, status("idle", 2_000)]));
+    expect(t.pendingPermissions.map((p) => p.atRest)).toEqual([undefined, true]);
+  });
+});
+
+describe("the between-turns mark the prompter reads off the last status", () => {
+  const status = (s: "idle" | "running" | "waiting_permission", ts: number) => sessionEvent("status", { status: s }, ts);
+  const card = sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "ls" }, title: "Run ls?", suggestions: [] });
+
+  it("is set by a status event that carries it", () => {
+    expect(reduceAll([atRest(1)]).betweenTurns).toBe(true);
+  });
+
+  it("stays through the idle that closes the card, which carries it too", () => {
+    expect(reduceAll([atRest(1), sessionEvent("status", { status: "idle", betweenTurns: true }, 2)]).betweenTurns).toBe(true);
+  });
+
+  it("stays through the events that are not statuses", () => {
+    const t = reduceAll([atRest(1), card, sessionEvent("assistant_delta", { messageId: "m1", delta: "He" }), sessionEvent("permission_response", { requestId: "r1", decision: "allow" })]);
+    expect(t.betweenTurns).toBe(true);
+  });
+
+  it.each(["waiting_permission", "running", "idle"] as const)("is gone at the next status event that does not carry it, a plain %s", (next) => {
+    expect(reduceAll([atRest(1), status(next, 2)])).not.toHaveProperty("betweenTurns");
+  });
+
+  it("is never set on a transcript whose statuses never carried it", () => {
+    const t = reduceAll([status("running", 0), status("waiting_permission", 1), status("running", 2), status("idle", 3)]);
+    expect(t).not.toHaveProperty("betweenTurns");
+  });
+
+  it("leaves the transcript the same object when a status changes neither the run nor the mark", () => {
+    const t = reduceAll([status("running", 0), status("idle", 3)]);
+    expect(reduceTranscript(t, status("idle", 4))).toBe(t);
+    const marked = reduceAll([atRest(1)]);
+    expect(reduceTranscript(marked, atRest(2))).toBe(marked);
+  });
+});
+
 describe("feedback", () => {
   const rate = (messageId: string, rating: "up" | "down" | null) => sessionEvent("feedback", { messageId, rating });
 
@@ -415,6 +574,52 @@ describe("a background sub-agent's start and stop", () => {
   it("ignores a task naming a call this transcript never saw", () => {
     const t = reduceAll([tool("t1", "Agent"), sessionEvent("background_task", { toolUseId: "nope", status: "running" })]);
     expect(t.blocks).toHaveLength(1);
+  });
+
+  it("keeps how the run ended on the launching call, in the harness's own word", () => {
+    for (const outcome of ["completed", "failed", "stopped"] as const) {
+      const t = reduceAll([
+        tool("w1", "Workflow"),
+        sessionEvent("background_task", { toolUseId: "w1", status: "running" }),
+        sessionEvent("background_task", { toolUseId: "w1", status: "stopped", outcome }),
+      ]);
+      expect(t.blocks.find((b) => b.kind === "tool" && b.toolUseId === "w1")).toMatchObject({ background: "stopped", outcome });
+    }
+  });
+
+  it("keeps no outcome for a stop that carried none, and none while the run works", () => {
+    const running = reduceAll([tool("w1", "Workflow"), sessionEvent("background_task", { toolUseId: "w1", status: "running" })]);
+    expect(running.blocks[0]).not.toHaveProperty("outcome");
+    const stopped = reduceTranscript(running, sessionEvent("background_task", { toolUseId: "w1", status: "stopped" }));
+    expect(stopped.blocks[0]).toMatchObject({ background: "stopped" });
+    expect(stopped.blocks[0]).not.toHaveProperty("outcome");
+  });
+
+  it("forgets how an earlier run ended when the same call is announced running again", () => {
+    const t = reduceAll([
+      tool("a1", "Agent"),
+      sessionEvent("background_task", { toolUseId: "a1", status: "running" }),
+      sessionEvent("background_task", { toolUseId: "a1", status: "stopped", outcome: "failed" }),
+      sessionEvent("background_task", { toolUseId: "a1", status: "running" }),
+    ]);
+    expect(t.blocks[0]).toMatchObject({ background: "running" });
+    expect(t.blocks[0]).not.toHaveProperty("outcome");
+  });
+});
+
+describe("a request's once mark", () => {
+  const request = (over: Record<string, unknown> = {}) =>
+    sessionEvent("permission_request", { requestId: "r1", toolName: "Workflow", input: { script: "return 1" }, title: "Allow Workflow?", suggestions: [], ...over });
+
+  it("is carried to the card that will draw the request", () => {
+    expect(reduceAll([request({ once: true })]).pendingPermissions).toEqual([
+      { requestId: "r1", toolName: "Workflow", input: { script: "return 1" }, title: "Allow Workflow?", once: true },
+    ]);
+  });
+
+  it("is added to no request that did not carry it, whatever its suggestions hold", () => {
+    expect(reduceAll([request()]).pendingPermissions[0]).not.toHaveProperty("once");
+    expect(reduceAll([request({ suggestions: [{ type: "addRules" }] })]).pendingPermissions[0]).not.toHaveProperty("once");
   });
 });
 

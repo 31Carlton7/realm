@@ -142,6 +142,7 @@ export const liveApi = (): Api => ({
   },
   mentionFiles: (sessionId, query, limit) => rpc().call("mentions.files", { sessionId, query, ...(limit ? { limit } : {}) }),
   interruptSession: async (id) => { await rpc().call("sessions.interrupt", { id }); },
+  stopBackgroundRun: async (id, toolUseId) => { await rpc().call("sessions.stopTask", { id, toolUseId }); },
   dequeuePrompt: async (id, queuedId) => { await rpc().call("sessions.dequeue", { id, queuedId }); },
   releaseQueuedPrompt: async (id, queuedId) => { await rpc().call("sessions.releaseQueued", { id, queuedId }); },
   sessionQueue: async (id) => (await rpc().call("sessions.queued", { id })).queued,

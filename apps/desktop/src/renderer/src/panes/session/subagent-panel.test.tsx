@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { sessionEvent, type DelegatedRun } from "@realm/contracts";
 import { DOCK_PIN_MIN_PANE } from "./pane-dock";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -222,5 +222,124 @@ describe("the sub-agent panel", () => {
     // What a compaction that dropped the call looks like from here.
     store.setState({ transcripts: { se1: { lastSeq: 1, t: reduceAll([]) } } });
     await waitFor(() => expect(screen.getByText(/no longer in the transcript/)).toBeInTheDocument());
+  });
+});
+
+/** A workflow's script, naming itself the way the harness requires. */
+const SCRIPT = "export const meta = { name: 'probe-run', description: 'Probe run with two agents' }\nreturn await agent('go')";
+/** What a `Workflow` call returns within a second of launching, which is a receipt and not a report. */
+const RECEIPT = "Workflow launched in background. Task ID: w1m36gxx5";
+/** The one sentence a workflow's panel says where its calls would be listed. */
+const NO_CALLS = "Its agents’ calls don’t reach this transcript.";
+
+const workflow = (id: string, input: Record<string, unknown> = { script: SCRIPT }) =>
+  sessionEvent("tool_call", { toolUseId: id, name: "Workflow", input, parentToolUseId: null });
+const background = (id: string, status: "running" | "stopped", outcome?: "completed" | "failed" | "stopped") =>
+  sessionEvent("background_task", { toolUseId: id, status, ...(outcome ? { outcome } : {}) });
+
+/** The panel on one call, docked through the store as a row would dock it. A run that has ended has
+ *  no row left in the list to press. */
+async function panelOn(toolUseId: string, events: ReturnType<typeof sessionEvent>[]) {
+  const { store } = await mount(events);
+  act(() => store.getState().toggleSessionDock("se1", { kind: "subagent", toolUseId }));
+  return within(await screen.findByRole("dialog", { name: /Sub-agent/ }));
+}
+
+describe("the sub-agent panel on a workflow or a background run", () => {
+  it("says a workflow's agents' calls do not reach the transcript, where it would wait for calls that cannot come", async () => {
+    const body = await panelOn("w1", [workflow("w1"), background("w1", "running"), result("w1", RECEIPT)]);
+    expect(body.getByText(NO_CALLS)).toBeInTheDocument();
+    expect(body.queryByText(/still working out what to do/)).toBeNull();
+  });
+
+  it("says the same once the run has ended, where it would claim the run called no tools", async () => {
+    const body = await panelOn("w1", [workflow("w1"), background("w1", "running"), result("w1", RECEIPT), background("w1", "stopped", "completed")]);
+    expect(body.getByText(NO_CALLS)).toBeInTheDocument();
+    expect(body.queryByText(/without calling any tools/)).toBeNull();
+  });
+
+  it("keeps a Task's own empty sentence, since a Task's calls do arrive", async () => {
+    const body = await panelOn("t1", [launch("t1", "audit the mapper"), result("t1", "Nothing to report.")]);
+    expect(body.getByText("It finished without calling any tools.")).toBeInTheDocument();
+    expect(body.queryByText(NO_CALLS)).toBeNull();
+  });
+
+  it("does not show a workflow's launch receipt as its report", async () => {
+    const body = await panelOn("w1", [workflow("w1"), background("w1", "running"), result("w1", RECEIPT)]);
+    expect(body.queryByText("What it reported")).toBeNull();
+    expect(body.queryByText(/launched in background/)).toBeNull();
+  });
+
+  it("does not show a background sub-agent's launch receipt as its report either, whatever the tool", async () => {
+    const body = await panelOn("a1", [
+      sessionEvent("tool_call", { toolUseId: "a1", name: "Agent", input: { description: "hold 10m" }, parentToolUseId: null }),
+      result("a1", "Async agent launched successfully."),
+      background("a1", "running"),
+      background("a1", "stopped", "completed"),
+    ]);
+    expect(body.queryByText("What it reported")).toBeNull();
+    expect(body.queryByText(/launched successfully/)).toBeNull();
+  });
+
+  it("still shows why a launch was refused, which never ran in the background at all", async () => {
+    const body = await panelOn("w1", [workflow("w1"), result("w1", "User denied", true)]);
+    expect(body.getByText("It failed")).toBeInTheDocument();
+    expect(body.getByText("User denied")).toBeInTheDocument();
+  });
+
+  it.each([
+    { how: "was stopped", outcome: "stopped", word: "stopped" },
+    { how: "failed", outcome: "failed", word: "failed" },
+    { how: "completed", outcome: "completed", word: "finished" },
+    { how: "ended without the harness saying how", outcome: undefined, word: "finished" },
+  ] as const)("ends its clock on the word $word for a run that $how", async ({ outcome, word }) => {
+    const body = await panelOn("w1", [workflow("w1"), background("w1", "running"), result("w1", RECEIPT), background("w1", "stopped", outcome)]);
+    expect(document.querySelector(".subagent-elapsed")).toHaveTextContent(word);
+    expect(body.queryByText(word === "finished" ? "stopped" : "finished")).toBeNull();
+  });
+
+  it("is titled by the workflow's own name, not by a description the harness ignores", async () => {
+    await panelOn("w1", [workflow("w1", { script: SCRIPT, description: "Tidy the README" }), background("w1", "running")]);
+    expect(screen.getByRole("dialog", { name: "Sub-agent: probe-run" })).toBeInTheDocument();
+  });
+});
+
+/** The panel on one call in a session that has gone idle, which is where a background run is watched
+ *  from: its launching turn settled long before. */
+async function idlePanelOn(toolUseId: string, events: ReturnType<typeof sessionEvent>[]) {
+  const { store } = await mount(events);
+  act(() => {
+    store.setState({ sessionStatus: { se1: "idle" } });
+    store.getState().toggleSessionDock("se1", { kind: "subagent", toolUseId });
+  });
+  return screen.findByRole("dialog", { name: /Sub-agent/ });
+}
+const statusIn = (panel: HTMLElement, toolUseId: string) => panel.querySelector<HTMLElement>(`.tool-card[data-tool-use-id="${toolUseId}"] .tool-status`);
+
+describe("the sub-agent panel in a session that has gone idle", () => {
+  it("draws a background sub-agent's call in flight as running while the session is idle", async () => {
+    const panel = await idlePanelOn("a1", [
+      sessionEvent("tool_call", { toolUseId: "a1", name: "Agent", input: { description: "hold 10m" }, parentToolUseId: null }),
+      result("a1", "Async agent launched successfully."),
+      background("a1", "running"),
+      under("a1", "c1", "Bash", { command: "pnpm vitest run mapper" }),
+    ]);
+    expect(statusIn(panel, "c1")).toHaveAttribute("aria-label", "running");
+  });
+
+  it("draws that call with no result once the run has stopped, as a session at rest draws it", async () => {
+    const panel = await idlePanelOn("a1", [
+      sessionEvent("tool_call", { toolUseId: "a1", name: "Agent", input: { description: "hold 10m" }, parentToolUseId: null }),
+      result("a1", "Async agent launched successfully."),
+      background("a1", "running"),
+      under("a1", "c1", "Bash", { command: "pnpm vitest run mapper" }),
+      background("a1", "stopped", "stopped"),
+    ]);
+    expect(statusIn(panel, "c1")).toHaveAttribute("aria-label", "no result");
+  });
+
+  it("leaves a blocking sub-agent's unfinished call with no result there, since nothing says it still runs", async () => {
+    const panel = await idlePanelOn("t1", [launch("t1", "audit the mapper"), under("t1", "c1", "Bash", { command: "pnpm vitest run mapper" })]);
+    expect(statusIn(panel, "c1")).toHaveAttribute("aria-label", "no result");
   });
 });

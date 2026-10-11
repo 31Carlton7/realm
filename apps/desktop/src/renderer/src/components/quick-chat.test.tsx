@@ -84,6 +84,17 @@ describe("the quick chat", () => {
     expect(w.getByRole("button", { name: "Add" })).toBeInTheDocument();
   });
 
+  it("draws its prompter at rest in a wait raised between turns, as the session's own pane does", async () => {
+    const { store } = await mount();
+    await openChat();
+    const { sessionId } = store.getState().quickChat!;
+    store.setState({ sessionStatus: { [sessionId]: "waiting_permission" }, transcripts: { [sessionId]: { lastSeq: 1, t: reduceAll([
+      sessionEvent("status", { status: "waiting_permission", betweenTurns: true }),
+    ]) } } });
+    expect(await within(chat()).findByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(within(chat()).queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
   it("drops the chrome that is about a workspace — no permission chip, no mode chip, no under-strip", async () => {
     /* Every one of these answers "where and how does this session run", and a quick chat is a
        question in a corner. THE MUTANT: pass `compact={false}`; the card grows a row of chips and an

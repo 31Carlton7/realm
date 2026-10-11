@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { mediaUrl, sessionEvent, type MediaFile } from "@realm/contracts";
 import { MediaStrip } from "../../panes/session/media/MediaView";
 import { resetMediaCache } from "../../panes/session/media/use-media";
+import { reduceAll } from "../../panes/session/transcript-model";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 import { MediaViewer } from "./MediaViewer";
@@ -294,6 +295,18 @@ describe("the prompter docked under it", () => {
     expect(api.sent[0]).toEqual({ id: "lead", text: "Make the sky warmer", attachments: [{ path: "/work/hero.png", mime: "image/png" }] });
     // And says so before anything is typed: where the question goes is what the send means.
     expect(within(viewerEl()!).getByRole("button", { name: "Logo rework" })).toBeInTheDocument();
+  });
+
+  it("draws its prompter at rest while a card stands open between turns in the session it asks", async () => {
+    bridge([media("/work/hero.png")]);
+    const { store } = await mount([media("/work/hero.png")]);
+    fireEvent.click(await screen.findByRole("button", { name: "Open hero.png larger" }));
+    await screen.findByRole("dialog", { name: "hero.png" });
+    act(() => store.setState({ sessionStatus: { lead: "waiting_permission" }, transcripts: { lead: { lastSeq: 1, t: reduceAll([
+      sessionEvent("status", { status: "waiting_permission", betweenTurns: true }),
+    ]) } } }));
+    expect(within(viewerEl()!).getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(within(viewerEl()!).queryByRole("button", { name: "Stop" })).toBeNull();
   });
 
   it("draws the answer above the prompter, and only this viewer's part of the session", async () => {

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DiffView } from "./DiffView";
-import { CodeBlock, CommandView, MatchList, RequestView, TerminalView, TodoList, UploadView, clampGroups } from "./ToolViews";
+import { CodeBlock, CommandView, MatchList, RequestView, TerminalView, TodoList, UploadView, WorkflowView, clampGroups } from "./ToolViews";
 import { fileDiffsFor, parseUnifiedDiff } from "./diff";
 import { PermissionCard } from "../PermissionCard";
 import { ToolCard } from "../ToolCard";
@@ -218,6 +218,61 @@ describe("UploadView", () => {
   });
 });
 
+/** A workflow script, with what it says of itself and then what it runs. */
+const WORKFLOW = "export const meta = { name: 'probe-run', description: 'Probe run with two agents', phases: [{ title: 'Plan', detail: 'Read the mapper' }, { title: 'Build' }] }\nphase('Plan')\nreturn await agent('PROBE-AGENT-A say alpha')";
+const WORKFLOW_META = { name: "probe-run", description: "Probe run with two agents", phases: [{ title: "Plan", detail: "Read the mapper" }, { title: "Build" }] };
+/** The sentence the permission card says before its answers, and no other surface says. */
+const CAUTION = "This script can start sub-agents that keep working in the background. They can use many tokens.";
+
+describe("WorkflowView", () => {
+  it("draws what the script says of itself, then the script as code", () => {
+    render(<WorkflowView meta={WORKFLOW_META} script={WORKFLOW} args={null} resumeFromRunId={null} />);
+    expect(text(".wf-description")).toEqual(["Probe run with two agents"]);
+    expect(text(".wf-phase-title")).toEqual(["Plan", "Build"]);
+    expect(text(".wf-phase-detail")).toEqual(["Read the mapper"]);
+    expect(q(".wf .code-body")[0]!.textContent).toBe(WORKFLOW);
+    expect(text(".wf-caption")).toEqual(["Phases", "Script"]);
+  });
+
+  it("draws the script alone when there is no meta to read it by", () => {
+    render(<WorkflowView meta={null} script={"return await agent('go')"} args={null} resumeFromRunId={null} />);
+    expect(q(".wf-description, .wf-phases")).toHaveLength(0);
+    expect(text(".wf-caption")).toEqual(["Script"]);
+    expect(q(".wf .code-body")[0]!.textContent).toBe("return await agent('go')");
+  });
+
+  it("names no phases for a script that declares none", () => {
+    render(<WorkflowView meta={{ name: "tidy", description: "Tidy the README" }} script={WORKFLOW} args={null} resumeFromRunId={null} />);
+    expect(text(".wf-description")).toEqual(["Tidy the README"]);
+    expect(text(".wf-caption")).toEqual(["Script"]);
+  });
+
+  it("sets the script's own words as plain text, so nothing an agent wrote in them is rendered or linked", () => {
+    const meta = { name: "x", description: "**Safe** [docs](https://example.com) <img src=x onerror=alert(1)>", phases: [{ title: "<b>Plan</b>" }] };
+    render(<WorkflowView meta={meta} script={WORKFLOW} args={null} resumeFromRunId={null} />);
+    expect(q(".wf-description")[0]!.textContent).toBe(meta.description);
+    expect(q(".wf-phase-title")[0]!.textContent).toBe("<b>Plan</b>");
+    expect(q(".wf a, .wf img, .wf strong, .wf b")).toHaveLength(0);
+  });
+
+  it("draws the arguments as JSON after the script, and the run a launch resumes", () => {
+    render(<WorkflowView meta={null} script={WORKFLOW} args={'{\n  "depth": 2\n}'} resumeFromRunId="wf_e7f5f79f-cf9" />);
+    expect(text(".wf-caption")).toEqual(["Script", "Arguments"]);
+    expect(q(".wf .code-body").map((e) => e.textContent)).toEqual([WORKFLOW, '{\n  "depth": 2\n}']);
+    expect(q(".wf-resume")[0]!.textContent).toBe("This launch resumes run wf_e7f5f79f-cf9.");
+    expect(q(".wf-resume code")[0]!.textContent).toBe("wf_e7f5f79f-cf9");
+  });
+
+  it("folds a long list of phases and says how many are behind the fold", () => {
+    const phases = Array.from({ length: 14 }, (_, i) => ({ title: `Phase ${i + 1}` }));
+    render(<WorkflowView meta={{ name: "long", description: "Many phases", phases }} script={WORKFLOW} args={null} resumeFromRunId={null} />);
+    expect(q(".wf-phase")).toHaveLength(10);
+    fireEvent.click(screen.getByRole("button", { name: "Show all 14 phases" }));
+    expect(q(".wf-phase")).toHaveLength(14);
+    expect(screen.queryByRole("button", { name: /Show all \d+ phases/ })).toBeNull();
+  });
+});
+
 const tool = (name: string, input: Record<string, unknown>, result: string | null = null): ToolBlock =>
   ({ kind: "tool", toolUseId: "t1", name, input, result: result === null ? null : { content: result, isError: false }, ts: 0 });
 
@@ -244,6 +299,21 @@ describe("ToolCard with a drawn payload", () => {
     render(<ToolCard sessionStatus="idle" block={tool("mcp__x__do", { anything: 1 }, "some result")} />);
     open();
     expect(q(".tool-well")).toHaveLength(2);
+  });
+
+  it("an opened Workflow call shows its script under what the script says of itself, on a row that wears the script's name", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("Workflow", { script: WORKFLOW }, "Workflow launched in background. Task ID: w1m36gxx5")} />);
+    expect(q(".tool-row .tool-summary")[0]).toHaveTextContent("probe-run");
+    open();
+    expect(text(".tool-body .wf-description")).toEqual(["Probe run with two agents"]);
+    expect(q(".tool-body .wf .code-body")[0]!.textContent).toBe(WORKFLOW);
+  });
+
+  it("a Workflow call's card carries no word about allowing it, because that sentence is the permission card's", () => {
+    render(<ToolCard sessionStatus="idle" block={tool("Workflow", { script: WORKFLOW }, "Workflow launched in background. Task ID: w1m36gxx5")} />);
+    open();
+    expect(q(".tool-body .wf")).toHaveLength(1);
+    expect(screen.queryByText(CAUTION)).toBeNull();
   });
 
 });
@@ -274,5 +344,31 @@ describe("PermissionCard preview", () => {
     ask("mcp__x__do", { anything: 1 });
     expect(q(".permission-preview")).toHaveLength(0);
     expect(q("details.permission-details summary")[0]).toHaveTextContent("Input");
+  });
+
+  it("shows a workflow's script OPEN before it is allowed, under what the script says of itself", () => {
+    ask("Workflow", { script: WORKFLOW });
+    expect(text(".permission-preview .wf-description")).toEqual(["Probe run with two agents"]);
+    expect(text(".permission-preview .wf-phase-title")).toEqual(["Plan", "Build"]);
+    expect(q(".permission-preview .code-body")[0]!.textContent).toBe(WORKFLOW);
+    expect(q(".permission-tool code")[0]).toHaveTextContent("probe-run");
+    expect(q("details.permission-details")[0]).not.toHaveAttribute("open");
+  });
+
+  it("says what allowing a workflow sets going, after the script and before the answers", () => {
+    ask("Workflow", { script: WORKFLOW });
+    const follows = (first: Element, second: Element) => (first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    const caution = screen.getByText(CAUTION);
+    expect(follows(q(".permission-preview")[0]!, caution)).toBe(true);
+    expect(follows(caution, q(".permission-options")[0]!)).toBe(true);
+  });
+
+  it("says no such thing on a card that is not showing a workflow's script", () => {
+    const command = ask("Bash", { command: "ls -la" });
+    expect(screen.queryByText(CAUTION)).toBeNull();
+    command.unmount();
+    ask("Workflow", { scriptPath: "/tmp/runs/probe-run.js" });
+    expect(q(".permission-preview")).toHaveLength(0);
+    expect(screen.queryByText(CAUTION)).toBeNull();
   });
 });

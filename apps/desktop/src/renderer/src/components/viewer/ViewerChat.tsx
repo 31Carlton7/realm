@@ -178,7 +178,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
           {/* The one outcome the prompter cannot show as a chip: marks are not a file until the send. */}
           {marks && <span className="media-viewer-marks-note">· with your marks, as {markedName(file.path)}</span>}
         </div>
-        <Composer compact session={session} status={status} gitInfo={null} hero={false} spaceName=""
+        <Composer compact session={session} status={status} betweenTurns={entry?.t.betweenTurns} gitInfo={null} hero={false} spaceName=""
           placeholder={`Ask about ${name}, or ask for a change`}
           onOpenDiff={NOOP} draft={draft} onDraftChange={(t) => setDraft(VIEWER_SLOT, t)}
           attachments={attachments}

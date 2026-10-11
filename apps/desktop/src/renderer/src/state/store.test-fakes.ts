@@ -1185,6 +1185,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return m;
     },
     interruptSession: async (id) => { calls.push(`interrupt:${id}`); },
+    stopBackgroundRun: async (id, toolUseId) => { calls.push(`stopBackgroundRun:${id}:${toolUseId}`); },
     dequeuePrompt: async (id, queuedId) => { calls.push(`dequeue:${id}:${queuedId}`); },
     releaseQueuedPrompt: async (id, queuedId) => { calls.push(`releaseQueued:${id}:${queuedId}`); },
     sessionQueue: async () => queuedPrompts,

@@ -424,8 +424,21 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, betweenTurns = false, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
+  /**
+   * Whether the session's last status said it is between turns (the transcript's `betweenTurns`).
+   *
+   * A `waiting_permission` marked so has no turn behind it. A run working in the background asked
+   * for a tool, and the server delivers a message typed then at once. Nothing queues it and nothing
+   * is interrupted. So the session is at rest there, and the prompter with it. The corner button is
+   * Send and its tooltips are a resting session's. Drawn as a turn in flight, the button was Stop,
+   * and its tooltip said the message would queue or steer when the server did neither.
+   *
+   * A host that does not hold the session's transcript leaves it out. Every wait then draws as a
+   * turn in flight, as it did before the two waits could be told apart.
+   */
+  betweenTurns?: boolean;
   /**
    * The quick chat's prompter: the card, and only the card.
    *
@@ -544,6 +557,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   onManageConnections?: () => void;
   /** Which key sends the draft (Settings ▸ General). Default "enter": plain Enter sends. "cmdEnter":
    *  only ⌘/Ctrl+Enter sends, plain Enter inserts a newline. */
+  /** A send answers the key's own press and never its repeat. The keyboard can arrive in the box
+   *  with Enter still held, as when the running-agents list hands it over after its last run is
+   *  stopped from the keyboard, and a repeat that sent would post a half-written draft. The repeat
+   *  of a key that sends is still taken, so holding it adds no lines to the draft either. */
   submitKey?: SubmitKey;
   /** Whether the easter eggs are on. Passed straight to the model picker. */
   eggs?: boolean;
@@ -587,7 +604,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   selectInRealm?: { onSelect: () => void; kbd?: string };
 }) {
   const ta = useRef<HTMLTextAreaElement>(null);
-  const running = status === "running" || status === "waiting_permission";
+  const running = status === "running" || (status === "waiting_permission" && !betweenTurns);
   const kind = session.agentKind;
   // Hidden exactly like the model menu is empty when the agent has no models: an option Realm cannot
   // transmit is worse than no option at all.
@@ -1085,7 +1102,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
     // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
     // window level in hotkeys.ts — consuming it here would turn dispatch into a plain send.
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); send(); return; }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); if (!e.repeat) send(); return; }
     // ⌫ behind and ⌦ in front of an element chip take the whole token (see `deleteChipAt` for why
     // only that kind). A collapsed selection and no modifiers: ⌥⌫ and a live selection are the user
     // already being specific, and guessing wider destroys text they can no longer see.
@@ -1153,7 +1170,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     }
     // Plain Enter (Settings ▸ General, default "enter"): the picker above already claimed Enter when
     // open, so this never fights mention-picking. Shift+Enter stays a newline in both modes.
-    if (submitKey === "enter" && e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); send(); }
+    if (submitKey === "enter" && e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); if (!e.repeat) send(); }
   };
 
   // Only the modes this agent can actually be put INTO. Build is always offered — it is the absence
