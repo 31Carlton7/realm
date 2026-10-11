@@ -986,6 +986,64 @@ describe("splitContext — where the person's words stop", () => {
   });
 });
 
+/** How Claude Code is told that a person sent a message as their own input. */
+const PERSON = { kind: "human" };
+
+describe("the mark on a message a person sent", () => {
+  it("marks a message the server calls a person's as a person's own input", async () => {
+    expect((await pushedFor({ text: "ultracode say hi", attachments: [], human: true })).origin).toEqual(PERSON);
+  });
+
+  it("leaves a message the server does not call a person's unmarked", async () => {
+    expect(await pushedFor({ text: "ultracode say hi", attachments: [] })).not.toHaveProperty("origin");
+  });
+
+  it("marks a person's message whose context went ahead as a block of its own", async () => {
+    expect((await pushedFor({ text: WORDS + FILES, context: FILES, attachments: [], human: true })).origin).toEqual(PERSON);
+  });
+
+  it("leaves a person's message unmarked when its context is not the tail of its text", async () => {
+    expect(await pushedFor({ text: `${WORDS}${FILES} and one more thing`, context: FILES, attachments: [], human: true })).not.toHaveProperty("origin");
+  });
+
+  it("marks a person's message that carries a file", async () => {
+    expect((await pushedFor({ text: "summarize this", attachments: [{ path: "/tmp/plan for ultracode rollout.md", mime: "text/markdown" }], human: true })).origin).toEqual(PERSON);
+  });
+
+  it("sends a marked message's words alone as its last block, with the list of attached files ahead of them", async () => {
+    const pushed = await pushedFor({ text: "summarize this", attachments: [{ path: "/tmp/plan for ultracode rollout.md", mime: "text/markdown" }], human: true });
+    expect(pushed.message.content).toEqual([{ type: "text", text: "Attached files:\n- /tmp/plan for ultracode rollout.md" }, { type: "text", text: "summarize this" }]);
+  });
+
+  it("leaves a person's message with no words unmarked, where the last block is the list of attached files", async () => {
+    expect(await pushedFor({ text: "", attachments: [{ path: "/tmp/review ultracode draft.pdf", mime: "application/pdf" }], human: true })).not.toHaveProperty("origin");
+  });
+
+  it("leaves a person's message with no words unmarked, where the last block is a picture", async () => {
+    expect(await pushedFor({ text: "", attachments: [{ path: picture("shot.png"), mime: "image/png" }], human: true })).not.toHaveProperty("origin");
+  });
+
+  it("leaves a person's message unmarked when its words are only blank space", async () => {
+    expect(await pushedFor({ text: " \n", attachments: [{ path: "/tmp/notes.pdf", mime: "application/pdf" }], human: true })).not.toHaveProperty("origin");
+  });
+
+  it("leaves a person's message unmarked when all of its text is Realm's context", async () => {
+    expect(await pushedFor({ text: FILES, context: FILES, attachments: [{ path: "/tmp/notes.pdf", mime: "application/pdf" }], human: true })).not.toHaveProperty("origin");
+  });
+
+  it("marks a person's message in Ask mode too, because the mark says who sent it and not what may run", async () => {
+    expect((await pushedFor({ text: "ultracode say hi", attachments: [], human: true }, { permissionMode: "ask" })).origin).toEqual(PERSON);
+  });
+
+  it("sends no priority with the mark", async () => {
+    expect(await pushedFor({ text: "ultracode say hi", attachments: [], human: true })).not.toHaveProperty("priority");
+  });
+
+  it("gives a marked message its uuid as it gives any other", async () => {
+    expect((await pushedFor({ text: "ultracode say hi", attachments: [], human: true })).uuid).toEqual(expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/));
+  });
+});
+
 describe("claudeMcpServers", () => {
   const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };

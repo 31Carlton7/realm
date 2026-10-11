@@ -923,7 +923,7 @@ export function registerMethods(d: Deps): void {
   reg("codeReview.reviewGet", (p) => ({ review: d.codeReview.reviewOf(p.ref) }));
   reg("codeReview.places", async (p) => ({ places: await d.codeReview.places(p.profileId) }));
   reg("codeReview.thread", (p) => { const t = d.codeReview.thread(p.ref); return { sessionId: t?.sessionId ?? null, spaceId: t?.spaceId ?? null }; });
-  reg("codeReview.ask", (p) => d.codeReview.ask(p));
+  reg("codeReview.ask", (p) => d.codeReview.ask({ ref: p.ref, spaceId: p.spaceId, projectId: p.projectId, agentKind: p.agentKind, model: p.model, effort: p.effort, fastMode: p.fastMode, permissionMode: p.permissionMode, text: p.text, attachments: p.attachments, human: p.human }));
   // Live registry state, not a table: the engine holds it in memory and it dies with the process, so
   // a pane mounting mid-run has no other way to learn what its session is waiting on.
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
@@ -987,7 +987,7 @@ export function registerMethods(d: Deps): void {
   // `userDispatched` (W2's ⌘⇧↩) maps to the ONE origin a client may claim; the agent origins are
   // recorded by the server-side tools that create those children, never over RPC.
   reg("sessions.create", (p) => { refuseWhileDraining("start a session"); return d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }); });
-  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs: p.mentionRefs }, p.delivery); return { ok: true as const }; });
+  reg("sessions.send", async (p) => { await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs: p.mentionRefs, ...(p.human ? { human: true as const } : {}) }, p.delivery); return { ok: true as const }; });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
   reg("limits.get", async () => ({ limits: d.planLimits.list() }));
   reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });

@@ -22,6 +22,31 @@ describe("sessions.send params (Plan 14 W5 — attachment-only messages)", () =>
   });
 });
 
+describe("human — whose message a client says it is", () => {
+  const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const question = { ref: { owner: "acme", repo: "widgets", number: 42 }, spaceId: id, agentKind: "claude", text: "What does this change?" };
+
+  it("reads a sessions.send that does not say as not a person's", () => {
+    expect(Methods["sessions.send"].params.parse({ id, text: "hi" }).human).toBe(false);
+  });
+
+  it("keeps what a sessions.send says", () => {
+    expect(Methods["sessions.send"].params.parse({ id, text: "hi", human: true }).human).toBe(true);
+  });
+
+  it("reads a codeReview.ask that does not say as not a person's", () => {
+    expect(Methods["codeReview.ask"].params.parse(question).human).toBe(false);
+  });
+
+  it("keeps what a codeReview.ask says", () => {
+    expect(Methods["codeReview.ask"].params.parse({ ...question, human: true }).human).toBe(true);
+  });
+
+  it("gives codeReview.review no way to say it, so a reviewer's prompt is never a person's", () => {
+    expect(Methods["codeReview.review"].params.parse({ ref: question.ref, profileId: id, spaceId: id, agentKind: "claude", human: true })).not.toHaveProperty("human");
+  });
+});
+
 describe("laya.record params", () => {
   const schema = Methods["laya.record"].params;
   const simulatorId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";

@@ -7,10 +7,10 @@ import type { SessionStatus } from "./entities";
 
 const P = {
   /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
-   *  Absent means the user typed it, and absence is the ordinary case — the same polarity
-   *  `dispatchedBy` uses. Optional so every row ever written still parses; no migration, no backfill.
-   *  The pane reads it to label the bubble: rendering another agent's words as the user's would be a
-   *  lie by omission, and the user would believe they had typed it. */
+   *  Absent means no other session did, the ordinary case and the polarity `dispatchedBy` uses; it is
+   *  `human` that says a person sent it. Optional so every row ever written still parses; no migration,
+   *  no backfill. The pane reads it to label the bubble: rendering another agent's words as the user's
+   *  would be a lie by omission, and the user would believe they had typed it. */
   user_message: z.object({
     text: z.string(),
     attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
@@ -31,6 +31,18 @@ const P = {
      *  user attached: a mentioned file is a chip in the sentence, and a tile above it would be the
      *  same file shown twice. Optional, so every row written before mentions existed still parses. */
     refs: z.array(MentionRefSchema).optional(),
+    /** The client's claim that this message went to the agent as the person's own input. A person
+     *  sent it from a prompter, or retried one that was. It is a claim and proves no hand: whatever
+     *  holds the socket can make it. It says the message was sent, and does not say its words were
+     *  typed. A draft can hold a hint taken with Tab, a quoted selection or a command's template,
+     *  and the first question about a pull request opens with a sentence Realm wrote. Absent on
+     *  everything Realm writes, a delegated brief and a plan's Implement among them. Absent too on
+     *  some things a person does type: a goal's objective, the goal of a run or of a scheduled
+     *  task, a reply to a blocked run and the work text of the Agents tab. And absent on every row
+     *  written before it existed. So an absent `from`, `goal` and `scheduled` never proved a
+     *  person's hand, and an absent `human` does not prove Realm's. Retry reads it, to send the
+     *  message again as it first went. */
+    human: z.literal(true).optional(),
   }),
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   assistant_delta: z.object({ messageId: z.string(), delta: z.string() }),

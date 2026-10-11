@@ -88,7 +88,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
       const sent = attachments;
       const r = await codeReview.ask({ ref: pr, spaceId: place.spaceId, projectId: place.projectId, agentKind: owner?.agentKind ?? pick.agentKind, model: pick.model,
         effort: pick.effort, fastMode: pick.fastMode, permissionMode: pick.permissionMode,
-        text, attachments: sent.map(({ path, mime }) => ({ path, mime })) });
+        text, human: true, attachments: sent.map(({ path, mime }) => ({ path, mime })) });
       for (const a of sent) removeAttachment(ASK_SLOT, a.path);
       await refreshSessions(place.spaceId);
       await openSession(r.sessionId);

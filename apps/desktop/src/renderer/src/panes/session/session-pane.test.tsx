@@ -1342,7 +1342,7 @@ describe("attachment-only send (Plan 14 W5)", () => {
     expect(btn).not.toBeDisabled();
     expect(btn.title).toBe("Send (⌘↵)");
     fireEvent.click(btn);
-    await waitFor(() => expect(api.sent).toEqual([{ id: "se1", text: "", attachments: [{ path: "/tmp/a.png", mime: "image/png" }] }]));
+    await waitFor(() => expect(api.sent).toEqual([{ id: "se1", text: "", attachments: [{ path: "/tmp/a.png", mime: "image/png" }], human: true }]));
   });
 
   it("a PDF alone now unlocks Send — Claude is handed its path rather than dropping it", async () => {

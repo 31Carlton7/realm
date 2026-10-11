@@ -225,7 +225,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const spaces = useApp((s) => s.spaces);
   const moveSessionToSpace = useApp((s) => s.moveSessionToSpace);
   const openSession = useApp((s) => s.openSession);
-  const sendMessage = useApp((s) => s.sendMessage);
+  const sendTyped = useApp((s) => s.sendTyped);
   const interruptSession = useApp((s) => s.interruptSession);
   const queued = useApp((s) => s.sessionQueues[id]);
   const midTurnMode = useApp((s) => s.midTurnMode);
@@ -664,7 +664,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               else if (outcome === "full") setRefNote("That is as many sessions as one message can point at.");
               else setRefNote(null);
             }}
-            onSend={(text) => { setSends((n) => n + 1); run(() => sendMessage(id, text)); }}
+            onSend={(text) => { setSends((n) => n + 1); run(() => sendTyped(id, text)); }}
             onStop={() => run(() => interruptSession(id))}
             onOptions={(o) => run(() => setSessionOptions(id, o))}
             onPickModel={(kind, modelId) => run(async () => {

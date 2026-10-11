@@ -698,3 +698,17 @@ describe("a question put to the user", () => {
     expect(refused.blocks.at(-1)).toMatchObject({ kind: "question", card: { refused: "It asked for a password." }, decision: "deny" });
   });
 });
+
+describe("a message sent as the person's own input", () => {
+  it("keeps the stamp on its block, where Retry reads how the message first went", () => {
+    const t = reduceAll([sessionEvent("user_message", { text: "ultracode review this", attachments: [], human: true }, 5)]);
+    expect(t.blocks).toEqual([{ kind: "user", text: "ultracode review this", human: true, ts: 5 }]);
+  });
+
+  it("puts no stamp on the block of a message that carried none, whatever else the message carried", () => {
+    const plain = reduceAll([sessionEvent("user_message", { text: "Implement this plan: Ship it", attachments: [] }, 5)]);
+    expect(plain.blocks).toEqual([{ kind: "user", text: "Implement this plan: Ship it", ts: 5 }]);
+    const continued = reduceAll([sessionEvent("user_message", { text: "Keep going.", attachments: [], goal: "continuation" }, 5)]);
+    expect(continued.blocks[0]).not.toHaveProperty("human");
+  });
+});

@@ -102,7 +102,11 @@ export type UserMessage = { text: string; attachments: { path: string; mime: str
    *  the note that hands over the `mac` skill. `text` still ends with it, so an adapter that sends
    *  one string reads nothing here. The Claude adapter does, and sends it as a block of its own
    *  ahead of the person's words. Absent when Realm appended nothing, never an empty string. */
-  context?: string };
+  context?: string;
+  /** A person sent this message from a prompter as their own input (`user_message.human`). The
+   *  Claude adapter says so to Claude Code, which acts on some of what a message holds only for
+   *  input a person gave, and no other adapter reads it. Absent on everything Realm writes itself. */
+  human?: true };
 export type PermissionDecision = "allow" | "allow_always" | "deny";
 
 export interface AgentHandle {

@@ -731,7 +731,7 @@ describe("app store", () => {
       expect(created.environmentId).toBe("envX");
       expect(created.cwd).toBe("/wt");
       // The draft went to the NEW session, attachments included.
-      expect(a.sent).toEqual([{ id: created.id, text: "go fix the parser", attachments: [{ path: "/x/a.png", mime: "image/png" }] }]);
+      expect(a.sent).toEqual([{ id: created.id, text: "go fix the parser", attachments: [{ path: "/x/a.png", mime: "image/png" }], human: true }]);
       // …and cleared exactly as a normal send (the double-send mutant).
       const st = store.getState();
       expect(st.drafts["se1"]).toBe("");

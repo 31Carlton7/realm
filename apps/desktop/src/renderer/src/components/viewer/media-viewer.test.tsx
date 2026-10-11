@@ -292,7 +292,7 @@ describe("the prompter docked under it", () => {
 
   it("asks the session the picture came from, with the picture attached", async () => {
     const { api } = await openAndAsk();
-    expect(api.sent[0]).toEqual({ id: "lead", text: "Make the sky warmer", attachments: [{ path: "/work/hero.png", mime: "image/png" }] });
+    expect(api.sent[0]).toEqual({ id: "lead", text: "Make the sky warmer", attachments: [{ path: "/work/hero.png", mime: "image/png" }], human: true });
     // And says so before anything is typed: where the question goes is what the send means.
     expect(within(viewerEl()!).getByRole("button", { name: "Logo rework" })).toBeInTheDocument();
   });

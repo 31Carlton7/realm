@@ -42,7 +42,12 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
   goal?: "continuation" | "budget";
   /** A scheduled task's run, and the note the run appended to the task's instructions — the same
    *  transcript-only ride as `goal`: the agent is handed the text, note and all. */
-  scheduled?: { task: string; note: string } };
+  scheduled?: { task: string; note: string };
+  /** A person sent this from a prompter as their own input (`user_message.human`). Said only where
+   *  a message comes in over RPC from such a prompter. Every message Realm writes is made without
+   *  it. It rides to the transcript event and to the adapter, and a message that waits in the
+   *  queue, is steered, or is sent again after a failure keeps it: it is still that person's. */
+  human?: true };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -546,7 +551,7 @@ export class SessionService {
     // which stay the files the user attached — the chip already shows a mentioned file.
     const refs = this.mentionedRefs(msg);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}),
-      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(refs.length ? { refs } : {}) }));
+      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(refs.length ? { refs } : {}), ...(msg.human ? { human: msg.human } : {}) }));
     await handle.send(this.resolveMentions(id, msg));
   }
 
@@ -625,7 +630,7 @@ export class SessionService {
     const context = elementContext(msg.elements ?? [], msg.attachments) + sessionRefContext(msg.sessionRefs ?? [])
       + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld });
     const attachments = [...msg.attachments, ...files.attach];
-    if (tokens.length === 0) return { text: msg.text + context, attachments, ...(context ? { context } : {}) };
+    if (tokens.length === 0) return { text: msg.text + context, attachments, ...(context ? { context } : {}), ...(msg.human ? { human: msg.human } : {}) };
     let skill: SkillMention | undefined;
     if (AGENT_SKILL_SUPPORT[s.agentKind] === "injected" && this.live.get(id)?.skillsInjected) {
       for (const t of tokens) {
@@ -642,7 +647,8 @@ export class SessionService {
     // instructions for this session instead, and the space's switch is left as it was.
     const macNote = macCalled && skill?.id !== MAC_SKILL_ID && mac ? macSkillContext(this.canonical(mac.path)) : "";
     const appended = context + macNote;
-    return { text: stripMentionAts(msg.text, tokens) + appended, attachments, ...(appended ? { context: appended } : {}), ...(skill ? { skill } : {}) };
+    return { text: stripMentionAts(msg.text, tokens) + appended, attachments, ...(appended ? { context: appended } : {}), ...(skill ? { skill } : {}),
+      ...(msg.human ? { human: msg.human } : {}) };
   }
 
   /**

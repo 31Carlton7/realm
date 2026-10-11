@@ -94,6 +94,20 @@ describe("the fields that follow a workflow run", () => {
   });
 });
 
+describe("human — the mark on a message a person sent", () => {
+  it("keeps human on a user message that is read back from the log", () => {
+    expect(stored("user_message", { text: "hi", attachments: [], human: true }).payload).toEqual({ text: "hi", attachments: [], human: true });
+  });
+
+  it("adds no human to a user message that came without it, which is every one written before it existed", () => {
+    expect(stored("user_message", { text: "hi", attachments: [] }).payload).toEqual({ text: "hi", attachments: [] });
+  });
+
+  it("refuses human: false, so that absent stays the only way to say a message is not a person's", () => {
+    expect(SessionEventSchema.safeParse({ type: "user_message", ts: 1, payload: { text: "hi", attachments: [], human: false } }).success).toBe(false);
+  });
+});
+
 describe("sessions.stopTask", () => {
   it("names the run by the session and the call that launched it", () => {
     const params = { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", toolUseId: "toolu_01" };

@@ -1663,6 +1663,11 @@ export const Methods = {
     /** How the session a first question starts runs, as the prompter's card and permission chip set it
      *  before there was a session to set it on. Ignored for a thread that is carried on. */
     fastMode: z.boolean().default(false), permissionMode: z.string().nullable().default(null), text: z.string().trim().min(1),
+    /** The client's claim that a person sent the question from the page's prompter as their own
+     *  input. It is `sessions.send`'s `human`, whose comment says what the claim proves and what it
+     *  does not. A first question goes stamped behind a sentence Realm writes to say what is
+     *  attached. The review prompt that Realm writes for a reviewer never carries it. */
+    human: z.boolean().default(false),
     /** Files the person attached in the prompter, beside the request's own. */
     attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]) }), result: z.object({ sessionId: IdSchema, itemId: IdSchema.nullable() }) },
 
@@ -1861,13 +1866,23 @@ export const Methods = {
   /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */
+  /** `human` is the client's claim that a person sent this message from a prompter as their own
+   *  input, or retried one that was. The Claude adapter passes the claim on to Claude Code when the
+   *  person's own words are not empty and Realm's context goes apart from them. Claude Code asks
+   *  for it before it acts on a word such as `ultracode` in the text. It is a claim and proves no
+   *  hand: whatever holds the socket can make it. Nor does it say the words were typed, since a
+   *  draft can hold a hint taken with Tab, a quoted selection or a command's template. False for
+   *  everything Realm writes itself: a goal's continuation, a scheduled run, a delegated brief,
+   *  another session's message. False too for some things a person does type: a goal's objective,
+   *  the goal of a run or of a scheduled task, a reply to a blocked run and the work text of the
+   *  Agents tab. Defaulted, so a client built before it existed sends what it always did. */
   /** `text` may be empty ONLY when attachments carry the message (Plan 14 W5 — attachment-only
    *  sends). A message with neither is nothing at all and is refused here, not by an adapter.
    *
    *  `elements` is OPTIONAL rather than defaulted, and the prompter omits the key outright when the
    *  draft has no element chips — so a message that never touched a browser pane puts exactly the
    *  bytes on this wire that it always has. */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), mentionRefs: z.array(MentionRefSchema).max(MAX_MENTION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), mentionRefs: z.array(MentionRefSchema).max(MAX_MENTION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto"), human: z.boolean().default(false) })
     .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
   /** Drop one message off the queue before its turn comes. `queuedId` rather than an index: the queue
    *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a

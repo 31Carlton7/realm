@@ -358,8 +358,10 @@ export type FakeApi = Api & {
   /** Browser ids whose native view the store asked main to destroy. */
   destroyedBrowserViews: string[];
   /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
-   *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
-  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[];
+   *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were.
+   *  `human` is present only on a message stamped as the person's own input, for the same reason.
+   *  An unstamped send reads here as it did before there was a stamp. */
+  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; human?: true; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[];
   /** What `scripts.save` was handed, verbatim — the fields a form sends are the thing worth
    *  asserting, and the `calls` log only carries an id. */
   savedScripts: { spaceId: string; script: ScriptInput }[];
@@ -395,7 +397,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
   const destroyedBrowserViews: string[] = [];
-  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[] = [];
+  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; human?: true; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[] = [];
   /** What `scripts.save` was handed, verbatim. A typed capture beside `sent`, because the fields a
    *  form sends are the thing worth asserting and the `calls` log only carries an id. */
   const savedScripts: { spaceId: string; script: ScriptInput }[] = [];
@@ -997,9 +999,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.sessions = data.sessions.filter((x) => x.id !== id);
       for (const [sid, rows] of Object.entries(data.items)) data.items[sid] = rows.filter((x) => x.refId !== id);
     },
-    sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs, mentionRefs) => {
+    sendMessage: async (id, text, attachments, mentions, human, elements, delivery, sessionRefs, mentionRefs) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
-      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
+      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(human ? { human } : {}), ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
     },
     mentionFiles: async (sessionId, query, limit) => {
       calls.push(`mentionFiles:${sessionId}:${query}`);

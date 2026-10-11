@@ -60,7 +60,7 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
   const setQuickChatPos = useApp((s) => s.setQuickChatPos);
   const closeQuickChat = useApp((s) => s.closeQuickChat);
   const setDraft = useApp((s) => s.setDraft);
-  const sendMessage = useApp((s) => s.sendMessage);
+  const sendTyped = useApp((s) => s.sendTyped);
   const interruptSession = useApp((s) => s.interruptSession);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
@@ -166,7 +166,7 @@ function ChatWindow({ sessionId }: { sessionId: string }) {
         onAttachPick={() => run(() => attachFromPicker(sessionId))}
         onAttachFiles={(files) => run(() => attachFiles(sessionId, files))}
         onRemoveAttachment={(path) => removeAttachment(sessionId, path)}
-        onSend={(text) => { setSends((n) => n + 1); run(() => sendMessage(sessionId, text)); }}
+        onSend={(text) => { setSends((n) => n + 1); run(() => sendTyped(sessionId, text)); }}
         onStop={() => run(() => interruptSession(sessionId))}
         onOptions={(o) => run(() => setSessionOptions(sessionId, o))}
         onPickModel={(pickKind, modelId) => run(async () => {

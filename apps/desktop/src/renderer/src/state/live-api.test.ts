@@ -28,8 +28,8 @@ describe("liveApi wire params", () => {
 
   it("omits `elements` entirely when a draft has no chips — the send is byte-identical to before chips existed", async () => {
     calls.length = 0;
-    await liveApi().sendMessage("se1", "plain", [], []);
-    await liveApi().sendMessage("se1", "plain", [], [], []);
+    await liveApi().sendMessage("se1", "plain", [], [], false);
+    await liveApi().sendMessage("se1", "plain", [], [], false, []);
     // Key ABSENT, not present-and-empty: an `elements: []` on every send would change what every
     // message on this wire looks like, for the benefit of the messages that have none.
     expect(calls.map((c) => Object.keys(c.params as object))).toEqual([
@@ -46,7 +46,7 @@ describe("liveApi wire params", () => {
         selector: "#a", tag: "button", role: "button", name: "Go", text: "Go", html: "<button>Go</button>",
       },
     };
-    await liveApi().sendMessage("se1", "this @[button]", [], [], [chip]);
+    await liveApi().sendMessage("se1", "this @[button]", [], [], false, [chip]);
     expect(calls).toEqual([
       { method: "sessions.send", params: { id: "se1", text: "this @[button]", attachments: [], mentions: [], elements: [chip] } },
     ]);
@@ -55,12 +55,23 @@ describe("liveApi wire params", () => {
   it("carries the named files and apps only when the draft has some", async () => {
     calls.length = 0;
     const ref = { kind: "file" as const, label: "auth.ts", path: "/repo/src/auth.ts" };
-    await liveApi().sendMessage("se1", "see @[auth.ts]", [], [], [], undefined, [], [ref]);
-    await liveApi().sendMessage("se1", "plain", [], [], [], undefined, [], []);
+    await liveApi().sendMessage("se1", "see @[auth.ts]", [], [], false, [], undefined, [], [ref]);
+    await liveApi().sendMessage("se1", "plain", [], [], false, [], undefined, [], []);
     expect(calls).toEqual([
       { method: "sessions.send", params: { id: "se1", text: "see @[auth.ts]", attachments: [], mentions: [], mentionRefs: [ref] } },
       { method: "sessions.send", params: { id: "se1", text: "plain", attachments: [], mentions: [] } },
     ]);
+  });
+
+  it("says a message is the person's own input only when the caller says so, and leaves the key off every other send", async () => {
+    calls.length = 0;
+    await liveApi().sendMessage("se1", "ultracode review this", [], [], true);
+    await liveApi().sendMessage("se1", "Implement this plan: Ship it", [], [], false);
+    expect(calls).toEqual([
+      { method: "sessions.send", params: { id: "se1", text: "ultracode review this", attachments: [], mentions: [], human: true } },
+      { method: "sessions.send", params: { id: "se1", text: "Implement this plan: Ship it", attachments: [], mentions: [] } },
+    ]);
+    expect(Object.keys(calls[1]!.params as object)).toEqual(["id", "text", "attachments", "mentions"]);
   });
 
   it("asks the server to stop one background run by the call that launched it, and interrupts nothing", async () => {

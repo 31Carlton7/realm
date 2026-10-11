@@ -5,9 +5,17 @@ export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number]
 export type Block =
   /** `attachments` present only when the message carried any — an attachment-only message (Plan 14
    *  W5) still renders a bubble naming its files rather than an empty one. */
-  /** `from` is present only when ANOTHER session delivered this message (Plan 20). Absent means the
-   *  user typed it — the ordinary case — and the pane must not attribute those to anyone. */
+  /** `from` is present only when ANOTHER session delivered this message (Plan 20). Absent means no
+   *  other session did — the ordinary case — and the pane must not attribute those to anyone. It
+   *  does not mean a person typed it. Realm writes messages that carry no mark at all, and `human`
+   *  is what says a person sent one. */
   | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget";
+      /** The message went to the agent as the person's own input, because they sent it from a
+       *  prompter (the event's `human`). It is absent on a message Realm wrote, and on the few things
+       *  a person types that do not go as input, such as a goal's objective. It is absent too on
+       *  every message logged before the stamp existed. Retry reads it, to send the message again as
+       *  it first went. */
+      human?: true;
       /** What the message's `@[…]` chips named, so each keeps its mark in the log. */
       refs?: MentionRef[];
       /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
@@ -353,7 +361,7 @@ function reduceEvent(t: Transcript, e: SessionEvent, markUnseen: boolean, seq: n
       const open = t.run ? null : unsettledTurn(t.blocks);
       if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
       const scheduled = e.payload.scheduled;
-      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ...(seq !== undefined ? { seq } : {}), ts: e.ts });
+      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.human ? { human: e.payload.human } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ...(seq !== undefined ? { seq } : {}), ts: e.ts });
       return { ...t, blocks, promptHint: null };
     }
     case "assistant_delta": {

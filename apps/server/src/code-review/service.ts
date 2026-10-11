@@ -351,13 +351,17 @@ export class CodeReviewService {
    * it. Otherwise a session starts there with the request attached as one file (its link, its
    * description, its diff, and whether this place has the repository checked out), and the first
    * message says what is attached in one line, so the transcript keeps the person's own words.
+   *
+   * `human` says a person sent the question from the page's prompter. It rides on the message whether
+   * a thread carries on or a session starts (`SendMessage.human`), and on nothing else this class
+   * sends: a reviewer's prompt is Realm's own.
    */
   async ask(input: { ref: PrRef; spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null; text: string;
-    fastMode?: boolean; permissionMode?: string | null; attachments?: { path: string; mime: string }[] }): Promise<{ sessionId: string; itemId: string | null }> {
+    fastMode?: boolean; permissionMode?: string | null; attachments?: { path: string; mime: string }[]; human?: boolean }): Promise<{ sessionId: string; itemId: string | null }> {
     const extra = input.attachments ?? [];
     const thread = this.thread(input.ref);
     if (thread && thread.spaceId === input.spaceId) {
-      await this.d.sessions.send(thread.sessionId, { text: input.text, attachments: extra });
+      await this.d.sessions.send(thread.sessionId, { text: input.text, attachments: extra, ...(input.human ? { human: true as const } : {}) });
       return { sessionId: thread.sessionId, itemId: null };
     }
     const detail = await this.detail(input.ref);
@@ -376,6 +380,7 @@ export class CodeReviewService {
     await this.d.sessions.send(session.id, {
       text: `About pull request ${prName(detail.ref)} (attached): ${input.text}`,
       attachments: [{ path: context, mime: "text/markdown" }, ...extra.filter((a) => a.path !== context)],
+      ...(input.human ? { human: true as const } : {}),
     });
     return { sessionId: session.id, itemId };
   }

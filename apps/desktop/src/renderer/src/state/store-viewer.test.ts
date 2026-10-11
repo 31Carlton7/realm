@@ -100,7 +100,7 @@ describe("asking about the file", () => {
     const { api, store } = await mount();
     store.getState().openViewer({ files: [{ path: "/work/logo/hero.png" }], sessionId: "lead" });
     await store.getState().sendFromViewer("Make the sky warmer");
-    expect(api.sent.at(-1)).toEqual({ id: "lead", text: "Make the sky warmer", attachments: [{ path: "/work/logo/hero.png", mime: "image/png" }] });
+    expect(api.sent.at(-1)).toEqual({ id: "lead", text: "Make the sky warmer", attachments: [{ path: "/work/logo/hero.png", mime: "image/png" }], human: true });
     expect(viewer(store).thread).toMatchObject({ sessionId: "lead", from: 0 });
   });
 

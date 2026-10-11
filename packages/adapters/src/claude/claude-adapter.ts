@@ -491,6 +491,30 @@ export function splitContext(m: Pick<UserMessage, "text" | "context">): { words:
   return { words: m.text.slice(0, m.text.length - tail.length), context: tail.trim() || null, held: true };
 }
 
+/**
+ * The mark that tells Claude Code a person sent a message as their own input, or nothing.
+ *
+ * Claude Code acts on some of what a message holds only when the host says a person gave it: the
+ * `ultracode` keyword is read from the last block of a marked message, and from no other message.
+ * So the mark vouches for that block, and three things must hold for it. The server says a person
+ * sent the message (`human`). The person's own words are not empty: without them the last block is
+ * a picture, or the list of attached files, which Realm wrote. And the split held (`splitContext`):
+ * a context still inside the last block is Realm's text too, with a web page's words in it.
+ *
+ * With words, the last block is theirs alone, unless they are a slash command. `send` puts the
+ * list of attached files ahead of them, because a file's name can be somebody else's words, and
+ * Claude Code read the keyword out of one that stood in that block. Behind a slash command the
+ * list still follows the words, and Claude Code reads no keyword from a block that starts with a
+ * slash.
+ *
+ * The mark says who sent the message and nothing about what the session may do, so it is the same
+ * in every permission mode. No `priority` goes with it: what Claude Code does with a marked
+ * message that names one has not been seen, and has to be before one is added.
+ */
+function humanOrigin(m: Pick<UserMessage, "human">, own: { words: string; held: boolean }): { origin?: { kind: "human" } } {
+  return m.human && own.held && own.words.trim() !== "" ? { origin: { kind: "human" } } : {};
+}
+
 /** Claude adapter on the Agent SDK in streaming-input mode. `canUseTool` is bridged to permission_request/response events. */
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude" as const;
@@ -1055,7 +1079,7 @@ export class ClaudeAdapter implements AgentAdapter {
         if (content.length === 0) content.push({ type: "text", text: "(attached files)" });
         const uuid = randomUUID();
         sent.push(uuid);
-        input.push({ type: "user", message: { role: "user", content: content as never }, parent_tool_use_id: null, session_id: "", uuid } as SDKUserMessage);
+        input.push({ type: "user", message: { role: "user", content: content as never }, parent_tool_use_id: null, session_id: "", uuid, ...humanOrigin(m, own) } as SDKUserMessage);
       },
       respondPermission: resolvePermission,
       interrupt: async () => {

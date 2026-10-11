@@ -364,7 +364,12 @@ export type Api = {
   memorySources(sessionId: string): Promise<MemorySources>;
   /** `mentions` are the skill ids the draft's `@`-tokens were recognised as; the server re-validates
    *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
-  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[], delivery?: "auto" | "queue" | "steer", sessionRefs?: SessionRef[], mentionRefs?: MentionRef[]): Promise<void>;
+  /** `human` says a person sent this message from a prompter as their own input (`sessions.send`'s
+   *  `human`). It is required, and it comes before the optional sidecars, so every caller has to
+   *  say which it is. A flag with a default would stamp a send that nobody had thought about, or
+   *  leave one unstamped. The live API puts the key on the wire only when it is true, so an
+   *  unstamped message sends the same bytes as before. */
+  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], human: boolean, elements?: ElementChip[], delivery?: "auto" | "queue" | "steer", sessionRefs?: SessionRef[], mentionRefs?: MentionRef[]): Promise<void>;
   /** `mentions.files` — the session's checkout ranked for the `@` list, secrets left out server-side. */
   mentionFiles(sessionId: string, query: string, limit?: number): Promise<ProjectFilesResult>;
   interruptSession(id: string): Promise<void>;
@@ -2038,16 +2043,28 @@ export type AppState = {
   newSessionInWorktree(targetLeafId?: string | null, spaceId?: string | null): Promise<void>;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
+  /** Send `text` to a session with everything its prompter holds for it: the attachments, the chips
+   *  and the session references. The message is not stamped as the person's own input. This is the
+   *  action for words Realm writes itself, which are a plan's Implement and a lecture's wrap-up. A
+   *  prompter calls `sendTyped`. */
   sendMessage(id: string, text: string): Promise<void>;
+  /** The same send, stamped as the person's own input (`sessions.send`'s `human`), because they sent
+   *  it from a prompter. Claude Code asks for that stamp before it acts on a keyword in the text.
+   *  Only the session prompter and the quick chat call it, and a test holds that list, so a send
+   *  Realm writes cannot pick the stamp up by calling this action by mistake. */
+  sendTyped(id: string, text: string): Promise<void>;
   /** ⌘⇧↩ "dispatch" (Plan 13 W2): ONE gesture = create a session that inherits the composer's whole
    *  setup (agent, model, effort, permission mode, and the environment the under-strip currently
    *  names — a worktree if that is what the selector shows), send the draft + attachments + mentions
    *  to it, record the `user-dispatch` origin, and bring its pane in BESIDE without focusing it.
-   *  The draft clears exactly as a normal send; an empty draft is a no-op. */
+   *  The draft clears exactly as a normal send; an empty draft is a no-op. The draft goes stamped as
+   *  the person's own input, as it would from the prompter it was typed in. */
   dispatchDraft(sessionId: string): Promise<void>;
   /** Ask the last user message again, as a NEW turn. Not a regenerate — no adapter can rewind a
    *  conversation, so the superseded answer stays in the transcript and in the agent's context.
-   *  A no-op while a turn is live, and a no-op when the user has not sent anything yet. */
+   *  A no-op while a turn is live, and a no-op when the user has not sent anything yet. The message
+   *  goes as it first went. It is stamped as the person's own input when its block says it was
+   *  (`human`), and unstamped otherwise. */
   retryLastTurn(id: string): Promise<void>;
   interruptSession(id: string): Promise<void>;
   /** Stop ONE run this session left working in the background, a workflow or a background sub-agent,
@@ -2393,7 +2410,8 @@ export type AppState = {
    * Ask about the viewed file: the message goes to the viewer's session — made now, in its space, if
    * there was none — carrying the file through the same attachment wire the prompter uses, with any
    * files dropped on the viewer's prompter after it. The first send marks where this viewer's
-   * exchange begins in that session's transcript.
+   * exchange begins in that session's transcript. A person sent it from a prompter, so it is
+   * stamped as their own input, as the session prompter's send is.
    */
   sendFromViewer(text: string): Promise<void>;
   refreshGitInfo(cwd: string): Promise<void>;
@@ -2504,7 +2522,8 @@ export type AppState = {
    * references — with whatever it sends: a half-written draft in the prompter is not part of what the
    * Agents tab is asking for. And it leaves Plan first, answering a plan still waiting for approval
    * with Keep planning: a lead in Plan can only start sub-agents that read, which is not what
-   * "build this" asked for.
+   * "build this" asked for. It is not stamped as the person's own input either, because what goes
+   * is a brief Realm wrote round their words.
    */
   delegateWork(sessionId: string, text: string): Promise<void>;
   /** The `session.agentOpened` handler. A durable run's worker opens beside the focused pane; a
@@ -3405,8 +3424,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * already in the lead's transcript. A clean finish reads the row (`applyAgentSettled`), so a
      * fan-out of ten does not leave ten. Every other ending — a failure, a stop, a timeout — keeps
      * its row for the person who has to look. A child the user has written to is theirs, and keeps
-     * its rows like any session (`sendMessage` drops the entry). In memory: a reload forgets, and a
-     * row nobody is tracking simply stays, which is the safe direction.
+     * its rows like any session (`sendWithSidecars` drops the entry). In memory: a reload forgets,
+     * and a row nobody is tracking simply stays, which is the safe direction.
      */
     const delegatedChildren = new Map<string, { doneRow?: string }>();
     /**
@@ -3540,6 +3559,41 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // invoked — so it is mentionable wherever the space's library holds it, on or off.
       if (!ids.includes(MAC_SKILL_ID) && library.some((k) => k.id === MAC_SKILL_ID && k.valid)) ids.push(MAC_SKILL_ID);
       return ids;
+    };
+    /**
+     * The one path attachments travel. The prompter never passes them in — it cannot forget to, and
+     * cannot pass a chip the user already removed, because the list is read here from the same state
+     * the chip row renders.
+     */
+    const sendWithSidecars = async (id: string, text: string, human: boolean): Promise<void> => {
+      // A delegated child the user writes to is theirs from here on — see `delegatedChildren`.
+      delegatedChildren.delete(id);
+      const pending = get().pendingAttachments[id] ?? [];
+      // What travels as `mentions` is a re-scan of the FINAL text against the recognised ids plus
+      // whatever is mentionable now — read synchronously, before the prompter clears the draft (and
+      // with it `draftMentions`) behind this call. The raw text goes as written; the server owns the
+      // rewrite, so the transcript shows the `@` and the wire never does.
+      const mentions = mentionIds(text, new Set([...(get().draftMentions[id] ?? []), ...mentionableIds(id)]));
+      // Same synchronous read, same reason: the prompter clears the draft behind this call, and the
+      // sidecar goes with it. Re-derived from the FINAL text so a chip deleted before send does not
+      // still hand the agent the element it named.
+      const elements = keepLiveChips(text, get().draftElements[id] ?? []);
+      // The agent gets the link, not the chip: a markdown link its connection to that app can open.
+      const wire = expandLinkChips(text, get().draftLinks[id] ?? []);
+      // Read here, synchronously, for the reason the two sidecars above are: the prompter clears
+      // the draft behind this call and the references go with it.
+      const refs = get().draftSessionRefs[id] ?? [];
+      // The named files and apps, re-derived from the FINAL text like the elements above.
+      const named = keepLiveRefs(text, get().draftRefs[id] ?? []);
+      await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, human, elements, undefined, refs, named);
+      if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });
+      // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
+      // chip row would leave the user with no record of what they had attached, and a file dragged in
+      // while the request was in flight was never part of this message.
+      if (pending.length === 0) return;
+      const sent = new Set(pending.map((a) => a.path));
+      const left = (get().pendingAttachments[id] ?? []).filter((a) => !sent.has(a.path));
+      set({ pendingAttachments: { ...get().pendingAttachments, [id]: left } });
     };
     /**
      * W2.4 — the degenerate case, entry side. Every sheet-opening path calls this: when browser
@@ -5717,41 +5771,8 @@ await get().refreshCustomThemes().catch(() => {});
         await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id, spaceId: sid }, targetLeafId);
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
-      /**
-       * The one path attachments travel. The prompter never passes them in — it cannot forget to, and
-       * cannot pass a chip the user already removed, because the list is read here from the same state
-       * the chip row renders.
-       */
-      async sendMessage(id, text) {
-        // A delegated child the user writes to is theirs from here on — see `delegatedChildren`.
-        delegatedChildren.delete(id);
-        const pending = get().pendingAttachments[id] ?? [];
-        // What travels as `mentions` is a re-scan of the FINAL text against the recognised ids plus
-        // whatever is mentionable now — read synchronously, before the prompter clears the draft (and
-        // with it `draftMentions`) behind this call. The raw text goes as written; the server owns the
-        // rewrite, so the transcript shows the `@` and the wire never does.
-        const mentions = mentionIds(text, new Set([...(get().draftMentions[id] ?? []), ...mentionableIds(id)]));
-        // Same synchronous read, same reason: the prompter clears the draft behind this call, and the
-        // sidecar goes with it. Re-derived from the FINAL text so a chip deleted before send does not
-        // still hand the agent the element it named.
-        const elements = keepLiveChips(text, get().draftElements[id] ?? []);
-        // The agent gets the link, not the chip: a markdown link its connection to that app can open.
-        const wire = expandLinkChips(text, get().draftLinks[id] ?? []);
-        // Read here, synchronously, for the reason the two sidecars above are: the prompter clears
-        // the draft behind this call and the references go with it.
-        const refs = get().draftSessionRefs[id] ?? [];
-        // The named files and apps, re-derived from the FINAL text like the elements above.
-        const named = keepLiveRefs(text, get().draftRefs[id] ?? []);
-        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
-        if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });
-        // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
-        // chip row would leave the user with no record of what they had attached, and a file dragged in
-        // while the request was in flight was never part of this message.
-        if (pending.length === 0) return;
-        const sent = new Set(pending.map((a) => a.path));
-        const left = (get().pendingAttachments[id] ?? []).filter((a) => !sent.has(a.path));
-        set({ pendingAttachments: { ...get().pendingAttachments, [id]: left } });
-      },
+      sendMessage: (id, text) => sendWithSidecars(id, text, false),
+      sendTyped: (id, text) => sendWithSidecars(id, text, true),
       /**
        * ⌘⇧↩ (Plan 13 W2). The dispatched session inherits the composer's setup VERBATIM — agent,
        * model, effort, permission mode, and `environmentId`, which is how "dispatch into the worktree
@@ -5780,7 +5801,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (inProfile(source.spaceId)) mergeSession(session);
         // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
         // surfaces the reason), exactly as a failed normal send would.
-        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? [], named);
+        await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, true, elements, undefined, get().draftSessionRefs[sessionId] ?? [], named);
         const sent = new Set(pending.map((a) => a.path));
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => !sent.has(a.path));
         set({
@@ -5828,7 +5849,7 @@ await get().refreshCustomThemes().catch(() => {});
         const t = get().transcripts[id]?.t; if (!t) return;
         const msg = lastUserMessage(t); if (!msg) return;
         const mentions = mentionIds(msg.text, new Set(mentionableIds(id)));
-        await api.sendMessage(id, msg.text, msg.attachments ?? [], mentions);
+        await api.sendMessage(id, msg.text, msg.attachments ?? [], mentions, msg.human === true);
       },
       async interruptSession(id) { await api.interruptSession(id); },
       async stopBackgroundRun(sessionId, toolUseId) { await api.stopBackgroundRun(sessionId, toolUseId); },
@@ -6636,7 +6657,7 @@ await get().refreshCustomThemes().catch(() => {});
           } else viewed.push({ path: d.path, mime: d.mime });
         }
         const extras = (get().pendingAttachments[VIEWER_SLOT] ?? []).filter((a) => !viewed.some((w) => w.path === a.path));
-        await api.sendMessage(sessionId, text, [...viewed, ...extras.map(({ path, mime }) => ({ path, mime }))], [], [], undefined, [], []);
+        await api.sendMessage(sessionId, text, [...viewed, ...extras.map(({ path, mime }) => ({ path, mime }))], [], true, [], undefined, [], []);
         // Only after the send lands, as `sendMessage` does: a refused send keeps its files.
         const cur = get().viewer;
         if (cur) set({ viewer: { ...cur, detached: null, thread: cur.thread?.sessionId === sessionId ? cur.thread : { sessionId, from, at } } });
@@ -6925,7 +6946,7 @@ await get().refreshCustomThemes().catch(() => {});
         if (plan) await get().respondPermission(sessionId, plan.requestId, "deny");
         const session = get().sessions[sessionId];
         if (session && sessionModeOf(session.permissionMode) === "plan") await get().setSessionMode(sessionId, "build");
-        await api.sendMessage(sessionId, text, [], [], [], undefined, []);
+        await api.sendMessage(sessionId, text, [], [], false, [], undefined, []);
       },
       async applyAgentOpened({ spaceId, sessionId, itemId }) {
         if (!inProfile(spaceId)) return;

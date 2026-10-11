@@ -46,7 +46,7 @@ import { CodeReviewPage } from "./CodeReviewPage";
 import { forgetHeld } from "./held";
 import { exited } from "../../components/popover-exit.test-fakes";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 /* The overlay draws its page through the registry, which the panes fill by side effect. */
 import "../index";
 import { PageNavProvider } from "../../components/page-nav";
@@ -474,6 +474,21 @@ describe("Ask about this pull request", () => {
     fireEvent.keyDown(box, { key: "Enter" });
     await waitFor(() => expect(called("codeReview.ask")).toHaveLength(1));
     expect(called("codeReview.ask")[0]!.params).toMatchObject({ effort: "max", fastMode: true, permissionMode: null, model: null });
+  });
+
+  const askIn = (box: HTMLElement, text: string) => {
+    fireEvent.change(box, { target: { value: text } });
+    fireEvent.keyDown(box, { key: "Enter" });
+  };
+  const asker = () => screen.getByRole("region", { name: "Ask about this pull request" });
+  const started = session("01HQ000000000000000000ASK1", "s1", { agentKind: "claude", title: "Asked just now" });
+
+  it("sends the question as the person's own input", async () => {
+    await mount({ sessions: [started] });
+    await openRequest();
+    askIn(within(asker()).getByRole("textbox", { name: /message/i }), "ultracode: is the stream right?");
+    await waitFor(() => expect(called("codeReview.ask")).toHaveLength(1));
+    expect(called("codeReview.ask")[0]!.params).toMatchObject({ text: "ultracode: is the stream right?", human: true });
   });
 });
 

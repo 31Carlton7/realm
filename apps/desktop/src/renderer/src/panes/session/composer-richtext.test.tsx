@@ -123,7 +123,7 @@ describe("the prompter's rich-text mirror", () => {
     type("see https://x.dev and use @mac");
     fireEvent.keyDown(box(), { key: "Enter", metaKey: true });
     await waitFor(() => expect(api.sent).toHaveLength(1));
-    expect(api.sent[0]).toEqual({ id: "se1", text: "see https://x.dev and use @mac", attachments: [], mentions: ["mac"] });
+    expect(api.sent[0]).toEqual({ id: "se1", text: "see https://x.dev and use @mac", attachments: [], mentions: ["mac"], human: true });
   });
 
   /* A block drops its final line break; a textarea keeps it. Without the compensating newline the
@@ -319,7 +319,7 @@ describe("chip interaction in the prompter", () => {
     clickAt(6);
     fireEvent.keyDown(box(), { key: "Enter", metaKey: true });
     await waitFor(() => expect(api.sent).toHaveLength(1));
-    expect(api.sent[0]).toEqual({ id: "se1", text: "see @mac now", attachments: [], mentions: ["mac"] });
+    expect(api.sent[0]).toEqual({ id: "se1", text: "see @mac now", attachments: [], mentions: ["mac"], human: true });
   });
 
   it("changes nothing about what is sent when a chip has been stepped over", async () => {
