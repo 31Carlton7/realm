@@ -97,7 +97,12 @@ export type StartOptions = {
  */
 export type SkillMention = { id: string; name: string; path: string };
 
-export type UserMessage = { text: string; attachments: { path: string; mime: string }[]; skill?: SkillMention };
+export type UserMessage = { text: string; attachments: { path: string; mime: string }[]; skill?: SkillMention;
+  /** The tail of `text` that Realm appended: the blocks that say what the message's chips name, and
+   *  the note that hands over the `mac` skill. `text` still ends with it, so an adapter that sends
+   *  one string reads nothing here. The Claude adapter does, and sends it as a block of its own
+   *  ahead of the person's words. Absent when Realm appended nothing, never an empty string. */
+  context?: string };
 export type PermissionDecision = "allow" | "allow_always" | "deny";
 
 export interface AgentHandle {

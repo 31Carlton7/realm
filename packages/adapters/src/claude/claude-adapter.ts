@@ -467,6 +467,30 @@ async function stopRun(q: Query | null, taskId: string | undefined): Promise<voi
   catch { throw new Error("Claude Code could not stop that run."); }
 }
 
+/**
+ * A message's text, split into the person's own words and what Realm appended to them.
+ *
+ * Claude Code takes a turn's prompt from the LAST content block alone, and only when that block is
+ * text: a slash command is dispatched from there, and a keyword is read from there. So `send` puts
+ * the person's words last, the images ahead of them, and Realm's context first, as a block of its
+ * own. The context used to follow the words inside one block, with the images after it. A skill
+ * called with a picture attached then never ran, because the last block was the picture and the
+ * model was handed the literal `/realm:name`. And whatever a web page said sat in the block a
+ * keyword is read from.
+ *
+ * `context` is that block: the appended tail, trimmed, or null where there is none. `words` is the
+ * rest, which still takes the skill's prefix in front. The list of attached files follows it only
+ * behind a slash command, as that command's argument. Ahead of any other words the list is a block
+ * of its own, so that the last block holds nothing but what the person wrote (`send`).
+ * `held` is false for a message that names a context its text does not end with. Nothing then says
+ * where the person's words stop, so the text goes whole, in one block, as it always did.
+ */
+export function splitContext(m: Pick<UserMessage, "text" | "context">): { words: string; context: string | null; held: boolean } {
+  const tail = m.context ?? "";
+  if (!m.text.endsWith(tail)) return { words: m.text, context: null, held: false };
+  return { words: m.text.slice(0, m.text.length - tail.length), context: tail.trim() || null, held: true };
+}
+
 /** Claude adapter on the Agent SDK in streaming-input mode. `canUseTool` is bridged to permission_request/response events. */
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude" as const;
@@ -1005,24 +1029,29 @@ export class ClaudeAdapter implements AgentAdapter {
         running = true;
         turnFast = fastRequested;
         tellStatus();
+        const own = splitContext(m);
         // A resolved @-mention (W4) becomes `/realm:<name>` at POSITION 0 — the only place the SDK
-        // dispatches a slash command; mid-text it is literal characters. The rest of the message rides
+        // dispatches a slash command; mid-text it is literal characters. The person's own words ride
         // as the command's argument. `name` is the frontmatter name, which is how the plugin registers
         // the skill (a prepend built from the directory id would target nothing when the two differ).
-        const prompt = m.skill ? `/realm:${m.skill.name} ${m.text}` : m.text;
-        /* The file list rides at the END of the text, after the user's own words and after the slash
-           command's argument — a `/realm:name` only dispatches from position 0, and the list is the
-           command's argument as much as the prose is. With no text at all it stands alone rather than
-           being preceded by blank lines. */
+        const prompt = m.skill ? `/realm:${m.skill.name} ${own.words}` : own.words;
+        /* The file list rides at the END of the text only behind a slash command. A `/realm:name`
+           only dispatches from position 0, and the list is the command's argument as much as the
+           prose is. Behind any other words it would put a file's name in the block Claude Code reads
+           a keyword from, and the person never typed that name. There it goes ahead of the pictures,
+           as a block of its own. Claude Code reads no keyword from a block that starts with a slash. */
         const fileList = fileListFor(m);
-        const text = fileList ? (prompt ? `${prompt}\n\n${fileList}` : fileList) : prompt;
-        // Attachment-only messages (Plan 14 W5): the Messages API rejects an empty text block, so one
-        // is only included when there is text — and with the file list folded in above, an
-        // attachment-only send of ordinary files now HAS text. The stub survives for the one case
-        // left that would otherwise be literally empty content (which the API also rejects): a send
-        // with neither words nor attachments the adapter can carry. The prompter's send-gate refuses
-        // that up front, so this is the wire-level net.
-        const content: Array<Record<string, unknown>> = [...(text ? [{ type: "text", text }] : []), ...images];
+        const command = prompt.startsWith("/");
+        const text = command && fileList ? `${prompt}\n\n${fileList}` : prompt;
+        const ahead = [...(own.context ? [{ type: "text", text: own.context }] : []), ...(fileList && !command ? [{ type: "text", text: fileList }] : []), ...images];
+        // Attachment-only messages (Plan 14 W5): the Messages API rejects a text block that is empty
+        // or only blank space, so the words are only included when they are more than that. Words of
+        // blank space that are all a message has still go as they always did. With the file list a
+        // block of its own, an attachment-only send of ordinary files still HAS text. The stub
+        // survives for the one case left that would otherwise be literally empty content (which the
+        // API also rejects): a send with neither words nor attachments the adapter can carry. The
+        // prompter's send-gate refuses that up front, so this is the wire-level net.
+        const content: Array<Record<string, unknown>> = [...ahead, ...(text.trim() !== "" || (text !== "" && ahead.length === 0) ? [{ type: "text", text }] : [])];
         if (content.length === 0) content.push({ type: "text", text: "(attached files)" });
         const uuid = randomUUID();
         sent.push(uuid);

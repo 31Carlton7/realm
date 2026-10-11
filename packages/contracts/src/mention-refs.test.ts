@@ -59,6 +59,14 @@ describe("what the agent is told", () => {
     expect(ctx).not.toContain("computer");
   });
 
+  it("heads the files as one per chip in the user's message, wherever in the message the chips are", () => {
+    expect(mentionRefContext([file("auth.ts", "/r/src/auth.ts")]).startsWith("\n\nFiles the user mentioned, one per chip in the user's message:\n")).toBe(true);
+  });
+
+  it("heads the apps as one per chip in the user's message, wherever in the message the chips are", () => {
+    expect(mentionRefContext([app("Sketch", "com.bohemian.sketch3")]).startsWith("\n\nMac apps the user mentioned, one per chip in the user's message:\n")).toBe(true);
+  });
+
   it("says an app mention is computer use for THAT app, with the approval and the mode still in force", () => {
     const ctx = mentionRefContext([app("Sketch", "com.bohemian.sketch3")]);
     expect(ctx).toContain("@[Sketch] — Sketch, com.bohemian.sketch3");

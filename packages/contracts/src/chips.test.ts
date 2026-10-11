@@ -102,6 +102,11 @@ describe("elementContext", () => {
     expect(elementContext([])).toBe("");
   });
 
+  it("heads a page's elements as one per chip in the user's message, wherever in the message the chips are", () => {
+    const out = elementContext([{ label: 'button "Sign in"', element: picked() }]);
+    expect(out.startsWith("\n\nElements the user picked in Realm's browser pane, one per chip in the user's message:\n")).toBe(true);
+  });
+
   it("fences the page's account of itself, and states only the origin outside", () => {
     const out = elementContext([{ label: 'button "Sign in"', element: picked() }]);
     const fence = out.match(/untrusted-[0-9a-f]{16}/)![0];
@@ -301,7 +306,7 @@ describe("app chips", () => {
 
   it("describes itself plainly, for an agent working on Realm — component, selector, hooks and box", () => {
     const out = elementContext([{ label: "Realm · Send button", element: appPicked() }], [{ path: SHOT }]);
-    expect(out).toContain("Parts of Realm's own window the user picked, one per chip above:\n  @[Realm · Send button] — the attached a1b2c3-realm-send-button.png shows it");
+    expect(out).toContain("Parts of Realm's own window the user picked, one per chip in the user's message:\n  @[Realm · Send button] — the attached a1b2c3-realm-send-button.png shows it");
     expect(out).toContain("the browser tools cannot reach them");
     expect(out).toContain("component: Composer, inside SessionPane › PaneHost");
     expect(out).toContain("role: button\nname: Send\nselector: .composer-card > button.composer-send\nclasses: composer-send");
@@ -380,7 +385,7 @@ describe("device chips", () => {
 
   it("tells the agent which device, how to act on it, and fences what the app said", () => {
     const out = elementContext([{ label: "iPhone · General button", element: devicePicked() }], [{ path: SHOT }]);
-    expect(out).toContain("Elements the user picked on a device's screen in Realm's simulator pane, one per chip above:\n"
+    expect(out).toContain("Elements the user picked on a device's screen in Realm's simulator pane, one per chip in the user's message:\n"
       + `  @[iPhone · General button] — an iOS simulator, simulatorId ${SIM}; the attached f00d-iphone-general-button.png shows it`);
     expect(out).toContain("the browser tools cannot reach them");
     expect(out).toContain("simulator_elements numbers what is on the screen now, and simulator_tap takes that number");

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeCatalog, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, claudeStatus, stopMarks, streamEndMarks, type ClaudeTurnFacts, answeredBy } from "./claude-adapter";
-import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
+import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeCatalog, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, claudeStatus, stopMarks, streamEndMarks, type ClaudeTurnFacts, answeredBy, splitContext } from "./claude-adapter";
+import { HIDDEN_ANSWER, macSkillContext, mentionRefContext, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
-import type { PermissionDecision, StartOptions } from "../types";
+import type { PermissionDecision, StartOptions, UserMessage } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { tmpdir } from "node:os";
@@ -330,7 +330,7 @@ describe("ClaudeAdapter", () => {
     await h.send({ text: "have a look", attachments: [{ path: "/tmp/notes.pdf", mime: "application/pdf" }] });
     await c; await h.dispose();
     const content = (capture[0] as { message: { content: Array<Record<string, unknown>> } }).message.content;
-    expect(content).toEqual([{ type: "text", text: "have a look\n\nAttached files:\n- /tmp/notes.pdf" }]);
+    expect(content).toEqual([{ type: "text", text: "Attached files:\n- /tmp/notes.pdf" }, { type: "text", text: "have a look" }]);
   });
 
   it("an attachment-only send of ordinary files carries the list alone, with no leading blank lines", async () => {
@@ -345,8 +345,8 @@ describe("ClaudeAdapter", () => {
   });
 
   it("the empty-content stub still stands for a send the adapter can carry nothing of", async () => {
-    // The named mutant: an empty content array, which the API rejects. With the file list folded into
-    // the text this is now reachable only with neither words nor attachments — the prompter's
+    // The named mutant: an empty content array, which the API rejects. With the file list sent as
+    // text this is now reachable only with neither words nor attachments — the prompter's
     // send-gate refuses that up front, so the stub is the wire-level net for any other caller.
     const capture: unknown[] = [];
     const a = new ClaudeAdapter({ query: fakeQuery({ capture }) as never });
@@ -850,6 +850,140 @@ describe("@-mention resolution on the Claude wire (W4)", () => {
     await handle.dispose();
   });
 
+});
+
+/** What `query` pulls off the prompt for one message: the SDK message the adapter pushed, whole. */
+async function pushedFor(message: UserMessage, start: Partial<StartOptions> = {}) {
+  const capture: unknown[] = [];
+  const h = new ClaudeAdapter({ query: fakeQuery({ capture }) as never }).start({ cwd: "/tmp", mcpServers: [], ...start });
+  const settled = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+  await h.send(message);
+  await settled;
+  await h.dispose();
+  return capture[0] as Record<string, unknown> & { message: { content: Array<{ type: string; text?: string; source?: { media_type: string } }> } };
+}
+/** A message's content blocks in the order they were sent: a text block as its text, a picture as
+ *  its media type in brackets. */
+const blocksOf = async (message: UserMessage) =>
+  (await pushedFor(message)).message.content.map((b) => (b.type === "text" ? b.text : `[${b.source?.media_type}]`));
+/** A picture on disk for a message to carry, under a name that says what kind it is. */
+const picture = (name: string): string => {
+  const path = join(tempDir("realm-claude-blocks-"), name);
+  writeFileSync(path, Buffer.from([1, 2, 3, 4]));
+  return path;
+};
+/** What Realm appends for one mentioned file, as the server builds it: two newlines, a header, one
+ *  line for the chip and a final newline. */
+const FILES = mentionRefContext([{ kind: "file", label: "auth.ts", path: "/r/src/auth.ts" }]);
+const FILES_BLOCK = "Files the user mentioned, one per chip in the user's message:\n  @[auth.ts] — /r/src/auth.ts";
+const WORDS = "explain @[auth.ts] ";
+
+describe("the blocks a message is sent as", () => {
+  it("sends the words as the only block of a message with no picture and no context", async () => {
+    expect(await blocksOf({ text: "hello", attachments: [] })).toEqual(["hello"]);
+  });
+
+  it("puts a picture ahead of the words", async () => {
+    expect(await blocksOf({ text: "what is this", attachments: [{ path: picture("shot.png"), mime: "image/png" }] })).toEqual(["[image/png]", "what is this"]);
+  });
+
+  it("puts every picture ahead of the words, in the order they were attached", async () => {
+    const attachments = [{ path: picture("one.png"), mime: "image/png" }, { path: picture("two.jpg"), mime: "image/jpeg" }];
+    expect(await blocksOf({ text: "compare these", attachments })).toEqual(["[image/png]", "[image/jpeg]", "compare these"]);
+  });
+
+  it("sends the context as the first block, trimmed, and the words as the last", async () => {
+    expect(await blocksOf({ text: WORDS + FILES, context: FILES, attachments: [] })).toEqual([FILES_BLOCK, WORDS]);
+  });
+
+  it("sends the context, then the picture, then the words", async () => {
+    const attachments = [{ path: picture("shot.png"), mime: "image/png" }];
+    expect(await blocksOf({ text: WORDS + FILES, context: FILES, attachments })).toEqual([FILES_BLOCK, "[image/png]", WORDS]);
+  });
+
+  it("keeps a skill's command at the start of the last block, behind the context and the picture", async () => {
+    const attachments = [{ path: picture("shot.png"), mime: "image/png" }];
+    const skill = { id: "mac", name: "mac-skill", path: "/lib/skills/mac/SKILL.md" };
+    expect(await blocksOf({ text: `mac open @[auth.ts] ${FILES}`, context: FILES, attachments, skill })).toEqual([FILES_BLOCK, "[image/png]", "/realm:mac-skill mac open @[auth.ts] "]);
+  });
+
+  it("sends the note that hands the mac skill over inside the context block, and not behind the words", async () => {
+    const context = FILES + macSkillContext("/lib/skills/mac/SKILL.md");
+    expect(await blocksOf({ text: `mac what is on today${context}`, context, attachments: [] })).toEqual([context.trim(), "mac what is on today"]);
+  });
+
+  it("sends the list of attached files as a block of its own, behind the context and ahead of the words", async () => {
+    const attachments = [{ path: "/tmp/notes.pdf", mime: "application/pdf" }];
+    expect(await blocksOf({ text: WORDS + FILES, context: FILES, attachments })).toEqual([FILES_BLOCK, "Attached files:\n- /tmp/notes.pdf", WORDS]);
+  });
+
+  it("sends the list of attached files ahead of the picture, so that the picture still comes straight before the words", async () => {
+    const attachments = [{ path: picture("shot.png"), mime: "image/png" }, { path: "/tmp/notes.pdf", mime: "application/pdf" }];
+    expect(await blocksOf({ text: "compare these", attachments })).toEqual(["Attached files:\n- /tmp/notes.pdf", "[image/png]", "compare these"]);
+  });
+
+  it("keeps the list of attached files in the last block behind a skill's command, where it is the command's argument", async () => {
+    const attachments = [{ path: "/tmp/notes.pdf", mime: "application/pdf" }];
+    const skill = { id: "mac", name: "mac-skill", path: "/lib/skills/mac/SKILL.md" };
+    expect(await blocksOf({ text: `mac open @[auth.ts] ${FILES}`, context: FILES, attachments, skill })).toEqual([FILES_BLOCK, "/realm:mac-skill mac open @[auth.ts] \n\nAttached files:\n- /tmp/notes.pdf"]);
+  });
+
+  it("keeps the list of attached files behind words that start with a slash, which Claude Code may dispatch as a command", async () => {
+    const attachments = [{ path: "/tmp/notes.pdf", mime: "application/pdf" }];
+    expect(await blocksOf({ text: "/review this", attachments })).toEqual(["/review this\n\nAttached files:\n- /tmp/notes.pdf"]);
+  });
+
+  it("sends no block of blank space for words that are only blank space beside an attached file", async () => {
+    const attachments = [{ path: "/tmp/notes.pdf", mime: "application/pdf" }];
+    expect(await blocksOf({ text: " \n", attachments })).toEqual(["Attached files:\n- /tmp/notes.pdf"]);
+  });
+
+  it("sends no block of blank space for words that are only blank space in a message that has a context", async () => {
+    expect(await blocksOf({ text: `  ${FILES}`, context: FILES, attachments: [] })).toEqual([FILES_BLOCK]);
+  });
+
+  it("sends words that are only blank space as they are when they are all the message has, as it always did", async () => {
+    expect(await blocksOf({ text: "  ", attachments: [] })).toEqual(["  "]);
+  });
+
+  it("sends the context and then the list of attached files for a message with no words", async () => {
+    const attachments = [{ path: "/tmp/notes.pdf", mime: "application/pdf" }];
+    expect(await blocksOf({ text: FILES, context: FILES, attachments })).toEqual([FILES_BLOCK, "Attached files:\n- /tmp/notes.pdf"]);
+  });
+
+  it("sends the context and then the picture for a message with no words, with no empty text block", async () => {
+    const attachments = [{ path: picture("shot.png"), mime: "image/png" }];
+    expect(await blocksOf({ text: FILES, context: FILES, attachments })).toEqual([FILES_BLOCK, "[image/png]"]);
+  });
+
+  it("sends the whole text in one block when the context is not its tail", async () => {
+    const text = `${WORDS}${FILES} and one more thing`;
+    expect(await blocksOf({ text, context: FILES, attachments: [] })).toEqual([text]);
+  });
+
+  it("still puts a picture ahead of a text whose context is not its tail", async () => {
+    const text = `${WORDS}${FILES} and one more thing`;
+    expect(await blocksOf({ text, context: FILES, attachments: [{ path: picture("shot.png"), mime: "image/png" }] })).toEqual(["[image/png]", text]);
+  });
+
+  it("sends no block for a context that is only blank space", async () => {
+    expect(await blocksOf({ text: "hello\n\n", context: "\n\n", attachments: [] })).toEqual(["hello"]);
+  });
+});
+
+describe("splitContext — where the person's words stop", () => {
+  it("takes the whole text for the words of a message with no context", () => {
+    expect(splitContext({ text: "hello" })).toEqual({ words: "hello", context: null, held: true });
+  });
+
+  it("takes the context off the end of the text, and trims the block it becomes", () => {
+    expect(splitContext({ text: WORDS + FILES, context: FILES })).toEqual({ words: WORDS, context: FILES_BLOCK, held: true });
+  });
+
+  it("says the split did not hold when the text does not end with the context", () => {
+    const text = `${FILES}${WORDS}`;
+    expect(splitContext({ text, context: FILES })).toEqual({ words: text, context: null, held: false });
+  });
 });
 
 describe("claudeMcpServers", () => {

@@ -178,10 +178,10 @@ export function mentionRefContext(refs: readonly MentionRef[], opts: {
     : opts.missing?.has(path) ? " (not on disk any more, so not attached)" : "";
   let out = "";
   if (files.length > 0) {
-    out += `\n\nFiles the user mentioned, one per chip above:\n${files.map((r) => `  ${elementChipToken(r.label)} — ${r.path}${note(r.path)}`).join("\n")}\n`;
+    out += `\n\nFiles the user mentioned, one per chip in the user's message:\n${files.map((r) => `  ${elementChipToken(r.label)} — ${r.path}${note(r.path)}`).join("\n")}\n`;
   }
   if (apps.length > 0) {
-    out += `\n\nMac apps the user mentioned, one per chip above:\n${apps.map((r) => `  ${elementChipToken(r.label)} — ${r.name}, ${r.bundleId}`).join("\n")}\n`
+    out += `\n\nMac apps the user mentioned, one per chip in the user's message:\n${apps.map((r) => `  ${elementChipToken(r.label)} — ${r.name}, ${r.bundleId}`).join("\n")}\n`
       + "Computer use is on for this session for these apps and no others: work in them with the realm-computer tools — "
       + "computer_snapshot with the bundle id first, then computer_do or computer_act. The first action in each app waits "
       + "for the user's approval, and the session's permission mode applies to every action.\n";

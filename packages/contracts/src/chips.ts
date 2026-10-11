@@ -508,7 +508,7 @@ function pageElementContext(chips: readonly PageChip[]): string {
   const pinNote = chips.some((c) => c.pin)
     ? `\nAn annotation chip stands for several elements the user pinned on one page, numbered in the order they pinned them${shots.length ? `; the attached ${shots.join(", ")} shows each number where it is on the page` : ""}.\n`
     : "";
-  return `\n\nElements the user picked in Realm's browser pane, one per chip above:\n${index}\n${deviceNote}${pinNote}\n${fenceUntrusted(detail)}`;
+  return `\n\nElements the user picked in Realm's browser pane, one per chip in the user's message:\n${index}\n${deviceNote}${pinNote}\n${fenceUntrusted(detail)}`;
 }
 
 /**
@@ -542,7 +542,7 @@ function appElementContext(chips: readonly AppChip[], attachments: readonly { pa
       ...(el.html ? [`html: ${el.html}`] : []),
     ].join("\n");
   }).join("\n\n");
-  return `\n\nParts of Realm's own window the user picked, one per chip above:\n${index}\n\n`
+  return `\n\nParts of Realm's own window the user picked, one per chip in the user's message:\n${index}\n\n`
     + "They are Realm's interface, not a web page, so the browser tools cannot reach them. The component and class names are the ones in Realm's source.\n\n"
     + detail;
 }
@@ -574,7 +574,7 @@ function deviceElementContext(chips: readonly DeviceChip[], attachments: readonl
     `enabled: ${el.enabled}`,
     `frame: x=${round(el.frame.x)} y=${round(el.frame.y)} w=${round(el.frame.width)} h=${round(el.frame.height)} in a ${round(el.screen.width)}×${round(el.screen.height)} ${el.units === "pixels" ? "pixel" : "point"} screen`,
   ].join("\n")).join("\n\n");
-  return `\n\nElements the user picked on a device's screen in Realm's simulator pane, one per chip above:\n${index}\n\n`
+  return `\n\nElements the user picked on a device's screen in Realm's simulator pane, one per chip in the user's message:\n${index}\n\n`
     + "They are on the device, not in a web page, so the browser tools cannot reach them. Act on one with the simulator tools and its simulatorId: "
     + "simulator_elements numbers what is on the screen now, and simulator_tap takes that number, or a point such as the middle of the frame below.\n\n"
     + fenceUntrusted(detail);

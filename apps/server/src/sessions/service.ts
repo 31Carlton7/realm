@@ -620,12 +620,12 @@ export class SessionService {
     const files = this.refAttachments(refs);
     // The blocks ride the same way and in this order: what the user picked ON a page or in Realm's
     // window, who else they pointed at, then the files and apps they named. Appended to the user's own
-    // text rather than sent as a system note, because all three agent wires take one markdown string
-    // and nothing else. A pick in Realm's window names its picture only if it is still attached.
+    // text rather than sent as a system note, and handed over again as `context`, which the Claude
+    // adapter sends first. A pick in Realm's window names its picture only if it is still attached.
     const context = elementContext(msg.elements ?? [], msg.attachments) + sessionRefContext(msg.sessionRefs ?? [])
       + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld });
     const attachments = [...msg.attachments, ...files.attach];
-    if (tokens.length === 0) return { text: msg.text + context, attachments };
+    if (tokens.length === 0) return { text: msg.text + context, attachments, ...(context ? { context } : {}) };
     let skill: SkillMention | undefined;
     if (AGENT_SKILL_SUPPORT[s.agentKind] === "injected" && this.live.get(id)?.skillsInjected) {
       for (const t of tokens) {
@@ -641,7 +641,8 @@ export class SessionService {
     // to be handed skills, or another skill took the message's one slot — is handed over by its
     // instructions for this session instead, and the space's switch is left as it was.
     const macNote = macCalled && skill?.id !== MAC_SKILL_ID && mac ? macSkillContext(this.canonical(mac.path)) : "";
-    return { text: stripMentionAts(msg.text, tokens) + context + macNote, attachments, ...(skill ? { skill } : {}) };
+    const appended = context + macNote;
+    return { text: stripMentionAts(msg.text, tokens) + appended, attachments, ...(appended ? { context: appended } : {}), ...(skill ? { skill } : {}) };
   }
 
   /**
