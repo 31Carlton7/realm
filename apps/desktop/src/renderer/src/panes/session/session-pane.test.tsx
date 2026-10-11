@@ -2684,7 +2684,8 @@ describe("the '+' menu (Plan 12 W1)", () => {
     // A folder's chip wears the folder glyph and is named and removable like any other.
     const tile = document.querySelector(".attach-tile")!;
     expect(tile.querySelector(".attach-glyph")).not.toBeNull();
-    expect(tile.querySelector(".visually-hidden")!.textContent).toContain("src");
+    // Its tip says what it is, not the "0 B" a folder's stat size would read as.
+    expect(tile.querySelector(".visually-hidden")!.textContent).toBe("src — Folder · Claude gets the folder path in your message and opens it itself.");
     fireEvent.click(screen.getByRole("button", { name: "Remove elsewhere" }));
     await waitFor(() => expect(document.querySelectorAll(".attach-tile")).toHaveLength(1));
     const box = screen.getByRole("textbox", { name: /message/i });
