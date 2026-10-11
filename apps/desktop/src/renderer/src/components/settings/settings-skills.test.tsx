@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { CLAUDE_OWN_SETUP_COPY, CLAUDE_OWN_SETUP_KEY } from "@realm/contracts";
 import { SkillsPanel } from "./SkillsPanel";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, skillRow, externalSkillRow, type FakeData } from "../../state/store.test-fakes";
@@ -34,7 +35,7 @@ describe("the skills panel", () => {
   });
 
   it("says, beside the toggles, that enabling a skill isolates Claude from the user's own settings", async () => {
-    // Mandatory disclosure #1 (W1 carry-forward): `settingSources: []` still closes the set for this
+    // Mandatory disclosure #1 (W1 carry-forward): by default `settingSources: []` still closes the set for this
     // space's Claude sessions, and CLAUDE.md is still re-injected to compensate. What discovery changed
     // is the REMEDY, not the disclosure — the user's installed skills are now in the list above, so the
     // note has to send them there rather than just reporting a loss.
@@ -146,6 +147,41 @@ describe("the skills panel", () => {
     expect(screen.getByRole("switch", { name: "Skill agents.apple-design in this space" })).toBeInTheDocument();
     // One of the two is enabled (the library row); the discovered one is not.
     expect(screen.getByText(/On only \(1\)/)).toBeInTheDocument();
+  });
+});
+
+/** A home where Use my Claude Code setup is stored on, in a window that has not opened Settings. The
+ *  store's `settingsPrefs` is null there until something asks the server, so the tests under it hold
+ *  the tab to the stored value. A tab that only read the store would go on saying the sessions are
+ *  isolated. */
+const OWN_SETUP_STORED: FakeData = { settings: { [CLAUDE_OWN_SETUP_KEY]: true } };
+
+describe("the skills panel with Use my Claude Code setup stored on", () => {
+  it("says this space's Claude sessions also load the person's own settings files, skills and MCP servers", async () => {
+    await mount(OWN_SETUP_STORED);
+    expect(await screen.findByText(/This space's Claude sessions also load your own settings files, skills, and MCP servers/)).toBeInTheDocument();
+  });
+
+  it("says the setting is on in Settings ▸ General, by the label its row prints there", async () => {
+    await mount(OWN_SETUP_STORED);
+    expect(await screen.findByText((said) => said.includes(`because ${CLAUDE_OWN_SETUP_COPY.label} is on in Settings ▸ General.`))).toBeInTheDocument();
+  });
+
+  it("no longer says the sessions are isolated, or that Realm re-injects CLAUDE.md to compensate", async () => {
+    await mount(OWN_SETUP_STORED);
+    await screen.findByText(/also load your own settings files/);
+    expect(screen.queryByText(/isolates this space's Claude sessions/)).toBeNull();
+    expect(screen.queryByText(/re-injected by Realm to compensate/)).toBeNull();
+  });
+
+  it("says a skill from the person's own setup that is also switched on here is listed twice", async () => {
+    await mount(OWN_SETUP_STORED);
+    expect(await screen.findByText(/If a skill from your own Claude Code setup is also switched on here, it is listed twice in those sessions/)).toBeInTheDocument();
+  });
+
+  it("says, on the Claude row, that Claude gets the skills beside the person's own setup", async () => {
+    await mount(OWN_SETUP_STORED);
+    expect(await screen.findByText(/Claude gets this space's enabled skills beside your own Claude Code setup/)).toBeInTheDocument();
   });
 });
 

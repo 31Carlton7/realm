@@ -977,7 +977,7 @@ export type AppState = {
   windowActive: boolean;
   /** Whether the playful bits run. Top-level rather than inside `settingsPrefs` for the reason the
    *  notification switches are: the transcript and the model picker read it on every render, and
-   *  `settingsPrefs` stays null until someone opens Settings. */
+   *  `settingsPrefs` stays null until someone opens Settings or a space's Skills tab. */
   easterEggs: boolean;
   /** Whether the konami palette has been earned. Survives `easterEggs` going back off. */
   konamiUnlocked: boolean;
@@ -987,7 +987,7 @@ export type AppState = {
   submitKey: SubmitKey;
   /** What a message typed during a running turn does. Top-level rather than inside `settingsPrefs`
    *  for the reason the notification switches are: the prompter reads it on every keystroke, and
-   *  `settingsPrefs` stays null until someone opens Settings. */
+   *  `settingsPrefs` stays null until someone opens Settings or a space's Skills tab. */
   midTurnMode: MidTurnMode;
   /** Sidebar hidden, its toggle moved to the top rail. The toggle is rendered in BOTH states —
    *  a collapse with no way back is a trap — which is why this is one boolean and not a mode. */
@@ -1267,7 +1267,7 @@ export type AppState = {
   notificationsUnread: number;
   /** Whether the feed is allowed to reach the OS — toasts and the dock badge (`NOTIFICATIONS_DESKTOP_KEY`,
    *  default-on). Held HERE rather than inside `settingsPrefs` because it is needed from the moment
-   *  the first broadcast can arrive, and `settingsPrefs` stays null until the Settings page mounts —
+   *  the first broadcast can arrive, and `settingsPrefs` stays null until the Settings page or a space's Skills tab mounts —
    *  a toast that only worked after a visit to Settings would be a toast that does not work. */
   desktopNotifications: boolean;
   /** Whether a toast main actually posted also plays a cue, and how loud (0…1). Held out beside
@@ -1299,7 +1299,8 @@ export type AppState = {
    *  polarity, matching the service), the permission mode new sessions start in
    *  (`DEFAULT_PERMISSION_MODE_KEY`), and whether Claude sessions keep the person's own Claude Code
    *  setup (`CLAUDE_OWN_SETUP_KEY`). Null until the page first loads them: the page fetches on
-   *  mount, and a null renders as loading rather than as every-toggle-on lies. */
+   *  mount, and a null renders as loading rather than as every-toggle-on lies. `SkillsPanel` fetches
+   *  on mount as well, to say what a Claude session loads, and reads a null as off until then. */
   settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string; claudeOwnSetup: boolean } | null;
   /** Canonical model keys the user has starred (`MODEL_FAVORITES_KEY`), for the model picker's
    *  favourites tab, its favourites-first ordering and its 1…9 shortcuts. Empty rather than null
