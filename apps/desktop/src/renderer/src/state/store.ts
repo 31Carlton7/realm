@@ -83,7 +83,7 @@ export function folderName(path: string): string {
   return path.replace(/\/+$/, "").split("/").pop() || path;
 }
 
-export type SessionOptions = { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean };
+export type SessionOptions = { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean; ultracode?: boolean };
 /** A pending attachment as the prompter holds it. `path`/`mime` are the wire fields; `name` labels the
  *  chip and `size` is what the MAX_ATTACHMENT_BYTES check reads — neither is transmitted. */
 export type PickedAttachment = Attachment & { name: string; size: number };
@@ -2403,8 +2403,8 @@ export type AppState = {
   detachViewerFile(path: string): void;
   /** The agent and model the viewer's prompter will make a session with, while it has none. */
   pickViewerAgent(agentKind: AgentKind, model: string | null): void;
-  /** The level, fast mode or permission set on the viewer's prompter while it has no session: held
-   *  for the one its first send makes. */
+  /** The level, fast mode, Ultracode or permission set on the viewer's prompter while it has no
+   *  session: held for the one its first send makes. */
   setViewerOptions(o: SessionOptions): void;
   /**
    * Ask about the viewed file: the message goes to the viewer's session — made now, in its space, if
@@ -6628,9 +6628,10 @@ await get().refreshCustomThemes().catch(() => {});
           const agentKind = v.pick?.agentKind ?? get().lastAgentKind ?? FALLBACK_AGENT;
           const created = await api.createSession({ spaceId: sid, agentKind, model: v.pick?.model ?? null, effort: v.pick?.effort ?? null,
             ...(v.pick?.permissionMode ? { permissionMode: v.pick.permissionMode } : {}) });
-          // Fast mode is a column a session is made without: set before the send starts the agent, which
-          // reads the row, so the first answer is already a fast one.
-          const session = v.pick?.fastMode ? await api.setSessionOptions(created.session.id, { fastMode: true }) : created.session;
+          // Fast mode and Ultracode are options a session is made without: set before the send starts
+          // the agent, which reads the row, so the first answer already runs with them.
+          const first: SessionOptions = { ...(v.pick?.fastMode ? { fastMode: true } : {}), ...(v.pick?.ultracode ? { ultracode: true } : {}) };
+          const session = first.fastMode || first.ultracode ? await api.setSessionOptions(created.session.id, first) : created.session;
           rememberAgent(agentKind);
           mergeSession(session);
           sessionId = session.id;

@@ -4276,6 +4276,24 @@ describe("the model picker's light and its fast-mode moment", () => {
   });
 });
 
+describe("the model picker's Ultracode row and the chip's mark", () => {
+  it("have no motion of their own, so no rule that names the row or the mark animates or transitions", () => {
+    const named = RULES.filter((r) => r.selectors.some((sel) => /\.(mp|chip)-ultracode\b/.test(sel)));
+    expect(named.flatMap((r) => r.selectors).sort()).toEqual([".model-chip .chip-ultracode", ".mp-ultracode"]);
+    for (const r of named) expect(r.body, r.selectors.join(", ")).not.toMatch(/animation|transition/);
+  });
+
+  it("draws the chip's mark in the bolt's own grey, at a width that never gives way", () => {
+    expect(bodiesFor(".model-chip .chip-ultracode")).toEqual(bodiesFor(".model-chip .chip-fast"));
+    expect(bodiesFor(".model-chip .chip-ultracode").join(" ")).toContain("flex: none");
+  });
+
+  it("lays the row out as one line, its name at one end and its switch at the other", () => {
+    const row = bodiesFor(".mp-ultracode").join(" ");
+    for (const decl of ["display: flex", "align-items: center", "justify-content: space-between"]) expect(row, decl).toContain(decl);
+  });
+});
+
 describe("the agent-controlled frame", () => {
   const glow = bodiesFor(".drive-frame-glow").join(" ");
 

@@ -252,6 +252,15 @@ describe("the Schedule a task modal", () => {
     expect(store.getState().schedules.s1![0]!.constraints).toEqual({ agentKind: "codex", model: "gpt-5.6-terra" });
   });
 
+  it("draws no Ultracode switch on a task's card, because a scheduled run never starts with it", async () => {
+    await mount();
+    const { dialog, picker } = await openPicker();
+    expect(within(picker).getByRole("button", { name: "Fast mode" })).toBeInTheDocument();
+    expect(within(picker).queryByRole("switch", { name: "Ultracode" })).toBeNull();
+    expect(picker.querySelector(".mp-ultracode")).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Model" }).querySelector(".chip-ultracode")).toBeNull();
+  });
+
   it("offers the permissions a run can start in, never Full access, and no row where Realm cannot set one", async () => {
     await mount();
     const { picker } = await openPicker();

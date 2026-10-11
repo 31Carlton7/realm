@@ -47,6 +47,9 @@ export type StartOptions = {
    *  other adapter ignores it, and none of them is obliged to report back — the honest answer for an
    *  engine with no such concept is silence, which the prompter reads as "no switch to offer". */
   fastMode?: boolean;
+  /** The session has ASKED for Ultracode. Handed only to an adapter whose harness has the setting
+   *  (`AGENT_ULTRACODE`), which today is Claude's, and left out for every session that did not ask. */
+  ultracode?: boolean;
   systemContext?: string;
   /** Since Plan 9 W3, `apps/server` always sends exactly ONE entry: the gateway's own `http` endpoint —
    *  enablement or not, `fake` included (its adapter simply never reads it). Only tests pass `[]`. */
@@ -119,8 +122,9 @@ export interface AgentHandle {
   respondPermission(requestId: string, decision: PermissionDecision, answers?: AskAnswers): void;
   interrupt(): Promise<void>;
   /** `effort: null` is "the model's own default" — a level the session no longer asks for, not one
-   *  left unsaid. */
-  setOptions(opts: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<void>;
+   *  left unsaid. `ultracode` is the session's request, on or off, and an adapter whose harness has
+   *  no such setting ignores it. */
+  setOptions(opts: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean; ultracode?: boolean }): Promise<void>;
   /**
    * Stop ONE run the agent left working in the background (a workflow, a background sub-agent), and
    * nothing else: the session and its turn go on. Named by the call that launched it, because that

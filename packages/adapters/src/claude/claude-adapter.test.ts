@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeCatalog, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, claudeStatus, stopMarks, streamEndMarks, type ClaudeTurnFacts, answeredBy, splitContext } from "./claude-adapter";
 import { HIDDEN_ANSWER, macSkillContext, mentionRefContext, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
-import type { PermissionDecision, StartOptions, UserMessage } from "../types";
+import type { AgentHandle, PermissionDecision, StartOptions, UserMessage } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { tmpdir } from "node:os";
@@ -44,8 +44,24 @@ type FakeOpts = {
   contextUsage?: { totalTokens: number; maxTokens: number; rawMaxTokens: number };
   /** record the options `getContextUsage` was called with — `detail` is the expensive knob. */
   contextUsageCalls?: unknown[];
+  /** what `getSettings()` answers; omitted means the query has no such call at all. */
+  settings?: () => Promise<unknown>;
+  /** record every control request an options change makes, in the order it was made, a refused one too. */
+  controls?: string[];
+  /** refuse `setModel`, as a harness does for a model it does not have. */
+  refuseModel?: boolean;
+  /** keep every `setModel` waiting until this settles, so that another change of options can overlap it. */
+  modelHeld?: Promise<void>;
+  /** keep every write to the flag layer waiting until this settles, for the same reason. A list keeps
+   *  each write waiting on its own entry, in the order the writes are made, so that they can be
+   *  answered out of that order. */
+  flagsHeld?: Promise<void> | Promise<void>[];
+  /** whether to refuse each write to the flag layer, in the order the writes are made. A write past the
+   *  end of the list is taken, and a refused one is left out of `flagSettings`. */
+  refuseFlags?: boolean[];
 };
 function fakeQuery(opts: FakeOpts, calls: string[] = []) {
+  let flagCalls = 0;
   return ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: Record<string, unknown> }) => {
     const gen = (async function* () {
       opts.captureOptions?.push(options);
@@ -84,12 +100,26 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
       if (opts.hang) { for await (const _ of { [Symbol.asyncIterator]: () => it }) { /* drain until input closes */ } }
     })();
     return Object.assign(gen, {
-      interrupt: async () => { calls.push("interrupt"); }, setPermissionMode: async () => {}, setModel: async () => {},
+      interrupt: async () => { calls.push("interrupt"); },
+      setPermissionMode: async (mode: string) => { opts.controls?.push(`mode ${mode}`); },
+      setModel: async (model: string) => {
+        opts.controls?.push(`model ${model}`);
+        await opts.modelHeld;
+        if (opts.refuseModel) throw new Error(`no such model: ${model}`);
+      },
       supportedModels: async () => {
         if (!opts.models) throw new Error("control request declined");
         return opts.models;
       },
-      applyFlagSettings: async (settings: Record<string, unknown>) => { opts.flagSettings?.push(settings); },
+      ...(opts.settings ? { getSettings: opts.settings } : {}),
+      applyFlagSettings: async (settings: Record<string, unknown>) => {
+        const nth = flagCalls++;
+        const refused = opts.refuseFlags?.[nth] === true;
+        opts.controls?.push(`flags ${JSON.stringify(settings)}`);
+        if (!refused) opts.flagSettings?.push(settings);
+        await (Array.isArray(opts.flagsHeld) ? opts.flagsHeld[nth] : opts.flagsHeld);
+        if (refused) throw new Error("the flag layer refused the write");
+      },
       getContextUsage: async (o?: unknown) => {
         opts.contextUsageCalls?.push(o);
         if (!opts.contextUsage) throw new Error("control request declined");
@@ -1565,9 +1595,11 @@ const workflowMessage = (subtype: string) => WORKFLOW.find((m) => m.subtype === 
  * its turn, a turn that starts with no prompt, an interrupt with nothing in flight. `calls` records
  * the control requests the adapter made, `uuids` the uuid of each message it pushed, in order, so
  * that a test can write the result that names one, and the stream ends when the adapter closes its
- * prompt.
+ * prompt. `settings` is what `getSettings()` answers each time it is asked, and a query given none
+ * has no such call at all, as a harness older than the call has none. Like the SDK's own, the call
+ * answers only when it is made on its query, and is refused when it is made as a bare function.
  */
-function drivenQuery(opts: { refuseStop?: boolean } = {}) {
+function drivenQuery(opts: { refuseStop?: boolean; settings?: () => unknown } = {}) {
   const wire = new AsyncQueue<unknown>();
   const calls: string[] = [];
   const uuids: string[] = [];
@@ -1581,6 +1613,11 @@ function drivenQuery(opts: { refuseStop?: boolean } = {}) {
       setPermissionMode: async () => {}, setModel: async () => {}, applyFlagSettings: async () => {},
       supportedModels: async () => { throw new Error("control request declined"); },
       getContextUsage: async () => { throw new Error("control request declined"); },
+      ...(opts.settings ? { async getSettings(this: unknown) {
+        calls.push("getSettings");
+        if (this !== gen) throw new Error("getSettings was called off its query, where the SDK's own would find no connection to ask on");
+        return opts.settings!();
+      } } : {}),
       stopTask: async (taskId: string) => {
         calls.push(`stopTask:${taskId}`);
         if (opts.refuseStop) throw new Error(`No task found with ID: ${taskId}`);
@@ -1596,7 +1633,7 @@ function drivenQuery(opts: { refuseStop?: boolean } = {}) {
  * that dies does (`end`) and wait until the adapter has taken it all in (`settle`: every consequence
  * here is a chain of microtasks, so one turn of the timer queue is past all of them).
  */
-function driven(opts: { refuseStop?: boolean; start?: Partial<StartOptions> } = {}) {
+function driven(opts: { refuseStop?: boolean; settings?: () => unknown; start?: Partial<StartOptions> } = {}) {
   const fake = drivenQuery(opts);
   const h = new ClaudeAdapter({ query: fake.query as never }).start({ cwd: "/tmp", mcpServers: [], ...opts.start });
   const seen: SessionEvent[] = [];
@@ -2402,5 +2439,461 @@ describe("a workflow run, replayed from the capture", () => {
     await s.emit(...WORKFLOW);
     expect(s.statuses()).toEqual([RUNNING, IDLE, RUNNING, REPORTED]);
     await s.close();
+  });
+});
+
+/** One change of a session's options, as a press on the prompter's card makes it. */
+type Change = Parameters<AgentHandle["setOptions"]>[0];
+
+/** The options a session hands `query` when it is started as `start` says. */
+async function startedWith(start: Partial<StartOptions>): Promise<Record<string, unknown>> {
+  const captureOptions: Record<string, unknown>[] = [];
+  const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never }).start({ cwd: "/tmp", mcpServers: [], ...start });
+  const done = collectUntil(h.events, () => false);
+  await h.dispose();
+  await done;
+  return captureOptions[0]!;
+}
+
+/** Every write a session makes to the flag layer for these changes of options, made one after
+ *  another on a session started as `start` says. */
+async function flagWrites(start: Partial<StartOptions>, ...changes: Change[]): Promise<Record<string, unknown>[]> {
+  const flagSettings: Record<string, unknown>[] = [];
+  const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings }) as never }).start({ cwd: "/tmp", mcpServers: [], ...start });
+  const done = collectUntil(h.events, () => false);
+  for (const change of changes) await h.setOptions(change);
+  await h.dispose();
+  await done;
+  return flagSettings;
+}
+
+/** The same, on a harness that refuses every model it is asked for. A change that names a model is
+ *  refused before its write, and the changes after it are still made. */
+async function flagWritesPastRefusals(start: Partial<StartOptions>, ...changes: Change[]): Promise<Record<string, unknown>[]> {
+  const flagSettings: Record<string, unknown>[] = [];
+  const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseModel: true }) as never }).start({ cwd: "/tmp", mcpServers: [], ...start });
+  const done = collectUntil(h.events, () => false);
+  for (const change of changes) await h.setOptions(change).catch(() => {});
+  await h.dispose();
+  await done;
+  return flagSettings;
+}
+
+describe("Ultracode at the start of a session", () => {
+  it.each([
+    { asked: "Ultracode", start: { ultracode: true }, layer: { ultracode: true } },
+    { asked: "fast mode and Ultracode", start: { fastMode: true, ultracode: true }, layer: { fastMode: true, ultracode: true } },
+    { asked: "fast mode, and for Ultracode in Ask mode", start: { fastMode: true, ultracode: true, permissionMode: "ask" }, layer: { fastMode: true } },
+  ])("starts a session that asks for $asked with exactly that in the flag layer", async ({ start, layer }) => {
+    expect((await startedWith(start)).settings).toEqual(layer);
+  });
+
+  it.each([
+    { asked: "neither fast mode nor Ultracode", start: {} },
+    { asked: "Ultracode to be off", start: { ultracode: false } },
+    { asked: "Ultracode in Ask mode, where it is held back", start: { ultracode: true, permissionMode: "ask" } },
+  ])("starts a session that asks for $asked with no settings option at all", async ({ start }) => {
+    expect(await startedWith(start)).not.toHaveProperty("settings");
+  });
+});
+
+describe("Ultracode in the flag layer, press by press", () => {
+  it.each<{ press: string; change: Change; writes: Record<string, unknown>[] }>([
+    { press: "a level", change: { effort: "high" }, writes: [{ effortLevel: "high" }] },
+    { press: "the level's reset", change: { effort: null }, writes: [{ effortLevel: null }] },
+    { press: "fast mode", change: { fastMode: true }, writes: [{ fastMode: true }] },
+    { press: "a model", change: { model: "claude-sonnet-5" }, writes: [] },
+    { press: "the move into Ask", change: { permissionMode: "ask" }, writes: [] },
+  ])("makes the write it always made for $press, and no other, with Ultracode off", async ({ change, writes }) => {
+    expect(await flagWrites({}, change)).toEqual(writes);
+  });
+
+  it("writes nothing for the move out of Ask with Ultracode off", async () => {
+    expect(await flagWrites({ permissionMode: "ask" }, { permissionMode: "default" })).toEqual([]);
+  });
+
+  it("writes true, alone, when the switch is pressed on", async () => {
+    expect(await flagWrites({}, { ultracode: true })).toEqual([{ ultracode: true }]);
+  });
+
+  it("writes false, alone, when the switch is pressed off", async () => {
+    expect(await flagWrites({ ultracode: true }, { ultracode: false })).toEqual([{ ultracode: false }]);
+  });
+
+  it("writes a level and Ultracode in one call when the level moves with Ultracode on", async () => {
+    expect(await flagWrites({ ultracode: true }, { effort: "high" })).toEqual([{ effortLevel: "high", ultracode: true }]);
+  });
+
+  it("writes the level's reset and Ultracode in one call when the level is reset with Ultracode on", async () => {
+    expect(await flagWrites({ ultracode: true }, { effort: null })).toEqual([{ effortLevel: null, ultracode: true }]);
+  });
+
+  it.each([true, false])("writes fast mode alone when it is set to %s with Ultracode on", async (fastMode) => {
+    expect(await flagWrites({ ultracode: true }, { fastMode })).toEqual([{ fastMode }]);
+  });
+
+  it("writes nothing for a model picked with Ultracode on", async () => {
+    expect(await flagWrites({ ultracode: true }, { model: "claude-sonnet-5" })).toEqual([]);
+  });
+
+  it("writes false when a session with Ultracode on moves into Ask", async () => {
+    expect(await flagWrites({ ultracode: true }, { permissionMode: "ask" })).toEqual([{ ultracode: false }]);
+  });
+
+  it("writes true when a session with Ultracode on moves out of Ask", async () => {
+    expect(await flagWrites({ ultracode: true, permissionMode: "ask" }, { permissionMode: "default" })).toEqual([{ ultracode: true }]);
+  });
+
+  it("writes nothing when a session with Ultracode on moves between two modes that are not Ask", async () => {
+    expect(await flagWrites({ ultracode: true }, { permissionMode: "acceptEdits" })).toEqual([]);
+  });
+
+  it("writes true again when the switch is pressed on while it is on", async () => {
+    expect(await flagWrites({ ultracode: true }, { ultracode: true })).toEqual([{ ultracode: true }]);
+  });
+
+  it("writes no false for a session whose switch was never on, though its options say off", async () => {
+    expect(await flagWrites({}, { ultracode: false })).toEqual([]);
+  });
+
+  it("writes false once for a switch that is pressed off twice", async () => {
+    expect(await flagWrites({ ultracode: true }, { ultracode: false }, { ultracode: false })).toEqual([{ ultracode: false }]);
+  });
+
+  it("holds a switch pressed on in Ask back, and writes it when the session leaves Ask", async () => {
+    expect(await flagWrites({ permissionMode: "ask" }, { ultracode: true }, { permissionMode: "default" })).toEqual([{ ultracode: true }]);
+  });
+
+  it("puts no Ultracode beside a level that moves while the session is in Ask", async () => {
+    expect(await flagWrites({ ultracode: true, permissionMode: "ask" }, { effort: "high" })).toEqual([{ effortLevel: "high" }]);
+  });
+
+  it("writes nothing more once the move into Ask has taken Ultracode back, when the switch is pressed off there and the session then leaves Ask", async () => {
+    expect(await flagWrites({ ultracode: true }, { permissionMode: "ask" }, { ultracode: false }, { permissionMode: "default" })).toEqual([{ ultracode: false }]);
+  });
+
+  it("writes nothing for a level Claude has no word for, with Ultracode on", async () => {
+    expect(await flagWrites({ ultracode: true }, { effort: "minimal" })).toEqual([]);
+  });
+
+  it("puts every key one call moves into one write: fast mode, the level and Ultracode taken back", async () => {
+    expect(await flagWrites({ ultracode: true }, { model: "claude-sonnet-5", effort: "low", fastMode: false, ultracode: false, permissionMode: "default" }))
+      .toEqual([{ fastMode: false, effortLevel: "low", ultracode: false }]);
+  });
+
+  it("leaves Ultracode out of that one write for a session whose switch was never on", async () => {
+    expect(await flagWrites({}, { effort: null, fastMode: false, ultracode: false, permissionMode: "default" })).toEqual([{ fastMode: false, effortLevel: null }]);
+  });
+
+  it("writes false for a switch pressed off after the harness refused the call that first took it off, whose write was never made", async () => {
+    expect(await flagWritesPastRefusals({ ultracode: true }, { model: "claude-nothing", ultracode: false }, { ultracode: false })).toEqual([{ ultracode: false }]);
+  });
+
+  it("writes true beside the next change after the harness refused the call that switched Ultracode on, whose write was never made", async () => {
+    expect(await flagWritesPastRefusals({}, { model: "claude-nothing", ultracode: true }, { fastMode: true })).toEqual([{ fastMode: true, ultracode: true }]);
+  });
+
+  it("keeps what a later change recorded when the change it overlapped is refused after it", async () => {
+    let refuse!: () => void;
+    const modelHeld = new Promise<void>((resolve) => { refuse = resolve; });
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseModel: true, modelHeld }) as never }).start({ cwd: "/tmp", mcpServers: [], ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    const refused = h.setOptions({ model: "claude-nothing", effort: "high" }).catch(() => {});
+    await h.setOptions({ ultracode: false });
+    refuse();
+    await refused;
+    await h.setOptions({ effort: "low" });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ ultracode: false }, { effortLevel: "low" }]);
+  });
+
+  it("writes false for a switch pressed off after another change wrote true while the call that switched it on waited to be refused", async () => {
+    let refuse!: () => void;
+    const modelHeld = new Promise<void>((resolve) => { refuse = resolve; });
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseModel: true, modelHeld }) as never }).start({ cwd: "/tmp", mcpServers: [] });
+    const done = collectUntil(h.events, () => false);
+    const refused = h.setOptions({ model: "claude-nothing", ultracode: true }).catch(() => {});
+    await h.setOptions({ effort: "high" });
+    refuse();
+    await refused;
+    await h.setOptions({ ultracode: false });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ effortLevel: "high", ultracode: true }, { ultracode: false }]);
+  });
+
+  it("keeps a switch pressed on while a reset waited on its model, in the reset's own write too", async () => {
+    let answer!: () => void;
+    const modelHeld = new Promise<void>((resolve) => { answer = resolve; });
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, modelHeld }) as never }).start({ cwd: "/tmp", mcpServers: [], ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    const reset = h.setOptions({ model: "claude-sonnet-5", effort: "low", fastMode: false, ultracode: false, permissionMode: "default" });
+    await h.setOptions({ ultracode: true });
+    answer();
+    await reset;
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ ultracode: true }, { fastMode: false, effortLevel: "low", ultracode: true }]);
+  });
+
+  it("writes true beside the next change after the harness refused the write that switched Ultracode on", async () => {
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseFlags: [true] }) as never }).start({ cwd: "/tmp", mcpServers: [] });
+    const done = collectUntil(h.events, () => false);
+    await h.setOptions({ ultracode: true }).catch(() => {});
+    await h.setOptions({ fastMode: true });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ fastMode: true, ultracode: true }]);
+  });
+
+  it("writes false for a switch pressed off again after the harness refused the write that first took it off", async () => {
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseFlags: [true] }) as never }).start({ cwd: "/tmp", mcpServers: [], ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    await h.setOptions({ ultracode: false }).catch(() => {});
+    await h.setOptions({ ultracode: false });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ ultracode: false }]);
+  });
+
+  it("keeps what a later change recorded when the write it overlapped is refused, though both wrote the same", async () => {
+    let settle!: () => void;
+    const flagsHeld = new Promise<void>((resolve) => { settle = resolve; });
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseFlags: [true], flagsHeld }) as never }).start({ cwd: "/tmp", mcpServers: [] });
+    const done = collectUntil(h.events, () => false);
+    const refused = h.setOptions({ ultracode: true }).catch(() => {});
+    const level = h.setOptions({ effort: "high" });
+    settle();
+    await refused;
+    await level;
+    await h.setOptions({ ultracode: false });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ effortLevel: "high", ultracode: true }, { ultracode: false }]);
+  });
+
+  it("writes true beside the next change after the harness refused two writes that overlapped and both asked for Ultracode", async () => {
+    let settle!: () => void;
+    const flagsHeld = new Promise<void>((resolve) => { settle = resolve; });
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseFlags: [true, true], flagsHeld }) as never }).start({ cwd: "/tmp", mcpServers: [] });
+    const done = collectUntil(h.events, () => false);
+    const first = h.setOptions({ ultracode: true }).catch(() => {});
+    const second = h.setOptions({ effort: "high" }).catch(() => {});
+    settle();
+    await first;
+    await second;
+    await h.setOptions({ fastMode: true });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ fastMode: true, ultracode: true }]);
+  });
+
+  it("writes false for a switch pressed off after the harness refused two writes that overlapped, one taking Ultracode off and one putting it back", async () => {
+    let settle!: () => void;
+    const flagsHeld = new Promise<void>((resolve) => { settle = resolve; });
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseFlags: [true, true], flagsHeld }) as never }).start({ cwd: "/tmp", mcpServers: [], ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    const off = h.setOptions({ ultracode: false }).catch(() => {});
+    const on = h.setOptions({ ultracode: true }).catch(() => {});
+    settle();
+    await off;
+    await on;
+    await h.setOptions({ ultracode: false });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ ultracode: false }]);
+  });
+
+  it("keeps what the harness took when it refuses a later write that overlapped it", async () => {
+    let settle!: () => void;
+    const flagsHeld = new Promise<void>((resolve) => { settle = resolve; });
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseFlags: [false, true], flagsHeld }) as never }).start({ cwd: "/tmp", mcpServers: [] });
+    const done = collectUntil(h.events, () => false);
+    const taken = h.setOptions({ ultracode: true });
+    const refused = h.setOptions({ ultracode: false }).catch(() => {});
+    settle();
+    await taken;
+    await refused;
+    await h.setOptions({ ultracode: false });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ ultracode: true }, { ultracode: false }]);
+  });
+
+  it("falls back to the write before it when the harness refuses a write that was not the last one sent", async () => {
+    let settle!: () => void;
+    const flagsHeld = new Promise<void>((resolve) => { settle = resolve; });
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseFlags: [true], flagsHeld }) as never }).start({ cwd: "/tmp", mcpServers: [], ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    const refused = h.setOptions({ ultracode: false }).catch(() => {});
+    const taken = h.setOptions({ ultracode: true });
+    settle();
+    await refused;
+    await taken;
+    await h.setOptions({ ultracode: false });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ ultracode: true }, { ultracode: false }]);
+  });
+
+  it("keeps the later of two writes the harness took when it answers the earlier one last", async () => {
+    let answerFirst!: () => void;
+    let answerSecond!: () => void;
+    const flagsHeld = [new Promise<void>((resolve) => { answerFirst = resolve; }), new Promise<void>((resolve) => { answerSecond = resolve; })];
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, flagsHeld }) as never }).start({ cwd: "/tmp", mcpServers: [], ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    const first = h.setOptions({ ultracode: false });
+    const second = h.setOptions({ ultracode: true });
+    answerSecond();
+    await second;
+    answerFirst();
+    await first;
+    await h.setOptions({ ultracode: false });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ ultracode: false }, { ultracode: true }, { ultracode: false }]);
+  });
+
+  it("sends the harness the permission mode a call names though it refuses that call's write", async () => {
+    const controls: string[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, controls, refuseFlags: [true] }) as never }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions", ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    await h.setOptions({ permissionMode: "ask" }).catch(() => {});
+    await h.dispose();
+    await done;
+    expect(controls).toEqual(['flags {"ultracode":false}', "mode default"]);
+  });
+
+  it("sends the harness the permission mode a call names though it refuses that call's model", async () => {
+    const controls: string[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, controls, refuseModel: true }) as never }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions" });
+    const done = collectUntil(h.events, () => false);
+    await h.setOptions({ model: "claude-nothing", permissionMode: "ask" }).catch(() => {});
+    await h.dispose();
+    await done;
+    expect(controls).toEqual(["model claude-nothing", "mode default"]);
+  });
+
+  it("sends the harness the permission mode Realm holds last when a later change of mode overtakes one that waited on its write", async () => {
+    let settle!: () => void;
+    const flagsHeld = new Promise<void>((resolve) => { settle = resolve; });
+    const controls: string[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, controls, flagsHeld }) as never }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "ask", ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    const waited = h.setOptions({ permissionMode: "bypassPermissions" });
+    const later = h.setOptions({ permissionMode: "default" });
+    settle();
+    await waited;
+    await later;
+    await h.dispose();
+    await done;
+    expect(controls).toEqual(['flags {"ultracode":true}', "mode default", "mode default"]);
+  });
+
+  it("asks the harness in the order it always has: the model, the flag layer, then the permission mode", async () => {
+    const controls: string[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, controls }) as never }).start({ cwd: "/tmp", mcpServers: [], ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    await h.setOptions({ model: "claude-sonnet-5", effort: "low", permissionMode: "plan" });
+    await h.dispose();
+    await done;
+    expect(controls).toEqual(["model claude-sonnet-5", 'flags {"effortLevel":"low","ultracode":true}', "mode plan"]);
+  });
+
+  it("holds a session in Ask from the moment it is asked to, though the harness refuses another option of the same call", async () => {
+    const h = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Edit", refuseModel: true }) as never }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+    await h.setOptions({ model: "claude-nothing", permissionMode: "ask" }).catch(() => {});
+    const all = collectUntil(h.events, () => false);
+    await h.send({ text: "hi", attachments: [] });
+    await h.dispose();
+    expect(types(await all)).not.toContain("permission_request");
+  });
+});
+
+/** What a session said of its handshake: every `init` it put out, in order. */
+const inits = (s: ReturnType<typeof driven>) => s.seen.flatMap((e) => (e.type === "init" ? [e.payload] : []));
+/** A harness's whole answer to `getSettings`, as much as says whether Ultracode can run. */
+const applied = (ultracodeAvailable: unknown) => ({ effective: {}, sources: [], applied: { ultracode: false, ultracodeRequested: false, ultracodeAvailable } });
+
+describe("whether Ultracode can run, as the harness says it", () => {
+  it.each([true, false])("restates init, whole, with the harness's answer of %s", async (can) => {
+    const s = driven({ settings: () => applied(can) });
+    await s.emit(INIT);
+    expect(inits(s).at(-1)).toEqual({ providerSessionId: "s", model: "m", tools: [], cwd: "/tmp", ultracodeAvailable: can });
+    await s.close();
+  });
+
+  it("says the handshake as it arrived first, and its own restatement after it", async () => {
+    const s = driven({ settings: () => applied(true) });
+    await s.emit(INIT);
+    expect(inits(s).map((init) => init.ultracodeAvailable)).toEqual([undefined, true]);
+    await s.close();
+  });
+
+  it("asks again after every init, and restates each with the answer of that moment", async () => {
+    const answers = [applied(true), applied(false)];
+    const s = driven({ settings: () => answers.shift() });
+    await s.emit(INIT);
+    await s.emit(INIT);
+    expect(inits(s).map((init) => init.ultracodeAvailable)).toEqual([undefined, true, undefined, false]);
+    await s.close();
+  });
+
+  it("restates nothing for an answer that lands after a newer init, so the last handshake it says is still the newest", async () => {
+    let land!: (answer: unknown) => void;
+    const answers: unknown[] = [new Promise((resolve) => { land = resolve; }), applied(true)];
+    const s = driven({ settings: () => answers.shift() });
+    await s.emit({ ...INIT, model: "claude-opus-5" });
+    await s.emit({ ...INIT, model: "claude-sonnet-5" });
+    land(applied(false));
+    await s.settle();
+    expect(inits(s).map((init) => [init.model, init.ultracodeAvailable])).toEqual([["claude-opus-5", undefined], ["claude-sonnet-5", undefined], ["claude-sonnet-5", true]]);
+    await s.close();
+  });
+
+  it.each<{ when: string; settings?: () => unknown }>([
+    { when: "the harness has no such call" },
+    { when: "the call is refused", settings: () => { throw new Error("Unsupported control request subtype: get_settings"); } },
+    { when: "the answer is nothing", settings: () => null },
+    { when: "the answer has nothing applied", settings: () => ({ effective: {}, sources: [] }) },
+    { when: "what is applied says nothing of whether Ultracode can run", settings: () => ({ applied: { ultracode: true, ultracodeRequested: true } }) },
+    { when: "what it says is neither yes nor no", settings: () => applied("yes") },
+  ])("says nothing after the handshake when $when", async ({ settings }) => {
+    const s = driven(settings ? { settings } : {});
+    await s.emit(INIT);
+    expect(inits(s)).toHaveLength(1);
+    await s.close();
+  });
+
+  it("never asks from a change of options, whichever option it is", async () => {
+    const s = driven({ settings: () => applied(true) });
+    await s.emit(INIT);
+    for (const change of [{ ultracode: true }, { effort: "low" }, { fastMode: true }, { model: "claude-sonnet-5" }, { permissionMode: "ask" }]) await s.h.setOptions(change);
+    await s.settle();
+    expect(s.calls.filter((call) => call === "getSettings")).toHaveLength(1);
+    await s.close();
+  });
+
+  it("does not keep the fast-mode restatement waiting for a getSettings that never answers", async () => {
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, models: [{ value: "claude-opus-5", supportsFastMode: true }], settings: () => new Promise(() => {}) }) as never }).start({ cwd: "/tmp", mcpServers: [] });
+    const seen: SessionEvent[] = [];
+    const done = collectUntil(h.events, () => false, (e) => seen.push(e));
+    await h.send({ text: "hi", attachments: [] });
+    await new Promise<void>((res) => { const t = setInterval(() => { if (seen.some((e) => e.type === "init" && e.payload.supportsFastMode === true)) { clearInterval(t); res(); } }, 5); });
+    await h.dispose();
+    await done;
+    expect(seen.flatMap((e) => (e.type === "init" ? [e.payload.supportsFastMode] : []))).toContain(true);
   });
 });

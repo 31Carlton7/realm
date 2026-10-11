@@ -1,4 +1,4 @@
-import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, type AgentKind, type AgentModel, type ModelInfo } from "@realm/contracts";
+import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, AGENT_ULTRACODE, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, sessionModeOf, type AgentKind, type AgentModel, type ModelInfo } from "@realm/contracts";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
@@ -380,9 +380,10 @@ export function chipLabel(kind: AgentKind, model: string | null, rows: ModelRow[
 }
 
 /** The chip's tooltip, which spells the whole thing out — the model's full name, the harness it runs
- *  through, the level in force and fast mode — for anyone who needs it. */
-export const chipTitle = (fullName: string, kind: AgentKind, level: string | null, fast: boolean): string =>
-  `${fullName} through ${AGENT_META[kind].label}${level ? ` · ${level} effort` : ""}${fast ? " · fast mode" : ""}`;
+ *  through, the level in force, fast mode and Ultracode — for anyone who needs it. `ultracode` is
+ *  off unless a caller says otherwise, because a scheduled task's chip has no such thing to name. */
+export const chipTitle = (fullName: string, kind: AgentKind, level: string | null, fast: boolean, ultracode = false): string =>
+  `${fullName} through ${AGENT_META[kind].label}${level ? ` · ${level} effort` : ""}${fast ? " · fast mode" : ""}${ultracode ? " · Ultracode" : ""}`;
 
 /** Display form of an effort level: capitalised, with `xhigh` as "XHigh" — the id's two morphemes
  *  each get their cap, and no hyphen is invented that the CLIs never print. */
@@ -644,6 +645,93 @@ export function fastModeShown(f: FastMode): boolean {
   if (!f.on || f.availability.state === "unavailable") return false;
   return !(f.state === "off" && !fastModeUntried(f));
 }
+
+/**
+ * What Realm can say about Ultracode for one session.
+ *
+ * - `none`: Realm has no way to ask this harness for it (`AGENT_ULTRACODE`). Draw nothing.
+ * - `offered`: the harness said this session can run it, in the handshake of the model the session
+ *   asks for.
+ * - `unavailable`: the session cannot run it, and `by` says whose word that is. `harness` is Claude
+ *   Code's own answer for this session. `ask` is Realm's Ask mode, which refuses the `Workflow` call
+ *   that Ultracode makes, so the adapter holds the request back while the session is in Ask.
+ * - `unknown`: Realm can ask the harness, and the harness has not answered. The switch is a request,
+ *   and the first turn reports whether this session can run it.
+ */
+export type UltracodeAvailability =
+  | { state: "none" }
+  | { state: "offered" }
+  | { state: "unavailable"; by: "harness" | "ask" }
+  | { state: "unknown" };
+
+/**
+ * `UltracodeAvailability` for a prompter's session, or for the draft of one.
+ *
+ * When the harness has refused and the session is also in Ask mode, this names the harness's
+ * refusal. Leaving Ask would not lift it. Naming Ask would tell a person to leave Ask, and the
+ * switch would stay off.
+ */
+export function ultracodeAvailability({ kind, permissionMode, model, init }: {
+  kind: AgentKind;
+  /** The session's stored permission mode, which is where Ask travels (`sessionModeOf`). */
+  permissionMode: string;
+  /** What the session asks for, which is `session.model`. Null is the harness's default. */
+  model: string | null;
+  /** This session's own handshake, where it has one. Its answer counts only while the handshake
+   *  describes the model the session asks for, as fast mode's answer does. The two ids are compared
+   *  without their bracketed variants. A session can pin an id that has one, as a row picked from
+   *  Claude Code's own list does (`claude-opus-5-5[1m]`), and nothing settles whether the handshake
+   *  names that model with the variant or without. A draft has none. */
+  init?: { model: string; ultracodeAvailable?: boolean } | null;
+}): UltracodeAvailability {
+  if (!AGENT_ULTRACODE[kind]) return { state: "none" };
+  const said = init?.ultracodeAvailable !== undefined && (model === null || baseId(init.model) === baseId(model)) ? init.ultracodeAvailable : null;
+  if (said === false) return { state: "unavailable", by: "harness" };
+  if (sessionModeOf(permissionMode) === "ask") return { state: "unavailable", by: "ask" };
+  return said === true ? { state: "offered" } : { state: "unknown" };
+}
+
+/**
+ * Ultracode as the picker knows it: what the session ASKED for, and whether this session can run
+ * it.
+ *
+ * It is a request, as fast mode's bolt is. No event reports it turn by turn the way a `usage` event
+ * reports fast mode, so the picker has no verdict to show beside the request. It has `availability`
+ * alone. Where that says the session cannot run Ultracode, the picker draws the switch off and
+ * says the request is not running.
+ */
+export type Ultracode = {
+  /** The session's own switch. */
+  on: boolean;
+  onChange: (on: boolean) => void;
+  availability: Exclude<UltracodeAvailability, { state: "none" }>;
+};
+
+/** What Ultracode is and what it costs. Where Ultracode can run, this is the whole tooltip. */
+const ULTRACODE_TIP = "Claude plans a workflow of sub-agents for every substantial task. It uses many more tokens.";
+
+/** The switch's tooltip, which says what Ultracode is or why this session cannot run it. */
+export function ultracodeTitle(u: Pick<Ultracode, "availability">): string {
+  const a = u.availability;
+  if (a.state === "unavailable") return a.by === "ask" ? "Ask mode can’t start a workflow." : "Claude Code says this session can’t run Ultracode.";
+  return a.state === "unknown" ? `${ULTRACODE_TIP} The first turn checks whether this session can run it.` : ULTRACODE_TIP;
+}
+
+/**
+ * The line under the effort control about Ultracode, or null. It is null unless the session asks
+ * for Ultracode and cannot run it, which is the one case where the switch and what happens differ.
+ * In every other case the switch alone says what is true, and a note shown every time goes unread.
+ */
+export function ultracodeHint(u: Pick<Ultracode, "on" | "availability">): string | null {
+  const a = u.availability;
+  if (!u.on || a.state !== "unavailable") return null;
+  return a.by === "ask" ? "Ultracode isn’t running. Ask mode can’t start a workflow." : "Ultracode isn’t running. Claude Code says this session can’t run it.";
+}
+
+/** Whether the picker draws the switch on and the chip wears the mark. Both need the session to
+ *  ask for Ultracode, and nothing to have said the session cannot run it. A mark kept past that
+ *  would claim work that nobody is running. */
+export const ultracodeShown = (u: Pick<Ultracode, "on" | "availability">): boolean => u.on && u.availability.state !== "unavailable";
 
 /**
  * What the picker says about the highlighted model, in a fixed two-line strip under the list.

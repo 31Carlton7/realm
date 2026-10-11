@@ -357,7 +357,7 @@ export class CodeReviewService {
    * sends: a reviewer's prompt is Realm's own.
    */
   async ask(input: { ref: PrRef; spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null; text: string;
-    fastMode?: boolean; permissionMode?: string | null; attachments?: { path: string; mime: string }[]; human?: boolean }): Promise<{ sessionId: string; itemId: string | null }> {
+    fastMode?: boolean; ultracode?: boolean; permissionMode?: string | null; attachments?: { path: string; mime: string }[]; human?: boolean }): Promise<{ sessionId: string; itemId: string | null }> {
     const extra = input.attachments ?? [];
     const thread = this.thread(input.ref);
     if (thread && thread.spaceId === input.spaceId) {
@@ -376,6 +376,7 @@ export class CodeReviewService {
     // Fast mode is a column the session is made without; set before the send below starts the agent,
     // which reads the row, so the first answer is already a fast one.
     if (input.fastMode) await this.d.sessions.setOptions(session.id, { fastMode: true });
+    if (input.ultracode) await this.d.sessions.setOptions(session.id, { ultracode: true });
     this.d.settings.set(prThreadKey(input.ref), { sessionId: session.id, spaceId: input.spaceId });
     await this.d.sessions.send(session.id, {
       text: `About pull request ${prName(detail.ref)} (attached): ${input.text}`,

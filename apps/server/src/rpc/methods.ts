@@ -923,7 +923,7 @@ export function registerMethods(d: Deps): void {
   reg("codeReview.reviewGet", (p) => ({ review: d.codeReview.reviewOf(p.ref) }));
   reg("codeReview.places", async (p) => ({ places: await d.codeReview.places(p.profileId) }));
   reg("codeReview.thread", (p) => { const t = d.codeReview.thread(p.ref); return { sessionId: t?.sessionId ?? null, spaceId: t?.spaceId ?? null }; });
-  reg("codeReview.ask", (p) => d.codeReview.ask({ ref: p.ref, spaceId: p.spaceId, projectId: p.projectId, agentKind: p.agentKind, model: p.model, effort: p.effort, fastMode: p.fastMode, permissionMode: p.permissionMode, text: p.text, attachments: p.attachments, human: p.human }));
+  reg("codeReview.ask", (p) => d.codeReview.ask({ ref: p.ref, spaceId: p.spaceId, projectId: p.projectId, agentKind: p.agentKind, model: p.model, effort: p.effort, fastMode: p.fastMode, ultracode: p.ultracode, permissionMode: p.permissionMode, text: p.text, attachments: p.attachments, human: p.human }));
   // Live registry state, not a table: the engine holds it in memory and it dies with the process, so
   // a pane mounting mid-run has no other way to learn what its session is waiting on.
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
@@ -1003,7 +1003,7 @@ export function registerMethods(d: Deps): void {
     return { seqs };
   });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
-  reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode }));
+  reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode, ultracode: p.ultracode }));
   reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
   /* Laya (`laya/service.ts`). The service makes every refusal — an install with no Python to make it
      from, Shadow before an install — so nothing here decides anything. */

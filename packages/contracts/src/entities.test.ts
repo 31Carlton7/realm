@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { newId, IdSchema } from "./ids";
-import { SpaceSchema, ItemKindSchema, PAGE_REF_IDS, FAVICON_MAX_BYTES, isFaviconDataUrl } from "./entities";
+import { SessionSchema, SpaceSchema, ItemKindSchema, PAGE_REF_IDS, FAVICON_MAX_BYTES, isFaviconDataUrl } from "./entities";
+
+describe("a session's Ultracode request", () => {
+  const row = {
+    id: newId(), spaceId: newId(), projectId: null, agentKind: "claude", model: null, effort: null, permissionMode: "default", fastMode: false,
+    environmentId: newId(), cwd: "/tmp/x", status: "idle", providerSessionId: null, title: "New session", lastEventSeq: 0, seenSeq: 0,
+    terminalItemId: null, dispatchedBy: null, createdAt: 1, updatedAt: 1,
+  };
+
+  it("is read off a session that asked", () => {
+    expect(SessionSchema.parse({ ...row, ultracode: true }).ultracode).toBe(true);
+  });
+
+  it("is absent from a session that never asked, which is every row written before it existed", () => {
+    expect(SessionSchema.parse(row)).not.toHaveProperty("ultracode");
+  });
+});
 
 describe("entities", () => {
   it("IdSchema accepts ULIDs and rejects non-Crockford 26-char strings", () => {

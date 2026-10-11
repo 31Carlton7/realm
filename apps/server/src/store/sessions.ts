@@ -5,10 +5,33 @@ import { NotFoundError, RpcError, now } from "./rows";
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null; fast_mode: number;
   permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number; seen_seq: number;
   terminal_item_id: string | null; dispatched_by_kind: DispatchKind | null; dispatched_by_session_id: string | null;
-  provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; created_at: number; updated_at: number };
+  provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; created_at: number; updated_at: number;
+  /** Not a column: the session's Ultracode key in `settings`, as stored, or null (`ULTRACODE_KEY`). */
+  ultracode_json: string | null };
+
+/**
+ * Where a session's Ultracode request is kept: one `settings` row for each session that asked,
+ * under this prefix and the session's id, holding `true`. A session that never asked has no row.
+ *
+ * A settings key and not a column, so that it needs no migration and no row written before it
+ * existed changes. This store owns the key all the same, so that no caller can write the option
+ * and return a row that was read before the write: `update` writes or removes the row before it
+ * reads the session back, the one `SELECT` reads it beside the columns, and `delete` takes it with
+ * the session. All three build the key from here.
+ */
+const ULTRACODE_KEY = "sessions.ultracode:";
+
+/** Whether a stored settings value is JSON `true`. Anything else the row holds, a value edited by
+ *  hand that does not parse included, is a session that did not ask. */
+function storedTrue(json: string | null): boolean {
+  if (json === null) return false;
+  try { return JSON.parse(json) === true; } catch { return false; }
+}
+
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
   fastMode: r.fast_mode === 1,
+  ...(storedTrue(r.ultracode_json) ? { ultracode: true } : {}),
   permissionMode: r.permission_mode, environmentId: r.environment_id, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
   lastEventSeq: r.last_event_seq, seenSeq: r.seen_seq, terminalItemId: r.terminal_item_id,
   dispatchedBy: r.dispatched_by_kind ? { kind: r.dispatched_by_kind, sessionId: r.dispatched_by_session_id } : null,
@@ -21,10 +44,13 @@ const toSession = (r: Row): Session => ({
  * is inner on purpose — the schema's triggers make a session without an environment unwritable, so a
  * row that failed to match would be corruption, not a state to render.
  */
-const SELECT = "SELECT s.*, e.path AS cwd FROM sessions s JOIN environments e ON e.id = s.environment_id";
+const SELECT = `SELECT s.*, e.path AS cwd, (SELECT value_json FROM settings WHERE key = '${ULTRACODE_KEY}' || s.id) AS ultracode_json FROM sessions s JOIN environments e ON e.id = s.environment_id`;
 
 export type SessionUpdate = { id: string; status?: SessionStatus; providerSessionId?: string | null; lastEventSeq?: number; title?: string;
-  model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind; fastMode?: boolean };
+  model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind; fastMode?: boolean;
+  /** The session's Ultracode request (`ULTRACODE_KEY`): `true` writes its row, `false` removes it,
+   *  and a key left out leaves what is there. */
+  ultracode?: boolean };
 
 export class SessionsStore {
   constructor(private db: Db) {}
@@ -93,6 +119,8 @@ export class SessionsStore {
         input.agentKind ?? cur.agentKind,
         (input.fastMode === undefined ? cur.fastMode : input.fastMode) ? 1 : 0,
         now(), input.id);
+    if (input.ultracode === true) this.db.prepare("INSERT INTO settings (key, value_json) VALUES (?, 'true') ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json").run(ULTRACODE_KEY + input.id);
+    else if (input.ultracode === false) this.db.prepare("DELETE FROM settings WHERE key = ?").run(ULTRACODE_KEY + input.id);
     return this.get(input.id)!;
   }
   /** Re-point the session at another environment. Deliberately not part of `update` (whose callers only
@@ -186,6 +214,7 @@ export class SessionsStore {
     // transcript is scrubbed from the index here — search must not keep quoting a transcript whose
     // events are gone.
     this.db.prepare("DELETE FROM search_index WHERE kind = 'session' AND ref = ?").run(id);
+    this.db.prepare("DELETE FROM settings WHERE key = ?").run(ULTRACODE_KEY + id);
     this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
   }
 }

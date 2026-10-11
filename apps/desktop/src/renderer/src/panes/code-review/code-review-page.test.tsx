@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MODEL_EFFORTS_KEY, PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
+import { MODEL_EFFORTS_KEY, PAGE_REF_IDS, sessionEvent, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
 
 /** The page's calls, answered from what each test sets, and every one kept. Nothing reaches a socket
  *  — and so nothing reaches gh, or GitHub. */
@@ -11,6 +11,9 @@ let detail: PrDetail;
 let review: PrReview | null = null;
 let instructions = "";
 let reviewerPick: ReviewerPick | null = null;
+/** The session an earlier question about the request went to, and that session's space. By default
+ *  there is none. */
+let thread: { sessionId: string | null; spaceId: string | null } = { sessionId: null, spaceId: null };
 vi.mock("../../rpc/client", () => ({
   rpc: () => ({
     on: () => () => {},
@@ -26,7 +29,7 @@ vi.mock("../../rpc/client", () => ({
         case "codeReview.reviewGet": return { review };
         case "codeReview.pins": return { pins: [] };
         case "codeReview.places": return { places: [{ spaceId: "s1", projectId: null, name: "Versed", path: "/tmp/versed", repo: null, branch: null }] };
-        case "codeReview.thread": return { sessionId: null, spaceId: null };
+        case "codeReview.thread": return thread;
         case "codeReview.ask": return { sessionId: "01HQ000000000000000000ASK1", itemId: null };
         case "codeReview.instructions": return { text: instructions };
         case "codeReview.setInstructions": instructions = params.text; return { text: params.text };
@@ -92,6 +95,7 @@ beforeEach(() => {
   review = null;
   instructions = "";
   reviewerPick = null;
+  thread = { sessionId: null, spaceId: null };
 });
 afterEach(() => cleanup());
 
@@ -455,6 +459,21 @@ describe("Review with…", () => {
   });
 });
 
+describe("the reviewer's card", () => {
+  it("draws no Ultracode switch, because the picker sets a review and a review never starts with it", async () => {
+    await mount();
+    await openRequest();
+    fireEvent.click(screen.getByRole("button", { name: "Review instructions" }));
+    const sheet = await screen.findByRole("dialog", { name: "Review instructions" });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Model" }));
+    const picker = await screen.findByRole("dialog", { name: "Model picker" });
+    expect(within(picker).getByRole("button", { name: "Fast mode" })).toBeInTheDocument();
+    expect(within(picker).queryByRole("switch", { name: "Ultracode" })).toBeNull();
+    expect(picker.querySelector(".mp-ultracode")).toBeNull();
+    expect(within(sheet).getByRole("button", { name: "Model" }).querySelector(".chip-ultracode")).toBeNull();
+  });
+});
+
 describe("Ask about this pull request", () => {
   it("answers the card before there is a session, and the first question starts one at that level and speed", async () => {
     /* THE BUG the owner hit: with no session behind it yet, this prompter held the model picked and
@@ -482,6 +501,8 @@ describe("Ask about this pull request", () => {
   };
   const asker = () => screen.getByRole("region", { name: "Ask about this pull request" });
   const started = session("01HQ000000000000000000ASK1", "s1", { agentKind: "claude", title: "Asked just now" });
+  const init = (over: Record<string, unknown> = {}) =>
+    ({ seq: 1, sessionId: "se-thread", event: sessionEvent("init", { providerSessionId: "p1", model: "claude-opus-5", tools: [], cwd: "/tmp", ...over }) });
 
   it("sends the question as the person's own input", async () => {
     await mount({ sessions: [started] });
@@ -489,6 +510,87 @@ describe("Ask about this pull request", () => {
     askIn(within(asker()).getByRole("textbox", { name: /message/i }), "ultracode: is the stream right?");
     await waitFor(() => expect(called("codeReview.ask")).toHaveLength(1));
     expect(called("codeReview.ask")[0]!.params).toMatchObject({ text: "ultracode: is the stream right?", human: true });
+  });
+
+  it("names no Ultracode in the first question when the card never set it", async () => {
+    await mount({ sessions: [started] });
+    await openRequest();
+    askIn(within(asker()).getByRole("textbox", { name: /message/i }), "Is the stream right?");
+    await waitFor(() => expect(called("codeReview.ask")).toHaveLength(1));
+    expect(called("codeReview.ask")[0]!.params).toMatchObject({ fastMode: false });
+    expect(called("codeReview.ask")[0]!.params).not.toHaveProperty("ultracode");
+  });
+
+  it("holds the card's Ultracode before there is a session, and the first question starts one with it", async () => {
+    await mount({ sessions: [started] });
+    await openRequest();
+    fireEvent.click(within(asker()).getByRole("button", { name: "Model" }));
+    const toggle = await screen.findByRole("switch", { name: "Ultracode" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ultracode" })).toBeChecked());
+    expect(within(asker()).getByRole("button", { name: "Model" }).querySelector(".chip-ultracode")).not.toBeNull();
+    askIn(within(asker()).getByRole("textbox", { name: /message/i }), "Is the stream right?");
+    await waitFor(() => expect(called("codeReview.ask")).toHaveLength(1));
+    expect(called("codeReview.ask")[0]!.params).toMatchObject({ ultracode: true, fastMode: false });
+  });
+
+  it.each<{ arrangement: string; earlier: "claude" | "codex" | null; card: "claude" | "codex"; ultracode: true | undefined }>([
+    { arrangement: "an earlier thread on Claude in another place, and a card moved to Codex that still holds the press", earlier: "claude", card: "codex", ultracode: undefined },
+    { arrangement: "an earlier thread on Codex in another place, and a card on Claude with the switch on", earlier: "codex", card: "claude", ultracode: undefined },
+    { arrangement: "no earlier thread, and a card moved to Codex that still holds the press", earlier: null, card: "codex", ultracode: undefined },
+    { arrangement: "an earlier thread on Claude in another place, and a card on Claude with the switch on", earlier: "claude", card: "claude", ultracode: true },
+  ])("carries Ultracode in a first question only where the card drew its switch for the agent that question starts on: $arrangement", async ({ earlier, card, ultracode }) => {
+    if (earlier) thread = { sessionId: "se-thread", spaceId: "s2" };
+    const { store } = await mount({ sessions: [started, ...(earlier ? [session("se-thread", "s2", { agentKind: earlier, title: "Asked elsewhere" })] : [])] });
+    await openRequest();
+    if (earlier) {
+      await waitFor(() => expect(store.getState().transcripts["se-thread"]).toBeDefined());
+      await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    }
+    fireEvent.click(within(asker()).getByRole("button", { name: "Model" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "Ultracode" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ultracode" })).toBeChecked());
+    if (card === "codex") {
+      const codex = within(screen.getByRole("dialog", { name: "Model picker" })).getByRole("option", { name: /^Codex/ });
+      fireEvent.pointerDown(codex);
+      fireEvent.click(codex);
+      await waitFor(() => expect(screen.queryByRole("switch", { name: "Ultracode" })).toBeNull());
+    }
+    askIn(within(asker()).getByRole("textbox", { name: /message/i }), "Is the stream right?");
+    await waitFor(() => expect(called("codeReview.ask")).toHaveLength(1));
+    const { agentKind, ultracode: carried } = called("codeReview.ask")[0]!.params;
+    expect({ agentKind, carried }).toEqual({ agentKind: earlier ?? card, carried: ultracode });
+  });
+
+  it("shows a carried-on session what its own harness said of Ultracode", async () => {
+    thread = { sessionId: "se-thread", spaceId: "s1" };
+    await mount({
+      sessions: [session("se-thread", "s1", { agentKind: "claude", model: "claude-opus-5", title: "Asked before" })],
+      sessionEvents: { "se-thread": [init({ ultracodeAvailable: false })] },
+    });
+    await openRequest();
+    expect(await within(asker()).findByRole("button", { name: "Asked before" })).toBeInTheDocument();
+    fireEvent.click(within(asker()).getByRole("button", { name: "Model" }));
+    const toggle = await screen.findByRole("switch", { name: "Ultracode" });
+    expect(toggle).toBeDisabled();
+    expect(toggle.closest("label")).toHaveAttribute("title", "Claude Code says this session can’t run Ultracode.");
+  });
+
+  it("does not show a draft what another session's harness said, when the request's last thread is in another place", async () => {
+    thread = { sessionId: "se-thread", spaceId: "s2" };
+    const { store } = await mount({
+      sessions: [session("se-thread", "s2", { agentKind: "claude", model: "claude-opus-5", title: "Asked elsewhere" })],
+      sessionEvents: { "se-thread": [init({ ultracodeAvailable: false })] },
+    });
+    await openRequest();
+    await waitFor(() => expect(store.getState().transcripts["se-thread"]?.t.init).toMatchObject({ ultracodeAvailable: false }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    expect(within(asker()).getByText("New session")).toBeInTheDocument();
+    fireEvent.click(within(asker()).getByRole("button", { name: "Model" }));
+    const toggle = await screen.findByRole("switch", { name: "Ultracode" });
+    expect(toggle).toBeEnabled();
+    expect(toggle.closest("label")!.getAttribute("title")).toMatch(/ The first turn checks whether this session can run it\.$/);
   });
 });
 

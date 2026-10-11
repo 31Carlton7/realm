@@ -378,6 +378,58 @@ describe("the prompter docked under it", () => {
     expect(store.getState().sessions[api.sent[0]!.id]).toMatchObject({ effort: "max", fastMode: true });
   });
 
+  it("holds the card's Ultracode for the session a first question starts, with none to ask", async () => {
+    bridge([media("/x/orphan.png")]);
+    const { store, api } = await mount([]);
+    act(() => store.getState().openViewer({ files: [{ path: "/x/orphan.png",
+      from: { sessionId: "deleted", spaceId: "s2", sessionTitle: "Gone", kind: "output" } }] }));
+    const dialog = await screen.findByRole("dialog", { name: "orphan.png" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
+    const toggle = await screen.findByRole("switch", { name: "Ultracode" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ultracode" })).toBeChecked());
+    expect(within(dialog).getByRole("button", { name: "Model" }).querySelector(".chip-ultracode")).not.toBeNull();
+    const box = within(dialog).getByRole("textbox", { name: "Message" });
+    fireEvent.change(box, { target: { value: "What is this?" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(store.getState().sessions[api.sent[0]!.id]).toMatchObject({ fastMode: false, ultracode: true });
+  });
+
+  it("sets Ultracode and fast mode on the session a first question starts in one call, when the card set both", async () => {
+    bridge([media("/x/orphan.png")]);
+    const { store, api } = await mount([]);
+    act(() => store.getState().openViewer({ files: [{ path: "/x/orphan.png",
+      from: { sessionId: "deleted", spaceId: "s2", sessionTitle: "Gone", kind: "output" } }] }));
+    const dialog = await screen.findByRole("dialog", { name: "orphan.png" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "Ultracode" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Ultracode" })).toBeChecked());
+    fireEvent.click(screen.getByRole("button", { name: "Fast mode" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Fast mode" })).toHaveAttribute("aria-pressed", "true"));
+    const box = within(dialog).getByRole("textbox", { name: "Message" });
+    fireEvent.change(box, { target: { value: "What is this?" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    const started = api.sent[0]!.id;
+    expect(store.getState().sessions[started]).toMatchObject({ fastMode: true, ultracode: true });
+    expect(api.calls.filter((c) => c.startsWith("setSessionOptions:"))).toEqual([`setSessionOptions:${started}`]);
+  });
+
+  it("sets no option on the session a first question starts when the card set none", async () => {
+    bridge([media("/x/orphan.png")]);
+    const { store, api } = await mount([]);
+    act(() => store.getState().openViewer({ files: [{ path: "/x/orphan.png",
+      from: { sessionId: "deleted", spaceId: "s2", sessionTitle: "Gone", kind: "output" } }] }));
+    const box = within(await screen.findByRole("dialog", { name: "orphan.png" })).getByRole("textbox", { name: "Message" });
+    fireEvent.change(box, { target: { value: "What is this?" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.calls.filter((c) => c.startsWith("setSessionOptions:"))).toEqual([]);
+    expect(store.getState().sessions[api.sent[0]!.id]).not.toHaveProperty("ultracode");
+  });
+
   it("says when there is no session to ask, and which space the first question starts one in", async () => {
     bridge([media("/x/orphan.png")]);
     const { store } = await mount([]);

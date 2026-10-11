@@ -515,6 +515,150 @@ function humanOrigin(m: Pick<UserMessage, "human">, own: { words: string; held: 
   return m.human && own.held && own.words.trim() !== "" ? { origin: { kind: "human" } } : {};
 }
 
+/**
+ * Whether Ultracode is in force for a session: asked for, and not in Ask.
+ *
+ * Ultracode has Claude plan every substantive task as a workflow of sub-agents, and an Ask session
+ * refuses the `Workflow` call, which is no tool of reading or searching (`CLAUDE_ASK_BUILTINS`).
+ * Told that Ultracode is on, Claude would write a workflow's script for each question and have its
+ * launch refused. So Realm holds its request back while the session is in Ask, and makes it again
+ * when the session leaves. The session keeps its switch throughout.
+ */
+function ultracodeEffective(requested: boolean, permissionMode: string): boolean {
+  return requested && permissionMode !== ASK_PERMISSION_MODE;
+}
+
+/**
+ * The flag layer a session starts with, or null where nothing is asked of it: fast mode, and
+ * Ultracode where it is in force (`ultracodeEffective`).
+ *
+ * Null means no `settings` option at all. The layer sits above the person's own Claude Code
+ * settings, so a key nobody asked for would lay a default of Realm's over a choice of theirs. Each
+ * answer is written out as a literal, because a literal is what gets checked against the keys
+ * `Settings` declares.
+ */
+function claudeStartSettings(asked: { fastMode: boolean; ultracode: boolean }): DeclaredSettings | null {
+  if (asked.fastMode && asked.ultracode) return { fastMode: true, ultracode: true };
+  if (asked.fastMode) return { fastMode: true };
+  return asked.ultracode ? { ultracode: true } : null;
+}
+
+/** What one `setOptions` call writes to the flag layer. */
+type ClaudeFlagSettings = { fastMode?: boolean; effortLevel?: EffortLevel | null; ultracode?: boolean };
+
+/**
+ * The one write a `setOptions` call makes to the flag layer, or null where it moves nothing there.
+ *
+ * One write for each call, holding every key the call moves: fast mode as given, and the level,
+ * where `null` is the SDK's own "back to the model's default" and a level Claude has no word for is
+ * left out. Ultracode goes with them by three rules. `effective` is whether it is in force once the
+ * call has been taken in (`ultracodeEffective`), and `told` is whether the layer holds a `true`
+ * that Realm wrote:
+ *
+ *   - `true`, whenever it is in force and the call presses the switch, moves the level, or finds
+ *     the layer not yet told, as a session leaving Ask does. Beside the level every time, a reset
+ *     included, because Claude Code switches Ultracode off when a level arrives without the key.
+ *   - `false`, when it is not in force and the layer was told `true`: the switch pressed off, or a
+ *     session going into Ask.
+ *   - nothing otherwise. Realm writes `false` only over a `true` of its own. The layer cannot hand
+ *     the key back to the person's settings file, so a `false` for a session whose switch was
+ *     never on would switch off what they had set for themselves.
+ *
+ * `setOptions` works this write out once the model is set, in the step that sends it, and records
+ * what it says of Ultracode before the write is made (`ultracodeRecord`). Two calls that overlap
+ * then record in the order they write, each from the newest record, and a call whose model the
+ * harness refuses records nothing. Worked out before the wait on the model, the record would say
+ * what no write had said yet, and a press that landed during the wait would be measured against it.
+ *
+ * After the write, `setOptions` sends the harness the permission mode Realm holds at that moment,
+ * and not the one its own call named. A call that waited on its write can be overtaken by a later
+ * change of mode. Sent late, its own mode would leave the harness in a mode the session's row no
+ * longer says, and a mode that lets calls through without asking is among them.
+ *
+ * A call that names a mode sends it whatever became of its model and its write. The write stands
+ * between a move into Ask and the mode request, and the harness consults Realm before a call only
+ * in the mode that request asks for. A refused write that also held the request back would leave
+ * a session Realm calls Ask running whatever its last mode let through.
+ */
+function claudeFlagSettings(o: { fastMode?: boolean; effort?: string | null; ultracode?: boolean }, ultracode: { effective: boolean; told: boolean }): ClaudeFlagSettings | null {
+  const level = o.effort === undefined ? undefined : o.effort === null ? null : claudeEffort(o.effort);
+  const on = ultracode.effective && (o.ultracode !== undefined || level !== undefined || !ultracode.told);
+  const off = !ultracode.effective && ultracode.told;
+  const flags: ClaudeFlagSettings = {
+    ...(o.fastMode === undefined ? {} : { fastMode: o.fastMode }),
+    ...(level === undefined ? {} : { effortLevel: level }),
+    ...(on ? { ultracode: true } : off ? { ultracode: false } : {}),
+  };
+  return Object.keys(flags).length > 0 ? flags : null;
+}
+
+/**
+ * What Realm believes the flag layer holds for Ultracode, kept right through writes that overlap
+ * and writes the harness refuses.
+ *
+ * `held` is what the last write the harness took left there, or what the session started with.
+ * `sent` are the writes that carry the key and still wait for their answer, in the order they
+ * went. The harness applies writes in that order, so the layer will hold what the last of them
+ * says unless that one is refused, and `told` answers with that.
+ *
+ * A write the harness takes becomes `held`, unless one sent after it was taken first. The writes
+ * sent before it drop out whatever their answers turn out to be, because it was applied after them. A write the harness refuses drops out
+ * alone, and the answer falls back to the write before it, or to `held`. One value that a refused
+ * call puts back is not enough for this. Once a second write is sent before the first is
+ * answered, the second call's "before" is the first call's unanswered write.
+ */
+function ultracodeRecord(start: boolean): { told(): boolean; write(value: boolean): { taken(): void; refused(): void } } {
+  let held = start;
+  const sent: { value: boolean }[] = [];
+  return {
+    told: () => (sent.length > 0 ? sent[sent.length - 1]!.value : held),
+    write(value) {
+      const entry = { value };
+      sent.push(entry);
+      return {
+        taken() {
+          const at = sent.indexOf(entry);
+          if (at < 0) return;
+          held = value;
+          sent.splice(0, at + 1);
+        },
+        refused() {
+          const at = sent.indexOf(entry);
+          if (at >= 0) sent.splice(at, 1);
+        },
+      };
+    },
+  };
+}
+
+/**
+ * What the harness says about whether this session can run Ultracode, or null where it does not say.
+ *
+ * `getSettings` answers with what Claude Code has applied, and `applied.ultracodeAvailable` is false
+ * where workflows are switched off, or where the session's model cannot run it. The SDK's types do
+ * not declare the call, so it is reached the way `readPlanLimits` reaches its own: looked for first,
+ * and every failure read as silence. A build without the call, a CLI that declines it and an answer
+ * in another shape all leave the switch a request, with no claim either way.
+ *
+ * Asked after every `init`, since the harness sends one for each turn and a reader keeps the newest,
+ * and never from `setOptions`, where a CLI slow to answer would hold up the press behind it. A
+ * boolean answer restates `init` in an event of its own, apart from the one that carries the
+ * fast-mode facts, so that a `getSettings` which never answers holds nothing else back. An answer
+ * that lands after a newer `init` restates nothing. It would put the older handshake's session id
+ * and model over the newer one's.
+ */
+async function ultracodeAvailable(q: Query | null): Promise<boolean | null> {
+  const ask = (q as { getSettings?: () => Promise<unknown> } | null)?.getSettings;
+  if (typeof ask !== "function") return null;
+  try {
+    const answer = await ask.call(q) as { applied?: { ultracodeAvailable?: unknown } | null } | null;
+    const can = answer?.applied?.ultracodeAvailable;
+    return typeof can === "boolean" ? can : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Claude adapter on the Agent SDK in streaming-input mode. `canUseTool` is bridged to permission_request/response events. */
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude" as const;
@@ -607,6 +751,10 @@ export class ClaudeAdapter implements AgentAdapter {
        one. */
     let fastRequested = opts.fastMode === true;
     let turnFast = fastRequested;
+    let ultracodeRequested = opts.ultracode === true;
+    const startSettings = claudeStartSettings({ fastMode: opts.fastMode === true, ultracode: ultracodeEffective(ultracodeRequested, permissionMode) });
+    const ultracodeLayer = ultracodeRecord(startSettings?.ultracode === true);
+    let handshakes = 0;
 
     const onStderr = (data: string) => {
       for (const line of data.split("\n")) {
@@ -746,7 +894,7 @@ export class ClaudeAdapter implements AgentAdapter {
       // `flagSettings.fastMode === true`, and otherwise every turn reports `sdk_opt_in_required`.
       // Checked against the keys `Settings` declares, because nothing else would check it: a spread
       // is never checked for excess keys (the old line compiled), and `Settings` takes any key.
-      ...(opts.fastMode ? { settings: { fastMode: true } satisfies DeclaredSettings } : {}),
+      ...(startSettings ? { settings: startSettings } : {}),
     };
 
     /**
@@ -916,10 +1064,13 @@ export class ClaudeAdapter implements AgentAdapter {
             // makes `supportedModels` answerable, and never awaited on the message loop — a CLI that
             // declines leaves the capability unstated and the prompter offers nothing.
             const i = msg as { session_id?: unknown; model?: unknown; tools?: unknown; cwd?: unknown };
-            void reportFastModeSupport({
+            const handshake = {
               providerSessionId: String(i.session_id ?? ""), model: String(i.model ?? ""),
               tools: Array.isArray(i.tools) ? i.tools.map(String) : [], cwd: String(i.cwd ?? opts.cwd),
-            });
+            };
+            const turn = ++handshakes;
+            void reportFastModeSupport(handshake);
+            void ultracodeAvailable(q).then((can) => { if (can !== null && !disposed && turn === handshakes) events.push(sessionEvent("init", { ...handshake, ultracodeAvailable: can })); });
             // The plan panel should be answerable before any limit moves, so it is read once here
             // rather than waiting for the first `rate_limit_event` — which on a quiet account may
             // never come. Off the message loop, like the fast-mode probe above it.
@@ -1096,23 +1247,30 @@ export class ClaudeAdapter implements AgentAdapter {
       },
       stopTask: (toolUseId: string) => stopRun(q, mapper.taskIdOf(toolUseId)),
       setOptions: async (o) => {
-        if (o.model) await q?.setModel(o.model);
-        // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
-        // layer `query()`'s inline `settings` writes, above user and project settings and below
-        // managed policy. There is no `setFastMode`, and there does not need to be.
-        if (o.fastMode !== undefined) { fastRequested = o.fastMode; await q?.applyFlagSettings({ fastMode: o.fastMode }); }
-        // The level moves the same way. `effortLevel: null` is the SDK's own "back to the model's
-        // default effort" (`applyFlagSettings`), which is what a reset in the picker means; a level the
-        // SDK has no word for is not sent at all.
-        if (o.effort !== undefined) {
-          const level = o.effort === null ? null : claudeEffort(o.effort);
-          if (level !== undefined) await q?.applyFlagSettings({ effortLevel: level });
-        }
-        if (o.permissionMode) {
-          // Realm's own record moves FIRST: it is what the gate above reads, and it must hold even
-          // if the SDK call throws.
-          permissionMode = o.permissionMode;
-          await q?.setPermissionMode(claudeSdkPermissionMode(o.permissionMode) as never);
+        // Realm's own record moves FIRST: it is what the gate above reads, and it must hold even
+        // if the SDK call throws.
+        if (o.permissionMode) permissionMode = o.permissionMode;
+        if (o.ultracode !== undefined) ultracodeRequested = o.ultracode;
+        try {
+          if (o.model) await q?.setModel(o.model);
+          // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
+          // layer `query()`'s inline `settings` writes, above user and project settings and below
+          // managed policy. There is no `setFastMode`, and there does not need to be.
+          if (o.fastMode !== undefined) fastRequested = o.fastMode;
+          const flags = claudeFlagSettings(o, { effective: ultracodeEffective(ultracodeRequested, permissionMode), told: ultracodeLayer.told() });
+          const write = flags?.ultracode === undefined ? null : ultracodeLayer.write(flags.ultracode);
+          try {
+            // The level moves the same way. `effortLevel: null` is the SDK's own "back to the model's
+            // default effort" (`applyFlagSettings`), which is what a reset in the picker means; a level the
+            // SDK has no word for is not sent at all.
+            if (flags) await q?.applyFlagSettings(flags);
+          } catch (e) {
+            write?.refused();
+            throw e;
+          }
+          write?.taken();
+        } finally {
+          if (o.permissionMode) await q?.setPermissionMode(claudeSdkPermissionMode(permissionMode) as never);
         }
       },
       dispose: async () => {

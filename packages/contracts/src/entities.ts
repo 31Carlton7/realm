@@ -386,6 +386,15 @@ export const SessionSchema = z.object({
    * say what is happening, or it will show a switch that claims something the agent is not doing.
    */
   fastMode: z.boolean(),
+  /**
+   * Ultracode: the user has ASKED Claude Code to plan every substantive task of this session as a
+   * workflow of sub-agents.
+   *
+   * A request, like `fastMode`. Whether the harness can honour it arrives on `init`
+   * (`ultracodeAvailable`). Optional, and absent for every session that never asked: it is kept in
+   * a settings key of its own and not in a column, so no row written before it existed changes.
+   */
+  ultracode: z.boolean().optional(),
   /** The environment this session runs in. Several sessions may share one. */
   environmentId: IdSchema,
   /** Derived from the environment's `path`, not stored on the session — read-only for every consumer. */

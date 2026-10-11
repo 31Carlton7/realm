@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AGENT_META, prKey, prName, sameRepo, sessionModeOf, type PrDetail, type PrPlace, type PrRef, type SessionStatus } from "@realm/contracts";
+import { AGENT_META, AGENT_ULTRACODE, prKey, prName, sameRepo, sessionModeOf, type AgentKind, type PrDetail, type PrPlace, type PrRef, type SessionStatus } from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { FALLBACK_AGENT, useApp, type PickedAttachment } from "../../state/store";
@@ -14,6 +14,20 @@ import { codeReview } from "./code-review-api";
 export const ASK_SLOT = "code-review";
 const NO_ATTACHMENTS: PickedAttachment[] = [];
 const NOOP = () => {};
+
+/**
+ * Whether a first question carries the draft's Ultracode. It does only where the card drew the
+ * switch for the agent that question starts on.
+ *
+ * The card draws the draft, and it draws the switch only for an agent that takes Ultracode. A first
+ * question starts on the agent of the request's earlier thread when that thread is in another
+ * place, and that need not be the card's agent. A draft also keeps a press when it moves to an
+ * agent with no switch, as a session's row does. Sent as held, that press started a Claude session
+ * with Ultracode on from a card that showed no switch.
+ */
+function carriesUltracode(pick: DraftRun, starts: AgentKind): boolean {
+  return pick.ultracode && pick.agentKind === starts && AGENT_ULTRACODE[starts];
+}
 
 /**
  * "Ask about this pull request": the prompter docked at the foot of the request, and the exchange it
@@ -53,8 +67,9 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
   const run = useApp((s) => s.run);
   const [thread, setThread] = useState<{ sessionId: string; spaceId: string } | null>(null);
   /* What the first question starts, while there is no session to change: the picker's model, and the
-     level, fast mode and permission its card and chips set — each held here exactly as a session's
-     row would hold it, and handed to the session `codeReview.ask` makes. */
+     level, fast mode, Ultracode and permission its card and chips set — each held here exactly as a
+     session's row would hold it, and handed to the session `codeReview.ask` makes. Ultracode is
+     handed over only where the card drew its switch for that session's agent (`carriesUltracode`). */
   const [pick, setPick] = useState<DraftRun>(() => draftRun(lastAgentKind ?? FALLBACK_AGENT));
   const [sends, setSends] = useState(0);
   const [asking, setAsking] = useState(false);
@@ -86,8 +101,9 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
     setAsking(true);
     try {
       const sent = attachments;
-      const r = await codeReview.ask({ ref: pr, spaceId: place.spaceId, projectId: place.projectId, agentKind: owner?.agentKind ?? pick.agentKind, model: pick.model,
-        effort: pick.effort, fastMode: pick.fastMode, permissionMode: pick.permissionMode,
+      const starts = owner?.agentKind ?? pick.agentKind;
+      const r = await codeReview.ask({ ref: pr, spaceId: place.spaceId, projectId: place.projectId, agentKind: starts, model: pick.model,
+        effort: pick.effort, fastMode: pick.fastMode, ...(carriesUltracode(pick, starts) ? { ultracode: true } : {}), permissionMode: pick.permissionMode,
         text, human: true, attachments: sent.map(({ path, mime }) => ({ path, mime })) });
       for (const a of sent) removeAttachment(ASK_SLOT, a.path);
       await refreshSessions(place.spaceId);
@@ -154,7 +170,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
         canSwitchAgent={!continuing}
         agentProbe={agentProbe} modelFavorites={modelFavorites} modelInfo={modelInfo}
         onToggleModelFavorite={(k) => run(() => toggleModelFavorite(k))}
-        sessionInit={entry?.t.init ?? null} fastSupport={fastSupport} effortSupport={effortSupport} submitKey={submitKey} />
+        sessionInit={continuing ? entry?.t.init ?? null : null} fastSupport={fastSupport} effortSupport={effortSupport} submitKey={submitKey} />
     </section>
   );
 }

@@ -82,6 +82,18 @@ export const AGENT_FAST_MODE = {
 } as const satisfies Record<AgentKind, boolean>;
 
 /**
+ * Whether Realm can ask this agent for Ultracode. A fact about Realm's own adapters, as
+ * `AGENT_FAST_MODE` is: Claude Code takes it as a flag setting at start and mid-session, and no other
+ * harness has the setting. Whether a given session can run it is the harness's answer, on `init`.
+ */
+export const AGENT_ULTRACODE = {
+  claude: true, codex: false,
+  "acp:cursor": false, "acp:gemini": false, "acp:opencode": false, "acp:copilot": false, "acp:goose": false,
+  "acp:qwen": false, "acp:grok": false, "acp:fx": false, "acp:deepseek": false, "acp:openhands": false, "acp:hermes": false,
+  fake: false,
+} as const satisfies Record<AgentKind, boolean>;
+
+/**
  * Whether Realm's adapter can hand this agent a reasoning level — and so whether its effort control
  * can mean anything. Claude takes the SDK's `effort` at start and `applyFlagSettings({effortLevel})`
  * mid-session; Codex takes `turn/start`'s `effort`; an ACP agent takes one only through a

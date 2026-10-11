@@ -47,6 +47,27 @@ describe("human — whose message a client says it is", () => {
   });
 });
 
+describe("ultracode — a session option a client may set", () => {
+  const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const question = { ref: { owner: "acme", repo: "widgets", number: 42 }, spaceId: id, agentKind: "claude", text: "What does this change?" };
+
+  it.each([true, false])("keeps a sessions.setOptions that sets it to %s", (ultracode) => {
+    expect(Methods["sessions.setOptions"].params.parse({ id, ultracode })).toEqual({ id, ultracode });
+  });
+
+  it("adds none to a sessions.setOptions that does not name it, so that another option's press leaves it alone", () => {
+    expect(Methods["sessions.setOptions"].params.parse({ id, effort: "high" })).not.toHaveProperty("ultracode");
+  });
+
+  it("keeps the one a codeReview.ask carries for the session its first question starts", () => {
+    expect(Methods["codeReview.ask"].params.parse({ ...question, ultracode: true }).ultracode).toBe(true);
+  });
+
+  it("adds none to a codeReview.ask from a client built before it existed", () => {
+    expect(Methods["codeReview.ask"].params.parse(question)).not.toHaveProperty("ultracode");
+  });
+});
+
 describe("laya.record params", () => {
   const schema = Methods["laya.record"].params;
   const simulatorId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";

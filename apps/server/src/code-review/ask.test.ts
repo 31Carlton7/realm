@@ -117,6 +117,46 @@ describe("codeReview.ask — whose question it is said to be", () => {
   });
 });
 
+describe("codeReview.ask — Ultracode on the session a first question starts", () => {
+  it("is on the session's row before the first message starts the agent, when the prompter's card had it on", async () => {
+    const t = await boot();
+    const { sessionId } = await t.ask("Quick read?", { agentKind: "claude", ultracode: true });
+    expect(app!.sessions.get(sessionId).ultracode).toBe(true);
+    t.rpc.close();
+  });
+
+  it("is in what the agent is started with for that first question", async () => {
+    const t = await boot();
+    await t.ask("Quick read?", { agentKind: "claude", ultracode: true });
+    await waitFor(() => t.agent.starts.length === 1);
+    expect(t.agent.starts[0]!.ultracode).toBe(true);
+    t.rpc.close();
+  });
+
+  it("is absent from a session whose first question came from a card with it off", async () => {
+    const t = await boot();
+    const { sessionId } = await t.ask("Quick read?", { agentKind: "claude" });
+    expect(app!.sessions.get(sessionId)).not.toHaveProperty("ultracode");
+    t.rpc.close();
+  });
+
+  it("is dropped for a first question that goes to an agent with no such setting", async () => {
+    const t = await boot();
+    const { sessionId } = await t.ask("Quick read?", { agentKind: "fake", ultracode: true });
+    expect(app!.sessions.get(sessionId)).not.toHaveProperty("ultracode");
+    t.rpc.close();
+  });
+
+  it("is ignored on a question that carries a thread on, as the rest of the card is", async () => {
+    const t = await boot();
+    const { sessionId } = await t.ask("Quick read?", { agentKind: "claude" });
+    await t.ask("And the tests?", { agentKind: "claude", ultracode: true });
+    await stored(sessionId, 2);
+    expect(app!.sessions.get(sessionId)).not.toHaveProperty("ultracode");
+    t.rpc.close();
+  });
+});
+
 describe("codeReview.review — the prompt Realm writes for a reviewer", () => {
   it("is stored with no mark, though the call that started the review claims a person's hand", async () => {
     const t = await boot();

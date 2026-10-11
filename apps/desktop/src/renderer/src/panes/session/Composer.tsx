@@ -11,7 +11,7 @@ import { MentionPicker, mentionOptionId, mentionQueryAt } from "./MentionPicker"
 import { fileMark, labelCandidatesFor, mentionOptions, mentionRows, refFor, useMentionAnswers, type MentionRow, type MentionSources } from "./mention-sources";
 import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
-import { effortOptions, fastModeAvailability, fastModeTip, modelRows, type EffortControl, type FastMode } from "./model-catalog";
+import { effortOptions, fastModeAvailability, fastModeTip, modelRows, ultracodeAvailability, type EffortControl, type FastMode, type Ultracode } from "./model-catalog";
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, type OverflowGroup } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
@@ -581,9 +581,10 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
   /** Hero-greeting lines from an unlocked friend pack. Drawn only with the eggs on, like everything
    *  else a pack brings — the switch is the consent boundary and a pack is not a way around it. */
   packGreetings?: readonly string[];
-  /** This session's own handshake, where it has one — its model and what the harness said about
-   *  that model's fast mode. */
-  sessionInit?: { model: string; supportsFastMode?: boolean; efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
+  /** This session's own handshake, where it has one — its model, what the harness said about that
+   *  model's fast mode, and whether it said the session can run Ultracode. A prompter with no
+   *  session behind it yet passes none, because another session's answers are not this one's. */
+  sessionInit?: { model: string; supportsFastMode?: boolean; ultracodeAvailable?: boolean; efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
   /** What harnesses have said about fast mode, per agent and model (`MODEL_FAST_SUPPORT_KEY`) — how
    *  a session that has not started can offer the switch on the harness's word. */
   fastSupport?: Record<string, boolean>;
@@ -1221,6 +1222,9 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
     : { on: session.fastMode, state: usage.fastMode ?? null, reason: usage.fastModeReason ?? null,
         requested: usage.fastModeRequested ?? null, onChange: (on) => onOptions({ fastMode: on }), availability: fastAvailability,
         tip: fastModeTip(kind, session.model, agentProbe) };
+  const ultracodeState = ultracodeAvailability({ kind, permissionMode: session.permissionMode, model: session.model, init: sessionInit });
+  const ultracode: Ultracode | undefined = ultracodeState.state === "none" ? undefined
+    : { on: session.ultracode === true, onChange: (on) => onOptions({ ultracode: on }), availability: ultracodeState };
 
   /* One builder, two targets. In Build the picker writes the LIVE permission; in Plan or Ask it
      writes the park — the value returning to Build will restore — because that is the only real,
@@ -1513,7 +1517,7 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
                 harness's mark, so nothing a harness chip said is lost. */}
             <ModelPicker kind={kind} model={session.model} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
-              onPick={onPickModel} overflow={overflow} fast={fast} eggs={eggs} />
+              onPick={onPickModel} overflow={overflow} fast={fast} ultracode={ultracode} eggs={eggs} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's

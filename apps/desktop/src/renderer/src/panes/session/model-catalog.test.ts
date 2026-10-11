@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
-  agentRowHint, billingLead, chipLabel, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows, holdRows,
-  modelAbout, modelLabel, modelRows, resolveModelName, type FastMode, type ModelRow,
+  agentRowHint, billingLead, chipLabel, chipTitle, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows, holdRows,
+  modelAbout, modelLabel, modelRows, resolveModelName, ultracodeAvailability, ultracodeHint, ultracodeShown, ultracodeTitle, type FastMode, type ModelRow, type Ultracode,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
@@ -520,6 +520,101 @@ describe("the fast-mode line, the bolt's tooltip and the chip's bolt", () => {
     expect(fastModeShown(fast({ on: false }))).toBe(false);
     // A refusal of a turn that never asked is not a verdict on the switch.
     expect(fastModeShown(fast({ on: true, state: "off", reason: "sdk_opt_in_required", requested: false }))).toBe(true);
+  });
+});
+
+describe("ultracodeAvailability", () => {
+  const ask = (over: Partial<Parameters<typeof ultracodeAvailability>[0]> = {}) =>
+    ultracodeAvailability({ kind: "claude", permissionMode: "default", model: "claude-opus-5-5", ...over });
+
+  it("is nothing at all for a harness Realm cannot ask, whatever its handshake says", () => {
+    for (const kind of ["codex", "acp:cursor", "fake"] as const) {
+      expect(ask({ kind, init: { model: "claude-opus-5-5", ultracodeAvailable: true } })).toEqual({ state: "none" });
+      expect(ask({ kind, permissionMode: "ask" })).toEqual({ state: "none" });
+    }
+  });
+
+  it("is unknown on Claude before the harness has answered, in a draft and in a session alike", () => {
+    expect(ask()).toEqual({ state: "unknown" });
+    expect(ask({ init: null })).toEqual({ state: "unknown" });
+    expect(ask({ init: { model: "claude-opus-5-5" } })).toEqual({ state: "unknown" });
+    expect(ask({ model: null, permissionMode: "bypassPermissions" })).toEqual({ state: "unknown" });
+  });
+
+  it("is offered once the session's handshake says it can run", () => {
+    expect(ask({ init: { model: "claude-opus-5-5", ultracodeAvailable: true } })).toEqual({ state: "offered" });
+  });
+
+  it("believes the handshake of a session that pinned no model, and one whose id carries a variant the session's id does not", () => {
+    expect(ask({ model: null, init: { model: "claude-fable-5-1", ultracodeAvailable: true } })).toEqual({ state: "offered" });
+    expect(ask({ model: null, init: { model: "claude-fable-5-1", ultracodeAvailable: false } })).toEqual({ state: "unavailable", by: "harness" });
+    expect(ask({ init: { model: "claude-opus-5-5[1m]", ultracodeAvailable: true } })).toEqual({ state: "offered" });
+  });
+
+  it("believes the handshake of a session whose own model id carries a variant, whether the handshake's id carries it or not", () => {
+    const model = "claude-opus-5-5[1m]";
+    expect(ask({ model, init: { model: "claude-opus-5-5[1m]", ultracodeAvailable: false } })).toEqual({ state: "unavailable", by: "harness" });
+    expect(ask({ model, init: { model: "claude-opus-5-5", ultracodeAvailable: true } })).toEqual({ state: "offered" });
+  });
+
+  it("is unavailable on the harness's word once the session's handshake says it cannot run", () => {
+    expect(ask({ init: { model: "claude-opus-5-5", ultracodeAvailable: false } })).toEqual({ state: "unavailable", by: "harness" });
+  });
+
+  it("does not believe a handshake for a model the session no longer asks for", () => {
+    expect(ask({ init: { model: "claude-sonnet-5", ultracodeAvailable: false } })).toEqual({ state: "unknown" });
+    expect(ask({ init: { model: "claude-sonnet-5", ultracodeAvailable: true } })).toEqual({ state: "unknown" });
+  });
+
+  it("is unavailable in Ask mode, which cannot start a workflow, whatever the harness offered", () => {
+    expect(ask({ permissionMode: "ask" })).toEqual({ state: "unavailable", by: "ask" });
+    expect(ask({ permissionMode: "ask", init: { model: "claude-opus-5-5", ultracodeAvailable: true } })).toEqual({ state: "unavailable", by: "ask" });
+  });
+
+  it("stays a request in Plan mode, where nothing has settled what a workflow may do", () => {
+    expect(ask({ permissionMode: "plan" })).toEqual({ state: "unknown" });
+    expect(ask({ permissionMode: "plan", init: { model: "claude-opus-5-5", ultracodeAvailable: true } })).toEqual({ state: "offered" });
+  });
+
+  it("names the harness's refusal over Ask mode where both hold, since leaving Ask would not lift it", () => {
+    expect(ask({ permissionMode: "ask", init: { model: "claude-opus-5-5", ultracodeAvailable: false } })).toEqual({ state: "unavailable", by: "harness" });
+  });
+});
+
+describe("the Ultracode switch's tooltip, its line, and the chip's mark and tooltip", () => {
+  const ultracode = (on: boolean, availability: Ultracode["availability"]): Ultracode => ({ on, availability, onChange: () => {} });
+  const EACH: Ultracode["availability"][] = [{ state: "offered" }, { state: "unknown" }, { state: "unavailable", by: "harness" }, { state: "unavailable", by: "ask" }];
+
+  it("titles the switch with what Ultracode is and costs, what is still unchecked, or whose word it is that it cannot run", () => {
+    expect(EACH.map((availability) => ultracodeTitle({ availability }))).toEqual([
+      "Claude plans a workflow of sub-agents for every substantial task. It uses many more tokens.",
+      "Claude plans a workflow of sub-agents for every substantial task. It uses many more tokens. The first turn checks whether this session can run it.",
+      "Claude Code says this session can’t run Ultracode.",
+      "Ask mode can’t start a workflow.",
+    ]);
+  });
+
+  it("says nothing on the line under a switch that is off, or that is on where it can run", () => {
+    for (const availability of EACH) expect(ultracodeHint(ultracode(false, availability))).toBeNull();
+    expect(ultracodeHint(ultracode(true, { state: "offered" }))).toBeNull();
+    expect(ultracodeHint(ultracode(true, { state: "unknown" }))).toBeNull();
+  });
+
+  it("says a request is not running, and whose word that is, where the session cannot run it", () => {
+    expect(ultracodeHint(ultracode(true, { state: "unavailable", by: "harness" }))).toBe("Ultracode isn’t running. Claude Code says this session can’t run it.");
+    expect(ultracodeHint(ultracode(true, { state: "unavailable", by: "ask" }))).toBe("Ultracode isn’t running. Ask mode can’t start a workflow.");
+  });
+
+  it("wears the mark for a request nothing has refused, and for no other", () => {
+    expect(EACH.map((availability) => ultracodeShown(ultracode(true, availability)))).toEqual([true, true, false, false]);
+    expect(EACH.map((availability) => ultracodeShown(ultracode(false, availability)))).toEqual([false, false, false, false]);
+  });
+
+  it("ends the chip's tooltip with Ultracode when the chip wears the mark, and leaves the tooltip as it was when it does not", () => {
+    expect(chipTitle("Claude Opus 5", "claude", "Max", true, true)).toBe("Claude Opus 5 through Claude · Max effort · fast mode · Ultracode");
+    expect(chipTitle("Claude Opus 5", "claude", null, false, true)).toBe("Claude Opus 5 through Claude · Ultracode");
+    expect(chipTitle("Claude Opus 5", "claude", "Max", true, false)).toBe("Claude Opus 5 through Claude · Max effort · fast mode");
+    expect(chipTitle("Claude Opus 5", "claude", "Max", true)).toBe("Claude Opus 5 through Claude · Max effort · fast mode");
   });
 });
 

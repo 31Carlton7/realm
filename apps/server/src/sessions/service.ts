@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, turnSettled, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_ULTRACODE, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, turnSettled, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -948,13 +948,24 @@ export class SessionService {
     this.get(id);
     this.onEvent(id, sessionEvent("feedback", { messageId, rating }));
   }
-  async setOptions(id: string, o: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
-    const s = this.d.sessions.update({ id, ...o });
+  /**
+   * Set what a session runs on: its model, level, permission mode, fast mode and Ultracode. Each is
+   * written to the row and handed to the live process, and a key left out is left as it is.
+   *
+   * `ultracode: true` is dropped for a session whose agent has no such setting (`AGENT_ULTRACODE`),
+   * and dropped here because every writer of the option passes through here. A prompter's draft
+   * keeps its switch when its picker moves to another agent, and the key would lie on that
+   * session's row until a handoff moved the row to Claude and woke it. `false` always goes through,
+   * so the option can be taken back on any row.
+   */
+  async setOptions(id: string, o: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean; ultracode?: boolean }): Promise<Session> {
+    const ultracode = o.ultracode && !AGENT_ULTRACODE[this.get(id).agentKind] ? undefined : o.ultracode;
+    const s = this.d.sessions.update({ id, ...o, ultracode });
     // The row moves whether or not a process is live. A session that has not started yet keeps the
-    // request in the column and hands it over at `start` (ensureLive reads the row), which is what
+    // request on its row and hands it over at `start` (ensureLive reads the row), which is what
     // makes the switch mean the same thing before the first message as after it. The level goes to a
     // live one too: Claude and Codex both take it on the next turn.
-    await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode, ultracode });
     return s;
   }
 
@@ -1507,6 +1518,7 @@ export class SessionService {
     // pair is declared where it is passed instead of being an unchecked cast at the call.
     const startOptions: import("@realm/adapters").StartOptions & { resumeAt?: string | null; resumeDropsTurn?: string | null } = {
       cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
+      ...(s.ultracode && AGENT_ULTRACODE[s.agentKind] ? { ultracode: true } : {}),
       skills,
       systemContext,
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started

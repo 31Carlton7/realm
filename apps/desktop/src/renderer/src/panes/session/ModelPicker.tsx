@@ -7,7 +7,8 @@ import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import {
   agentRowHint, billingLead, chipLabel, chipTitle, effortCurrent, fastModeHint, fastModeShown, fastModeTitle, fastModeUntried, filterRows, flatten,
-  formatEffort, groupRows, holdRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, type EffortControl, type FastMode, type ModelRow,
+  formatEffort, groupRows, holdRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, ultracodeHint, ultracodeShown, ultracodeTitle,
+  type EffortControl, type FastMode, type ModelRow, type Ultracode,
 } from "./model-catalog";
 
 export { formatEffort };
@@ -88,7 +89,8 @@ function useChipSweep(ref: RefObject<HTMLButtonElement | null>, effort: string |
  * The prompter's model selector: one chip, and one compact list behind it.
  *
  * The chip says who is answering — the harness's mark, the model, its effort, a bolt when fast mode
- * is asked for — and the popover is the shortest path to changing any of it:
+ * is asked for and a mark when Ultracode is — and the popover is the shortest path to changing any
+ * of it:
  *
  * - **A list, one click per model.** Grouped by the harness a click would run it through, the current
  *   model ticked and in view the moment it opens, search at the top, the keyboard everywhere.
@@ -99,10 +101,11 @@ function useChipSweep(ref: RefObject<HTMLButtonElement | null>, effort: string |
  * - **How it runs, on the same surface.** Effort and fast mode are the popover's foot — Codex's own
  *   card: the bolt, the level by name, a reset to the model's default, a track with a dot per level —
  *   adjusted without leaving it, and each drawn only where the harness will actually receive it.
+ *   Ultracode is a row under that card, its name and a switch, for a session whose harness has it.
  * - **Open until you leave it.** A pick changes the model and leaves the card to set its level and its
  *   speed in the same visit; a click outside, the chip again, or Escape put the picker away.
  */
-export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, overflow, fast, eggs = false }: {
+export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, overflow, fast, ultracode, eggs = false }: {
   kind: AgentKind;
   model: string | null;
   /** The session's reasoning level and what its model takes, or absent where the harness takes none —
@@ -117,6 +120,11 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
   onPick: (kind: AgentKind, modelId: string | null) => void;
   /** Fast mode, or absent where Realm cannot ask this harness for it at all. */
   fast?: FastMode;
+  /** Ultracode, or absent where there is none to set. The Composer builds it for a session, or for
+   *  the draft of one, whose harness Realm can ask. A picker that sets something else, a reviewer
+   *  or a scheduled task, passes nothing. Neither of those can start with Ultracode, so neither
+   *  draws the row. */
+  ultracode?: Ultracode;
   overflow?: OverflowGroup[];
   /** Whether the easter eggs are on. They run the heavy levels' light hot, and nothing else here. */
   eggs?: boolean;
@@ -127,6 +135,7 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
   // The tooltip spells the whole thing out, the vendor's word included, for anyone who needs it.
   const fullName = rows.find((r) => r.selected)?.label ?? label;
   const bolt = fast ? fastModeShown(fast) : false;
+  const mark = ultracode ? ultracodeShown(ultracode) : false;
   // The level in force, by name — the session's own, or the model's default where one is named.
   const level = effort && effort.levels.length > 0 ? effortCurrent(effort).choice?.label ?? null : null;
   useChipSweep(btn, effort?.value ?? null, fast?.on ?? false);
@@ -136,14 +145,14 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
       {/* The mark is the HARNESS's, in colour: the one fact the model's own name cannot carry, and the
           only place a session says which CLI is running it. */}
       <button ref={btn} type="button" className="ghost-chip model-chip" aria-label="Model"
-        title={chipTitle(fullName, kind, level, bolt)}
+        title={chipTitle(fullName, kind, level, bolt, mark)}
         aria-haspopup="dialog" aria-expanded={open}
         onClick={() => setOpen((v) => !v)}>
-        <ModelChipText kind={kind} label={label} level={level} fast={bolt} />
+        <ModelChipText kind={kind} label={label} level={level} fast={bolt} ultracode={mark} />
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <ModelPopover kind={kind} name={label} rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
-        onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
+        onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} ultracode={ultracode} eggs={eggs} />}
     </>
   );
 }
@@ -152,8 +161,12 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
  * What the model chip says, in its own words: the harness's mark, the model, the level in force and
  * the bolt. Anything else that names how work will run reads the same way — a scheduled task's card
  * and its row in the column — because they are the same four facts about the same session to come.
+ *
+ * A session that asks for Ultracode wears a fifth mark after the bolt. It is the glyph the pane bar
+ * draws for Claude Code's own sub-agents, and a workflow's agents are among those. `ultracode` is
+ * off unless a caller says otherwise, so a task's card and row are unchanged.
  */
-export function ModelChipText({ kind, label, level, fast }: { kind: AgentKind; label: string; level: string | null; fast: boolean }) {
+export function ModelChipText({ kind, label, level, fast, ultracode = false }: { kind: AgentKind; label: string; level: string | null; fast: boolean; ultracode?: boolean }) {
   return (
     <>
       <Icon name={AGENT_META[kind].icon} size={14} colored className="chip-brand" />
@@ -162,11 +175,12 @@ export function ModelChipText({ kind, label, level, fast }: { kind: AgentKind; l
       {/* The bolt Codex's own chip wears for its Fast tier: the speed asked for, on a model nothing
           has said cannot serve it. */}
       {fast && <Icon name="zap" size={12} className="chip-fast" />}
+      {ultracode && <Icon name="bot" size={12} className="chip-ultracode" />}
     </>
   );
 }
 
-function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onToggleFavorite, effort, overflow, fast, eggs }: {
+function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onToggleFavorite, effort, overflow, fast, ultracode, eggs }: {
   kind: AgentKind;
   /** The current model's name, as the chip shows it — what the fast-mode line talks about. */
   name: string;
@@ -177,6 +191,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   onToggleFavorite: (key: string) => void;
   effort?: EffortControl;
   fast?: FastMode;
+  ultracode?: Ultracode;
   overflow?: OverflowGroup[];
   eggs?: boolean;
 }) {
@@ -312,7 +327,8 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   };
 
   const harness = AGENT_META[kind].label;
-  const runs = (effort?.levels.length ?? 0) > 0 || !!fast;
+  const card = (effort?.levels.length ?? 0) > 0 || !!fast;
+  const runs = card || !!ultracode;
   const hasFoot = runs || (overflow?.length ?? 0) > 0;
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
@@ -398,9 +414,10 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
       {activeRow && <About row={activeRow} route={routeOf(activeRow)} info={info} />}
       {hasFoot && (
         <div className="mp-foot">
-          {/* Nothing on this surface closes it: the model, the level, fast mode and a folded chip's
-              choice are settings on the card you are looking at, and each answers in place. */}
-          {runs && <RunCard effort={effort} fast={fast} model={name} />}
+          {/* Nothing on this surface closes it: the model, the level, fast mode, Ultracode and a folded
+              chip's choice are settings on the card you are looking at, and each answers in place. */}
+          {card && <RunCard effort={effort} fast={fast} ultracode={ultracode} model={name} />}
+          {ultracode && <UltracodeRow ultracode={ultracode} />}
           {(overflow ?? []).map((g) => <Segments key={g.label} label={g.label} items={g.items} />)}
         </div>
       )}
@@ -469,12 +486,17 @@ function stepLevel(effort: EffortControl, by: number) {
  *
  * Every part is drawn only where it means something: no bolt where Realm cannot ask the harness for
  * fast mode, no track where the harness takes no level, no reset when nothing has been changed.
+ *
+ * The line under the track is fast mode's first. When fast mode has nothing to say, the line
+ * carries Ultracode's note (`ultracodeHint`). Ultracode's switch is in the row under the card and
+ * has no line of its own, because a second line arriving would move the card.
  */
-function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastMode; model: string }) {
+function RunCard({ effort, fast, ultracode, model }: { effort?: EffortControl; fast?: FastMode; ultracode?: Ultracode; model: string }) {
   const levels = effort?.levels ?? [];
   const cur = effort && levels.length > 0 ? effortCurrent(effort) : null;
   const def = levels.find((l) => l.id === effort?.defaultId) ?? null;
   const hint = fast ? fastModeHint(fast, model) : null;
+  const stalled = ultracode ? ultracodeHint(ultracode) : null;
   /* Switching fast mode on is a moment: the bolt charges and a glint runs the length of the track,
      the chip catching the same light below. Off is quiet. Read from the request the session holds, so
      the card answers whatever switched it — the bolt, the keyboard, another window — and opening the
@@ -490,9 +512,12 @@ function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastM
     setGlint((n) => n + 1);
     return replay(bolt.current, "data-charge", "", "rl-bolt-charge");
   }, [fast?.on]);
-  // A refusal of a turn that DID ask is a warning; everything else on this line is information.
+  // A refusal of a turn that DID ask is a warning, and so is Ultracode asked for where it cannot
+  // run; everything else on this line is information.
   const refused = !!fast && fast.on && fast.state !== null && fast.state !== "on" && !fastModeUntried(fast);
   const unavailable = fast?.availability.state === "unavailable";
+  const note = hint ?? stalled;
+  const warning = hint ? refused || unavailable : stalled !== null;
   return (
     <div className="mp-run">
       <div className="mp-run-head">
@@ -518,13 +543,42 @@ function RunCard({ effort, fast, model }: { effort?: EffortControl; fast?: FastM
         ) : <span className="mp-run-gap" aria-hidden="true" />}
       </div>
       {effort && levels.length > 1 && <EffortTrack effort={effort} glint={glint} />}
-      {/* Held open whenever there is a bolt, empty or not: the popover grows upward from its chip, so a
-          line arriving under the track lifted the bolt out from under the pointer that had just
-          switched it on, and the press meant to switch it off again landed on the track instead. */}
-      {fast && (
-        <p className="mp-fast-note" data-tone={hint && (refused || unavailable) ? "warning" : undefined} title={hint ?? undefined}>{hint}</p>
+      {/* Held open whenever there is a bolt or an Ultracode switch, empty or not: the popover grows
+          upward from its chip, so a line arriving under the track lifted the bolt out from under the
+          pointer that had just switched it on, and the press meant to switch it off again landed on
+          the track instead. */}
+      {(fast || ultracode) && (
+        <p className="mp-fast-note" data-tone={warning ? "warning" : undefined} title={note ?? undefined}>{note}</p>
       )}
     </div>
+  );
+}
+
+/**
+ * Ultracode's row in the picker's foot, under the card. Its name is where a folded chip's name is,
+ * and Realm's switch is at the row's end.
+ *
+ * The picker draws the row whenever Realm can ask the session's harness, whether the switch is on
+ * or off and whether the session can run Ultracode or not. A press here therefore never changes
+ * the card's height. The switch is on when the session asks for Ultracode and nothing has said the
+ * session cannot run it (`ultracodeShown`). Where the session cannot run it, the switch is off and
+ * disabled, and the label's tooltip says whose word that is.
+ *
+ * The label carries the tooltip, so the reason shows while the switch is disabled. A tooltip on a
+ * label reaches a pointer and nothing else, so the switch carries the same sentence as its
+ * description, which is what a screen reader says with it.
+ *
+ * The label also carries `data-no-agent`, because an agent that switched this on would commit the
+ * session to many more tokens in the person's name. With the mark Realm refuses an agent's click on
+ * the word as it refuses one on the switch.
+ */
+function UltracodeRow({ ultracode }: { ultracode: Ultracode }) {
+  return (
+    <label className="mp-ultracode" data-no-agent="ultracode" title={ultracodeTitle(ultracode)}>
+      <span className="mp-seg-label">Ultracode</span>
+      <input type="checkbox" role="switch" className="switch" checked={ultracodeShown(ultracode)} aria-description={ultracodeTitle(ultracode)}
+        disabled={ultracode.availability.state === "unavailable"} onChange={(e) => ultracode.onChange(e.target.checked)} />
+    </label>
   );
 }
 

@@ -712,3 +712,32 @@ describe("a message sent as the person's own input", () => {
     expect(continued.blocks[0]).not.toHaveProperty("human");
   });
 });
+
+describe("the harness's answer about Ultracode", () => {
+  const init = (over: Record<string, unknown> = {}) =>
+    sessionEvent("init", { providerSessionId: "p1", model: "claude-opus-5", tools: [], cwd: "/tmp", ...over });
+
+  it("stays on the transcript from the restatement that carries it, a refusal as well as a yes", () => {
+    expect(reduceAll([init(), init({ ultracodeAvailable: true })]).init).toMatchObject({ ultracodeAvailable: true });
+    expect(reduceAll([init(), init({ ultracodeAvailable: false })]).init).toMatchObject({ ultracodeAvailable: false });
+  });
+
+  it("survives a later handshake for the same model that says nothing of it", () => {
+    expect(reduceAll([init({ ultracodeAvailable: false }), init()]).init).toMatchObject({ ultracodeAvailable: false });
+    expect(reduceAll([init({ ultracodeAvailable: true }), init({ supportsFastMode: true })]).init)
+      .toEqual({ providerSessionId: "p1", model: "claude-opus-5", tools: [], supportsFastMode: true, ultracodeAvailable: true });
+  });
+
+  it("does not survive a handshake for another model, which that answer was not about", () => {
+    expect(reduceAll([init({ ultracodeAvailable: false }), init({ model: "claude-sonnet-5" })]).init).not.toHaveProperty("ultracodeAvailable");
+  });
+
+  it("gives way to a later answer for the same model", () => {
+    expect(reduceAll([init({ ultracodeAvailable: false }), init({ ultracodeAvailable: true })]).init).toMatchObject({ ultracodeAvailable: true });
+    expect(reduceAll([init({ ultracodeAvailable: true }), init({ ultracodeAvailable: false })]).init).toMatchObject({ ultracodeAvailable: false });
+  });
+
+  it("stays unstated after a handshake that never said", () => {
+    expect(reduceAll([init()]).init).not.toHaveProperty("ultracodeAvailable");
+  });
+});

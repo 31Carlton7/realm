@@ -263,6 +263,10 @@ export class RunService {
    * already returned, and everything this produces reaches the client as `runs.changed`.
    *
    * `claim` is a compare-and-set — two callers racing here means exactly one dispatches.
+   *
+   * A run never asks for Ultracode: its constraints have no word for it. So a session handed over
+   * at create has the option taken back with its level and its speed. Left on, a switch a person
+   * pressed in that session once would have every later run plan its work as a workflow.
    */
   private async dispatch(id: string, note: string | null): Promise<void> {
     try {
@@ -341,7 +345,7 @@ export class RunService {
         // next run is owed, a level or a speed taken back included. A model is only ever named; a row
         // has no way to un-pin one. A later attempt resumes the run's own session as it was left,
         // which may be how the person who answered it left it.
-        await this.d.sessions.setOptions(sessionId, { ...(model !== null ? { model } : {}), effort, fastMode, permissionMode });
+        await this.d.sessions.setOptions(sessionId, { ...(model !== null ? { model } : {}), effort, fastMode, ultracode: false, permissionMode });
         if (this.closing) return;
       }
       // Persisted BEFORE the first send: `ensureLive` reads the preamble and the skill narrowing off

@@ -1662,7 +1662,7 @@ export const Methods = {
   "codeReview.ask": { params: z.object({ ref: PrRefSchema, spaceId: IdSchema, projectId: IdSchema.nullable().default(null), agentKind: AgentKindSchema, model: z.string().nullable().default(null), effort: z.string().nullable().default(null),
     /** How the session a first question starts runs, as the prompter's card and permission chip set it
      *  before there was a session to set it on. Ignored for a thread that is carried on. */
-    fastMode: z.boolean().default(false), permissionMode: z.string().nullable().default(null), text: z.string().trim().min(1),
+    fastMode: z.boolean().default(false), ultracode: z.boolean().optional(), permissionMode: z.string().nullable().default(null), text: z.string().trim().min(1),
     /** The client's claim that a person sent the question from the page's prompter as their own
      *  input. It is `sessions.send`'s `human`, whose comment says what the claim proves and what it
      *  does not. A first question goes stamped behind a sentence Realm writes to say what is
@@ -1922,8 +1922,9 @@ export const Methods = {
   "sessions.respondPermission": { params: z.object({ id: IdSchema, requestId: z.string(), decision: z.enum(["allow", "allow_always", "deny"]), answers: AskAnswersSchema.optional() }), result: z.object({ ok: z.literal(true) }) },
   /** `fastMode` is a REQUEST — see `Session.fastMode`. The server records it and hands it to the
    *  adapter; whether the harness honours it comes back on the `usage` event. `effort: null` is "the
-   *  model's own default", and reaches a running session as much as a level does. */
-  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().nullable().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional() }), result: SessionSchema },
+   *  model's own default", and reaches a running session as much as a level does. `ultracode` is a
+   *  request too (`Session.ultracode`), and whether the harness can honour it comes back on `init`. */
+  "sessions.setOptions": { params: z.object({ id: IdSchema, model: z.string().optional(), effort: z.string().nullable().optional(), permissionMode: z.string().optional(), fastMode: z.boolean().optional(), ultracode: z.boolean().optional() }), result: SessionSchema },
   /** Re-point an untouched session at another agent. Server-guarded: rejected (SESSION_STARTED) once the
    *  session has any event — a transcript belongs to the agent that produced it. Clears `model`, since a
    *  model id from the old kind means nothing to the new one. */

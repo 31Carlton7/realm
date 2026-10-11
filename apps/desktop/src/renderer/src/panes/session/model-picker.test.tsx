@@ -3,9 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { MODEL_NOTES, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
+import { Icon } from "@realm/ui";
 import { exited } from "../../components/popover-exit.test-fakes";
 import { ModelPicker, type OverflowGroup } from "./ModelPicker";
-import { modelRows, type EffortControl, type FastMode, type ModelRow } from "./model-catalog";
+import { modelRows, type EffortControl, type FastMode, type ModelRow, type Ultracode } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
 const probe = (kind: AgentProbe["kind"], models: AgentProbe["models"]): AgentProbe =>
@@ -28,12 +29,12 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function mount({ rows = rowsFor(), kind = "claude" as AgentKind, model = "claude-opus-5" as string | null, effort,
-  overflow, fast, info = {} }: { rows?: ModelRow[]; kind?: AgentKind; model?: string | null; effort?: EffortControl;
-  overflow?: OverflowGroup[]; fast?: FastMode; info?: Record<string, ModelInfo> } = {}) {
+  overflow, fast, ultracode, info = {} }: { rows?: ModelRow[]; kind?: AgentKind; model?: string | null; effort?: EffortControl;
+  overflow?: OverflowGroup[]; fast?: FastMode; ultracode?: Ultracode; info?: Record<string, ModelInfo> } = {}) {
   const picked: [AgentKind, string | null][] = [];
   const starred: string[] = [];
   render(<ModelPicker kind={kind} model={model} effort={effort} rows={rows} info={info}
-    onToggleFavorite={(k) => starred.push(k)} onPick={(k, m) => picked.push([k, m])} overflow={overflow} fast={fast} />);
+    onToggleFavorite={(k) => starred.push(k)} onPick={(k, m) => picked.push([k, m])} overflow={overflow} fast={fast} ultracode={ultracode} />);
   fireEvent.click(screen.getByRole("button", { name: "Model" }));
   return { picked, starred };
 }
@@ -547,3 +548,213 @@ describe("how it runs", () => {
   });
 });
 
+
+describe("Ultracode, under the card", () => {
+  const TIP = "Claude plans a workflow of sub-agents for every substantial task. It uses many more tokens.";
+  const effort: EffortControl = { levels: [{ id: "low", label: "Low" }, { id: "high", label: "High" }], value: null, defaultId: "high", onChange: () => {} };
+  const fastMode = (over: Partial<FastMode> = {}): FastMode => ({ on: false, state: null, reason: null, requested: null, onChange: () => {},
+    availability: { state: "unknown" }, tip: "Fast mode: faster responses, at a higher cost.", ...over });
+  const ultracode = (over: Partial<Ultracode> = {}): Ultracode => ({ on: false, availability: { state: "offered" }, onChange: () => {}, ...over });
+  const EACH: Ultracode["availability"][] = [{ state: "offered" }, { state: "unknown" }, { state: "unavailable", by: "harness" }, { state: "unavailable", by: "ask" }];
+  const row = () => document.querySelector<HTMLLabelElement>(".mp-ultracode");
+  const toggle = () => screen.queryByRole("switch", { name: "Ultracode" }) as HTMLInputElement | null;
+  const note = () => document.querySelector(".mp-fast-note");
+  const chip = () => screen.getByRole("button", { name: "Model" });
+  const picker = (u: Ultracode, fast: FastMode = fastMode()) => <ModelPicker kind="claude" model="claude-opus-5" effort={effort} rows={rowsFor()} info={{}}
+    onToggleFavorite={() => {}} onPick={() => {}} fast={fast} ultracode={u} />;
+  const drawnWith = <T,>(u: Ultracode, read: () => T): T => {
+    mount({ effort, fast: fastMode(), ultracode: u });
+    const seen = read();
+    cleanup();
+    return seen;
+  };
+
+  it("has no row in a picker that is handed none, though that picker draws the card", () => {
+    mount({ effort, fast: fastMode() });
+    expect(document.querySelector(".mp-run")).not.toBeNull();
+    expect(row()).toBeNull();
+    expect(toggle()).toBeNull();
+  });
+
+  it("has its row in every state, whether or not the session asks for it", () => {
+    for (const availability of EACH) {
+      for (const on of [false, true]) expect(drawnWith(ultracode({ on, availability }), () => row() !== null && toggle() !== null), `${availability.state} ${on}`).toBe(true);
+    }
+  });
+
+  it("is a row of the foot under the card and its fast-mode line, and over the folded chips", () => {
+    mount({ effort, fast: fastMode(), ultracode: ultracode(), overflow: [{ label: "Permissions", items: [{ label: "Accept edits", onSelect: () => {} }] }] });
+    expect([...document.querySelector(".mp-foot")!.children].map((c) => c.className)).toEqual(["mp-run", "mp-ultracode", "mp-seg-group"]);
+    expect(document.querySelector(".mp-run")!.lastElementChild).toBe(note());
+  });
+
+  it("is one label that wraps the word and Realm's switch", () => {
+    mount({ effort, fast: fastMode(), ultracode: ultracode() });
+    expect(row()!.tagName).toBe("LABEL");
+    expect(row()).toHaveTextContent(/^Ultracode$/);
+    expect(row()!.contains(toggle())).toBe(true);
+    expect(toggle()).toHaveClass("switch");
+    expect(toggle()).toHaveAttribute("type", "checkbox");
+  });
+
+  it("puts the no-agent mark on the label, so Realm refuses an agent's click on the word as it refuses one on the switch", () => {
+    mount({ effort, fast: fastMode(), ultracode: ultracode() });
+    expect(row()).toHaveAttribute("data-no-agent", "ultracode");
+    expect(toggle()!.closest("[data-no-agent]")).toBe(row());
+    expect(screen.getByText("Ultracode").closest("[data-no-agent]")).toBe(row());
+    expect(toggle()).not.toHaveAttribute("data-no-agent");
+  });
+
+  it("is on only where the session asks for it and can run it", () => {
+    const checked = (on: boolean) => EACH.map((availability) => drawnWith(ultracode({ on, availability }), () => toggle()!.checked));
+    expect(checked(true)).toEqual([true, true, false, false]);
+    expect(checked(false)).toEqual([false, false, false, false]);
+  });
+
+  it("cannot be pressed where the session cannot run it, asked for or not, and can be pressed everywhere else", () => {
+    const disabled = (on: boolean) => EACH.map((availability) => drawnWith(ultracode({ on, availability }), () => toggle()!.disabled));
+    expect(disabled(true)).toEqual([false, false, true, true]);
+    expect(disabled(false)).toEqual([false, false, true, true]);
+  });
+
+  it("says on its label what Ultracode is, what the first turn has yet to check, or whose word it is that it cannot run", () => {
+    const titled = (on: boolean) => EACH.map((availability) => drawnWith(ultracode({ on, availability }), () => row()!.getAttribute("title")));
+    const titles = [TIP, `${TIP} The first turn checks whether this session can run it.`, "Claude Code says this session can’t run Ultracode.", "Ask mode can’t start a workflow."];
+    expect(titled(false)).toEqual(titles);
+    expect(titled(true)).toEqual(titles);
+    expect(drawnWith(ultracode(), () => toggle()!.hasAttribute("title"))).toBe(false);
+  });
+
+  it("describes the switch itself to a screen reader with the sentence its label shows a pointer, in every state", () => {
+    const described = (on: boolean) => EACH.map((availability) => drawnWith(ultracode({ on, availability }), () => toggle()!.getAttribute("aria-description")));
+    const sentences = [TIP, `${TIP} The first turn checks whether this session can run it.`, "Claude Code says this session can’t run Ultracode.", "Ask mode can’t start a workflow."];
+    expect(described(false)).toEqual(sentences);
+    expect(described(true)).toEqual(sentences);
+  });
+
+  it("hands a press on the switch the value it asks for, on from off and off from on", () => {
+    const asked: boolean[] = [];
+    mount({ effort, fast: fastMode(), ultracode: ultracode({ onChange: (on) => asked.push(on) }) });
+    fireEvent.click(toggle()!);
+    expect(asked).toEqual([true]);
+    cleanup();
+    mount({ effort, fast: fastMode(), ultracode: ultracode({ on: true, onChange: (on) => asked.push(on) }) });
+    fireEvent.click(toggle()!);
+    expect(asked).toEqual([true, false]);
+  });
+
+  it("takes a press on its word as a press on the switch", () => {
+    const asked: boolean[] = [];
+    mount({ effort, fast: fastMode(), ultracode: ultracode({ onChange: (on) => asked.push(on) }) });
+    fireEvent.click(screen.getByText("Ultracode"));
+    expect(asked).toEqual([true]);
+  });
+
+  it("takes no press on its word where it cannot run", () => {
+    const asked: boolean[] = [];
+    mount({ effort, fast: fastMode(), ultracode: ultracode({ on: true, availability: { state: "unavailable", by: "ask" }, onChange: (on) => asked.push(on) }) });
+    fireEvent.click(screen.getByText("Ultracode"));
+    expect(asked).toEqual([]);
+  });
+
+  it("leaves the picker open on a press, a setting on the card like the rest", async () => {
+    mount({ effort, fast: fastMode(), ultracode: ultracode() });
+    fireEvent.click(toggle()!);
+    await exited();
+    expect(dialog()).toBeInTheDocument();
+    expect(dialog()).not.toHaveAttribute("data-closing");
+  });
+
+  it("keeps the card's shape through a press: the same row, the same line and the same elements in the foot before and after", () => {
+    const drawn = () => [...document.querySelectorAll(".mp-foot *")].map((el) => `${el.tagName} ${el.getAttribute("class") ?? ""}`);
+    const { rerender } = render(picker(ultracode()));
+    fireEvent.click(chip());
+    const before = { row: row(), line: note(), switch: toggle(), foot: drawn() };
+    expect(before.foot.length).toBeGreaterThan(8);
+    rerender(picker(ultracode({ on: true })));
+    expect(toggle()!.checked).toBe(true);
+    expect(row()).toBe(before.row);
+    expect(note()).toBe(before.line);
+    expect(toggle()).toBe(before.switch);
+    expect(drawn()).toEqual(before.foot);
+  });
+
+  it("keeps the card's shape when the line under the track fills, so a refusal arriving moves nothing either", () => {
+    const drawn = () => [...document.querySelectorAll(".mp-foot *")].map((el) => `${el.tagName} ${el.getAttribute("class") ?? ""}`);
+    const { rerender } = render(picker(ultracode({ on: true })));
+    fireEvent.click(chip());
+    const before = { row: row(), line: note(), foot: drawn() };
+    rerender(picker(ultracode({ on: true, availability: { state: "unavailable", by: "harness" } })));
+    expect(note()).toHaveTextContent("Ultracode isn’t running.");
+    expect(row()).toBe(before.row);
+    expect(note()).toBe(before.line);
+    expect(drawn()).toEqual(before.foot);
+  });
+
+  it("draws the foot for the row alone where the harness takes no level and no fast mode", () => {
+    mount({ ultracode: ultracode() });
+    expect([...document.querySelector(".mp-foot")!.children].map((c) => c.className)).toEqual(["mp-ultracode"]);
+  });
+
+  it("says on the fast-mode line that a request is not running where Claude Code refused it, in the warning tone", () => {
+    mount({ effort, fast: fastMode(), ultracode: ultracode({ on: true, availability: { state: "unavailable", by: "harness" } }) });
+    expect(note()).toHaveTextContent(/^Ultracode isn’t running\. Claude Code says this session can’t run it\.$/);
+    expect(note()).toHaveAttribute("data-tone", "warning");
+    expect(note()).toHaveAttribute("title", "Ultracode isn’t running. Claude Code says this session can’t run it.");
+  });
+
+  it("says on the fast-mode line that a request is not running in Ask mode, in the warning tone", () => {
+    mount({ effort, fast: fastMode(), ultracode: ultracode({ on: true, availability: { state: "unavailable", by: "ask" } }) });
+    expect(note()).toHaveTextContent(/^Ultracode isn’t running\. Ask mode can’t start a workflow\.$/);
+    expect(note()).toHaveAttribute("data-tone", "warning");
+    expect(note()).toHaveAttribute("title", "Ultracode isn’t running. Ask mode can’t start a workflow.");
+  });
+
+  it("leaves the line empty and toneless where the request can run, or was never made", () => {
+    const quiet: Ultracode[] = [ultracode(), ultracode({ on: true }), ultracode({ on: true, availability: { state: "unknown" } }),
+      ultracode({ availability: { state: "unavailable", by: "harness" } }), ultracode({ availability: { state: "unavailable", by: "ask" } })];
+    for (const u of quiet) {
+      expect(drawnWith(u, () => [note()!.textContent, note()!.getAttribute("data-tone"), note()!.getAttribute("title")])).toEqual(["", null, null]);
+    }
+  });
+
+  it("gives the line to fast mode whenever fast mode has something to say, in fast mode's own tone", () => {
+    const stalled = ultracode({ on: true, availability: { state: "unavailable", by: "harness" } });
+    mount({ effort, fast: fastMode({ on: true }), ultracode: stalled });
+    expect(note()).toHaveTextContent("Fast mode is asked for — the first turn checks it.");
+    expect(note()).not.toHaveAttribute("data-tone");
+    cleanup();
+    mount({ effort, fast: fastMode({ on: true, availability: { state: "unavailable", source: "catalog", alternatives: [] } }), ultracode: stalled });
+    expect(note()).toHaveTextContent("Fast mode isn’t offered on Opus 5.");
+    expect(note()).toHaveAttribute("data-tone", "warning");
+  });
+
+  it("puts the bot glyph on the chip after the bolt and before the caret, drawn at the bolt's size", () => {
+    const glyph = render(<Icon name="bot" size={12} className="chip-ultracode" />);
+    const drawn = glyph.container.innerHTML;
+    glyph.unmount();
+    render(picker(ultracode({ on: true }), fastMode({ on: true })));
+    const marks = [...chip().querySelectorAll(".chip-fast, .chip-ultracode")];
+    expect(marks.map((m) => m.getAttribute("class"))).toEqual([expect.stringContaining("chip-fast"), expect.stringContaining("chip-ultracode")]);
+    expect(marks[1]!.outerHTML).toBe(drawn);
+    expect(marks[1]!.nextElementSibling).toBe(chip().querySelector(".chip-caret"));
+  });
+
+  it("ends the chip's tooltip with Ultracode while the chip wears the mark", () => {
+    render(picker(ultracode({ on: true }), fastMode({ on: true })));
+    expect(chip().getAttribute("title")).toBe("Claude Opus 5 through Claude · High effort · fast mode · Ultracode");
+  });
+
+  it("wears the mark for a request the first turn has yet to check, and for none that cannot run or was not made", () => {
+    const worn = (u: Ultracode) => {
+      render(picker(u));
+      const seen = [chip().querySelector(".chip-ultracode") !== null, chip().getAttribute("title")!.endsWith(" · Ultracode")];
+      cleanup();
+      return seen;
+    };
+    expect(worn(ultracode({ on: true, availability: { state: "unknown" } }))).toEqual([true, true]);
+    expect(worn(ultracode({ on: true, availability: { state: "unavailable", by: "harness" } }))).toEqual([false, false]);
+    expect(worn(ultracode({ on: true, availability: { state: "unavailable", by: "ask" } }))).toEqual([false, false]);
+    expect(worn(ultracode())).toEqual([false, false]);
+  });
+});

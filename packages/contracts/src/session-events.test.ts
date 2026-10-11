@@ -108,6 +108,18 @@ describe("human — the mark on a message a person sent", () => {
   });
 });
 
+describe("ultracodeAvailable — what the harness says of Ultracode on a handshake", () => {
+  const init = { providerSessionId: "p1", model: "claude-opus-5-5", tools: [], cwd: "/tmp" };
+
+  it.each([true, false])("keeps an answer of %s on an init that is read back from the log", (ultracodeAvailable) => {
+    expect(stored("init", { ...init, ultracodeAvailable }).payload).toEqual({ ...init, ultracodeAvailable });
+  });
+
+  it("adds no answer to an init that came without one, where the harness did not say", () => {
+    expect(stored("init", init).payload).toEqual(init);
+  });
+});
+
 describe("sessions.stopTask", () => {
   it("names the run by the session and the call that launched it", () => {
     const params = { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", toolUseId: "toolu_01" };

@@ -74,6 +74,16 @@ describe("liveApi wire params", () => {
     expect(Object.keys(calls[1]!.params as object)).toEqual(["id", "text", "attachments", "mentions"]);
   });
 
+  it("puts an Ultracode request on the wire beside the option it was set with", async () => {
+    calls.length = 0;
+    await liveApi().setSessionOptions("se1", { ultracode: true });
+    await liveApi().setSessionOptions("se1", { fastMode: true, ultracode: false });
+    expect(calls).toEqual([
+      { method: "sessions.setOptions", params: { id: "se1", ultracode: true } },
+      { method: "sessions.setOptions", params: { id: "se1", fastMode: true, ultracode: false } },
+    ]);
+  });
+
   it("asks the server to stop one background run by the call that launched it, and interrupts nothing", async () => {
     calls.length = 0;
     await liveApi().stopBackgroundRun("se1", "toolu_01WorkflowCall");

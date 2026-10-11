@@ -1532,6 +1532,10 @@ kbd { font: 11px var(--font-mono); }
 .mp-fast-note { margin: -3px 0 0; height: 16px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mp-fast-note[data-tone="warning"] { color: var(--rl-warning); }
+/* Ultracode's row, under the card. Its name is where a folded chip's name is, and the switch is at
+   the row's end. The picker draws the row whether the switch is on or off, so a press on it never
+   changes the card's height. */
+.mp-ultracode { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
 /* ── The heavy levels: Realm's light in the track ──
    The landing page draws Realm's mark as glass with three streams of light in it — the accent, a
@@ -5279,6 +5283,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .model-chip .chip-effort { flex: none; color: var(--rl-text-faint); }
 /* The bolt for fast mode asked for, in the same grey as the effort: both are "how", not "who". */
 .model-chip .chip-fast { flex: none; color: var(--rl-text-faint); }
+/* The mark for Ultracode asked for, after the bolt and in the bolt's grey. It is a third "how". */
+.model-chip .chip-ultracode { flex: none; color: var(--rl-text-faint); }
 .composer-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 24px; border-radius: var(--r-chip); corner-shape: squircle; font-size: 12px; color: var(--rl-text-dim); background: var(--rl-hover); max-width: 220px; min-width: 0; white-space: nowrap; }
 /* One-time bypass confirm (U-M7): warning-toned status pill (§3 formula), clickable, gone in 5s. */
 /* The confirm STEP for the chip above, so it wears the chip's tone: "Allow everything?" leading to a

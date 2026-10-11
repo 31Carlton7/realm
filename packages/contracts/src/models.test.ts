@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_ALIASES, canonicalModelKey, fastSupportKey, readEffortSupport, readFastSupport } from "./models";
+import { AGENT_ULTRACODE, MODEL_ALIASES, canonicalModelKey, fastSupportKey, readEffortSupport, readFastSupport } from "./models";
+
+describe("which agents Realm can ask for Ultracode", () => {
+  it("names Claude and no other agent, since only Claude Code has the setting", () => {
+    expect(Object.entries(AGENT_ULTRACODE).filter(([, can]) => can).map(([kind]) => kind)).toEqual(["claude"]);
+  });
+});
 
 describe("the remembered fast-mode answers", () => {
   it("files the harness default under its own entry, apart from any named model", () => {

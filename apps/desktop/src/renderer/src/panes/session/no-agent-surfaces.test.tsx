@@ -89,6 +89,11 @@ const SURFACES = [
     file: "apps/desktop/src/renderer/src/panes/app-view/ViewRequestCard.tsx",
     on: 'className="app-view-request"',
   },
+  {
+    what: "the Ultracode switch, which commits a session to workflows of sub-agents and their tokens",
+    file: "apps/desktop/src/renderer/src/panes/session/ModelPicker.tsx",
+    on: 'className="mp-ultracode"',
+  },
 ];
 
 describe("surfaces no agent may act in", () => {

@@ -384,6 +384,11 @@ const P = {
      *  Absent means the question was not answered — an agent that has no such concept, or a list the
      *  CLI declined — and the prompter offers nothing rather than guessing. */
     supportsFastMode: z.boolean().optional(),
+    /** Whether the harness says Ultracode can be turned on in THIS session, read from its own
+     *  settings report. False where workflows are switched off, or where the session's model
+     *  cannot run it. Absent means the question was not answered, and the prompter then offers the
+     *  switch without a claim either way. */
+    ultracodeAvailable: z.boolean().optional(),
     /** The same answer for EVERY model the harness listed, keyed by the id a session would pin ("" for
      *  the harness's own default). One session's handshake is then enough for the next session on any
      *  of those models to offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`). */
