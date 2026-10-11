@@ -1,10 +1,10 @@
 /**
  * A stand-in for the Anthropic Messages API on a loopback port, and the model that answers on it.
  *
- * `live-workflow-check.ts` points the REAL `claude` at it, so the binary runs whole turns, launches a
- * workflow and reports on it with no account and nothing billed. It speaks as much of the API as
- * that takes: `POST /v1/messages`, streamed or whole, and `count_tokens`. Everything else gets a
- * 404, and Claude Code carries on.
+ * `live-workflow-check.ts` and `live-ultracode-check.ts` point the REAL `claude` at it, so the binary
+ * runs whole turns, launches a workflow and reports on it with no account and nothing billed. It
+ * speaks as much of the API as that takes: `POST /v1/messages`, streamed or whole, and
+ * `count_tokens`. Everything else gets a 404, and Claude Code carries on.
  *
  * What the model says is fixed. `workflowModel` reads who is asking off each request, the session's
  * own loop or one of the two agents of the run it launched, and answers as a `RunPlan` has that one
@@ -105,7 +105,7 @@ function calls(message: Message | undefined, name: string): boolean {
 
 /** Every piece of text in these messages, in order: what was typed, what was said, a tool call as
  *  JSON and a tool's result. */
-function textsOf(messages: readonly Message[]): string[] {
+export function textsOf(messages: readonly Message[]): string[] {
   return messages.flatMap((m) => (typeof m.content === "string" ? [m.content] : m.content.map((b) => {
     if (b.type === "text") return b.text ?? "";
     if (b.type === "tool_result") return typeof b.content === "string" ? b.content : JSON.stringify(b.content ?? "");
@@ -137,12 +137,13 @@ function askerOf(body: MessagesRequest): Asker {
  * result, and the report follows it, in the words that say whether a typed message came in too.
  *
  * `heard` is told who asked as each request arrives, before any wait, which is how a check learns
- * that an agent has reached the model.
+ * that an agent has reached the model. It is handed the request too, for a check that reads what
+ * Claude Code put in front of the model.
  */
-export function workflowModel(plan: RunPlan, heard: (who: Asker) => void = () => {}): Model {
+export function workflowModel(plan: RunPlan, heard: (who: Asker, body: MessagesRequest) => void = () => {}): Model {
   return async (body) => {
     const who = askerOf(body);
-    heard(who);
+    heard(who, body);
     const messages = body.messages ?? [];
     const spoken = messages.filter((m) => m.role === "assistant").length;
     if (who === "agent-a") {
