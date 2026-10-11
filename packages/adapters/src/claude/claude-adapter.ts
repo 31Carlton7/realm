@@ -160,6 +160,28 @@ export function claudeAskTools(servers: readonly McpServerConfig[]): Set<string>
 }
 
 /**
+ * The policy a session that keeps the person's own Claude Code setup starts under
+ * (`StartOptions.ownSetup`): of the permission rules in settings files, only managed ones apply.
+ *
+ * A session that loads the person's settings files would otherwise load their permission rules too,
+ * and a rule that allows a call answers before `canUseTool`. The call would run with no card, in Ask
+ * as in any mode, where Ask is enforced in `canUseTool` and nowhere else. Under this policy the
+ * person's allow, ask and deny rules are not in force, and Realm's own gate asks as it does for a
+ * session it isolates. Their MCP servers, hooks, plugins and skills load all the same.
+ *
+ * Observed on Claude Code 2.1.281 and 2.1.293 with a rule in the user's `settings.json` that allows a
+ * shell command: without the policy the command ran and `canUseTool` was never asked, and with it
+ * the call reached `canUseTool`. A command the CLI judges read-only still ran unasked, a rule kept
+ * for the session by an earlier answer was still honoured, the user's MCP server connected and the
+ * user's hook ran. A deny rule of the user's stopped applying, as it does in a session Realm isolates.
+ *
+ * It travels as `managedSettings`, which the SDK filters to restrictive keys and applies as the only
+ * policy tier. Where an organisation manages Claude Code's settings on the Mac, the SDK drops what a
+ * host passes there unless that policy opts in, so on such a Mac the person's rules stay in force.
+ */
+export const OWN_SETUP_POLICY: NonNullable<Options["managedSettings"]> = { allowManagedPermissionRulesOnly: true };
+
+/**
  * Realm's mode onto the SDK's `PermissionMode`, whose union is
  * `default | acceptEdits | bypassPermissions | plan | dontAsk | auto` and has no "ask".
  *
@@ -341,6 +363,7 @@ export class ClaudeAdapter implements AgentAdapter {
       // and the repo's `.claude/` settings. That is why the option is only present when the space has
       // enabled skills and `ownSetup` is absent. A space that manages none is left exactly as it was.
       ...(opts.skills ? { ...(opts.ownSetup ? {} : { settingSources: [] }), plugins: [{ type: "local" as const, path: opts.skills.pluginPath, skipMcpDiscovery: true }] } : {}),
+      ...(opts.ownSetup ? { managedSettings: OWN_SETUP_POLICY } : {}),
       env: { ...process.env, ...opts.env },
       stderr: onStderr,
       pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,

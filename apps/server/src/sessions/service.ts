@@ -19,7 +19,7 @@ import type { CheckpointService } from "../checkpoints/service";
 import { decodeArmedRewind, isRewindRefusal, type ArmedRewind } from "../checkpoints/rewind";
 import { ProbeCache } from "./probe-cache";
 import type { SkillsService } from "../skills/service";
-import type { McpGateway } from "../mcp/gateway";
+import type { McpGateway, SessionToolset } from "../mcp/gateway";
 import { capabilitiesContext } from "../mcp/capabilities";
 import type { MemoryService } from "../memory/service";
 import type { ExecutionSandboxService } from "../sandbox/service";
@@ -86,8 +86,9 @@ const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
 
 type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean;
   /** Whether THIS handle was started isolated from the person's own Claude Code setup: a Claude
-   *  session handed the library while `CLAUDE_OWN_SETUP_KEY` was off. The memory pane reads it for a
-   *  live session, because a change of that setting waits for the agent process to start again. */
+   *  session handed the library that did not keep that setup (`keepsOwnSetup`), because
+   *  `CLAUDE_OWN_SETUP_KEY` was off or its toolset is closed. The memory pane reads it for a live
+   *  session, because a change of that setting waits for the agent process to start again. */
   isolated: boolean };
 
 /**
@@ -178,8 +179,10 @@ export class SessionService {
      *  forgets a deleted session's child record/run; `extraSystemContext` is the policy preamble a
      *  delegated child starts with; `skillsFilter` (optional, Plan 13 W1) narrows which of the
      *  space's enabled skills an agent_run child is staged — null/undefined for every other session.
+     *  `sessionToolset` (optional) is the closure the gateway is given under the same name, read here
+     *  for one fact only: whether a session's toolset is closed (`keepsOwnSetup`).
      *  Optional — a harness without delegation behaves exactly as before. */
-    browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined; skillsFilter?(sessionId: string): string[] | null };
+    browserAgents?: { parentInterrupted(sessionId: string): void; release(sessionId: string): void; extraSystemContext(sessionId: string): string | undefined; skillsFilter?(sessionId: string): string[] | null; sessionToolset?(sessionId: string): SessionToolset };
     /** Plan 12 W5: the notifications feed's session hooks. `handleSessionEvent` gets the session row as
      *  it stood BEFORE the event (so a status event carries its previous status implicitly); it is
      *  called from `onEvent` — the pump and `emitExternal` alike — and from `markStaleOnBoot`'s
@@ -1106,18 +1109,42 @@ export class SessionService {
    *
    * Whether a Claude session is isolated is this session's own fact too. A live one answers with what
    * its handle was started with (`Live.isolated`). One that is not live answers with what a start
-   * would do now: the space's library and `CLAUDE_OWN_SETUP_KEY`, the two things `ensureLive` reads.
+   * would do now: the space's library and `keepsOwnSetup`, the two things `ensureLive` reads.
    */
   memorySources(id: string): MemorySources {
     const s = this.get(id);
     const isolated = this.live.get(id)?.isolated
-      ?? (s.agentKind === "claude" && this.d.skills.wouldInject(s.spaceId, s.agentKind) && !resolveClaudeOwnSetup(this.d.settings.get(CLAUDE_OWN_SETUP_KEY)));
+      ?? (s.agentKind === "claude" && this.d.skills.wouldInject(s.spaceId, s.agentKind) && !this.keepsOwnSetup(id));
     let reported: string[] | null = null;
     if (s.agentKind === "codex") {
       const ev = this.d.events.lastOfType(id, "init");
       reported = ev?.type === "init" ? ev.payload.instructionSources ?? null : null;
     }
     return this.d.memory.sourcesFor({ kind: s.agentKind, spaceId: s.spaceId, cwd: s.cwd, isolated, reported });
+  }
+
+  /**
+   * Whether this session keeps the person's own Claude Code setup (`CLAUDE_OWN_SETUP_KEY`). For a
+   * Claude session handed the library that decides whether it starts isolated. For any Claude session
+   * it decides whether the start asks the adapter for `StartOptions.ownSetup`, which also leaves the
+   * permission rules of the person's settings files out of force. `ensureLive` asks for the start it
+   * is building and `memorySources` for a session that is not live, so the pane and the next start
+   * read one rule.
+   *
+   * It is the stored setting, with one exception: a session whose gateway toolset is closed never
+   * keeps the setup, and so starts isolated. Closed is the gateway's own answer, read through the
+   * `browserAgents` seam from the `sessionToolset` closure `app.ts` hands the gateway: an array there
+   * names the only providers a session may reach. Today that is a browser-agent child, held to
+   * `realm-browser`, and no second list of child kinds is kept here. The gateway can hold such a
+   * session to its list only for calls that arrive on Realm's own entry. The person's MCP servers,
+   * hooks and allow rules would load beside that entry, and none of their calls would pass the gateway.
+   *
+   * An `agent_run` child, a reviewer and a run worker keep following the setting. Their toolset is
+   * the space's whole surface, at most minus Realm's delegation provider, and a person's own servers
+   * do not widen what that exclusion removes.
+   */
+  private keepsOwnSetup(id: string): boolean {
+    return resolveClaudeOwnSetup(this.d.settings.get(CLAUDE_OWN_SETUP_KEY)) && !Array.isArray(this.d.browserAgents?.sessionToolset?.(id));
   }
 
   /** Whether a session in this environment is mid-turn — what stops a restore rewriting a working tree
@@ -1182,7 +1209,7 @@ export class SessionService {
       ? this.d.skills.injectionFor(s.spaceId, s.agentKind, { only, stageId: id })
       : this.d.skills.injectionFor(s.spaceId, s.agentKind)) ?? undefined;
     const claudeLibrary = s.agentKind === "claude" && skills !== undefined;
-    const ownSetup = claudeLibrary && resolveClaudeOwnSetup(this.d.settings.get(CLAUDE_OWN_SETUP_KEY));
+    const ownSetup = s.agentKind === "claude" && this.keepsOwnSetup(id);
     const isolated = claudeLibrary && !ownSetup;
     // The ONLY MCP config any agent ever receives (W3): one `realm` gateway entry, minted fresh per
     // session start by `gateway.register`. Third-party server endpoints, API keys and OAuth tokens never

@@ -56,10 +56,12 @@ export type StartOptions = {
    *  whose enabled skill set is empty. */
   skills?: SkillsInjection;
   /** The session keeps the person's own Claude Code setup beside Realm's library (`CLAUDE_OWN_SETUP_KEY`).
-   *  Only the Claude adapter reads it, and only together with `skills`: it loads the library as a plugin
-   *  and leaves `settingSources` unset, so the CLI loads its settings files, skills and MCP servers as it
-   *  does by default (held to the real CLI in `apps/server/scripts/live-claude-setup-check.ts`). Absent
-   *  is the only off, so a session that does not ask starts exactly as it did before the option existed. */
+   *  Only the Claude adapter reads it. Together with `skills` it loads the library as a plugin and
+   *  leaves `settingSources` unset, so the CLI loads its settings files, skills and MCP servers as it
+   *  does by default (held to the real CLI in `apps/server/scripts/live-claude-setup-check.ts`). With
+   *  or without `skills` it starts the session under `OWN_SETUP_POLICY`, which leaves the permission
+   *  rules of those settings files out of force. Absent is the only off, so a session that does not ask
+   *  starts exactly as it did before the option existed. */
   ownSetup?: true;
   resume?: string | null;
   env?: Record<string, string>;

@@ -14,7 +14,8 @@ import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
  *    them from the user's own installed skills and settings files — said in one line beside the
  *    toggles, with the note that Realm re-injects `CLAUDE.md` to compensate (W3 built that).
  *    That holds while `CLAUDE_OWN_SETUP_KEY` is off. While it is on, those sessions load the user's
- *    own setup beside the library. The line then says that instead, with where the setting is and
+ *    own setup and the Claude Code files of the folder they run in beside the library, a
+ *    browser-agent child excepted. The line then says that instead, with where the setting is and
  *    that a skill of the user's own that is also switched on here is listed twice, and Claude's row
  *    stops calling the set closed. The tab asks for the stored value when it mounts, as the Settings
  *    tabs do, because `settingsPrefs` is null until something has asked. Until the answer lands, a
@@ -161,9 +162,10 @@ export function SkillsPanel({ spaceId, onOpen }: {
           <p className="settings-note" role="note">
             {claudeOwnSetup ? (
               <>
-                This space's Claude sessions also load your own settings files, skills, and MCP servers,
-                because {CLAUDE_OWN_SETUP_COPY.label} is on in Settings ▸ General. If a skill from your own
-                Claude Code setup is also switched on here, it is listed twice in those sessions.
+                This space's Claude sessions also load your own Claude Code setup and the one in the folder
+                they run in, because {CLAUDE_OWN_SETUP_COPY.label} is on in Settings ▸ General. A browser
+                agent's session doesn't. If a skill from your own Claude Code setup is also switched on here,
+                it is listed twice in those sessions.
               </>
             ) : (
               <>

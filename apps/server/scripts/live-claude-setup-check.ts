@@ -1,27 +1,33 @@
 /**
  * Live check of the claim `claude.ownSetup` rests on, against the REAL `claude`.
  *
- * With the setting on, the Claude adapter hands a session Realm's library as a plugin and leaves
- * `settingSources` unset, where it otherwise passes `settingSources: []`. Everything the setting
- * promises is what a third-party binary does with that one difference, which no unit test can hold up:
+ * For a session that keeps the person's own setup, the Claude adapter hands over Realm's library as a
+ * plugin, leaves `settingSources` unset where it otherwise passes `settingSources: []`, and starts the
+ * session under the policy that leaves the person's permission rules out of force
+ * (`OWN_SETUP_POLICY`). Everything the setting promises is what a third-party binary does with that
+ * difference, which no unit test can hold up:
  *
- *   1. `settingSources: []` with the plugin: Realm's skill is listed, none of the person's MCP servers
- *      is there, and the CLI loads no `CLAUDE.md`.
- *   2. The plugin alone: Realm's skill is still listed, the person's MCP servers of all three scopes
- *      (user and local in `.claude.json`, the project's `.mcp.json`) are connected, and the CLI loads
- *      the `CLAUDE.md` files itself, which is why Realm stops carrying them in.
+ *   1. `settingSources: []` with the plugin: Realm's skill is listed, the person's own skill and the
+ *      project's are not, none of the person's MCP servers is there, and the CLI loads no `CLAUDE.md`.
+ *   2. The plugin under that policy: Realm's skill is still listed and those two skills are listed
+ *      beside it, the person's MCP servers of all three scopes (user and local in `.claude.json`, the
+ *      project's `.mcp.json`) are connected, and the CLI loads the `CLAUDE.md` files itself, which is
+ *      why Realm stops carrying them in. What the policy does to a permission rule takes a turn to
+ *      see, and no turn is sent here.
  *
  * So this script builds a scratch config folder and a scratch project that set up all three scopes,
- * each server a stdio MCP server it writes itself, stages a scratch library with the real
- * `SkillsService`, and asks the CLI what it sees under each start. No turn is sent: the prompt stream
- * never speaks and every answer is a control request, so it needs no account and costs nothing.
+ * each server a stdio MCP server it writes itself, and that hold a skill each. It stages a scratch
+ * library with the real `SkillsService`, and asks the CLI what it sees under each start. No turn is
+ * sent: the prompt stream never speaks and every answer is a control request, so it needs no account
+ * and costs nothing.
  *
- * The CLI is given the scratch folders as `HOME` and `CLAUDE_CONFIG_DIR`, so nothing of this Mac's own
- * setup is read, and the script writes nothing outside its own temp folder. That folder has to sit
- * OUTSIDE the home folder, because Claude Code reads `.claude/CLAUDE.md` from every folder above the
- * working one. Symlinks are resolved before that is judged, since the CLI works in the folder a path
- * leads to: where `TMPDIR` leads into the home folder the script uses `/tmp` instead, and where that
- * does too it refuses to run.
+ * The CLI is given the scratch folders as `HOME`, `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_TMPDIR`, the
+ * last because Claude Code's own temp root ignores `TMPDIR`. So nothing of this Mac's own setup is
+ * read, and the script writes nothing outside its own temp folder. That folder has to sit OUTSIDE the
+ * home folder, because Claude Code reads `.claude/CLAUDE.md` from every folder above the working one.
+ * Symlinks are resolved before that is judged, since the CLI works in the folder a path leads to:
+ * where `TMPDIR` leads into the home folder the script uses `/tmp` instead, and where that does too
+ * it refuses to run. A home folder of `/` has every folder inside it, so there it always refuses.
  *
  *   pnpm --filter @realm/server exec tsx scripts/live-claude-setup-check.ts
  *
@@ -31,6 +37,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { homedir, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { query, type McpServerStatus, type Options, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { OWN_SETUP_POLICY } from "@realm/adapters";
 import { openDatabase } from "../src/db/database";
 import { SettingsStore } from "../src/store/settings";
 import { SkillsService } from "../src/skills/service";
@@ -42,6 +49,10 @@ const SKILL = "realm-probe-setup";
 const GATEWAY = "realm-probe-gateway";
 /** The person's own servers, one for each scope Claude Code keeps them in. */
 const OWN = { user: "realm-probe-user", project: "realm-probe-project", local: "realm-probe-local" } as const;
+/** Skills that are not Realm's: one of the person's own, in their config folder, and one the project
+ *  carries in its `.claude/skills`. Only a start that loads the settings sources lists them, which is
+ *  what tells the two starts apart by skills. */
+const OWN_SKILLS = { user: "realm-probe-own-skill", project: "realm-probe-project-skill" } as const;
 /** How long the CLI has to answer one control request, and to connect the servers it was given. */
 const ANSWER_MS = 30_000;
 
@@ -66,21 +77,30 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 type Seen = { commands: string[]; servers: McpServerStatus[]; memory: string[] | Error };
 
 /** Where the scratch folder goes: the temp folder, or `/tmp` where the temp folder leads under the
- *  home folder. Both are judged by where they really are. Null where neither is outside it. */
+ *  home folder. Both are judged by where they really are. Null where neither is outside it, which is
+ *  always so for a home folder of `/`: every folder is inside that one. */
 function outsideHome(): string | null {
   const home = realpathSync(homedir());
+  const within = home.endsWith(sep) ? home : home + sep;
   for (const candidate of [tmpdir(), "/tmp"]) {
     let real: string;
     try { real = realpathSync(candidate); } catch { continue; }
-    if (real !== home && !real.startsWith(home + sep)) return real;
+    if (real !== home && !real.startsWith(within)) return real;
   }
   return null;
+}
+
+/** Writes one skill as a folder named for it, the shape Realm's library, a person's config folder and
+ *  a project's `.claude/skills` all keep. */
+function skillFolder(parent: string, name: string, description: string) {
+  mkdirSync(join(parent, name), { recursive: true });
+  writeFileSync(join(parent, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n---\n\nprobe\n`);
 }
 
 /**
  * Everything the check writes, under one temp folder: Realm's home, the CLI's home, config folder and
  * temp folder, the project it runs in, and the MCP server's source. The config folder and the project
- * between them set a server up in each of the three scopes and hold a `CLAUDE.md` each.
+ * between them set a server up in each of the three scopes, and hold a `CLAUDE.md` and a skill each.
  */
 function scratch(base: string) {
   const root = mkdtempSync(join(base, "realm-setup-live-"));
@@ -97,14 +117,15 @@ function scratch(base: string) {
   writeFileSync(join(dirs.project, ".mcp.json"), JSON.stringify({ mcpServers: { [OWN.project]: server(OWN.project) } }));
   const memory = { user: join(dirs.config, "CLAUDE.md"), project: join(dirs.project, "CLAUDE.md") };
   for (const file of Object.values(memory)) writeFileSync(file, "A scratch memory file for a live check. It asks for nothing.\n");
+  skillFolder(join(dirs.config, "skills"), OWN_SKILLS.user, "A probe skill from the config folder. Never invoke it.");
+  skillFolder(join(dirs.project, ".claude", "skills"), OWN_SKILLS.project, "A probe skill from the project. Never invoke it.");
   return { ...dirs, memory, gateway: server(GATEWAY) };
 }
 
 /** Stages one skill with the real `SkillsService`, exactly as the server does for a session start. */
 function library(home: string) {
   const service = new SkillsService({ home, settings: new SettingsStore(openDatabase(join(home, "realm.db"))), bundledDir: null });
-  mkdirSync(join(service.root, SKILL), { recursive: true });
-  writeFileSync(join(service.root, SKILL, "SKILL.md"), `---\nname: ${SKILL}\ndescription: A Realm probe skill. Never invoke it.\n---\n\nprobe\n`);
+  skillFolder(service.root, SKILL, "A Realm probe skill. Never invoke it.");
   const injection = service.injectionFor(SPACE, "claude");
   if (!injection) throw new Error("SkillsService staged nothing, so the check cannot prove anything");
   return injection;
@@ -163,6 +184,7 @@ const statusOf = (seen: Seen, name: string): string => seen.servers.find((s) => 
 const serversOf = (seen: Seen): string => seen.servers.map((s) => `${s.name}: ${s.status}`).join(", ") || "(none)";
 const memoryOf = (seen: Seen): string => (seen.memory instanceof Error ? seen.memory.message : seen.memory.join(", ") || "(none)");
 const loads = (seen: Seen, file: string): boolean => !(seen.memory instanceof Error) && seen.memory.includes(file);
+const probesOf = (seen: Seen): string => seen.commands.filter((name) => name.includes("realm-probe")).join(", ") || "(none of this check's)";
 
 async function main() {
   const base = outsideHome();
@@ -179,7 +201,7 @@ async function main() {
     const shared: Options = {
       cwd: dirs.project,
       env: {
-        HOME: dirs.home, CLAUDE_CONFIG_DIR: dirs.config, TMPDIR: dirs.tmp, PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+        HOME: dirs.home, CLAUDE_CONFIG_DIR: dirs.config, TMPDIR: dirs.tmp, CLAUDE_CODE_TMPDIR: dirs.tmp, PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: "1",
       },
       mcpServers: { [GATEWAY]: dirs.gateway },
@@ -189,14 +211,17 @@ async function main() {
     console.log("\n=== settingSources: [] with the plugin ===");
     const isolated = await see({ ...shared, settingSources: [], plugins: [plugin] }, [GATEWAY]);
     ok("Realm's skill is listed", isolated.commands.includes(`realm:${SKILL}`), `${isolated.commands.length} commands`);
+    ok("neither the person's own skill nor the project's is listed", !Object.values(OWN_SKILLS).some((name) => isolated.commands.includes(name)), probesOf(isolated));
     ok("the server Realm passes in the start options is connected", statusOf(isolated, GATEWAY) === "connected", serversOf(isolated));
     ok("none of the person's three MCP servers is there", Object.values(OWN).every((name) => statusOf(isolated, name) === "absent"), serversOf(isolated));
     ok("the CLI loads neither CLAUDE.md, so Realm has to carry them in",
       Array.isArray(isolated.memory) && !Object.values(dirs.memory).some((file) => loads(isolated, file)), memoryOf(isolated));
 
-    console.log("\n=== the plugin alone ===");
-    const own = await see({ ...shared, plugins: [plugin] }, [GATEWAY, ...Object.values(OWN)]);
+    console.log("\n=== the plugin under the policy for permission rules ===");
+    const own = await see({ ...shared, plugins: [plugin], managedSettings: OWN_SETUP_POLICY }, [GATEWAY, ...Object.values(OWN)]);
     ok("Realm's skill is still listed", own.commands.includes(`realm:${SKILL}`), `${own.commands.length} commands`);
+    ok("the person's own skill is listed beside it", own.commands.includes(OWN_SKILLS.user), probesOf(own));
+    ok("the project's skill is listed beside it", own.commands.includes(OWN_SKILLS.project), probesOf(own));
     ok("the server Realm passes in the start options is still connected", statusOf(own, GATEWAY) === "connected", serversOf(own));
     for (const [scope, name] of Object.entries(OWN)) ok(`the person's ${scope}-scope MCP server is connected`, statusOf(own, name) === "connected", statusOf(own, name));
     ok("the CLI loads the user's and the project's CLAUDE.md itself, so Realm must not carry them in again",

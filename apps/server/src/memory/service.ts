@@ -188,7 +188,7 @@ export class MemoryService {
    * Two ingredients, in load order:
    *
    * 1. **The W1 carry-forward.** A Claude session whose skills library is active runs with
-   *    `settingSources: []` unless the person keeps their own setup (`CLAUDE_OWN_SETUP_KEY`), and that
+   *    `settingSources: []` unless it keeps the person's own setup (`CLAUDE_OWN_SETUP_KEY`), and that
    *    option also stops the CLI loading `~/.claude/CLAUDE.md` and every project `CLAUDE.md`. Enabling
    *    a skill must not silently cost the user their own memory files, so their content rides back in
    *    here. They are the same files `claudeMemoryFiles` models for the pane, so what the UI lists as

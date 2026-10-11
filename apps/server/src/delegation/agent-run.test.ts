@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
 import type { McpServerConfig } from "@realm/adapters";
+import { CLAUDE_OWN_SETUP_KEY } from "@realm/contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -173,6 +174,16 @@ describe("agent_run — the delegated session", () => {
     // told it may spawn agents that every server-side guard will then refuse.
     expect(fake.seen[0]!.systemContext).toContain("cannot delegate further");
     expect(fake.seen[0]!.systemContext).not.toContain("levels deeper");
+  });
+
+  it("starts a child with the person's own Claude Code setup where the setting keeps it, though the child's toolset has lost the delegation provider", async () => {
+    const { fake, spaceId, parentId } = await boot({ parentKind: "claude", maxDepth: 1 });
+    new SettingsStore(app.db).set(CLAUDE_OWN_SETUP_KEY, true);
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "Refactor the parser" });
+    expect(app.agentRuns.canDelegate(childOf(spaceId, parentId).id)).toBe(false);
+    expect(fake.seen).toHaveLength(1);
+    expect(fake.seen[0]!.skills).toBeDefined();
+    expect(fake.seen[0]!.ownSetup).toBe(true);
   });
 });
 

@@ -91,7 +91,7 @@ import { FontsService } from "./fonts/service";
 import { McpServersStore, McpCallLogStore } from "./store/mcp";
 import { McpService, oauthStatusOf } from "./mcp/service";
 import { McpHub, type HubElicit } from "./mcp/hub";
-import { McpGateway } from "./mcp/gateway";
+import { McpGateway, type SessionToolset } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
@@ -857,7 +857,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   // Late-bound like `sessionService`/`gateway` above: the gateway consults the delegation
   // registries for per-session toolset shapes (Plan 11 W5 + Plan 13 W1), and those registries need
-  // SessionService, which needs the gateway. Nothing reads the seam before a session makes a request.
+  // SessionService, which needs the gateway. Nothing reads the seam before a session starts or is asked about.
   let browserAgents: BrowserAgentService | null = null;
   let agentRuns: AgentRunService | null = null;
   let reviews: ReviewService | null = null;
@@ -882,22 +882,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // it — each mounted view on an origin of its own.
   const appViews = new AppViews({ store: new AppViewsStore(db) });
   const appViewServer = new AppViewServer();
-  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url), views: appViews,
-    // A browser-agent child is only-mode (realm-browser and nothing else); an agent_run child — and
-    // a reviewer child (W3) — is exclude-mode (the space's FULL surface minus the delegation
-    // provider — the gateway half of depth-1: a reviewer sees neither agent tool nor agent_review).
-    // A session cannot be two kinds of child: each tool's child record is written by exactly one run.
-    sessionToolset: (sessionId) => {
-      const only = browserAgents?.sessionToolset(sessionId);
-      if (only) return only;
-      // A reviewer child, and an agent_run child that has SPENT its depth budget, lose the whole
-      // realm-agent provider here. An agent_run child that still has budget keeps it and is narrowed
-      // to the agent_run family by the provider's own `tools()` — the coarse gateway hammer cannot
-      // express "this provider, but only four of its tools", and inventing a shape that could would
-      // put per-tool delegation policy in the gateway, which is exactly where it does not belong.
-      const spentChild = agentRuns?.isChild(sessionId) && !agentRuns.canDelegate(sessionId);
-      return spentChild || reviews?.isChild(sessionId) || codeReview?.isReviewer(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
-    },
+  // A browser-agent child is only-mode (realm-browser and nothing else); an agent_run child — and
+  // a reviewer child (W3) — is exclude-mode (the space's FULL surface minus the delegation
+  // provider — the gateway half of depth-1: a reviewer sees neither agent tool nor agent_review).
+  // A session cannot be two kinds of child: each tool's child record is written by exactly one run.
+  const sessionToolset = (sessionId: string): SessionToolset => {
+    const only = browserAgents?.sessionToolset(sessionId);
+    if (only) return only;
+    // A reviewer child, and an agent_run child that has SPENT its depth budget, lose the whole
+    // realm-agent provider here. An agent_run child that still has budget keeps it and is narrowed
+    // to the agent_run family by the provider's own `tools()` — the coarse gateway hammer cannot
+    // express "this provider, but only four of its tools", and inventing a shape that could would
+    // put per-tool delegation policy in the gateway, which is exactly where it does not belong.
+    const spentChild = agentRuns?.isChild(sessionId) && !agentRuns.canDelegate(sessionId);
+    return spentChild || reviews?.isChild(sessionId) || codeReview?.isReviewer(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
+  };
+  const mcpGateway = new McpGateway({ hub: mcpHub, mcp, sessions: sessionsStore, calls: mcpCalls, rpc, servers: mcpServersStore, onOauthCallback: (url) => oauth.handleCallback(url), views: appViews, sessionToolset,
     // Activity keeps no masked answer: what a session was told in secret is scrubbed from its calls.
     redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text });
   gateway = mcpGateway;
@@ -1035,6 +1035,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); },
       extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id),
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
+      sessionToolset,
     } });
   sessionService = sessions;
   // The delegation stack (Plan 11 W5 + Plan 13 W1): ONE engine (settle/drain + one-run-per-parent,

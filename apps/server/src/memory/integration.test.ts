@@ -78,6 +78,13 @@ async function startSession(c: Any, spaceId: string, agentKind: string) {
   return session;
 }
 
+/** Ends the session's agent process the way the tray's Stop all agents does, then starts it again
+ *  the way anything real does: on the next send. The row is untouched, so it is the same session. */
+async function restartAgent(c: Any, sessionId: string) {
+  await c.call("daemon.stopAgents", {});
+  await c.call("sessions.send", { id: sessionId, text: "again" });
+}
+
 /** Puts one valid skill in Realm's library, which switches it on in every space of the home. */
 function librarySkill(home: string) {
   mkdirSync(join(home, "skills", "mac"), { recursive: true });
@@ -212,6 +219,45 @@ describe("memory over rpc", () => {
     c.close();
   });
 
+  it("still carries CLAUDE.md in while the stored value is not a JSON true", async () => {
+    const { c, spA, home, claudeDir, claude } = await boot();
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(join(claudeDir, "CLAUDE.md"), "USER_MEMORY_MARKER_9317");
+    librarySkill(home);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: "true" });
+    await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    expect(claude.starts[0]!.systemContext).toContain("USER_MEMORY_MARKER_9317");
+    c.close();
+  });
+
+  it("passes ownSetup when a session's agent starts again after the setting is switched on, though its first start went without", async () => {
+    const { c, spA, home, claude } = await boot();
+    librarySkill(home);
+    const session = await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    await restartAgent(c, session.id);
+    await waitFor(() => claude.starts.length === 2);
+    expect("ownSetup" in claude.starts[0]!).toBe(false);
+    expect(claude.starts[1]!.ownSetup).toBe(true);
+    c.close();
+  });
+
+  it("leaves ownSetup off when a session's agent starts again after the setting is switched off, though its first start had it", async () => {
+    const { c, spA, home, claude } = await boot();
+    librarySkill(home);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    const session = await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: false });
+    await restartAgent(c, session.id);
+    await waitFor(() => claude.starts.length === 2);
+    expect(claude.starts[0]!.ownSetup).toBe(true);
+    expect("ownSetup" in claude.starts[1]!).toBe(false);
+    c.close();
+  });
+
   it("never passes ownSetup to a Codex session, which has no setup of Claude's to keep", async () => {
     const { c, spA, home, codex } = await boot();
     librarySkill(home);
@@ -223,9 +269,18 @@ describe("memory over rpc", () => {
     c.close();
   });
 
-  it("does not pass ownSetup to a Claude session with no library, where nothing isolates it in the first place", async () => {
+  it("passes ownSetup to a Claude session with no library too, so its start leaves the person's permission rules out like any other", async () => {
     const { c, spA, claude } = await boot();
     await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    await startSession(c, spA.id, "claude");
+    await waitFor(() => claude.starts.length === 1);
+    expect(claude.starts[0]!.skills).toBeUndefined();
+    expect(claude.starts[0]!.ownSetup).toBe(true);
+    c.close();
+  });
+
+  it("does not pass ownSetup to a Claude session with no library while the setting is off", async () => {
+    const { c, spA, claude } = await boot();
     await startSession(c, spA.id, "claude");
     await waitFor(() => claude.starts.length === 1);
     expect(claude.starts[0]!.skills).toBeUndefined();

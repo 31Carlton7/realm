@@ -157,9 +157,14 @@ describe("the skills panel", () => {
 const OWN_SETUP_STORED: FakeData = { settings: { [CLAUDE_OWN_SETUP_KEY]: true } };
 
 describe("the skills panel with Use my Claude Code setup stored on", () => {
-  it("says this space's Claude sessions also load the person's own settings files, skills and MCP servers", async () => {
+  it("says this space's Claude sessions also load the person's own Claude Code setup and the one in the folder they run in", async () => {
     await mount(OWN_SETUP_STORED);
-    expect(await screen.findByText(/This space's Claude sessions also load your own settings files, skills, and MCP servers/)).toBeInTheDocument();
+    expect(await screen.findByText(/This space's Claude sessions also load your own Claude Code setup and the one in the folder they run in/)).toBeInTheDocument();
+  });
+
+  it("says a browser agent's session does not", async () => {
+    await mount(OWN_SETUP_STORED);
+    expect(await screen.findByText(/A browser agent's session doesn't\./)).toBeInTheDocument();
   });
 
   it("says the setting is on in Settings ▸ General, by the label its row prints there", async () => {
@@ -169,7 +174,7 @@ describe("the skills panel with Use my Claude Code setup stored on", () => {
 
   it("no longer says the sessions are isolated, or that Realm re-injects CLAUDE.md to compensate", async () => {
     await mount(OWN_SETUP_STORED);
-    await screen.findByText(/also load your own settings files/);
+    await screen.findByText(/also load your own Claude Code setup/);
     expect(screen.queryByText(/isolates this space's Claude sessions/)).toBeNull();
     expect(screen.queryByText(/re-injected by Realm to compensate/)).toBeNull();
   });

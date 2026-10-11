@@ -1300,7 +1300,9 @@ export type AppState = {
    *  (`DEFAULT_PERMISSION_MODE_KEY`), and whether Claude sessions keep the person's own Claude Code
    *  setup (`CLAUDE_OWN_SETUP_KEY`). Null until the page first loads them: the page fetches on
    *  mount, and a null renders as loading rather than as every-toggle-on lies. `SkillsPanel` fetches
-   *  on mount as well, to say what a Claude session loads, and reads a null as off until then. */
+   *  on mount as well, to say what a Claude session loads, and reads a null as off until then.
+   *  Each setter writes its own field over the prefs held when the server answers, never over the
+   *  ones it read before asking, so changes to two different fields in flight together keep both. */
   settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string; claudeOwnSetup: boolean } | null;
   /** Canonical model keys the user has starred (`MODEL_FAVORITES_KEY`), for the model picker's
    *  favourites tab, its favourites-first ordering and its 1…9 shortcuts. Empty rather than null
@@ -2548,7 +2550,7 @@ export type AppState = {
   /** Read the Settings-page preference keys into `settingsPrefs` (Plan 12 W6). Junk in a row, such
    *  as an unknown category, a mode PERMISSION_MODES doesn't name, or anything but `true` under
    *  `CLAUDE_OWN_SETUP_KEY`, is dropped/defaulted here, once, so the page never renders a state the
-   *  server would not honor. */
+   *  server would not honour. */
   refreshSettingsPrefs(): Promise<void>;
   /** Read `MODEL_FAVORITES_KEY` into `modelFavorites`. Junk in the row — a non-array, a non-string
    *  element — is dropped here rather than surviving into the picker's ordering. */
@@ -3252,6 +3254,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  quietly stale, which is the one failure a feed cannot have. A third surface adds a term. */
     const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
+    const mergeSettingsPrefs = (changed: Partial<NonNullable<AppState["settingsPrefs"]>>) => {
+      const held = get().settingsPrefs;
+      if (held) set({ settingsPrefs: { ...held, ...changed } });
+    };
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status },
       sessionSpace: { ...get().sessionSpace, [s.id]: s.spaceId }, allSessions: { ...get().allSessions, [s.id]: s } });
     /**
@@ -7081,21 +7087,21 @@ await get().refreshCustomThemes().catch(() => {});
           ? prefs.disabledCategories.filter((c) => c !== category)
           : [...prefs.disabledCategories.filter((c) => c !== category), category];
         await api.setSetting(NOTIFICATIONS_DISABLED_KEY, disabledCategories);
-        set({ settingsPrefs: { ...prefs, disabledCategories } });
+        mergeSettingsPrefs({ disabledCategories });
       },
       async setDefaultPermissionMode(mode) {
-        const prefs = get().settingsPrefs; if (!prefs) return;
+        if (!get().settingsPrefs) return;
         await api.setSetting(DEFAULT_PERMISSION_MODE_KEY, mode);
-        set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
+        mergeSettingsPrefs({ defaultPermissionMode: mode });
       },
       async setMidTurnMode(mode) {
         await api.setSetting(MID_TURN_MODE_KEY, mode);
         set({ midTurnMode: mode });
       },
       async setClaudeOwnSetup(on) {
-        const prefs = get().settingsPrefs; if (!prefs) return;
+        if (!get().settingsPrefs) return;
         await api.setSetting(CLAUDE_OWN_SETUP_KEY, on);
-        set({ settingsPrefs: { ...prefs, claudeOwnSetup: on } });
+        mergeSettingsPrefs({ claudeOwnSetup: on });
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
       async refreshCredentials(profileId) {

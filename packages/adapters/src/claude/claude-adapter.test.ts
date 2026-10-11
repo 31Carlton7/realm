@@ -811,6 +811,34 @@ describe("ClaudeAdapter skills", () => {
     await handle.dispose();
   });
 
+  it("starts a session that keeps the person's own setup under the policy that leaves their permission rules out of force", async () => {
+    const { handle, options } = capture({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" }, ownSetup: true });
+    await handle.send({ text: "hi", attachments: [] });
+    expect(options()!.managedSettings).toEqual({ allowManagedPermissionRulesOnly: true });
+    await handle.dispose();
+  });
+
+  it("starts a session with ownSetup and no library under that policy too", async () => {
+    const { handle, options } = capture({ ownSetup: true });
+    await handle.send({ text: "hi", attachments: [] });
+    expect(options()!.managedSettings).toEqual({ allowManagedPermissionRulesOnly: true });
+    await handle.dispose();
+  });
+
+  it("passes no managed settings to a session Realm isolates", async () => {
+    const { handle, options } = capture({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await handle.send({ text: "hi", attachments: [] });
+    expect("managedSettings" in options()!).toBe(false);
+    await handle.dispose();
+  });
+
+  it("passes no managed settings to a session with neither a library nor ownSetup", async () => {
+    const { handle, options } = capture({});
+    await handle.send({ text: "hi", attachments: [] });
+    expect("managedSettings" in options()!).toBe(false);
+    await handle.dispose();
+  });
+
   it("appends systemContext to the claude_code preset prompt — W3's memory channel, and the only route the user's CLAUDE.md has back into a settingSources: [] session", async () => {
     const { handle, options } = capture({
       systemContext: "REALM CONTEXT 4417",
