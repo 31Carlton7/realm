@@ -741,3 +741,36 @@ describe("the harness's answer about Ultracode", () => {
     expect(reduceAll([init()]).init).not.toHaveProperty("ultracodeAvailable");
   });
 });
+
+describe("the harness's answer about the keyword", () => {
+  const init = (over: Record<string, unknown> = {}) =>
+    sessionEvent("init", { providerSessionId: "p1", model: "claude-opus-5", tools: [], cwd: "/tmp", ...over });
+
+  it("stays on the transcript from the restatement that carries it, a no as well as a yes", () => {
+    expect(reduceAll([init(), init({ ultracodeKeyword: true })]).init).toMatchObject({ ultracodeKeyword: true });
+    expect(reduceAll([init(), init({ ultracodeKeyword: false })]).init).toMatchObject({ ultracodeKeyword: false });
+  });
+
+  it("is kept beside the answer about Ultracode when one restatement carries both", () => {
+    expect(reduceAll([init(), init({ ultracodeAvailable: false, ultracodeKeyword: true })]).init)
+      .toEqual({ providerSessionId: "p1", model: "claude-opus-5", tools: [], ultracodeAvailable: false, ultracodeKeyword: true });
+  });
+
+  it("survives a later handshake for the same model that says nothing of the keyword", () => {
+    expect(reduceAll([init({ ultracodeKeyword: false }), init()]).init).toMatchObject({ ultracodeKeyword: false });
+    expect(reduceAll([init({ ultracodeKeyword: true }), init({ supportsFastMode: true })]).init).toMatchObject({ supportsFastMode: true, ultracodeKeyword: true });
+  });
+
+  it("does not survive a handshake for another model, on the terms the answer about Ultracode is kept on", () => {
+    expect(reduceAll([init({ ultracodeKeyword: false }), init({ model: "claude-sonnet-5" })]).init).not.toHaveProperty("ultracodeKeyword");
+  });
+
+  it("gives way to a later answer about the keyword for the same model", () => {
+    expect(reduceAll([init({ ultracodeKeyword: false }), init({ ultracodeKeyword: true })]).init).toMatchObject({ ultracodeKeyword: true });
+    expect(reduceAll([init({ ultracodeKeyword: true }), init({ ultracodeKeyword: false })]).init).toMatchObject({ ultracodeKeyword: false });
+  });
+
+  it("stays unstated about the keyword after a handshake that never said", () => {
+    expect(reduceAll([init()]).init).not.toHaveProperty("ultracodeKeyword");
+  });
+});

@@ -750,6 +750,17 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(selected).toContain("--chip-ink: var(--rl-text-bright)");
   });
 
+  it("the keyword's run in the prompter is the warning tone on its ink alone, and no rule of the chips reaches it", () => {
+    expect(bodiesFor(".ch-keyword")).toEqual(["color: var(--rl-warning);"]);
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".ch-keyword"))).map((r) => r.selectors)).toEqual([[".ch-keyword"]]);
+  });
+
+  it("the line about the keyword wears the secondary ink from a rule of one class, which the note row's warning tone outranks", () => {
+    expect(bodiesFor(".composer-keyword-note")).toEqual(["color: var(--rl-text-dim);"]);
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".composer-keyword-note"))).map((r) => r.selectors)).toEqual([[".composer-keyword-note"]]);
+    expect(bodiesFor('.composer-attach-note[data-disposition="ignored"]')).toEqual(["color: var(--rl-warning);"]);
+  });
+
   it("the prompter's column gives up MORE width than the zoom already takes", () => {
     /* ⌘− scales every px, so a px column keeps the same share of the window at every zoom — zooming
        out to fit more of the work on screen bought nothing back from the prompter. Multiplying by

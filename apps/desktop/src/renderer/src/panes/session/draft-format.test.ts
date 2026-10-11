@@ -6,6 +6,9 @@ import { chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, i
 const painted = (segs: Segment[]) => segs.filter((s) => s.kind).map((s) => [s.kind, s.text]);
 /** Every run concatenated. The mirror draws these in order, so this MUST equal the draft exactly. */
 const rejoin = (segs: Segment[]) => segs.map((s) => s.text).join("");
+/** Every place a text holds the word `ultracode`, as hits for the mirror to paint. Which of them
+ *  count is the Composer's rule to say, so these tests hand over every one. */
+const everyWord = (text: string) => [...text.matchAll(/ultracode/g)].map((m) => ({ start: m.index, end: m.index + m[0].length }));
 
 describe("highlightSegments — the mirror paints the draft, never a version of it", () => {
   /* The invariant the whole mirror rests on: the runs are a partition of the string. Drop a
@@ -87,6 +90,46 @@ describe("highlightSegments — the mirror paints the draft, never a version of 
     const ids = painted(highlightSegments(text, ["mac"])).map(([, t]) => t as string);
     expect(ids).toEqual(["@mac"]);
     expect(stripMentionAts(text, scanMentions(text, ["mac"]))).toBe("use mac not carlton@mac and not @macs");
+  });
+});
+
+describe("highlightSegments, handed the keyword's hits", () => {
+  const withHits = (text: string, liveIds: string[] = [], staleIds: string[] = []) => highlightSegments(text, liveIds, staleIds, ["goal"], everyWord(text));
+
+  it("paints each hit as a run of its own and leaves the words between them plain", () => {
+    expect(painted(withHits("ultracode this, then ultracode that"))).toEqual([["keyword", "ultracode"], ["keyword", "ultracode"]]);
+  });
+
+  it("paints no run for the word when it is handed no hit, however often the draft holds it", () => {
+    expect(painted(highlightSegments("ultracode this, then ultracode that", []))).toEqual([]);
+    expect(painted(highlightSegments("ultracode this, then ultracode that", [], [], [], []))).toEqual([]);
+  });
+
+  it("still covers the draft exactly, character for character, with hits painted in it", () => {
+    for (const text of [
+      "ultracode", "  ultracode  ", "say ultracode\n", "ultracode ultracode", "- ultracode\n> ultracode", "**ultracode** review this",
+      "see https://example.com/?q=ultracode today", "``ultracode`` here", 'see (1 and @[button "Try ultracode"]', "@ultracode fix it", "@mac ultracode",
+      "ultracode 🚀 and 日本ultracode",
+    ]) {
+      expect(rejoin(withHits(text, ["mac"])), JSON.stringify(text)).toBe(text);
+    }
+  });
+
+  it("leaves a word inside a link, a code run, a chip's label or a mention to that run, whole", () => {
+    expect(painted(withHits("see https://example.com/?q=ultracode today"))).toEqual([["link", "https://example.com/?q=ultracode"]]);
+    expect(painted(withHits("``ultracode`` here"))).toEqual([["code", "`ultracode`"]]);
+    expect(painted(withHits('see (1 and @[button "Try ultracode"]'))).toEqual([["element", '@[button "Try ultracode"]']]);
+    expect(painted(withHits("@ultracode fix it", ["ultracode"]))).toEqual([["mention", "@ultracode"]]);
+    expect(painted(withHits("@ultracode fix it", [], ["ultracode"]))).toEqual([["mention-stale", "@ultracode"]]);
+  });
+
+  it("paints the word beside the punctuation of a list, a quote and a bold pair, which only touch it", () => {
+    expect(painted(withHits("- ultracode\n> ultracode"))).toEqual([["marker", "-"], ["keyword", "ultracode"], ["marker", ">"], ["keyword", "ultracode"]]);
+    expect(painted(withHits("**ultracode** review this"))).toEqual([["punct", "**"], ["keyword", "ultracode"], ["punct", "**"]]);
+  });
+
+  it("makes no chip of the word, so a click inside it places an ordinary caret", () => {
+    expect(chipSpans(withHits("say ultracode now"))).toEqual([]);
   });
 });
 

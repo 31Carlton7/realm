@@ -632,28 +632,44 @@ function ultracodeRecord(start: boolean): { told(): boolean; write(value: boolea
 }
 
 /**
- * What the harness says about whether this session can run Ultracode, or null where it does not say.
+ * What the harness says about Ultracode in this session, or null where it gives no answer: whether
+ * the session can run it (`ultracodeAvailable`), and whether the harness reads the keyword
+ * `ultracode` in a message a person sent (`ultracodeKeyword`).
  *
- * `getSettings` answers with what Claude Code has applied, and `applied.ultracodeAvailable` is false
- * where workflows are switched off, or where the session's model cannot run it. The SDK's types do
- * not declare the call, so it is reached the way `readPlanLimits` reaches its own: looked for first,
- * and every failure read as silence. A build without the call, a CLI that declines it and an answer
- * in another shape all leave the switch a request, with no claim either way.
+ * `getSettings` answers with the settings Claude Code has merged (`effective`) and with what it has
+ * applied (`applied`), so the one call answers both. `applied.ultracodeAvailable` is false where
+ * workflows are switched off, or where the session's model cannot run it. An answer that does not
+ * say so as a boolean leaves that fact out, and the switch stays a request, with no claim either way.
+ *
+ * The keyword is read where workflows are enabled and the keyword's own trigger is not switched
+ * off, whatever the model. `effective.workflowKeywordTriggerEnabled` is there only where some
+ * settings layer sets it, so anything but `false` is the trigger left on. No field of the answer
+ * says that workflows are enabled without also asking about the model, so that half is read off
+ * `tools`, the handshake's own list: the harness lists its `Workflow` tool exactly when workflows
+ * are enabled. An answer therefore always settles the keyword.
+ *
+ * The SDK's types do not declare the call, so it is reached the way `readPlanLimits` reaches its
+ * own: looked for first, and every failure read as silence. A build without the call, a CLI that
+ * declines it and an answer that is no object all say nothing of either fact.
  *
  * Asked after every `init`, since the harness sends one for each turn and a reader keeps the newest,
- * and never from `setOptions`, where a CLI slow to answer would hold up the press behind it. A
- * boolean answer restates `init` in an event of its own, apart from the one that carries the
- * fast-mode facts, so that a `getSettings` which never answers holds nothing else back. An answer
- * that lands after a newer `init` restates nothing. It would put the older handshake's session id
- * and model over the newer one's.
+ * and never from `setOptions`, where a CLI slow to answer would hold up the press behind it. An
+ * answer restates `init` once, with whichever of the two facts it holds, in an event of its own,
+ * apart from the one that carries the fast-mode facts, so that a `getSettings` which never answers
+ * holds nothing else back. An answer that lands after a newer `init` restates nothing. It would put
+ * the older handshake's session id and model over the newer one's.
  */
-async function ultracodeAvailable(q: Query | null): Promise<boolean | null> {
+async function ultracodeFacts(q: Query | null, tools: readonly string[]): Promise<{ ultracodeAvailable?: boolean; ultracodeKeyword: boolean } | null> {
   const ask = (q as { getSettings?: () => Promise<unknown> } | null)?.getSettings;
   if (typeof ask !== "function") return null;
   try {
-    const answer = await ask.call(q) as { applied?: { ultracodeAvailable?: unknown } | null } | null;
-    const can = answer?.applied?.ultracodeAvailable;
-    return typeof can === "boolean" ? can : null;
+    const answer = await ask.call(q) as { effective?: { workflowKeywordTriggerEnabled?: unknown } | null; applied?: { ultracodeAvailable?: unknown } | null } | null;
+    if (typeof answer !== "object" || answer === null) return null;
+    const can = answer.applied?.ultracodeAvailable;
+    return {
+      ...(typeof can === "boolean" ? { ultracodeAvailable: can } : {}),
+      ultracodeKeyword: answer.effective?.workflowKeywordTriggerEnabled !== false && tools.includes("Workflow"),
+    };
   } catch {
     return null;
   }
@@ -1070,7 +1086,7 @@ export class ClaudeAdapter implements AgentAdapter {
             };
             const turn = ++handshakes;
             void reportFastModeSupport(handshake);
-            void ultracodeAvailable(q).then((can) => { if (can !== null && !disposed && turn === handshakes) events.push(sessionEvent("init", { ...handshake, ultracodeAvailable: can })); });
+            void ultracodeFacts(q, handshake.tools).then((said) => { if (said !== null && !disposed && turn === handshakes) events.push(sessionEvent("init", { ...handshake, ...said })); });
             // The plan panel should be answerable before any limit moves, so it is read once here
             // rather than waiting for the first `rate_limit_event` — which on a quiet account may
             // never come. Off the message loop, like the fast-mode probe above it.

@@ -178,6 +178,11 @@ export type Transcript = {
      *  So the reducer carries the answer across an `init` for the same model, as it carries
      *  `supportsFastMode`. */
     ultracodeAvailable?: boolean;
+    /** Whether the harness says it reads the keyword `ultracode` in this session's messages (the
+     *  event's `ultracodeKeyword`). Undefined is "not answered". It arrives in the restatement that
+     *  carries `ultracodeAvailable`, and the reducer carries it across an `init` for the same model
+     *  on the same terms. */
+    ultracodeKeyword?: boolean;
     /** THIS session's own reasoning levels (an ACP `thought_level` option) and the one it started on. */
     efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
   /** The run in flight: when it started, and the permission-prompt time to take off its clock.
@@ -522,7 +527,7 @@ function reduceEvent(t: Transcript, e: SessionEvent, markUnseen: boolean, seq: n
         blocks: [...dropPending(blocks), { kind: "compacted", preTokens: e.payload.preTokens, ...(post === undefined ? {} : { postTokens: post }), ts: e.ts }],
         usage: post === undefined ? t.usage : { ...t.usage, contextTokens: post } };
     }
-    // Replaced, not merged — with two exceptions, and the exceptions are the point.
+    // Replaced, not merged — with three exceptions, and the exceptions are the point.
     //
     // A resume sends a fresh handshake under a new `providerSessionId`, and the Claude adapter
     // restates the whole record when it learns whether the model can run fast mode; in both cases
@@ -534,8 +539,8 @@ function reduceEvent(t: Transcript, e: SessionEvent, markUnseen: boolean, seq: n
     // that hard-won answer with silence, and the prompter's Speed control would disappear mid-session
     // for no reason the user could see: the "shows up occasionally" this fixes. So the answer
     // survives a restatement of the SAME model, and only that — on a different model it describes
-    // something else and has to be earned again. `ultracodeAvailable` is the other exception, kept
-    // on the same terms (see `Transcript.init`).
+    // something else and has to be earned again. `ultracodeAvailable` and `ultracodeKeyword` are
+    // the other exceptions, kept on the same terms (see `Transcript.init`).
     //
     // `??` and not `||`: `false` is an answer ("this model cannot"), and the switch stays hidden on
     // it just as it does on silence — but it must not be mistaken for "not stated" and re-inherited
@@ -544,11 +549,13 @@ function reduceEvent(t: Transcript, e: SessionEvent, markUnseen: boolean, seq: n
       const sameModel = t.init?.model === e.payload.model;
       const fast = e.payload.supportsFastMode ?? (sameModel ? t.init?.supportsFastMode : undefined);
       const ultracode = e.payload.ultracodeAvailable ?? (sameModel ? t.init?.ultracodeAvailable : undefined);
+      const keyword = e.payload.ultracodeKeyword ?? (sameModel ? t.init?.ultracodeKeyword : undefined);
       return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId,
         ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}),
         ...(e.payload.efforts ? { efforts: e.payload.efforts, ...(e.payload.defaultEffort ? { defaultEffort: e.payload.defaultEffort } : {}) } : {}),
         ...(fast === undefined ? {} : { supportsFastMode: fast }),
-        ...(ultracode === undefined ? {} : { ultracodeAvailable: ultracode }) } };
+        ...(ultracode === undefined ? {} : { ultracodeAvailable: ultracode }),
+        ...(keyword === undefined ? {} : { ultracodeKeyword: keyword }) } };
     }
     case "status": {
       const run = t.run;

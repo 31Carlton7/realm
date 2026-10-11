@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
   agentRowHint, billingLead, chipLabel, chipTitle, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows, holdRows,
-  modelAbout, modelLabel, modelRows, resolveModelName, ultracodeAvailability, ultracodeHint, ultracodeShown, ultracodeTitle, type FastMode, type ModelRow, type Ultracode,
+  modelAbout, modelLabel, modelRows, resolveModelName, ultracodeAvailability, ultracodeHint, ultracodeKeywordHint, ultracodeShown, ultracodeTitle, type FastMode, type ModelRow, type Ultracode,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
@@ -615,6 +615,75 @@ describe("the Ultracode switch's tooltip, its line, and the chip's mark and tool
     expect(chipTitle("Claude Opus 5", "claude", null, false, true)).toBe("Claude Opus 5 through Claude · Ultracode");
     expect(chipTitle("Claude Opus 5", "claude", "Max", true, false)).toBe("Claude Opus 5 through Claude · Max effort · fast mode");
     expect(chipTitle("Claude Opus 5", "claude", "Max", true)).toBe("Claude Opus 5 through Claude · Max effort · fast mode");
+  });
+});
+
+describe("ultracodeKeywordHint", () => {
+  const hint = (over: Partial<Parameters<typeof ultracodeKeywordHint>[0]> = {}) =>
+    ultracodeKeywordHint({ kind: "claude", permissionMode: "default", model: "claude-opus-5-5", inForce: false, draft: "ultracode review this", skillMention: false, ...over });
+  const NOTE = "“ultracode” has Claude plan this turn as a workflow of sub-agents. It uses many more tokens. To only mention the word, quote it.";
+  const ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. To only mention the word, quote it.";
+
+  it("says what the word does to the turn, what that costs and how to only mention it, for a Claude draft that holds the keyword", () => {
+    expect(hint()).toEqual({ hits: [{ start: 0, end: 9 }], ask: false, note: NOTE });
+  });
+
+  it("says nothing for an agent that has no Ultracode, whatever its draft and its handshake hold", () => {
+    for (const kind of ["codex", "acp:cursor", "fake"] as const) expect(hint({ kind, init: { model: "claude-opus-5-5", ultracodeKeyword: true } }), kind).toBeNull();
+  });
+
+  it("says nothing once the harness has said it does not read the keyword in this session", () => {
+    expect(hint({ init: { model: "claude-opus-5-5", ultracodeKeyword: false } })).toBeNull();
+  });
+
+  it("speaks where the harness has said it reads the keyword, and where it has not answered", () => {
+    expect(hint({ init: { model: "claude-opus-5-5", ultracodeKeyword: true } })).not.toBeNull();
+    expect(hint({ init: { model: "claude-opus-5-5" } })).not.toBeNull();
+    expect(hint({ init: null })).not.toBeNull();
+  });
+
+  it("does not take a no that was about another model for one about the model the session asks for", () => {
+    expect(hint({ init: { model: "claude-sonnet-5", ultracodeKeyword: false } })).not.toBeNull();
+  });
+
+  it("believes a no from the handshake of a session that pinned no model, and of one whose model id differs only by a bracketed variant", () => {
+    expect(hint({ model: null, init: { model: "claude-fable-5-1", ultracodeKeyword: false } })).toBeNull();
+    expect(hint({ model: "claude-opus-5-5[1m]", init: { model: "claude-opus-5-5", ultracodeKeyword: false } })).toBeNull();
+    expect(hint({ init: { model: "claude-opus-5-5[1m]", ultracodeKeyword: false } })).toBeNull();
+  });
+
+  it("says nothing while the session's own Ultracode is on and in force, where the word adds nothing", () => {
+    expect(hint({ inForce: true })).toBeNull();
+  });
+
+  it("says nothing for a draft that holds a mention of a skill, which Realm sends as a command", () => {
+    expect(hint({ draft: "@mac ultracode this", skillMention: true })).toBeNull();
+  });
+
+  it("says nothing for a draft that starts with a slash once its leading blank space is dropped, which is how the prompter sends it", () => {
+    expect(hint({ draft: "  /tmp/notes.txt mentions ultracode" })).toBeNull();
+    expect(hint({ draft: "\n/foo ultracode" })).toBeNull();
+  });
+
+  it.each(['"ultracode" is the keyword', "`ultracode` is the keyword", "open src/ultracode/index.ts", "what is ultracode?", "open ultracode.md"])("says nothing for %s, where Claude Code does not count the word", (draft) => {
+    expect(hint({ draft })).toBeNull();
+  });
+
+  it("says nothing for a draft that does not hold the word", () => {
+    expect(hint({ draft: "review this" })).toBeNull();
+    expect(hint({ draft: "" })).toBeNull();
+  });
+
+  it("gives every hit in the draft's own offsets, past the blank space the prompter trims", () => {
+    expect(hint({ draft: "  ultracode, then ultracode\n" })?.hits).toEqual([{ start: 2, end: 11 }, { start: 18, end: 27 }]);
+  });
+
+  it("is a warning in Ask mode, in words that say Ask mode cannot start the workflow", () => {
+    expect(hint({ permissionMode: "ask" })).toEqual({ hits: [{ start: 0, end: 9 }], ask: true, note: ASK_NOTE });
+  });
+
+  it("is no warning in Plan mode, or under any permission of Build", () => {
+    for (const permissionMode of ["plan", "default", "acceptEdits", "bypassPermissions"]) expect(hint({ permissionMode }), permissionMode).toMatchObject({ ask: false, note: NOTE });
   });
 });
 

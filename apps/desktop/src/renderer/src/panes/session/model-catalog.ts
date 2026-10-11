@@ -1,4 +1,4 @@
-import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, AGENT_ULTRACODE, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, sessionModeOf, type AgentKind, type AgentModel, type ModelInfo } from "@realm/contracts";
+import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, AGENT_ULTRACODE, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, scanUltracodeKeyword, sessionModeOf, type AgentKind, type AgentModel, type ModelInfo } from "@realm/contracts";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
@@ -732,6 +732,67 @@ export function ultracodeHint(u: Pick<Ultracode, "on" | "availability">): string
  *  ask for Ultracode, and nothing to have said the session cannot run it. A mark kept past that
  *  would claim work that nobody is running. */
 export const ultracodeShown = (u: Pick<Ultracode, "on" | "availability">): boolean => u.on && u.availability.state !== "unavailable";
+
+/**
+ * What a prompter says about the keyword `ultracode` in its draft.
+ *
+ * Claude Code reads the word in a message a person sent and plans that turn as a workflow of
+ * sub-agents, whatever the session's own Ultracode switch says. `hits` are the places in the draft
+ * where the word counts, for the mirror to colour. `ask` is whether the session is in Ask mode,
+ * where Claude Code still reads the word and Realm refuses the `Workflow` call that follows, so
+ * the line is a warning there. `note` is the line.
+ */
+export type UltracodeKeywordHint = { hits: { start: number; end: number }[]; ask: boolean; note: string };
+
+/** The line under a draft whose keyword will act: what the word does to the turn, what that costs,
+ *  and how to write the word without it acting. */
+const ULTRACODE_KEYWORD_NOTE = "“ultracode” has Claude plan this turn as a workflow of sub-agents. It uses many more tokens. To only mention the word, quote it.";
+
+/** The same line for a session in Ask mode, which cannot start the workflow the word asks for. */
+const ULTRACODE_KEYWORD_ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. To only mention the word, quote it.";
+
+/**
+ * `UltracodeKeywordHint` for a prompter's draft, or null where the prompter says nothing.
+ *
+ * It says nothing wherever sending the draft would start no workflow by the word, or the word
+ * would add nothing:
+ *
+ * - The agent is one Realm cannot ask for Ultracode (`AGENT_ULTRACODE`). No other agent's harness
+ *   reads the word.
+ * - The harness said it does not read the keyword in this session.
+ * - The session's own Ultracode is on and in force, so its turns are planned as workflows already.
+ * - The draft holds a mention of a skill the session can be handed. Realm sends such a message as
+ *   a `/realm:` command, and Claude Code reads no keyword in a command.
+ * - The word does not count where it stands (`scanUltracodeKeyword`). The draft is scanned as it
+ *   is sent, which is trimmed, so a draft that starts with `/` after blank space has no hit either.
+ *
+ * Where the harness has said nothing, the keyword is taken to be read. That is Claude Code's
+ * default, and a session's first message is typed before its first handshake.
+ */
+export function ultracodeKeywordHint({ kind, permissionMode, model, init, inForce, draft, skillMention }: {
+  kind: AgentKind;
+  /** The session's stored permission mode, which is where Ask travels (`sessionModeOf`). */
+  permissionMode: string;
+  /** What the session asks for, which is `session.model`. Null is the harness's default. */
+  model: string | null;
+  /** This session's own handshake, where it has one. What it says of the keyword counts only while
+   *  the handshake describes the model the session asks for, on `ultracodeAvailability`'s terms. */
+  init?: { model: string; ultracodeKeyword?: boolean } | null;
+  /** Whether the session's own Ultracode is on and in force (`ultracodeShown`). */
+  inForce: boolean;
+  draft: string;
+  /** Whether the draft holds a mention of a skill this session can be handed. */
+  skillMention: boolean;
+}): UltracodeKeywordHint | null {
+  if (!AGENT_ULTRACODE[kind] || inForce || skillMention) return null;
+  const read = init?.ultracodeKeyword !== undefined && (model === null || baseId(init.model) === baseId(model)) ? init.ultracodeKeyword : null;
+  if (read === false) return null;
+  const lead = draft.length - draft.trimStart().length;
+  const hits = scanUltracodeKeyword(draft.trim()).map((hit) => ({ start: hit.start + lead, end: hit.end + lead }));
+  if (hits.length === 0) return null;
+  const ask = sessionModeOf(permissionMode) === "ask";
+  return { hits, ask, note: ask ? ULTRACODE_KEYWORD_ASK_NOTE : ULTRACODE_KEYWORD_NOTE };
+}
 
 /**
  * What the picker says about the highlighted model, in a fixed two-line strip under the list.

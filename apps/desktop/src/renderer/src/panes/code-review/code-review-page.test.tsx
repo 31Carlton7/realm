@@ -512,6 +512,18 @@ describe("Ask about this pull request", () => {
     expect(called("codeReview.ask")[0]!.params).toMatchObject({ text: "ultracode: is the stream right?", human: true });
   });
 
+  it("says in the question box that a typed keyword starts a workflow, for as long as the draft holds the word", async () => {
+    await mount();
+    await openRequest();
+    const box = within(asker()).getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "ultracode: is the stream right?" } });
+    expect(asker().querySelector(".composer-keyword-note")).not.toBeNull();
+    expect(asker().querySelector(".composer-highlight > .ch-keyword")).toHaveTextContent("ultracode");
+    fireEvent.change(box, { target: { value: "is the stream right?" } });
+    expect(asker().querySelector(".composer-keyword-note")).toBeNull();
+    expect(asker().querySelector(".composer-highlight > .ch-keyword")).toBeNull();
+  });
+
   it("names no Ultracode in the first question when the card never set it", async () => {
     await mount({ sessions: [started] });
     await openRequest();

@@ -120,6 +120,18 @@ describe("ultracodeAvailable — what the harness says of Ultracode on a handsha
   });
 });
 
+describe("ultracodeKeyword: what the harness says of the keyword on a handshake", () => {
+  const init = { providerSessionId: "p1", model: "claude-opus-5-5", tools: ["Workflow"], cwd: "/tmp" };
+
+  it.each([true, false])("keeps an answer of %s about the keyword on an init that is read back from the log", (ultracodeKeyword) => {
+    expect(stored("init", { ...init, ultracodeKeyword }).payload).toEqual({ ...init, ultracodeKeyword });
+  });
+
+  it("adds no answer about the keyword to an init that came without one, where the harness did not say", () => {
+    expect(stored("init", init).payload).toEqual(init);
+  });
+});
+
 describe("sessions.stopTask", () => {
   it("names the run by the session and the call that launched it", () => {
     const params = { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", toolUseId: "toolu_01" };

@@ -430,6 +430,21 @@ describe("the prompter docked under it", () => {
     expect(store.getState().sessions[api.sent[0]!.id]).not.toHaveProperty("ultracode");
   });
 
+  it("says in the viewer's prompter that a typed keyword starts a workflow, for as long as the draft holds the word", async () => {
+    bridge([media("/x/orphan.png")]);
+    const { store } = await mount([]);
+    act(() => store.getState().openViewer({ files: [{ path: "/x/orphan.png",
+      from: { sessionId: "deleted", spaceId: "s2", sessionTitle: "Gone", kind: "output" } }] }));
+    const dialog = await screen.findByRole("dialog", { name: "orphan.png" });
+    const box = within(dialog).getByRole("textbox", { name: "Message" });
+    fireEvent.change(box, { target: { value: "ultracode redraw this" } });
+    expect(dialog.querySelector(".composer-keyword-note")).not.toBeNull();
+    expect(dialog.querySelector(".composer-highlight > .ch-keyword")).toHaveTextContent("ultracode");
+    fireEvent.change(box, { target: { value: "redraw this" } });
+    expect(dialog.querySelector(".composer-keyword-note")).toBeNull();
+    expect(dialog.querySelector(".composer-highlight > .ch-keyword")).toBeNull();
+  });
+
   it("says when there is no session to ask, and which space the first question starts one in", async () => {
     bridge([media("/x/orphan.png")]);
     const { store } = await mount([]);

@@ -5042,6 +5042,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-attach-note .attach-note-glyph { flex: none; align-self: center; margin-right: 5px; }
 .composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 11px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* The line about the keyword `ultracode` in the draft. It says what the next send will cost, which
+   is a line to read before sending and not one a reader may skip, so it wears the secondary ink
+   where a note that only reports a handoff wears the faint one. In Ask mode it is a warning, and
+   the row's own warning tone above outranks this rule. */
+.composer-keyword-note { color: var(--rl-text-dim); }
 
 /* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding
    (§2), grows to ~7 lines and then scrolls (matches MAX_ROWS_PX in Composer.tsx). Ten lines was a
@@ -5216,6 +5221,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    reaches a half-pixel further out than the rest. It always opens the draft, on the first line, where
    the extra height has nothing above it to meet. */
 .ch-slash { --chip-ink: var(--rl-success); --chip-tone: var(--rl-success); --chip-tint: var(--green-tint); --chip-spread: 2px; --chip-dx: -0.5px; }
+/* The word `ultracode`, where the harness will read it and plan the turn as a workflow of
+   sub-agents, which uses many more tokens. The warning tone, because the word changes what the
+   next send costs, and on the ink alone: no fill and no pill. The word names nothing, so it is no
+   chip, and a wash under it would be a second warning beside the line the card shows for it.
+   Colour only, as for every run here. */
+.ch-keyword { color: var(--rl-warning); }
 /* Hero (§2): the empty card reads as an invitation — ~56px of input before any growth. */
 .session-pane[data-composer="hero"] .composer-input { min-height: 56px; }
 /* Row 3 — control row (Ara refresh §3): 40px, hairline-free, 12px inline padding; "+" attach, then

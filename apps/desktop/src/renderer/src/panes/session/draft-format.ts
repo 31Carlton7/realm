@@ -43,7 +43,17 @@ export type SegmentKind =
    * that merely begins with a slash — and while a command is half-typed, the picker under the box is
    * already saying what it could become.
    */
-  | "slash";
+  | "slash"
+  /**
+   * The word `ultracode`, where the harness will read it and plan the turn as a workflow.
+   *
+   * The mirror does not look for the word. The Composer hands `highlightSegments` the hits, and
+   * only when its own rule says that sending this draft would act on them (`ultracodeKeywordHint`),
+   * for the reason `mention` is gated on the skill resolving. It is not a chip: the word is prose
+   * and stays prose, so the run is painted and never taken whole. It has the last rank, and any
+   * other kind keeps a word that lies inside it: a URL, a code run, a chip's label.
+   */
+  | "keyword";
 
 export type Segment = { text: string; kind: SegmentKind | null };
 
@@ -54,7 +64,7 @@ type Span = { start: number; end: number; kind: SegmentKind; rank: number };
    inside backticks is code, an `@` inside a URL is neither. Lower wins. `element` shares marker's 0
    because its rank never decides anything: no other span here can begin at `@[`, so an element chip
    is never in a tie. */
-const RANK = { element: 0, marker: 0, slash: 0, punct: 1, code: 2, link: 3, mention: 4 } as const;
+const RANK = { element: 0, marker: 0, slash: 0, punct: 1, code: 2, link: 3, mention: 4, keyword: 5 } as const;
 
 /** `http(s)://…` and bare `www.…`, up to whitespace. Trailing punctuation is trimmed below — a URL
  *  ending a sentence must not swallow the full stop, and a URL in parentheses must not eat the `)`. */
@@ -88,9 +98,13 @@ function urlEnd(text: string, start: number, raw: string): number {
  * `commandIds` is the same idea for the `/name` opening the draft: it colours if and only if the
  * prompter has that command, so the colour means "this will run" rather than "this looks like it
  * might". Empty is the ordinary case for a session whose commands have not loaded.
+ *
+ * `keywordHits` are the places where the keyword `ultracode` will act, in offsets of this text, as
+ * the Composer's rule worked them out. Empty is the ordinary case, and then no run is painted for
+ * the word, however often the text holds it.
  */
 export function highlightSegments(text: string, liveIds: Iterable<string>, staleIds: Iterable<string> = [],
-  commandIds: Iterable<string> = []): Segment[] {
+  commandIds: Iterable<string> = [], keywordHits: readonly { start: number; end: number }[] = []): Segment[] {
   const spans: Span[] = [];
   // An element chip's label is arbitrary page text, so a URL or a backtick inside it must not cut the
   // token in half. What protects it is that it starts first: the `@[` is always left of anything the
@@ -108,6 +122,7 @@ export function highlightSegments(text: string, liveIds: Iterable<string>, stale
   for (const c of scanElementChips(text)) spans.push({ start: c.start, end: c.end, kind: "element", rank: RANK.element });
   for (const t of scanMentions(text, liveIds)) spans.push({ start: t.start, end: t.end, kind: "mention", rank: RANK.mention });
   for (const t of scanMentions(text, staleIds)) spans.push({ start: t.start, end: t.end, kind: "mention-stale", rank: RANK.mention });
+  for (const h of keywordHits) spans.push({ start: h.start, end: h.end, kind: "keyword", rank: RANK.keyword });
   for (const m of text.matchAll(CODE_RE)) spans.push({ start: m.index, end: m.index + m[0].length, kind: "code", rank: RANK.code });
   for (const m of text.matchAll(URL_RE)) {
     const end = urlEnd(text, m.index, m[0]);

@@ -18,6 +18,7 @@ export * from "./key-event";
 export * from "./project-search";
 export * from "./mentions";
 export * from "./mention-refs";
+export * from "./ultracode-keyword";
 export * from "./mcp";
 export * from "./mcp-apps";
 export * from "./memory";

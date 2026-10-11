@@ -222,6 +222,14 @@ describe("the @ list — files, the Library, apps and @Mac", () => {
     expect(container.querySelector(".composer-highlight .ch-mention [data-brand=apple]")).not.toBeNull();
     expect(screen.queryByText(/sent as plain text/i)).toBeNull();
   });
+
+  it("draws the line about the keyword beside an @Mac that is switched off, because that mention goes as words and not as a command", async () => {
+    const { container } = await mount("claude", [skillRow("mac", { enabled: false })]);
+    await type("@mac ultracode this");
+    expect(container.querySelector(".composer-highlight .ch-mention")).toHaveTextContent("@mac");
+    expect(container.querySelector(".composer-highlight .ch-keyword")).toHaveTextContent("ultracode");
+    expect(container.querySelector(".composer-keyword-note")).not.toBeNull();
+  });
 });
 
 /**

@@ -36,6 +36,17 @@ const toggle = () => screen.queryByRole("switch", { name: "Ultracode" }) as HTML
  *  has none. */
 const line = () => document.querySelector(".mp-fast-note");
 
+/** What the prompter says under a draft whose keyword will act. */
+const KEYWORD_NOTE = "“ultracode” has Claude plan this turn as a workflow of sub-agents. It uses many more tokens. To only mention the word, quote it.";
+/** What it says of the same draft in Ask mode. */
+const KEYWORD_ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. To only mention the word, quote it.";
+const box = () => screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+const type = (value: string) => fireEvent.change(box(), { target: { value } });
+/** The line about the keyword in the card's note row, or null where the card draws none. */
+const keywordNote = () => document.querySelector<HTMLParagraphElement>(".composer-keyword-note");
+/** The runs the mirror paints for the keyword, each as the draft spells it. */
+const keywordRuns = () => Array.from(document.querySelectorAll(".composer-highlight > .ch-keyword")).map((el) => el.textContent);
+
 describe("the prompter's Ultracode switch", () => {
   it("is on a Claude session's card before the harness has said anything, off and free to press", async () => {
     await mount([]);
@@ -205,5 +216,103 @@ describe("the prompter's Ultracode switch", () => {
     await openPicker();
     expect(line()).toHaveTextContent("Fast mode is asked for — the first turn checks it.");
     expect(line()).not.toHaveAttribute("data-tone");
+  });
+});
+
+describe("the prompter's hint that a typed keyword starts a workflow", () => {
+  it("says under a Claude session's draft what the keyword will do, from the moment the word is typed", async () => {
+    await mount([]);
+    expect(keywordNote()).toBeNull();
+    type("ultracode review this");
+    expect(keywordNote()!.textContent).toBe(KEYWORD_NOTE);
+  });
+
+  it("colours each hit in the mirror, and the mirror still holds the draft glyph for glyph", async () => {
+    await mount([]);
+    type("ultracode this, then Ultracode that");
+    expect(keywordRuns()).toEqual(["ultracode", "Ultracode"]);
+    expect(document.querySelector(".composer-highlight")!.textContent).toBe("ultracode this, then Ultracode that");
+  });
+
+  it("takes the line and the colour away when the word is quoted, and again when the word is gone", async () => {
+    await mount([]);
+    type("ultracode review this");
+    expect(keywordNote()).not.toBeNull();
+    type('"ultracode" is the keyword');
+    expect(keywordNote()).toBeNull();
+    expect(keywordRuns()).toEqual([]);
+    type("ultracode");
+    expect(keywordRuns()).toEqual(["ultracode"]);
+    type("review this");
+    expect(keywordNote()).toBeNull();
+    expect(keywordRuns()).toEqual([]);
+  });
+
+  it("ties the line to the textarea for as long as it is drawn, so the hint is not for sighted readers only", async () => {
+    await mount([]);
+    type("ultracode review this");
+    expect(keywordNote()!.id).not.toBe("");
+    expect(box().getAttribute("aria-describedby")).toBe(keywordNote()!.id);
+    type("review this");
+    expect(box().getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("draws the line as information where the keyword will act, with no warning tone and no warning glyph", async () => {
+    await mount([]);
+    type("ultracode review this");
+    expect(keywordNote()).not.toHaveAttribute("data-disposition");
+    expect(keywordNote()!.querySelector(".attach-note-glyph")).toBeNull();
+  });
+
+  it("says in Ask mode that the keyword asks for a workflow Ask mode cannot start, as a warning with its glyph", async () => {
+    await mount([], { permissionMode: "ask" });
+    type("ultracode review this");
+    expect(keywordNote()!.textContent).toBe(KEYWORD_ASK_NOTE);
+    expect(keywordNote()).toHaveAttribute("data-disposition", "ignored");
+    expect(keywordNote()!.querySelector(".attach-note-glyph")).not.toBeNull();
+    expect(keywordRuns()).toEqual(["ultracode"]);
+  });
+
+  it("draws nothing for the keyword once the harness has said it does not read it in this session", async () => {
+    await mount([init({ ultracodeKeyword: false })], { model: "claude-opus-5" });
+    type("ultracode review this");
+    expect(keywordNote()).toBeNull();
+    expect(keywordRuns()).toEqual([]);
+    expect(box().getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("does not take the harness's no about another model for one about the model the session asks for", async () => {
+    await mount([init({ model: "claude-sonnet-5", ultracodeKeyword: false })], { model: "claude-opus-5" });
+    type("ultracode review this");
+    expect(keywordNote()!.textContent).toBe(KEYWORD_NOTE);
+  });
+
+  it("draws nothing for the keyword while the session's own Ultracode is on and in force, where the word adds nothing", async () => {
+    await mount([init({ ultracodeAvailable: true })], { ultracode: true, model: "claude-opus-5" });
+    type("ultracode review this");
+    expect(keywordNote()).toBeNull();
+    expect(keywordRuns()).toEqual([]);
+  });
+
+  it("speaks in Ask mode though the session's Ultracode switch is on, because Ask keeps the switch from being in force", async () => {
+    await mount([init({ ultracodeAvailable: true })], { ultracode: true, model: "claude-opus-5", permissionMode: "ask" });
+    type("ultracode review this");
+    expect(keywordNote()!.textContent).toBe(KEYWORD_ASK_NOTE);
+  });
+
+  it.each(["codex", "fake"] as const)("draws nothing for the keyword in a %s session, whose harness reads no such word", async (agentKind) => {
+    await mount([], { agentKind, model: null });
+    type("ultracode review this");
+    expect(keywordNote()).toBeNull();
+    expect(keywordRuns()).toEqual([]);
+    expect(box().getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("sends the draft exactly as a draft without the hint is sent, and asks the session for nothing else", async () => {
+    const { api } = await mount([]);
+    type("ultracode review this");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await waitFor(() => expect(api.sent).toEqual([{ id: "se1", text: "ultracode review this", attachments: [], human: true }]));
+    expect(api.calls.filter((call) => call.startsWith("setSessionOptions"))).toEqual([]);
   });
 });

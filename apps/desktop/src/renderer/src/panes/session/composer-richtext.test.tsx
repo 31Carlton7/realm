@@ -138,6 +138,35 @@ describe("the prompter's rich-text mirror", () => {
     await mount();
     expect(mirror().getAttribute("aria-hidden")).toBe("true");
   });
+
+  it("paints the keyword's hit as a run of its own beside a link, and still reproduces the draft exactly", async () => {
+    await mount();
+    type("see https://x.dev and ultracode it");
+    expect(painted()).toEqual([["ch-link", "https://x.dev"], ["ch-keyword", "ultracode"]]);
+    expect(mirror().textContent).toBe("see https://x.dev and ultracode it");
+  });
+
+  it("paints no keyword and draws no line about it in a draft that mentions a skill the session can be handed", async () => {
+    await mount();
+    type("@mac ultracode this");
+    expect(painted()).toEqual([["ch-mention", "@mac"]]);
+    expect(document.querySelector(".composer-keyword-note")).toBeNull();
+  });
+
+  it("paints the keyword in a draft that names a skill that is switched off, which goes as plain words", async () => {
+    await mount();
+    type("@web ultracode this");
+    expect(painted()).toEqual([["ch-keyword", "ultracode"]]);
+    expect(document.querySelector(".composer-keyword-note")).not.toBeNull();
+  });
+
+  it("changes nothing about what is sent when the keyword is painted", async () => {
+    const { api } = await mount();
+    type("see https://x.dev and ultracode it");
+    fireEvent.keyDown(box(), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.sent[0]).toEqual({ id: "se1", text: "see https://x.dev and ultracode it", attachments: [], human: true });
+  });
 });
 
 describe("list authoring in the prompter", () => {

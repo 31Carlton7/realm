@@ -84,6 +84,18 @@ describe("the quick chat", () => {
     expect(w.getByRole("button", { name: "Add" })).toBeInTheDocument();
   });
 
+  it("says in its prompter that a typed keyword starts a workflow, for as long as the draft holds the word", async () => {
+    const { api } = await mount();
+    const box = within(await openChat()).getByRole("textbox", { name: "Message" });
+    expect(api.calls).toContain("createUnlistedSession:claude");
+    fireEvent.change(box, { target: { value: "ultracode what changed today" } });
+    expect(chat().querySelector(".composer-keyword-note")).not.toBeNull();
+    expect(chat().querySelector(".composer-highlight > .ch-keyword")).toHaveTextContent("ultracode");
+    fireEvent.change(box, { target: { value: "what changed today" } });
+    expect(chat().querySelector(".composer-keyword-note")).toBeNull();
+    expect(chat().querySelector(".composer-highlight > .ch-keyword")).toBeNull();
+  });
+
   it("draws its prompter at rest in a wait raised between turns, as the session's own pane does", async () => {
     const { store } = await mount();
     await openChat();

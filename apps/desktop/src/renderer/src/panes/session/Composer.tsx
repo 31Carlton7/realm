@@ -1,7 +1,7 @@
-import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, scanMentions, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
 import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useFileDrop } from "../../components/use-file-drop";
 import { useItemDrop } from "../../components/use-item-drop";
@@ -11,7 +11,7 @@ import { MentionPicker, mentionOptionId, mentionQueryAt } from "./MentionPicker"
 import { fileMark, labelCandidatesFor, mentionOptions, mentionRows, refFor, useMentionAnswers, type MentionRow, type MentionSources } from "./mention-sources";
 import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
-import { effortOptions, fastModeAvailability, fastModeTip, modelRows, ultracodeAvailability, type EffortControl, type FastMode, type Ultracode } from "./model-catalog";
+import { effortOptions, fastModeAvailability, fastModeTip, modelRows, ultracodeAvailability, ultracodeKeywordHint, ultracodeShown, type EffortControl, type FastMode, type Ultracode } from "./model-catalog";
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker, type OverflowGroup } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
@@ -582,9 +582,10 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
    *  else a pack brings — the switch is the consent boundary and a pack is not a way around it. */
   packGreetings?: readonly string[];
   /** This session's own handshake, where it has one — its model, what the harness said about that
-   *  model's fast mode, and whether it said the session can run Ultracode. A prompter with no
-   *  session behind it yet passes none, because another session's answers are not this one's. */
-  sessionInit?: { model: string; supportsFastMode?: boolean; ultracodeAvailable?: boolean; efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
+   *  model's fast mode, and whether it said the session can run Ultracode and reads its keyword. A
+   *  prompter with no session behind it yet passes none, because another session's answers are not
+   *  this one's. */
+  sessionInit?: { model: string; supportsFastMode?: boolean; ultracodeAvailable?: boolean; ultracodeKeyword?: boolean; efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
   /** What harnesses have said about fast mode, per agent and model (`MODEL_FAST_SUPPORT_KEY`) — how
    *  a session that has not started can offer the switch on the harness's word. */
   fastSupport?: Record<string, boolean>;
@@ -724,8 +725,17 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
   /* The command ids the mirror may colour — the same list the picker offers, so a run and the popover
      under it can never disagree about whether `/goal` is a command. */
   const commandIds = useMemo(() => slashCommands.map((c) => c.id), [slashCommands]);
-  const segments = useMemo(() => highlightSegments(draft, liveMentionIds, staleMentions, commandIds),
-    [draft, liveMentionIds, staleMentions, commandIds]);
+  const ultracodeState = ultracodeAvailability({ kind, permissionMode: session.permissionMode, model: session.model, init: sessionInit });
+  const ultracode: Ultracode | undefined = ultracodeState.state === "none" ? undefined
+    : { on: session.ultracode === true, onChange: (on) => onOptions({ ultracode: on }), availability: ultracodeState };
+  const ultracodeInForce = ultracode !== undefined && ultracodeShown(ultracode);
+  const keyword = useMemo(() => ultracodeKeywordHint({ kind, permissionMode: session.permissionMode, model: session.model, init: sessionInit,
+    inForce: ultracodeInForce, draft, skillMention: scanMentions(draft, mentionSkills.map((s) => s.id)).length > 0 }),
+    [kind, session.permissionMode, session.model, sessionInit, ultracodeInForce, draft, mentionSkills]);
+  const keywordNoteId = useId();
+  const describedBy = [hint ? hintId : null, keyword ? keywordNoteId : null].filter(Boolean).join(" ") || undefined;
+  const segments = useMemo(() => highlightSegments(draft, liveMentionIds, staleMentions, commandIds, keyword?.hits),
+    [draft, liveMentionIds, staleMentions, commandIds, keyword]);
   /* Chip geometry, in draft offsets rather than pixels. The mirror is behind the textarea and takes no
      pointer events, so a click never reaches a painted run — but it does not have to: the browser has
      already resolved the point to a caret by the time `click` fires, and `selectionStart` is that same
@@ -1222,9 +1232,6 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
     : { on: session.fastMode, state: usage.fastMode ?? null, reason: usage.fastModeReason ?? null,
         requested: usage.fastModeRequested ?? null, onChange: (on) => onOptions({ fastMode: on }), availability: fastAvailability,
         tip: fastModeTip(kind, session.model, agentProbe) };
-  const ultracodeState = ultracodeAvailability({ kind, permissionMode: session.permissionMode, model: session.model, init: sessionInit });
-  const ultracode: Ultracode | undefined = ultracodeState.state === "none" ? undefined
-    : { on: session.ultracode === true, onChange: (on) => onOptions({ ultracode: on }), availability: ultracodeState };
 
   /* One builder, two targets. In Build the picker writes the LIVE permission; in Plan or Ask it
      writes the park — the value returning to Build will restore — because that is the only real,
@@ -1361,6 +1368,12 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
             <span>Computer use cannot drive {listNames(refs.flatMap((r) => (r.kind === "app" ? [r.name] : [])))} until macOS gives Realm Accessibility — grant it in Settings ▸ Computer use.</span>
           </p>
         )}
+        {keyword && (
+          <p id={keywordNoteId} className="composer-attach-note composer-keyword-note" data-disposition={keyword.ask ? "ignored" : undefined}>
+            {keyword.ask && <Icon name="alert" size={12} className="attach-note-glyph" />}
+            <span>{keyword.note}</span>
+          </p>
+        )}
         {/* The mirror and the textarea are one control in two layers, so they share a positioned box.
             aria-hidden on the mirror: it is a duplicate of text the textarea already exposes. It is
             also where the app's caret reads its place (`data-caret-mirror`, caret.ts): laid out glyph
@@ -1430,7 +1443,7 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
             onClick={onClickChip} onMouseMove={onHoverChip} onMouseLeave={leaveChip}
             onKeyDown={onKeyDown} onPaste={onPaste} onScroll={() => { syncScroll(); setHotChip(null); }}
             data-chip-selected={selectedChip ? "" : undefined}
-            aria-describedby={hint ? hintId : undefined}
+            aria-describedby={describedBy}
             aria-controls={slashOpen ? "slash-list" : mentionOpen ? "mention-list" : undefined}
             aria-activedescendant={slashOpen ? `slash-${slashMatches[slashCur]!.id}`
               : mentionOpen ? mentionOptionId(mentionMatches[mentionCur]!.key) : undefined} />

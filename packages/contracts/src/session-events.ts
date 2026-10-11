@@ -389,6 +389,11 @@ const P = {
      *  cannot run it. Absent means the question was not answered, and the prompter then offers the
      *  switch without a claim either way. */
     ultracodeAvailable: z.boolean().optional(),
+    /** Whether the harness reads the keyword `ultracode` in THIS session, in a message a person sent,
+     *  and plans that turn as a workflow (`scanUltracodeKeyword` says where the word counts). False
+     *  where workflows are switched off, or where the keyword's own trigger is. Absent where the
+     *  harness did not say, and the prompter then takes the keyword to be read. */
+    ultracodeKeyword: z.boolean().optional(),
     /** The same answer for EVERY model the harness listed, keyed by the id a session would pin ("" for
      *  the harness's own default). One session's handshake is then enough for the next session on any
      *  of those models to offer the switch before its first message (`MODEL_FAST_SUPPORT_KEY`). */

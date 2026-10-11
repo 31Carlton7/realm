@@ -2886,14 +2886,17 @@ describe("Ultracode in the flag layer, press by press", () => {
 
 /** What a session said of its handshake: every `init` it put out, in order. */
 const inits = (s: ReturnType<typeof driven>) => s.seen.flatMap((e) => (e.type === "init" ? [e.payload] : []));
-/** A harness's whole answer to `getSettings`, as much as says whether Ultracode can run. */
-const applied = (ultracodeAvailable: unknown) => ({ effective: {}, sources: [], applied: { ultracode: false, ultracodeRequested: false, ultracodeAvailable } });
+/** A harness's whole answer to `getSettings`: whether Ultracode can run, and the settings it has
+ *  merged, which hold the keyword's trigger only where some layer sets it. */
+const applied = (ultracodeAvailable: unknown, effective: Record<string, unknown> = {}) => ({ effective, sources: [], applied: { ultracode: false, ultracodeRequested: false, ultracodeAvailable } });
+/** A handshake from a harness with workflows enabled, which lists its `Workflow` tool. */
+const INIT_WITH_WORKFLOWS = { ...INIT, tools: ["Read", "Workflow"] };
 
 describe("whether Ultracode can run, as the harness says it", () => {
   it.each([true, false])("restates init, whole, with the harness's answer of %s", async (can) => {
     const s = driven({ settings: () => applied(can) });
     await s.emit(INIT);
-    expect(inits(s).at(-1)).toEqual({ providerSessionId: "s", model: "m", tools: [], cwd: "/tmp", ultracodeAvailable: can });
+    expect(inits(s).at(-1)).toEqual({ providerSessionId: "s", model: "m", tools: [], cwd: "/tmp", ultracodeAvailable: can, ultracodeKeyword: false });
     await s.close();
   });
 
@@ -2929,13 +2932,62 @@ describe("whether Ultracode can run, as the harness says it", () => {
     { when: "the harness has no such call" },
     { when: "the call is refused", settings: () => { throw new Error("Unsupported control request subtype: get_settings"); } },
     { when: "the answer is nothing", settings: () => null },
-    { when: "the answer has nothing applied", settings: () => ({ effective: {}, sources: [] }) },
-    { when: "what is applied says nothing of whether Ultracode can run", settings: () => ({ applied: { ultracode: true, ultracodeRequested: true } }) },
-    { when: "what it says is neither yes nor no", settings: () => applied("yes") },
   ])("says nothing after the handshake when $when", async ({ settings }) => {
     const s = driven(settings ? { settings } : {});
     await s.emit(INIT);
     expect(inits(s)).toHaveLength(1);
+    await s.close();
+  });
+
+  it.each<{ when: string; settings: () => unknown }>([
+    { when: "the answer has nothing applied", settings: () => ({ effective: {}, sources: [] }) },
+    { when: "what is applied says nothing of whether Ultracode can run", settings: () => ({ applied: { ultracode: true, ultracodeRequested: true } }) },
+    { when: "what it says of whether Ultracode can run is neither yes nor no", settings: () => applied("yes") },
+  ])("restates init with what the answer says of the keyword alone when $when", async ({ settings }) => {
+    const s = driven({ settings });
+    await s.emit(INIT);
+    expect(inits(s).at(-1)).toEqual({ providerSessionId: "s", model: "m", tools: [], cwd: "/tmp", ultracodeKeyword: false });
+    expect(inits(s).at(-1)).not.toHaveProperty("ultracodeAvailable");
+    await s.close();
+  });
+
+  it.each<{ when: string; effective: Record<string, unknown> }>([
+    { when: "no settings layer sets the keyword's trigger", effective: {} },
+    { when: "a settings layer sets the keyword's trigger on", effective: { workflowKeywordTriggerEnabled: true } },
+  ])("says the harness reads the keyword when its handshake lists the Workflow tool and $when", async ({ effective }) => {
+    const s = driven({ settings: () => applied(true, effective) });
+    await s.emit(INIT_WITH_WORKFLOWS);
+    expect(inits(s).at(-1)).toMatchObject({ ultracodeKeyword: true });
+    await s.close();
+  });
+
+  it("says the harness does not read the keyword when a settings layer switches the keyword's trigger off", async () => {
+    const s = driven({ settings: () => applied(true, { workflowKeywordTriggerEnabled: false }) });
+    await s.emit(INIT_WITH_WORKFLOWS);
+    expect(inits(s).at(-1)).toMatchObject({ ultracodeAvailable: true, ultracodeKeyword: false });
+    await s.close();
+  });
+
+  it("says the harness does not read the keyword when its handshake lists no Workflow tool, which is workflows switched off", async () => {
+    const s = driven({ settings: () => applied(false, { workflowKeywordTriggerEnabled: true }) });
+    await s.emit({ ...INIT, tools: ["Read", "Bash"] });
+    expect(inits(s).at(-1)).toMatchObject({ ultracodeAvailable: false, ultracodeKeyword: false });
+    await s.close();
+  });
+
+  it("puts both of the harness's answers in one restatement of init", async () => {
+    const s = driven({ settings: () => applied(true) });
+    await s.emit(INIT_WITH_WORKFLOWS);
+    const handshake = { providerSessionId: "s", model: "m", tools: ["Read", "Workflow"], cwd: "/tmp" };
+    expect(inits(s)).toEqual([handshake, { ...handshake, ultracodeAvailable: true, ultracodeKeyword: true }]);
+    await s.close();
+  });
+
+  it("reads the Workflow tool off the handshake it restates, so an init without the tool after one with it says the keyword is no longer read", async () => {
+    const s = driven({ settings: () => applied(true) });
+    await s.emit(INIT_WITH_WORKFLOWS);
+    await s.emit(INIT);
+    expect(inits(s).map((init) => init.ultracodeKeyword)).toEqual([undefined, true, undefined, false]);
     await s.close();
   });
 

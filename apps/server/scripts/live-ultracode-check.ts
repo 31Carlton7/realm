@@ -2,12 +2,15 @@
  * Live check of what Claude Code makes of a message Realm sends it, and of Ultracode, against the
  * REAL `claude`.
  *
- * Three things here are Claude Code's own doing, on Realm's word. It dispatches a skill, and reads a
+ * Four things here are Claude Code's own doing, on Realm's word. It dispatches a skill, and reads a
  * keyword, from the LAST block of a message and from no other. It acts on the `ultracode` keyword
- * only in a message the host marks as a person's own input. And it tells the model that Ultracode
- * is on when the session's flag settings say so. The unit tests hold Realm to the shape of what it
- * sends. What no unit test can hold up is that the binary still reads that shape this way, so this
- * is the check to run again when the Agent SDK is bumped.
+ * only in a message the host marks as a person's own input. It counts the keyword only where its
+ * own scanner finds it, by rules that Realm's prompter mirrors to tell a person what a draft will do
+ * (`scanUltracodeKeyword`). And it tells the model that Ultracode is on when the session's flag
+ * settings say so. The unit tests hold Realm to the shape of what it sends, and its copy of the
+ * scanner to what the binary did with a table of texts. What no unit test can hold up is that the
+ * binary still reads that shape, and still scans, this way, so this is the check to run again when
+ * the Agent SDK is bumped.
  *
  * It uses no account and nothing is billed, the way `live-workflow-check.ts` uses none: the `claude`
  * is the one the Agent SDK carries, and its environment points it at a stand-in for the Anthropic
@@ -27,6 +30,10 @@
  *    3. With the session's Ultracode option on, the first request carries Claude Code's notice that
  *       Ultracode is on, with no keyword typed, and `init` says whether the session can run it.
  *       With the option switched off again, the next request says that it is off.
+ *    4. One session is sent a list of texts, one a turn and each as a person's own, that between
+ *       them try every rule of the keyword's scanner. A turn's request carries Claude Code's notice
+ *       exactly where Realm's copy of the scanner finds the word in that turn's text, and `init`
+ *       says that the harness reads the keyword.
  *
  * It writes nothing outside its own temp folders, and refuses to run when they would sit inside
  * your home folder, for the reason `live-workflow-check.ts` gives.
@@ -46,7 +53,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { WebSocket } from "ws";
 import { ClaudeAdapter, bundledClaude, probeClaude } from "@realm/adapters";
-import { parseWireMessage, type EventPayload, type MethodName, type MethodParams, type MethodResult, type SessionEvent } from "@realm/contracts";
+import { parseWireMessage, scanUltracodeKeyword, type EventPayload, type MethodName, type MethodParams, type MethodResult, type SessionEvent } from "@realm/contracts";
 import { createApp } from "../src/app";
 import { finish, ok as report } from "./harness";
 import { startStandIn, textsOf, workflowModel, type MessagesRequest } from "./stand-in-anthropic";
@@ -71,12 +78,38 @@ const SKILL = { id: "probe-skill", mark: "PINEAPPLE-7f3a" } as const;
  *  list of attached files stood in the block it reads a keyword from. */
 const NAMED_FILE = "review ultracode draft.pdf";
 
+/** The texts the fourth scenario sends, one a turn, each as a person's own. Between them they try
+ *  every rule of the scanner that Realm's prompter mirrors (`scanUltracodeKeyword`): the word plain,
+ *  capitalised, in quotes, in backticks, in brackets, between hyphens, in a path, before a question
+ *  mark, before a dot and an extension, after a leading slash, with an apostrophe, after a quote
+ *  that never closes, as a tag, and twice. The first one counts. Its notice is then in the history
+ *  that every later request carries, so a check that read more of a request than its own turn would
+ *  find a notice for each text after it. */
+const KEYWORD_TEXTS = [
+  "ultracode say hi",
+  "Ultracode: make it blue",
+  '"ultracode" is the keyword',
+  "`ultracode` is the keyword",
+  "(ultracode) fix the bug",
+  "the-ultracode-branch",
+  "open src/ultracode/index.ts",
+  "what is ultracode?",
+  "open ultracode.md",
+  "/tmp/notes.txt mentions ultracode",
+  "check ultracode's output",
+  'he said "use ultracode for this',
+  "<ultracode> is the keyword",
+  '"ultracode" ultracode',
+] as const;
+
 /** A one-pixel PNG, for a message to carry as its picture. */
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 /** One thing a window is told about a session, or one request the stand-in gets from the session's
- *  own loop: every text Claude Code put in it, and whether it holds a picture. */
-type Seen = SessionEvent | { type: "asked"; texts: string[]; picture: boolean };
+ *  own loop: every text Claude Code put in it, and whether it holds a picture. `own` is the part of
+ *  those texts that came in after the model last spoke, which is what the turn in hand added: the
+ *  message, and the notices Claude Code put beside it. Everything before that is history. */
+type Seen = SessionEvent | { type: "asked"; texts: string[]; picture: boolean; own: string[] };
 /** A `Seen` with its place in the order of arrival, and its time since the scenario began in ms. */
 type Line = Seen & { i: number; at: number };
 type LineOf<T extends Line["type"]> = Extract<Line, { type: T }>;
@@ -229,12 +262,28 @@ async function ultracodeAsAnOption(s: Session): Promise<void> {
   ok("the next request says Ultracode is off", second.asked.some(saying(NOTICE.off)), `${second.asked.length} requests`);
 }
 
+/** 4. One turn for each text of `KEYWORD_TEXTS`, all in one session and all from a person. What
+ *  Claude Code made of a text is read off its own turn's request, and only off what that request
+ *  holds after the model last spoke (`own`), because the notice of an earlier turn stays in the
+ *  history. Realm's copy of the scanner says what to expect there. */
+async function keywordTextByText(s: Session): Promise<void> {
+  for (const text of KEYWORD_TEXTS) {
+    const expected = scanUltracodeKeyword(text).length > 0;
+    const { asked } = await turn(s, text, { human: true });
+    const noticed = asked.some((l) => l.own.some((t) => t.includes(NOTICE.keyword)));
+    ok(`${JSON.stringify(text)} ${expected ? "gets Claude Code's notice" : "gets no notice"}, as Realm's scanner says`, asked.length > 0 && noticed === expected, `${asked.length} requests, ${noticed ? "a notice" : "no notice"} in the turn's own part`);
+  }
+  const init = await s.until("an init that says whether the harness reads the keyword", is("init", (l) => l.payload.ultracodeKeyword !== undefined));
+  ok("init says the harness reads the keyword in this session", init.payload.ultracodeKeyword === true, String(init.payload.ultracodeKeyword));
+}
+
 /** Every scenario, in the order the header lists them. `name` is the session's title and its space's
  *  folder. */
 const SCENARIOS: Scenario[] = [
   { name: "skill-with-picture", title: "a message that calls a skill and carries a picture", run: skillWithPicture },
   { name: "keyword", title: "the ultracode keyword, from nobody, in a file's name and from a person", run: keywordFromAPerson },
   { name: "option", title: "Ultracode as the session's option", run: ultracodeAsAnOption },
+  { name: "keyword-texts", title: "the ultracode keyword, text by text, against Realm's copy of the scanner", run: keywordTextByText },
 ];
 
 /** Puts what the socket broadcasts about one session onto that session's lines. Deltas are left out,
@@ -245,11 +294,12 @@ function record(seen: ReturnType<typeof watch>, event: string, payload: unknown)
   if (p.sessionId === seen.id && p.event.type !== "assistant_delta") seen.add(p.event);
 }
 
-/** What one request holds, for the session's lines: its texts, and whether a picture is among its
- *  blocks. */
+/** What one request holds, for the session's lines: its texts, the ones among them that came in
+ *  after the model last spoke, and whether a picture is among its blocks. */
 function requestLine(body: MessagesRequest): Seen {
   const messages = body.messages ?? [];
-  return { type: "asked", texts: textsOf(messages), picture: messages.some((m) => Array.isArray(m.content) && m.content.some((b) => b.type === "image")) };
+  const spoke = messages.map((m) => m.role).lastIndexOf("assistant");
+  return { type: "asked", texts: textsOf(messages), own: textsOf(messages.slice(spoke + 1)), picture: messages.some((m) => Array.isArray(m.content) && m.content.some((b) => b.type === "image")) };
 }
 
 async function main(): Promise<void> {
