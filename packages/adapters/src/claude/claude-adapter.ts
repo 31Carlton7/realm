@@ -194,6 +194,32 @@ export function claudeSdkPermissionMode(mode: string | null | undefined): string
   return mode === ASK_PERMISSION_MODE || !mode ? "default" : mode;
 }
 
+/**
+ * The updates an Allow always hands back to Claude Code: every one the card's request suggested,
+ * each kept for the session and nowhere else.
+ *
+ * Claude Code suggests each update with the place it would keep it, and for the rule that allows a
+ * shell command that place is `localSettings`. Handed back as suggested, the rule is written to
+ * `.claude/settings.local.json` in the session's folder, and a session started with
+ * `settingSources: []`, which reads no settings file, writes it all the same. For a session in a
+ * linked git worktree the file is the main checkout's, which is read off the binary and has not
+ * been run. From then on every session that loads settings in that repository runs the call
+ * without asking, and so does the person's own Claude Code there.
+ *
+ * The card promises less than that. Its Allow always is for the session, and a tool whose always
+ * outlives the session says so on its row (`ALWAYS_LABEL` in the desktop's `PermissionCard.tsx`).
+ * Somebody who answered a card in one session has not agreed to a rule in a file, so what the card
+ * tells them decides where the rule is kept, and not what Claude Code would have chosen.
+ *
+ * Every variant of `PermissionUpdate` carries a `destination`, so one line covers them all, and an
+ * update Claude Code already suggests for the session comes back as it came. Only the answer is
+ * rewritten: the `permission_request` event keeps the suggestions as Claude Code sent them.
+ * `apps/server/scripts/live-permission-check.ts` holds the real `claude` to this.
+ */
+export function keptForSession(suggestions: readonly PermissionUpdate[]): PermissionUpdate[] {
+  return suggestions.map((update) => ({ ...update, destination: "session" as const }));
+}
+
 /** Who asks when Claude's own `AskUserQuestion` reaches the card. */
 const CLAUDE_ASKER = { kind: "agent", name: "Claude", agent: "claude" } as const;
 
@@ -507,7 +533,7 @@ export class ClaudeAdapter implements AgentAdapter {
       const given = p.ask && answers ? normalizeAnswers(p.ask, answers) : undefined;
       events.push(sessionEvent("permission_response", { requestId, decision, ...(p.ask && given ? { answers: loggableAnswers(p.ask, given) } : {}) }));
       if (decision === "deny") p.resolve({ behavior: "deny", message: "User denied" });
-      else if (decision === "allow_always") p.resolve({ behavior: "allow", updatedPermissions: p.suggestions });
+      else if (decision === "allow_always") p.resolve({ behavior: "allow", updatedPermissions: keptForSession(p.suggestions) });
       else p.resolve({ behavior: "allow", ...(given ? { updatedInput: { ...p.input, answers: claudeAnswers(given) } } : {}) });
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };

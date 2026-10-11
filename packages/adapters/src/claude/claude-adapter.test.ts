@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, answeredBy, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, claudeStatus, effortByModel, fastModeByModel, stopMarks, streamEndMarks, type ClaudeTurnFacts } from "./claude-adapter";
+import type { PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
+import { ClaudeAdapter, answeredBy, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, claudeStatus, effortByModel, fastModeByModel, keptForSession, stopMarks, streamEndMarks, type ClaudeTurnFacts } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import type { PermissionDecision, StartOptions } from "../types";
@@ -1322,7 +1323,8 @@ const REPORT = { origin: { kind: "task-notification" } };
 /** How the harness names, on a turn's result, the sent messages that turn consumed: the uuid of
  *  each in a list, and the last of them alone beside it. */
 const naming = (...uuids: string[]) => ({ user_message_uuids: uuids, user_message_uuid: uuids.at(-1) });
-/** A rule the harness offers to save, as `canUseTool` receives one. Its content is never read here. */
+/** A rule the harness offers to save, as `canUseTool` receives one. Nothing of it is read here but
+ *  where it is kept, which is the session already, so an Allow always hands it back as it came. */
 const RULE = { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "touch:*" }], behavior: "allow", destination: "session" };
 const RUNNING = { status: "running" };
 const WAITING = { status: "waiting_permission" };
@@ -1877,6 +1879,56 @@ describe("once — a request with no always answer to keep", () => {
     const s = await midTurn();
     const card = await s.ask("Bash", { command: "touch probe.txt" }, { suggestions: [RULE] });
     expect(await s.respond(card, "allow_always")).toEqual({ behavior: "allow", updatedPermissions: [RULE] });
+    await s.close();
+  });
+});
+
+/** What Claude Code 2.1.281 suggests on the card of a shell command that makes a file, as
+ *  `canUseTool` receives it: a rule it would write to the folder's local settings, and two updates
+ *  it would keep for the session. A new list each time, so that a test which changed one could not
+ *  change what the next test starts from. */
+const suggested = (): PermissionUpdate[] => [
+  { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "touch probe.txt" }], behavior: "allow", destination: "localSettings" },
+  { type: "addDirectories", directories: ["/tmp"], destination: "session" },
+  { type: "setMode", mode: "acceptEdits", destination: "session" },
+];
+/** Those three as an Allow always hands them back: each kept for the session, and nothing else of
+ *  it changed. */
+const KEPT: PermissionUpdate[] = [
+  { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "touch probe.txt" }], behavior: "allow", destination: "session" },
+  { type: "addDirectories", directories: ["/tmp"], destination: "session" },
+  { type: "setMode", mode: "acceptEdits", destination: "session" },
+];
+/** Updates with where each is kept left out, which is everything an Allow always must not touch. */
+const butWhereKept = (updates: PermissionUpdate[]) => updates.map(({ destination: _kept, ...rest }) => rest);
+
+describe("Allow always, kept for the session", () => {
+  it("keeps for the session a rule the harness would have written to the folder's local settings", () => {
+    expect(keptForSession(suggested())[0]).toMatchObject({ type: "addRules", destination: "session" });
+  });
+
+  it("keeps an update for the session whichever store the harness named for it", () => {
+    const stores = ["userSettings", "projectSettings", "localSettings", "cliArg", "session"] as const;
+    const kept = keptForSession(stores.map((destination) => ({ type: "addDirectories" as const, directories: ["/tmp"], destination })));
+    expect(kept.map((update) => update.destination)).toEqual(["session", "session", "session", "session", "session"]);
+  });
+
+  it("changes nothing of an update but where it is kept", () => {
+    expect(butWhereKept(keptForSession(suggested()))).toEqual(butWhereKept(suggested()));
+  });
+
+  it("answers allow_always with the harness's updates, each kept for the session", async () => {
+    const s = await midTurn();
+    const card = await s.ask("Bash", { command: "touch probe.txt" }, { suggestions: suggested() });
+    expect(await s.respond(card, "allow_always")).toEqual({ behavior: "allow", updatedPermissions: KEPT });
+    await s.close();
+  });
+
+  it("leaves the suggestions on the card as the harness gave them, after the answer too", async () => {
+    const s = await midTurn();
+    const card = await s.ask("Bash", { command: "touch probe.txt" }, { suggestions: suggested() });
+    await s.respond(card, "allow_always");
+    expect(card.request.suggestions).toEqual(suggested());
     await s.close();
   });
 });
