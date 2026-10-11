@@ -176,8 +176,12 @@ export function claudeAskTools(servers: readonly McpServerConfig[]): Set<string>
  * user's hook ran. A deny rule of the user's stopped applying, as it does in a session Realm isolates.
  *
  * It travels as `managedSettings`, which the SDK filters to restrictive keys and applies as the only
- * policy tier. Where an organisation manages Claude Code's settings on the Mac, the SDK drops what a
- * host passes there unless that policy opts in, so on such a Mac the person's rules stay in force.
+ * policy tier. Where an organisation manages Claude Code's settings, with a file on the Mac, through
+ * device management or from the server for the person's account, the SDK drops what a host passes
+ * there unless that policy opts in (`parentSettingsBehavior: "merge"`). The person's rules then stay
+ * in force, as they are in Claude Code itself, and a call one of them allows runs in Ask too. The
+ * SDK's own `resolveSettings` shows it: beside server-managed settings that hold any key, this
+ * policy is absent from the effective settings.
  */
 export const OWN_SETUP_POLICY: NonNullable<Options["managedSettings"]> = { allowManagedPermissionRulesOnly: true };
 

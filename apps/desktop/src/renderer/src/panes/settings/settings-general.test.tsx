@@ -145,10 +145,10 @@ describe("Use my Claude Code setup", () => {
     expect(row.getByText(CLAUDE_OWN_SETUP_COPY.detail).textContent).toMatch(/and the ones in the folder they run in\./);
   });
 
-  it("says the permission rules in those files are not used", async () => {
+  it("says the permission rules in those files are not used, and where they are after all", async () => {
     await general();
     const row = within((await screen.findByRole("switch", { name: OWN_SETUP })).closest(".settings-row") as HTMLElement);
-    expect(row.getByText(CLAUDE_OWN_SETUP_COPY.detail).textContent).toMatch(/Permission rules in those files aren't used, so Realm asks as it does with this off\./);
+    expect(row.getByText(CLAUDE_OWN_SETUP_COPY.detail).textContent).toMatch(/Permission rules in those files aren't used, unless your organization manages Claude Code's settings\./);
   });
 
   it("says when a change applies", async () => {
