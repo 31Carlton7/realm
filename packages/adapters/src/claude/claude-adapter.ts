@@ -570,15 +570,14 @@ type ClaudeFlagSettings = { fastMode?: boolean; effortLevel?: EffortLevel | null
  * harness refuses records nothing. Worked out before the wait on the model, the record would say
  * what no write had said yet, and a press that landed during the wait would be measured against it.
  *
- * After the write, `setOptions` sends the harness the permission mode Realm holds at that moment,
- * and not the one its own call named. A call that waited on its write can be overtaken by a later
- * change of mode. Sent late, its own mode would leave the harness in a mode the session's row no
- * longer says, and a mode that lets calls through without asking is among them.
- *
- * A call that names a mode sends it whatever became of its model and its write. The write stands
- * between a move into Ask and the mode request, and the harness consults Realm before a call only
- * in the mode that request asks for. A refused write that also held the request back would leave
- * a session Realm calls Ask running whatever its last mode let through.
+ * A call that names a permission mode asks the harness for it first, in the tick that moves Realm's
+ * own record of the mode. The model and this write come after. With the switch on, a move into Ask
+ * or out of it changes whether Ultracode is in force, so the same call can make this write. If the
+ * mode request came after that write, a refused write would skip it and a slow one would delay it.
+ * A later call's request could then overtake it. Because the request goes first, nothing in the
+ * call can hold it back or fail before it. Two calls ask in the order they were made, so the mode
+ * the harness was last asked for is the one Realm holds. If the harness refuses the mode request,
+ * the call fails before it tries its model or its write.
  */
 function claudeFlagSettings(o: { fastMode?: boolean; effort?: string | null; ultracode?: boolean }, ultracode: { effective: boolean; told: boolean }): ClaudeFlagSettings | null {
   const level = o.effort === undefined ? undefined : o.effort === null ? null : claudeEffort(o.effort);
@@ -602,10 +601,11 @@ function claudeFlagSettings(o: { fastMode?: boolean; effort?: string | null; ult
  * says unless that one is refused, and `told` answers with that.
  *
  * A write the harness takes becomes `held`, unless one sent after it was taken first. The writes
- * sent before it drop out whatever their answers turn out to be, because it was applied after them. A write the harness refuses drops out
- * alone, and the answer falls back to the write before it, or to `held`. One value that a refused
- * call puts back is not enough for this. Once a second write is sent before the first is
- * answered, the second call's "before" is the first call's unanswered write.
+ * sent before it drop out whatever their answers turn out to be, because it was applied after them.
+ * A write the harness refuses drops out alone. If it was the last one sent, the answer falls back
+ * to the write before it, or to `held`. One value that a refused call puts back is not enough for
+ * this. Once a second write is sent before the first is answered, the second call's "before" is the
+ * first call's unanswered write.
  */
 function ultracodeRecord(start: boolean): { told(): boolean; write(value: boolean): { taken(): void; refused(): void } } {
   let held = start;
@@ -1251,27 +1251,24 @@ export class ClaudeAdapter implements AgentAdapter {
         // if the SDK call throws.
         if (o.permissionMode) permissionMode = o.permissionMode;
         if (o.ultracode !== undefined) ultracodeRequested = o.ultracode;
+        if (o.permissionMode) await q?.setPermissionMode(claudeSdkPermissionMode(o.permissionMode) as never);
+        if (o.model) await q?.setModel(o.model);
+        // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
+        // layer `query()`'s inline `settings` writes, above user and project settings and below
+        // managed policy. There is no `setFastMode`, and there does not need to be.
+        if (o.fastMode !== undefined) fastRequested = o.fastMode;
+        const flags = claudeFlagSettings(o, { effective: ultracodeEffective(ultracodeRequested, permissionMode), told: ultracodeLayer.told() });
+        const write = flags?.ultracode === undefined ? null : ultracodeLayer.write(flags.ultracode);
         try {
-          if (o.model) await q?.setModel(o.model);
-          // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
-          // layer `query()`'s inline `settings` writes, above user and project settings and below
-          // managed policy. There is no `setFastMode`, and there does not need to be.
-          if (o.fastMode !== undefined) fastRequested = o.fastMode;
-          const flags = claudeFlagSettings(o, { effective: ultracodeEffective(ultracodeRequested, permissionMode), told: ultracodeLayer.told() });
-          const write = flags?.ultracode === undefined ? null : ultracodeLayer.write(flags.ultracode);
-          try {
-            // The level moves the same way. `effortLevel: null` is the SDK's own "back to the model's
-            // default effort" (`applyFlagSettings`), which is what a reset in the picker means; a level the
-            // SDK has no word for is not sent at all.
-            if (flags) await q?.applyFlagSettings(flags);
-          } catch (e) {
-            write?.refused();
-            throw e;
-          }
-          write?.taken();
-        } finally {
-          if (o.permissionMode) await q?.setPermissionMode(claudeSdkPermissionMode(permissionMode) as never);
+          // The level moves the same way. `effortLevel: null` is the SDK's own "back to the model's
+          // default effort" (`applyFlagSettings`), which is what a reset in the picker means; a level the
+          // SDK has no word for is not sent at all.
+          if (flags) await q?.applyFlagSettings(flags);
+        } catch (e) {
+          write?.refused();
+          throw e;
         }
+        write?.taken();
       },
       dispose: async () => {
         if (disposed) return;

@@ -2081,6 +2081,11 @@ export type AppState = {
    *  button. The broadcast that follows lands on the same reducer and settles to the same state. */
   rateMessage(sessionId: string, messageId: string, rating: Rating | null): Promise<void>;
   respondPermission(id: string, requestId: string, decision: PermissionDecision, answers?: AskAnswers): Promise<void>;
+  /** Set what a session runs on, and take in the row the server answers with. When a call that
+   *  named a permission mode fails, the store reads the row back, takes in the row it gets, and
+   *  passes the failure on. The server writes the row before it calls the harness, and the Claude
+   *  adapter asks for the mode ahead of the model and the flag layer. A refusal of either leaves
+   *  the session in the mode the row holds. A failed call that named no mode reads nothing back. */
   setSessionOptions(id: string, o: SessionOptions): Promise<void>;
   /** Move a session between Build and Plan (the prompter's mode chip), parking and restoring the
    *  permission mode around the trip. See the implementation for why the parking is necessary. */
@@ -5900,7 +5905,16 @@ await get().refreshCustomThemes().catch(() => {});
         await api.respondPermission(id, requestId, decision, answers);
         if (decision !== "deny" && pending?.toolName === "ExitPlanMode") await get().setSessionMode(id, "build");
       },
-      async setSessionOptions(id, o) { mergeSession(await api.setSessionOptions(id, o)); },
+      async setSessionOptions(id, o) {
+        try { mergeSession(await api.setSessionOptions(id, o)); }
+        catch (e) {
+          if (o.permissionMode) {
+            const row = await api.getSession(id).catch(() => null);
+            if (row) mergeSession(row);
+          }
+          throw e;
+        }
+      },
       /**
        * Build ⇄ Plan ⇄ Ask.
        *

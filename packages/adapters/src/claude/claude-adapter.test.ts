@@ -2730,7 +2730,7 @@ describe("Ultracode in the flag layer, press by press", () => {
     expect(flagSettings).toEqual([{ ultracode: true }, { ultracode: false }]);
   });
 
-  it("falls back to the write before it when the harness refuses a write that was not the last one sent", async () => {
+  it("keeps what a later change recorded when the write it overlapped is refused, though the two wrote differently", async () => {
     let settle!: () => void;
     const flagsHeld = new Promise<void>((resolve) => { settle = resolve; });
     const flagSettings: Record<string, unknown>[] = [];
@@ -2766,6 +2766,42 @@ describe("Ultracode in the flag layer, press by press", () => {
     expect(flagSettings).toEqual([{ ultracode: false }, { ultracode: true }, { ultracode: false }]);
   });
 
+  it("keeps the later of two writes the harness took when it answers them in the order they went", async () => {
+    let settle!: () => void;
+    const flagsHeld = new Promise<void>((resolve) => { settle = resolve; });
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, flagsHeld }) as never }).start({ cwd: "/tmp", mcpServers: [], ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    const first = h.setOptions({ ultracode: false });
+    const second = h.setOptions({ ultracode: true });
+    settle();
+    await first;
+    await second;
+    await h.setOptions({ ultracode: false });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ ultracode: false }, { ultracode: true }, { ultracode: false }]);
+  });
+
+  it("falls back to the write before it when the harness refuses the last write sent and answers that first", async () => {
+    let answerFirst!: () => void;
+    let answerSecond!: () => void;
+    const flagsHeld = [new Promise<void>((resolve) => { answerFirst = resolve; }), new Promise<void>((resolve) => { answerSecond = resolve; })];
+    const flagSettings: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, flagSettings, refuseFlags: [false, true], flagsHeld }) as never }).start({ cwd: "/tmp", mcpServers: [] });
+    const done = collectUntil(h.events, () => false);
+    const taken = h.setOptions({ ultracode: true });
+    const refused = h.setOptions({ ultracode: false }).catch(() => {});
+    answerSecond();
+    await refused;
+    answerFirst();
+    await taken;
+    await h.setOptions({ ultracode: false });
+    await h.dispose();
+    await done;
+    expect(flagSettings).toEqual([{ ultracode: true }, { ultracode: false }]);
+  });
+
   it("sends the harness the permission mode a call names though it refuses that call's write", async () => {
     const controls: string[] = [];
     const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, controls, refuseFlags: [true] }) as never }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions", ultracode: true });
@@ -2773,7 +2809,15 @@ describe("Ultracode in the flag layer, press by press", () => {
     await h.setOptions({ permissionMode: "ask" }).catch(() => {});
     await h.dispose();
     await done;
-    expect(controls).toEqual(['flags {"ultracode":false}', "mode default"]);
+    expect(controls).toEqual(["mode default", 'flags {"ultracode":false}']);
+  });
+
+  it("still fails a call that names a permission mode when the harness refuses that call's write, with the harness's own message", async () => {
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, refuseFlags: [true] }) as never }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions", ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    await expect(h.setOptions({ permissionMode: "ask" })).rejects.toMatchObject({ message: "the flag layer refused the write" });
+    await h.dispose();
+    await done;
   });
 
   it("sends the harness the permission mode a call names though it refuses that call's model", async () => {
@@ -2783,10 +2827,18 @@ describe("Ultracode in the flag layer, press by press", () => {
     await h.setOptions({ model: "claude-nothing", permissionMode: "ask" }).catch(() => {});
     await h.dispose();
     await done;
-    expect(controls).toEqual(["model claude-nothing", "mode default"]);
+    expect(controls).toEqual(["mode default", "model claude-nothing"]);
   });
 
-  it("sends the harness the permission mode Realm holds last when a later change of mode overtakes one that waited on its write", async () => {
+  it("still fails a call that names a permission mode when the harness refuses that call's model, with the harness's own message", async () => {
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, refuseModel: true }) as never }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions" });
+    const done = collectUntil(h.events, () => false);
+    await expect(h.setOptions({ model: "claude-nothing", permissionMode: "ask" })).rejects.toMatchObject({ message: "no such model: claude-nothing" });
+    await h.dispose();
+    await done;
+  });
+
+  it("asks the harness for two changes of mode that overlap in the order they were made, and leaves it on the later one", async () => {
     let settle!: () => void;
     const flagsHeld = new Promise<void>((resolve) => { settle = resolve; });
     const controls: string[] = [];
@@ -2799,17 +2851,27 @@ describe("Ultracode in the flag layer, press by press", () => {
     await later;
     await h.dispose();
     await done;
-    expect(controls).toEqual(['flags {"ultracode":true}', "mode default", "mode default"]);
+    expect(controls).toEqual(["mode bypassPermissions", "mode default", 'flags {"ultracode":true}']);
   });
 
-  it("asks the harness in the order it always has: the model, the flag layer, then the permission mode", async () => {
+  it("asks the harness for the permission mode first, then the model, then the flag layer, so that nothing in the call can hold the mode back", async () => {
     const controls: string[] = [];
     const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, controls }) as never }).start({ cwd: "/tmp", mcpServers: [], ultracode: true });
     const done = collectUntil(h.events, () => false);
     await h.setOptions({ model: "claude-sonnet-5", effort: "low", permissionMode: "plan" });
     await h.dispose();
     await done;
-    expect(controls).toEqual(["model claude-sonnet-5", 'flags {"effortLevel":"low","ultracode":true}', "mode plan"]);
+    expect(controls).toEqual(["mode plan", "model claude-sonnet-5", 'flags {"effortLevel":"low","ultracode":true}']);
+  });
+
+  it("asks the harness for the mode before the write that takes Ultracode back, when a session moves into Ask", async () => {
+    const controls: string[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, controls }) as never }).start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions", ultracode: true });
+    const done = collectUntil(h.events, () => false);
+    await h.setOptions({ permissionMode: "ask" });
+    await h.dispose();
+    await done;
+    expect(controls).toEqual(["mode default", 'flags {"ultracode":false}']);
   });
 
   it("holds a session in Ask from the moment it is asked to, though the harness refuses another option of the same call", async () => {

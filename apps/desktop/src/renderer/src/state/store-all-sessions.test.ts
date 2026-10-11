@@ -87,3 +87,35 @@ describe("allSessions — a row for every session, in every profile", () => {
   });
 });
 
+/** A Claude session in Ask, on a server whose harness refuses every change of options. The fake
+ *  writes the row first, as the server does before it calls the harness, then fails the call. */
+const refusing = async () => {
+  const { api, store } = await boot({
+    items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "Fix the build" })] },
+    sessions: [session("se1", "s1", { agentKind: "claude", permissionMode: "ask" })],
+  });
+  const write = api.setSessionOptions;
+  api.setSessionOptions = async (id, o) => { await write(id, o); throw new Error("the flag layer refused the write"); };
+  return { api, store };
+};
+
+describe("setSessionOptions, when the call fails", () => {
+  it("takes the row's mode into the pane's session when a call that named a permission mode fails", async () => {
+    const { store } = await refusing();
+    await store.getState().setSessionOptions("se1", { permissionMode: "acceptEdits" }).catch(() => {});
+    expect(store.getState().sessions["se1"]!.permissionMode).toBe("acceptEdits");
+  });
+
+  it("still fails for its caller when a call that named a permission mode fails", async () => {
+    const { store } = await refusing();
+    await expect(store.getState().setSessionOptions("se1", { permissionMode: "acceptEdits" })).rejects.toThrow("the flag layer refused the write");
+  });
+
+  it("reads nothing back when a call that named no permission mode fails", async () => {
+    const { api, store } = await refusing();
+    const before = api.calls.length;
+    await store.getState().setSessionOptions("se1", { model: "fake-xl" }).catch(() => {});
+    expect(api.calls.slice(before)).toEqual(["setSessionOptions:se1"]);
+  });
+});
+
