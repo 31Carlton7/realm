@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, AGENT_NOTES, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, AGENT_NOTES, DIRECTORY_MIME, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } from "../../state/store.test-fakes";
@@ -2592,7 +2592,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
     const files = within(menu).getByRole("menuitem", { name: /^Files…/ });
     expect(files).toHaveAccessibleName(/^Files…\s*⌘U$/);
     expect(files).toHaveAccessibleDescription("Attach to this message");
-    expect(within(menu).getByRole("menuitem", { name: "Folder…" })).toHaveAccessibleDescription("Link a folder to this space");
+    expect(within(menu).getByRole("menuitem", { name: "Folder…" })).toHaveAccessibleDescription("Attach to this message");
     // Select in Realm says the person's own chord for it, and is not an agent's to press (app_act
     // refuses anything inside `data-no-agent`): a pick is the person pointing.
     const select = within(menu).getByRole("menuitem", { name: /^Select in Realm/ });
@@ -2677,12 +2677,52 @@ describe("the '+' menu (Plan 12 W1)", () => {
     await waitFor(() => expect(store.getState().drafts["se1"]).toBe("/goal ship the release notes"));
   });
 
-  it("Folder… runs the existing project-link flow", async () => {
-    const { api } = await mountPlus();
+  /* The bug: Folder… linked the folder to the space as a project, which nothing in the prompter draws,
+     so a chosen folder appeared nowhere. It is an attachment, the same chip a folder dragged in from
+     Finder already becomes, and it reaches the agent as its path. THE mutant: the row going back to
+     `pickAndLinkProject`. */
+  const folder = (path: string) => ({ path, mime: DIRECTORY_MIME, name: path.split("/").pop()!, size: 0 });
+
+  it("Folder… puts each chosen folder in the prompter as a chip, and sends it as a path", async () => {
+    const { api } = await mountPlus({ pickFolders: [folder("/tmp/src"), folder("/Users/me/elsewhere")] });
+    openPlus();
+    const row = screen.getByRole("menuitem", { name: "Folder…" });
+    expect(row).toHaveAccessibleDescription("Attach to this message");
+    fireEvent.click(row);
+    await waitFor(() => expect(document.querySelectorAll(".attach-tile")).toHaveLength(2));
+    expect(api.calls).toContain("pickFolders");
+    expect(api.data.projects.s1 ?? []).toEqual([]);
+    // A folder's chip wears the folder glyph and is named and removable like any other.
+    const tile = document.querySelector(".attach-tile")!;
+    expect(tile.querySelector(".attach-glyph")).not.toBeNull();
+    // Its tip says what it is, not the "0 B" a folder's stat size would read as.
+    expect(tile.querySelector(".visually-hidden")!.textContent).toBe("src — Folder · Claude gets the folder path in your message and opens it itself.");
+    fireEvent.click(screen.getByRole("button", { name: "Remove elsewhere" }));
+    await waitFor(() => expect(document.querySelectorAll(".attach-tile")).toHaveLength(1));
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "look here" } });
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.sent[0]!.attachments).toEqual([{ path: "/tmp/src", mime: DIRECTORY_MIME }]);
+  });
+
+  it("Folder… adds to the files already in the row rather than replacing them", async () => {
+    const { api } = await mountPlus({
+      pickFiles: [{ path: "/x/notes.md", mime: "text/markdown", name: "notes.md", size: 10 }],
+      pickFolders: [folder("/tmp/src")],
+    });
+    openPlus();
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Files…/ }));
+    await waitFor(() => expect(document.querySelectorAll(".attach-tile")).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Add" })).toBeNull());
     openPlus();
     fireEvent.click(screen.getByRole("menuitem", { name: "Folder…" }));
-    // pickFolder resolves "/tmp/picked-repo" in the fake; the project lands in THIS space.
-    await waitFor(() => expect(api.data.projects.s1?.map((p) => p.rootPath)).toEqual(["/tmp/picked-repo"]));
+    await waitFor(() => expect(document.querySelectorAll(".attach-tile")).toHaveLength(2));
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "both" } });
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.sent[0]!.attachments).toEqual([{ path: "/x/notes.md", mime: "text/markdown" }, { path: "/tmp/src", mime: DIRECTORY_MIME }]);
   });
 
   it("Skills opens the picker, which lists skills this space has NOT enabled — the whole point of it", async () => {

@@ -1,5 +1,5 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -296,7 +296,7 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
         {attachments.map((a) => (
           <li key={a.path} className="composer-attach-item">
             <AttachmentTile path={a.path} mime={a.mime} name={a.name} disposition={attachmentDisposition(kind, a.mime)}
-              detail={`${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
+              detail={`${isDirectoryMime(a.mime) ? "Folder" : formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
               onRemove={() => onRemove(a.path)} siblings={attachments} />
           </li>
         ))}
@@ -385,8 +385,8 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * saying what it does.
  *
  * In-app rather than the OS's (`Menu`'s `inApp`): an OS menu row has no second voice, and the rows
- * here are the ones that need one — "Folder…" means linking a folder to the space, not attaching it,
- * and Plan and Ask are only worth choosing between when the row says what each withholds. What the
+ * here are the ones that need one — Plan and Ask are only worth choosing between when the row says
+ * what each withholds. What the
  * OS menu gave is kept by the drawn one: arrows, Home/End, Return, Escape, focus going back to the
  * "+", and placement clear of a browser pane's native view, which composites over anything drawn.
  *
@@ -412,9 +412,10 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   /** Point at a part of Realm and add it to this message, and the chord that does it too — the
    *  person's own, so a rebinding in Settings ▸ Keys is the hint here. Absent, there is no row. */
   selectInRealm?: { onSelect: () => void; kbd?: string };
-  /** The compact prompter's: what goes with this message, and nothing about where or how the session
-   *  runs — a folder linked to the space, a mode, the space's connectors are all chips this prompter
-   *  does not carry, and their rows here would be controls that do nothing. */
+  /** The compact prompter's: files for this message, and nothing about where or how the session
+   *  runs — a mode and the space's connectors are chips this prompter does not carry, and their rows
+   *  here would be controls that do nothing. Folder… stays with the full prompter: no compact one
+   *  wires a folder picker. */
   compact?: boolean;
   /** Open the skill picker. Offered only when `canSkills` — an item that would silently do nothing
    *  (a Cursor session, a machine with no skills anywhere) is never grown. */
@@ -442,7 +443,7 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   const items: MenuItem[] = [
     { kind: "header", label: "Add" },
     { label: "Files…", icon: <Icon name="attach" size={16} />, detail: "Attach to this message", kbd: "⌘U", onSelect: onAttachPick },
-    ...(compact ? [] : [{ label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Link a folder to this space", onSelect: onAddFolder } as MenuItem]),
+    ...(compact ? [] : [{ label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Attach to this message", onSelect: onAddFolder } as MenuItem]),
     /* Not an agent's to press: a pick is the person pointing (`startAppPick`, which refuses its keys). */
     ...(selectInRealm ? [{ label: "Select in Realm", icon: <Icon name="select" size={16} />, detail: "Point at a part of the app", kbd: selectInRealm.kbd, noAgent: "element picker", onSelect: selectInRealm.onSelect } as MenuItem] : []),
     ...(canSkills ? [{ label: "Skills", icon: <Icon name="sparkles" size={16} />, detail: "Turn one on, or mention it", onSelect: onSkills } as MenuItem] : []),
@@ -630,7 +631,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   connectors?: McpServer[] | null;
   /** The "+" menu opened — refresh the connectors cache (a row read, never a probe). */
   onConnectorsOpened?: () => void;
-  /** The "+" menu's Add folder — the existing project-link flow. */
+  /** The "+" menu's Folder… — attaches the chosen folders to this message. */
   onAddFolder?: () => void;
   /** The "+" menu's Manage connections — the space settings' Connections tab. */
   onManageConnections?: () => void;

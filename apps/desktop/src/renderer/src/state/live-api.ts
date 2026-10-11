@@ -74,6 +74,7 @@ export const liveApi = (): Api => ({
   systemInfo: async () => { const i = await rpc().call("system.info", {}); return { machineName: i.machineName, userName: i.userName, detachedSince: i.detachedSince }; },
   pickFolder: () => window.realm.pickFolder(),
   pickFiles: () => window.realm.pickFiles(),
+  pickFolders: () => window.realm.pickFolders(),
   listIconAssets: (profileId) => rpc().call("iconAssets.list", { profileId }),
   generateIconAsset: (profileId, prompt) => rpc().call("iconAssets.generate", { profileId, prompt }),
   describePaths: (paths) => window.realm.describePaths(paths),

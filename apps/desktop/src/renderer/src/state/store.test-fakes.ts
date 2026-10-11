@@ -282,6 +282,9 @@ export type FakeData = {
   memorySources?: Record<string, MemorySources>;
   /** What the next `pickFiles()` answers with; consumed by the call (queue, not a constant). */
   pickFiles?: PickedAttachment[];
+  /** What the next `pickFolders()` answers with — main's folder picker, already described. Consumed
+   *  by the call, like `pickFiles`. */
+  pickFolders?: PickedAttachment[];
   /** What `agents.probe` answers. Mutate `api.data.agentProbe` between calls to simulate the user
    *  installing (or logging into) a CLI while the install card is up. */
   agentProbe?: AgentProbe[];
@@ -537,6 +540,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     agentsFiles: overrides.agentsFiles ?? {},
     memorySources: overrides.memorySources ?? {},
     pickFiles: overrides.pickFiles ?? [],
+    pickFolders: overrides.pickFolders ?? [],
     agentProbe: overrides.agentProbe ?? [{ kind: "fake", available: true, version: "fake", loggedIn: true, reason: null }],
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
     editors: overrides.editors ?? [],
@@ -1026,6 +1030,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     pickFolder: async () => "/tmp/picked-repo",
     // Whatever a test parks in `data.pickFiles` is what the native picker "returns".
     pickFiles: async () => { calls.push("pickFiles"); return data.pickFiles.splice(0, data.pickFiles.length); },
+    pickFolders: async () => { calls.push("pickFolders"); return data.pickFolders.splice(0, data.pickFolders.length); },
     listIconAssets: async (profileId) => { calls.push(`listIconAssets:${profileId}`); return data.iconAssets[profileId] ?? []; },
     generateIconAsset: async (profileId, prompt) => {
       calls.push(`generateIconAsset:${profileId}:${prompt}`);
