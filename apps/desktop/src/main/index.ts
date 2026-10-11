@@ -1021,6 +1021,13 @@ ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
   return r.canceled ? [] : describeFiles(r.filePaths);
 });
 
+/** The "+" menu's Folder…: `pick-files` for folders. Described the same way, so each comes back as a
+ *  `DIRECTORY_MIME` attachment — the chip a folder dragged in from Finder already makes. */
+ipcMain.handle("pick-folders", async (): Promise<PickedFile[]> => {
+  const r = await dialog.showOpenDialog({ properties: ["openDirectory", "multiSelections"] });
+  return r.canceled ? [] : describeFiles(r.filePaths);
+});
+
 /** The icon picker's "Uploaded" tab: a single image, filtered at the OS dialog level (`iconAssets.upload`
  *  re-checks mime/size server-side — a dialog filter is a convenience, never the validation boundary).
  *  A raster pick over 10KB is downscaled here before the renderer ever sees its path, so what actually

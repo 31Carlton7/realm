@@ -293,8 +293,8 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * saying what it does.
  *
  * In-app rather than the OS's (`Menu`'s `inApp`): an OS menu row has no second voice, and the rows
- * here are the ones that need one — "Folder…" means linking a folder to the space, not attaching it,
- * and Plan and Ask are only worth choosing between when the row says what each withholds. What the
+ * here are the ones that need one — Plan and Ask are only worth choosing between when the row says
+ * what each withholds. What the
  * OS menu gave is kept by the drawn one: arrows, Home/End, Return, Escape, focus going back to the
  * "+", and placement clear of a browser pane's native view, which composites over anything drawn.
  *
@@ -320,9 +320,10 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   /** Point at a part of Realm and add it to this message, and the chord that does it too — the
    *  person's own, so a rebinding in Settings ▸ Keys is the hint here. Absent, there is no row. */
   selectInRealm?: { onSelect: () => void; kbd?: string };
-  /** The compact prompter's: what goes with this message, and nothing about where or how the session
-   *  runs — a folder linked to the space, a mode, the space's connectors are all chips this prompter
-   *  does not carry, and their rows here would be controls that do nothing. */
+  /** The compact prompter's: files for this message, and nothing about where or how the session
+   *  runs — a mode and the space's connectors are chips this prompter does not carry, and their rows
+   *  here would be controls that do nothing. Folder… stays with the full prompter: no compact one
+   *  wires a folder picker. */
   compact?: boolean;
   /** Open the skill picker. Offered only when `canSkills` — an item that would silently do nothing
    *  (a Cursor session, a machine with no skills anywhere) is never grown. */
@@ -350,7 +351,7 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   const items: MenuItem[] = [
     { kind: "header", label: "Add" },
     { label: "Files…", icon: <Icon name="attach" size={16} />, detail: "Attach to this message", kbd: "⌘U", onSelect: onAttachPick },
-    ...(compact ? [] : [{ label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Link a folder to this space", onSelect: onAddFolder } as MenuItem]),
+    ...(compact ? [] : [{ label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Attach to this message", onSelect: onAddFolder } as MenuItem]),
     /* Not an agent's to press: a pick is the person pointing (`startAppPick`, which refuses its keys). */
     ...(selectInRealm ? [{ label: "Select in Realm", icon: <Icon name="select" size={16} />, detail: "Point at a part of the app", kbd: selectInRealm.kbd, noAgent: "element picker", onSelect: selectInRealm.onSelect } as MenuItem] : []),
     ...(canSkills ? [{ label: "Skills", icon: <Icon name="sparkles" size={16} />, detail: "Turn one on, or mention it", onSelect: onSkills } as MenuItem] : []),
@@ -538,7 +539,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   connectors?: McpServer[] | null;
   /** The "+" menu opened — refresh the connectors cache (a row read, never a probe). */
   onConnectorsOpened?: () => void;
-  /** The "+" menu's Add folder — the existing project-link flow. */
+  /** The "+" menu's Folder… — attaches the chosen folders to this message. */
   onAddFolder?: () => void;
   /** The "+" menu's Manage connections — the space settings' Connections tab. */
   onManageConnections?: () => void;

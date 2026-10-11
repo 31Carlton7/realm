@@ -242,6 +242,9 @@ export type Api = {
   pickFolder(): Promise<string | null>;
   /** Native multi-select file picker; resolves [] when cancelled. */
   pickFiles(): Promise<PickedAttachment[]>;
+  /** Native multi-select folder picker, each folder already described (`DIRECTORY_MIME`); [] when
+   *  cancelled. */
+  pickFolders(): Promise<PickedAttachment[]>;
   /** The filesystem path behind a dropped File. "" when it has none — a pasted image, which has to be
    *  written out with `saveTempAttachment` before any adapter can be given a path. */
   pathForFile(file: File): string;
@@ -2319,6 +2322,9 @@ export type AppState = {
   attachFiles(sessionId: string, files: readonly File[]): Promise<void>;
   /** The prompter's attach button — the native multi-select picker. */
   attachFromPicker(sessionId: string): Promise<void>;
+  /** The "+" menu's Folder… — the native folder picker, each folder a chip the agent is given the
+   *  path of, exactly as one dragged in from Finder is. */
+  attachFoldersFromPicker(sessionId: string): Promise<void>;
   /** Attach files already on disk and already described — a browser pane's screenshot, which main
    *  wrote and measured. Same path as a drop: the same cap, the same dedupe by path. */
   attachPicked(sessionId: string, picked: readonly PickedAttachment[]): void;
@@ -6465,6 +6471,7 @@ await get().refreshCustomThemes().catch(() => {});
         addAttachments(sessionId, picked);
       },
       async attachFromPicker(sessionId) { addAttachments(sessionId, await api.pickFiles()); },
+      async attachFoldersFromPicker(sessionId) { addAttachments(sessionId, await api.pickFolders()); },
       attachPicked(sessionId, picked) { addAttachments(sessionId, picked); },
       async attachPaths(sessionId, paths) {
         const described = await api.describePaths([...paths]);

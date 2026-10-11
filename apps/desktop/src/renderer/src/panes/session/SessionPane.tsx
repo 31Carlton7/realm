@@ -325,7 +325,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const plainFolder = useApp((s) => (session ? spaceIsPlainFolder(s, session.spaceId) : false));
   const connectors = useApp((s) => { const sess = s.sessions[id]; return (sess && s.connectors[sess.spaceId]) ?? null; });
   const refreshConnectors = useApp((s) => s.refreshConnectors);
-  const pickAndLinkProject = useApp((s) => s.pickAndLinkProject);
+  const attachFoldersFromPicker = useApp((s) => s.attachFoldersFromPicker);
   const openSpacePage = useApp((s) => s.openSpacePage);
   const setSkillEnabled = useApp((s) => s.setSkillEnabled);
   const spaceEnvironments = useMemo(
@@ -691,7 +691,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onNewWorktree={plainFolder ? undefined : () => run(() => moveSessionToNewWorktree(id))}
             otherSpaces={otherSpaces} onMoveToSpace={(spaceId) => run(() => moveSessionToSpace(id, spaceId))}
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
-            onAddFolder={() => run(() => pickAndLinkProject(session.spaceId))}
+            onAddFolder={() => run(() => attachFoldersFromPicker(id))}
             onManageConnections={() => openSpacePage(session.spaceId, "connections")}
             submitKey={submitKey}
             eggs={easterEggs}

@@ -71,6 +71,8 @@ interface Window {
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;
+    /** Native multi-select folder picker, each folder described as an attachment; [] when cancelled. */
+    pickFolders(): Promise<PickedFile[]>;
     /** The path of a VS Code colour theme the user chose, or null if they cancelled. */
     pickThemeFile(): Promise<string | null>;
     /** Downscaled data: URL for an image attachment; null for anything not a readable image. */

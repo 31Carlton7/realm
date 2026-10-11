@@ -70,6 +70,8 @@ contextBridge.exposeInMainWorld("realm", {
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pick-folder"),
   /** Native multi-select file picker; [] when cancelled. */
   pickFiles: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-files"),
+  /** Native multi-select folder picker, each folder described as an attachment; [] when cancelled. */
+  pickFolders: (): Promise<PickedFile[]> => ipcRenderer.invoke("pick-folders"),
   /** The path of a VS Code theme file the user chose, or null if they cancelled. The path alone —
    *  the server reads and translates it, so no theme bytes cross this boundary. */
   pickThemeFile: (): Promise<string | null> => ipcRenderer.invoke("pick-theme-file"),
