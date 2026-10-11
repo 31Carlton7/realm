@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
+import { ClaudeAdapter, answeredBy, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, claudeStatus, effortByModel, fastModeByModel, stopMarks, streamEndMarks, type ClaudeTurnFacts } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
-import type { StartOptions } from "../types";
+import { AsyncQueue } from "../event-queue";
+import type { PermissionDecision, StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
@@ -1024,5 +1025,1023 @@ describe("the sandbox wrap", () => {
     const spawn = o.spawnClaudeCodeProcess as (so: { command: string; args: string[]; env: NodeJS.ProcessEnv; signal: AbortSignal }) => unknown;
     expect(() => spawn({ command: "/bin/echo", args: [], env: process.env, signal: new AbortController().signal }))
       .toThrow(/sandbox-exec is missing/);
+  });
+});
+
+/** A session at rest with nothing open, so that each case states only the facts it is about. */
+const facts = (over: Partial<ClaudeTurnFacts> = {}): ClaudeTurnFacts => ({ requests: 0, turn: false, settleOwed: false, stopped: false, unprompted: false, abandoned: false, ...over });
+
+describe("claudeStatus — the one place a Claude session's status is decided", () => {
+  it("says waiting_permission while a request is open and a turn is in flight", () => {
+    expect(claudeStatus(facts({ requests: 1, turn: true }), { status: "running" })).toEqual({ status: "waiting_permission" });
+  });
+
+  it("says a plain waiting_permission while a request is open and a settle is owed", () => {
+    expect(claudeStatus(facts({ requests: 1, settleOwed: true }), { status: "running" })).toEqual({ status: "waiting_permission" });
+  });
+
+  it("marks the wait betweenTurns when a request is open with no turn in flight and no settle owed", () => {
+    expect(claudeStatus(facts({ requests: 1 }), { status: "idle" })).toEqual({ status: "waiting_permission", betweenTurns: true });
+  });
+
+  it("says running when no request is open and a turn is in flight", () => {
+    expect(claudeStatus(facts({ turn: true }), { status: "idle" })).toEqual({ status: "running" });
+  });
+
+  it("says the settle when the last request has closed on a turn that already ended", () => {
+    expect(claudeStatus(facts({ settleOwed: true }), { status: "waiting_permission" })).toEqual({ status: "idle" });
+  });
+
+  it("marks the settle interrupted when the turn was stopped", () => {
+    expect(claudeStatus(facts({ settleOwed: true, stopped: true }), { status: "running" })).toEqual({ status: "idle", interrupted: true });
+  });
+
+  it("marks the settle unprompted when every turn it is for was the harness's own", () => {
+    expect(claudeStatus(facts({ settleOwed: true, unprompted: true }), { status: "running" })).toEqual({ status: "idle", unprompted: true });
+  });
+
+  it("carries both marks on the settle of the harness's own turn that was stopped", () => {
+    expect(claudeStatus(facts({ settleOwed: true, stopped: true, unprompted: true }), { status: "running" })).toEqual({ status: "idle", interrupted: true, unprompted: true });
+  });
+
+  it.each([
+    { name: "the wait that stands over an owed settle", at: facts({ requests: 1, settleOwed: true, unprompted: true }), last: { status: "running" as const }, expected: { status: "waiting_permission" } },
+    { name: "running", at: facts({ turn: true, unprompted: true }), last: { status: "idle" as const }, expected: { status: "running" } },
+    { name: "the idle that only closes a card raised between turns", at: facts({ unprompted: true }), last: { status: "waiting_permission" as const, betweenTurns: true }, expected: { status: "idle", betweenTurns: true } },
+  ])("keeps the unprompted mark off $name", ({ at, last, expected }) => {
+    expect(claudeStatus(at, last)).toEqual(expected);
+  });
+
+  it("does not take a settle for a repeat when only its unprompted mark differs from the last status", () => {
+    expect(claudeStatus(facts({ settleOwed: true, unprompted: true }), { status: "idle" })).toEqual({ status: "idle", unprompted: true });
+  });
+
+  it("says idle marked betweenTurns after a wait that had no turn behind it", () => {
+    expect(claudeStatus(facts(), { status: "waiting_permission", betweenTurns: true })).toEqual({ status: "idle", betweenTurns: true });
+  });
+
+  it("marks that idle interrupted too when Stop is what closed the cards", () => {
+    expect(claudeStatus(facts({ stopped: true }), { status: "waiting_permission", betweenTurns: true })).toEqual({ status: "idle", betweenTurns: true, interrupted: true });
+  });
+
+  it.each([{ status: "idle" as const }, { status: "running" as const }, null])("says nothing at rest when the last thing said was %j, which is not a wait", (said) => {
+    expect(claudeStatus(facts(), said)).toBeNull();
+  });
+
+  it("says nothing when the answer would only repeat the last status", () => {
+    expect(claudeStatus(facts({ turn: true }), { status: "running" })).toBeNull();
+    expect(claudeStatus(facts({ requests: 2, turn: true }), { status: "waiting_permission" })).toBeNull();
+  });
+
+  it("says the wait again when only its betweenTurns mark has changed", () => {
+    expect(claudeStatus(facts({ requests: 1, turn: true }), { status: "waiting_permission", betweenTurns: true })).toEqual({ status: "waiting_permission" });
+  });
+
+  it("says the start-of-life idle on an init that arrives before anything was said", () => {
+    expect(claudeStatus(facts(), null, true)).toEqual({ status: "idle" });
+  });
+
+  it("says nothing on an init that arrives after something was said", () => {
+    expect(claudeStatus(facts(), { status: "idle" }, true)).toBeNull();
+  });
+
+  it("never pays a settle that was abandoned with the handle", () => {
+    expect(claudeStatus(facts({ settleOwed: true, abandoned: true }), { status: "waiting_permission" })).toBeNull();
+  });
+});
+
+describe("stopMarks — what a Stop is aimed at", () => {
+  it("arms the latch for a turn in flight", () => {
+    expect(stopMarks({ turn: true, begun: true, requests: 0 })).toEqual({ latch: true, cards: false });
+  });
+
+  it("arms the latch for a turn that has begun and said nothing yet", () => {
+    expect(stopMarks({ turn: false, begun: true, requests: 0 }).latch).toBe(true);
+  });
+
+  it("arms nothing when no turn is in flight and none has begun", () => {
+    expect(stopMarks({ turn: false, begun: false, requests: 0 })).toEqual({ latch: false, cards: false });
+  });
+
+  it("marks the cards, and not the latch, when requests are open between turns", () => {
+    expect(stopMarks({ turn: false, begun: false, requests: 2 })).toEqual({ latch: false, cards: true });
+  });
+
+  it("leaves the cards unmarked while a turn is in flight, whose own settle says it was stopped", () => {
+    expect(stopMarks({ turn: true, begun: true, requests: 2 }).cards).toBe(false);
+  });
+
+  it("marks the cards as well as the latch when a turn has begun, said nothing, and requests are open", () => {
+    expect(stopMarks({ turn: false, begun: true, requests: 1 })).toEqual({ latch: true, cards: true });
+  });
+});
+
+describe("streamEndMarks — whose failure it is when the stream ends", () => {
+  it("marks the failure unprompted when a turn nobody sent was in flight in a session that has had a background run", () => {
+    expect(streamEndMarks({ turn: true, sent: false, ranInBackground: true })).toEqual({ unprompted: true });
+  });
+
+  it("leaves the failure unmarked when the turn in flight was sent", () => {
+    expect(streamEndMarks({ turn: true, sent: true, ranInBackground: true })).toEqual({});
+  });
+
+  it("leaves the failure unmarked when no turn was in flight", () => {
+    expect(streamEndMarks({ turn: false, sent: false, ranInBackground: true })).toEqual({});
+  });
+
+  it("leaves the failure unmarked when nothing ever ran in the background, whoever opened the turn in flight", () => {
+    expect(streamEndMarks({ turn: true, sent: false, ranInBackground: false })).toEqual({});
+  });
+});
+
+describe("answeredBy — which sent messages a result leaves unanswered", () => {
+  const harness = { origin: { kind: "task-notification" } };
+
+  it("takes the message a result names off the list, and says a message was answered", () => {
+    expect(answeredBy({ user_message_uuids: ["a"] }, ["a"])).toEqual({ left: [], answered: true });
+  });
+
+  it("leaves what was sent after the last message the result names", () => {
+    expect(answeredBy({ user_message_uuids: ["a"] }, ["a", "b"])).toEqual({ left: ["b"], answered: true });
+  });
+
+  it("takes an earlier message that the result does not name along with the last one it names", () => {
+    expect(answeredBy({ user_message_uuids: ["b"] }, ["a", "b"])).toEqual({ left: [], answered: true });
+  });
+
+  it("reads the lone user_message_uuid of a result that carries no list", () => {
+    expect(answeredBy({ user_message_uuid: "a" }, ["a", "b"])).toEqual({ left: ["b"], answered: true });
+  });
+
+  it("takes a message the result names though the result has the origin of the harness's own turn", () => {
+    expect(answeredBy({ ...harness, user_message_uuids: ["a"] }, ["a"])).toEqual({ left: [], answered: true });
+  });
+
+  it.each([{}, { origin: { kind: "human" } }])("takes everything sent for answered by a result that names nothing and carries %j", (result) => {
+    expect(answeredBy(result, ["a", "b"])).toEqual({ left: [], answered: true });
+  });
+
+  it("takes everything sent for answered by a result that names only a uuid that is not ours, where the harness did not start the turn", () => {
+    expect(answeredBy({ user_message_uuids: ["not ours"] }, ["a"])).toEqual({ left: [], answered: true });
+  });
+
+  it("leaves the list as it was, with nothing answered, for the result of the harness's own turn that names nothing", () => {
+    expect(answeredBy(harness, ["a", "b"])).toEqual({ left: ["a", "b"], answered: false });
+  });
+
+  it("leaves the list as it was for the result of the harness's own turn that names only a uuid that is not ours", () => {
+    expect(answeredBy({ ...harness, user_message_uuids: ["not ours"] }, ["a"])).toEqual({ left: ["a"], answered: false });
+  });
+});
+
+/** One captured workflow run on Claude Code 2.1.281, in the order the harness sent it. */
+const WORKFLOW = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "workflow-run.json"), "utf8")) as Record<string, unknown>[];
+const workflowMessage = (subtype: string) => WORKFLOW.find((m) => m.subtype === subtype)!;
+
+/**
+ * A `query` the test drives by hand, where `fakeQuery` above plays one recorded turn per prompt and
+ * asks for a tool at one fixed point in it. Here every message reaches the adapter when the test
+ * says so and `canUseTool` is called when the test says so, which is the only way to put a `result`,
+ * a card and a turn nobody sent in the orders Claude Code really produces them: a card that outlives
+ * its turn, a turn that starts with no prompt, an interrupt with nothing in flight. `calls` records
+ * the control requests the adapter made, `uuids` the uuid of each message it pushed, in order, so
+ * that a test can write the result that names one, and the stream ends when the adapter closes its
+ * prompt.
+ */
+function drivenQuery(opts: { refuseStop?: boolean } = {}) {
+  const wire = new AsyncQueue<unknown>();
+  const calls: string[] = [];
+  const uuids: string[] = [];
+  const held: { options: Record<string, unknown> | null } = { options: null };
+  const query = ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: Record<string, unknown> }) => {
+    held.options = options;
+    void (async () => { for await (const m of prompt) { calls.push("prompt"); uuids.push((m as { uuid: string }).uuid); } wire.close(); })();
+    const gen = (async function* () { for await (const m of wire) yield m; })();
+    return Object.assign(gen, {
+      interrupt: async () => { calls.push("interrupt"); },
+      setPermissionMode: async () => {}, setModel: async () => {}, applyFlagSettings: async () => {},
+      supportedModels: async () => { throw new Error("control request declined"); },
+      getContextUsage: async () => { throw new Error("control request declined"); },
+      stopTask: async (taskId: string) => {
+        calls.push(`stopTask:${taskId}`);
+        if (opts.refuseStop) throw new Error(`No task found with ID: ${taskId}`);
+      },
+    });
+  };
+  return { query, wire, calls, uuids, held };
+}
+
+/**
+ * One session on a driven query: the handle, everything it has said, and the test's ways to make the
+ * harness speak (`emit`), raise a card (`ask`), answer one (`respond`), end its stream as a process
+ * that dies does (`end`) and wait until the adapter has taken it all in (`settle`: every consequence
+ * here is a chain of microtasks, so one turn of the timer queue is past all of them).
+ */
+function driven(opts: { refuseStop?: boolean; start?: Partial<StartOptions> } = {}) {
+  const fake = drivenQuery(opts);
+  const h = new ClaudeAdapter({ query: fake.query as never }).start({ cwd: "/tmp", mcpServers: [], ...opts.start });
+  const seen: SessionEvent[] = [];
+  const done = (async () => { for await (const e of h.events) seen.push(e); })();
+  const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+  const emit = async (...msgs: unknown[]) => { for (const m of msgs) fake.wire.push(m); await settle(); };
+  const send = async (text = "go") => { await h.send({ text, attachments: [] }); await settle(); };
+  const ask = async (toolName: string, input: Record<string, unknown>, o: Record<string, unknown> = {}) => {
+    const ac = new AbortController();
+    const canUseTool = fake.held.options!.canUseTool as (n: string, i: unknown, o: unknown) => Promise<Record<string, unknown>>;
+    const answer = canUseTool(toolName, input, { signal: ac.signal, ...o });
+    await settle();
+    const request = seen.flatMap((e) => (e.type === "permission_request" ? [e.payload] : [])).at(-1)!;
+    return { answer, request, requestId: request.requestId, abort: () => ac.abort() };
+  };
+  const respond = async (card: { requestId: string; answer: Promise<Record<string, unknown>> }, decision: PermissionDecision) => {
+    h.respondPermission(card.requestId, decision);
+    const result = await card.answer;
+    await settle();
+    return result;
+  };
+  const close = async () => { await h.dispose(); await done; };
+  const statuses = () => seen.flatMap((e) => (e.type === "status" ? [e.payload] : []));
+  const errors = () => seen.flatMap((e) => (e.type === "error" ? [e.payload] : []));
+  const end = () => fake.wire.close();
+  return { h, seen, calls: fake.calls, uuids: fake.uuids, options: () => fake.held.options!, emit, send, ask, respond, settle, close, end, statuses, errors };
+}
+
+const INIT = { type: "system", subtype: "init", session_id: "s", model: "m", cwd: "/tmp", tools: [] as string[], uuid: "i" };
+const said = (text: string, parent: string | null = null) => ({ type: "assistant", session_id: "s", parent_tool_use_id: parent, uuid: `a:${text}`, message: { id: `m:${text}`, role: "assistant", content: [{ type: "text", text }] } });
+const delta = (text: string, parent: string | null = null) => ({ type: "stream_event", session_id: "s", parent_tool_use_id: parent, uuid: `d:${text}`, event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } } });
+const result = (over: Record<string, unknown> = {}) => ({ type: "result", subtype: "success", is_error: false, num_turns: 1, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, session_id: "s", uuid: "r", ...over });
+const failedWith = (message: string, over: Record<string, unknown> = {}) => result({ subtype: "error_during_execution", is_error: true, errors: [message], ...over });
+/** How the harness marks the result of a turn it started by itself, to report on a background run. */
+const REPORT = { origin: { kind: "task-notification" } };
+/** How the harness names, on a turn's result, the sent messages that turn consumed: the uuid of
+ *  each in a list, and the last of them alone beside it. */
+const naming = (...uuids: string[]) => ({ user_message_uuids: uuids, user_message_uuid: uuids.at(-1) });
+/** A rule the harness offers to save, as `canUseTool` receives one. Its content is never read here. */
+const RULE = { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "touch:*" }], behavior: "allow", destination: "session" };
+const RUNNING = { status: "running" };
+const WAITING = { status: "waiting_permission" };
+const IDLE = { status: "idle" };
+/** The settle of a turn the harness started by itself, which says whose turn it was. */
+const REPORTED = { status: "idle", unprompted: true };
+
+/** One ordinary turn, sent and settled: where every between-turns case starts from. */
+const settledTurn = async (s: ReturnType<typeof driven>) => { await s.send(); await s.emit(INIT, said("ok"), result()); };
+/** A card raised by a background run's agent: a tool call with rules the harness offers to save. */
+const agentAsks = (s: ReturnType<typeof driven>) => s.ask("Bash", { command: "touch probe.txt" }, { agentID: "ae678cb811145d3c3", suggestions: [RULE] });
+
+describe("a Claude session's status, site by site", () => {
+  it("says idle once on a first init that arrives before anything was sent", async () => {
+    const s = driven();
+    await s.emit(INIT, INIT);
+    expect(s.statuses()).toEqual([IDLE]);
+    await s.close();
+  });
+
+  it("says nothing on an init that arrives at rest after a settled turn", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT);
+    expect(s.statuses()).toEqual([RUNNING, IDLE]);
+    await s.close();
+  });
+
+  it("repeats no status for a send into a turn already in flight", async () => {
+    const s = driven();
+    await s.send("one");
+    await s.send("two");
+    expect(s.statuses()).toEqual([RUNNING]);
+    await s.close();
+  });
+
+  it("opens a turn nobody sent on its first top-level assistant message, before that message is said", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, said("The run finished."));
+    const order = s.seen.flatMap((e) => (e.type === "status" ? [e.payload.status] : e.type === "assistant_text" ? [e.payload.text] : []));
+    expect(order.slice(-2)).toEqual(["running", "The run finished."]);
+    await s.close();
+  });
+
+  it("closes a turn it opened on output with that turn's result, like any other", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, said("The run finished."), result(REPORT));
+    expect(s.statuses().map((p) => p.status)).toEqual(["running", "idle", "running", "idle"]);
+    await s.close();
+  });
+
+  it("marks the settle of a turn the harness started by itself as unprompted", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, said("The run finished."), result(REPORT));
+    expect(s.statuses().at(-1)).toEqual(REPORTED);
+    await s.close();
+  });
+
+  it("leaves the settle of a turn that was sent unmarked when its result names a person as its origin", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, said("the answer"), result({ origin: { kind: "human" } }));
+    expect(s.statuses()).toEqual([RUNNING, IDLE]);
+    await s.close();
+  });
+
+  it("settles a message sent before the report's first output once, with no mark, after the result that names it", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT);
+    await s.send("and this");
+    await s.emit(said("The run finished."), result(REPORT));
+    await s.emit(INIT, said("the answer"), result(naming(s.uuids[1]!)));
+    expect(s.statuses().slice(2)).toEqual([RUNNING, IDLE]);
+    await s.close();
+  });
+
+  it("settles a message folded into a report turn once, with no mark, on the result that names it", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, said("The run finished."));
+    await s.send("and this");
+    await s.emit(said("And I have read the message."), result({ ...REPORT, ...naming(s.uuids[1]!) }));
+    expect(s.statuses().slice(2)).toEqual([RUNNING, IDLE]);
+    await s.close();
+  });
+
+  it("leaves the failure of a message folded into a report turn unmarked, so failover hears of it", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, said("The run finished."));
+    await s.send("and this");
+    await s.emit(failedWith("overloaded", { ...REPORT, ...naming(s.uuids[1]!) }));
+    expect(s.errors()).toEqual([{ message: "overloaded" }]);
+    await s.close();
+  });
+
+  it("settles when a later message is answered, though no result ever named an earlier one", async () => {
+    const s = driven();
+    await s.send("one");
+    await s.send("two");
+    await s.emit(INIT, said("the answer to two"), result(naming(s.uuids[1]!)));
+    expect(s.statuses()).toEqual([RUNNING, IDLE]);
+    await s.close();
+  });
+
+  it("remembers nothing of a send that failed on its attachments, so the report after it still settles", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.h.send({ text: "look", attachments: [{ path: "/definitely/not/here.png", mime: "image/png" }] });
+    await s.emit(INIT, said("The run finished."), result(REPORT));
+    expect(s.statuses().at(-1)).toEqual(REPORTED);
+    await s.close();
+  });
+
+  it("gives a message it pushes a uuid", async () => {
+    const s = driven();
+    await s.send();
+    expect(s.uuids).toEqual([expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)]);
+    await s.close();
+  });
+
+  it("gives two messages it pushes different uuids", async () => {
+    const s = driven();
+    await s.send("one");
+    await s.send("two");
+    expect(new Set(s.uuids).size).toBe(2);
+    await s.close();
+  });
+
+  it("opens a turn nobody sent on a top-level stream event too", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, delta("The"));
+    expect(s.statuses().at(-1)).toEqual(RUNNING);
+    await s.close();
+  });
+
+  it("opens no turn on a background agent's own frames, which carry a parent id", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(said("inner", "toolu_background"), delta("inner", "toolu_background"));
+    expect(s.statuses()).toEqual([RUNNING, IDLE]);
+    await s.close();
+  });
+
+  it("says no status for a result with no output before it", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, result({ num_turns: 0, ...REPORT }));
+    expect(s.statuses()).toEqual([RUNNING, IDLE]);
+    await s.close();
+  });
+
+  it("keeps a sent turn in flight through a result that ended no turn", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, result({ num_turns: 0, ...REPORT }));
+    expect(s.statuses()).toEqual([RUNNING]);
+    await s.close();
+  });
+
+  it("settles a sent turn on its own result after a result that ended no turn", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, result({ num_turns: 0, ...REPORT }));
+    await s.emit(INIT, said("the answer"), result());
+    expect(s.statuses()).toEqual([RUNNING, IDLE]);
+    await s.close();
+  });
+
+  it("keeps a sent turn in flight through the result of a report turn, which names no message", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, said("the report"), result(REPORT));
+    expect(s.statuses()).toEqual([RUNNING]);
+    await s.close();
+  });
+
+  it("keeps a Stop pressed on a sent turn armed across a result that ended no turn", async () => {
+    const s = driven();
+    await s.send();
+    await s.h.interrupt();
+    await s.emit(INIT, result({ num_turns: 0, ...REPORT }));
+    await s.emit(failedWith("Request was aborted."));
+    expect(s.statuses()).toEqual([RUNNING, { status: "idle", interrupted: true }]);
+    expect(s.errors()).toEqual([]);
+    await s.close();
+  });
+
+  it("reports an unexpected exit when the process goes after such a result with the sent turn unanswered", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, result({ num_turns: 0, ...REPORT }));
+    s.end();
+    await s.settle();
+    expect(s.errors().map((e) => e.message)).toEqual(["agent process ended unexpectedly"]);
+    expect(s.statuses().slice(-2)).toEqual([{ status: "error" }, { status: "ended" }]);
+    await s.close();
+  });
+
+  it("marks the wait betweenTurns when a request is raised with no turn in flight", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await agentAsks(s);
+    expect(s.statuses().at(-1)).toEqual({ status: "waiting_permission", betweenTurns: true });
+    await s.close();
+  });
+
+  it("says idle marked betweenTurns when a request raised between turns is answered", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.respond(await agentAsks(s), "allow");
+    expect(s.statuses().at(-1)).toEqual({ status: "idle", betweenTurns: true });
+    await s.close();
+  });
+
+  it("says idle marked betweenTurns when the harness aborts a request raised between turns", async () => {
+    const s = driven();
+    await settledTurn(s);
+    const card = await agentAsks(s);
+    card.abort();
+    await card.answer;
+    await s.settle();
+    expect(s.statuses().at(-1)).toEqual({ status: "idle", betweenTurns: true });
+    await s.close();
+  });
+
+  it("says nothing for a result that arrives under an open request", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, said("Launching."));
+    await agentAsks(s);
+    await s.emit(said("Started the run."), result());
+    expect(s.statuses()).toEqual([RUNNING, WAITING]);
+    await s.close();
+  });
+
+  it("pays the settle owed for a turn that ended under a request when the request is answered", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, said("Launching."));
+    const card = await agentAsks(s);
+    await s.emit(said("Started the run."), result());
+    await s.respond(card, "allow");
+    expect(s.statuses()).toEqual([RUNNING, WAITING, IDLE]);
+    await s.close();
+  });
+
+  it("holds the owed settle until the last of several open requests has closed", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, said("Launching."));
+    const first = await agentAsks(s);
+    const second = await agentAsks(s);
+    await s.emit(result());
+    await s.respond(first, "allow");
+    const afterFirst = s.statuses().length;
+    await s.respond(second, "deny");
+    expect(afterFirst).toBe(2);
+    expect(s.statuses()).toEqual([RUNNING, WAITING, IDLE]);
+    await s.close();
+  });
+
+  it("leaves the one settle of a sent turn and a report turn that ended under one card unmarked", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, said("Launching."));
+    const card = await agentAsks(s);
+    await s.emit(said("Started the run."), result());
+    await s.emit(INIT, said("The run finished."), result(REPORT));
+    await s.respond(card, "allow");
+    expect(s.statuses()).toEqual([RUNNING, WAITING, IDLE]);
+    await s.close();
+  });
+
+  it("leaves that one settle unmarked when the report turn ended first and the sent turn after it", async () => {
+    const s = driven();
+    await settledTurn(s);
+    const card = await agentAsks(s);
+    await s.emit(INIT, said("The run finished."), result(REPORT));
+    await s.send("and this");
+    await s.emit(INIT, said("the answer"), result());
+    await s.respond(card, "allow");
+    expect(s.statuses().at(-1)).toEqual(IDLE);
+    await s.close();
+  });
+
+  it("marks the one settle of two report turns that ended under one card", async () => {
+    const s = driven();
+    await settledTurn(s);
+    const card = await agentAsks(s);
+    await s.emit(INIT, said("The first run finished."), result(REPORT));
+    await s.emit(INIT, said("The second run finished."), result(REPORT));
+    await s.respond(card, "allow");
+    expect(s.statuses().at(-1)).toEqual(REPORTED);
+    await s.close();
+  });
+
+  it("keeps the session waiting, and no longer between turns, when a message is sent under an open card", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await agentAsks(s);
+    await s.send("also this");
+    expect(s.statuses().slice(-2)).toEqual([{ status: "waiting_permission", betweenTurns: true }, WAITING]);
+    await s.close();
+  });
+
+  it("keeps the session waiting when a turn opens on its own output under an open card", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await agentAsks(s);
+    await s.emit(INIT, said("The run finished."));
+    expect(s.statuses().slice(2)).toEqual([{ status: "waiting_permission", betweenTurns: true }, WAITING]);
+    await s.close();
+  });
+
+  it("says nothing on an init that arrives under an open card", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await agentAsks(s);
+    await s.emit(INIT);
+    expect(s.statuses()).toEqual([RUNNING, IDLE, { status: "waiting_permission", betweenTurns: true }]);
+    await s.close();
+  });
+
+  it("settles a turn that ran and ended under a card raised between turns when the card is answered", async () => {
+    const s = driven();
+    await settledTurn(s);
+    const card = await agentAsks(s);
+    await s.emit(INIT, said("The run finished."), result(REPORT));
+    await s.respond(card, "allow");
+    expect(s.statuses().at(-1)).toEqual(REPORTED);
+    await s.close();
+  });
+
+  it("owes no settle for a result that closed no turn, though a card was open when it arrived", async () => {
+    const s = driven();
+    await settledTurn(s);
+    const card = await agentAsks(s);
+    await s.emit(INIT, result({ num_turns: 0, ...REPORT }));
+    await s.respond(card, "allow");
+    expect(s.statuses().at(-1)).toEqual({ status: "idle", betweenTurns: true });
+    await s.close();
+  });
+
+  it("reports for a turn opened on its own output the fast mode asked for when it opened", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.h.setOptions({ fastMode: true });
+    await s.emit(INIT, said("The run finished."), result(REPORT));
+    expect(s.seen.flatMap((e) => (e.type === "usage" ? [e.payload.fastModeRequested] : []))).toEqual([false, true]);
+    await s.close();
+  });
+
+  it("says ended, and never the settle, when it is disposed with a settle still owed", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, said("Launching."));
+    await agentAsks(s);
+    await s.emit(result());
+    await s.close();
+    expect(s.statuses()).toEqual([RUNNING, WAITING, { status: "ended" }]);
+  });
+});
+
+describe("the interrupted latch", () => {
+  it("does not mark the next turn as stopped after an interrupt with no turn in flight", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.h.interrupt();
+    await s.send("second");
+    await s.emit(INIT, said("second answer"), result());
+    expect(s.statuses().at(-1)).toEqual(IDLE);
+    await s.close();
+  });
+
+  it("leaves the next turn's own error in the log after an interrupt with no turn in flight", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.h.interrupt();
+    await s.send("second");
+    await s.emit(INIT, said("second answer"), failedWith("the API is overloaded"));
+    expect(s.errors()).toEqual([{ message: "the API is overloaded" }]);
+    await s.close();
+  });
+
+  it("hides the cancel diagnostic of a turn stopped after its init and before its first output", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT);
+    await s.h.interrupt();
+    await s.emit(failedWith("[ede_diagnostic] result_type=user", REPORT));
+    expect(s.errors()).toEqual([]);
+    await s.close();
+  });
+
+  it("says no status for the result of a turn stopped after its init and before its first output", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT);
+    await s.h.interrupt();
+    await s.emit(failedWith("[ede_diagnostic] result_type=user", REPORT));
+    expect(s.statuses()).toEqual([RUNNING, IDLE]);
+    await s.close();
+  });
+
+  it("marks the settle of a report turn the person stopped both interrupted and unprompted", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, said("The run"));
+    await s.h.interrupt();
+    await s.emit(failedWith("[ede_diagnostic] result_type=user", REPORT));
+    expect(s.statuses().at(-1)).toEqual({ status: "idle", interrupted: true, unprompted: true });
+    await s.close();
+  });
+
+  it("settles a stopped report turn at its own result, marked interrupted, though a message sent into it is unanswered", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, said("The run"));
+    await s.send("and this");
+    await s.h.interrupt();
+    await s.emit(failedWith("[ede_diagnostic] result_type=user", REPORT));
+    expect(s.statuses().at(-1)).toMatchObject({ status: "idle", interrupted: true });
+    await s.close();
+  });
+
+  it("settles a report turn stopped before its first output at its own result, though that result counts no turns and a sent message is unanswered", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT);
+    await s.send("and this");
+    await s.h.interrupt();
+    await s.emit(failedWith("[ede_diagnostic] result_type=user", { ...REPORT, num_turns: 0 }));
+    expect(s.statuses().at(-1)).toMatchObject({ status: "idle", interrupted: true });
+    await s.close();
+  });
+
+  it("clears a latch armed for a turn that never spoke with that turn's result", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT);
+    await s.h.interrupt();
+    await s.emit(failedWith("[ede_diagnostic] result_type=user", REPORT));
+    await s.send("next");
+    await s.emit(INIT, said("answer"), failedWith("boom"));
+    expect(s.errors()).toEqual([{ message: "boom" }]);
+    expect(s.statuses().at(-1)).toEqual(IDLE);
+    await s.close();
+  });
+
+  it("marks the idle that closes the cards as stopped when Stop is pressed between turns", async () => {
+    const s = driven();
+    await settledTurn(s);
+    const card = await agentAsks(s);
+    await s.h.interrupt();
+    await card.answer;
+    await s.settle();
+    expect(s.statuses().at(-1)).toEqual({ status: "idle", betweenTurns: true, interrupted: true });
+    await s.close();
+  });
+
+  it("still interrupts the harness when Stop is pressed on a card between turns", async () => {
+    const s = driven();
+    await settledTurn(s);
+    const card = await agentAsks(s);
+    await s.h.interrupt();
+    await card.answer;
+    await s.settle();
+    expect(s.calls).toContain("interrupt");
+    await s.close();
+  });
+
+  it("arms nothing for the next turn when Stop is pressed on a card between turns", async () => {
+    const s = driven();
+    await settledTurn(s);
+    const card = await agentAsks(s);
+    await s.h.interrupt();
+    await card.answer;
+    await s.send("next");
+    await s.emit(INIT, said("answer"), failedWith("boom"));
+    expect(s.errors()).toEqual([{ message: "boom" }]);
+    expect(s.statuses().at(-1)).toEqual(IDLE);
+    await s.close();
+  });
+
+  it("marks the owed settle as stopped when Stop is pressed on a card whose turn has already ended", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, said("Launching."));
+    const card = await agentAsks(s);
+    await s.emit(result());
+    await s.h.interrupt();
+    await card.answer;
+    await s.settle();
+    expect(s.statuses().at(-1)).toEqual({ status: "idle", interrupted: true });
+    await s.close();
+  });
+});
+
+/** A session mid-turn, which is where the harness asks about a tool call of the main loop. */
+const midTurn = async () => { const s = driven(); await s.send(); await s.emit(INIT); return s; };
+
+describe("once — a request with no always answer to keep", () => {
+  it("marks a request the harness sent an empty list of rules for", async () => {
+    const s = await midTurn();
+    const card = await s.ask("Workflow", { script: "export const meta = {}" }, { suggestions: [] });
+    expect(card.request.once).toBe(true);
+    await s.close();
+  });
+
+  it("marks a request that came with no list of rules at all", async () => {
+    const s = await midTurn();
+    const card = await s.ask("Workflow", { script: "export const meta = {}" });
+    expect(card.request.once).toBe(true);
+    await s.close();
+  });
+
+  it("marks a request the harness said not to offer a rule for, though it sent one", async () => {
+    const s = await midTurn();
+    const card = await s.ask("Bash", { command: "rm -rf build" }, { suggestions: [RULE], suppressAlwaysAllowRule: true });
+    expect(card.request.once).toBe(true);
+    await s.close();
+  });
+
+  it("leaves a request with a rule to save unmarked", async () => {
+    const s = await midTurn();
+    const card = await s.ask("Bash", { command: "touch probe.txt" }, { suggestions: [RULE] });
+    expect(card.request).not.toHaveProperty("once");
+    await s.close();
+  });
+
+  it("answers allow_always on a once request as a plain allow, with no rule handed back", async () => {
+    const s = await midTurn();
+    const card = await s.ask("Bash", { command: "rm -rf build" }, { suggestions: [RULE], suppressAlwaysAllowRule: true });
+    expect(await s.respond(card, "allow_always")).toEqual({ behavior: "allow" });
+    await s.close();
+  });
+
+  it("logs allow_always on a once request as the allow it was", async () => {
+    const s = await midTurn();
+    await s.respond(await s.ask("Workflow", { script: "export const meta = {}" }, { suggestions: [] }), "allow_always");
+    expect(s.seen.flatMap((e) => (e.type === "permission_response" ? [e.payload.decision] : []))).toEqual(["allow"]);
+    await s.close();
+  });
+
+  it("still hands the harness its rules back on allow_always when it offered some", async () => {
+    const s = await midTurn();
+    const card = await s.ask("Bash", { command: "touch probe.txt" }, { suggestions: [RULE] });
+    expect(await s.respond(card, "allow_always")).toEqual({ behavior: "allow", updatedPermissions: [RULE] });
+    await s.close();
+  });
+});
+
+describe("unprompted — an error in a turn nobody sent", () => {
+  it("marks the error of a turn the harness started to report on a background run", async () => {
+    const s = driven();
+    await settledTurn(s);
+    await s.emit(INIT, said("API Error: 400"), result({ is_error: true, result: "API Error: 400", ...REPORT }));
+    expect(s.errors()).toEqual([{ message: "API Error: 400", unprompted: true }]);
+    await s.close();
+  });
+
+  it("leaves the error of a turn that was sent unmarked", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, said("API Error: 400"), result({ is_error: true, result: "API Error: 400", origin: { kind: "human" } }));
+    expect(s.errors()).toEqual([{ message: "API Error: 400" }]);
+    await s.close();
+  });
+
+  it("marks the failure it writes itself when the process ends during the report on a run it announced", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, workflowMessage("task_started"), said("Launched."), result());
+    await s.emit(workflowMessage("task_notification"), INIT, said("The run"));
+    s.end();
+    await s.settle();
+    expect(s.errors()).toEqual([{ message: "agent process ended unexpectedly", unprompted: true }]);
+    await s.close();
+  });
+
+  it("leaves that failure unmarked in a session that never ran anything in the background, though output opened the turn in flight", async () => {
+    const s = driven();
+    await s.send("one");
+    await s.send("two");
+    await s.emit(INIT, said("answer one"), result());
+    await s.emit(INIT, said("answer"));
+    s.end();
+    await s.settle();
+    expect(s.errors()).toEqual([{ message: "agent process ended unexpectedly" }]);
+    await s.close();
+  });
+
+  it("leaves that failure unmarked when the process ends during a turn that was sent, though a run is working", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, workflowMessage("task_started"), said("Launched."));
+    s.end();
+    await s.settle();
+    expect(s.errors()).toEqual([{ message: "agent process ended unexpectedly" }]);
+    await s.close();
+  });
+
+  it("leaves that failure unmarked when the process ends before any turn has begun", async () => {
+    const s = driven();
+    await s.emit(INIT);
+    s.end();
+    await s.settle();
+    expect(s.errors()).toEqual([{ message: "agent process ended unexpectedly" }]);
+    await s.close();
+  });
+
+  it("leaves that failure unmarked when a sent turn was still unanswered after a result that ended no turn", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, workflowMessage("task_started"), said("Launched."), result());
+    await s.send("and this");
+    await s.emit(workflowMessage("task_notification"), INIT, result({ num_turns: 0, ...REPORT }));
+    s.end();
+    await s.settle();
+    expect(s.errors()).toEqual([{ message: "agent process ended unexpectedly" }]);
+    await s.close();
+  });
+
+  it("leaves that failure unmarked when the process ends in the own turn of a message sent before the report's first output", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, workflowMessage("task_started"), said("Launched."), result());
+    await s.emit(workflowMessage("task_notification"), INIT);
+    await s.send("and this");
+    await s.emit(said("The run finished."), result(REPORT), INIT, said("the answer"));
+    s.end();
+    await s.settle();
+    expect(s.errors()).toEqual([{ message: "agent process ended unexpectedly" }]);
+    await s.close();
+  });
+
+  it("leaves the failure of a stream that throws during a sent turn unmarked", async () => {
+    const h = new ClaudeAdapter({ query: fakeQuery({ throwAfter: 2 }) as never }).start({ cwd: "/tmp", mcpServers: [] });
+    const all = collectUntil(h.events, () => false);
+    await h.send({ text: "hi", attachments: [] });
+    expect((await all).flatMap((e) => (e.type === "error" ? [e.payload] : []))).toEqual([{ message: "sdk exploded" }]);
+    await h.dispose();
+  });
+});
+
+describe("stopTask — stopping one background run", () => {
+  const stops = (s: ReturnType<typeof driven>) => s.calls.filter((c) => c.startsWith("stopTask"));
+
+  it("stops a run it announced by the harness's task id, not by the call's id", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, workflowMessage("task_started"));
+    await s.h.stopTask!("toolu_fake_2");
+    expect(stops(s)).toEqual(["stopTask:w1m36gxx5"]);
+    await s.close();
+  });
+
+  it("asks the harness nothing for a call it never announced as a run", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, workflowMessage("task_started"));
+    await s.h.stopTask!("toolu_some_other_call");
+    expect(stops(s)).toEqual([]);
+    await s.close();
+  });
+
+  it("asks the harness nothing for a run it has already seen stop", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, workflowMessage("task_started"), workflowMessage("task_notification"));
+    await s.h.stopTask!("toolu_fake_2");
+    expect(stops(s)).toEqual([]);
+    await s.close();
+  });
+
+  it("asks the harness nothing for a shell command's task, which is a task and not a run", async () => {
+    const s = driven();
+    await s.send();
+    await s.emit(INIT, { type: "system", subtype: "task_started", task_id: "b38tzm45f", tool_use_id: "toolu_shell", task_type: "local_bash", is_backgrounded: true, session_id: "s", uuid: "t" });
+    await s.h.stopTask!("toolu_shell");
+    expect(stops(s)).toEqual([]);
+    await s.close();
+  });
+
+  it("rejects with Realm's own sentence when the harness refuses", async () => {
+    const s = driven({ refuseStop: true });
+    await s.send();
+    await s.emit(INIT, workflowMessage("task_started"));
+    await expect(s.h.stopTask!("toolu_fake_2")).rejects.toMatchObject({ message: "Claude Code could not stop that run." });
+    await s.close();
+  });
+
+  it("never declares perTaskStopAffordance, so that Stop goes on ending background runs", async () => {
+    const s = driven();
+    await s.send();
+    expect(s.options()).not.toHaveProperty("perTaskStopAffordance");
+    await s.close();
+  });
+});
+
+/**
+ * The capture, replayed in the order a real run produced it in Ask each time mode
+ * (`adapter-before-agent-asks.log`): the launch is asked about, the run's first agent asks for a tool
+ * before the launch turn has ended, that turn ends with the card still open, the card is answered,
+ * the run ends, and Claude Code reports in a turn of its own.
+ */
+async function replayWorkflow() {
+  const s = driven();
+  await s.send("use a workflow");
+  await s.emit(WORKFLOW[0], WORKFLOW[1]);
+  const launch = await s.ask("Workflow", { script: "export const meta = {}" }, { title: null, description: "Probe run with two agents", suggestions: [] });
+  await s.respond(launch, "allow");
+  await s.emit(...WORKFLOW.slice(2, 6));
+  const agent = await s.ask("Bash", { command: "touch probe-made-by-agent.txt" }, { agentID: "ae678cb811145d3c3", suggestions: [RULE, RULE, RULE] });
+  await s.emit(WORKFLOW[6], WORKFLOW[7]);
+  await s.respond(agent, "allow");
+  await s.emit(...WORKFLOW.slice(8));
+  return { s, launch, agent };
+}
+
+describe("a workflow run, replayed from the capture", () => {
+  it("follows the captured run status by status when both of its cards are asked about", async () => {
+    const { s } = await replayWorkflow();
+    expect(s.statuses()).toEqual([RUNNING, WAITING, RUNNING, WAITING, IDLE, RUNNING, REPORTED]);
+    await s.close();
+  });
+
+  it("marks the launching call running from the run's start until the harness says how it ended", async () => {
+    const { s } = await replayWorkflow();
+    expect(s.seen.flatMap((e) => (e.type === "background_task" ? [e.payload] : []))).toEqual([
+      { toolUseId: "toolu_fake_2", status: "running" },
+      { toolUseId: "toolu_fake_2", status: "stopped", summary: 'Dynamic workflow "Probe run with two agents" completed', outcome: "completed" },
+    ]);
+    await s.close();
+  });
+
+  it("offers no always answer for the captured run's launch", async () => {
+    const { s, launch } = await replayWorkflow();
+    expect(launch.request.once).toBe(true);
+    await s.close();
+  });
+
+  it("offers an always answer for the tool call of the captured run's agent", async () => {
+    const { s, agent } = await replayWorkflow();
+    expect(agent.request.once).toBeUndefined();
+    await s.close();
+  });
+
+  it("reports no error for a run that completed", async () => {
+    const { s } = await replayWorkflow();
+    expect(s.errors()).toEqual([]);
+    await s.close();
+  });
+
+  it("follows the captured run status by status when nobody is asked", async () => {
+    const s = driven();
+    await s.send("use a workflow");
+    await s.emit(...WORKFLOW);
+    expect(s.statuses()).toEqual([RUNNING, IDLE, RUNNING, REPORTED]);
+    await s.close();
   });
 });

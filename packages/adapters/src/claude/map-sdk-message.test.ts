@@ -3,6 +3,9 @@ import { createSdkMapper } from "./map-sdk-message";
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(readFileSync(join(here, "fixtures", "turn.json"), "utf8")) as unknown[];
 const asst = (content: unknown[], parent: string | null = null, id = "msg_x") => ({ type: "assistant", session_id: "s", parent_tool_use_id: parent, uuid: "u", message: { id, type: "message", role: "assistant", model: "m", content, stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } } });
+/** A report turn that failed, as the harness sends it: `subtype: "success"` with `is_error`, the API's
+ *  own refusal as the text. `over` sets the `origin`, which is the only thing that says whose turn it was. */
+const failed = (over: Record<string, unknown>) => ({ type: "result", subtype: "success", session_id: "s", uuid: "u", is_error: true, num_turns: 1, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, modelUsage: {}, permission_denials: [], result: "API Error: 400", ...over });
 describe("map-sdk-message", () => {
   it("maps a recorded turn to normalized events", () => {
     const m = createSdkMapper(); const out = fixture.flatMap((msg) => m.map(msg as never));
@@ -85,6 +88,19 @@ describe("map-sdk-message", () => {
     const r = m.map({ type: "result", subtype: "error_during_execution", session_id: "s", uuid: "u", is_error: true, num_turns: 1, total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 }, modelUsage: {}, permission_denials: [], errors: ["boom"] } as never);
     expect(r.map((e) => e.type)).toEqual(["usage", "error"]);
     expect(m.map(asst([{ type: "text", text: "same" }], null, "m1") as never).map((e) => e.type)).toEqual(["assistant_text"]);
+  });
+
+  it("marks the error of a turn the harness started by itself as unprompted", () => {
+    const out = createSdkMapper().map(failed({ origin: { kind: "task-notification" } }) as never);
+    expect(out.find((e) => e.type === "error")?.payload).toEqual({ message: "API Error: 400", unprompted: true });
+  });
+
+  it.each([
+    ["a turn a person sent", { origin: { kind: "human" } }],
+    ["a turn with no origin at all", {}],
+  ])("leaves the mark off the error of %s", (_name, over) => {
+    const out = createSdkMapper().map(failed(over) as never);
+    expect(out.find((e) => e.type === "error")?.payload).toEqual({ message: "API Error: 400" });
   });
 
   describe("compact_boundary — the seam nothing else on the wire reports", () => {

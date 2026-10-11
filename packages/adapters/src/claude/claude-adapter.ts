@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
-import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
+import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKMessage, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
 import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
@@ -211,6 +212,212 @@ function spawnWrapped(o: SpawnOptions, wrap: NonNullable<StartOptions["wrap"]>, 
   return child as unknown as SpawnedProcess;
 }
 
+/** A session status, as this adapter says it. */
+type ClaudeStatus = SessionEventPayload<"status">;
+
+/** Everything a Claude session's status is decided from: three facts, and three marks on them. */
+export type ClaudeTurnFacts = {
+  /** Requests open: cards put to the person and not yet answered. */
+  requests: number;
+  /** A turn is in flight: sent, or opened by its own first output, and not yet closed by a `result`. */
+  turn: boolean;
+  /** A `result` closed a turn while a request was open, so that turn's settle waits for the card. */
+  settleOwed: boolean;
+  /** Stop was pressed on what the next `idle` ends: the turn it settles, or the cards it closes. */
+  stopped: boolean;
+  /**
+   * Every turn the owed settle is for was the harness's own: Claude Code started it by itself, to
+   * report on a background run, and no `result` since the last settle answered a message this
+   * handle sent (`answeredBy`). The settle says so, because a reader that sends something at
+   * every settle would otherwise send for a turn nobody asked for: a goal took its step when the
+   * launching turn settled, and the report's settle bought a second one. One sent turn among
+   * several that ended under one card leaves the settle unmarked, since that settle is also the
+   * sent turn's.
+   */
+  unprompted: boolean;
+  /** The handle was disposed with a settle still owed. Nothing more is said: `ended` is the last word. */
+  abandoned: boolean;
+};
+
+/**
+ * The one place a Claude session's status is decided. Every site that changes a fact asks here (a
+ * send, a turn opening on its own output, a `result`, a request opening or closing, an `init`), and
+ * the answer is null when it would only repeat `said`, the last status this handle gave:
+ *
+ *   | Requests open | Turn in flight           | Says                                           |
+ *   |---------------|--------------------------|------------------------------------------------|
+ *   | yes           | yes, or a settle is owed | `waiting_permission`                           |
+ *   | yes           | no, and none owed        | `waiting_permission` with `betweenTurns`       |
+ *   | no            | yes                      | `running`                                      |
+ *   | no            | no, a settle is owed     | `idle`, the settle, with that turn's two marks |
+ *   | no            | no, none owed            | `idle` with `betweenTurns`, only after a wait  |
+ *
+ * So a session with a card open says `waiting_permission` and nothing else, whatever happens
+ * meanwhile, and a turn that ends under the card settles when the card is answered. The sites used
+ * to push a status each by its own lights: a `result` said `idle` over an open card, which took the
+ * card off the screen with its agent still waiting, and a card answered between turns said an `idle`
+ * that every reader of a settle took for a turn ending.
+ *
+ * Two answers sit outside the table. `firstInit` is the start-of-life `idle`: a process whose
+ * handshake arrives before anything was said is at rest, and says so once. And an `abandoned` settle
+ * is never paid: the handle is going away, and an `idle` now would have the server send a queued
+ * message, or a goal's next turn, into a process that is closing.
+ */
+export function claudeStatus(facts: ClaudeTurnFacts, said: ClaudeStatus | null, firstInit = false): ClaudeStatus | null {
+  if (facts.abandoned) return null;
+  const stopped = facts.stopped ? { interrupted: true } : {};
+  const next: ClaudeStatus | null =
+    facts.requests > 0 ? { status: "waiting_permission", ...(facts.turn || facts.settleOwed ? {} : { betweenTurns: true }) }
+    : facts.turn ? { status: "running" }
+    : facts.settleOwed ? { status: "idle", ...stopped, ...(facts.unprompted ? { unprompted: true as const } : {}) }
+    : said?.status === "waiting_permission" ? { status: "idle", betweenTurns: true, ...stopped }
+    : said === null && firstInit ? { status: "idle" }
+    : null;
+  if (!next) return null;
+  const repeats = said !== null && said.status === next.status && said.betweenTurns === next.betweenTurns && said.interrupted === next.interrupted && said.unprompted === next.unprompted;
+  return repeats ? null : next;
+}
+
+/**
+ * What a Stop marks, from where the session stands when it is pressed.
+ *
+ * `latch` is the `interrupted` latch, which hides the cancelled turn's own diagnostic and marks its
+ * settle as stopped. It is armed only when a `result` is coming to read it and clear it: a turn is
+ * in flight, or Claude Code has begun one (an `init` since the last `result`) that has said nothing
+ * yet. Armed with neither, it waited for a `result` that never came, since an interrupt between
+ * turns produces none, and it marked the NEXT turn as stopped and hid that turn's real error.
+ *
+ * `cards` is the other thing a Stop can end: no turn is in flight but requests are open, so the
+ * `idle` that closes them is what the person stopped. Marked `interrupted`, it keeps the queue
+ * parked, because a queued message that started a turn a moment after Stop would read as the button
+ * not working.
+ */
+export function stopMarks(at: { turn: boolean; begun: boolean; requests: number }): { latch: boolean; cards: boolean } {
+  return { latch: at.turn || at.begun, cards: !at.turn && at.requests > 0 };
+}
+
+/**
+ * Whether a message is a turn's own output: an `assistant` or a `stream_event` at the top level.
+ *
+ * It is what opens a turn nobody sent. Claude Code starts one by itself when a background run ends,
+ * to report on it, and nothing but that turn's output says so, because `send` was never called. Not
+ * the `system/init` before it: two runs that end together produce an `init` and a `result` with no
+ * output between them, and a turn opened there would settle for nothing. And not a frame with a
+ * parent: a background agent's own messages arrive while the session is at rest, and they belong
+ * to its call.
+ */
+function isTurnOutput(msg: SDKMessage): boolean {
+  return (msg.type === "assistant" || msg.type === "stream_event") && (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id === null;
+}
+
+/**
+ * What a `result` does to the messages this handle has sent and not yet seen answered: which of
+ * them it leaves, and whether it answered any.
+ *
+ * `sent` holds the uuid `send` gave each of those messages, oldest first. Claude Code names on a
+ * `result` every sent message its turn consumed (`user_message_uuids`, or `user_message_uuid`
+ * alone where there is no list), so whose turn a result closes is read off the result:
+ *
+ *   | The result                                            | Leaves                             | Answered |
+ *   |-------------------------------------------------------|------------------------------------|----------|
+ *   | names a message in `sent`                             | what was sent after the last named | yes      |
+ *   | names none, and its origin is not `task-notification` | nothing                            | yes      |
+ *   | names none, and its origin is `task-notification`     | all of `sent`                      | no       |
+ *
+ * The first row takes every message up to the last one named, named or not. Messages are consumed
+ * in the order they were sent, so an earlier one that no result names was lost, and a session held
+ * to it would wait for good. The second row is a turn somebody sent, closed by a producer that
+ * names nothing, and everything sent is taken for answered, as it was for every result once. The
+ * third is a turn the harness started by itself, to report on a background run or to note that it
+ * took one's notification in and called the model for nothing. It consumed nothing of ours.
+ *
+ * This used to be guessed. Any result closed the turn in flight, so a report's result settled a
+ * message that was answered in a turn of its own after it. And a settle was called the harness's
+ * own by its result's origin alone, so a message folded into a report turn, whose one result has
+ * that origin, settled as a turn nobody sent, and a goal that was not waiting for a report ignored
+ * it and stalled.
+ */
+export function answeredBy(result: { user_message_uuids?: string[]; user_message_uuid?: string; origin?: { kind?: string } }, sent: readonly string[]): { left: string[]; answered: boolean } {
+  const named = Array.isArray(result.user_message_uuids) ? result.user_message_uuids : typeof result.user_message_uuid === "string" ? [result.user_message_uuid] : [];
+  const last = Math.max(-1, ...named.map((uuid) => sent.indexOf(uuid)));
+  if (last >= 0) return { left: sent.slice(last + 1), answered: true };
+  return result.origin?.kind === "task-notification" ? { left: [...sent], answered: false } : { left: [], answered: true };
+}
+
+/**
+ * An event mapped from a `result`, with the `unprompted` mark taken off an error when that result
+ * answered a message this handle sent.
+ *
+ * The mapper marks a failure by its result's origin, and a message folded into a report turn fails
+ * with the report's origin. Left marked, the failure of a message somebody sent was kept from
+ * failover as if nobody had sent it.
+ */
+function ownFailure(e: SessionEvent, answered: boolean): SessionEvent {
+  if (e.type !== "error" || !answered || !e.payload.unprompted) return e;
+  const { unprompted: _harness, ...payload } = e.payload;
+  return { ...e, payload };
+}
+
+/**
+ * Whether a Stop that is armed ends, at this `result`, whatever was sent and is still unanswered.
+ *
+ * Stop ends what was sent with the turn it stops. At that turn's result nothing sent is waited for
+ * any longer, whichever messages the result names: with Stop pressed no later result may ever name
+ * the rest, and a session held to them would read Running with nothing in flight.
+ *
+ * One result is not that turn's, and the Stop passes over it: Claude Code's note that it took in a
+ * background task's notification and called the model for nothing. The note answers nothing of
+ * ours, counts no turns (`num_turns` 0) and reports no failure. The result of the turn a Stop was
+ * pressed on differs in at least one of the three: it names a message, counts the turns it ran, or
+ * reports the cancellation as its failure.
+ *
+ * The note comes ahead of the turn a message started when a conversation resumes after a process
+ * that died with a run still working, and when two runs end together. Spent on it, the latch was
+ * gone when the stopped turn's own result arrived, and that turn settled unmarked with its cancel
+ * diagnostic in the log as an error.
+ */
+function stopsAt(result: { num_turns?: unknown; subtype?: unknown; is_error?: unknown }, answered: boolean): boolean {
+  const note = !answered && result.num_turns === 0 && result.subtype === "success" && result.is_error !== true;
+  return !note;
+}
+
+/**
+ * The mark on the failure this adapter writes itself, when the harness's stream ends or throws:
+ * `unprompted` when a turn was in flight with no sent message unanswered (`sent` is whether one
+ * is), in a session that has had a run in the background.
+ *
+ * Such a turn is the harness's report on that run. Unmarked, its failure went to failover, which
+ * still held the last message a person sent and sent it again, and for a message that launched a
+ * workflow that launched the workflow a second time. Only a turn in flight counts: `send` reads its
+ * attachments before the turn is in flight, and a process that dies in that gap has failed a
+ * message somebody did send. And only where a run was announced: with none there is nothing to
+ * report on, and a turn that output opens is a second message the harness took in a turn of its
+ * own. A message is unanswered until a result answers it (`answeredBy`), so one sent just before a
+ * report, or into one, leaves the failure unmarked through the report and through its own turn
+ * after it, and failover sends it again.
+ */
+export function streamEndMarks(at: { turn: boolean; sent: boolean; ranInBackground: boolean }): { unprompted?: true } {
+  return at.turn && !at.sent && at.ranInBackground ? { unprompted: true } : {};
+}
+
+/**
+ * Stop one background run, by the harness's own id for it (`AgentHandle.stopTask`).
+ *
+ * With no id there is nothing to send: the handle never announced that run, or has already seen it
+ * stop, and asking the harness anyway would turn a press that came a moment late into a refusal.
+ * `Query.stopTask` works as Realm runs, with no `perTaskStopAffordance` declared, and the option
+ * must stay undeclared: with it an interrupt spares the session's background runs, and a run that
+ * outlived Stop would start a turn by itself minutes after the button was pressed.
+ *
+ * A refusal is rethrown in Realm's words. The harness's own are about its task table, and this
+ * message is what the person who pressed the control reads.
+ */
+async function stopRun(q: Query | null, taskId: string | undefined): Promise<void> {
+  if (!q || !taskId) return;
+  try { await q.stopTask(taskId); }
+  catch { throw new Error("Claude Code could not stop that run."); }
+}
+
 /** Claude adapter on the Agent SDK in streaming-input mode. `canUseTool` is bridged to permission_request/response events. */
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude" as const;
@@ -222,7 +429,7 @@ export class ClaudeAdapter implements AgentAdapter {
   start(opts: StartOptions & ClaudeResumeFork): ClaudeHandle {
     const events = new AsyncQueue<SessionEvent>();
     const input = new AsyncQueue<SDKUserMessage>();
-    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown>; ask: AskCard | null }>();
+    const pending = new Map<string, { resolve: (r: PermissionResult) => void; suggestions: PermissionUpdate[]; input: Record<string, unknown>; ask: AskCard | null; once: boolean }>();
     const abort = new AbortController();
     const mapper = createSdkMapper({ resumed: Boolean(opts.resume) });
     const stderrTail: string[] = [];
@@ -234,6 +441,14 @@ export class ClaudeAdapter implements AgentAdapter {
     let running = false;
     let sawResult = false;
     let disposed = false;
+    let settleOwed = false;
+    let stopped = false;
+    let abandoned = false;
+    let prompted = false;
+    let turnBegun = false;
+    let sent: string[] = [];
+    let ranInBackground = false;
+    let said: ClaudeStatus | null = null;
     /* Fast mode as ASKED: what the session wants right now, and what the turn in flight was sent
        under. Two, because a switch flipped mid-turn is about the NEXT turn — the report this turn
        ends with describes the old request, and has to say so or a stale refusal reads as a fresh
@@ -251,6 +466,14 @@ export class ClaudeAdapter implements AgentAdapter {
     };
     const withStderr = (message: string) => (stderrTail.length ? `${message}\n--- stderr (last ${stderrTail.length} lines) ---\n${stderrTail.join("\n")}` : message);
 
+    const tellStatus = (firstInit = false) => {
+      const next = claudeStatus({ requests: pending.size, turn: running, settleOwed, stopped, abandoned, unprompted: !prompted }, said, firstInit);
+      if (!next) return;
+      said = next;
+      if (next.status === "idle") { settleOwed = false; stopped = false; prompted = false; }
+      events.push(sessionEvent("status", next));
+    };
+
     // `answers` (AskUserQuestion) rides back as `updatedInput`: the SDK reads the user's choices off the
     // tool's own arguments, so answering a question IS allowing the call with the answers filled in.
     // They are held to the card first, and the log keeps a mark where a masked one was: the answer goes
@@ -258,10 +481,11 @@ export class ClaudeAdapter implements AgentAdapter {
     const resolvePermission = (requestId: string, d: PermissionDecision, answers?: AskAnswers) => {
       const p = pending.get(requestId); if (!p) return;
       pending.delete(requestId);
+      const decision: PermissionDecision = d === "allow_always" && p.once ? "allow" : d;
       const given = p.ask && answers ? normalizeAnswers(p.ask, answers) : undefined;
-      events.push(sessionEvent("permission_response", { requestId, decision: d, ...(p.ask && given ? { answers: loggableAnswers(p.ask, given) } : {}) }));
-      if (d === "deny") p.resolve({ behavior: "deny", message: "User denied" });
-      else if (d === "allow_always") p.resolve({ behavior: "allow", updatedPermissions: p.suggestions });
+      events.push(sessionEvent("permission_response", { requestId, decision, ...(p.ask && given ? { answers: loggableAnswers(p.ask, given) } : {}) }));
+      if (decision === "deny") p.resolve({ behavior: "deny", message: "User denied" });
+      else if (decision === "allow_always") p.resolve({ behavior: "allow", updatedPermissions: p.suggestions });
       else p.resolve({ behavior: "allow", ...(given ? { updatedInput: { ...p.input, answers: claudeAnswers(given) } } : {}) });
     };
     const denyAllPending = () => { for (const id of [...pending.keys()]) resolvePermission(id, "deny"); };
@@ -277,20 +501,22 @@ export class ClaudeAdapter implements AgentAdapter {
       }
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
+      const once = suggestions.length === 0 || o.suppressAlwaysAllowRule === true;
       // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
       // name, never from anything in its arguments — so the card that draws it is the question card.
       const ask = toolName === "AskUserQuestion" ? askCardFromAskUserQuestion(toolInput, CLAUDE_ASKER) : null;
-      if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
-      events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[], ...(ask ? { ask } : {}) }));
-      const result = await new Promise<PermissionResult>((resolve) => {
-        pending.set(requestId, { resolve, suggestions, input: toolInput as Record<string, unknown>, ask });
-        o.signal.addEventListener("abort", () => {
-          if (!pending.delete(requestId)) return;
-          events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));
-          resolve({ behavior: "deny", message: "aborted" });
-        }, { once: true });
-      });
-      if (pending.size === 0) events.push(sessionEvent("status", { status: running ? "running" : "idle" }));
+      let resolve!: (r: PermissionResult) => void;
+      const answered = new Promise<PermissionResult>((res) => { resolve = res; });
+      pending.set(requestId, { resolve, suggestions, input: toolInput as Record<string, unknown>, ask, once });
+      tellStatus();
+      events.push(sessionEvent("permission_request", { requestId, toolName, input: toolInput, title: o.title ?? `Allow ${toolName}?`, suggestions: suggestions as unknown[], ...(ask ? { ask } : {}), ...(once ? { once: true as const } : {}) }));
+      o.signal.addEventListener("abort", () => {
+        if (!pending.delete(requestId)) return;
+        events.push(sessionEvent("permission_response", { requestId, decision: "deny" }));
+        resolve({ behavior: "deny", message: "aborted" });
+      }, { once: true });
+      const result = await answered;
+      tellStatus();
       return result;
     };
 
@@ -521,8 +747,8 @@ export class ClaudeAdapter implements AgentAdapter {
       } catch { /* the CLI declined; the last measurement stands */ }
     };
 
-    /** Set by `interrupt`, read and cleared by the result it produces. Declared ahead of `pump` so
-     *  the loop's closure can never read it in its temporal dead zone. */
+    /** Set by `interrupt` when a turn is there to stop, read and cleared by the result it produces.
+     *  Declared ahead of `pump` so the loop's closure can never read it in its temporal dead zone. */
     let interrupted = false;
 
     const pump = async () => {
@@ -546,16 +772,18 @@ export class ClaudeAdapter implements AgentAdapter {
             // rather than waiting for the first `rate_limit_event` — which on a quiet account may
             // never come. Off the message loop, like the fast-mode probe above it.
             void readPlanLimits().then((p) => { if (p && !disposed) events.push(sessionEvent("rate_limit", p)); }).catch(() => {});
-            if (!running) events.push(sessionEvent("status", { status: "idle" })); // init arrives after the first send in streaming mode
+            turnBegun = true;
+            tellStatus(true);
             continue;
           }
           if (msg.type === "result") {
             // A cancelled turn still reports its usage — the tokens were spent — but its error is
             // the cancellation, and that is what the settle below says instead.
             let usage: SessionEventPayload<"usage"> | null = null;
+            const named = answeredBy(msg, sent);
             for (const mapped of mapper.map(msg)) {
               if (interrupted && mapped.type === "error") continue;
-              let e = mapped;
+              let e = ownFailure(mapped, named.answered);
               if (e.type === "usage") {
                 // Stamped here rather than in the mapper, which sees only the SDK's message and not
                 // what this session asked for. Carried on the persisted event, so a transcript read
@@ -568,13 +796,18 @@ export class ClaudeAdapter implements AgentAdapter {
             // Off the message loop: the meter is worth a beat of lateness and nothing else on this
             // wire is worth holding up for it. The restated event lands whenever the CLI answers.
             if (usage) void reportContextUsage(usage);
-            running = false; sawResult = true;
-            events.push(sessionEvent("status", { status: "idle", ...(interrupted ? { interrupted: true } : {}) }));
+            sent = interrupted && stopsAt(msg, named.answered) ? [] : named.left;
+            const kept = running && sent.length > 0;
+            const closed = running && !kept;
+            if (running && named.answered) prompted = true;
+            if (!kept) running = false;
+            sawResult = true; turnBegun = false;
+            if (closed) settleOwed = true;
+            if (closed && interrupted) stopped = true;
+            tellStatus();
             // Cleared on the SAME result that read it, so the latch cannot outlive the turn it was
-            // armed for and silence a genuine failure on the next one. (The fake `query` in the
-            // suite yields its fixture once per session, so a second turn cannot be driven through
-            // it — this line is the reason that mutant is not reachable there, not an oversight.)
-            interrupted = false;
+            // armed for and silence a genuine failure on the next one.
+            if (!kept) interrupted = false;
             continue;
           }
           if (msg.type === "rate_limit_event") {
@@ -596,7 +829,15 @@ export class ClaudeAdapter implements AgentAdapter {
             events.push(sessionEvent("rate_limit", merged));
             continue;
           }
-          for (const e of mapper.map(msg)) events.push(e);
+          if (!running && isTurnOutput(msg)) {
+            running = true;
+            turnFast = fastRequested;
+            tellStatus();
+          }
+          for (const e of mapper.map(msg)) {
+            if (e.type === "background_task" && e.payload.status === "running") ranInBackground = true;
+            events.push(e);
+          }
         }
         // Generator ended on its own: abnormal unless we asked for it or it ended cleanly between turns.
         if (!disposed && (running || !sawResult)) failure = "agent process ended unexpectedly";
@@ -606,7 +847,7 @@ export class ClaudeAdapter implements AgentAdapter {
       } finally {
         denyAllPending();
         if (failure !== null) {
-          events.push(sessionEvent("error", { message: withStderr(failure) }));
+          events.push(sessionEvent("error", { message: withStderr(failure), ...streamEndMarks({ turn: running, sent: sent.length > 0, ranInBackground }) }));
           events.push(sessionEvent("status", { status: "error" }));
         }
         running = false;
@@ -659,7 +900,7 @@ export class ClaudeAdapter implements AgentAdapter {
         if (disposed || input.isClosed) { events.push(sessionEvent("error", { message: "session ended" })); return; }
         running = true;
         turnFast = fastRequested;
-        events.push(sessionEvent("status", { status: "running" }));
+        tellStatus();
         // A resolved @-mention (W4) becomes `/realm:<name>` at POSITION 0 — the only place the SDK
         // dispatches a slash command; mid-text it is literal characters. The rest of the message rides
         // as the command's argument. `name` is the frontmatter name, which is how the plugin registers
@@ -679,7 +920,9 @@ export class ClaudeAdapter implements AgentAdapter {
         // that up front, so this is the wire-level net.
         const content: Array<Record<string, unknown>> = [...(text ? [{ type: "text", text }] : []), ...images];
         if (content.length === 0) content.push({ type: "text", text: "(attached files)" });
-        input.push({ type: "user", message: { role: "user", content: content as never }, parent_tool_use_id: null, session_id: "" } as SDKUserMessage);
+        const uuid = randomUUID();
+        sent.push(uuid);
+        input.push({ type: "user", message: { role: "user", content: content as never }, parent_tool_use_id: null, session_id: "", uuid } as SDKUserMessage);
       },
       respondPermission: resolvePermission,
       interrupt: async () => {
@@ -688,10 +931,13 @@ export class ClaudeAdapter implements AgentAdapter {
         // true of the API call and useless to the person who pressed the button: they know why it
         // stopped. The flag is what lets the result branch tell "you cancelled this" apart from
         // "this failed", which nothing in the message itself can.
-        interrupted = true;
+        const marks = stopMarks({ turn: running, begun: turnBegun, requests: pending.size });
+        if (marks.latch) interrupted = true;
+        if (marks.cards) stopped = true;
         denyAllPending();
         try { await q?.interrupt(); } catch { /* process may already be gone; result/ended will report */ }
       },
+      stopTask: (toolUseId: string) => stopRun(q, mapper.taskIdOf(toolUseId)),
       setOptions: async (o) => {
         if (o.model) await q?.setModel(o.model);
         // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
@@ -715,6 +961,7 @@ export class ClaudeAdapter implements AgentAdapter {
       dispose: async () => {
         if (disposed) return;
         disposed = true;
+        abandoned = settleOwed;
         denyAllPending();
         input.close();
         abort.abort();

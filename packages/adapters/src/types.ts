@@ -112,6 +112,16 @@ export interface AgentHandle {
   /** `effort: null` is "the model's own default" — a level the session no longer asks for, not one
    *  left unsaid. */
   setOptions(opts: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<void>;
+  /**
+   * Stop ONE run the agent left working in the background (a workflow, a background sub-agent), and
+   * nothing else: the session and its turn go on. Named by the call that launched it, because that
+   * is the id a transcript holds; the harness's own name for the task never leaves the adapter.
+   *
+   * Present only where the harness has such a call, which today is Claude alone. A run the handle
+   * never announced, and one it has already seen stop, resolve without asking the harness anything.
+   * Rejects, in words a person can be shown, when the harness refuses.
+   */
+  stopTask?(toolUseId: string): Promise<void>;
   dispose(): Promise<void>;
 }
 

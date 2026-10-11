@@ -3,6 +3,7 @@ import { PlanAlertSchema, PlanLimitsUnavailableSchema, PlanWindowSchema } from "
 import { MentionRefSchema } from "./mention-refs";
 import { AskAnswersSchema, AskCardSchema } from "./ui-ask";
 import { AppViewRefSchema } from "./mcp-apps";
+import type { SessionStatus } from "./entities";
 
 const P = {
   /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
@@ -63,6 +64,9 @@ const P = {
    * the agent comes to rest, and the parent may send it another message and start it again. Realm
    * drops the row on the first stop, which under-reports a resumed agent rather than leaving a row
    * that outlives the work it names.
+   *
+   * A workflow's run is reported the same way. Its `Workflow` call returns at once and the run goes
+   * on as a task of its own, so the launching call is again the only thing a row can hang from.
    */
   background_task: z.object({
     toolUseId: z.string(),
@@ -70,13 +74,23 @@ const P = {
     /** The harness's own one-line account of how it ended. Absent on `running`, and absent on a stop
      *  whose notification carried no summary — never defaulted to a sentence Realm made up. */
     summary: z.string().optional(),
+    /** How the run ended, in the harness's own word, on the stop its notification produced:
+     *  `stopped` is a person or the turn ending it, `failed` is its own error. Realm writes
+     *  `stopped` itself for a run whose process is gone, which did not finish. Absent on `running`
+     *  and on every stop written before this existed. */
+    outcome: z.enum(["completed", "failed", "stopped"]).optional(),
   }),
   /** `ask` is present when the request is a QUESTION rather than a permission — from any of the four
    *  feeds `ui-ask.ts` describes — and it is Realm's own: an adapter or the server writes it, never an
    *  agent's arguments, which is what makes it safe to route the card on. Optional, so every request
    *  ever persisted still parses. */
+  /** `once` is present when this request has no "always" answer to keep: whoever raised it has no
+   *  rule to save, so the card offers Allow and Deny only, and an `allow_always` that arrives anyway
+   *  is an Allow. Written by the producer and never worked out from `suggestions`, which is empty on
+   *  every card the server's own broker raises, though it keeps an "always" answer for most of them.
+   *  Absent means the answer is offered, so every request ever persisted reads as it did. */
   permission_request: z.object({ requestId: z.string(), toolName: z.string(), input: z.record(z.unknown()), title: z.string(), suggestions: z.array(z.unknown()),
-    ask: AskCardSchema.optional() }),
+    ask: AskCardSchema.optional(), once: z.literal(true).optional() }),
   /** `answers` present only for a question: its id (Claude's: the question text) -> what was chosen or
    *  typed, several as a list. Persisted so a replayed transcript records what was actually answered,
    *  not just that it was allowed — and so a masked answer is only ever `HIDDEN_ANSWER` here. */
@@ -86,7 +100,18 @@ const P = {
      *  Present only on the settle that an interrupt produced. It is what lets the transcript say
      *  "Stopped" instead of banking the harness's own diagnostic as an error the user has to read —
      *  a cancelled turn is not a fault, and reporting it as one is the loudest lie in the log. */
-    interrupted: z.boolean().optional() }),
+    interrupted: z.boolean().optional(),
+    /** No turn ended here, and none is in flight. Set on a `waiting_permission` raised while the
+     *  session is between turns, and on the `idle` that follows its answer: a run working in the
+     *  background asked, and the session was and stays at rest. A reader that takes a step out of
+     *  `waiting_permission` for a turn ending must not take this one (`turnSettled`), and a message
+     *  sent meanwhile has no turn to wait behind. Absent everywhere else. */
+    betweenTurns: z.boolean().optional(),
+    /** The turn that ended here was the harness's own: Claude Code started it by itself, to report
+     *  on a run that finished in the background, and no message of Realm's was behind it. Present
+     *  only on that turn's settle. A reader that sends something at every settle, as a goal does,
+     *  must not send for this one unless that report is what it was waiting for. */
+    unprompted: z.literal(true).optional() }),
   /**
    * The turn failed.
    *
@@ -99,11 +124,16 @@ const P = {
    * `failure` is the classifier's verdict, carried so a client can react to the kind without
    * re-running a phrase table of its own (the prompter re-probes on `auth`, because the agent's
    * sign-in state is the one thing an auth failure proves is worth re-reading).
+   *
+   * `unprompted` marks a failure in a turn the harness started by itself, to report on a run that
+   * finished in the background, its process ending mid-turn included. No message of Realm's is
+   * behind such a turn, so nothing is sent again and failover is not told. Absent on a sent turn.
    */
   error: z.object({
     message: z.string(),
     failure: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]).optional(),
     fix: z.object({ title: z.string(), hint: z.string(), command: z.string().nullable() }).optional(),
+    unprompted: z.literal(true).optional(),
   }),
   /**
    * The provider's accounting of the ACCOUNT's plan quota, as it changes.
@@ -415,6 +445,16 @@ export type SessionEventPayload<T extends SessionEventType> = z.infer<(typeof P)
 
 export function sessionEvent<T extends SessionEventType>(type: T, payload: SessionEventPayload<T>, ts = Date.now()): SessionEventOf<T> {
   return { type, ts, payload } as SessionEventOf<T>;
+}
+
+/**
+ * Whether a status change is a turn ending: out of a live status, into a resting one, and not the
+ * `idle` that only closes a card raised between turns. The one definition of a settle, which the
+ * session service, the notifications feed and durable runs each used to spell for themselves.
+ */
+export function turnSettled(previous: SessionStatus, next: SessionEventPayload<"status">): boolean {
+  if (previous !== "running" && previous !== "waiting_permission") return false;
+  return (next.status === "idle" || next.status === "ended" || next.status === "error") && next.betweenTurns !== true;
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */

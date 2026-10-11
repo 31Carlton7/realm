@@ -472,10 +472,10 @@ export const Methods = {
    * overwritten is captured as a `pre-restore` checkpoint FIRST, and its id comes back as
    * `undoCheckpointId` — so a restore of the wrong thing is itself undoable.
    *
-   * Refused while a session is mid-turn in that environment (CHECKPOINT_ENVIRONMENT_BUSY): rewriting
-   * a working tree under a running tool call corrupts whatever it is halfway through. An agent idle
-   * between turns writes nothing and is left alone — except the one whose conversation the restore
-   * rewinds, which is stopped first, because the rewind is honoured when its agent next starts.
+   * Refused while a session is mid-turn in that environment, or has a run working in the background
+   * (CHECKPOINT_ENVIRONMENT_BUSY): rewriting a working tree under a running tool call corrupts whatever
+   * it is halfway through. An agent idle with nothing running is left alone — except the one whose
+   * conversation the restore rewinds, stopped first because the rewind is honoured when it next starts.
    */
   "checkpoints.restore": { params: z.object({ id: IdSchema, acknowledge: RestoreAckSchema }), result: RestoreResultSchema },
   /**
@@ -1876,6 +1876,11 @@ export const Methods = {
   /** Every provider's plan quota as last reported, one row per agent kind — including the kinds that
    *  cannot report, which carry `unavailable` so a panel can say why instead of drawing empty bars. */
   "limits.get": { params: z.object({}), result: z.object({ limits: z.array(PlanLimitsSchema) }) },
+  /** Stop one run the session's agent left working in the background (a workflow, a background
+   *  sub-agent), named by the call that launched it, which is the id the transcript already holds.
+   *  The session and its turn go on. A run that has already ended, and a session with no live
+   *  process, answer ok: there is nothing left to stop. */
+  "sessions.stopTask": { params: z.object({ id: IdSchema, toolUseId: z.string().min(1) }), result: z.object({ ok: z.literal(true) }) },
   /** Send one queued message now, ahead of the turn it was waiting for. By id, and server-side, because
    *  the queue holds the mentions and element chips the message was composed with and `QueuedPrompt`
    *  does not — a prompter that re-sent the text it was shown would drop them. */
