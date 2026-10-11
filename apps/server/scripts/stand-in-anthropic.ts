@@ -1,16 +1,17 @@
 /**
- * A stand-in for the Anthropic Messages API on a loopback port, and the model that answers on it.
+ * A stand-in for the Anthropic Messages API on a loopback port, and the models that answer on it.
  *
- * `live-workflow-check.ts` points the REAL `claude` at it, so the binary runs whole turns, launches a
- * workflow and reports on it with no account and nothing billed. It speaks as much of the API as
- * that takes: `POST /v1/messages`, streamed or whole, and `count_tokens`. Everything else gets a
- * 404, and Claude Code carries on.
+ * `live-workflow-check.ts` and `live-permission-check.ts` point the REAL `claude` at it, so the
+ * binary runs whole turns, launches a workflow and reports on it, or calls a tool, with no account
+ * and nothing billed. It speaks as much of the API as that takes: `POST /v1/messages`, streamed or
+ * whole, and `count_tokens`. Everything else gets a 404, and Claude Code carries on.
  *
- * What the model says is fixed. `workflowModel` reads who is asking off each request, the session's
+ * What a model says is fixed. `workflowModel` reads who is asking off each request, the session's
  * own loop or one of the two agents of the run it launched, and answers as a `RunPlan` has that one
  * answer, after the delay the plan gives it. The delays are what put a scenario's events in order.
  * How long an agent takes decides whether its card reaches Realm during the launching turn or after
- * it, and whether a run is still at work when something is done to it.
+ * it, and whether a run is still at work when something is done to it. `callingModel` makes the one
+ * tool call a message's cue names, and says so once the call has come back.
  */
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -20,7 +21,7 @@ import { sleep } from "./harness";
 type Block = { type: string; text?: string; name?: string; input?: unknown; content?: unknown };
 type Message = { role: string; content: string | Block[] };
 /** A Messages API request, as much of it as the stand-in reads. */
-export type MessagesRequest = { model?: string; stream?: boolean; system?: string | { text?: string }[]; messages?: Message[] };
+export type MessagesRequest = { model?: string; stream?: boolean; system?: string | { text?: string }[]; messages?: Message[]; tools?: { name?: string }[] };
 
 /** What the model says to one request: some text, a call to one tool, or the API's own refusal in
  *  place of an answer. */
@@ -174,6 +175,47 @@ export function workflowModel(plan: RunPlan, heard: (who: Asker) => void = () =>
     if (typed.includes(CUE.plain)) return { text: SAID.plain };
     if (typed.includes(CUE.launch)) return { tool: { name: "Workflow", input: { script: SCRIPT } } };
     return { text: "ok" };
+  };
+}
+
+/** What `callingModel` says where it makes no call: `returned` once a call it made has come back,
+ *  run or refused, and `capped` when a check has asked it for more calls than its cap. */
+export const CALL_SAID = { returned: "The call came back.", capped: "No more calls: the cap is reached." } as const;
+
+/** Whether a message holds a block of this type. */
+function holds(message: Message, type: string): boolean {
+  return Array.isArray(message.content) && message.content.some((b) => b.type === type);
+}
+
+/**
+ * The model for a session that makes one tool call a turn: the call a check's message asks for.
+ *
+ * `byCue` holds a call for each cue a check may type. The model makes the one whose cue came in
+ * since it last spoke, and once that call has come back, run or refused, it says
+ * `CALL_SAID.returned` and the turn ends. It looks for the result in every message after its own
+ * last one, because Claude Code can end a request with a message of the role `system`. A model
+ * that looked at the last message alone would miss the result there and make the call again, for
+ * as long as Claude Code went on asking.
+ *
+ * Only a request that offers the tool is answered with the call. Claude Code puts requests of its
+ * own to the same address, and one that does not offer the tool is told "ok".
+ *
+ * `cap` is how many calls one model makes, and a check gives each scenario a model of its own.
+ * Past the cap the model says `CALL_SAID.capped` in place of a call, so a harness that never stops
+ * asking is stopped here, and not by the machine running out of memory.
+ */
+export function callingModel(byCue: Readonly<Record<string, { name: string; input: Record<string, unknown> }>>, cap: number): Model {
+  let made = 0;
+  return (body) => {
+    const messages = body.messages ?? [];
+    const since = messages.slice(messages.map((m) => m.role).lastIndexOf("assistant") + 1);
+    if (since.some((m) => holds(m, "tool_result"))) return { text: CALL_SAID.returned };
+    const typed = textsOf(since).join("\n");
+    const call = Object.entries(byCue).find(([cue]) => typed.includes(cue))?.[1];
+    if (!call || !body.tools?.some((t) => t.name === call.name)) return { text: "ok" };
+    if (made >= cap) return { text: CALL_SAID.capped };
+    made += 1;
+    return { tool: call };
   };
 }
 
