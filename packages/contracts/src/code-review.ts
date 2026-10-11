@@ -104,6 +104,65 @@ export type GhAccounts = z.infer<typeof GhAccountsSchema>;
  */
 export const prAccountKey = (profileId: string): string => `codeReview.account:${profileId}`;
 
+/** The owner of a repository on GitHub, a user or an organization, as GitHub spells it. */
+export const PrOwnerSchema = z.string().regex(OWNER, "not a GitHub owner");
+
+/**
+ * Whose pull requests a profile's Code review lists, by the owner of the repository each one is in.
+ * One account can work under several owners, and a profile for work and another for everything else
+ * would each list all of them, so the choice is the profile's, as its account is.
+ *
+ * - `hidden`: owners whose pull requests are left out.
+ * - `shown`: owners whose pull requests are listed when `others` is false.
+ * - `others`: whether every owner in neither list is listed too.
+ *
+ * With `others` true the lists hold every owner but `hidden`, including one the account starts
+ * working under later, and `shown` plays no part in the search. With it false they hold `shown`
+ * alone, and `hidden` plays no part. The list out of play is kept all the same, because it is what
+ * keeps its owners named where the choice is made. An owner is in at most one of the two. Owners are
+ * spelled as GitHub spells them and compared as GitHub compares them, without regard to letter case.
+ * Neither list has a limit, and nothing shortens one.
+ */
+export const PrOwnersSchema = z.object({ hidden: z.array(PrOwnerSchema), shown: z.array(PrOwnerSchema), others: z.boolean() });
+export type PrOwners = z.infer<typeof PrOwnersSchema>;
+
+/** The choice a profile has until it makes one. Every owner is listed, as before there was a choice. */
+export const EVERY_OWNER: PrOwners = { hidden: [], shown: [], others: true };
+
+/** A profile's choice of owners, kept beside its account. Nothing stored, and anything stored that
+ *  is not a choice, is `EVERY_OWNER`. */
+export const prOwnersKey = (profileId: string): string => `codeReview.owners:${profileId}`;
+
+/** Two spellings of one owner. */
+export const sameOwner = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+/** A list of owners with each named once, as it is first spelled. */
+export function ownersOnce(owners: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return owners.filter((owner) => {
+    const key = owner.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * What a choice of owners adds to a search of GitHub: `-org:` for each owner left out, or `org:` for
+ * each owner listed alone. The empty string for a choice that lists every owner, so that search is
+ * sent as it was before there was a choice. Null where nothing can match, which is `others` false
+ * with nobody in `shown`. No search is to be made then.
+ *
+ * As GitHub's search answered on 2026-10-11: `org:` takes a user as well as an organization, several
+ * are a union, every `-org:` applies, an owner it does not know matches nothing and is not an error,
+ * and letter case is ignored. Each owner is named once, as it is first spelled.
+ */
+export function ownerQualifiers(owners: PrOwners): string | null {
+  const named = ownersOnce(owners.others ? owners.hidden : owners.shown);
+  if (named.length === 0) return owners.others ? "" : null;
+  return named.map((owner) => `${owners.others ? "-" : ""}org:${owner}`).join(" ");
+}
+
 /** The command Set up GitHub types into a terminal. Offered, never run: the person presses Return. */
 export const GH_LOGIN_COMMAND = "gh auth login";
 
@@ -138,6 +197,13 @@ export const PrPageSchema = z.object({ prs: z.array(PrSummarySchema), nextCursor
 export type PrPage = z.infer<typeof PrPageSchema>;
 /** Rows per page — Codex shows a handful before "Show more". */
 export const PR_PAGE_SIZE = 10;
+
+/**
+ * Whether what was typed into the search carries GitHub's own qualifiers (`repo:`, `-author:`).
+ * Someone who typed them meant them, so that search is sent as typed and a profile's choice of
+ * owners is not added to it.
+ */
+export const hasSearchQualifiers = (text: string): boolean => /(?:^|\s)-?[a-z-]+:\S/i.test(text);
 
 /* ─────────────────────────── one request ─────────────────────────── */
 

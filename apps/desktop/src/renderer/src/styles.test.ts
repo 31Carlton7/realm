@@ -1493,6 +1493,15 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(Number(floor?.[1])).toBe(40);
   });
 
+  it("Code review's line of owners keeps to one line and gives way in a stated order: the words that say which way the choice runs keep their width, and the owners lose their tail", () => {
+    const line = bodiesFor(".cr-col-owners").join(" ");
+    for (const want of ["position: relative", "display: flex", "min-width: 0", "white-space: nowrap"]) expect(line, want).toContain(want);
+    expect(line).not.toMatch(/flex-wrap|flex-flow/);
+    expect(bodiesFor(".cr-col-owners-how").join(" ")).toContain("flex: none");
+    const who = bodiesFor(".cr-col-owners-who").join(" ");
+    for (const want of ["flex: 0 1 auto", "min-width: 0", "overflow: hidden", "text-overflow: ellipsis"]) expect(who, want).toContain(want);
+  });
+
   it("each profile's account in Settings is a row of two columns that gives way in a stated order: the name is cut at a third of the row, and the select at what is left", () => {
     const grid = bodiesFor(".gh-accounts").join(" ");
     for (const want of ["display: grid", "grid-template-columns: fit-content(33%) minmax(0, 1fr)", "align-items: center"]) expect(grid, want).toContain(want);

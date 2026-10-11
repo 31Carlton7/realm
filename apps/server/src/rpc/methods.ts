@@ -910,8 +910,10 @@ export function registerMethods(d: Deps): void {
   reg("codeReview.status", (p) => d.codeReview.ghStatus(p.force, p.profileId));
   reg("codeReview.accounts", (p) => d.codeReview.accounts(p.force));
   reg("codeReview.setAccount", (p) => d.codeReview.setAccount(p.profileId, p.login));
-  reg("codeReview.list", (p) => d.codeReview.list(p.section, p.cursor, p.force, p.account));
-  reg("codeReview.search", (p) => d.codeReview.search(p.query, p.cursor, p.account));
+  reg("codeReview.owners", (p) => d.codeReview.owners(p.profileId));
+  reg("codeReview.setOwners", (p) => d.codeReview.setOwners(p.profileId, p.owners));
+  reg("codeReview.list", (p) => d.codeReview.list(p.section, p.cursor, p.force, p.account, p.profileId));
+  reg("codeReview.search", (p) => d.codeReview.search(p.query, p.cursor, p.account, p.profileId));
   reg("codeReview.detail", (p) => d.codeReview.detail(p.ref, p.force, p.account));
   reg("codeReview.files", (p) => d.codeReview.files(p.ref, p.headSha, p.account));
   reg("codeReview.patches", async (p) => ({ patches: await d.codeReview.patches(p.ref, p.headSha, p.paths, p.account) }));

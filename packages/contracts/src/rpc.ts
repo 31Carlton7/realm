@@ -24,7 +24,7 @@ import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
 import {
-  GhAccountsSchema, GhLoginSchema, GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
+  GhAccountsSchema, GhLoginSchema, GhStatusSchema, PrDetailSchema, PrFilesSchema, PrOwnersSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
   PR_PATCHES_PER_CALL, ReviewInstructionsSchema, ReviewerPickSchema, SubmitReviewSchema, SubmittedReviewSchema,
 } from "./code-review";
 import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
@@ -1635,10 +1635,23 @@ export const Methods = {
    *  A profile's picks are stored in the order they arrive, and each is announced to every window
    *  (`codeReview.accountChanged`). Answers with the profile's status. */
   "codeReview.setAccount": { params: z.object({ profileId: IdSchema, login: GhLoginSchema.nullable() }), result: GhStatusSchema },
+  /** A profile's choice of owners, which says whose pull requests its lists and its searches hold.
+   *  `EVERY_OWNER` where none is stored, and where what is stored is not a choice. A
+   *  `codeReview.list` or a `codeReview.search` that names a `profileId` holds what that profile's
+   *  choice leaves in. The server reads the choice for itself, from what is stored, so a caller
+   *  cannot ask for a read under another. A search that carries GitHub's own qualifiers is sent as
+   *  typed, under no choice. */
+  "codeReview.owners": { params: z.object({ profileId: IdSchema }), result: PrOwnersSchema },
+  /** Store a profile's choice of owners and answer with it. Refused for an owner named in both of
+   *  its lists (OWNER_IN_BOTH_LISTS). Every window is told once it is stored
+   *  (`codeReview.ownersChanged`). */
+  "codeReview.setOwners": { params: z.object({ profileId: IdSchema, owners: PrOwnersSchema }), result: PrOwnersSchema },
   /** One of the page's three lists, a page at a time; `cursor` is the previous page's `nextCursor`. */
-  "codeReview.list": { params: z.object({ section: PrSectionSchema, cursor: z.string().nullable().default(null), force: z.boolean().default(false), account: GhLoginSchema.nullable().default(null) }), result: PrPageSchema },
+  "codeReview.list": { params: z.object({ section: PrSectionSchema, cursor: z.string().nullable().default(null), force: z.boolean().default(false), account: GhLoginSchema.nullable().default(null),
+    profileId: IdSchema.nullable().default(null) }), result: PrPageSchema },
   /** Pull requests matching what was typed. A pasted link is not a search — the page opens it. */
-  "codeReview.search": { params: z.object({ query: z.string().trim().min(1).max(256), cursor: z.string().nullable().default(null), account: GhLoginSchema.nullable().default(null) }), result: PrPageSchema },
+  "codeReview.search": { params: z.object({ query: z.string().trim().min(1).max(256), cursor: z.string().nullable().default(null), account: GhLoginSchema.nullable().default(null),
+    profileId: IdSchema.nullable().default(null) }), result: PrPageSchema },
   "codeReview.detail": { params: z.object({ ref: PrRefSchema, force: z.boolean().default(false), account: GhLoginSchema.nullable().default(null) }), result: PrDetailSchema },
   /** The changed files at `headSha`, without their patches — those come a screen at a time. */
   "codeReview.files": { params: z.object({ ref: PrRefSchema, headSha: z.string().min(1), account: GhLoginSchema.nullable().default(null) }), result: PrFilesSchema },
@@ -2136,6 +2149,10 @@ export const Events = {
    *  Sent once the pick is stored, so a page that asks `codeReview.status` on hearing it is answered
    *  as the new account. It carries no login: a page asks for what it shows. */
   "codeReview.accountChanged": z.object({ profileId: IdSchema }),
+  /** A profile's choice of owners was stored (`codeReview.setOwners`), from any window. Sent once it
+   *  is stored, and carries it, so a page listing that profile's requests takes the payload as it is
+   *  and reads its lists again. */
+  "codeReview.ownersChanged": z.object({ profileId: IdSchema, owners: PrOwnersSchema }),
   /** The set of runs a session is waiting on changed — one began, settled, or was collected. Carries
    *  the WHOLE fresh set rather than a delta: the engine's registry is the only copy of this fact,
    *  and a renderer that had to accumulate deltas would drift out of step with it after one dropped

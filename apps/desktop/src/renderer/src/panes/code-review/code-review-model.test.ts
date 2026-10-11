@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { Finding, PrDetail, PrFile, PrSummary } from "@realm/contracts";
 import type { AgentProbe } from "../../state/store";
 import {
-  EMPTY_DRAFT, age, ago, appendPage, canSubmit, checksFact, dropComment, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact,
-  postsLine, readQuery, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerRows, sameLogin, sentAs,
+  EMPTY_DRAFT, age, ago, appendPage, canSubmit, checksFact, dropComment, emptyLine, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact, namedOwners, noMatchLine,
+  ownerTicked, ownersLine, postsLine, pressOthers, pressOwner, readQuery, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerRows, sameListing, sameLogin,
+  sentAs, stillListed,
 } from "./code-review-model";
 import { fileTree, filterFiles, treeRows } from "./file-tree";
 
@@ -36,6 +37,121 @@ describe("the column", () => {
     // THE MUTANT: a plain concat — a request updated between the two reads sorts into both pages.
     const held = [row(1), row(2)];
     expect(appendPage(held, { prs: [row(2, "ACME"), row(3)], nextCursor: null, total: 3 }).map((p) => p.ref.number)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("the owners a profile lists", () => {
+  const all = { hidden: ["mara"], shown: ["acme"], others: true };
+  const only = { hidden: ["mara"], shown: ["acme"], others: false };
+
+  it("names in the menu every owner the choice or a loaded row names, each once whatever its case, in name order without regard to case", () => {
+    const owners = { hidden: ["zeta"], shown: ["Globex"], others: true };
+    expect(namedOwners(owners, [row(1, "mara"), row(2, "acme"), row(3, "MARA"), row(4, "Beta"), row(5, "globex")])).toEqual(["acme", "Beta", "globex", "mara", "zeta"]);
+    expect(namedOwners({ hidden: [], shown: [], others: true }, [])).toEqual([]);
+  });
+
+  it("spells an owner as a loaded row spells it, where the choice stored another spelling", () => {
+    expect(namedOwners({ hidden: ["ACME"], shown: [], others: true }, [row(1, "Acme")])).toEqual(["Acme"]);
+    expect(namedOwners({ hidden: ["ACME"], shown: [], others: true }, [])).toEqual(["ACME"]);
+  });
+
+  it("ticks every owner but the hidden ones while other owners are listed", () => {
+    expect(["acme", "MARA", "globex"].map((o) => ownerTicked(all, o))).toEqual([true, false, true]);
+  });
+
+  it("ticks the shown owners and nobody else once other owners are not listed", () => {
+    expect(["ACME", "mara", "globex"].map((o) => ownerTicked(only, o))).toEqual([true, false, false]);
+  });
+
+  it("unticks an owner by moving it to the hidden list and out of the shown one, in either mode, and changes no other", () => {
+    expect(pressOwner(all, "Acme")).toEqual({ hidden: ["mara", "Acme"], shown: [], others: true });
+    expect(pressOwner(only, "Acme")).toEqual({ hidden: ["mara", "Acme"], shown: [], others: false });
+    expect(pressOwner({ hidden: [], shown: [], others: true }, "globex")).toEqual({ hidden: ["globex"], shown: [], others: true });
+  });
+
+  it("ticks an owner by moving it to the shown list and out of the hidden one, in either mode, so it stays named with no row of its own", () => {
+    expect(pressOwner(all, "Mara")).toEqual({ hidden: [], shown: ["acme", "Mara"], others: true });
+    expect(pressOwner(only, "Mara")).toEqual({ hidden: [], shown: ["acme", "Mara"], others: false });
+    expect(pressOwner(only, "globex")).toEqual({ hidden: ["mara"], shown: ["acme", "globex"], others: false });
+  });
+
+  it("is back where it began after two presses on one owner, apart from which list keeps the name", () => {
+    const twice = pressOwner(pressOwner(all, "globex"), "globex");
+    expect(["acme", "mara", "globex"].map((o) => ownerTicked(twice, o))).toEqual(["acme", "mara", "globex"].map((o) => ownerTicked(all, o)));
+    expect(namedOwners(twice, [])).toEqual(["acme", "globex", "mara"]);
+  });
+
+  it("stores every owner ticked at that moment as shown when Other owners is turned off, so the same owners are listed after the press", () => {
+    const named = ["acme", "globex", "mara"];
+    const off = pressOthers(all, named);
+    expect(off).toEqual({ hidden: ["mara"], shown: ["acme", "globex"], others: false });
+    expect(named.map((o) => ownerTicked(off, o))).toEqual(named.map((o) => ownerTicked(all, o)));
+  });
+
+  it("keeps both lists when Other owners is turned back on, so the owners that were unticked stay unticked", () => {
+    expect(pressOthers(only, ["acme", "mara"])).toEqual({ hidden: ["mara"], shown: ["acme"], others: true });
+  });
+
+  it("takes two choices for one listing when they come to the same search, and never everything for nothing", () => {
+    expect(sameListing({ hidden: [], shown: [], others: true }, { hidden: [], shown: ["acme"], others: true })).toBe(true);
+    expect(sameListing(all, only)).toBe(false);
+    expect(sameListing({ hidden: [], shown: [], others: true }, { hidden: [], shown: [], others: false })).toBe(false);
+  });
+
+  it("keeps of a list's rows the ones a new choice still lists", () => {
+    const rows = [row(1, "acme"), row(2, "Mara"), row(3, "globex")];
+    expect(stillListed(all, rows).map((p) => p.ref.number)).toEqual([1, 3]);
+    expect(stillListed(only, rows).map((p) => p.ref.number)).toEqual([1]);
+  });
+
+  it("says nothing in the column while the choice leaves no owner out", () => {
+    expect(ownersLine({ hidden: [], shown: [], others: true })).toBeNull();
+    expect(ownersLine({ hidden: [], shown: ["acme"], others: true })).toBeNull();
+  });
+
+  it("says which owners are not listed, in a few words to draw and a sentence for the tooltip and a screen reader that leaves the pinned requests out of it", () => {
+    expect(ownersLine(all)).toEqual({
+      how: "Not listed:", who: "mara", sentence: "This profile leaves out pull requests in repositories owned by mara, unless they are pinned.",
+    });
+    expect(ownersLine({ hidden: ["mara", "globex", "zeta"], shown: [], others: true })).toEqual({
+      how: "Not listed:", who: "mara, globex, zeta",
+      sentence: "This profile leaves out pull requests in repositories owned by mara, globex, and zeta, unless they are pinned.",
+    });
+  });
+
+  it("says which owners alone are listed, beside the pinned requests", () => {
+    expect(ownersLine(only)).toEqual({
+      how: "Only", who: "acme", sentence: "This profile lists only pinned pull requests and those in repositories owned by acme.",
+    });
+    expect(ownersLine({ hidden: [], shown: ["acme", "globex"], others: false })).toEqual({
+      how: "Only", who: "acme, globex", sentence: "This profile lists only pinned pull requests and those in repositories owned by acme and globex.",
+    });
+  });
+
+  it("says that no owner is ticked, and where to tick one, when other owners are not listed and none is shown", () => {
+    expect(ownersLine({ hidden: ["mara"], shown: [], others: false })).toEqual({
+      how: "No owner is selected.", who: "",
+      sentence: "No owner is selected, so this profile lists only pinned pull requests. In Code review options, select an owner or Other owners.",
+    });
+  });
+
+  it("names an owner once in the column's line, however often its list holds it", () => {
+    expect(ownersLine({ hidden: ["Mara", "mara"], shown: [], others: true })!.who).toBe("Mara");
+  });
+
+  it("keeps each list's empty line to the owners listed while the choice leaves any out, and says it as it always did while it leaves none", () => {
+    expect((["authored", "review", "team"] as const).map((s) => emptyLine(s, false))).toEqual([
+      "Nothing of yours is open.", "Nobody is waiting on your review.", "No team of yours is waiting on a review.",
+    ]);
+    expect((["authored", "review", "team"] as const).map((s) => emptyLine(s, true))).toEqual([
+      "Nothing of yours is open for the listed owners.", "Nobody is waiting on your review for the listed owners.",
+      "No team of yours is waiting on a review for the listed owners.",
+    ]);
+  });
+
+  it("keeps a search's empty line to the owners listed in the same way", () => {
+    expect(noMatchLine("tokenizer", false)).toBe("No pull request you are part of matches “tokenizer”.");
+    expect(noMatchLine("tokenizer", true)).toBe("No pull request you are part of matches “tokenizer” for the listed owners.");
   });
 });
 

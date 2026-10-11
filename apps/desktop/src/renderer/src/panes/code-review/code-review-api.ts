@@ -24,9 +24,15 @@ export const codeReview = {
     const { value } = await rpc().call("settings.get", { key: prAccountKey(profileId) });
     return typeof value === "string" && value !== "" ? value : null;
   },
-  list: (section: MethodParams<"codeReview.list">["section"], cursor: string | null, force = false, account: string | null = null) =>
-    call("codeReview.list", { section, cursor, force, ...sentAs(account) }),
-  search: (query: string, cursor: string | null, account: string | null = null) => call("codeReview.search", { query, cursor, ...sentAs(account) }),
+  /** A profile's choice of owners, which says whose pull requests its lists and its searches hold. */
+  owners: (profileId: string) => call("codeReview.owners", { profileId }),
+  setOwners: (profileId: string, owners: MethodParams<"codeReview.setOwners">["owners"]) => call("codeReview.setOwners", { profileId, owners }),
+  /** `profileId` says whose choice of owners a list or a search is read under. The choice itself is
+   *  not sent, because the server reads what is stored. */
+  list: (section: MethodParams<"codeReview.list">["section"], cursor: string | null, force = false, account: string | null = null, profileId: string | null = null) =>
+    call("codeReview.list", { section, cursor, force, profileId, ...sentAs(account) }),
+  search: (query: string, cursor: string | null, account: string | null = null, profileId: string | null = null) =>
+    call("codeReview.search", { query, cursor, profileId, ...sentAs(account) }),
   detail: (ref: MethodParams<"codeReview.detail">["ref"], force = false, account: string | null = null) => call("codeReview.detail", { ref, force, ...sentAs(account) }),
   files: (ref: MethodParams<"codeReview.files">["ref"], headSha: string, account: string | null = null) => call("codeReview.files", { ref, headSha, ...sentAs(account) }),
   patches: (ref: MethodParams<"codeReview.patches">["ref"], headSha: string, paths: string[], account: string | null = null) =>
@@ -52,6 +58,10 @@ export const codeReview = {
   /** A profile's account was picked or taken back, from this window or another. */
   onAccount: (fn: (p: EventPayload<"codeReview.accountChanged">) => void): (() => void) => {
     try { return rpc().on("codeReview.accountChanged", fn); } catch { return () => {}; }
+  },
+  /** A profile's choice of owners was stored, from this window or another. */
+  onOwners: (fn: (p: EventPayload<"codeReview.ownersChanged">) => void): (() => void) => {
+    try { return rpc().on("codeReview.ownersChanged", fn); } catch { return () => {}; }
   },
 };
 

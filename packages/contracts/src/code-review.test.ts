@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { PrRefSchema, SubmitReviewSchema, parsePrRef, prKey, prName } from "./code-review";
+import {
+  EVERY_OWNER, PrOwnersSchema, PrRefSchema, SubmitReviewSchema, hasSearchQualifiers, ownerQualifiers, parsePrRef, prAccountKey, prKey, prName, prOwnersKey, sameOwner,
+} from "./code-review";
 
 describe("a pull request named in pasted text", () => {
   it("reads the page's URL however it was copied", () => {
@@ -33,6 +35,71 @@ describe("a pull request named in pasted text", () => {
       expect(PrRefSchema.safeParse({ ...bad, number: 1 }).success, JSON.stringify(bad)).toBe(false);
     }
     expect(parsePrRef("https://github.com/../widgets/pull/1")).toBeNull();
+  });
+});
+
+describe("a profile's choice of owners, as what it adds to a search", () => {
+  it("adds nothing while every owner is listed, whatever the list out of play names", () => {
+    expect(ownerQualifiers(EVERY_OWNER)).toBe("");
+    expect(ownerQualifiers({ hidden: [], shown: ["acme"], others: true })).toBe("");
+  });
+
+  it("leaves out each hidden owner while other owners are listed, and makes nothing of the shown ones", () => {
+    expect(ownerQualifiers({ hidden: ["acme", "Mara"], shown: ["widgets-inc"], others: true })).toBe("-org:acme -org:Mara");
+  });
+
+  it("lists the shown owners alone once other owners are not, and makes nothing of the hidden ones", () => {
+    expect(ownerQualifiers({ hidden: ["acme"], shown: ["widgets-inc", "Mara"], others: false })).toBe("org:widgets-inc org:Mara");
+  });
+
+  it("answers that nothing can match, and not with the empty string, when other owners are not listed and none is shown", () => {
+    expect(ownerQualifiers({ hidden: ["acme"], shown: [], others: false })).toBeNull();
+  });
+
+  it("names an owner once, as first spelled, however often and in whatever case a list holds it", () => {
+    expect(ownerQualifiers({ hidden: ["Acme", "acme", "mara", "ACME"], shown: [], others: true })).toBe("-org:Acme -org:mara");
+    expect(ownerQualifiers({ hidden: [], shown: ["mara", "MARA"], others: false })).toBe("org:mara");
+  });
+
+  it("compares two owners as GitHub does, without regard to letter case", () => {
+    expect(sameOwner("Acme", "acme")).toBe(true);
+    expect(sameOwner("acme", "acme-inc")).toBe(false);
+  });
+});
+
+describe("a profile's choice of owners as the wire and the store take it", () => {
+  it("takes only owners GitHub could have, so nothing in one can be read as more of the search", () => {
+    for (const bad of ["acme widgets", "acme org:mara", "-acme", "", "acme/widgets", "@acme", "acme\n-org:mara"]) {
+      expect(PrOwnersSchema.safeParse({ hidden: [bad], shown: [], others: true }).success, bad).toBe(false);
+      expect(PrOwnersSchema.safeParse({ hidden: [], shown: [bad], others: false }).success, bad).toBe(false);
+    }
+    expect(PrOwnersSchema.safeParse({ hidden: ["acme"], shown: ["Widgets-Inc"], others: false }).success).toBe(true);
+  });
+
+  it("is not a choice with one of its three parts missing", () => {
+    expect(PrOwnersSchema.safeParse({ hidden: [], shown: [] }).success).toBe(false);
+    expect(PrOwnersSchema.safeParse({ hidden: [], others: true }).success).toBe(false);
+    expect(PrOwnersSchema.safeParse({ shown: [], others: false }).success).toBe(false);
+  });
+
+  it("takes a list of hundreds of owners whole, with none dropped from the choice or from the search", () => {
+    const many = Array.from({ length: 500 }, (_, i) => `owner-${i}`);
+    const parsed = PrOwnersSchema.safeParse({ hidden: many, shown: [], others: true });
+    expect(parsed.success && parsed.data.hidden).toEqual(many);
+    expect(ownerQualifiers({ hidden: many, shown: [], others: true })!.split(" ")).toHaveLength(500);
+  });
+
+  it("is kept under a key of the profile's own, apart from its account's", () => {
+    expect(prOwnersKey("p1")).toBe("codeReview.owners:p1");
+    expect(prOwnersKey("p2")).not.toBe(prOwnersKey("p1"));
+    expect(prOwnersKey("p1")).not.toBe(prAccountKey("p1"));
+  });
+});
+
+describe("words typed into the search", () => {
+  it("carry GitHub's own qualifiers when one is among them, negated or not, and are plain words otherwise", () => {
+    for (const typed of ["repo:acme/widgets parser", "-author:@me draft", "tokenizer is:open"]) expect(hasSearchQualifiers(typed), typed).toBe(true);
+    for (const plain of ["tokenizer", "fix: the parser", "stream - parse", "12:30 build"]) expect(hasSearchQualifiers(plain), plain).toBe(false);
   });
 });
 

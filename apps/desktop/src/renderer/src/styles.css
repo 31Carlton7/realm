@@ -7582,6 +7582,15 @@ select { appearance: none; padding-right: 22px;
 .cr-col-link { align-self: flex-start; padding: 4px 8px; border-radius: var(--r-ctl); font-size: 13px; color: var(--rl-text-faint); }
 .cr-col-link:hover { color: var(--rl-text-dim); }
 .cr-col-note .cr-col-link { padding: 0; color: var(--rl-text-dim); }
+/* What the profile's choice of owners leaves out, on one line over the lists it is true of and
+   under the pinned requests, which it is not. The line's yielding order is stated. The words that
+   say which way the choice runs keep their width. The owners are the person's own data, of any
+   number, so they take the rest of the line and lose their tail first. All of them stay in the
+   line's tooltip and in the sentence a screen reader is given. */
+.cr-col-owners { position: relative; display: flex; gap: 4px; min-width: 0; color: var(--rl-text-dim); white-space: nowrap; }
+.cr-section + .cr-col-owners { margin-top: 10px; }
+.cr-col-owners-how { flex: none; }
+.cr-col-owners-who { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The team's list, folded until opened — Codex's "Needs my team's review ›". */
 .cr-section-toggle { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 14px; padding: 4px 8px;
   border-radius: var(--r-ctl); font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }

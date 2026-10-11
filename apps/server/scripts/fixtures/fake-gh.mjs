@@ -37,6 +37,10 @@ const field = (name) => {
 };
 const flag = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : null);
 const pr = (key) => fixture.prs[key.toLowerCase()] ?? null;
+/** The owners a search names with `qualifier`, `org:` or `-org:`, lowered. A search reads them as
+ *  GitHub does: several `org:` are a union, every `-org:` applies, an owner that owns nothing here
+ *  matches nothing, and letter case is ignored. */
+const owners = (q, qualifier) => q.split(/\s+/).filter((w) => w.startsWith(qualifier)).map((w) => w.slice(qualifier.length).toLowerCase());
 
 function answer() {
   if (args[0] === "auth" && args[1] === "status") {
@@ -71,6 +75,12 @@ function answer() {
       const words = q.split(/\s+/).filter((w) => w && !w.includes(":")).join(" ").toLowerCase();
       keys = Object.keys(fixture.prs).filter((k) => fixture.prs[k].node.title.toLowerCase().includes(words));
     }
+    const only = owners(q, "org:");
+    const not = owners(q, "-org:");
+    keys = keys.filter((k) => {
+      const owner = pr(k).node.repository.owner.login.toLowerCase();
+      return (only.length === 0 || only.includes(owner)) && !not.includes(owner);
+    });
     const start = after ? Number(after.replace(/^o/, "")) : 0;
     const slice = keys.slice(start, start + first);
     return ok({ data: { search: {

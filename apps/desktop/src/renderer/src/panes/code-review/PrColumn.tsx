@@ -1,15 +1,19 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
-import { PR_SECTIONS, prKey, prName, type PrPage, type PrRef, type PrSection, type PrSummary } from "@realm/contracts";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PR_SECTIONS, hasSearchQualifiers, prKey, prName, type PrOwners, type PrPage, type PrRef, type PrSection, type PrSummary } from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useDissolve } from "../../components/ScrollFades";
 import { useApp } from "../../state/store";
-import { SECTION_LABEL, age, appendPage, readQuery, sameLogin, sameRef } from "./code-review-model";
+import {
+  SECTION_LABEL, age, appendPage, emptyLine, namedOwners, noMatchLine, ownerTicked, ownersLine, pressOthers, pressOwner, readQuery, sameLogin, sameRef, stillListed,
+} from "./code-review-model";
 import { codeReview } from "./code-review-api";
-import { pageHeld, type Listed } from "./held";
+import { holdOwners, listsHeldUnder, listsMovedTo, pageHeld, type Listed } from "./held";
 
 const LOADING: Listed = { prs: [], next: null, state: "loading", error: null };
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** Every row the three lists hold, as they are loaded. */
+const rowsOf = (listed: Partial<Record<PrSection, Listed>>): PrSummary[] => PR_SECTIONS.flatMap((s) => listed[s]?.prs ?? []);
 
 /**
  * The page's own column, Codex's: its name and menu, a search that also takes a pasted link, and the
@@ -30,8 +34,23 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * ticked. A pick is kept for the profile, so the ticked account can be picked too while it is only
  * gh's active one: that keeps the profile on it when a terminal switches gh to another. With one
  * account there is nothing to choose, and the menu names it as it always did.
+ *
+ * The menu is also where the profile says whose requests its lists hold, by the owner of the
+ * repository each is in. It has a ticked row for every owner its choice or its lists name, then
+ * "Other owners" for all the rest. A press stores the choice, and then the lists on screen are read
+ * again under it, and a search of plain words with them. The server reads the stored choice for
+ * itself on every read, so the column says only whose choice to read under. While the choice leaves
+ * anything out, one line over the lists says what, and a list's empty line keeps to the owners that
+ * are listed. Another window's change to the same profile's choice is taken the same way, and the
+ * choice is asked for again when the server is back after a break, since a change made meanwhile
+ * went unheard.
+ *
+ * A read asked for before a change of choice was heard is not drawn when it answers, since it may
+ * have been made under the choice from before, and each list keeps the rows the new choice still
+ * lists until it has been read again. A press made while an earlier one is still being stored builds
+ * on that one, so a press changes its own row and no other.
  */
-export function PrColumn({ login, account, accounts, profile, pins, selected, onSelect, onAccount, onRefresh, onSignIn, onLost }: {
+export function PrColumn({ login, account, accounts, profile, profileId, pins, selected, onSelect, onAccount, onRefresh, onSignIn, onLost }: {
   login: string | null;
   /** What the lists and searches are sent as: the profile's pick, or null for gh's own account. */
   account: string | null;
@@ -39,6 +58,8 @@ export function PrColumn({ login, account, accounts, profile, pins, selected, on
   accounts: readonly string[];
   /** The profile's name, where there is another profile to tell it from; null where there is one. */
   profile: string | null;
+  /** The profile whose choice of owners the lists and searches are read under. */
+  profileId: string;
   pins: PrSummary[];
   selected: PrRef | null;
   onSelect: (pr: PrRef, row: PrSummary | null) => void;
@@ -51,10 +72,12 @@ export function PrColumn({ login, account, accounts, profile, pins, selected, on
   onLost: () => void;
 }) {
   const run = useApp((s) => s.run);
+  const connected = useApp((s) => s.connectionState === "connected");
+  const [owners, setOwners] = useState<PrOwners | null>(() => pageHeld.owners[profileId] ?? null);
   /* The lists as they were last drawn, so coming back to the page shows them at once rather than
      three empty headings; each is read again behind them, from the server's cache. */
+  const [lists, setLists] = useState<Partial<Record<PrSection, Listed>>>(() => ({ ...listsHeldUnder(owners) }));
   const held = pageHeld.lists;
-  const [lists, setLists] = useState<Partial<Record<PrSection, Listed>>>(() => ({ ...held }));
   const [teamOpen, setTeamOpen] = useState(pageHeld.teamOpen);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<(Listed & { query: string }) | null>(null);
@@ -62,6 +85,34 @@ export function PrColumn({ login, account, accounts, profile, pins, selected, on
   const more = useRef<HTMLButtonElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useDissolve(body);
+  const here = useRef(true);
+  const ahead = useRef<PrOwners | null>(null);
+  const changes = useRef(0);
+  const [again, setAgain] = useState(0);
+
+  const take = useCallback((next: PrOwners) => {
+    holdOwners(profileId, next);
+    if (!here.current) return;
+    setOwners(next);
+    const moved = listsMovedTo(next);
+    if (!moved) return;
+    changes.current += 1;
+    setLists(moved);
+    setResults((cur) => (cur && !hasSearchQualifiers(cur.query) ? { ...cur, prs: stillListed(next, cur.prs), next: null, state: "loading", error: null } : cur));
+    setAgain(changes.current);
+  }, [profileId]);
+  const ask = useCallback(() => { codeReview.owners(profileId).then(take, () => {}); }, [profileId, take]);
+  const choose = (change: (from: PrOwners) => PrOwners) => run(async () => {
+    const from = ahead.current ?? pageHeld.owners[profileId];
+    if (!from) return;
+    const next = change(from);
+    ahead.current = next;
+    try { take(await codeReview.setOwners(profileId, next)); }
+    finally { if (ahead.current === next) ahead.current = null; }
+  });
+  useEffect(() => { here.current = true; return () => { here.current = false; }; }, []);
+  useEffect(() => { if (connected) ask(); }, [connected, ask]);
+  useEffect(() => codeReview.onOwners((p) => { if (p.profileId === profileId) take(p.owners); }), [profileId, take]);
 
   const put = (section: PrSection, next: Listed) => {
     held[section] = next;
@@ -70,9 +121,11 @@ export function PrColumn({ login, account, accounts, profile, pins, selected, on
   const load = (section: PrSection, force = false) => {
     const cur = held[section];
     if (!cur || force) put(section, { ...(cur ?? LOADING), state: cur && !force ? cur.state : "loading" });
-    codeReview.list(section, null, force, account).then(
-      (page) => put(section, { prs: page.prs, next: page.nextCursor, state: "ready", error: null }),
+    const asked = changes.current;
+    codeReview.list(section, null, force, account, profileId).then(
+      (page) => { if (asked === changes.current) put(section, { prs: page.prs, next: page.nextCursor, state: "ready", error: null }); },
       (e: unknown) => {
+        if (asked !== changes.current) return;
         put(section, { ...LOADING, state: "error", error: message(e) });
         const code = (e as { code?: unknown } | null)?.code;
         if (code === "GH_SIGNED_OUT" || code === "GH_MISSING") onLost();
@@ -81,8 +134,9 @@ export function PrColumn({ login, account, accounts, profile, pins, selected, on
   };
   const showMore = (section: PrSection) => {
     const cur = held[section]; if (!cur?.next) return;
-    codeReview.list(section, cur.next, false, account).then(
-      (page) => put(section, { prs: appendPage(cur.prs, page), next: page.nextCursor, state: "ready", error: null }),
+    const asked = changes.current;
+    codeReview.list(section, cur.next, false, account, profileId).then(
+      (page) => { if (asked === changes.current) put(section, { prs: appendPage(cur.prs, page), next: page.nextCursor, state: "ready", error: null }); },
       (e: unknown) => run(() => Promise.reject(e)),
     );
   };
@@ -92,34 +146,63 @@ export function PrColumn({ login, account, accounts, profile, pins, selected, on
     if (pageHeld.teamOpen) load("team");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount; Refresh asks again
   }, []);
+  useEffect(() => {
+    if (again === 0) return;
+    for (const s of PR_SECTIONS) if (held[s]) load(s);
+  }, [again]);
 
   // Words search a beat after typing stops; an address is not a search at all.
   const q = readQuery(query);
+  const narrows = q.kind === "search" && !hasSearchQualifiers(q.query);
+  const stands = (words: string, asked: number) => hasSearchQualifiers(words) || asked === changes.current;
   useEffect(() => {
     if (q.kind !== "search") { setResults(null); return; }
     const words = q.query;
     setResults((cur) => (cur?.query === words ? cur : { ...LOADING, query: words }));
     const t = setTimeout(() => {
-      codeReview.search(words, null, account).then(
-        (page: PrPage) => setResults((cur) => (cur?.query === words ? { prs: page.prs, next: page.nextCursor, state: "ready", error: null, query: words } : cur)),
-        (e: unknown) => setResults((cur) => (cur?.query === words ? { ...LOADING, state: "error", error: message(e), query: words } : cur)),
+      const asked = changes.current;
+      codeReview.search(words, null, account, profileId).then(
+        (page: PrPage) => setResults((cur) => (cur?.query === words && stands(words, asked) ? { prs: page.prs, next: page.nextCursor, state: "ready", error: null, query: words } : cur)),
+        (e: unknown) => setResults((cur) => (cur?.query === words && stands(words, asked) ? { ...LOADING, state: "error", error: message(e), query: words } : cur)),
       );
     }, 300);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by what was typed
-  }, [q.kind === "search" ? q.query : q.kind]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by what was typed, and for plain words by the choice of owners they are searched under
+  }, [q.kind === "search" ? q.query : q.kind, narrows ? again : 0]);
   const moreResults = () => {
     const cur = results; if (!cur?.next) return;
-    codeReview.search(cur.query, cur.next, account).then(
-      (page) => setResults((r) => (r?.query === cur.query ? { ...r, prs: appendPage(r.prs, page), next: page.nextCursor } : r)),
+    const asked = changes.current;
+    codeReview.search(cur.query, cur.next, account, profileId).then(
+      (page) => setResults((r) => (r?.query === cur.query && stands(cur.query, asked) ? { ...r, prs: appendPage(r.prs, page), next: page.nextCursor } : r)),
       (e: unknown) => run(() => Promise.reject(e)),
     );
   };
 
   const refresh = () => {
     onRefresh();
+    ask();
     for (const s of PR_SECTIONS) if (held[s]) load(s, true);
   };
+  const named = owners ? namedOwners(owners, rowsOf(lists)) : [];
+  const whoseRequests: MenuItem[] = owners && (named.length > 0 || !owners.others)
+    ? [
+      { kind: "separator" },
+      { kind: "header", label: "Owners" },
+      ...named.map((o): MenuItem => {
+        const ticked = ownerTicked(owners, o);
+        return {
+          label: o, checked: ticked, onSelect: () => choose((from) => pressOwner(from, o)),
+          title: ticked ? `In this profile, stop listing pull requests in repositories owned by ${o}.`
+            : `In this profile, list pull requests in repositories owned by ${o}.`,
+        };
+      }),
+      {
+        label: "Other owners", checked: owners.others, onSelect: () => choose((from) => pressOthers(from, namedOwners(from, rowsOf(pageHeld.lists)))),
+        title: owners.others ? "In this profile, list pull requests only for the owners selected here. That leaves out every other owner, including any you start working with later."
+          : "In this profile, list pull requests for every owner except the ones not selected here, including any you start working with later.",
+      },
+    ]
+    : [];
   const who: MenuItem[] = accounts.length > 1
     ? [
       { kind: "header", label: "GitHub account" },
@@ -141,9 +224,20 @@ export function PrColumn({ login, account, accounts, profile, pins, selected, on
     ...who,
     { label: "Sign in again in a terminal…", icon: <Icon name="terminal" size={14} />, onSelect: onSignIn,
       detail: "Opens a terminal with gh auth login typed in" },
+    ...whoseRequests,
   ];
 
   const whose = !login ? null : profile ? `Code review in the ${profile} profile reads and posts as @${login}.` : `Code review reads and posts as @${login}.`;
+  const leftOut = owners ? ownersLine(owners) : null;
+  const says = leftOut && (
+    <p className="cr-col-note cr-col-owners" title={leftOut.sentence}>
+      <span className="visually-hidden">{leftOut.sentence}</span>
+      <span className="cr-col-owners-how" aria-hidden="true">{leftOut.how}</span>
+      {leftOut.who && <span className="cr-col-owners-who" aria-hidden="true">{leftOut.who}</span>}
+    </p>
+  );
+  const empty = (section: PrSection) => (owners ? emptyLine(section, leftOut !== null) : undefined);
+  const asTyped = results !== null && hasSearchQualifiers(results.query);
 
   const toggleTeam = () => {
     pageHeld.teamOpen = !teamOpen;
@@ -183,23 +277,27 @@ export function PrColumn({ login, account, accounts, profile, pins, selected, on
             </li>
           </ul>
         ) : results ? (
-          <Section label="Results" listed={results} selected={selected} onSelect={onSelect} onMore={moreResults}
-            empty={`No pull request you are part of matches “${results.query}”.`} />
+          <>
+            {!asTyped && says}
+            <Section label="Results" listed={results} selected={selected} onSelect={onSelect} onMore={moreResults}
+              empty={asTyped ? noMatchLine(results.query, false) : owners ? noMatchLine(results.query, leftOut !== null) : undefined} />
+          </>
         ) : (
           <>
             {pins.length > 0 && (
               <Section label="Pinned" listed={{ prs: pins, next: null, state: "ready", error: null }} selected={selected} onSelect={onSelect} />
             )}
+            {says}
             <Section label={SECTION_LABEL.authored} listed={lists.authored ?? LOADING} selected={selected} onSelect={onSelect}
-              onMore={() => showMore("authored")} onRetry={() => load("authored", true)} empty="Nothing of yours is open." />
+              onMore={() => showMore("authored")} onRetry={() => load("authored", true)} empty={empty("authored")} />
             <Section label={SECTION_LABEL.review} listed={lists.review ?? LOADING} selected={selected} onSelect={onSelect}
-              onMore={() => showMore("review")} onRetry={() => load("review", true)} empty="Nobody is waiting on your review." />
+              onMore={() => showMore("review")} onRetry={() => load("review", true)} empty={empty("review")} />
             <button type="button" className="cr-section-toggle" aria-expanded={teamOpen} onClick={toggleTeam}>
               {SECTION_LABEL.team}<Icon name="chevronRight" size={12} />
             </button>
             {teamOpen && (
               <Section label={null} listed={lists.team ?? LOADING} selected={selected} onSelect={onSelect}
-                onMore={() => showMore("team")} onRetry={() => load("team", true)} empty="No team of yours is waiting on a review." />
+                onMore={() => showMore("team")} onRetry={() => load("team", true)} empty={empty("team")} />
             )}
           </>
         )}

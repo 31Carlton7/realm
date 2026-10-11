@@ -1,7 +1,9 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MODEL_EFFORTS_KEY, PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
+import {
+  MODEL_EFFORTS_KEY, PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrOwners, type PrPage, type PrReview, type PrSummary, type ReviewerPick,
+} from "@realm/contracts";
 
 /** The page's calls, answered from what each test sets, and every one kept. Nothing reaches a socket
  *  — and so nothing reaches gh, or GitHub. */
@@ -17,6 +19,16 @@ let statusFor: ((asked: number) => Promise<GhStatus>) | null = null;
 const heard = new Map<string, Set<(payload: any) => void>>();
 const tell = (event: string, payload: unknown) => { for (const fn of [...(heard.get(event) ?? [])]) fn(payload); };
 let pages: Record<string, PrPage[]> = {};
+/** Set, each read of a list is answered by it, for lists that answer late, out of order, or never. */
+let listFor: ((params: any) => Promise<PrPage>) | null = null;
+/** What a search finds. */
+let found: PrPage = { prs: [], nextCursor: null, total: 0 };
+/** The requests the profile has pinned. */
+let pinned: PrSummary[] = [];
+/** Each profile's stored choice of owners. A profile with none stored lists every owner. */
+let ownersOf: Record<string, PrOwners> = {};
+/** Set, the server's answers about a choice of owners wait on it: one asked for, or one being stored. */
+let ownersGate: Promise<void> | null = null;
 let detail: PrDetail;
 let review: PrReview | null = null;
 let instructions = "";
@@ -37,13 +49,22 @@ vi.mock("../../rpc/client", () => ({
           return status;
         case "codeReview.accounts": return { accounts, active: accounts[0] ?? null };
         case "codeReview.setAccount": status = { state: "ready", login: params.login, reason: null, account: params.login }; return status;
-        case "codeReview.list": return pages[params.section]![params.cursor ? 1 : 0] ?? { prs: [], nextCursor: null, total: 0 };
-        case "codeReview.search": return { prs: [ROW], nextCursor: null, total: 1 };
+        case "codeReview.owners":
+          if (ownersGate) await ownersGate;
+          return ownersOf[params.profileId] ?? { hidden: [], shown: [], others: true };
+        case "codeReview.setOwners":
+          if (ownersGate) await ownersGate;
+          ownersOf[params.profileId] = params.owners;
+          return params.owners;
+        case "codeReview.list":
+          if (listFor) return listFor(params);
+          return pages[params.section]![params.cursor ? 1 : 0] ?? { prs: [], nextCursor: null, total: 0 };
+        case "codeReview.search": return found;
         case "codeReview.detail": return detail;
         case "codeReview.files": return FILES;
         case "codeReview.patches": return { patches: [PATCH] };
         case "codeReview.reviewGet": return { review };
-        case "codeReview.pins": return { pins: [] };
+        case "codeReview.pins": return { pins: pinned };
         case "codeReview.places": return { places: [{ spaceId: "s1", projectId: null, name: "Versed", path: "/tmp/versed", repo: null, branch: null }] };
         case "codeReview.thread": return { sessionId: null, spaceId: null };
         case "codeReview.ask": return { sessionId: "01HQ000000000000000000ASK1", itemId: null };
@@ -62,7 +83,7 @@ vi.mock("../../rpc/client", () => ({
 }));
 
 import { CodeReviewPage } from "./CodeReviewPage";
-import { forgetHeld, signInSent } from "./held";
+import { forgetHeld, pageHeld, signInSent } from "./held";
 import { exited } from "../../components/popover-exit.test-fakes";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, profile, space, type FakeData } from "../../state/store.test-fakes";
@@ -111,6 +132,11 @@ beforeEach(() => {
     review: [{ prs: [ROW, row(41)], nextCursor: "o2", total: 3 }, { prs: [row(40, "Pin the base image")], nextCursor: null, total: 3 }],
     team: [{ prs: [row(50, "Split the billing service")], nextCursor: null, total: 1 }],
   };
+  listFor = null;
+  found = { prs: [ROW], nextCursor: null, total: 1 };
+  pinned = [];
+  ownersOf = {};
+  ownersGate = null;
   detail = DETAIL;
   review = null;
   instructions = "";
@@ -198,8 +224,7 @@ describe("the account a profile reviews as", () => {
     await mount();
     await screen.findByRole("button", { name: /^Stream the tokenizer/ });
     const menu = await openOptions();
-    expect(within(menu).getByRole("group", { name: "Signed in to GitHub as @carlton" })).toBeInTheDocument();
-    expect(within(menu).queryAllByRole("menuitemcheckbox")).toHaveLength(0);
+    expect(within(within(menu).getByRole("group", { name: "Signed in to GitHub as @carlton" })).queryAllByRole("menuitemcheckbox")).toHaveLength(0);
     expect(called("codeReview.status")[0]!.params).toEqual({ force: false, profileId: "p1" });
     expect(called("codeReview.list").some((c) => "account" in c.params)).toBe(false);
   });
@@ -538,6 +563,425 @@ describe("Refresh, with a request being read", () => {
     status = { state: "signed-out", login: null, reason: null };
     await refresh();
     expect(await screen.findByRole("button", { name: "Set up GitHub" })).toBeInTheDocument();
+  });
+});
+
+describe("the owners a profile lists", () => {
+  const under = (owner: string, n: number, title: string): PrSummary =>
+    ({ ...row(n, title), ref: { owner, repo: "notes", number: n }, url: `https://github.com/${owner}/notes/pull/${n}` });
+  const acmeAndMara = (): PrPage => ({ prs: [row(39, "Add a --json flag"), under("mara", 7, "Notes on streams")], nextCursor: null, total: 2 });
+  const acmeAlone = (): PrPage => ({ prs: [row(39, "Add a --json flag")], nextCursor: null, total: 1 });
+  const nothing = (): PrPage => ({ prs: [], nextCursor: null, total: 0 });
+  const NOT_MARA: PrOwners = { hidden: ["mara"], shown: [], others: true };
+  const listed = () => screen.findByRole("button", { name: /^Stream the tokenizer/ });
+  const openOptions = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Code review options" }));
+    return screen.findByRole("menu", { name: "Code review options" });
+  };
+  const ownerRows = async () => within(within(await openOptions()).getByRole("group", { name: "Owners" })).getAllByRole("menuitemcheckbox");
+  const ticks = (rows: HTMLElement[]) => rows.map((r) => [r.textContent, r.getAttribute("aria-checked")]);
+  const searchFor = async (words: string) =>
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search or paste a pull request link" }), { target: { value: words } });
+  const line = () => document.querySelector("nav.cr-col > .cr-col-body > .cr-col-owners");
+  const said = () => line()?.querySelector(".visually-hidden")?.textContent ?? null;
+  const drawn = () => [...(line()?.querySelectorAll("[aria-hidden]") ?? [])].map((el) => el.textContent);
+  const stored = () => called("codeReview.setOwners").map((c) => c.params.owners);
+
+  it("asks for the profile's choice, and says nothing of owners over the lists of a profile that has made none", async () => {
+    await mount();
+    await listed();
+    expect(called("codeReview.owners").map((c) => c.params)).toEqual([{ profileId: "p1" }]);
+    expect(line()).toBeNull();
+  });
+
+  it("tells the server whose choice to read under with every list and search, and never sends a choice with one", async () => {
+    ownersOf.p1 = NOT_MARA;
+    await mount();
+    await listed();
+    await searchFor("tokenizer");
+    await waitFor(() => expect(called("codeReview.search")).toHaveLength(1));
+    for (const c of [...called("codeReview.list"), ...called("codeReview.search")]) {
+      expect(c.params.profileId, c.method).toBe("p1");
+      expect(Object.keys(c.params), c.method).not.toContain("owners");
+    }
+  });
+
+  it("names each loaded row's owner in the menu, ticked, under Owners after the account's section, and then Other owners", async () => {
+    pages.authored = [acmeAndMara()];
+    await mount();
+    await listed();
+    const menu = await openOptions();
+    expect([...menu.querySelectorAll('[role="group"]')].map((g) => g.getAttribute("aria-label"))).toEqual(["Signed in to GitHub as @carlton", "Owners"]);
+    expect(ticks(within(within(menu).getByRole("group", { name: "Owners" })).getAllByRole("menuitemcheckbox")))
+      .toEqual([["acme", "true"], ["mara", "true"], ["Other owners", "true"]]);
+  });
+
+  it("shows no Owners section while no owner is named and the profile has made no choice", async () => {
+    pages = { authored: [nothing()], review: [nothing()] };
+    await mount();
+    await screen.findByText("Nothing of yours is open.");
+    expect(within(await openOptions()).queryByRole("group", { name: "Owners" })).toBeNull();
+  });
+
+  it("says on each row what a press will do", async () => {
+    ownersOf.p1 = NOT_MARA;
+    await mount();
+    await listed();
+    const rows = await ownerRows();
+    expect(rows.map((r) => [r.textContent, r.getAttribute("title")])).toEqual([
+      ["acme", "In this profile, stop listing pull requests in repositories owned by acme."],
+      ["mara", "In this profile, list pull requests in repositories owned by mara."],
+      ["Other owners", "In this profile, list pull requests only for the owners selected here. That leaves out every other owner, including any you start working with later."],
+    ]);
+    fireEvent.click(rows[2]!);
+    await exited();
+    expect((await ownerRows()).at(-1)).toHaveAttribute("title", "In this profile, list pull requests for every owner except the ones not selected here, including any you start working with later.");
+  });
+
+  it("stores a press on a ticked owner as that owner hidden, and only then reads the lists on screen again", async () => {
+    pages.authored = [acmeAndMara()];
+    await mount();
+    await listed();
+    const rows = await ownerRows();
+    calls.length = 0;
+    pages.authored = [acmeAlone()];
+    fireEvent.click(rows[1]!);
+    await waitFor(() => expect(called("codeReview.list")).toHaveLength(2));
+    expect(calls.map((c) => c.method).filter((m) => m === "codeReview.setOwners" || m === "codeReview.list")).toEqual(["codeReview.setOwners", "codeReview.list", "codeReview.list"]);
+    expect(called("codeReview.setOwners")[0]!.params).toEqual({ profileId: "p1", owners: NOT_MARA });
+    expect(called("codeReview.list").map((c) => c.params.section).sort()).toEqual(["authored", "review"]);
+  });
+
+  it("keeps an owner it has unticked named in the menu, unticked, once its rows have left the lists", async () => {
+    pages.authored = [acmeAndMara()];
+    await mount();
+    await listed();
+    const rows = await ownerRows();
+    pages.authored = [acmeAlone()];
+    fireEvent.click(rows[1]!);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Notes on streams/ })).toBeNull());
+    await exited();
+    expect(ticks(await ownerRows())).toEqual([["acme", "true"], ["mara", "false"], ["Other owners", "true"]]);
+  });
+
+  it("stores a press on an unticked owner as that owner out of the hidden list and into the shown one", async () => {
+    ownersOf.p1 = NOT_MARA;
+    await mount();
+    await listed();
+    fireEvent.click((await ownerRows())[1]!);
+    await waitFor(() => expect(stored()).toEqual([{ hidden: [], shown: ["mara"], others: true }]));
+  });
+
+  it("builds a press on one made a moment before and still being stored, so each press changes its own row alone", async () => {
+    pages.authored = [acmeAndMara()];
+    await mount();
+    await listed();
+    let answer!: () => void;
+    ownersGate = new Promise<void>((resolve) => { answer = resolve; });
+    fireEvent.click((await ownerRows())[1]!);
+    await exited();
+    fireEvent.click((await ownerRows())[0]!);
+    await waitFor(() => expect(stored()).toHaveLength(2));
+    expect(stored().map((o) => o.hidden)).toEqual([["mara"], ["mara", "acme"]]);
+    await act(async () => { answer(); });
+  });
+
+  it("stores every owner ticked at that moment as shown when Other owners is unticked, and the rows on screen stay", async () => {
+    ownersOf.p1 = NOT_MARA;
+    await mount();
+    await listed();
+    const rows = await ownerRows();
+    listFor = () => new Promise<PrPage>(() => {});
+    fireEvent.click(rows.at(-1)!);
+    await waitFor(() => expect(stored()).toEqual([{ hidden: ["mara"], shown: ["acme"], others: false }]));
+    await waitFor(() => expect(drawn()).toEqual(["Only", "acme"]));
+    for (const title of [/^Add a --json flag/, /^Stream the tokenizer/, /^Change 41/]) expect(screen.getByRole("button", { name: title })).toBeInTheDocument();
+  });
+
+  it("keeps both lists when Other owners is ticked again", async () => {
+    ownersOf.p1 = { hidden: ["mara"], shown: ["acme"], others: false };
+    await mount();
+    await listed();
+    fireEvent.click((await ownerRows()).at(-1)!);
+    await waitFor(() => expect(stored()).toEqual([{ hidden: ["mara"], shown: ["acme"], others: true }]));
+  });
+
+  it("keeps the way back in the menu where no owner is ticked and none is named: Other owners, alone under Owners", async () => {
+    ownersOf.p1 = { hidden: [], shown: [], others: false };
+    pages = { authored: [nothing()], review: [nothing()] };
+    await mount();
+    expect(await screen.findByText("No owner is selected.")).toBeInTheDocument();
+    expect(said()).toBe("No owner is selected, so this profile lists only pinned pull requests. In Code review options, select an owner or Other owners.");
+    const rows = await ownerRows();
+    expect(ticks(rows)).toEqual([["Other owners", "false"]]);
+    fireEvent.click(rows[0]!);
+    await waitFor(() => expect(stored()).toEqual([{ hidden: [], shown: [], others: true }]));
+  });
+
+  it("says over the lists which owners are not listed, in a few words and in a sentence for the tooltip and a screen reader", async () => {
+    ownersOf.p1 = { hidden: ["mara", "globex"], shown: [], others: true };
+    await mount();
+    await listed();
+    await waitFor(() => expect(line()).not.toBeNull());
+    expect(drawn()).toEqual(["Not listed:", "mara, globex"]);
+    expect(said()).toBe("This profile leaves out pull requests in repositories owned by mara and globex, unless they are pinned.");
+    expect(line()).toHaveAttribute("title", "This profile leaves out pull requests in repositories owned by mara and globex, unless they are pinned.");
+    expect([...line()!.children].map((el) => [el.className, el.getAttribute("aria-hidden")])).toEqual([["visually-hidden", null], ["cr-col-owners-how", "true"], ["cr-col-owners-who", "true"]]);
+  });
+
+  it("says which owners alone are listed once other owners are not", async () => {
+    ownersOf.p1 = { hidden: ["mara"], shown: ["acme"], others: false };
+    await mount();
+    await listed();
+    await waitFor(() => expect(line()).not.toBeNull());
+    expect(drawn()).toEqual(["Only", "acme"]);
+    expect(said()).toBe("This profile lists only pinned pull requests and those in repositories owned by acme.");
+  });
+
+  it("stands that line over the three lists and under the pinned requests, which the choice does not touch", async () => {
+    ownersOf.p1 = { hidden: [], shown: ["acme"], others: false };
+    pinned = [under("mara", 7, "Notes on streams")];
+    await mount();
+    await listed();
+    const pins = await screen.findByRole("region", { name: "Pinned" });
+    await waitFor(() => expect(line()).not.toBeNull());
+    expect(within(pins).getByRole("button", { name: /^Notes on streams/ })).toBeInTheDocument();
+    expect(line()!.previousElementSibling).toBe(pins);
+    expect(line()!.nextElementSibling).toBe(screen.getByRole("region", { name: "Authored by me" }));
+  });
+
+  it("keeps each list's empty line to the owners listed while the choice leaves any out", async () => {
+    ownersOf.p1 = NOT_MARA;
+    pages = { authored: [nothing()], review: [nothing()], team: [nothing()] };
+    await mount();
+    expect(await screen.findByText("Nothing of yours is open for the listed owners.")).toBeInTheDocument();
+    expect(await screen.findByText("Nobody is waiting on your review for the listed owners.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Needs my team's review" }));
+    expect(await screen.findByText("No team of yours is waiting on a review for the listed owners.")).toBeInTheDocument();
+  });
+
+  it("says each empty list as it always did for a profile that has made no choice", async () => {
+    pages = { authored: [nothing()], review: [nothing()], team: [nothing()] };
+    await mount();
+    expect(await screen.findByText("Nothing of yours is open.")).toBeInTheDocument();
+    expect(await screen.findByText("Nobody is waiting on your review.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Needs my team's review" }));
+    expect(await screen.findByText("No team of yours is waiting on a review.")).toBeInTheDocument();
+  });
+
+  it("says nothing of owners, in the menu or under an empty list, until the profile's choice is known", async () => {
+    let known!: () => void;
+    ownersGate = new Promise<void>((resolve) => { known = resolve; });
+    ownersOf.p1 = NOT_MARA;
+    pages = { authored: [nothing()], review: [{ prs: [ROW], nextCursor: null, total: 1 }] };
+    await mount();
+    await listed();
+    expect(screen.queryByText(/^Nothing of yours is open/)).toBeNull();
+    expect(line()).toBeNull();
+    expect(within(await openOptions()).queryByRole("group", { name: "Owners" })).toBeNull();
+    await act(async () => { known(); });
+    expect(await screen.findByText("Nothing of yours is open for the listed owners.")).toBeInTheDocument();
+    expect(drawn()).toEqual(["Not listed:", "mara"]);
+  });
+
+  it("says so over the results of a search of plain words too, and keeps its empty line to the owners listed", async () => {
+    ownersOf.p1 = NOT_MARA;
+    found = nothing();
+    await mount();
+    await listed();
+    await searchFor("tokenizer");
+    expect(await screen.findByText("No pull request you are part of matches “tokenizer” for the listed owners.")).toBeInTheDocument();
+    expect(drawn()).toEqual(["Not listed:", "mara"]);
+    expect(line()!.nextElementSibling).toBe(screen.getByRole("region", { name: "Results" }));
+  });
+
+  it("says nothing of owners over a search that carries GitHub's own qualifiers, and leaves its empty line as it was", async () => {
+    ownersOf.p1 = NOT_MARA;
+    found = nothing();
+    await mount();
+    await listed();
+    await waitFor(() => expect(line()).not.toBeNull());
+    await searchFor("repo:acme/widgets tokenizer");
+    expect(await screen.findByText("No pull request you are part of matches “repo:acme/widgets tokenizer”.")).toBeInTheDocument();
+    expect(line()).toBeNull();
+  });
+
+  it("says nothing of owners over a pasted link, which is opened whatever the choice", async () => {
+    ownersOf.p1 = NOT_MARA;
+    await mount();
+    await listed();
+    await waitFor(() => expect(line()).not.toBeNull());
+    await searchFor("https://github.com/mara/notes/pull/7");
+    expect(await screen.findByRole("button", { name: "Open mara/notes#7" })).toBeInTheDocument();
+    expect(line()).toBeNull();
+  });
+
+  it("reads a search of plain words on screen again after a press, once the choice is stored", async () => {
+    pages.authored = [acmeAndMara()];
+    await mount();
+    await listed();
+    await searchFor("tokenizer");
+    await waitFor(() => expect(called("codeReview.search")).toHaveLength(1));
+    const rows = await ownerRows();
+    calls.length = 0;
+    fireEvent.click(rows[1]!);
+    await waitFor(() => expect(called("codeReview.search")).toHaveLength(1));
+    expect(calls.map((c) => c.method).filter((m) => m === "codeReview.setOwners" || m === "codeReview.search")).toEqual(["codeReview.setOwners", "codeReview.search"]);
+  });
+
+  it("leaves a search that carries GitHub's own qualifiers as it is after a press: it was read under no choice", async () => {
+    pages.authored = [acmeAndMara()];
+    await mount();
+    await listed();
+    await searchFor("repo:acme/widgets tokenizer");
+    expect(await within(await screen.findByRole("region", { name: "Results" })).findByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+    const rows = await ownerRows();
+    calls.length = 0;
+    fireEvent.click(rows[1]!);
+    await waitFor(() => expect(called("codeReview.list")).toHaveLength(2));
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+    expect(called("codeReview.search")).toHaveLength(0);
+    expect(within(screen.getByRole("region", { name: "Results" })).getByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+  });
+
+  it("takes another window's change to the same profile's choice: says it, and reads the lists again", async () => {
+    await mount();
+    await listed();
+    calls.length = 0;
+    await act(async () => { tell("codeReview.ownersChanged", { profileId: "p1", owners: NOT_MARA }); });
+    expect(drawn()).toEqual(["Not listed:", "mara"]);
+    await waitFor(() => expect(called("codeReview.list").map((c) => c.params.section).sort()).toEqual(["authored", "review"]));
+    expect(called("codeReview.setOwners")).toHaveLength(0);
+  });
+
+  it("leaves a column alone when the change was to another profile's choice", async () => {
+    await mount();
+    await listed();
+    calls.length = 0;
+    await act(async () => { tell("codeReview.ownersChanged", { profileId: "p2", owners: NOT_MARA }); });
+    expect(line()).toBeNull();
+    expect(called("codeReview.list")).toHaveLength(0);
+  });
+
+  it("stops listening for changes of choice when the page is put away", async () => {
+    await mount();
+    await listed();
+    expect(heard.get("codeReview.ownersChanged")?.size).toBe(1);
+    cleanup();
+    expect(heard.get("codeReview.ownersChanged")?.size ?? 0).toBe(0);
+  });
+
+  it("keeps the rows the new choice still lists while a list is read again, lets the others go at once, and offers no further page of the old reading", async () => {
+    pages.authored = [acmeAndMara()];
+    await mount();
+    await listed();
+    expect(screen.getByRole("button", { name: "Show more" })).toBeInTheDocument();
+    listFor = () => new Promise<PrPage>(() => {});
+    await act(async () => { tell("codeReview.ownersChanged", { profileId: "p1", owners: NOT_MARA }); });
+    expect(screen.queryByRole("button", { name: /^Notes on streams/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Add a --json flag/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+    expect(screen.queryByText("Loading…")).toBeNull();
+  });
+
+  it("does not draw a list it asked for before a change of choice was heard, when that answers after the list read again", async () => {
+    const answers: { section: string; go: (page: PrPage) => void }[] = [];
+    listFor = (params) => new Promise<PrPage>((resolve) => { answers.push({ section: params.section, go: resolve }); });
+    await mount();
+    await waitFor(() => expect(answers.map((a) => a.section)).toEqual(["authored", "review"]));
+    await act(async () => { tell("codeReview.ownersChanged", { profileId: "p1", owners: NOT_MARA }); });
+    await waitFor(() => expect(answers.map((a) => a.section)).toEqual(["authored", "review", "authored", "review"]));
+    await act(async () => { answers[2]!.go(acmeAlone()); answers[3]!.go(nothing()); });
+    expect(await screen.findByRole("button", { name: /^Add a --json flag/ })).toBeInTheDocument();
+    await act(async () => { answers[0]!.go(acmeAndMara()); answers[1]!.go({ prs: [ROW], nextCursor: null, total: 1 }); });
+    expect(screen.queryByRole("button", { name: /^Notes on streams/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Stream the tokenizer/ })).toBeNull();
+  });
+
+  it("does not add a further page it asked for before a change of choice was heard", async () => {
+    await mount();
+    await listed();
+    const answers: ((page: PrPage) => void)[] = [];
+    listFor = () => new Promise<PrPage>((resolve) => { answers.push(resolve); });
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await act(async () => { tell("codeReview.ownersChanged", { profileId: "p1", owners: NOT_MARA }); });
+    await act(async () => { answers[0]!({ prs: [under("mara", 8, "More notes")], nextCursor: null, total: 3 }); });
+    expect(screen.queryByRole("button", { name: /^More notes/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+  });
+
+  it("lets go at once of the results a new choice no longer lists, while the search of plain words is read again", async () => {
+    found = { prs: [ROW, under("mara", 7, "Notes on streams")], nextCursor: null, total: 2 };
+    await mount();
+    await listed();
+    await searchFor("streams");
+    const results = await screen.findByRole("region", { name: "Results" });
+    await within(results).findByRole("button", { name: /^Notes on streams/ });
+    await act(async () => { tell("codeReview.ownersChanged", { profileId: "p1", owners: NOT_MARA }); });
+    expect(within(results).queryByRole("button", { name: /^Notes on streams/ })).toBeNull();
+    expect(within(results).getByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+  });
+
+  it("leaves the lists another profile's column holds as they are when an answer about a profile's choice arrives after its own column was put away", async () => {
+    let late!: () => void;
+    ownersGate = new Promise<void>((resolve) => { late = resolve; });
+    ownersOf.p1 = NOT_MARA;
+    pages.authored = [acmeAndMara()];
+    const { store } = await mount({ spaces: [space("s1", "p1", "Versed"), space("s9", "p2", "Homework")] });
+    await listed();
+    ownersGate = null;
+    await act(async () => { await store.getState().selectProfile("p2"); });
+    await screen.findByRole("button", { name: /^Notes on streams/ });
+    await waitFor(() => expect(pageHeld.owners.p2).toEqual({ hidden: [], shown: [], others: true }));
+    await act(async () => { late(); });
+    await waitFor(() => expect(pageHeld.owners.p1).toEqual(NOT_MARA));
+    expect(pageHeld.lists.authored?.prs.map((p) => p.ref.owner)).toEqual(["acme", "mara"]);
+  });
+
+  it("does not draw one profile's held lists as another's, where the two share an account and not a choice", async () => {
+    const { store } = await mount({ spaces: [space("s1", "p1", "Versed"), space("s9", "p2", "Homework")] });
+    await listed();
+    listFor = () => new Promise<PrPage>(() => {});
+    await act(async () => { await store.getState().selectProfile("p2"); });
+    await waitFor(() => expect(called("codeReview.owners").map((c) => c.params.profileId)).toContain("p2"));
+    expect(screen.queryByRole("button", { name: /^Stream the tokenizer/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Add a --json flag/ })).toBeNull();
+  });
+
+  it("lets go of the rows a held list read under an older choice, once the page is opened again and hears the newer one", async () => {
+    pages.authored = [acmeAndMara()];
+    await mount();
+    await listed();
+    await screen.findByRole("button", { name: /^Notes on streams/ });
+    cleanup();
+    ownersOf.p1 = NOT_MARA;
+    listFor = () => new Promise<PrPage>(() => {});
+    await mount();
+    await waitFor(() => expect(drawn()).toEqual(["Not listed:", "mara"]));
+    expect(screen.queryByRole("button", { name: /^Notes on streams/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Add a --json flag/ })).toBeInTheDocument();
+  });
+
+  it("asks for the profile's choice again on Refresh", async () => {
+    await mount();
+    await listed();
+    calls.length = 0;
+    fireEvent.click(within(await openOptions()).getByRole("menuitem", { name: "Refresh" }));
+    await waitFor(() => expect(called("codeReview.owners").map((c) => c.params)).toEqual([{ profileId: "p1" }]));
+  });
+
+  it("asks for the profile's choice again once the server is back after a break, since a change made meanwhile went unheard", async () => {
+    const { store } = await mount();
+    await listed();
+    calls.length = 0;
+    ownersOf.p1 = NOT_MARA;
+    act(() => store.getState().applyConnectionState("reconnecting"));
+    expect(called("codeReview.owners")).toHaveLength(0);
+    await act(async () => { store.getState().applyConnectionState("connected"); });
+    await waitFor(() => expect(drawn()).toEqual(["Not listed:", "mara"]));
+    expect(called("codeReview.owners").map((c) => c.params)).toEqual([{ profileId: "p1" }]);
   });
 });
 

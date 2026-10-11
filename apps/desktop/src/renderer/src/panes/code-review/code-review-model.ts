@@ -1,6 +1,6 @@
 import {
-  AGENT_SUPPORTS_PLAN_MODE, parsePrRef, prKey, prName,
-  type AgentKind, type CheckState, type Finding, type ModelInfo, type PrDetail, type PrPage, type PrRef, type PrSection, type PrSummary, type ReviewerPick,
+  AGENT_SUPPORTS_PLAN_MODE, ownerQualifiers, ownersOnce, parsePrRef, prKey, prName, sameOwner,
+  type AgentKind, type CheckState, type Finding, type ModelInfo, type PrDetail, type PrOwners, type PrPage, type PrRef, type PrSection, type PrSummary, type ReviewerPick,
   type ReviewerState, type ReviewEvent, type ReviewSide, type SubmitReview,
 } from "@realm/contracts";
 import type { AgentProbe } from "../../state/store";
@@ -56,6 +56,94 @@ export function appendPage(held: readonly PrSummary[], page: PrPage): PrSummary[
 }
 
 export const sameRef = (a: PrRef | null | undefined, b: PrRef | null | undefined): boolean => !!a && !!b && prKey(a) === prKey(b);
+
+/**
+ * The owners the column's menu names: both lists of the profile's choice, and the owner of every
+ * row the three lists hold as they are loaded. Each once, however it is spelled, in name order
+ * without regard to case. A row's spelling is GitHub's own as of that read, so it is the one kept
+ * where a list spells the same owner another way.
+ */
+export function namedOwners(owners: PrOwners, rows: readonly PrSummary[]): string[] {
+  const named = new Map<string, string>();
+  for (const owner of [...rows.map((r) => r.ref.owner), ...owners.hidden, ...owners.shown]) {
+    if (!named.has(owner.toLowerCase())) named.set(owner.toLowerCase(), owner);
+  }
+  return [...named.values()].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+}
+
+/** Whether an owner's row is ticked, which is whether its pull requests are listed. With `others`
+ *  that is every owner not in `hidden`, and without it the owners in `shown` and nobody else. */
+export const ownerTicked = (owners: PrOwners, owner: string): boolean =>
+  owners.others ? !owners.hidden.some((o) => sameOwner(o, owner)) : owners.shown.some((o) => sameOwner(o, owner));
+
+/**
+ * A press on an owner's row. That owner alone changes, and moves to the other list. A ticked one
+ * goes to `hidden` and an unticked one to `shown`, whichever list is in play, so the owner is in one
+ * list afterwards and stays named in the menu once its last row has left the lists.
+ */
+export function pressOwner(owners: PrOwners, owner: string): PrOwners {
+  const without = (list: readonly string[]) => list.filter((o) => !sameOwner(o, owner));
+  return ownerTicked(owners, owner)
+    ? { ...owners, hidden: [...without(owners.hidden), owner], shown: without(owners.shown) }
+    : { ...owners, hidden: without(owners.hidden), shown: [...without(owners.shown), owner] };
+}
+
+/**
+ * A press on "Other owners", where `named` is the owners the menu names at that moment. Turned off,
+ * every owner ticked then becomes `shown`, so the lists hold after the press what they held before
+ * it. Turned on, both lists are kept, so the owners that were unticked stay unticked.
+ */
+export function pressOthers(owners: PrOwners, named: readonly string[]): PrOwners {
+  if (!owners.others) return { ...owners, others: true };
+  return { hidden: owners.hidden, shown: named.filter((o) => ownerTicked(owners, o)), others: false };
+}
+
+/** Whether two choices come to the same search, and so to the same lists. */
+export const sameListing = (a: PrOwners, b: PrOwners): boolean => ownerQualifiers(a) === ownerQualifiers(b);
+
+/** The rows a list keeps from the moment the choice changes until it has been read again, which are
+ *  the rows the new choice still lists. */
+export const stillListed = (owners: PrOwners, prs: readonly PrSummary[]): PrSummary[] => prs.filter((p) => ownerTicked(owners, p.ref.owner));
+
+/** Names in a sentence: "a", "a and b", "a, b, and c". */
+const inSentence = (names: readonly string[]): string =>
+  names.length < 3 ? names.join(" and ") : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]!}`;
+
+/**
+ * What the column says, over the lists, while the profile's choice of owners leaves anything out,
+ * and null while it leaves nothing out. `how` and `who` are the line as it is drawn, which is the
+ * way the choice runs and then the owners, each once. The owners are what is cut where the line is
+ * longer than the column. `sentence` says all of it, to a screen reader and on hover, and says that
+ * the pinned requests are no part of the choice.
+ */
+export type OwnersLine = { how: string; who: string; sentence: string };
+export function ownersLine(owners: PrOwners): OwnersLine | null {
+  const once = ownersOnce(owners.others ? owners.hidden : owners.shown);
+  if (once.length === 0) {
+    return owners.others ? null : {
+      how: "No owner is selected.", who: "",
+      sentence: "No owner is selected, so this profile lists only pinned pull requests. In Code review options, select an owner or Other owners.",
+    };
+  }
+  return owners.others
+    ? { how: "Not listed:", who: once.join(", "), sentence: `This profile leaves out pull requests in repositories owned by ${inSentence(once)}, unless they are pinned.` }
+    : { how: "Only", who: once.join(", "), sentence: `This profile lists only pinned pull requests and those in repositories owned by ${inSentence(once)}.` };
+}
+
+/**
+ * What a list says when it holds nothing. `narrowed` is a choice of owners that leaves any out. The
+ * line then keeps to the owners that are listed, since a request may be open under one that is not.
+ */
+export function emptyLine(section: PrSection, narrowed: boolean): string {
+  if (section === "authored") return narrowed ? "Nothing of yours is open for the listed owners." : "Nothing of yours is open.";
+  if (section === "review") return narrowed ? "Nobody is waiting on your review for the listed owners." : "Nobody is waiting on your review.";
+  return narrowed ? "No team of yours is waiting on a review for the listed owners." : "No team of yours is waiting on a review.";
+}
+
+/** What a search says when nothing matches. `narrowed` is as for `emptyLine`, and holds only for a
+ *  search the choice of owners is added to. One sent as typed is not narrowed by it. */
+export const noMatchLine = (query: string, narrowed: boolean): string =>
+  narrowed ? `No pull request you are part of matches “${query}” for the listed owners.` : `No pull request you are part of matches “${query}”.`;
 
 /* ───────────────────────────── the request's facts ───────────────────────────── */
 

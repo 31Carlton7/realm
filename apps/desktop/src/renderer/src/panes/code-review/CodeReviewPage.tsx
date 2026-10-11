@@ -23,8 +23,9 @@ const INSTALL_COMMAND = `brew install gh && ${GH_LOGIN_COMMAND}`;
  * plainly, and Set up GitHub, which opens a terminal with the command typed in for the person to run.
  * Coming back to the window asks again, so finishing the sign-in is the whole of the next step.
  *
- * Which of gh's accounts it reads and posts as is the profile's own (`prAccountKey`), so the page is
- * one page per profile: another profile's is asked about afresh rather than drawn as this one's.
+ * Which of gh's accounts it reads and posts as is the profile's own (`prAccountKey`), and so is whose
+ * requests its lists hold (`prOwnersKey`), so the page is one page per profile: another profile's is
+ * asked about afresh rather than drawn as this one's.
  */
 export function CodeReviewPage({ item }: PaneProps) {
   const profileId = useApp((s) => s.activeProfileId);
@@ -158,7 +159,7 @@ function Ready({ login, account, profile, profileId, vantage, onStatus, onLost, 
   return (
     <div className="page code-review-page">
       <PageRail label="Code review">
-        <PrColumn login={login} account={account} accounts={accounts} profile={profile} pins={pins} selected={selected} onSelect={(ref) => select(ref)}
+        <PrColumn login={login} account={account} accounts={accounts} profile={profile} profileId={profileId} pins={pins} selected={selected} onSelect={(ref) => select(ref)}
           onAccount={pickAccount} onRefresh={() => { listAccounts(true); onAsk(); }}
           onSignIn={() => signIn(GH_LOGIN_COMMAND)} onLost={onLost} />
       </PageRail>

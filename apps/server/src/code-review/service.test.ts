@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type FakeScript } from "@realm/adapters";
-import { PLAN_PERMISSION_MODE, REVIEW_INSTRUCTIONS_MAX, prAccountKey, prReviewKey, type PrReview } from "@realm/contracts";
+import { PLAN_PERMISSION_MODE, REVIEW_INSTRUCTIONS_MAX, prAccountKey, prOwnersKey, prReviewKey, type PrOwners, type PrReview } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { ProjectsStore } from "../store/projects";
@@ -122,6 +122,197 @@ describe("searching", () => {
     expect(searchQuery("tokenizer")).toBe("is:pr archived:false involves:@me sort:updated-desc tokenizer");
     expect(searchQuery("repo:acme/widgets parser")).toBe("is:pr repo:acme/widgets parser");
     expect(searchQuery("-author:@me draft")).toBe("is:pr -author:@me draft");
+  });
+});
+
+describe("the owners a profile lists: its own choice, read where the search is made", () => {
+  const EVERY: PrOwners = { hidden: [], shown: [], others: true };
+  const NOT_MARA: PrOwners = { hidden: ["mara"], shown: [], others: true };
+  const OWNED: GhFixture = {
+    user: { login: "carlton" },
+    sections: { authored: ["acme/widgets#42", "mara/notes#7", "globex/site#3"], review: ["mara/notes#8"], team: ["globex/site#9"] },
+    prs: {
+      "acme/widgets#42": pr("acme", "widgets", 42, { title: "Stream the tokenizer" }),
+      "mara/notes#7": pr("mara", "notes", 7, { title: "Tokenizer notes" }),
+      "globex/site#3": pr("Globex", "site", 3, { title: "Pricing page" }),
+      "mara/notes#8": pr("mara", "notes", 8, { title: "Reading list" }),
+      "globex/site#9": pr("Globex", "site", 9, { title: "Footer links" }),
+    },
+  };
+  const numbers = (page: { prs: { ref: { number: number } }[] }) => page.prs.map((p) => p.ref.number);
+  const queries = (gh: FakeGh) => ghCalls(gh, (a) => a[1] === "graphql").map((c) => c.args.find((a) => a.startsWith("q="))?.slice(2));
+
+  it("lists every owner for a profile that has stored no choice, and sends each search byte for byte as it was sent before there was one", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    expect(await rpc.call("codeReview.owners", { profileId })).toEqual(EVERY);
+    for (const section of ["authored", "review", "team"]) await rpc.call("codeReview.list", { section, profileId });
+    await rpc.call("codeReview.search", { query: "tokenizer", profileId });
+    expect(queries(gh)).toEqual([
+      "is:pr is:open archived:false author:@me sort:updated-desc",
+      "is:pr is:open archived:false user-review-requested:@me sort:updated-desc",
+      "is:pr is:open archived:false review-requested:@me -user-review-requested:@me sort:updated-desc",
+      "is:pr archived:false involves:@me sort:updated-desc tokenizer",
+    ]);
+  });
+
+  it("reads a stored value that is not a choice as every owner listed", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    for (const value of [{ hidden: "mara", shown: [], others: true }, { hidden: ["mara"], shown: [] }, { hidden: ["not an owner"], shown: [], others: false }, "mara", 7]) {
+      await rpc.call("settings.set", { key: prOwnersKey(profileId), value });
+      expect(await rpc.call("codeReview.owners", { profileId }), JSON.stringify(value)).toEqual(EVERY);
+    }
+    expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId }))).toEqual([42, 7, 3]);
+    expect(queries(gh)).toEqual(["is:pr is:open archived:false author:@me sort:updated-desc"]);
+  });
+
+  it("stores a profile's choice, answers with it, and keeps it for that profile alone", async () => {
+    const { rpc, profileId } = await boot(OWNED);
+    const other = new ProfilesStore(app!.db).create({ name: "School", icon: "x", color: "#000" });
+    const choice: PrOwners = { hidden: ["mara"], shown: ["acme"], others: false };
+    expect(await rpc.call("codeReview.setOwners", { profileId, owners: choice })).toEqual(choice);
+    expect(await rpc.call("codeReview.owners", { profileId })).toEqual(choice);
+    expect(await rpc.call("codeReview.owners", { profileId: other.id })).toEqual(EVERY);
+    expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId: other.id }))).toEqual([42, 7, 3]);
+  });
+
+  it("leaves the hidden owners out of each of the three lists while other owners are listed", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    await rpc.call("codeReview.setOwners", { profileId, owners: NOT_MARA });
+    expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId }))).toEqual([42, 3]);
+    expect(numbers(await rpc.call("codeReview.list", { section: "review", profileId }))).toEqual([]);
+    expect(numbers(await rpc.call("codeReview.list", { section: "team", profileId }))).toEqual([9]);
+    expect(queries(gh)).toEqual([
+      "is:pr is:open archived:false author:@me sort:updated-desc -org:mara",
+      "is:pr is:open archived:false user-review-requested:@me sort:updated-desc -org:mara",
+      "is:pr is:open archived:false review-requested:@me -user-review-requested:@me sort:updated-desc -org:mara",
+    ]);
+  });
+
+  it("lists the shown owners alone once other owners are not listed, named to GitHub as the choice spells them", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    await rpc.call("codeReview.setOwners", { profileId, owners: { hidden: ["mara"], shown: ["ACME", "globex"], others: false } });
+    expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId }))).toEqual([42, 3]);
+    expect(queries(gh)).toEqual(["is:pr is:open archived:false author:@me sort:updated-desc org:ACME org:globex"]);
+  });
+
+  it("answers an empty page and calls gh not at all where no owner can match", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    await rpc.call("codeReview.setOwners", { profileId, owners: { hidden: ["mara"], shown: [], others: false } });
+    for (const section of ["authored", "review", "team"]) {
+      expect(await rpc.call("codeReview.list", { section, profileId, force: true }), section).toEqual({ prs: [], nextCursor: null, total: 0 });
+    }
+    expect(await rpc.call("codeReview.search", { query: "tokenizer", profileId })).toEqual({ prs: [], nextCursor: null, total: 0 });
+    expect(gh.calls()).toHaveLength(0);
+  });
+
+  it("searches plain words under the profile's choice", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    await rpc.call("codeReview.setOwners", { profileId, owners: NOT_MARA });
+    expect(numbers(await rpc.call("codeReview.search", { query: "tokenizer", profileId }))).toEqual([42]);
+    expect(queries(gh)).toEqual(["is:pr archived:false involves:@me sort:updated-desc tokenizer -org:mara"]);
+  });
+
+  it("sends a search that carries GitHub's own qualifiers as typed, under no choice, and so even under one that can match nothing", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    await rpc.call("codeReview.setOwners", { profileId, owners: NOT_MARA });
+    expect(numbers(await rpc.call("codeReview.search", { query: "tokenizer is:open", profileId }))).toEqual([42, 7]);
+    await rpc.call("codeReview.setOwners", { profileId, owners: { hidden: [], shown: [], others: false } });
+    expect(numbers(await rpc.call("codeReview.search", { query: "tokenizer is:closed", profileId }))).toEqual([42, 7]);
+    expect(queries(gh)).toEqual(["is:pr tokenizer is:open", "is:pr tokenizer is:closed"]);
+  });
+
+  it("reads the stored choice for itself on every read, whatever choice a caller sends with the read", async () => {
+    const { rpc, profileId } = await boot(OWNED);
+    await rpc.call("codeReview.setOwners", { profileId, owners: NOT_MARA });
+    expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId, owners: EVERY }))).toEqual([42, 3]);
+    expect(numbers(await rpc.call("codeReview.search", { query: "tokenizer", profileId, owners: EVERY }))).toEqual([42]);
+  });
+
+  it("holds each choice's reads apart: a list read under one is not served under another, and is still held for its own", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId }))).toEqual([42, 7, 3]);
+    await rpc.call("codeReview.setOwners", { profileId, owners: NOT_MARA });
+    expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId }))).toEqual([42, 3]);
+    await rpc.call("codeReview.setOwners", { profileId, owners: EVERY });
+    expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId }))).toEqual([42, 7, 3]);
+    expect(queries(gh)).toHaveLength(2);
+  });
+
+  it("holds a search of plain words apart by choice too", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    expect(numbers(await rpc.call("codeReview.search", { query: "tokenizer", profileId }))).toEqual([42, 7]);
+    await rpc.call("codeReview.setOwners", { profileId, owners: NOT_MARA });
+    expect(numbers(await rpc.call("codeReview.search", { query: "tokenizer", profileId }))).toEqual([42]);
+    expect(queries(gh)).toHaveLength(2);
+  });
+
+  it("starts a list over when it is read again by force under a choice: a later page held from before is asked for again", async () => {
+    const { gh, rpc, profileId } = await boot(OWNED);
+    await rpc.call("codeReview.setOwners", { profileId, owners: NOT_MARA });
+    await rpc.call("codeReview.list", { section: "authored", profileId });
+    await rpc.call("codeReview.list", { section: "authored", profileId, cursor: "o1" });
+    await rpc.call("codeReview.list", { section: "authored", profileId, cursor: "o1" });
+    expect(queries(gh)).toHaveLength(2);
+    await rpc.call("codeReview.list", { section: "authored", profileId, force: true });
+    await rpc.call("codeReview.list", { section: "authored", profileId, cursor: "o1" });
+    expect(queries(gh)).toHaveLength(4);
+  });
+
+  it("refuses an owner named in both lists, in whatever case, and keeps the choice that was stored", async () => {
+    const { rpc, profileId } = await boot(OWNED);
+    await rpc.call("codeReview.setOwners", { profileId, owners: NOT_MARA });
+    await expect(rpc.call("codeReview.setOwners", { profileId, owners: { hidden: ["acme", "Globex"], shown: ["globex"], others: true } }))
+      .rejects.toMatchObject({ code: "OWNER_IN_BOTH_LISTS", message: expect.stringContaining("Globex") });
+    expect(await rpc.call("codeReview.owners", { profileId })).toEqual(NOT_MARA);
+  });
+
+  it("refuses a choice for a profile that does not exist, and stores nothing for it", async () => {
+    const { rpc } = await boot(OWNED);
+    await expect(rpc.call("codeReview.setOwners", { profileId: "01HQ0000000000000000000000", owners: NOT_MARA })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await rpc.call("codeReview.owners", { profileId: "01HQ0000000000000000000000" })).toEqual(EVERY);
+  });
+
+  it("refuses a choice that names what GitHub could not have as an owner, so no owner can carry more of a search with it", async () => {
+    const { rpc, profileId } = await boot(OWNED);
+    await expect(rpc.call("codeReview.setOwners", { profileId, owners: { hidden: ["mara org:acme"], shown: [], others: true } })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
+    expect(await rpc.call("codeReview.owners", { profileId })).toEqual(EVERY);
+  });
+
+  it("tells every window of a choice, with the choice, and says nothing of one it refused", async () => {
+    const { rpc, profileId } = await boot(OWNED);
+    const other = await wsClient(app!.port);
+    const told = () => other.events.filter((e) => e.event === "codeReview.ownersChanged").map((e) => e.payload);
+    await rpc.call("codeReview.setOwners", { profileId, owners: NOT_MARA });
+    await waitFor(() => told().length === 1);
+    await expect(rpc.call("codeReview.setOwners", { profileId, owners: { hidden: ["acme"], shown: ["acme"], others: true } })).rejects.toMatchObject({ code: "OWNER_IN_BOTH_LISTS" });
+    await other.call("codeReview.owners", { profileId });
+    expect(told()).toEqual([{ profileId, owners: NOT_MARA }]);
+    other.close();
+  });
+
+  it("has the choice stored by the time the windows are told of it", () => {
+    const kept = new Map<string, unknown>();
+    const storedWhenTold: unknown[] = [];
+    const service = new CodeReviewService({
+      gh: null,
+      settings: { get: (key) => kept.get(key) ?? null, set: (key, value) => { kept.set(key, value); } },
+      rpc: { broadcast: () => { storedWhenTold.push(kept.get(prOwnersKey("p1"))); } },
+      sessions: {} as never, engine: {} as never, spaces: {} as never, projects: {} as never,
+      profiles: { get: () => ({}) }, git: (() => { throw new Error("no git in this suite"); }) as never, home: tempDir("realm-cr-owners-"),
+    });
+    service.setOwners("p1", NOT_MARA);
+    expect(storedWhenTold).toEqual([NOT_MARA]);
+  });
+
+  it("is still the profile's for the next server over the same home", async () => {
+    const home = tempDir("realm-cr-owners-");
+    const first = await boot(OWNED, home);
+    const choice: PrOwners = { hidden: [], shown: ["acme"], others: false };
+    await first.rpc.call("codeReview.setOwners", { profileId: first.profileId, owners: choice });
+    await app!.close(); app = undefined;
+    const second = await boot(OWNED, home);
+    expect(await second.rpc.call("codeReview.owners", { profileId: first.profileId })).toEqual(choice);
+    expect(numbers(await second.rpc.call("codeReview.list", { section: "authored", profileId: first.profileId }))).toEqual([42]);
   });
 });
 

@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
-import type { FileDiff, GhStatus, PrDetail, PrFiles, PrRef, PrSection, PrSummary, ReviewerPick } from "@realm/contracts";
-import { EMPTY_DRAFT, type ReviewDraft } from "./code-review-model";
+import { PR_SECTIONS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrOwners, type PrRef, type PrSection, type PrSummary, type ReviewerPick } from "@realm/contracts";
+import { EMPTY_DRAFT, sameListing, stillListed, type ReviewDraft } from "./code-review-model";
 
 /**
  * What the Code Review page keeps between one look at a request and the next, for as long as the
@@ -68,8 +68,13 @@ export const pageHeld = {
   stale: { status: false, accounts: false },
   /** By profile: pins are each profile's own. */
   pins: {} as Record<string, PrSummary[]>,
+  /** By profile: each profile's choice of owners as this window last heard it, so its column says
+   *  what is left out, and ticks its menu, in its first frame. */
+  owners: {} as Record<string, PrOwners>,
   selection: null as PrRef | null,
   lists: {} as Partial<Record<PrSection, Listed>>,
+  /** The choice of owners `lists` was read under, or null while that is not known. */
+  listedUnder: null as PrOwners | null,
   teamOpen: false,
   tabs: new Map<string, "summary" | "changes">(),
   view: { split: true, tree: true },
@@ -100,11 +105,47 @@ export function signInSent(): void {
   pageHeld.stale = { status: true, accounts: true };
 }
 
+/**
+ * The lists held, for a column about to be drawn under `owners`, which is its profile's choice of
+ * owners, or null while this window has not heard it. Lists read under a choice that came to another
+ * search are let go first, and so are any while either choice is not known. Two profiles can share
+ * an account and not a choice, and one's rows are not drawn as the other's.
+ */
+export function listsHeldUnder(owners: PrOwners | null): Partial<Record<PrSection, Listed>> {
+  if (!owners || !pageHeld.listedUnder || !sameListing(owners, pageHeld.listedUnder)) pageHeld.lists = {};
+  pageHeld.listedUnder = owners;
+  return pageHeld.lists;
+}
+
+/** A profile's choice of owners as just heard, held for its column's next first frame. */
+export function holdOwners(profileId: string, owners: PrOwners): void {
+  pageHeld.owners[profileId] = owners;
+}
+
+/**
+ * The lists on screen, moved to `owners`. Their column calls this on hearing its profile's choice.
+ * Where that comes to the search the lists were read under, or the choice was not known until now,
+ * they stand and the answer is null. Otherwise each list keeps the rows `owners` still lists, with
+ * no further page to ask for, and is marked as being read, since its column reads it again.
+ */
+export function listsMovedTo(owners: PrOwners): Partial<Record<PrSection, Listed>> | null {
+  const was = pageHeld.listedUnder;
+  pageHeld.listedUnder = owners;
+  if (!was || sameListing(was, owners)) return null;
+  const moved: Partial<Record<PrSection, Listed>> = {};
+  for (const section of PR_SECTIONS) {
+    const listed = pageHeld.lists[section];
+    if (listed) moved[section] = { prs: stillListed(owners, listed.prs), next: null, state: "loading", error: null };
+  }
+  pageHeld.lists = moved;
+  return moved;
+}
+
 /** Everything above, forgotten — what a new window starts from, and what each test does. */
 export function forgetHeld(): void {
   drafts.clear();
   for (const m of [heldDetails, heldFiles, heldPatches, heldLines, reviewers]) m.clear();
   Object.assign(pageHeld, { status: null, statusProfile: null, readAs: null, accounts: [], stale: { status: false, accounts: false },
-    pins: {}, selection: null, lists: {}, teamOpen: false, tabs: new Map(), view: { split: true, tree: true } });
+    pins: {}, owners: {}, selection: null, lists: {}, listedUnder: null, teamOpen: false, tabs: new Map(), view: { split: true, tree: true } });
   for (const fn of listeners) fn();
 }

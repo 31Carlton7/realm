@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AGENT_META, AGENT_SUPPORTS_PLAN_MODE, PLAN_PERMISSION_MODE, PR_PAGE_SIZE, PR_PINS_MAX, PrReviewSchema, PrSummarySchema, REVIEW_INSTRUCTIONS_MAX, ReviewerPickSchema,
-  prAccountKey, prKey, prName, prPinsKey, prReviewKey, prThreadKey, reviewInstructionsKey, reviewerPickKey, sameRepo,
-  type AgentKind, type FileDiff, type GhAccounts, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrPlace, type PrRef, type PrReview,
+  AGENT_META, AGENT_SUPPORTS_PLAN_MODE, EVERY_OWNER, PLAN_PERMISSION_MODE, PR_PAGE_SIZE, PR_PINS_MAX, PrOwnersSchema, PrReviewSchema, PrSummarySchema, REVIEW_INSTRUCTIONS_MAX, ReviewerPickSchema,
+  hasSearchQualifiers, ownerQualifiers, prAccountKey, prKey, prName, prOwnersKey, prPinsKey, prReviewKey, prThreadKey, reviewInstructionsKey, reviewerPickKey, sameOwner, sameRepo,
+  type AgentKind, type FileDiff, type GhAccounts, type GhStatus, type PrDetail, type PrFiles, type PrOwners, type PrPage, type PrPlace, type PrRef, type PrReview,
   type PrSection, type PrSummary, type ReviewInstructions, type ReviewerPick, type SubmitReview, type SubmittedReview,
 } from "@realm/contracts";
 import type { DelegationEngine } from "../delegation/engine";
@@ -33,7 +33,7 @@ export const SECTION_QUERY: Record<PrSection, string> = {
 /** Plain words search the requests the person is part of; someone who typed GitHub's own qualifiers
  *  (`repo:`, `author:`) meant them, and gets exactly that. */
 export function searchQuery(text: string): string {
-  return /(?:^|\s)-?[a-z-]+:\S/i.test(text) ? `is:pr ${text}` : `is:pr archived:false involves:@me sort:updated-desc ${text}`;
+  return hasSearchQualifiers(text) ? `is:pr ${text}` : `is:pr archived:false involves:@me sort:updated-desc ${text}`;
 }
 
 /** How long a read stays good. A list is a minute (Refresh is one click), one request half that —
@@ -235,22 +235,65 @@ export class CodeReviewService {
     finally { this.d.rpc.broadcast("codeReview.accountChanged", { profileId }); }
   }
 
-  async list(section: PrSection, cursor: string | null, force = false, account: string | null = null): Promise<PrPage> {
-    const key = scoped(account, `${section}|${cursor ?? ""}`);
-    const held = force ? undefined : this.lists.get(key, TTL.list);
-    if (held) return held;
-    // Refresh starts the list over: a later page held from before would splice an older reading on.
-    if (force && cursor === null) this.lists.clear((k) => k.startsWith(scoped(account, `${section}|`)));
-    const page = await this.gh(account).search(SECTION_QUERY[section], PR_PAGE_SIZE, cursor);
-    this.lists.set(key, page);
-    return page;
+  /**
+   * A profile's choice of owners, which says whose pull requests its lists and its searches hold.
+   * `EVERY_OWNER` for no profile, for a profile that has stored none, and where what is stored is not
+   * a choice.
+   */
+  owners(profileId: string | null): PrOwners {
+    if (profileId === null) return EVERY_OWNER;
+    const parsed = PrOwnersSchema.safeParse(this.d.settings.get(prOwnersKey(profileId)));
+    return parsed.success ? parsed.data : EVERY_OWNER;
   }
 
-  async search(query: string, cursor: string | null, account: string | null = null): Promise<PrPage> {
-    const key = scoped(account, `search:${query}|${cursor ?? ""}`);
-    const held = this.lists.get(key, TTL.list);
-    if (held) return held;
-    const page = await this.gh(account).search(searchQuery(query), PR_PAGE_SIZE, cursor);
+  /**
+   * Store a profile's choice of owners, and tell every window once it is stored. An owner named in
+   * both lists is refused. One list is in play at a time, and an owner in both would be listed or
+   * left out by which list that was, not by anything the person chose.
+   */
+  setOwners(profileId: string, owners: PrOwners): PrOwners {
+    if (!this.d.profiles.get(profileId)) throw new NotFoundError("profile", profileId);
+    const twice = owners.hidden.find((hidden) => owners.shown.some((shown) => sameOwner(hidden, shown)));
+    if (twice !== undefined) throw new RpcError("OWNER_IN_BOTH_LISTS", `${twice} is in both the hidden and the shown owners. Put it in one of the two.`);
+    this.d.settings.set(prOwnersKey(profileId), owners);
+    this.d.rpc.broadcast("codeReview.ownersChanged", { profileId, owners });
+    return owners;
+  }
+
+  /** One of the page's three lists, under `profileId`'s choice of owners. */
+  async list(section: PrSection, cursor: string | null, force = false, account: string | null = null, profileId: string | null = null): Promise<PrPage> {
+    // Refresh starts the list over: a later page held from before would splice an older reading on.
+    if (force && cursor === null) this.lists.clear((k) => k.startsWith(scoped(account, `${section}|`)));
+    return this.found(section, SECTION_QUERY[section], profileId, cursor, account, force);
+  }
+
+  /** Pull requests matching what was typed. Plain words are searched under `profileId`'s choice of
+   *  owners, as a list is. Words that carry GitHub's own qualifiers are sent as typed, under no
+   *  profile's choice. */
+  async search(query: string, cursor: string | null, account: string | null = null, profileId: string | null = null): Promise<PrPage> {
+    return this.found(`search:${query}`, searchQuery(query), hasSearchQualifiers(query) ? null : profileId, cursor, account);
+  }
+
+  /**
+   * One page of what `asked` finds on GitHub, under a profile's choice of owners. Every search this
+   * service makes is made here and nowhere else, so a list and a search cannot be read under
+   * different choices, and neither can be read round the one that is stored. The choice is read
+   * here, on every call, and a caller says no more than whose it is.
+   *
+   * With no profile, and under a choice that lists every owner, `asked` is sent as it is. Otherwise
+   * it gains the choice's qualifiers. Where the choice can match nothing, the answer is an empty page
+   * and gh is not called.
+   *
+   * A page is held as `held` names it, under the account it was read as and the qualifiers it was
+   * read with, so nothing read under one choice is served under another.
+   */
+  private async found(held: string, asked: string, profileId: string | null, cursor: string | null, account: string | null, force = false): Promise<PrPage> {
+    const gained = ownerQualifiers(this.owners(profileId));
+    if (gained === null) return { prs: [], nextCursor: null, total: 0 };
+    const key = scoped(account, `${held}|${cursor ?? ""}|${gained}`);
+    const kept = force ? undefined : this.lists.get(key, TTL.list);
+    if (kept) return kept;
+    const page = await this.gh(account).search(gained === "" ? asked : `${asked} ${gained}`, PR_PAGE_SIZE, cursor);
     this.lists.set(key, page);
     return page;
   }
