@@ -114,6 +114,14 @@ describe("searching", () => {
     expect(results().getByRole("button", { name: "Theme, in Appearance" })).toBeInTheDocument();
   });
 
+  it("finds the Claude setup switch by a word for what it loads, under the label its row prints", async () => {
+    await mount();
+    const printed = document.querySelector('[data-setting="claude-own-setup"] .settings-row-name')!.textContent;
+    expect(printed).toBe("Use my Claude Code setup");
+    type("mcp");
+    expect(results().getByRole("button", { name: `${printed}, in General ▸ Sessions` })).toBeInTheDocument();
+  });
+
   it("matches the starts of words, not any run of letters inside them", async () => {
     // THE substring mutant: "ine" is inside "Line height", "Engines" and "Blink the editor caret",
     // and a field that offered all three for it would be offering noise.

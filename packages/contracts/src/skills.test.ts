@@ -24,10 +24,22 @@ describe("skillSupportNote", () => {
 
   it("says out loud that an unsupported agent will not see the library", () => {
     expect(skillSupportNote("acp:cursor")).toMatch(/will not see these skills/);
-    // The injected note has to keep saying the set is CLOSED ("and only those") — that is the
+    // The injected note has to keep saying the set is CLOSED ("and only those") by default — that is the
     // isolation disclosure. What discovery changed is that the user's own skills can now be inside it.
     expect(skillSupportNote("claude")).toMatch(/and only those/);
     expect(skillSupportNote("claude")).toMatch(/your own installed directories/);
+  });
+
+  it("says Claude gets the space's skills beside the person's own Claude Code setup while that setup is kept", () => {
+    expect(skillSupportNote("claude", true)).toMatch(/^Claude gets this space's enabled skills beside your own Claude Code setup/);
+  });
+
+  it("stops calling Claude's set closed while the person's own setup is kept", () => {
+    expect(skillSupportNote("claude", true)).not.toMatch(/only those/);
+  });
+
+  it("leaves every other agent's note as it is, whether or not that setup is kept", () => {
+    for (const kind of kinds.filter((k) => k !== "claude")) expect(skillSupportNote(kind, true), kind).toBe(skillSupportNote(kind));
   });
 });
 

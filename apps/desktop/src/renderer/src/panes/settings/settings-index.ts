@@ -1,6 +1,6 @@
 import type { IconName } from "@realm/ui";
 import {
-  AGENT_META, CARET_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
+  AGENT_META, CARET_COPY, CLAUDE_OWN_SETUP_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
   TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_STYLE_COPY, TERMINALS_HISTORY_COPY, type NotificationCategory,
 } from "@realm/contracts";
 
@@ -86,6 +86,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "submit-key", tab: "general", section: "Sessions", label: "Send message with", terms: "enter return submit keyboard" },
   { id: "mid-turn", tab: "general", section: "Sessions", label: "A message typed while a turn is running", terms: "queue steer interrupt" },
   { id: "default-permission", tab: "general", section: "Sessions", label: "New sessions start in", terms: "permission mode default full access accept edits ask bypass" },
+  { id: "claude-own-setup", tab: "general", section: "Sessions", label: CLAUDE_OWN_SETUP_COPY.label, terms: "mcp servers hooks plugins skills isolate isolated config" },
   { id: "open-files-in", tab: "general", section: "Files", label: "Open files in", terms: "editor cursor vscode code zed xcode ide path" },
   { id: "sidebar-activity-order", tab: "general", section: "Sidebar", label: "Sort spaces by activity", terms: "order drag strip" },
   { id: "confirm-delete", tab: "general", section: "Deleting", label: "Ask before deleting", terms: "confirm delete trash" },

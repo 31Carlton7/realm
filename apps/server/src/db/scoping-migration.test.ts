@@ -114,9 +114,9 @@ describe("v11 scoping migration", () => {
     expect(enabledSkills(S2)).toEqual(["beta"]);
     expect(enabledSkills(S3)).toEqual(["alpha", "beta"]);
     // Memory: the injected context is the space doc alone, byte-identical to what v10 injected.
-    expect(memory.systemContextFor({ spaceId: S1, kind: "codex", cwd: "/tmp", skillsInjected: false }))
+    expect(memory.systemContextFor({ spaceId: S1, kind: "codex", cwd: "/tmp", isolated: false }))
       .toBe("# Space memory\n\nThe user keeps this context for every session in this workspace (managed in Realm):\n\nalpha standing instructions");
-    expect(memory.systemContextFor({ spaceId: S2, kind: "codex", cwd: "/tmp", skillsInjected: false })).toBeUndefined();
+    expect(memory.systemContextFor({ spaceId: S2, kind: "codex", cwd: "/tmp", isolated: false })).toBeUndefined();
     db.close();
   });
 });

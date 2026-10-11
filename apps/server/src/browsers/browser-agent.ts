@@ -50,7 +50,10 @@ type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown
  *
  *   - **Toolset**: the child's gateway toolset is restricted to the `realm-browser` provider via the
  *     gateway's `sessionToolset` seam (`sessionToolset()` below) — no user-configured MCP servers,
- *     and no `realm-agent` provider either, which is half of the recursion guard.
+ *     and no `realm-agent` provider either, which is half of the recursion guard. `SessionService`
+ *     reads the same answer when it starts a Claude child with the library, and starts it without
+ *     the person's own Claude Code setup whatever `CLAUDE_OWN_SETUP_KEY` says (`keepsOwnSetup`):
+ *     that setup's MCP servers, hooks and allow rules would sit beside the gateway, not behind it.
  *   - **Skills**: the child rides Plan 8's normal per-space skills injection, which carries the
  *     bundled `browsing` playbook skill (`skills/browsing/SKILL.md`).
  *   - **Memory/systemContext**: the browsing-policy preamble rides `SessionService.ensureLive`'s

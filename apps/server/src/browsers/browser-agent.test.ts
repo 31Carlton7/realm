@@ -1,12 +1,14 @@
 import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
-import { readdirSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
+import { CLAUDE_OWN_SETUP_KEY } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
+import { SettingsStore } from "../store/settings";
 import { SpacesStore } from "../store/spaces";
 import { waitFor } from "../test-utils";
 import { createRealmAgentProvider, RUN_TOOL_NAME } from "./browser-agent";
@@ -22,6 +24,7 @@ import { createRealmAgentProvider, RUN_TOOL_NAME } from "./browser-agent";
  *   - settle-wait returning before the turn ends → "the settle wait holds until the turn ends"
  *   - parent interrupt not cancelling the child → "interrupting the parent cancels the run"
  *   - playbook skill absent from the child      → "the child starts with the browsing playbook staged"
+ *   - child started with the person's own setup → "a browser agent where the person keeps their own Claude Code setup"
  */
 
 let app: App;
@@ -52,18 +55,19 @@ async function boot(opts: {
   timeouts?: { baseMs: number; perActMs: number; pollMs: number };
 } = {}) {
   const home = tempDir("realm-ba-");
+  const claudeDir = join(home, "claude-home");
   const fake = new CaptureFake({ script: opts.script ?? CHILD_SCRIPT, delayMs: opts.delayMs ?? 5 });
   // The same fake serves BOTH registry keys: "claude" here is a stand-in whose only job is to be a
   // kind with AGENT_SKILL_SUPPORT "injected", so kind-selection and skills staging are testable
   // without the real CLI (the live check covers that end).
   app = await createApp({
-    home, port: 0, adapters: { fake, claude: fake },
+    home, port: 0, adapters: { fake, claude: fake }, claudeDir,
     browserAgent: { fallbackKind: opts.fallbackKind ?? "fake", timeouts: opts.timeouts ?? { baseMs: 5000, perActMs: 0, pollMs: 20 } },
   });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
   const parent = app.sessions.create({ spaceId: space.id, agentKind: opts.parentKind ?? "fake", projectId: null, model: null, effort: null, permissionMode: opts.parentMode ?? "default" });
-  return { home, fake, spaceId: space.id, parentId: parent.session.id };
+  return { home, claudeDir, fake, spaceId: space.id, parentId: parent.session.id };
 }
 
 const text = (r: CallToolResult): string =>
@@ -298,5 +302,58 @@ describe("specialization through existing seams", () => {
     await app.sessions.delete(childId);
     expect(app.browserAgents.isChild(childId)).toBe(false);
     expect(app.browserAgents.sessionToolset(childId)).toBeNull();
+  });
+});
+
+const USER_MEMORY = "USER_MEMORY_MARKER_9317";
+
+/**
+ * A home where Use my Claude Code setup is stored on, the user has a `CLAUDE.md` of their own, and a
+ * Claude session is there to delegate from. The child's toolset is closed: `realm-browser` and
+ * nothing else. The setting would start it with the person's own MCP servers, hooks and allow rules
+ * beside the gateway that holds it to that toolset, so it has to start as though the setting were off.
+ */
+async function bootKeepingOwnSetup() {
+  const booted = await boot({ parentKind: "claude" });
+  mkdirSync(booted.claudeDir, { recursive: true });
+  writeFileSync(join(booted.claudeDir, "CLAUDE.md"), USER_MEMORY);
+  new SettingsStore(app.db).set(CLAUDE_OWN_SETUP_KEY, true);
+  return booted;
+}
+
+/** How memory.sources says the user's own `CLAUDE.md` reaches one session. */
+const userMemoryVia = (sessionId: string, claudeDir: string): string | undefined =>
+  app.sessions.memorySources(sessionId).sources.find((s) => s.path === join(claudeDir, "CLAUDE.md"))?.via;
+
+describe("a browser agent where the person keeps their own Claude Code setup", () => {
+  it("is handed the library without ownSetup, so the adapter starts it isolated", async () => {
+    const { fake, spaceId, parentId } = await bootKeepingOwnSetup();
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    expect(fake.seen).toHaveLength(1);
+    expect(fake.seen[0]!.skills).toBeDefined();
+    expect("ownSetup" in fake.seen[0]!).toBe(false);
+  });
+
+  it("has the user's CLAUDE.md carried in by Realm, because the CLI it starts will not load it", async () => {
+    const { fake, spaceId, parentId } = await bootKeepingOwnSetup();
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    expect(fake.seen).toHaveLength(1);
+    expect(fake.seen[0]!.systemContext).toContain(USER_MEMORY);
+  });
+
+  it("is reported by memory.sources as getting the user's CLAUDE.md from Realm while it is live", async () => {
+    const { claudeDir, spaceId, parentId } = await bootKeepingOwnSetup();
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    expect(userMemoryVia(childOf(spaceId, parentId).id, claudeDir)).toBe("realm");
+  });
+
+  it("is reported by memory.sources as getting the user's CLAUDE.md from Realm once a restart has left it with no live agent", async () => {
+    const { home, claudeDir, spaceId, parentId } = await bootKeepingOwnSetup();
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    const childId = childOf(spaceId, parentId).id;
+    await app.close();
+    const fake = new FakeAdapter({ script: [] });
+    app = await createApp({ home, port: 0, adapters: { fake, claude: fake }, claudeDir });
+    expect(userMemoryVia(childId, claudeDir)).toBe("realm");
   });
 });

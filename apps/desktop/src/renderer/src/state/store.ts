@@ -16,7 +16,7 @@ import {
   besidePane, clampPanelShare, columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type Room, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, CLAUDE_OWN_SETUP_KEY, resolveClaudeOwnSetup, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
@@ -980,7 +980,7 @@ export type AppState = {
   windowActive: boolean;
   /** Whether the playful bits run. Top-level rather than inside `settingsPrefs` for the reason the
    *  notification switches are: the transcript and the model picker read it on every render, and
-   *  `settingsPrefs` stays null until someone opens Settings. */
+   *  `settingsPrefs` stays null until someone opens Settings or a space's Skills tab. */
   easterEggs: boolean;
   /** Whether the konami palette has been earned. Survives `easterEggs` going back off. */
   konamiUnlocked: boolean;
@@ -990,7 +990,7 @@ export type AppState = {
   submitKey: SubmitKey;
   /** What a message typed during a running turn does. Top-level rather than inside `settingsPrefs`
    *  for the reason the notification switches are: the prompter reads it on every keystroke, and
-   *  `settingsPrefs` stays null until someone opens Settings. */
+   *  `settingsPrefs` stays null until someone opens Settings or a space's Skills tab. */
   midTurnMode: MidTurnMode;
   /** Sidebar hidden, its toggle moved to the top rail. The toggle is rendered in BOTH states —
    *  a collapse with no way back is a trap — which is why this is one boolean and not a mode. */
@@ -1270,7 +1270,7 @@ export type AppState = {
   notificationsUnread: number;
   /** Whether the feed is allowed to reach the OS — toasts and the dock badge (`NOTIFICATIONS_DESKTOP_KEY`,
    *  default-on). Held HERE rather than inside `settingsPrefs` because it is needed from the moment
-   *  the first broadcast can arrive, and `settingsPrefs` stays null until the Settings page mounts —
+   *  the first broadcast can arrive, and `settingsPrefs` stays null until the Settings page or a space's Skills tab mounts —
    *  a toast that only worked after a visit to Settings would be a toast that does not work. */
   desktopNotifications: boolean;
   /** Whether a toast main actually posted also plays a cue, and how loud (0…1). Held out beside
@@ -1299,10 +1299,14 @@ export type AppState = {
   agentSignIns: Partial<Record<AgentKind, AgentSignIn>>;
   /** The Settings page's App-tab preferences (Plan 12 W6), read from the server's settings rows:
    *  which notification categories are switched OFF (`NOTIFICATIONS_DISABLED_KEY` — default-on
-   *  polarity, matching the service), and the permission mode new sessions start in
-   *  (`DEFAULT_PERMISSION_MODE_KEY`). Null until the page first loads them — the page fetches on
-   *  mount, and a null renders as loading rather than as every-toggle-on lies. */
-  settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string } | null;
+   *  polarity, matching the service), the permission mode new sessions start in
+   *  (`DEFAULT_PERMISSION_MODE_KEY`), and whether Claude sessions keep the person's own Claude Code
+   *  setup (`CLAUDE_OWN_SETUP_KEY`). Null until the page first loads them: the page fetches on
+   *  mount, and a null renders as loading rather than as every-toggle-on lies. `SkillsPanel` fetches
+   *  on mount as well, to say what a Claude session loads, and reads a null as off until then.
+   *  Each setter writes its own field over the prefs held when the server answers, never over the
+   *  ones it read before asking, so changes to two different fields in flight together keep both. */
+  settingsPrefs: { disabledCategories: NotificationCategory[]; defaultPermissionMode: string; claudeOwnSetup: boolean } | null;
   /** Canonical model keys the user has starred (`MODEL_FAVORITES_KEY`), for the model picker's
    *  favourites tab, its favourites-first ordering and its 1…9 shortcuts. Empty rather than null
    *  before it loads: unlike the settings page, an unstarred picker is a perfectly honest picker,
@@ -2551,9 +2555,10 @@ export type AppState = {
   /** The rail's Home: back to the work. Whatever page is up is put away, landing on the space and
    *  session that were in front of it — or, with nothing in front, on a fresh prompter. */
   goHome(): Promise<void>;
-  /** Read both Settings-page preference keys into `settingsPrefs` (Plan 12 W6). Junk in a row —
-   *  an unknown category, a mode PERMISSION_MODES doesn't name — is dropped/defaulted here, once,
-   *  so the page never renders a state the server would not honor. */
+  /** Read the Settings-page preference keys into `settingsPrefs` (Plan 12 W6). Junk in a row, such
+   *  as an unknown category, a mode PERMISSION_MODES doesn't name, or anything but `true` under
+   *  `CLAUDE_OWN_SETUP_KEY`, is dropped/defaulted here, once, so the page never renders a state the
+   *  server would not honour. */
   refreshSettingsPrefs(): Promise<void>;
   /** Read `MODEL_FAVORITES_KEY` into `modelFavorites`. Junk in the row — a non-array, a non-string
    *  element — is dropped here rather than surviving into the picker's ordering. */
@@ -2579,6 +2584,9 @@ export type AppState = {
    *  by the time this runs the user has already said it twice. */
   setDefaultPermissionMode(mode: string): Promise<void>;
   setMidTurnMode(mode: MidTurnMode): Promise<void>;
+  /** Persist whether Claude sessions keep the person's own Claude Code setup (`CLAUDE_OWN_SETUP_KEY`).
+   *  The server reads it when a session's agent process next starts, so nothing running is touched. */
+  setClaudeOwnSetup(on: boolean): Promise<void>;
   /** Re-run the main-process TCC probe (prompt-free by construction) into `tccRows`. */
   refreshTcc(): Promise<void>;
   /** Load one profile's sign-ins and passkeys, and the store's own state (encryption available,
@@ -3254,6 +3262,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  quietly stale, which is the one failure a feed cannot have. A third surface adds a term. */
     const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
+    const mergeSettingsPrefs = (changed: Partial<NonNullable<AppState["settingsPrefs"]>>) => {
+      const held = get().settingsPrefs;
+      if (held) set({ settingsPrefs: { ...held, ...changed } });
+    };
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status },
       sessionSpace: { ...get().sessionSpace, [s.id]: s.spaceId }, allSessions: { ...get().allSessions, [s.id]: s } });
     /**
@@ -7019,14 +7031,15 @@ await get().refreshCustomThemes().catch(() => {});
         await get().openDestinationPage("library-page");
       },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn] = await Promise.all([
+        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawOwnSetup] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
           api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY), api.getSetting(MID_TURN_MODE_KEY),
+          api.getSetting(CLAUDE_OWN_SETUP_KEY),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
-        set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
+        set({ settingsPrefs: { disabledCategories, defaultPermissionMode, claudeOwnSetup: resolveClaudeOwnSetup(rawOwnSetup) }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
           soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume) });
       },
       async refreshModelFavorites() {
@@ -7085,16 +7098,21 @@ await get().refreshCustomThemes().catch(() => {});
           ? prefs.disabledCategories.filter((c) => c !== category)
           : [...prefs.disabledCategories.filter((c) => c !== category), category];
         await api.setSetting(NOTIFICATIONS_DISABLED_KEY, disabledCategories);
-        set({ settingsPrefs: { ...prefs, disabledCategories } });
+        mergeSettingsPrefs({ disabledCategories });
       },
       async setDefaultPermissionMode(mode) {
-        const prefs = get().settingsPrefs; if (!prefs) return;
+        if (!get().settingsPrefs) return;
         await api.setSetting(DEFAULT_PERMISSION_MODE_KEY, mode);
-        set({ settingsPrefs: { ...prefs, defaultPermissionMode: mode } });
+        mergeSettingsPrefs({ defaultPermissionMode: mode });
       },
       async setMidTurnMode(mode) {
         await api.setSetting(MID_TURN_MODE_KEY, mode);
         set({ midTurnMode: mode });
+      },
+      async setClaudeOwnSetup(on) {
+        if (!get().settingsPrefs) return;
+        await api.setSetting(CLAUDE_OWN_SETUP_KEY, on);
+        mergeSettingsPrefs({ claudeOwnSetup: on });
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
       async refreshCredentials(profileId) {

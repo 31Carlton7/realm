@@ -4,7 +4,7 @@ import { mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions, type UserMessage } from "@realm/adapters";
-import { newId, sessionEvent, type SessionEvent } from "@realm/contracts";
+import { CLAUDE_OWN_SETUP_KEY, newId, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 
@@ -327,6 +327,22 @@ describe("@-mention resolution at send (W4)", () => {
     await send(c, session.id, "@notes go", ["notes"]);
     await waitFor(() => claude.sent.length === 2);
     expect(claude.sent[1]).toEqual({ text: "notes go", attachments: [] });
+    c.close();
+  });
+
+  it("still resolves into a Claude session that keeps the person's own setup, where the plugin is loaded as well", async () => {
+    const { c, sp, home, claude } = await boot();
+    named(join(home, "skills"), "mac", "mac-skill");
+    await c.call("settings.set", { key: CLAUDE_OWN_SETUP_KEY, value: true });
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude" })).result;
+    await send(c, session.id, "use @mac to list reminders", ["mac"]);
+    await waitFor(() => claude.sent.length === 1);
+    expect(claude.starts[0]!.ownSetup).toBe(true);
+    expect(claude.sent[0]).toEqual({
+      text: "use mac to list reminders",
+      attachments: [],
+      skill: { id: "mac", name: "mac-skill", path: realpathSync(join(home, "skills", "mac", "SKILL.md")) },
+    });
     c.close();
   });
 });

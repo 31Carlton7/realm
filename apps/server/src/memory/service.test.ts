@@ -68,23 +68,23 @@ describe("MemoryService systemContextFor", () => {
     const { memory } = harness();
     memory.set(SPACE_A, "space A memory");
     memory.set(SPACE_B, "space B memory");
-    const ctx = memory.systemContextFor({ spaceId: SPACE_A, kind: "codex", cwd: "/tmp", skillsInjected: false })!;
+    const ctx = memory.systemContextFor({ spaceId: SPACE_A, kind: "codex", cwd: "/tmp", isolated: false })!;
     expect(ctx).toContain("space A memory");
     expect(ctx).not.toContain("space B memory");
   });
 
   it("is undefined when there is nothing to inject", () => {
     const { memory } = harness();
-    expect(memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd: "/tmp", skillsInjected: false })).toBeUndefined();
+    expect(memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd: "/tmp", isolated: false })).toBeUndefined();
     memory.set(SPACE_A, "   \n  "); // whitespace is nothing
-    expect(memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd: "/tmp", skillsInjected: false })).toBeUndefined();
+    expect(memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd: "/tmp", isolated: false })).toBeUndefined();
   });
 
   it("is undefined for agents with no channel, whatever the doc says", () => {
     const { memory } = harness();
     memory.set(SPACE_A, "space A memory");
     for (const kind of ["acp:cursor", "acp:gemini", "fake"] as const) {
-      expect(memory.systemContextFor({ spaceId: SPACE_A, kind, cwd: "/tmp", skillsInjected: false })).toBeUndefined();
+      expect(memory.systemContextFor({ spaceId: SPACE_A, kind, cwd: "/tmp", isolated: false })).toBeUndefined();
     }
   });
 
@@ -96,7 +96,7 @@ describe("MemoryService systemContextFor", () => {
     const cwd = folderOf(SPACE_A);
     writeFileSync(join(cwd, "CLAUDE.md"), "PROJECT_MEMORY_MARKER_5561");
 
-    const ctx = memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd, skillsInjected: true })!;
+    const ctx = memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd, isolated: true })!;
     // Losing any one of these silently is the failure this channel exists to prevent.
     expect(ctx).toContain("USER_MEMORY_MARKER_9317");
     expect(ctx).toContain("IMPORTED_MEMORY_MARKER_4482");
@@ -109,7 +109,7 @@ describe("MemoryService systemContextFor", () => {
     mkdirSync(claudeDir, { recursive: true });
     writeFileSync(join(claudeDir, "CLAUDE.md"), "USER_MEMORY_MARKER_9317");
     memory.set(SPACE_A, "space A memory");
-    const ctx = memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd: folderOf(SPACE_A), skillsInjected: false })!;
+    const ctx = memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd: folderOf(SPACE_A), isolated: false })!;
     expect(ctx).toContain("space A memory");
     expect(ctx).not.toContain("USER_MEMORY_MARKER_9317");
   });
@@ -119,7 +119,7 @@ describe("MemoryService systemContextFor", () => {
     mkdirSync(claudeDir, { recursive: true });
     writeFileSync(join(claudeDir, "CLAUDE.md"), "USER_MEMORY_MARKER_9317");
     memory.set(SPACE_A, "space A memory");
-    const ctx = memory.systemContextFor({ spaceId: SPACE_A, kind: "codex", cwd: folderOf(SPACE_A), skillsInjected: true })!;
+    const ctx = memory.systemContextFor({ spaceId: SPACE_A, kind: "codex", cwd: folderOf(SPACE_A), isolated: true })!;
     expect(ctx).toContain("space A memory");
     expect(ctx).not.toContain("USER_MEMORY_MARKER_9317");
   });
@@ -196,13 +196,13 @@ describe("MemoryService sourcesFor", () => {
     writeFileSync(join(claudeDir, "CLAUDE.md"), "user memory");
     const cwd = folderOf(SPACE_A);
 
-    const viaCli = memory.sourcesFor({ kind: "claude", spaceId: SPACE_A, cwd, skillsInjected: false, reported: null });
+    const viaCli = memory.sourcesFor({ kind: "claude", spaceId: SPACE_A, cwd, isolated: false, reported: null });
     expect(viaCli).toMatchObject({ agent: "claude", channel: "systemPrompt", basis: "modeled" });
     expect(viaCli.sources.find((s) => s.path === join(claudeDir, "CLAUDE.md"))).toMatchObject({ origin: "user", exists: true, via: "cli" });
     expect(viaCli.sources.find((s) => s.path === join(cwd, "CLAUDE.md"))).toMatchObject({ exists: false, via: "none" });
 
-    // Skills on: the CLI loads nothing; Realm carries it. The pane must say which is happening.
-    const viaRealm = memory.sourcesFor({ kind: "claude", spaceId: SPACE_A, cwd, skillsInjected: true, reported: null });
+    // Isolated: the CLI loads nothing; Realm carries it. The pane must say which is happening.
+    const viaRealm = memory.sourcesFor({ kind: "claude", spaceId: SPACE_A, cwd, isolated: true, reported: null });
     expect(viaRealm.sources.find((s) => s.path === join(claudeDir, "CLAUDE.md"))).toMatchObject({ via: "realm" });
   });
 
@@ -210,22 +210,22 @@ describe("MemoryService sourcesFor", () => {
     const { memory, folderOf } = harness();
     const real = join(folderOf(SPACE_A), "AGENTS.md");
     writeFileSync(real, "agents");
-    const reported = memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: [real, "/nowhere/AGENTS.md"] });
+    const reported = memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", isolated: false, reported: [real, "/nowhere/AGENTS.md"] });
     expect(reported).toMatchObject({ agent: "codex", channel: "developerInstructions", basis: "reported" });
     expect(reported.sources).toEqual([
       { path: real, origin: "reported", exists: true, via: "cli" },
       { path: "/nowhere/AGENTS.md", origin: "reported", exists: false, via: "cli" },
     ]);
-    const unstarted = memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null });
+    const unstarted = memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", isolated: false, reported: null });
     expect(unstarted).toMatchObject({ basis: "none", sources: [] });
-    const empty = memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: [] });
+    const empty = memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", isolated: false, reported: [] });
     expect(empty).toMatchObject({ basis: "reported", sources: [] });
   });
 
   it("cursor: a stated nothing — no channel, no sources, no realm memory, and a note naming the agent", () => {
     const { memory } = harness();
     memory.set(SPACE_A, "space A memory");
-    const r = memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null });
+    const r = memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", isolated: false, reported: null });
     expect(r).toMatchObject({ agent: "acp:cursor", channel: "none", basis: "none", realmMemoryInjected: false, sources: [] });
     expect(r.note).toContain("Cursor");
   });
@@ -233,8 +233,8 @@ describe("MemoryService sourcesFor", () => {
   it("realmMemoryInjected tracks the doc of THE space asked about", () => {
     const { memory } = harness();
     memory.set(SPACE_A, "space A memory");
-    expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).realmMemoryInjected).toBe(true);
-    expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_B, cwd: "/tmp", skillsInjected: false, reported: null }).realmMemoryInjected).toBe(false);
+    expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", isolated: false, reported: null }).realmMemoryInjected).toBe(true);
+    expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_B, cwd: "/tmp", isolated: false, reported: null }).realmMemoryInjected).toBe(false);
   });
 });
 
@@ -251,7 +251,7 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     return { ...h, memory };
   }
   const ctx = (memory: MemoryService, spaceId: string) =>
-    memory.systemContextFor({ spaceId, kind: "codex", cwd: "/tmp", skillsInjected: false });
+    memory.systemContextFor({ spaceId, kind: "codex", cwd: "/tmp", isolated: false });
 
   it("injects the profile doc BEFORE the space doc, for spaces of that profile only", () => {
     // The named mutant: the profile memory doc leaking across profiles. SPACE_B is in PB and must see
@@ -314,7 +314,7 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
   it("counts an inherited profile doc as injected Realm memory in sourcesFor — unless this space opted out", () => {
     const { memory } = scopedHarness();
     memory.setProfile("PA", "profile-wide context");
-    const src = (sid: string) => memory.sourcesFor({ kind: "codex", spaceId: sid, cwd: "/tmp", skillsInjected: false, reported: null });
+    const src = (sid: string) => memory.sourcesFor({ kind: "codex", spaceId: sid, cwd: "/tmp", isolated: false, reported: null });
     expect(src(SPACE_A).realmMemoryInjected).toBe(true);
     expect(src(SPACE_B).realmMemoryInjected).toBe(false);
     memory.setProfileDocEnabled(SPACE_A, false);

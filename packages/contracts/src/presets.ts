@@ -935,3 +935,53 @@ export function steerNote(kind: import("./entities").AgentKind): string {
     ? `Sends now. ${label} stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting.`
     : `Sends now, into the turn ${label} is already running. Nothing is interrupted.`;
 }
+
+/**
+ * Settings key for whether a Claude session keeps the person's own Claude Code setup beside what Realm
+ * adds: their `settings.json`, hooks, plugins, skills and commands, and the MCP servers of every scope
+ * (user and local in `.claude.json`, the repository's `.mcp.json`).
+ *
+ * The same switch loads what the session's folder sets up for Claude Code, because the folder's files
+ * are among the sources `settingSources: []` shuts out. On Claude Code 2.1.293, in a folder Claude
+ * Code was never told to trust, the folder's `CLAUDE.md` and its own skill loaded, and the server
+ * named in its `.mcp.json` connected with no approval prompt. That the folder's
+ * `.claude/settings.json` loads too is the SDK's own description of the `project` source and was not
+ * observed, which is why the row promises no more than "files".
+ *
+ * What loads is decided only for a session that is handed Realm's skills library. The Claude adapter
+ * starts that one with `settingSources: []`, which shuts all of the above out, and this key is what
+ * stops it. A session with no library loads the person's setup whatever is stored here, and with the
+ * key on it starts under the same policy for permission rules. One with the
+ * library whose gateway toolset is closed, a browser-agent child, is started with
+ * `settingSources: []` whatever is stored here (`SessionService.keepsOwnSetup`).
+ *
+ * The permission rules in those settings files are the one part that is not kept. A session that keeps
+ * the setup starts under a policy that leaves them out of force (`OWN_SETUP_POLICY` in the Claude
+ * adapter), so a call one of the person's allow rules covers still reaches Realm's card, and Ask
+ * stays read-only. Their deny rules stop applying with them, as in a session Realm isolates.
+ *
+ * A session that keeps the setup also gets `CLAUDE.md` by Claude Code's own rule: an `@` import in a
+ * project's or a local file that points outside the folder loads only where the person approved it
+ * in Claude Code, and one in the user's own file always loads. Realm re-injects every import into a
+ * session it isolates.
+ *
+ * Read server-side by `SessionService`, where a session's start options are built, so a change
+ * reaches a session when its agent process next starts and restarts nothing.
+ */
+export const CLAUDE_OWN_SETUP_KEY = "claude.ownSetup";
+
+/** Whether the stored value switches it on. Only JSON `true` does: an unset key, `false` and anything
+ *  unrecognised read as off, which is how every session started before the key existed. */
+export function resolveClaudeOwnSetup(stored: unknown): boolean {
+  return stored === true;
+}
+
+/** What Settings says about it. The row and the search index both print the label from here, so a
+ *  result and the row it lands on read the same. The detail is where the person learns what switching
+ *  it on will run on their Mac, so it names the folder's files and the `.mcp.json` server that starts
+ *  unapproved beside the person's own setup, and says that the permission rules in those files are
+ *  not used. */
+export const CLAUDE_OWN_SETUP_COPY = {
+  label: "Use my Claude Code setup",
+  detail: "Claude sessions also load your Claude Code settings, hooks, plugins, skills, and MCP servers, and the ones in the folder they run in. An MCP server named in that folder's .mcp.json starts without Claude Code's approval prompt. Permission rules in those files aren't used, so Realm asks as it does with this off. A change applies when a session's agent next starts, and never to a browser agent's session.",
+} as const;

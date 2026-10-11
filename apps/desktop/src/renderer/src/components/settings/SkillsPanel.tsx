@@ -1,4 +1,4 @@
-import { AGENT_META, SELECTABLE_AGENT_KINDS, skillSupportNote, type Skill, type SkillSource } from "@realm/contracts";
+import { AGENT_META, CLAUDE_OWN_SETUP_COPY, SELECTABLE_AGENT_KINDS, skillSupportNote, type Skill, type SkillSource } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../state/store";
@@ -13,6 +13,13 @@ import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
  * 1. Enabling any skill runs this space's Claude sessions with `settingSources: []`, which isolates
  *    them from the user's own installed skills and settings files — said in one line beside the
  *    toggles, with the note that Realm re-injects `CLAUDE.md` to compensate (W3 built that).
+ *    That holds while `CLAUDE_OWN_SETUP_KEY` is off. While it is on, those sessions load the user's
+ *    own setup and the Claude Code files of the folder they run in beside the library, a
+ *    browser-agent child excepted. The line then says that instead, with where the setting is and
+ *    that a skill of the user's own that is also switched on here is listed twice, and Claude's row
+ *    stops calling the set closed. The tab asks for the stored value when it mounts, as the Settings
+ *    tabs do, because `settingsPrefs` is null until something has asked. Until the answer lands, a
+ *    null reads here as off.
  * 2. Codex skill roots are per-connection, not per-space: a skill enabled anywhere is visible to
  *    Codex sessions everywhere. Said on the Codex row, where it is true.
  *
@@ -28,13 +35,16 @@ export function SkillsPanel({ spaceId, onOpen }: {
   const skills = useApp((s) => s.spaceSkills[spaceId]);
   const sources = useApp((s) => s.spaceSkillSources[spaceId]);
   const root = useApp((s) => s.skillsRoot);
+  const claudeOwnSetup = useApp((s) => s.settingsPrefs?.claudeOwnSetup === true);
   const refreshSkills = useApp((s) => s.refreshSkills);
   const refreshSkillSources = useApp((s) => s.refreshSkillSources);
+  const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
   const run = useApp((s) => s.run);
   const [query, setQuery] = useState("");
   const [onlyEnabled, setOnlyEnabled] = useState(false);
   useEffect(() => { run(() => refreshSkills(spaceId)); run(() => refreshSkillSources(spaceId)); },
     [spaceId, refreshSkills, refreshSkillSources, run]);
+  useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
 
   const all = skills ?? [];
   // Filtering happens over the WHOLE list before it is split by origin, so a search never has to be
@@ -139,7 +149,7 @@ export function SkillsPanel({ spaceId, onOpen }: {
               <li key={kind} className="settings-agent-row">
                 <Icon name={AGENT_META[kind].icon} size={14} colored />
                 <span className="settings-agent-note">
-                  {skillSupportNote(kind)}
+                  {skillSupportNote(kind, claudeOwnSetup)}
                   {/* Disclosure #2, stated where it is true: Codex extra roots are per-connection. */}
                   {kind === "codex" && " Codex reads skill roots per connection, not per space: skills enabled in any space are visible to Codex sessions in every space."}
                 </span>
@@ -150,10 +160,21 @@ export function SkillsPanel({ spaceId, onOpen }: {
               is the question the disclosure asks. As a standing note under everything it was a
               warning nobody had a reason to be reading at the moment they read it. */}
           <p className="settings-note" role="note">
-            Enabling any skill isolates this space's Claude sessions from your own settings files — they
-            run with the skills switched on here and nothing else, so anything you want out of your
-            installed folders has to be switched on above. Your <code>CLAUDE.md</code> files are
-            re-injected by Realm to compensate.
+            {claudeOwnSetup ? (
+              <>
+                This space's Claude sessions also load your own Claude Code setup and the one in the folder
+                they run in, because {CLAUDE_OWN_SETUP_COPY.label} is on in Settings ▸ General. A browser
+                agent's session doesn't. If a skill from your own Claude Code setup is also switched on here,
+                it is listed twice in those sessions.
+              </>
+            ) : (
+              <>
+                Enabling any skill isolates this space's Claude sessions from your own settings files — they
+                run with the skills switched on here and nothing else, so anything you want out of your
+                installed folders has to be switched on above. Your <code>CLAUDE.md</code> files are
+                re-injected by Realm to compensate.
+              </>
+            )}
           </p>
         </div>
       </details>

@@ -118,7 +118,7 @@ export type Skill = z.infer<typeof SkillSchema>;
 export type SkillSupport = "injected" | "unsupported";
 
 export const AGENT_SKILL_SUPPORT = {
-  // claude-adapter.ts: `plugins: [{ type: "local", path }]` + `settingSources: []`.
+  // claude-adapter.ts: `plugins: [{ type: "local", path }]`, with `settingSources: []` unless the session keeps the person's own setup (`claude.ownSetup`).
   claude: "injected",
   // codex-adapter.ts: `skills/extraRoots/set` on the app-server connection, after the thread exists.
   codex: "injected",
@@ -153,9 +153,14 @@ export const AGENT_SKILL_SUPPORT = {
 } as const satisfies Record<AgentKind, SkillSupport>;
 
 /** One sentence naming the agent and what it will do with the library. Always names the agent, so a
- *  note rendered for the wrong session is visibly wrong. */
-export function skillSupportNote(kind: AgentKind): string {
+ *  note rendered for the wrong session is visibly wrong. `claudeOwnSetup` is the stored
+ *  `CLAUDE_OWN_SETUP_KEY` as `resolveClaudeOwnSetup` reads it. While it is on, a Claude session loads
+ *  the person's own Claude Code setup beside the library, a browser-agent child excepted, so
+ *  Claude's sentence stops calling the set closed. No other agent reads that setting, and no other
+ *  agent's sentence changes with it. */
+export function skillSupportNote(kind: AgentKind, claudeOwnSetup = false): string {
   const label = AGENT_META[kind].label;
+  if (kind === "claude" && claudeOwnSetup) return `${label} gets this space's enabled skills beside your own Claude Code setup.`;
   return AGENT_SKILL_SUPPORT[kind] === "injected"
     ? `${label} gets this space's enabled skills, and only those — including any you switch on from your own installed directories.`
     : `${label} cannot be given a skills directory, so it will not see these skills.`;

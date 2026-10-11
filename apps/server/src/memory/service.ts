@@ -188,12 +188,13 @@ export class MemoryService {
    * Two ingredients, in load order:
    *
    * 1. **The W1 carry-forward.** A Claude session whose skills library is active runs with
-   *    `settingSources: []`, which also stops the CLI loading `~/.claude/CLAUDE.md` and every project
-   *    `CLAUDE.md`. Enabling a skill must not silently cost the user their own memory files, so their
-   *    content rides back in here — the same files `claudeMemoryFiles` models for the pane, so what the
-   *    UI lists as re-injected and what the session receives are one computation. Only when
-   *    `skillsInjected` is true: otherwise the CLI loads these files itself and injecting them again
-   *    would double every one of them.
+   *    `settingSources: []` unless it keeps the person's own setup (`CLAUDE_OWN_SETUP_KEY`), and that
+   *    option also stops the CLI loading `~/.claude/CLAUDE.md` and every project `CLAUDE.md`. Enabling
+   *    a skill must not silently cost the user their own memory files, so their content rides back in
+   *    here. They are the same files `claudeMemoryFiles` models for the pane, so what the UI lists as
+   *    re-injected and what the session receives are one computation. Only when `isolated` is true,
+   *    which says the session starts with `settingSources: []` and not merely that it has a library:
+   *    otherwise the CLI loads these files itself and injecting them again would double every one.
    * 2. **This space's Realm memory document** — and only this space's; `spaceId` comes from the session
    *    row the caller is starting.
    *
@@ -201,10 +202,10 @@ export class MemoryService {
    * takes `{cwd, mcpServers}` and nothing else, and handing an adapter context it can only drop would
    * make the memory pane a lie.
    */
-  systemContextFor(o: { spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean }): string | undefined {
+  systemContextFor(o: { spaceId: string; kind: AgentKind; cwd: string; isolated: boolean }): string | undefined {
     if (AGENT_MEMORY_CHANNEL[o.kind] === "none") return undefined;
     const parts: string[] = [];
-    if (o.kind === "claude" && o.skillsInjected) {
+    if (o.kind === "claude" && o.isolated) {
       for (const f of claudeMemoryFiles(o.cwd, this.claudeDir)) {
         if (!f.content?.trim()) continue;
         parts.push(`Contents of ${f.path} (re-injected by Realm; this session loads no settings files itself because its skills library isolates them):\n\n${f.content}`);
@@ -229,8 +230,11 @@ export class MemoryService {
    * What durable context one session's agent loads, on the best authority available per agent:
    * Claude modeled from the paths the CLI reads, Codex from the `instructionSources` ITS OWN
    * `thread/start` reported (`reported` is null until it has), Cursor a stated nothing.
+   *
+   * `isolated` is the fact `systemContextFor` takes under the same name: an isolated Claude session
+   * has its files carried in by Realm (`realm`), and any other loads them itself (`cli`).
    */
-  sourcesFor(o: { kind: AgentKind; spaceId: string; cwd: string; skillsInjected: boolean; reported: string[] | null }): MemorySources {
+  sourcesFor(o: { kind: AgentKind; spaceId: string; cwd: string; isolated: boolean; reported: string[] | null }): MemorySources {
     const channel = AGENT_MEMORY_CHANNEL[o.kind];
     const note = memorySupportNote(o.kind);
     // Same effective computation the injection uses — any doc that would ride (space, or an inherited
@@ -241,7 +245,7 @@ export class MemoryService {
     if (o.kind === "claude") {
       const sources: MemorySource[] = claudeMemoryFiles(o.cwd, this.claudeDir).map((f) => ({
         path: f.path, origin: f.origin, exists: f.exists,
-        via: !f.exists ? "none" : o.skillsInjected ? "realm" : "cli",
+        via: !f.exists ? "none" : o.isolated ? "realm" : "cli",
       }));
       return { agent: o.kind, channel, basis: "modeled", note, realmMemoryInjected, sources };
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { FILES_OPEN_IN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY } from "@realm/contracts";
+import { CLAUDE_OWN_SETUP_COPY, CLAUDE_OWN_SETUP_KEY, FILES_OPEN_IN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY } from "@realm/contracts";
 import { SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
@@ -82,5 +82,124 @@ describe("Open files in", () => {
     await general({ editors: [] });
     expect(screen.queryByRole("combobox", { name: "Open files in" })).toBeNull();
     expect(screen.getByText(/none of Cursor, VS Code, Zed or Xcode/)).toBeInTheDocument();
+  });
+});
+
+/** The switch's name. The server acts on this setting, and only on a stored JSON `true`, so the page
+ *  has to read and write that same value: a switch that showed on for anything else would claim a
+ *  session keeps a setup the server is still shutting out. */
+const OWN_SETUP = CLAUDE_OWN_SETUP_COPY.label;
+
+describe("Use my Claude Code setup", () => {
+  it("is off until someone turns it on", async () => {
+    const { store } = await general();
+    expect(await screen.findByRole("switch", { name: OWN_SETUP })).not.toBeChecked();
+    expect(store.getState().settingsPrefs?.claudeOwnSetup).toBe(false);
+  });
+
+  it("writes true under its own key when it is turned on, and stays on", async () => {
+    const { api } = await general();
+    fireEvent.click(await screen.findByRole("switch", { name: OWN_SETUP }));
+    await waitFor(() => expect(api.data.settings[CLAUDE_OWN_SETUP_KEY]).toBe(true));
+    await waitFor(() => expect(screen.getByRole("switch", { name: OWN_SETUP })).toBeChecked());
+  });
+
+  it("renders a stored on as on, and turning it off writes false rather than forgetting the key", async () => {
+    const { api } = await general({ settings: { [CLAUDE_OWN_SETUP_KEY]: true } });
+    const sw = await screen.findByRole("switch", { name: OWN_SETUP });
+    expect(sw).toBeChecked();
+    fireEvent.click(sw);
+    await waitFor(() => expect(api.data.settings[CLAUDE_OWN_SETUP_KEY]).toBe(false));
+  });
+
+  it("reads off once it is turned off", async () => {
+    const { store } = await general({ settings: { [CLAUDE_OWN_SETUP_KEY]: true } });
+    fireEvent.click(await screen.findByRole("switch", { name: OWN_SETUP }));
+    await waitFor(() => expect(store.getState().settingsPrefs?.claudeOwnSetup).toBe(false));
+    await waitFor(() => expect(screen.getByRole("switch", { name: OWN_SETUP })).not.toBeChecked());
+  });
+
+  it("reads a stored value that is not a JSON true as off, as the server does", async () => {
+    await general({ settings: { [CLAUDE_OWN_SETUP_KEY]: "true" } });
+    expect(await screen.findByRole("switch", { name: OWN_SETUP })).not.toBeChecked();
+  });
+
+  it("sits under Sessions in the group that holds New sessions start in", async () => {
+    await general();
+    const row = (await screen.findByRole("switch", { name: OWN_SETUP })).closest(".settings-row") as HTMLElement;
+    expect(row).toHaveAttribute("data-setting", "claude-own-setup");
+    expect(row.parentElement!.previousElementSibling).toHaveTextContent("Sessions");
+    expect(row.parentElement!.querySelector('[data-setting="default-permission"]')).not.toBeNull();
+  });
+
+  it("says what Claude sessions load from the person's own setup", async () => {
+    await general();
+    const row = within((await screen.findByRole("switch", { name: OWN_SETUP })).closest(".settings-row") as HTMLElement);
+    expect(row.getByText(CLAUDE_OWN_SETUP_COPY.label)).toBeInTheDocument();
+    expect(row.getByText(CLAUDE_OWN_SETUP_COPY.detail).textContent).toMatch(/Claude sessions also load your Claude Code settings, hooks, plugins, skills, and MCP servers/);
+  });
+
+  it("says the ones in the folder a session runs in load too", async () => {
+    await general();
+    const row = within((await screen.findByRole("switch", { name: OWN_SETUP })).closest(".settings-row") as HTMLElement);
+    expect(row.getByText(CLAUDE_OWN_SETUP_COPY.detail).textContent).toMatch(/and the ones in the folder they run in\./);
+  });
+
+  it("says the permission rules in those files are not used", async () => {
+    await general();
+    const row = within((await screen.findByRole("switch", { name: OWN_SETUP })).closest(".settings-row") as HTMLElement);
+    expect(row.getByText(CLAUDE_OWN_SETUP_COPY.detail).textContent).toMatch(/Permission rules in those files aren't used, so Realm asks as it does with this off\./);
+  });
+
+  it("says when a change applies", async () => {
+    await general();
+    const row = within((await screen.findByRole("switch", { name: OWN_SETUP })).closest(".settings-row") as HTMLElement);
+    expect(row.getByText(CLAUDE_OWN_SETUP_COPY.detail).textContent).toMatch(/A change applies when a session's agent next starts/);
+  });
+
+  it("says a change never applies to a browser agent's session", async () => {
+    await general();
+    const row = within((await screen.findByRole("switch", { name: OWN_SETUP })).closest(".settings-row") as HTMLElement);
+    expect(row.getByText(CLAUDE_OWN_SETUP_COPY.detail).textContent).toMatch(/and never to a browser agent's session\./);
+  });
+
+  it("says an MCP server named in the folder's .mcp.json starts without Claude Code's approval prompt", async () => {
+    await general();
+    const row = within((await screen.findByRole("switch", { name: OWN_SETUP })).closest(".settings-row") as HTMLElement);
+    expect(row.getByText(CLAUDE_OWN_SETUP_COPY.detail).textContent).toMatch(/An MCP server named in that folder's \.mcp\.json starts without Claude Code's approval prompt\./);
+  });
+});
+
+/** The General page with its preferences loaded, for the tests that change two of them with no wait
+ *  between the two. The second change is then asked for while the first is still on its way to the
+ *  server, and each answer has to write its own field over the preferences held when it lands. An
+ *  answer written over what was read before asking puts the other change back, and the window then
+ *  shows a value the server no longer stores. */
+async function generalLoaded() {
+  const { store } = await general();
+  await screen.findByRole("switch", { name: OWN_SETUP });
+  return store;
+}
+
+describe("a setting changed while another change is still on its way to the server", () => {
+  it("leaves Use my Claude Code setup on when New sessions start in is answered after it", async () => {
+    const store = await generalLoaded();
+    const { setClaudeOwnSetup, setDefaultPermissionMode } = store.getState();
+    await Promise.all([setClaudeOwnSetup(true), setDefaultPermissionMode("acceptEdits")]);
+    expect(store.getState().settingsPrefs).toMatchObject({ claudeOwnSetup: true, defaultPermissionMode: "acceptEdits" });
+  });
+
+  it("leaves New sessions start in as chosen when Use my Claude Code setup is answered after it", async () => {
+    const store = await generalLoaded();
+    const { setClaudeOwnSetup, setDefaultPermissionMode } = store.getState();
+    await Promise.all([setDefaultPermissionMode("acceptEdits"), setClaudeOwnSetup(true)]);
+    expect(store.getState().settingsPrefs).toMatchObject({ claudeOwnSetup: true, defaultPermissionMode: "acceptEdits" });
+  });
+
+  it("leaves Use my Claude Code setup on when a notification switch is answered after it", async () => {
+    const store = await generalLoaded();
+    const { setClaudeOwnSetup, setNotificationCategoryEnabled } = store.getState();
+    await Promise.all([setClaudeOwnSetup(true), setNotificationCategoryEnabled("session_done", false)]);
+    expect(store.getState().settingsPrefs).toMatchObject({ claudeOwnSetup: true, disabledCategories: ["session_done"] });
   });
 });
