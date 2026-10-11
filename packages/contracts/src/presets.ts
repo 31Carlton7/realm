@@ -958,7 +958,10 @@ export function steerNote(kind: import("./entities").AgentKind): string {
  * The permission rules in those settings files are the one part that is not kept. A session that keeps
  * the setup starts under a policy that leaves them out of force (`OWN_SETUP_POLICY` in the Claude
  * adapter), so a call one of the person's allow rules covers still reaches Realm's card, and Ask
- * stays read-only. Their deny rules stop applying with them, as in a session Realm isolates.
+ * stays read-only. Their deny rules stop applying with them, as in a session Realm isolates. Where
+ * an organisation manages Claude Code's settings, for the Mac or for the account, Claude Code drops
+ * that policy, and the person's rules stay in force as they are in Claude Code itself. The row says
+ * so.
  *
  * A session that keeps the setup also gets `CLAUDE.md` by Claude Code's own rule: an `@` import in a
  * project's or a local file that points outside the folder loads only where the person approved it
@@ -980,8 +983,8 @@ export function resolveClaudeOwnSetup(stored: unknown): boolean {
  *  result and the row it lands on read the same. The detail is where the person learns what switching
  *  it on will run on their Mac, so it names the folder's files and the `.mcp.json` server that starts
  *  unapproved beside the person's own setup, and says that the permission rules in those files are
- *  not used. */
+ *  not used and where they are after all. */
 export const CLAUDE_OWN_SETUP_COPY = {
   label: "Use my Claude Code setup",
-  detail: "Claude sessions also load your Claude Code settings, hooks, plugins, skills, and MCP servers, and the ones in the folder they run in. An MCP server named in that folder's .mcp.json starts without Claude Code's approval prompt. Permission rules in those files aren't used, so Realm asks as it does with this off. A change applies when a session's agent next starts, and never to a browser agent's session.",
+  detail: "Claude sessions also load your Claude Code settings, hooks, plugins, skills, and MCP servers, and the ones in the folder they run in. An MCP server named in that folder's .mcp.json starts without Claude Code's approval prompt. Permission rules in those files aren't used, unless your organization manages Claude Code's settings. A change applies when a session's agent next starts, and never to a browser agent's session.",
 } as const;
