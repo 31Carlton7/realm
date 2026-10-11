@@ -4,12 +4,14 @@ import { BrowserPermissionBroker } from "./permissions";
 
 function setup(mode = "default") {
   const events: { sessionId: string; ev: SessionEvent }[] = [];
+  const restored: string[] = [];
   let currentMode = mode;
   const broker = new BrowserPermissionBroker({
     permissionMode: () => currentMode,
     emit: (sessionId, ev) => events.push({ sessionId, ev }),
+    restore: (sessionId) => restored.push(sessionId),
   });
-  return { broker, events, setMode: (m: string) => { currentMode = m; } };
+  return { broker, events, restored, setMode: (m: string) => { currentMode = m; } };
 }
 
 const requestIdOf = (events: { ev: SessionEvent }[]): string => {
@@ -45,7 +47,7 @@ describe("BrowserPermissionBroker.gate", () => {
   });
 
   it("default mode emits permission_request + waiting status, then resolves on allow", async () => {
-    const { broker, events } = setup();
+    const { broker, events, restored } = setup();
     const gate = broker.gate("s1", "browser_act", "Click *Submit* on example.com", { ref: 7 });
     const requestId = requestIdOf(events);
     expect(requestId).toMatch(/^bperm_/);
@@ -54,8 +56,9 @@ describe("BrowserPermissionBroker.gate", () => {
     expect(req.type === "permission_request" && req.payload.title).toBe("Click *Submit* on example.com");
     broker.resolve(requestId, "allow");
     expect(await gate).toEqual({ allowed: true });
-    // The answer round-trips onto the transcript, and the status returns to running.
-    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "status", "permission_response", "status"]);
+    // The answer round-trips onto the transcript, and the session is asked for its own status again.
+    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "status", "permission_response"]);
+    expect(restored).toEqual(["s1"]);
   });
 
   it("deny resolves the gate as refused", async () => {
@@ -499,12 +502,13 @@ describe("BrowserPermissionBroker.ask — a question, on the same card and the s
       expect(await late).toEqual({ outcome: "timeout" });
       expect(events.filter((e) => e.ev.type === "permission_response")).toHaveLength(1);
     } finally { vi.useRealTimers(); }
-    const { broker, events } = setup();
+    const { broker, events, restored } = setup();
     const ac = new AbortController();
     const withdrawn = ask(broker, card(), ac.signal);
     ac.abort();
     expect(await withdrawn).toEqual({ outcome: "cancelled" });
-    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "status", "permission_response", "status"]);
+    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "status", "permission_response"]);
+    expect(restored).toEqual(["s1"]);
   });
 
   it("records a card Realm declined and answers it at once, without ever waiting on the user", async () => {
@@ -514,16 +518,17 @@ describe("BrowserPermissionBroker.ask — a question, on the same card and the s
   });
 
   it("keeps the session waiting while any card is still open", async () => {
-    // THE MUTANT: emit `running` on every answer. The second card would then stop being drawn, since
-    // the transcript draws requests only while its session is waiting.
-    const { broker, events } = setup();
+    // THE MUTANT: restore the session on every answer. The second card would then stop being drawn,
+    // since the transcript draws requests only while its session is waiting.
+    const { broker, events, restored } = setup();
     const a = ask(broker);
     const b = broker.gate("s1", "browser_act", "Click", {});
     const [first, second] = events.filter((e) => e.ev.type === "permission_request").map((e) => e.ev.type === "permission_request" ? e.ev.payload.requestId : "");
     broker.resolve(first!, "allow", { db: "pg" });
     expect(events.at(-1)!.ev.type).toBe("permission_response");
+    expect(restored).toEqual([]);
     broker.resolve(second!, "allow");
-    expect(events.at(-1)!.ev).toMatchObject({ type: "status", payload: { status: "running" } });
+    expect(restored).toEqual(["s1"]);
     await Promise.all([a, b]);
   });
 
@@ -531,6 +536,142 @@ describe("BrowserPermissionBroker.ask — a question, on the same card and the s
     const { broker } = setup();
     const asked = ask(broker);
     broker.release("s1");
+    expect(await asked).toEqual({ outcome: "cancelled" });
+  });
+});
+
+/**
+ * Every status the broker itself put on the rail. It is the second producer of a session's status
+ * and the one that cannot know whether a turn is in flight, so `waiting_permission` when a card
+ * opens is all it may say: when its last card closes it hands the session back (`restore`) and the
+ * session service says what the adapter last said. A broker that still answered `running` here left
+ * a session with no turn in flight reading Running for good.
+ */
+const statusesSaid = (events: { ev: SessionEvent }[]) => events.flatMap((e) => (e.ev.type === "status" ? [e.ev.payload.status] : []));
+
+describe("BrowserPermissionBroker — the session's status when its cards close", () => {
+  it("says no status of its own when a card is allowed or denied", async () => {
+    const { broker, events } = setup();
+    for (const decision of ["allow", "deny"] as const) {
+      const from = events.length;
+      const gate = broker.gate("s1", "browser_act", "Click", {});
+      broker.resolve(requestIdOf(events.slice(from)), decision);
+      await gate;
+    }
+    expect(statusesSaid(events)).toEqual(["waiting_permission", "waiting_permission"]);
+  });
+
+  it("hands the session back when a prompt nobody answered times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const { broker, events, restored } = setup();
+      const gate = broker.gate("s1", "browser_act", "Click", {});
+      vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+      await gate;
+      expect(restored).toEqual(["s1"]);
+      expect(statusesSaid(events)).toEqual(["waiting_permission"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hands back only the session whose last card closed", async () => {
+    const { broker, events, restored } = setup();
+    const mine = broker.gate("s1", "browser_act", "Click", {});
+    void broker.gate("s2", "browser_act", "Click", {});
+    broker.resolve(requestIdOf(events), "allow");
+    await mine;
+    expect(restored).toEqual(["s1"]);
+    expect(broker.holds("s2")).toBe(true);
+    broker.release("s2");
+  });
+
+  it("holds a session for exactly as long as one of its cards is open", async () => {
+    const { broker, events } = setup();
+    expect(broker.holds("s1")).toBe(false);
+    const first = broker.gate("s1", "browser_act", "Click", {});
+    const second = broker.gate("s1", "browser_navigate", "Go", {});
+    const ids = events.flatMap((e) => (e.ev.type === "permission_request" ? [e.ev.payload.requestId] : []));
+    expect(broker.holds("s1")).toBe(true);
+    broker.resolve(ids[0]!, "allow");
+    expect(broker.holds("s1")).toBe(true);
+    broker.resolve(ids[1]!, "deny");
+    expect(broker.holds("s1")).toBe(false);
+    await Promise.all([first, second]);
+  });
+
+  it("does not hand back a session that was released, because it is going away", async () => {
+    const { broker, restored } = setup();
+    const gate = broker.gate("s1", "browser_act", "Click", {});
+    broker.release("s1");
+    await gate;
+    expect(restored).toEqual([]);
+    expect(broker.holds("s1")).toBe(false);
+  });
+});
+
+describe("BrowserPermissionBroker.withdraw — a session whose work was stopped", () => {
+  it("refuses every call that was waiting on one of the session's cards", async () => {
+    const { broker } = setup();
+    const click = broker.gate("s1", "browser_act", "Click", {});
+    const go = broker.gate("s1", "browser_navigate", "Go", {});
+    expect(broker.withdraw("s1")).toBe(true);
+    expect([(await click).allowed, (await go).allowed]).toEqual([false, false]);
+  });
+
+  it("tells the transcript each card was denied, so none stays open for a tool call nobody waits on", () => {
+    const { broker, events } = setup();
+    void broker.gate("s1", "browser_act", "Click", {});
+    void broker.gate("s1", "browser_navigate", "Go", {});
+    const asked = events.flatMap((e) => (e.ev.type === "permission_request" ? [e.ev.payload.requestId] : []));
+    broker.withdraw("s1");
+    const denied = events.flatMap((e) => (e.ev.type === "permission_response" ? [[e.ev.payload.requestId, e.ev.payload.decision]] : []));
+    expect(denied).toEqual(asked.map((id) => [id, "deny"]));
+    expect(broker.holds("s1")).toBe(false);
+  });
+
+  it("hands the session back once, however many cards it closed", () => {
+    const { broker, restored } = setup();
+    void broker.gate("s1", "browser_act", "Click", {});
+    void broker.gate("s1", "browser_navigate", "Go", {});
+    broker.withdraw("s1");
+    expect(restored).toEqual(["s1"]);
+  });
+
+  it("leaves another session's card open", () => {
+    const { broker, events } = setup();
+    void broker.gate("s1", "browser_act", "Click", {});
+    void broker.gate("s2", "browser_act", "Click", {});
+    broker.withdraw("s1");
+    expect(broker.holds("s2")).toBe(true);
+    expect(events.filter((e) => e.ev.type === "permission_response").map((e) => e.sessionId)).toEqual(["s1"]);
+    broker.release("s2");
+  });
+
+  it("says and does nothing for a session with no card open", () => {
+    const { broker, events, restored } = setup();
+    expect(broker.withdraw("s1")).toBe(false);
+    expect(events).toEqual([]);
+    expect(restored).toEqual([]);
+  });
+
+  it("keeps what the session was told it may always do, since the session goes on", async () => {
+    const { broker, events } = setup();
+    const first = broker.gate("s1", "browser_act", "Click", {});
+    broker.resolve(requestIdOf(events), "allow_always");
+    await first;
+    void broker.gate("s1", "browser_navigate", "Go", {});
+    broker.withdraw("s1");
+    events.length = 0;
+    expect(await broker.gate("s1", "browser_act", "Click again", {})).toEqual({ allowed: true });
+    expect(events).toEqual([]);
+  });
+
+  it("ends an open question as cancelled, not as an answer", async () => {
+    const { broker } = setup();
+    const card = AskCardSchema.parse({ asker: { kind: "agent", name: "Claude", agent: "claude" }, mode: "question", questions: [{ id: "db", prompt: "Which database?", kind: "text" }] });
+    const asked = broker.ask("s1", card, { toolName: "ui_ask", title: "Which database?" });
+    broker.withdraw("s1");
     expect(await asked).toEqual({ outcome: "cancelled" });
   });
 });

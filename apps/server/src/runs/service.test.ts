@@ -1,7 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
-import { RUN_BLOCK_SENTINEL } from "@realm/contracts";
+import { RUN_BLOCK_SENTINEL, sessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -225,6 +225,18 @@ describe("durable runs — cancelling", () => {
     await settled(run.id);
     expect(app.runs.cancel(run.id).state).toBe("succeeded");
     expect(app.runs.cancel(run.id).state).toBe("succeeded");
+  });
+});
+
+describe("durable runs — a card answered between turns", () => {
+  it("leaves a run live through the idle that only closes a card raised between turns", async () => {
+    const { spaceId } = await boot({ script: [{ on: WORKER_OPENER, emit: Array.from({ length: 400 }, (_, i) => ({ kind: "text" as const, text: `step ${i}` })) }], delayMs: 5 });
+    const { run } = create(spaceId);
+    await waitFor(() => runOf(run.id).state === "running" && runOf(run.id).sessionId !== null);
+    const session = app.sessions.get(runOf(run.id).sessionId!);
+    app.runs.handleSessionEvent({ ...session, status: "waiting_permission" }, sessionEvent("status", { status: "idle", betweenTurns: true }));
+    expect(runOf(run.id).state).toBe("running");
+    app.runs.cancel(run.id);
   });
 });
 

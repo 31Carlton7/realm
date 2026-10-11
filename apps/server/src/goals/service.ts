@@ -22,6 +22,14 @@ import { NotFoundError, RpcError } from "../store/rows";
  *      turn; the goal picks up after it. Otherwise the user would be talking over their own agent.
  *   4. The budget is checked BEFORE the continuation, so the last thing a goal does is hand over
  *      rather than stop mid-thought.
+ *   5. A run still working in the background wins too. The turn that launched it has settled, but
+ *      its work has not: the agent starts a turn of its own to report when the run ends, and that
+ *      turn's settle is the one the goal continues from. A continuation sent meanwhile would have
+ *      the agent start the next step on top of a step that is still running.
+ *   6. A turn nobody sent is not one to continue from, unless it is the report rule 5 waits for.
+ *      The agent reports on every run that ends, and a run that ends inside the turn that launched
+ *      it is reported after the goal has taken its step: continuing again there would send two
+ *      turns for one step, and leave the goal a turn ahead of itself from then on.
  *
  * `deliver` is the seam back into the session service, and it is a function rather than a reference
  * to the service so the loop can be tested without one.
@@ -34,6 +42,9 @@ export type GoalServiceDeps = {
   deliver: (sessionId: string, text: string, tag: string) => Promise<void>;
   /** Whether anything the user typed is still waiting to go out on this session. */
   queued: (sessionId: string) => boolean;
+  /** Whether the session still has a run working in the background (a workflow, a background
+   *  sub-agent) though its turn has settled. */
+  busy: (sessionId: string) => boolean;
   log?: (line: string) => void;
 };
 
@@ -50,6 +61,18 @@ export class GoalService {
   private readonly errorStreak = new Map<string, number>();
   /** Whether the turn now in flight has reported an error. */
   private readonly errored = new Set<string>();
+  /**
+   * Sessions whose goal stood down at a settle because a run was still working in the background,
+   * and which is waiting for that run's report to continue from.
+   *
+   * The harness reports on every run in a turn nobody sent, and that turn's settle says so
+   * (`unprompted`). A goal continues from such a settle only for a session held here. With no
+   * memory it had two answers and both were wrong: continue at every report, which sends a second
+   * continuation when the run ended inside the turn that launched it and the goal had already
+   * taken its step, or at none, which leaves a goal that did wait for its run waiting for good.
+   * Forgotten at the settle where the goal next continues, pauses or stops, and with the goal.
+   */
+  private readonly awaitingReport = new Set<string>();
 
   constructor(private readonly d: GoalServiceDeps) {}
 
@@ -72,6 +95,7 @@ export class GoalService {
     this.lastTokens.delete(sessionId);
     this.errorStreak.delete(sessionId);
     this.errored.delete(sessionId);
+    this.awaitingReport.delete(sessionId);
     this.publish(goal);
     await this.d.deliver(sessionId, text, "goal-start");
     return goal;
@@ -109,6 +133,7 @@ export class GoalService {
     // A resume is a fresh audit, the same way it is for the agent's own blocked count.
     this.errorStreak.delete(sessionId);
     this.errored.delete(sessionId);
+    this.awaitingReport.delete(sessionId);
     this.publish(next);
     await this.d.deliver(sessionId, goalContinuationPrompt(next), "goal-continuation");
     return next;
@@ -121,6 +146,7 @@ export class GoalService {
     this.lastTokens.delete(sessionId);
     this.errorStreak.delete(sessionId);
     this.errored.delete(sessionId);
+    this.awaitingReport.delete(sessionId);
     this.d.rpc.broadcast("goal.changed", { sessionId, goal: null });
   }
 
@@ -160,26 +186,40 @@ export class GoalService {
   /**
    * A turn settled. Count it, then decide whether the goal gets another one.
    *
+   * `interrupted` is the person's Stop, which the session service also says when it is pressed with
+   * no turn in flight, or on the session's last background run. `unprompted` is the settle of a turn
+   * the harness started by itself: unless the goal was waiting for that report (`awaitingReport`),
+   * the turn is none of the goal's, and neither it nor an error in it is counted.
+   *
    * Returns what it did, which is what the tests assert on and what the log line says — "nothing
-   * happened" has four different reasons here and they are not interchangeable.
+   * happened" has several different reasons here and they are not interchangeable.
    */
-  async onSettled(sessionId: string, opts: { interrupted: boolean }): Promise<"continued" | "budget" | "stopped" | "failing" | "idle"> {
+  async onSettled(sessionId: string, opts: { interrupted: boolean; unprompted?: boolean }): Promise<"continued" | "budget" | "stopped" | "failing" | "idle"> {
     const goal = this.d.goals.get(sessionId);
     if (!goal || goal.status !== "active") return "idle";
     // The user's stop, and the user's own next message, both outrank the goal.
     if (opts.interrupted) {
+      this.awaitingReport.delete(sessionId);
       this.publish(this.d.goals.update(sessionId, { status: "paused", note: "You stopped the turn." })!);
       return "stopped";
+    }
+    if (opts.unprompted && !this.awaitingReport.has(sessionId)) {
+      this.errored.delete(sessionId);
+      return "idle";
     }
     const counted = this.d.goals.update(sessionId, { turns: goal.turns + 1 })!;
     const failed = this.errored.delete(sessionId);
     const streak = failed ? (this.errorStreak.get(sessionId) ?? 0) + 1 : 0;
     this.errorStreak.set(sessionId, streak);
     if (streak >= ERROR_STREAK_LIMIT) {
+      this.awaitingReport.delete(sessionId);
       this.publish(this.d.goals.update(sessionId, { status: "blocked", note: `${streak} turns in a row ended in an error, so Realm stopped continuing this goal.` })!);
       return "failing";
     }
-    if (this.d.queued(sessionId)) return "idle";
+    const busy = this.d.busy(sessionId);
+    if (busy) this.awaitingReport.add(sessionId);
+    if (busy || this.d.queued(sessionId)) return "idle";
+    this.awaitingReport.delete(sessionId);
     if (counted.tokenBudget !== null && counted.tokensUsed >= counted.tokenBudget) {
       // The stop is published BEFORE the handover turn goes out, so the pane says "budget spent"
       // while that turn runs rather than after it — the run is the goal's last act, not a new one.

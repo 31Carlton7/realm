@@ -1,4 +1,4 @@
-import { isRunTerminal, parseBlockRequest, RUN_BLOCK_SENTINEL, type AgentKind, type Run, type RunAttempt, type RunConstraints, type RunState, type Session, type SessionEvent } from "@realm/contracts";
+import { isRunTerminal, parseBlockRequest, RUN_BLOCK_SENTINEL, turnSettled, type AgentKind, type Run, type RunAttempt, type RunConstraints, type RunState, type Session, type SessionEvent } from "@realm/contracts";
 import type { RunsStore } from "../store/runs";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
@@ -13,12 +13,6 @@ import { cleanupWorktree, errorMessage, resolveAgentKind, resolveEnvironment, re
 const workerKey = (sessionId: string): string => `run.session:${sessionId}`;
 
 export type RunWorkerRecord = { runId: string; goal: string; skills: string[] | null };
-
-/** Session-status transitions that count as a turn SETTLING — the notifications feed's vocabulary,
- *  verbatim, because both hooks read the same event off the same rail and must agree about what an
- *  ending looks like. */
-const SETTLED_FROM = new Set(["running", "waiting_permission"]);
-const SETTLED_TO = new Set(["idle", "ended", "error"]);
 
 type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown): void };
 
@@ -399,12 +393,12 @@ export class RunService {
 
   /**
    * The `SessionService` hook — the same rail the notifications feed rides. `session` is the row as
-   * it stood BEFORE this event, so `session.status` is the previous status and a settle is the
-   * transition between the two sets.
+   * it stood BEFORE this event, so `session.status` is the previous status and a settle is what
+   * `turnSettled` says of the two, which is the feed's own reading of the same event.
    */
   handleSessionEvent(session: Session, ev: SessionEvent): void {
     if (ev.type !== "status") return;
-    if (!SETTLED_FROM.has(session.status) || !SETTLED_TO.has(ev.payload.status)) return;
+    if (!turnSettled(session.status, ev.payload)) return;
     const run = this.d.store.findLiveBySessionId(session.id);
     if (!run || run.state !== "running") return;
 

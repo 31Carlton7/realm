@@ -79,6 +79,22 @@ describe("NotificationsService — permissions", () => {
     expect(perm.actedAt).not.toBeNull();
     expect(perm.body).toContain("ended before this was answered");
   });
+
+  it("a session whose process ends under an unanswered card closes the card's row too", () => {
+    svc.handleSessionEvent(session({ status: "running" }), sessionEvent("permission_request", { requestId: "req-1", toolName: "Bash", input: {}, title: "Run ls", suggestions: [] }));
+    svc.handleSessionEvent(session({ status: "waiting_permission" }), sessionEvent("status", { status: "ended" }));
+    const perm = feed().find((x) => x.category === "permission")!;
+    expect(perm.actedAt).not.toBeNull();
+    expect(perm.body).toContain("ended before this was answered");
+  });
+
+  it("a turn that settles while a card is still open leaves the card's row pending", () => {
+    svc.handleSessionEvent(session({ status: "running" }), sessionEvent("permission_request", { requestId: "req-1", toolName: "Bash", input: {}, title: "Run ls", suggestions: [] }));
+    svc.handleSessionEvent(session({ status: "waiting_permission" }), sessionEvent("status", { status: "idle" }));
+    const perm = feed().find((x) => x.category === "permission")!;
+    expect(perm.actedAt).toBeNull();
+    expect(perm.body).toBe("Run ls");
+  });
 });
 
 describe("NotificationsService — session_done", () => {
@@ -92,6 +108,17 @@ describe("NotificationsService — session_done", () => {
     expect(n.actedAt).not.toBeNull(); // nothing pending about a settle
     // The broadcast carried the surfaced row — the renderer's focused-pane auto-read needs it.
     expect(broadcasts.at(-1)!.payload.notification?.id).toBe(n.id);
+  });
+
+  it("writes no row for the idle that only closes a card raised between turns", () => {
+    svc.handleSessionEvent(session({ status: "waiting_permission" }), sessionEvent("status", { status: "idle", betweenTurns: true }));
+    expect(feed()).toHaveLength(0);
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  it("writes the settle row for a turn that ended under a card, once the card is answered", () => {
+    svc.handleSessionEvent(session({ status: "waiting_permission" }), sessionEvent("status", { status: "idle" }));
+    expect(feed().map((n) => [n.category, n.body])).toEqual([["session_done", "Finished a turn"]]);
   });
 
   it("replaces the placeholder body with the model's account when the summary lands", () => {

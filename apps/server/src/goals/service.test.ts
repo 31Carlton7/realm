@@ -13,7 +13,7 @@ import type { Goal } from "@realm/contracts";
 const dbs: Db[] = [];
 afterEach(() => { for (const db of dbs.splice(0)) db.close(); });
 
-function bring(opts: { queued?: boolean } = {}) {
+function bring(opts: { queued?: boolean; busy?: boolean } = {}) {
   const db = openDatabase(join(tempDir("realm-goal-"), "realm.db"));
   dbs.push(db);
   // The FK is to `sessions`, which this test never creates — SQLite enforces it on write, so the row
@@ -22,13 +22,15 @@ function bring(opts: { queued?: boolean } = {}) {
   const sent: { sessionId: string; text: string; tag: string }[] = [];
   const events: (Goal | null)[] = [];
   let queued = opts.queued ?? false;
+  let busy = opts.busy ?? false;
   const service = new GoalService({
     rpc: { broadcast: (name: string, payload: { goal: Goal | null }) => { if (name === "goal.changed") events.push(payload.goal); } } as never,
     goals: new GoalsStore(db),
     deliver: async (sessionId, text, tag) => { sent.push({ sessionId, text, tag }); },
     queued: () => queued,
+    busy: () => busy,
   });
-  return { service, sent, events, setQueued: (v: boolean) => { queued = v; }, db };
+  return { service, sent, events, setQueued: (v: boolean) => { queued = v; }, setBusy: (v: boolean) => { busy = v; }, db };
 }
 
 const usage = (tokens: number) => ({ costUsd: 0, inputTokens: tokens, outputTokens: 0, numTurns: 1 });
@@ -96,6 +98,39 @@ describe("the turn after the turn", () => {
     expect(service.get("s1")!.turns).toBe(1);
   });
 
+  it("stands down while a run is still working in the background", async () => {
+    const { service, sent } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    expect(await service.onSettled("s1", { interrupted: false })).toBe("idle");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("still counts the turn it stood down at while a run was working", async () => {
+    const { service } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", { interrupted: false });
+    expect(service.get("s1")!.turns).toBe(1);
+  });
+
+  it("continues from the settle that follows the run's end", async () => {
+    const { service, sent, setBusy } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", { interrupted: false });
+    setBusy(false);
+    expect(await service.onSettled("s1", { interrupted: false })).toBe("continued");
+    expect(sent.map((s) => s.tag)).toEqual(["goal-start", "goal-continuation"]);
+  });
+
+  it("holds the budget's handover turn back too while a run is still working", async () => {
+    const { service, sent } = bring({ busy: true });
+    await service.start("s1", "ship it", 1_000);
+    service.onUsage("s1", usage(0));
+    service.onUsage("s1", usage(1_200));
+    expect(await service.onSettled("s1", { interrupted: false })).toBe("idle");
+    expect(sent).toHaveLength(1);
+    expect(service.get("s1")!.status).toBe("active");
+  });
+
   it("does nothing at all for a session with no goal, or one that is stopped", async () => {
     const { service, sent } = bring();
     expect(await service.onSettled("nobody", { interrupted: false })).toBe("idle");
@@ -103,6 +138,128 @@ describe("the turn after the turn", () => {
     service.set("s1", "complete", "done");
     expect(await service.onSettled("s1", { interrupted: false })).toBe("idle");
     expect(sent).toHaveLength(1);
+  });
+});
+
+/** The settle of a turn the harness started by itself, to report on a run that ended. */
+const REPORT = { interrupted: false, unprompted: true };
+
+describe("the settle of a turn nobody sent", () => {
+  it("sends nothing when the goal did not stand down for a run", async () => {
+    const { service, sent } = bring();
+    await service.start("s1", "ship it", null);
+    expect(await service.onSettled("s1", REPORT)).toBe("idle");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("is not counted as a turn of a goal that was not waiting for it", async () => {
+    const { service } = bring();
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", REPORT);
+    expect(service.get("s1")!.turns).toBe(0);
+  });
+
+  it("continues the goal once when it is the report of the run the goal stood down for", async () => {
+    const { service, sent, setBusy } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", { interrupted: false });
+    setBusy(false);
+    await service.onSettled("s1", REPORT);
+    await service.onSettled("s1", REPORT);
+    expect(sent.map((s) => s.tag)).toEqual(["goal-start", "goal-continuation"]);
+  });
+
+  it("finds the goal still standing down when a typed turn settles while the run works", async () => {
+    const { service, sent } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", { interrupted: false });
+    expect(await service.onSettled("s1", { interrupted: false })).toBe("idle");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("still continues the goal at the report's settle after a typed turn settled while the run worked", async () => {
+    const { service, setBusy } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", { interrupted: false });
+    await service.onSettled("s1", { interrupted: false });
+    setBusy(false);
+    expect(await service.onSettled("s1", REPORT)).toBe("continued");
+  });
+
+  it("waits through the report of one run for the report of another that still works", async () => {
+    const { service, setBusy } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", { interrupted: false });
+    const first = await service.onSettled("s1", REPORT);
+    setBusy(false);
+    expect([first, await service.onSettled("s1", REPORT)]).toEqual(["idle", "continued"]);
+  });
+
+  it("hands over at the report's settle when the budget ran out while the run worked", async () => {
+    const { service, setBusy } = bring({ busy: true });
+    await service.start("s1", "ship it", 1_000);
+    service.onUsage("s1", usage(0));
+    service.onUsage("s1", usage(1_200));
+    await service.onSettled("s1", { interrupted: false });
+    setBusy(false);
+    expect(await service.onSettled("s1", REPORT)).toBe("budget");
+  });
+
+  it("counts an error in the report the goal was waiting for, as it counts any turn's", async () => {
+    const { service, setBusy } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", { interrupted: false });
+    setBusy(false);
+    service.onError("s1");
+    await service.onSettled("s1", REPORT);
+    service.onError("s1");
+    await service.onSettled("s1", { interrupted: false });
+    service.onError("s1");
+    expect(await service.onSettled("s1", { interrupted: false })).toBe("failing");
+  });
+
+  it("does not hold an error in a report it was not waiting for against the goal's own turns", async () => {
+    const { service } = bring();
+    await service.start("s1", "ship it", null);
+    service.onError("s1");
+    await service.onSettled("s1", REPORT);
+    await service.onSettled("s1", { interrupted: false });
+    service.onError("s1");
+    await service.onSettled("s1", { interrupted: false });
+    service.onError("s1");
+    expect(await service.onSettled("s1", { interrupted: false })).toBe("continued");
+  });
+
+  it("no longer waits for a report once the person has stopped the session", async () => {
+    const { service, sent, setBusy } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", { interrupted: false });
+    await service.onSettled("s1", { interrupted: true });
+    service.set("s1", "active", null);
+    setBusy(false);
+    expect(await service.onSettled("s1", REPORT)).toBe("idle");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("does not carry a wait for a report over to a new objective on the same session", async () => {
+    const { service, sent, setBusy } = bring({ busy: true });
+    await service.start("s1", "first thing", null);
+    await service.onSettled("s1", { interrupted: false });
+    setBusy(false);
+    await service.start("s1", "different thing", null);
+    await service.onSettled("s1", REPORT);
+    expect(sent.map((s) => s.tag)).toEqual(["goal-start", "goal-start"]);
+  });
+
+  it("does not carry a wait for a report across a pause and a resume", async () => {
+    const { service, sent, setBusy } = bring({ busy: true });
+    await service.start("s1", "ship it", null);
+    await service.onSettled("s1", { interrupted: false });
+    service.set("s1", "paused", "You paused it.");
+    await service.resume("s1");
+    setBusy(false);
+    await service.onSettled("s1", REPORT);
+    expect(sent.map((s) => s.tag)).toEqual(["goal-start", "goal-continuation"]);
   });
 });
 

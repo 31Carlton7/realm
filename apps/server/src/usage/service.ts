@@ -24,6 +24,9 @@ type Row = Record<string, unknown>;
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
+/** A `status` event with its place in the log, which is what the span of one turn is looked up by. */
+type LoggedStatus = StatusSample & { seq: number };
+
 /** What makes a day a day of use, and which local day an event falls on — written once, because the
  *  calendar (`activeDays`) and the streak (`records`) have to agree about both. A streak that counted
  *  a day the grid beside it shows as empty would be a contradiction on one screen. */
@@ -169,18 +172,18 @@ export class UsageService {
 
   /** The finished turn the agent worked longest on, across every session — see `turnDurations`. */
   private longestTurn(): UsageRecords["longestTurn"] {
-    const bySession = new Map<string, StatusSample[]>();
+    const bySession = new Map<string, LoggedStatus[]>();
     for (const r of this.d.db.prepare(
-      "SELECT session_id, ts, json_extract(payload_json, '$.status') AS status FROM session_events WHERE type = 'status' ORDER BY seq",
+      "SELECT seq, session_id, ts, json_extract(payload_json, '$.status') AS status, json_extract(payload_json, '$.betweenTurns') AS between_turns FROM session_events WHERE type = 'status' ORDER BY seq",
     ).all() as Row[]) {
       const id = str(r.session_id);
       const list = bySession.get(id) ?? [];
-      list.push({ ts: num(r.ts), status: str(r.status) });
+      list.push({ seq: num(r.seq), ts: num(r.ts), status: str(r.status), betweenTurns: r.between_turns === 1 });
       bySession.set(id, list);
     }
     let best: { ms: number; endedAt: number; sessionId: string } | null = null;
     for (const [sessionId, statuses] of bySession) {
-      for (const turn of turnDurations(statuses)) {
+      for (const turn of turnDurations(statuses, (opened, settled) => this.lastOutputBetween(sessionId, opened.seq, settled.seq))) {
         if (turn.ms > 0 && (best === null || turn.ms > best.ms)) best = { ...turn, sessionId };
       }
     }
@@ -188,6 +191,26 @@ export class UsageService {
     const row = this.d.db.prepare("SELECT title, space_id FROM sessions WHERE id = ?").get(best.sessionId) as Row | undefined;
     if (!row) return null;
     return { ...best, title: str(row.title) || "Untitled session", spaceId: str(row.space_id) };
+  }
+
+  /**
+   * When a session's agent last said or did something at the top level between two events of its
+   * log, or null when it did nothing there: `turnDurations`'s question about a turn that opened and
+   * ended under a card. One read back along the session's own index, for that one span.
+   *
+   * What counts is what a transcript counts as the agent's output: its text, its thinking, a plan,
+   * an error, and a tool call of its own. A call a sub-agent made has a parent and is that call's
+   * business, and a background agent goes on making them while its session is at rest.
+   */
+  private lastOutputBetween(sessionId: string, afterSeq: number, beforeSeq: number): number | null {
+    const row = this.d.db.prepare(`
+      SELECT ts FROM session_events
+       WHERE session_id = ? AND seq > ? AND seq < ?
+         AND (type IN ('assistant_text', 'thinking', 'plan', 'error')
+              OR (type = 'tool_call' AND json_extract(payload_json, '$.parentToolUseId') IS NULL))
+       ORDER BY seq DESC LIMIT 1
+    `).get(sessionId, afterSeq, beforeSeq) as Row | undefined;
+    return row ? num(row.ts) : null;
   }
 
   /** Every local day with a sent message, ever — the streak's input, read exactly as `activeDays` reads. */

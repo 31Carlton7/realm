@@ -60,8 +60,8 @@ export type SummaryServiceDeps = {
    * is still on the transcript, not while their hand is on the key.
    */
   debounceMs?: number;
-  /** Whether the session is idle RIGHT NOW, asked when the timer fires rather than when it is set: a
-   *  new turn started during the wait means this settle's recap is about to be superseded anyway. */
+  /** Whether the session has no turn in flight RIGHT NOW, asked when the timer fires, not when it is
+   *  set: a new turn started during the wait means this settle's recap is about to be superseded. */
   isIdle?: (sessionId: string) => boolean;
 };
 

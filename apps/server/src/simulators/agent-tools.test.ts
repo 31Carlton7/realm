@@ -181,6 +181,7 @@ function setup(opts: {
       // Answered the way a user would, once the card is up.
       queueMicrotask(() => real!.resolve(ev.payload.requestId, opts.broker!.answer ?? "allow"));
     },
+    restore: () => {},
   }) : null;
   const switchedOff = new Set<string>();
   const changes: number[] = [];
