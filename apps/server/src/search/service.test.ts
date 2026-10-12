@@ -15,6 +15,7 @@ import { MemoryService } from "../memory/service";
 import { MemoryRepoService } from "../memory/repo";
 import { NotFoundError } from "../store/rows";
 import { BACKFILL_CHUNK, SEARCH_BACKFILL_KEY, SearchService, ftsExpression, liveMatches, liveSnippet, parseFtsSnippet, queryTokens } from "./service";
+import { deflateEveryPayload } from "../store/event-payload.test-fakes";
 
 function harness() {
   const home = tempDir("realm-search-");
@@ -274,6 +275,17 @@ describe("backfill — chunked, resumable, never double-indexing", () => {
     const cursor = h.settings.get(SEARCH_BACKFILL_KEY) as { done: number; target: number };
     expect(cursor.done).toBe(cursor.target);
     expect(logs.length).toBeGreaterThan(0);
+  });
+
+  it("indexes a history whose payloads are compressed (v56)", async () => {
+    const h = harness();
+    const s = h.newSession(h.alpha.id, h.envA.id);
+    rawEvents(h, s.id, 3, "pangolin");
+    deflateEveryPayload(h.db);
+    h.settings.set(SEARCH_BACKFILL_KEY, { done: 0, target: maxSeq(h) });
+    await h.search.runBackfill(() => {});
+    expect(indexedCount(h)).toBe(3);
+    expect(h.search.query(h.work.id, "pangolin").sessions).toHaveLength(1);
   });
 
   it("resumes from the persisted cursor: rows at or before `done` are never re-scanned", async () => {

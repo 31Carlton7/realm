@@ -9,6 +9,7 @@ import { SessionsStore, SessionEventsStore } from "./sessions";
 import { EnvironmentsStore } from "./environments";
 import { SettingsStore } from "./settings";
 import { ArtifactsStore, ARTIFACTS_BACKFILL_KEY } from "./artifacts";
+import { deflateEveryPayload } from "./event-payload.test-fakes";
 
 function fresh() {
   const home = tempDir("realm-");
@@ -245,6 +246,16 @@ describe("the artifacts backfill", () => {
     await artifacts.runBackfill(() => false, () => {});
     expect(artifacts.list({})).toHaveLength(2);
     expect(a.seq).toBeLessThan(b.seq);
+  });
+
+  it("indexes a history whose payloads are compressed (v56)", async () => {
+    const { db, session, artifacts, settings } = fresh();
+    const bare = new SessionEventsStore(db);
+    const last = bare.append(session.id, write("/tmp/old/packed.md"));
+    deflateEveryPayload(db);
+    settings.set(ARTIFACTS_BACKFILL_KEY, { done: 0, target: last.seq });
+    await artifacts.runBackfill(() => false, () => {});
+    expect(artifacts.list({}).map((x) => x.name)).toEqual(["packed.md"]);
   });
 
   it("stops when asked, leaving the cursor where the next boot can resume from", async () => {
