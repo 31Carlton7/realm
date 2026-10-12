@@ -153,6 +153,41 @@ describe("terminal port blocks", () => {
     c.close();
   });
 
+  it("a flush writes only the terminals that printed since the last one — an idle Realm writes nothing", async () => {
+    const home = tempDir("realm-home-");
+    const app = await createApp({ home, port: 0 }); apps.push(app);
+    const c = await client(app.port);
+    await c.call("settings.set", { key: TERMINALS_HISTORY_KEY, value: true });
+    const prof = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const { terminalId } = (await c.call("terminals.create", { spaceId: space.id })).result;
+    await c.call("terminals.write", { terminalId, data: "printf 'DIRTY_%s\\n' ONE\n" });
+    await waitFor(() => streamed(c, terminalId).text.includes("DIRTY_ONE"));
+    const history = new TerminalHistoryStore(app.db);
+    const changes = () => (app.db.prepare("SELECT total_changes() AS n").get() as { n: number }).n;
+
+    app.terminals.flushHistory();
+    expect(history.get(terminalId)?.data).toContain("DIRTY_ONE");
+    // Nothing printed since (the two flushes share one tick, so no pty data can land between them).
+    // MUTANT: drop the version check and every tick rewrites every buffer — ~92 KB/s at idle.
+    const before = changes();
+    app.terminals.flushHistory();
+    expect(changes()).toBe(before);
+
+    await c.call("terminals.write", { terminalId, data: "printf 'DIRTY_%s\\n' TWO\n" });
+    await waitFor(() => streamed(c, terminalId).text.includes("DIRTY_TWO"));
+    app.terminals.flushHistory();
+    expect(history.get(terminalId)?.data).toContain("DIRTY_TWO");
+
+    // Off purges; back on, the next flush writes the buffer again though it printed nothing new.
+    await c.call("settings.set", { key: TERMINALS_HISTORY_KEY, value: false });
+    await c.call("settings.set", { key: TERMINALS_HISTORY_KEY, value: true });
+    expect(history.count()).toBe(0);
+    app.terminals.flushHistory();
+    expect(history.get(terminalId)?.data).toContain("DIRTY_TWO");
+    c.close();
+  });
+
   it("a reattaching client gets exactly what it missed, with no gap in seq", async () => {
     const home = tempDir("realm-home-");
     const app = await createApp({ home, port: 0 }); apps.push(app);
