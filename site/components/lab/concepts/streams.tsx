@@ -36,19 +36,35 @@ export default function Streams({ download }: ConceptProps) {
             <Actions download={download} className="lg:[&>div]:justify-center lg:[&>p]:text-center" />
           </div>
         </div>
-        <div className="relative mt-14 xl:mt-[6.5rem]">
+        <div className="relative mt-14 xl:mt-[4.5rem]">
+          {/* On a wide screen the marks are measured from the window's top edge, under the tab. */}
           <ul
             aria-label="The agents Realm runs"
-            className="mx-auto mb-12 flex max-w-[40rem] items-start justify-between xl:absolute xl:inset-x-0 xl:top-0 xl:mb-0 xl:block xl:h-0 xl:max-w-none"
+            className="mx-auto mb-12 flex max-w-[40rem] items-start justify-between xl:absolute xl:inset-x-0 xl:top-8 xl:mb-0 xl:block xl:h-0 xl:max-w-none"
           >
             {AGENTS.map((agent, i) => (
               <Mark key={agent.id} agent={agent} index={i} />
             ))}
           </ul>
+          {/* The window's own caption, moved from its corner to the middle of its top edge: the streams
+              land at both shoulders, and what they bring runs along the frame toward it. Both ends are
+              cut at the 60 degrees the corner tab cuts its far end at. */}
+          <p
+            style={{ clipPath: "polygon(18.5px 0, calc(100% - 18.5px) 0, 100% 100%, 0 100%)" }}
+            className="relative z-10 mx-auto hidden h-8 w-fit items-center gap-2 bg-surface px-8 text-[12.5px] text-ink-2 xl:flex"
+          >
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-green" />
+            A working sample of Realm. Click anything.
+          </p>
           <ProductWindow
             tab={false}
             frameClassName="h-[620px] sm:h-[640px] lg:h-[min(680px,calc(100dvh-7rem))] lg:min-h-[560px] [html[data-lab-field=off]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.16),0_-10px_40px_-18px_oklch(0.788_0.113_248.33/0.45)]"
           />
+          {/* Narrower, the streams land all along the window's top, so its caption goes under it. */}
+          <p className="mt-4 flex items-center justify-center gap-2 text-[12.5px] text-ink-2 xl:hidden">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-green" />
+            A working sample of Realm. Click anything.
+          </p>
         </div>
       </div>
     </section>

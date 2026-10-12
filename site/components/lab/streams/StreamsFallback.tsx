@@ -58,8 +58,8 @@ export function StreamsFallback({ always = false }: { always?: boolean }) {
         {/* Each line brightens toward the window it runs into, as the lit version does. */}
         {paths.map(({ y0, y1 }, i) => (
           <linearGradient key={i} id={`streams-line-${i}`} gradientUnits="userSpaceOnUse" x1="0" y1={y0} x2="0" y2={y1}>
-            <stop offset="0" stopColor="oklch(0.86 0.05 250)" stopOpacity="0.14" />
-            <stop offset="1" stopColor="oklch(0.86 0.05 250)" stopOpacity="0.34" />
+            <stop offset="0" stopColor="oklch(0.86 0.05 250)" stopOpacity="0.1" />
+            <stop offset="1" stopColor="oklch(0.86 0.05 250)" stopOpacity="0.3" />
           </linearGradient>
         ))}
       </defs>

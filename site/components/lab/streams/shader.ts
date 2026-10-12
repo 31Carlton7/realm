@@ -127,10 +127,10 @@ fn landing(du: f32, age: f32, inward: f32) -> f32 {
   let front = reach * (1.0 - exp(-age / 0.55));
   let width = 7.0 + 24.0 * age;
   let x = abs(du) - front;
-  let runner = exp(-x * x / (2.0 * width * width)) * exp(-age / 0.65);
-  let wake = (1.0 - smoothstep(front - width, front + width, abs(du))) * exp(-age / 0.45);
+  let runner = exp(-x * x / (2.0 * width * width)) * exp(-age / 0.78);
+  let wake = (1.0 - smoothstep(front - width, front + width, abs(du))) * exp(-age / 0.5);
   let held = exp(-age / 1.8) * exp(-abs(du) / 150.0);
-  return flare * 2.4 + runner * 1.2 + wake * 0.28 + held * 0.22;
+  return flare * 3.0 + runner * 1.55 + wake * 0.3 + held * 0.28;
 }
 
 @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
