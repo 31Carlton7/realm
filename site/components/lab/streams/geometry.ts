@@ -8,8 +8,8 @@ export type Curve = readonly [Point, Point, Point, Point]
 /** The product window's corner — the `rounded-[20px]` on the frame the rim traces. */
 export const PORTAL_RADIUS = 20
 
-/** Below Tailwind's `lg` the marks leave their arcs for one row above the window. */
-export const ROW_BELOW = 1024
+/** Below Tailwind's `xl` the marks leave their arcs for one row above the window. */
+export const ROW_BELOW = 1280
 
 export type StreamLayout = {
   curve: Curve
@@ -17,6 +17,8 @@ export type StreamLayout = {
   landU: number
   /** The mark's centre and the radius of its socket. */
   mark: readonly [number, number, number]
+  /** Which way along the rim the window's middle is from the landing: +1 clockwise, -1 back. */
+  inward: 1 | -1
 }
 
 const add = (a: Point, b: Point, k = 1): Point => [a[0] + b[0] * k, a[1] + b[1] * k]
@@ -33,10 +35,15 @@ export function rimLength(portal: Rect, r = PORTAL_RADIUS) {
   return 2 * (w - 2 * r) + 2 * (h - 2 * r) + 4 * (Math.PI / 2) * r
 }
 
+/** How far each stream turns from its chord at either end: one bend, the same for all, so the fan reads as a family. */
+const BEND = (13 * Math.PI) / 180
+
 /**
- * Lays every stream out from where its mark and the window are right now. Each is one cubic: it
- * leaves its socket's ring pointing where it is going and arrives square to the window's top edge,
- * so the light lands in the frame rather than grazing it.
+ * Lays every stream out from where its mark and the window are right now. Each is a single bend —
+ * a cubic whose ends turn the same angle either side of its chord, so it has no inflection — that
+ * leaves its socket's ring and lands on the window's top edge leaning in toward the window's middle.
+ * On a wide screen the landings of each side cluster at one shoulder of the window, so a side's
+ * streams converge on it; in the row they fall nearly straight, gathered in a little.
  */
 export function layoutStreams(portal: Rect, marks: readonly (Rect | undefined)[], width: number): (StreamLayout | null)[] {
   const [left, top, w] = portal
@@ -47,25 +54,26 @@ export function layoutStreams(portal: Rect, marks: readonly (Rect | undefined)[]
     if (!rect || rect[2] <= 0 || w <= 0) return null
     const r = rect[2] / 2
     const c: Point = [rect[0] + r, rect[1] + rect[3] / 2]
-    let land: Point
-    let exit: Point
-    if (row) {
-      land = [centre + (c[0] - centre) * 0.74, top]
-      exit = [0, 1]
-    } else {
-      const x = agent.side === "left" ? left + agent.land * w : left + w - agent.land * w
-      land = [x, top]
-      exit = unit(add(unit(sub(land, c)), [0, 1]))
-    }
-    // Every stream arrives leaning toward one point deep in the window, so together they read as
-    // converging on it rather than hanging off its edge.
-    const lean = ((centre - land[0]) / (w / 2)) * 0.42
-    const arrive: Point = [Math.sin(lean), Math.cos(lean)]
-    const p0 = add(c, exit, r + 0.5)
+    const land: Point = row
+      ? [centre + (c[0] - centre) * 0.74, top]
+      : [agent.side === "left" ? left + agent.land * w : left + w - agent.land * w, top]
+    // Angles from straight down, toward the window's middle.
+    const inward = land[0] >= c[0] ? 1 : -1
+    const dir = (angle: number): Point => [inward * Math.sin(angle), Math.cos(angle)]
+    const chord = Math.atan2(Math.abs(land[0] - c[0]), Math.max(land[1] - c[1], 1))
+    const bend = row ? BEND * 0.6 : BEND
+    const leave = dir(chord + bend)
+    const arrive = dir(Math.max(chord - bend, 0))
+    const p0 = add(c, leave, r + 0.5)
     const span = len(sub(land, p0))
-    const p1 = add(p0, exit, span * (row ? 0.45 : 0.36))
-    const p2 = add(land, arrive, -span * (row ? 0.45 : 0.46))
-    return { curve: [p0, p1, p2, land], landU: land[0] - (left + PORTAL_RADIUS), mark: [c[0], c[1], r] }
+    const p1 = add(p0, leave, span * 0.35)
+    const p2 = add(land, arrive, -span * 0.35)
+    return {
+      curve: [p0, p1, p2, land],
+      landU: land[0] - (left + PORTAL_RADIUS),
+      mark: [c[0], c[1], r],
+      inward: land[0] < centre ? 1 : -1,
+    }
   })
 }
 
@@ -107,3 +115,18 @@ export function measure(curve: Curve, p: Point) {
 
 export const pathOf = ([a, b, c, d]: Curve) =>
   `M${a[0].toFixed(1)} ${a[1].toFixed(1)}C${b[0].toFixed(1)} ${b[1].toFixed(1)} ${c[0].toFixed(1)} ${c[1].toFixed(1)} ${d[0].toFixed(1)} ${d[1].toFixed(1)}`
+
+/** The share of a curve's length at t = 1/4, 1/2 and 3/4, and the whole length — the shader's arc table. */
+export function arcTable(curve: Curve): [number, number, number, number] {
+  const marks: number[] = []
+  let prev = curve[0]
+  let length = 0
+  for (let k = 1; k <= 32; k++) {
+    const cur = pointAt(curve, k / 32)
+    length += Math.hypot(cur[0] - prev[0], cur[1] - prev[1])
+    if (k % 8 === 0) marks.push(length)
+    prev = cur
+  }
+  const total = length || 1
+  return [marks[0]! / total, marks[1]! / total, marks[2]! / total, length]
+}

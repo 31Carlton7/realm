@@ -19,15 +19,15 @@ export type StreamAgent = {
 }
 
 export const AGENTS: readonly StreamAgent[] = [
-  { id: "claude", name: "Claude Code", side: "left", dx: 44, dy: 356, land: 0.275 },
-  { id: "openai", name: "Codex", side: "left", dx: 96, dy: 282, land: 0.25 },
-  { id: "cursor", name: "Cursor", side: "left", dx: 122, dy: 208, land: 0.225 },
-  { id: "gemini", name: "Gemini", side: "left", dx: 122, dy: 136, land: 0.2 },
-  { id: "opencode", name: "OpenCode", side: "left", dx: 98, dy: 66, land: 0.175 },
-  { id: "githubCopilot", name: "GitHub Copilot", side: "right", dx: 70, dy: 320, land: 0.26 },
-  { id: "goose", name: "goose", side: "right", dx: 114, dy: 244, land: 0.235 },
-  { id: "qwen", name: "Qwen Code", side: "right", dx: 126, dy: 168, land: 0.21 },
-  { id: "grok", name: "Grok", side: "right", dx: 106, dy: 94, land: 0.185 },
+  { id: "claude", name: "Claude Code", side: "left", dx: 70, dy: 316, land: 0.275 },
+  { id: "openai", name: "Codex", side: "left", dx: 112, dy: 248, land: 0.25 },
+  { id: "cursor", name: "Cursor", side: "left", dx: 132, dy: 180, land: 0.225 },
+  { id: "gemini", name: "Gemini", side: "left", dx: 128, dy: 114, land: 0.2 },
+  { id: "opencode", name: "OpenCode", side: "left", dx: 102, dy: 52, land: 0.175 },
+  { id: "githubCopilot", name: "GitHub Copilot", side: "right", dx: 96, dy: 296, land: 0.26 },
+  { id: "goose", name: "goose", side: "right", dx: 128, dy: 222, land: 0.235 },
+  { id: "qwen", name: "Qwen Code", side: "right", dx: 138, dy: 150, land: 0.21 },
+  { id: "grok", name: "Grok", side: "right", dx: 118, dy: 82, land: 0.185 },
 ]
 
 export const STREAM_COUNT = AGENTS.length
