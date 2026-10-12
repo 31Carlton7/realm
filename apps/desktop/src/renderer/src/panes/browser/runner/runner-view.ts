@@ -249,6 +249,8 @@ export class RunnerView {
       if (e === "over") {
         this.state = "over";
         this.held = false;
+        // The last frame holds still, so a sparkle caught mid-flight would hang there: let them go.
+        this.effects = [];
         const best = nextBest(this.best, score(this.run));
         if (best !== this.best) { this.best = best; writeStore(BEST_KEY, String(best)); }
         this.emit();
