@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { AGENT_META, itemIdOfLeaf, type AgentKind, type Space } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { age } from "../../panes/code-review/code-review-model";
@@ -9,7 +9,7 @@ import { RenameInput } from "../RenameInput";
 import { SpaceIcon } from "../SpaceIcon";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { ItemGlyph } from "./ItemList";
-import { tallyWords, type FanOutRow, type ListRow, type SessionRow } from "./model";
+import { sameRow, tallyWords, type FanOutRow, type ListRow, type SessionRow } from "./model";
 import { SessionRowView, TallyMarks, sessionWords, useOpenSessionRow } from "./SessionRows";
 import { useArchiveAnywhere, useSpaceTint } from "./use-sidebar-model";
 
@@ -18,13 +18,13 @@ import { useArchiveAnywhere, useSpaceTint } from "./use-sidebar-model";
  * what on its second. `usual` is the agent most of the space's sessions run on, so a card names its
  * agent only where it is not that one.
  */
-export function ActivityCardView({ row, space, usual, now, onChanged }: {
+export const ActivityCardView = memo(function ActivityCardView({ row, space, usual, now, onChanged }: {
   row: ListRow; space: Space | undefined; usual: AgentKind | null; now: number; onChanged: () => void;
 }) {
   return row.kind === "session"
     ? <ActivityCard row={row} space={space} usual={usual} now={now} onChanged={onChanged} />
     : <FanOutCard row={row} space={space} now={now} onChanged={onChanged} />;
-}
+}, (a, b) => a.space === b.space && a.usual === b.usual && a.now === b.now && a.onChanged === b.onChanged && sameRow(a.row, b.row));
 
 /**
  * A session in the Activity view (the owner, 10-12: "how long ago the message was sent, … the icon of

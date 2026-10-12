@@ -10,6 +10,7 @@
  * local `Date` rather than by dividing epoch milliseconds: days are not all 86,400,000 ms long, and a
  * feed that thought so would mislabel every row on the two days a year that clocks change.
  */
+import { dateFormat } from "../../panes/session/timestamps";
 
 /** Midnight at the start of `ts`'s local day. */
 function startOfLocalDay(ts: number): number {
@@ -36,9 +37,9 @@ export function dayLabel(ts: number, now: number): string {
   if (days <= 0) return "Today";
   if (days === 1) return "Yesterday";
   const d = new Date(ts);
-  if (days < 7) return d.toLocaleDateString(undefined, { weekday: "long" });
+  if (days < 7) return dateFormat({ weekday: "long" }).format(d);
   const sameYear = d.getFullYear() === new Date(now).getFullYear();
-  return d.toLocaleDateString(undefined, sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" });
+  return dateFormat(sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" }).format(d);
 }
 
 export type DayGroup<T> = { key: number; label: string; rows: T[] };
@@ -88,7 +89,7 @@ export function bucketOf(ts: number, now: number): { key: number; label: string 
   const d = new Date(ts);
   const first = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
   const sameYear = d.getFullYear() === new Date(now).getFullYear();
-  return { key: first, label: d.toLocaleDateString(undefined, sameYear ? { month: "long" } : { month: "long", year: "numeric" }) };
+  return { key: first, label: dateFormat(sameYear ? { month: "long" } : { month: "long", year: "numeric" }).format(d) };
 }
 
 /** `bucketOf`'s label alone. */

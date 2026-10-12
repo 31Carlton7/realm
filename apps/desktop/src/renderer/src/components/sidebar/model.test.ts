@@ -3,7 +3,7 @@ import type { Item, Session, SessionStatus } from "@realm/contracts";
 import { item, profile, session, space } from "../../state/store.test-fakes";
 import {
   agentsWaiting, attentionRank, FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
-  rowsBySpace, sectionView, spaceRows, spaceTally, tallyOf, tallyWords, type SessionRow, type SidebarState,
+  rowsBySpace, sameRow, sectionView, spaceRows, spaceTally, tallyOf, tallyWords, type SessionRow, type SidebarState,
 } from "./model";
 
 const NOW = new Date(2026, 9, 4, 15, 0).getTime();
@@ -407,5 +407,31 @@ describe("a sub-agent's request rolls up onto its lead", () => {
     const rows = rowsBySpace(listedSessions(s())).get("hw")!;
     expect(attentionRank(rows.find((r) => r.id === "lead")!)).toBe(0);
     expect(rows.map((r) => r.id).indexOf("lead")).toBeLessThan(rows.map((r) => r.id).indexOf("quiet"));
+  });
+});
+
+describe("sameRow — whether a rebuilt row draws the same", () => {
+  it("holds for a row rebuilt from the same store, and breaks on the one session that moved", () => {
+    // THE MUTANT: `a.at === b.at` dropped from the comparison — a session that just spoke keeps its old "5m".
+    const before = seed([{ id: "a", space: "hw" }, { id: "b", space: "hw" }]);
+    const rows1 = listedSessions(before);
+    const after = { ...before, sessionActivityAt: { ...before.sessionActivityAt, b: NOW + MIN } };
+    const rows2 = listedSessions(after);
+    const pick = (rows: SessionRow[], id: string) => rows.find((r) => r.id === id)!;
+    expect(pick(rows2, "a")).not.toBe(pick(rows1, "a"));
+    expect(sameRow(pick(rows1, "a"), pick(rows2, "a"))).toBe(true);
+    expect(sameRow(pick(rows1, "b"), pick(rows2, "b"))).toBe(false);
+  });
+
+  it("breaks when the status or the session's own row changes, and compares a fan-out by its sessions", () => {
+    // THE MUTANT: `a.session === b.session` dropped — a renamed agent or a new event would not redraw.
+    const s = seed([{ id: "a", space: "hw" }]);
+    const [row] = listedSessions(s) as [SessionRow];
+    expect(sameRow(row, { ...row, status: "running" })).toBe(false);
+    expect(sameRow(row, { ...row, session: { ...row.session! } })).toBe(false);
+    const fan = { kind: "fan-out" as const, id: "fan-out:a", title: "t", spaceId: "hw", sessions: [row], at: NOW, tally: { waiting: 0, running: 0, failed: 0, unread: 0 } };
+    expect(sameRow(fan, { ...fan, sessions: [{ ...row }], tally: { ...fan.tally } })).toBe(true);
+    expect(sameRow(fan, { ...fan, tally: { ...fan.tally, running: 1 } })).toBe(false);
+    expect(sameRow(fan, row)).toBe(false);
   });
 });

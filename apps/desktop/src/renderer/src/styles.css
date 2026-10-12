@@ -6665,6 +6665,10 @@ select { appearance: none; padding-right: 22px;
    view inside it stretches past the end. `translate`, so it composes with any `transform` a child is
    already animating (a transcript block's entrance) instead of replacing it. */
 [data-rubber] > * { translate: 0 var(--rubber, 0px); }
+/* Not inherited: the offset is written on each child it moves (rubber-band.ts), so a frame of a
+   stretch restyles those children and not every element inside them. Unregistered, a custom property
+   inherits, and a write anywhere above a long list restyles all of it. */
+@property --rubber { syntax: "<length>"; inherits: false; initial-value: 0px; }
 
 /* ── Motion (§6): the whole easing/duration table, applied app-wide ───────── */
 /* A leaf's item changing IS content entering, not the "pane focus switching" §6 keeps instant — the

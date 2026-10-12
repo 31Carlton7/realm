@@ -90,6 +90,28 @@ export type FanOutRow = {
 
 export type ListRow = SessionRow | FanOutRow;
 
+/**
+ * Whether two rows draw the same. The rows are rebuilt on every store write the sidebar reads — an
+ * event in any one session moves `sessions` — so a row's object is new on every write while what it
+ * says almost never is. A row's view compares with this instead of by identity, so a write redraws
+ * the rows it changed and not the 170 beside them, which a list being scrolled while agents work
+ * cannot afford.
+ */
+export function sameRow(a: ListRow, b: ListRow): boolean {
+  if (a === b) return true;
+  if (a.kind === "session" && b.kind === "session") {
+    return a.id === b.id && a.item === b.item && a.session === b.session && a.title === b.title && a.spaceId === b.spaceId
+      && a.status === b.status && a.unread === b.unread && a.scheduled === b.scheduled && a.at === b.at && a.createdAt === b.createdAt
+      && a.agentsWaiting === b.agentsWaiting && a.firstWaiting === b.firstWaiting;
+  }
+  if (a.kind === "fan-out" && b.kind === "fan-out") {
+    return a.id === b.id && a.title === b.title && a.spaceId === b.spaceId && a.at === b.at
+      && a.tally.waiting === b.tally.waiting && a.tally.running === b.tally.running && a.tally.failed === b.tally.failed && a.tally.unread === b.tally.unread
+      && a.sessions.length === b.sessions.length && a.sessions.every((s, i) => sameRow(s, b.sessions[i]!));
+  }
+  return false;
+}
+
 /** What is going on among some sessions, by state. */
 export type Tally = { waiting: number; running: number; failed: number; unread: number };
 

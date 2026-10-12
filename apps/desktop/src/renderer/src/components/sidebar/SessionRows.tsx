@@ -1,12 +1,12 @@
 import { Icon } from "@realm/ui";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { AGENT_META, itemIdOfLeaf, type Item } from "@realm/contracts";
 import { sessionMark } from "../../state/attention";
 import { useApp } from "../../state/store";
 import { RenameInput } from "../RenameInput";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { ItemGlyph } from "./ItemList";
-import { tallyWords, type FanOutRow, type ListRow, type SessionRow, type Tally } from "./model";
+import { sameRow, tallyWords, type FanOutRow, type ListRow, type SessionRow, type Tally } from "./model";
 import { useArchiveAnywhere } from "./use-sidebar-model";
 
 /**
@@ -35,11 +35,11 @@ export function TallyMarks({ tally }: { tally: Tally }) {
 
 /** One row of the list, whichever kind it is. `where` names its space (Recent); `nested` lays it out
  *  under a section's head, its title on the space's name. */
-export function ListRowView({ row, where, nested = false, onChanged }: { row: ListRow; where?: string; nested?: boolean; onChanged: () => void }) {
+export const ListRowView = memo(function ListRowView({ row, where, nested = false, onChanged }: { row: ListRow; where?: string; nested?: boolean; onChanged: () => void }) {
   return row.kind === "session"
     ? <SessionRowView row={row} where={where} nested={nested} onChanged={onChanged} />
     : <FanOutRowView row={row} where={where} nested={nested} onChanged={onChanged} />;
-}
+}, (a, b) => a.where === b.where && a.nested === b.nested && a.onChanged === b.onChanged && sameRow(a.row, b.row));
 
 /** What a session row says about itself: its state's mark, its sub-agents' request in words, and the
  *  whole of it as the row's accessible name — one sentence whichever shape the row is drawn in. */

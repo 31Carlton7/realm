@@ -1197,8 +1197,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // A PDF page's scale (PdfView.tsx), set inline per page: pdf.js's text layer sizes every run of
       // text from it, so the selectable text stays over the drawn glyphs at any zoom.
       "--total-scale-factor",
-      // The rubber-band's offset (rubber-band.ts): written on the scroller per wheel event and per
-      // spring frame, and only while the content is past an end.
+      // The rubber-band's offset (rubber-band.ts): written on the scroller's children per wheel event
+      // and per spring frame, and only while the content is past an end.
       "--rubber",
       // The decorative wash's geometry (theme/grain.ts): drawn once per launch per surface and set
       // inline, because a value that is randomised cannot be written in a stylesheet. Every one is
@@ -4701,6 +4701,12 @@ describe("the Mac idiom, continued", () => {
   it("rubber-bands a scroller's content, not the scroller", () => {
     expect(bodiesFor("[data-rubber] > *").join(" ")).toContain("translate: 0 var(--rubber, 0px)");
     expect(RULES.filter((r) => r.selectors.includes("[data-rubber]"))).toEqual([]);
+  });
+
+  /* THE mutant: `inherits: true` (or the registration dropped). The offset would flow into every
+     element of a list being stretched, and each spring frame would restyle all of it. */
+  it("keeps the rubber-band's offset from inheriting", () => {
+    expect(css).toMatch(/@property\s+--rubber\s*\{[^}]*inherits:\s*false/);
   });
 });
 
