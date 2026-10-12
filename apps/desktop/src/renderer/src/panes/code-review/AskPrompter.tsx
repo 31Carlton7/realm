@@ -94,6 +94,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by the request
   }, [key]);
 
+  const starts = owner?.agentKind ?? pick.agentKind;
   const ask = (text: string) => run(async () => {
     if (!place) return;
     setSends((n) => n + 1);
@@ -101,7 +102,6 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
     setAsking(true);
     try {
       const sent = attachments;
-      const starts = owner?.agentKind ?? pick.agentKind;
       const r = await codeReview.ask({ ref: pr, spaceId: place.spaceId, projectId: place.projectId, agentKind: starts, model: pick.model,
         effort: pick.effort, fastMode: pick.fastMode, ...(carriesUltracode(pick, starts) ? { ultracode: true } : {}), permissionMode: pick.permissionMode,
         text, human: true, attachments: sent.map(({ path, mime }) => ({ path, mime })) });
@@ -170,7 +170,7 @@ export function AskPrompter({ pr, detail, place, places, onPlace }: {
         canSwitchAgent={!continuing}
         agentProbe={agentProbe} modelFavorites={modelFavorites} modelInfo={modelInfo}
         onToggleModelFavorite={(k) => run(() => toggleModelFavorite(k))}
-        sessionInit={continuing ? entry?.t.init ?? null : null} fastSupport={fastSupport} effortSupport={effortSupport} submitKey={submitKey} />
+        sessionInit={continuing ? entry?.t.init ?? null : null} sendKind={starts} fastSupport={fastSupport} effortSupport={effortSupport} submitKey={submitKey} />
     </section>
   );
 }

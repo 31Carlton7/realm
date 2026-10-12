@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { allItems, sessionEvent } from "@realm/contracts";
 import { reduceAll } from "../panes/session/transcript-model";
 import { QuickChat } from "./QuickChat";
@@ -84,7 +84,7 @@ describe("the quick chat", () => {
     expect(w.getByRole("button", { name: "Add" })).toBeInTheDocument();
   });
 
-  it("says in its prompter that a typed keyword starts a workflow, for as long as the draft holds the word", async () => {
+  it("speaks in its prompter of the workflow a typed keyword asks for, for as long as the draft holds the word", async () => {
     const { api } = await mount();
     const box = within(await openChat()).getByRole("textbox", { name: "Message" });
     expect(api.calls).toContain("createUnlistedSession:claude");
@@ -92,6 +92,18 @@ describe("the quick chat", () => {
     expect(chat().querySelector(".composer-keyword-note")).not.toBeNull();
     expect(chat().querySelector(".composer-highlight > .ch-keyword")).toHaveTextContent("ultracode");
     fireEvent.change(box, { target: { value: "what changed today" } });
+    expect(chat().querySelector(".composer-keyword-note")).toBeNull();
+    expect(chat().querySelector(".composer-highlight > .ch-keyword")).toBeNull();
+  });
+
+  it("draws nothing for a typed keyword once the chat's own harness has said it does not read the keyword", async () => {
+    const { store } = await mount();
+    await openChat();
+    const { sessionId } = store.getState().quickChat!;
+    act(() => store.setState({ transcripts: { [sessionId]: { lastSeq: 1, t: reduceAll([
+      sessionEvent("init", { providerSessionId: "p1", model: "claude-opus-5", tools: [], cwd: "/tmp", ultracodeKeyword: false }),
+    ]) } } }));
+    fireEvent.change(within(chat()).getByRole("textbox", { name: "Message" }), { target: { value: "ultracode what changed today" } });
     expect(chat().querySelector(".composer-keyword-note")).toBeNull();
     expect(chat().querySelector(".composer-highlight > .ch-keyword")).toBeNull();
   });

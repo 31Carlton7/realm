@@ -424,7 +424,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, betweenTurns = false, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, betweenTurns = false, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, sendKind, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * Whether the session's last status said it is between turns (the transcript's `betweenTurns`).
@@ -586,6 +586,12 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
    *  prompter with no session behind it yet passes none, because another session's answers are not
    *  this one's. */
   sessionInit?: { model: string; supportsFastMode?: boolean; ultracodeAvailable?: boolean; ultracodeKeyword?: boolean; efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
+  /** The agent the next send starts on, where that is not `session`'s own. Code review's question
+   *  box hands it over. Its card draws the agent picked for a new session, and a first question can
+   *  start on the agent of the request's earlier thread. Only the rule for the keyword `ultracode`
+   *  reads it, because that rule answers for what the send will do, and everything the card draws
+   *  stays the session's. Absent, it is the session's agent. */
+  sendKind?: AgentKind;
   /** What harnesses have said about fast mode, per agent and model (`MODEL_FAST_SUPPORT_KEY`) — how
    *  a session that has not started can offer the switch on the harness's word. */
   fastSupport?: Record<string, boolean>;
@@ -729,9 +735,10 @@ export function Composer({ session, status, betweenTurns = false, gitInfo, onOpe
   const ultracode: Ultracode | undefined = ultracodeState.state === "none" ? undefined
     : { on: session.ultracode === true, onChange: (on) => onOptions({ ultracode: on }), availability: ultracodeState };
   const ultracodeInForce = ultracode !== undefined && ultracodeShown(ultracode);
-  const keyword = useMemo(() => ultracodeKeywordHint({ kind, permissionMode: session.permissionMode, model: session.model, init: sessionInit,
-    inForce: ultracodeInForce, draft, skillMention: scanMentions(draft, mentionSkills.map((s) => s.id)).length > 0 }),
-    [kind, session.permissionMode, session.model, sessionInit, ultracodeInForce, draft, mentionSkills]);
+  const keywordKind = sendKind ?? kind;
+  const keyword = useMemo(() => ultracodeKeywordHint({ kind: keywordKind, permissionMode: session.permissionMode, init: sessionInit,
+    inForce: ultracodeInForce, draft, skillMention: scanMentions(draft, mentionSkills.map((s) => s.id)).length > 0, links }),
+    [keywordKind, session.permissionMode, sessionInit, ultracodeInForce, draft, mentionSkills, links]);
   const keywordNoteId = useId();
   const describedBy = [hint ? hintId : null, keyword ? keywordNoteId : null].filter(Boolean).join(" ") || undefined;
   const segments = useMemo(() => highlightSegments(draft, liveMentionIds, staleMentions, commandIds, keyword?.hits),

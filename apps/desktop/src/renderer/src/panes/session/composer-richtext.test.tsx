@@ -153,6 +153,13 @@ describe("the prompter's rich-text mirror", () => {
     expect(document.querySelector(".composer-keyword-note")).toBeNull();
   });
 
+  it("paints no keyword and draws no line about it when the skill is mentioned after the word, because a mention counts wherever it stands in the draft", async () => {
+    await mount();
+    type("ultracode this with @mac");
+    expect(painted()).toEqual([["ch-mention", "@mac"]]);
+    expect(document.querySelector(".composer-keyword-note")).toBeNull();
+  });
+
   it("paints the keyword in a draft that names a skill that is switched off, which goes as plain words", async () => {
     await mount();
     type("@web ultracode this");
@@ -509,6 +516,16 @@ describe("a pasted link", () => {
     fireEvent.keyDown(box(), { key: "Enter" });
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("sendMessage:se1="))).toBe(true));
     expect(api.calls.find((c) => c.startsWith("sendMessage:se1="))).toBe("sendMessage:se1=[ENG-123](https://linear.app/acme/issue/ENG-123/fix-the-login-flow) please fix");
+  });
+
+  it("is read as the link it is sent as when the prompter looks for the keyword, so a word left outside the person's parenthesis by that link is coloured where it stands in the draft", async () => {
+    const { store } = await mount();
+    paste("https://github.com/acme/app/pull/12");
+    await waitFor(() => expect(store.getState().drafts.se1).toBe("@[acme/app#12] "));
+    type("Check the fix (see @[acme/app#12], run ultracode) first");
+    expect(painted()).toEqual([["ch-element", "@[acme/app#12]"], ["ch-keyword", "ultracode"]]);
+    expect(mirror().textContent).toBe("Check the fix (see @[acme/app#12], run ultracode) first");
+    expect(document.querySelector(".composer-keyword-note")).not.toBeNull();
   });
 
   it("to anywhere else stays a paste", async () => {

@@ -430,7 +430,7 @@ describe("the prompter docked under it", () => {
     expect(store.getState().sessions[api.sent[0]!.id]).not.toHaveProperty("ultracode");
   });
 
-  it("says in the viewer's prompter that a typed keyword starts a workflow, for as long as the draft holds the word", async () => {
+  it("speaks in the viewer's prompter of the workflow a typed keyword asks for, for as long as the draft holds the word", async () => {
     bridge([media("/x/orphan.png")]);
     const { store } = await mount([]);
     act(() => store.getState().openViewer({ files: [{ path: "/x/orphan.png",
@@ -441,6 +441,17 @@ describe("the prompter docked under it", () => {
     expect(dialog.querySelector(".composer-keyword-note")).not.toBeNull();
     expect(dialog.querySelector(".composer-highlight > .ch-keyword")).toHaveTextContent("ultracode");
     fireEvent.change(box, { target: { value: "redraw this" } });
+    expect(dialog.querySelector(".composer-keyword-note")).toBeNull();
+    expect(dialog.querySelector(".composer-highlight > .ch-keyword")).toBeNull();
+  });
+
+  it("draws nothing for a typed keyword when the session the file came from runs on Codex, whose harness reads no such word", async () => {
+    bridge([media("/work/hero.png")]);
+    await mount([media("/work/hero.png")], { sessions: [session("lead", "s1", { title: "Logo rework", cwd: "/work", agentKind: "codex" })] });
+    fireEvent.click(await screen.findByRole("button", { name: "Open hero.png larger" }));
+    const dialog = await screen.findByRole("dialog", { name: "hero.png" });
+    expect(within(dialog).getByRole("button", { name: "Logo rework" })).toBeInTheDocument();
+    fireEvent.change(prompter(), { target: { value: "ultracode redraw this" } });
     expect(dialog.querySelector(".composer-keyword-note")).toBeNull();
     expect(dialog.querySelector(".composer-highlight > .ch-keyword")).toBeNull();
   });

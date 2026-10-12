@@ -180,8 +180,10 @@ export type Transcript = {
     ultracodeAvailable?: boolean;
     /** Whether the harness says it reads the keyword `ultracode` in this session's messages (the
      *  event's `ultracodeKeyword`). Undefined is "not answered". It arrives in the restatement that
-     *  carries `ultracodeAvailable`, and the reducer carries it across an `init` for the same model
-     *  on the same terms. */
+     *  carries `ultracodeAvailable`, and the reducer carries it across every later `init` that says
+     *  nothing of it, one for another model included. The harness reads the keyword where workflows
+     *  are enabled and the keyword's trigger is on, whatever the model, so the answer is about the
+     *  session and a change of model leaves it standing. */
     ultracodeKeyword?: boolean;
     /** THIS session's own reasoning levels (an ACP `thought_level` option) and the one it started on. */
     efforts?: { id: string; label: string }[]; defaultEffort?: string } | null;
@@ -539,8 +541,10 @@ function reduceEvent(t: Transcript, e: SessionEvent, markUnseen: boolean, seq: n
     // that hard-won answer with silence, and the prompter's Speed control would disappear mid-session
     // for no reason the user could see: the "shows up occasionally" this fixes. So the answer
     // survives a restatement of the SAME model, and only that — on a different model it describes
-    // something else and has to be earned again. `ultracodeAvailable` and `ultracodeKeyword` are
-    // the other exceptions, kept on the same terms (see `Transcript.init`).
+    // something else and has to be earned again. `ultracodeAvailable` is the second exception, kept
+    // on the same terms. `ultracodeKeyword` is the third, and it survives a restatement for ANY
+    // model, because the harness reads the keyword by its settings, whatever the model. That
+    // answer is about the session (see `Transcript.init`).
     //
     // `??` and not `||`: `false` is an answer ("this model cannot"), and the switch stays hidden on
     // it just as it does on silence — but it must not be mistaken for "not stated" and re-inherited
@@ -549,7 +553,7 @@ function reduceEvent(t: Transcript, e: SessionEvent, markUnseen: boolean, seq: n
       const sameModel = t.init?.model === e.payload.model;
       const fast = e.payload.supportsFastMode ?? (sameModel ? t.init?.supportsFastMode : undefined);
       const ultracode = e.payload.ultracodeAvailable ?? (sameModel ? t.init?.ultracodeAvailable : undefined);
-      const keyword = e.payload.ultracodeKeyword ?? (sameModel ? t.init?.ultracodeKeyword : undefined);
+      const keyword = e.payload.ultracodeKeyword ?? t.init?.ultracodeKeyword;
       return { ...t, init: { model: e.payload.model, tools: e.payload.tools, providerSessionId: e.payload.providerSessionId,
         ...(e.payload.availableModes ? { availableModes: e.payload.availableModes } : {}),
         ...(e.payload.efforts ? { efforts: e.payload.efforts, ...(e.payload.defaultEffort ? { defaultEffort: e.payload.defaultEffort } : {}) } : {}),

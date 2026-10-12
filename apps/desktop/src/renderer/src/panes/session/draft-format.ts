@@ -45,13 +45,15 @@ export type SegmentKind =
    */
   | "slash"
   /**
-   * The word `ultracode`, where the harness will read it and plan the turn as a workflow.
+   * The word `ultracode`, where the harness reads it and plans the turn as a workflow, or where the
+   * session's first turn has yet to settle whether it does.
    *
    * The mirror does not look for the word. The Composer hands `highlightSegments` the hits, and
-   * only when its own rule says that sending this draft would act on them (`ultracodeKeywordHint`),
-   * for the reason `mention` is gated on the skill resolving. It is not a chip: the word is prose
-   * and stays prose, so the run is painted and never taken whole. It has the last rank, and any
-   * other kind keeps a word that lies inside it: a URL, a code run, a chip's label.
+   * only when its own rule speaks of them for this draft (`ultracodeKeywordHint`), for the reason
+   * `mention` is gated on the skill resolving. It is not a chip: the word is prose and stays
+   * prose, so the run is painted and never taken whole. It has the last rank, so a run of any
+   * other kind that starts on the same character wins. A word that lies inside a URL, a code run
+   * or a chip's label stays that run's for another reason, which is that the run starts first.
    */
   | "keyword";
 
@@ -99,7 +101,7 @@ function urlEnd(text: string, start: number, raw: string): number {
  * prompter has that command, so the colour means "this will run" rather than "this looks like it
  * might". Empty is the ordinary case for a session whose commands have not loaded.
  *
- * `keywordHits` are the places where the keyword `ultracode` will act, in offsets of this text, as
+ * `keywordHits` are the places where the keyword `ultracode` counts, in offsets of this text, as
  * the Composer's rule worked them out. Empty is the ordinary case, and then no run is painted for
  * the word, however often the text holds it.
  */

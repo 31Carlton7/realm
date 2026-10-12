@@ -761,8 +761,8 @@ describe("the harness's answer about the keyword", () => {
     expect(reduceAll([init({ ultracodeKeyword: true }), init({ supportsFastMode: true })]).init).toMatchObject({ supportsFastMode: true, ultracodeKeyword: true });
   });
 
-  it("does not survive a handshake for another model, on the terms the answer about Ultracode is kept on", () => {
-    expect(reduceAll([init({ ultracodeKeyword: false }), init({ model: "claude-sonnet-5" })]).init).not.toHaveProperty("ultracodeKeyword");
+  it("survives a handshake for another model that says nothing of the keyword, because the harness reads the keyword whatever the model", () => {
+    expect(reduceAll([init({ ultracodeKeyword: false }), init({ model: "claude-sonnet-5" })]).init).toMatchObject({ model: "claude-sonnet-5", ultracodeKeyword: false });
   });
 
   it("gives way to a later answer about the keyword for the same model", () => {

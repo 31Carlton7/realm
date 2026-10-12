@@ -30,13 +30,16 @@
  *    3. With the session's Ultracode option on, the first request carries Claude Code's notice that
  *       Ultracode is on, with no keyword typed, and `init` says whether the session can run it.
  *       With the option switched off again, the next request says that it is off.
- *    4. One session is sent a list of texts, one a turn and each as a person's own, that between
- *       them try every rule of the keyword's scanner. A turn's request carries Claude Code's notice
- *       exactly where Realm's copy of the scanner finds the word in that turn's text, and `init`
- *       says that the harness reads the keyword.
+ *    4. One session is sent a list of texts, one a turn and each as a person's own. Between them
+ *       they try some of the rules of the keyword's scanner and not all of them. `KEYWORD_TEXTS`
+ *       names the rules they try, and the main ones they leave to the unit tests. A turn's
+ *       request carries Claude Code's notice exactly where Realm's copy of the scanner finds the
+ *       word in that turn's text, and `init` says that the harness reads the keyword.
  *
- * It writes nothing outside its own temp folders, and refuses to run when they would sit inside
- * your home folder, for the reason `live-workflow-check.ts` gives.
+ * It writes nothing outside its own temp folders, which have to sit outside your home folder, for
+ * the reason `live-workflow-check.ts` gives. Symlinks are resolved before that is judged, since
+ * Claude Code works in the folder a path leads to. Where `TMPDIR` leads into the home folder the
+ * check uses `/tmp` instead, and where that does too it refuses to run.
  *
  *   pnpm --filter @realm/server exec tsx scripts/live-ultracode-check.ts
  *
@@ -79,26 +82,52 @@ const SKILL = { id: "probe-skill", mark: "PINEAPPLE-7f3a" } as const;
 const NAMED_FILE = "review ultracode draft.pdf";
 
 /** The texts the fourth scenario sends, one a turn, each as a person's own. Between them they try
- *  every rule of the scanner that Realm's prompter mirrors (`scanUltracodeKeyword`): the word plain,
- *  capitalised, in quotes, in backticks, in brackets, between hyphens, in a path, before a question
- *  mark, before a dot and an extension, after a leading slash, with an apostrophe, after a quote
- *  that never closes, as a tag, and twice. The first one counts. Its notice is then in the history
- *  that every later request carries, so a check that read more of a request than its own turn would
- *  find a notice for each text after it. */
+ *  the rules named here of the scanner that Realm's prompter mirrors (`scanUltracodeKeyword`), and
+ *  for each of those rules the answer to one of the texts changes when the rule goes. In the
+ *  list's order they are the word plain, capitalised, and with a letter joined to its end. The
+ *  word in double quotes, in backticks, in round, square and curly brackets, and as a tag, and the
+ *  word after a less-than sign that opens no tag. The straight single quote three ways: as a span
+ *  that follows an apostrophe, as an apostrophe that opens no span, and as one that closes none.
+ *  A quote that never closes, and a pair of brackets inside an open pair, which ends the span
+ *  because spans do not nest. A hyphen on both sides of the word, then before it alone and after
+ *  it alone, and a slash the same three ways. A backslash after the word, a question mark after
+ *  it, a dot and an extension after it, and a slash that leads the text. Last, the word twice,
+ *  once inside a span.
+ *
+ *  The list does not try every rule. The unit tests alone hold the ones it leaves out, among them
+ *  a square bracket that moves the start of an open span, a tag that `</` opens, an opener that
+ *  never closes passing over the openers after it, a backslash before the word, a digit or an
+ *  underscore joined to the word, a dot that ends a sentence, typographic quotes, and the letters
+ *  and numbers outside ASCII that are judged beside a quote and after a dot.
+ *
+ *  The first text counts. Its notice is then in the history that every later request carries, so a
+ *  check that read more of a request than its own turn would find a notice for each text after it. */
 const KEYWORD_TEXTS = [
   "ultracode say hi",
   "Ultracode: make it blue",
+  "ultracoded it",
   '"ultracode" is the keyword',
   "`ultracode` is the keyword",
   "(ultracode) fix the bug",
+  "[ultracode] is the keyword",
+  "{ultracode} review this",
+  "<ultracode> is the keyword",
+  "x < 5 so use ultracode > y",
+  "it's 'ultracode' time",
+  "don't use ultracode' now 'x",
+  "'it's ultracode' x",
+  'he said "use ultracode for this',
+  "(a (b) ultracode)",
   "the-ultracode-branch",
+  "branch-ultracode",
+  "ultracode-branch",
   "open src/ultracode/index.ts",
+  "feature/ultracode",
+  "ultracode/realm",
+  "ultracode\\",
   "what is ultracode?",
   "open ultracode.md",
   "/tmp/notes.txt mentions ultracode",
-  "check ultracode's output",
-  'he said "use ultracode for this',
-  "<ultracode> is the keyword",
   '"ultracode" ultracode',
 ] as const;
 
@@ -302,11 +331,24 @@ function requestLine(body: MessagesRequest): Seen {
   return { type: "asked", texts: textsOf(messages), own: textsOf(messages.slice(spoke + 1)), picture: messages.some((m) => Array.isArray(m.content) && m.content.some((b) => b.type === "image")) };
 }
 
+/** Where the check's scratch folders go: the temp folder, or `/tmp` where the temp folder leads
+ *  into the home folder. Each is judged by where it really is, and the home folder itself counts
+ *  as inside. Null where neither is outside the home folder. */
+function outsideHome(): string | null {
+  const home = realpathSync(homedir());
+  const within = home.endsWith(sep) ? home : home + sep;
+  for (const candidate of [tmpdir(), "/tmp"]) {
+    let real: string;
+    try { real = realpathSync(candidate); } catch { continue; }
+    if (real !== home && !real.startsWith(within)) return real;
+  }
+  return null;
+}
+
 async function main(): Promise<void> {
-  const tmp = realpathSync(tmpdir());
-  const ownHome = realpathSync(homedir());
-  if (`${tmp}${sep}`.startsWith(`${ownHome}${sep}`)) {
-    ok("the temp folder is outside the home folder", false, `${tmp} is inside ${ownHome}, where Claude Code would read your own CLAUDE.md as project instructions. Set TMPDIR to a folder outside it, then run the check again.`);
+  const tmp = outsideHome();
+  if (!tmp) {
+    ok("there is a temp folder outside the home folder", false, `${tmpdir()} and /tmp both lead into ${homedir()}, where Claude Code would read your own CLAUDE.md as project instructions. Set TMPDIR to a folder outside it, then run the check again.`);
     finish();
   }
   const undo: (() => unknown)[] = [];

@@ -123,6 +123,17 @@ describe("highlightSegments, handed the keyword's hits", () => {
     expect(painted(withHits("@ultracode fix it", [], ["ultracode"]))).toEqual([["mention-stale", "@ultracode"]]);
   });
 
+  it("gives way to a run of any other kind that starts on the same character, however short that run is, because the keyword has the last rank", () => {
+    const tied = (text: string, liveIds: string[] = []) => painted(highlightSegments(text, liveIds, [], ["goal"], [{ start: 0, end: text.length }]));
+    expect(tied("@mac ultracode", ["mac"])).toEqual([["mention", "@mac"]]);
+    expect(tied("https://x.dev ultracode")).toEqual([["link", "https://x.dev"]]);
+    expect(tied("`a` ultracode")).toEqual([["code", "`a`"]]);
+    expect(tied("**a** ultracode")).toEqual([["punct", "**"], ["punct", "**"]]);
+    expect(tied("@[a] ultracode")).toEqual([["element", "@[a]"]]);
+    expect(tied("/goal ultracode")).toEqual([["slash", "/goal"]]);
+    expect(tied("- ultracode")).toEqual([["marker", "-"]]);
+  });
+
   it("paints the word beside the punctuation of a list, a quote and a bold pair, which only touch it", () => {
     expect(painted(withHits("- ultracode\n> ultracode"))).toEqual([["marker", "-"], ["keyword", "ultracode"], ["marker", ">"], ["keyword", "ultracode"]]);
     expect(painted(withHits("**ultracode** review this"))).toEqual([["punct", "**"], ["keyword", "ultracode"], ["punct", "**"]]);

@@ -1,4 +1,4 @@
-import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, AGENT_ULTRACODE, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, scanUltracodeKeyword, sessionModeOf, type AgentKind, type AgentModel, type ModelInfo } from "@realm/contracts";
+import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, AGENT_TAKES_EFFORT, AGENT_ULTRACODE, DEFAULT_MODEL_LABEL, EFFORT_LEVELS, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, expandLinkChips, fastSupportKey, formatContext, formatPrice, scanElementChips, scanUltracodeKeyword, sessionModeOf, type AgentKind, type AgentModel, type LinkChip, type ModelInfo } from "@realm/contracts";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
@@ -738,18 +738,90 @@ export const ultracodeShown = (u: Pick<Ultracode, "on" | "availability">): boole
  *
  * Claude Code reads the word in a message a person sent and plans that turn as a workflow of
  * sub-agents, whatever the session's own Ultracode switch says. `hits` are the places in the draft
- * where the word counts, for the mirror to colour. `ask` is whether the session is in Ask mode,
- * where Claude Code still reads the word and Realm refuses the `Workflow` call that follows, so
- * the line is a warning there. `note` is the line.
+ * where the word counts, for the mirror to colour. The list is empty under a line where the word
+ * counts only inside what the send makes of a link chip, which has no place in the draft. `state`
+ * is what the harness has said of the keyword in this session: `read` where it said that it reads
+ * the word, and `unknown` where it has not answered, as in every session before its first turn.
+ * `ask` is whether the session is in Ask mode, where Claude Code still reads the word and Realm
+ * refuses the `Workflow` call that follows, so the line is a warning there. `note` is the line, in
+ * the words for that state and that mode, so a prompter that draws it chooses no wording.
  */
-export type UltracodeKeywordHint = { hits: { start: number; end: number }[]; ask: boolean; note: string };
+export type UltracodeKeywordHint = { hits: { start: number; end: number }[]; state: "read" | "unknown"; ask: boolean; note: string };
 
-/** The line under a draft whose keyword will act: what the word does to the turn, what that costs,
- *  and how to write the word without it acting. */
-const ULTRACODE_KEYWORD_NOTE = "“ultracode” has Claude plan this turn as a workflow of sub-agents. It uses many more tokens. To only mention the word, quote it.";
+/** How to write the word so that it does not act, which ends the line wherever following it works.
+ *  It names backticks and not quotes. Of the quotes only a straight one hides the word from Claude
+ *  Code, and macOS can turn a typed quote into a typographic one, which hides nothing. The line
+ *  goes without it in the two cases where it would be no way out: the draft has no place for the
+ *  word to be put in backticks, because it counts only inside the link a chip is sent as, and a
+ *  word that counts already stands between backticks, which hide nothing after an opener that
+ *  never closes. */
+const ULTRACODE_KEYWORD_WAY_OUT = "To only mention the word, put it in backticks.";
 
-/** The same line for a session in Ask mode, which cannot start the workflow the word asks for. */
-const ULTRACODE_KEYWORD_ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. To only mention the word, quote it.";
+/** What the line adds where the harness has not said whether it reads the keyword. The turn that
+ *  settles it is the next one, which for a new session is its first. */
+const ULTRACODE_KEYWORD_UNCHECKED = "The next turn checks whether this session reads the keyword.";
+
+/**
+ * Every variant of the line under a draft whose keyword counts, by what the harness has said of
+ * the keyword (`UltracodeKeywordHint.state`), and by whether the session is in Ask mode (`ask`) or
+ * in any other (`plain`).
+ *
+ * - `read`: the line says what the word will do to the turn and what that costs.
+ * - `unknown`: nothing has said that the word will do anything. The line says what the word asks
+ *   for and that the next turn settles whether it is read, as the Ultracode switch's tooltip does
+ *   in its own unknown state (`ultracodeTitle`). It promises no workflow.
+ *
+ * In Ask mode both say that Ask mode cannot start the workflow the word asks for. None of them
+ * holds the way out, which `ultracodeKeywordHint` adds where it works (`ULTRACODE_KEYWORD_WAY_OUT`).
+ */
+const ULTRACODE_KEYWORD_NOTES: Record<UltracodeKeywordHint["state"], { plain: string; ask: string }> = {
+  read: {
+    plain: "“ultracode” has Claude plan this turn as a workflow of sub-agents. It uses many more tokens.",
+    ask: "“ultracode” asks Claude for a workflow, and Ask mode can’t start one.",
+  },
+  unknown: {
+    plain: `“ultracode” asks Claude to plan this turn as a workflow of sub-agents, which uses many more tokens. ${ULTRACODE_KEYWORD_UNCHECKED}`,
+    ask: `“ultracode” asks Claude for a workflow, and Ask mode can’t start one. ${ULTRACODE_KEYWORD_UNCHECKED}`,
+  },
+};
+
+/** A link chip of a draft as the send writes it: where its markdown link stands in the sent text,
+ *  and how much longer that link is than the chip's token in the draft. */
+type SentLinkChip = { start: number; end: number; growth: number };
+
+/**
+ * What an ordinary send puts on the wire for a trimmed draft, and where each of its link chips
+ * stands there.
+ *
+ * The send expands a link chip, `@[label]`, to a markdown link, `[label](url)` (`expandLinkChips`).
+ * The text grows at every such chip, so an offset in the sent text is not that offset in the
+ * draft. A chip's growth is measured with the send's own function, on the chip's own token, so
+ * this and the send cannot disagree about what a chip becomes.
+ */
+function sentDraft(text: string, links: readonly LinkChip[]): { text: string; chips: SentLinkChip[] } {
+  const chips: SentLinkChip[] = [];
+  let grown = 0;
+  for (const chip of scanElementChips(text)) {
+    const growth = expandLinkChips(text.slice(chip.start, chip.end), links).length - (chip.end - chip.start);
+    if (growth === 0) continue;
+    chips.push({ start: chip.start + grown, end: chip.end + grown + growth, growth });
+    grown += growth;
+  }
+  return { text: expandLinkChips(text, links), chips };
+}
+
+/** How far an offset in the sent text lies past its place in the trimmed draft, which is the growth
+ *  of every link chip that ends before it. Null for an offset inside a chip's markdown link, which
+ *  has no place in the draft, because the draft holds only the chip's token there. */
+function growthBefore(chips: readonly SentLinkChip[], at: number): number | null {
+  let grown = 0;
+  for (const chip of chips) {
+    if (at < chip.start) break;
+    if (at < chip.end) return null;
+    grown += chip.growth;
+  }
+  return grown;
+}
 
 /**
  * `UltracodeKeywordHint` for a prompter's draft, or null where the prompter says nothing.
@@ -761,37 +833,59 @@ const ULTRACODE_KEYWORD_ASK_NOTE = "“ultracode” asks Claude for a workflow, 
  *   reads the word.
  * - The harness said it does not read the keyword in this session.
  * - The session's own Ultracode is on and in force, so its turns are planned as workflows already.
- * - The draft holds a mention of a skill the session can be handed. Realm sends such a message as
- *   a `/realm:` command, and Claude Code reads no keyword in a command.
- * - The word does not count where it stands (`scanUltracodeKeyword`). The draft is scanned as it
- *   is sent, which is trimmed, so a draft that starts with `/` after blank space has no hit either.
+ * - The draft holds a mention of a skill the session can be handed. Where the session's process was
+ *   started with Realm's library, Realm sends such a message as a `/realm:` command, and Claude
+ *   Code reads no keyword in a command. A session with no process yet is the same, because its
+ *   next send starts one with the library. A process that started while the space had no skill
+ *   switched on is not. It has no library until it starts again, so a skill switched on since
+ *   goes to it as plain words, which Claude Code does scan. The window is not told how a process
+ *   was started, so the rule says nothing in that case too, although the word acts there.
+ * - The word does not count where it stands (`scanUltracodeKeyword`). What is scanned is what an
+ *   ordinary send puts on the wire. That is the draft trimmed, so a draft that starts with `/`
+ *   after blank space has no hit, and with each link chip expanded to its markdown link, whose
+ *   brackets and parentheses are characters the scanner reads (`sentDraft`).
  *
- * Where the harness has said nothing, the keyword is taken to be read. That is Claude Code's
- * default, and a session's first message is typed before its first handshake.
+ * Where the harness has not answered, the rule still speaks, and says so in `state`. Nothing can
+ * be taken for granted there. Claude Code reads the keyword where workflows are enabled, and
+ * whether they are by default goes by plan. On a Pro plan they are off until the person switches
+ * them on. A session's first message is typed before its first handshake, so the line then speaks
+ * of a request that the next turn settles.
  */
-export function ultracodeKeywordHint({ kind, permissionMode, model, init, inForce, draft, skillMention }: {
+export function ultracodeKeywordHint({ kind, permissionMode, init, inForce, draft, skillMention, links = [] }: {
+  /** The agent the draft's send starts on. That is the session's own agent, except in Code review's
+   *  question box, where a first question can start on the agent of an earlier thread. */
   kind: AgentKind;
   /** The session's stored permission mode, which is where Ask travels (`sessionModeOf`). */
   permissionMode: string;
-  /** What the session asks for, which is `session.model`. Null is the harness's default. */
-  model: string | null;
-  /** This session's own handshake, where it has one. What it says of the keyword counts only while
-   *  the handshake describes the model the session asks for, on `ultracodeAvailability`'s terms. */
+  /** This session's own handshake, where it has one. What it says of the keyword holds whatever
+   *  model it names, and whatever model the session has asked for since. Claude Code reads the
+   *  keyword where workflows are enabled and the keyword's trigger is on, and no model changes
+   *  that. `ultracodeAvailability` reads the same handshake and does go by the model. */
   init?: { model: string; ultracodeKeyword?: boolean } | null;
   /** Whether the session's own Ultracode is on and in force (`ultracodeShown`). */
   inForce: boolean;
   draft: string;
   /** Whether the draft holds a mention of a skill this session can be handed. */
   skillMention: boolean;
+  /** The draft's link chips, which the send expands. A prompter that takes no pasted link has none. */
+  links?: readonly LinkChip[];
 }): UltracodeKeywordHint | null {
   if (!AGENT_ULTRACODE[kind] || inForce || skillMention) return null;
-  const read = init?.ultracodeKeyword !== undefined && (model === null || baseId(init.model) === baseId(model)) ? init.ultracodeKeyword : null;
+  const read = init?.ultracodeKeyword ?? null;
   if (read === false) return null;
   const lead = draft.length - draft.trimStart().length;
-  const hits = scanUltracodeKeyword(draft.trim()).map((hit) => ({ start: hit.start + lead, end: hit.end + lead }));
-  if (hits.length === 0) return null;
+  const sent = sentDraft(draft.trim(), links);
+  const found = scanUltracodeKeyword(sent.text);
+  if (found.length === 0) return null;
+  const hits = found.flatMap((hit) => {
+    const grown = growthBefore(sent.chips, hit.start);
+    return grown === null ? [] : [{ start: hit.start - grown + lead, end: hit.end - grown + lead }];
+  });
+  const state = read === null ? "unknown" : "read";
   const ask = sessionModeOf(permissionMode) === "ask";
-  return { hits, ask, note: ask ? ULTRACODE_KEYWORD_ASK_NOTE : ULTRACODE_KEYWORD_NOTE };
+  const said = ULTRACODE_KEYWORD_NOTES[state][ask ? "ask" : "plain"];
+  const wayOut = hits.length > 0 && !found.some((hit) => sent.text[hit.start - 1] === "`" && sent.text[hit.end] === "`");
+  return { hits, state, ask, note: wayOut ? `${said} ${ULTRACODE_KEYWORD_WAY_OUT}` : said };
 }
 
 /**

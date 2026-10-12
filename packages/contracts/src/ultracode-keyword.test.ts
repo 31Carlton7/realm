@@ -5,6 +5,10 @@ import { scanUltracodeKeyword } from "./ultracode-keyword";
  * What the real Claude Code 2.1.293 binary did with each of 226 texts, sent to it one a turn as a
  * person's message: whether it put its note about a workflow in front of the model.
  *
+ * Every text was sent in a session with workflows enabled and the keyword's trigger left on,
+ * whatever a text says of itself. The two rows that name a setting, or what a model reports, are
+ * words in a message, and nothing was set for them.
+ *
  * Every character outside printable ASCII is written as an escape, so that a look-alike cannot be
  * taken for the character it resembles: a typographic quote for a straight one, a dash for a
  * hyphen, a space of no width for nothing at all.
@@ -306,6 +310,10 @@ describe("scanUltracodeKeyword, on a word inside a closed span", () => {
     expect(scanUltracodeKeyword("'it's ultracode' x")).toEqual([]);
   });
 
+  it("opens no quote at a straight single quote that a letter outside A to Z stands before, so the word after it counts", () => {
+    expect(counted("\u00e9'ultracode' x")).toEqual(["ultracode"]);
+  });
+
   it("opens a tag's span at a less-than sign that a slash follows, as at one that a letter follows", () => {
     expect(scanUltracodeKeyword("</b ultracode>")).toEqual([]);
   });
@@ -339,6 +347,10 @@ describe("scanUltracodeKeyword, on the characters beside the word", () => {
     ["an underscore", "ultracode._x"],
   ])("does not count the word before a dot that %s follows", (_character, text) => {
     expect(scanUltracodeKeyword(text)).toEqual([]);
+  });
+
+  it("does not count the word before a dot that a letter outside A to Z follows", () => {
+    expect(scanUltracodeKeyword("ultracode.\u00e9t\u00e9")).toEqual([]);
   });
 
   it("counts the word before a dot that ends a sentence", () => {

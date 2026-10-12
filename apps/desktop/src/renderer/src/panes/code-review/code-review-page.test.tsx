@@ -512,7 +512,7 @@ describe("Ask about this pull request", () => {
     expect(called("codeReview.ask")[0]!.params).toMatchObject({ text: "ultracode: is the stream right?", human: true });
   });
 
-  it("says in the question box that a typed keyword starts a workflow, for as long as the draft holds the word", async () => {
+  it("speaks in the question box of the workflow a typed keyword asks for, for as long as the draft holds the word", async () => {
     await mount();
     await openRequest();
     const box = within(asker()).getByRole("textbox", { name: /message/i });
@@ -522,6 +522,28 @@ describe("Ask about this pull request", () => {
     fireEvent.change(box, { target: { value: "is the stream right?" } });
     expect(asker().querySelector(".composer-keyword-note")).toBeNull();
     expect(asker().querySelector(".composer-highlight > .ch-keyword")).toBeNull();
+  });
+
+  it.each<{ arrangement: string; earlier: "claude" | "codex"; card: "claude" | "codex"; drawn: boolean }>([
+    { arrangement: "an earlier thread on Claude in another place gets the line, though the card shows Codex", earlier: "claude", card: "codex", drawn: true },
+    { arrangement: "an earlier thread on Codex in another place gets none, though the card shows Claude", earlier: "codex", card: "claude", drawn: false },
+  ])("judges a typed keyword by the agent the first question starts on and not by the card's: $arrangement", async ({ earlier, card, drawn }) => {
+    thread = { sessionId: "se-thread", spaceId: "s2" };
+    const { store } = await mount({ sessions: [started, session("se-thread", "s2", { agentKind: earlier, title: "Asked elsewhere" })] });
+    await openRequest();
+    await waitFor(() => expect(store.getState().transcripts["se-thread"]).toBeDefined());
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    if (card === "codex") {
+      fireEvent.click(within(asker()).getByRole("button", { name: "Model" }));
+      await screen.findByRole("switch", { name: "Ultracode" });
+      const codex = within(screen.getByRole("dialog", { name: "Model picker" })).getByRole("option", { name: /^Codex/ });
+      fireEvent.pointerDown(codex);
+      fireEvent.click(codex);
+      await waitFor(() => expect(screen.queryByRole("switch", { name: "Ultracode" })).toBeNull());
+    }
+    fireEvent.change(within(asker()).getByRole("textbox", { name: /message/i }), { target: { value: "ultracode: is the stream right?" } });
+    expect(asker().querySelector(".composer-keyword-note") !== null).toBe(drawn);
+    expect(asker().querySelector(".composer-highlight > .ch-keyword") !== null).toBe(drawn);
   });
 
   it("names no Ultracode in the first question when the card never set it", async () => {

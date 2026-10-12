@@ -1,9 +1,11 @@
 /** Each character that opens a span in Claude Code's scanner, with the character that closes it. */
 const CLOSER: Record<string, string> = { "`": "`", '"': '"', "<": ">", "{": "}", "[": "]", "(": ")", "'": "'" };
 
-/** Whether a character is a letter, a digit or an underscore, by Unicode's classes. The scanner asks
- *  it of the characters beside a straight single quote and of the one after a dot. No character at
- *  all, as at either end of the text, is not one. */
+/** Whether a character is a letter, a number or an underscore, by Unicode's classes. The character
+ *  is one UTF-16 unit of the text. A letter or a number outside the basic plane takes two units,
+ *  each of them is asked about alone, and neither answers yes. The scanner asks it of the
+ *  characters beside a straight single quote and of the one after a dot. No character at all, as
+ *  at either end of the text, is not one. */
 const wordy = (c: string | undefined): boolean => !!c && /[\p{L}\p{N}_]/u.test(c);
 
 /**
@@ -37,7 +39,9 @@ const wordy = (c: string | undefined): boolean => !!c && /[\p{L}\p{N}_]/u.test(c
  * - A hit followed by a dot and then a letter, a digit or an underscore does not count.
  *
  * Beside a straight single quote and after a dot, a letter or a digit is whatever Unicode classes
- * as one, where the word's own boundary knows only A to Z and 0 to 9.
+ * as a letter or as a number of any kind, a fraction included, where the word's own boundary knows
+ * only A to Z and 0 to 9. The character judged there is one UTF-16 unit of the text, so a letter
+ * or a number outside the basic plane, which takes two units, counts as neither.
  *
  * The table in `ultracode-keyword.test.ts` is what the real 2.1.293 binary did with 226 texts, each
  * sent as a person's message: whether it added its note about a workflow. This function agrees with

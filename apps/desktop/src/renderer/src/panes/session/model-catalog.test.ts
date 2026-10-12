@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
+import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type LinkChip, type ModelInfo } from "@realm/contracts";
 import {
   agentRowHint, billingLead, chipLabel, chipTitle, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows, holdRows,
   modelAbout, modelLabel, modelRows, resolveModelName, ultracodeAvailability, ultracodeHint, ultracodeKeywordHint, ultracodeShown, ultracodeTitle, type FastMode, type ModelRow, type Ultracode,
@@ -620,12 +620,19 @@ describe("the Ultracode switch's tooltip, its line, and the chip's mark and tool
 
 describe("ultracodeKeywordHint", () => {
   const hint = (over: Partial<Parameters<typeof ultracodeKeywordHint>[0]> = {}) =>
-    ultracodeKeywordHint({ kind: "claude", permissionMode: "default", model: "claude-opus-5-5", inForce: false, draft: "ultracode review this", skillMention: false, ...over });
-  const NOTE = "“ultracode” has Claude plan this turn as a workflow of sub-agents. It uses many more tokens. To only mention the word, quote it.";
-  const ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. To only mention the word, quote it.";
+    ultracodeKeywordHint({ kind: "claude", permissionMode: "default", inForce: false, draft: "ultracode review this", skillMention: false, ...over });
+  const READS = { model: "claude-opus-5-5", ultracodeKeyword: true };
+  const NOTE = "“ultracode” has Claude plan this turn as a workflow of sub-agents. It uses many more tokens. To only mention the word, put it in backticks.";
+  const ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. To only mention the word, put it in backticks.";
+  const UNKNOWN_NOTE = "“ultracode” asks Claude to plan this turn as a workflow of sub-agents, which uses many more tokens. The next turn checks whether this session reads the keyword. To only mention the word, put it in backticks.";
+  const UNKNOWN_ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. The next turn checks whether this session reads the keyword. To only mention the word, put it in backticks.";
+  const WAY_OUT = " To only mention the word, put it in backticks.";
+  const ISSUE: LinkChip = { label: "ENG-123", url: "https://linear.app/acme/issue/ENG-123/fix-the-login-flow", service: "linear" };
+  const PULL: LinkChip = { label: "acme/app#12", url: "https://github.com/acme/app/pull/12", service: "github" };
+  const ANCHOR: LinkChip = { label: "acme/app · README.md", url: "https://github.com/acme/app/blob/main/README.md#ultracode", service: "github" };
 
-  it("says what the word does to the turn, what that costs and how to only mention it, for a Claude draft that holds the keyword", () => {
-    expect(hint()).toEqual({ hits: [{ start: 0, end: 9 }], ask: false, note: NOTE });
+  it("says what the word will do to the turn, what that costs and how to only mention it, once the harness has said it reads the keyword", () => {
+    expect(hint({ init: READS })).toEqual({ hits: [{ start: 0, end: 9 }], state: "read", ask: false, note: NOTE });
   });
 
   it("says nothing for an agent that has no Ultracode, whatever its draft and its handshake hold", () => {
@@ -636,27 +643,21 @@ describe("ultracodeKeywordHint", () => {
     expect(hint({ init: { model: "claude-opus-5-5", ultracodeKeyword: false } })).toBeNull();
   });
 
-  it("speaks where the harness has said it reads the keyword, and where it has not answered", () => {
-    expect(hint({ init: { model: "claude-opus-5-5", ultracodeKeyword: true } })).not.toBeNull();
-    expect(hint({ init: { model: "claude-opus-5-5" } })).not.toBeNull();
-    expect(hint({ init: null })).not.toBeNull();
+  it("speaks of a request that the next turn settles, and promises no workflow, where the harness has not answered", () => {
+    for (const init of [undefined, null, { model: "claude-opus-5-5" }]) {
+      expect(hint({ init }), JSON.stringify(init)).toEqual({ hits: [{ start: 0, end: 9 }], state: "unknown", ask: false, note: UNKNOWN_NOTE });
+    }
   });
 
-  it("does not take a no that was about another model for one about the model the session asks for", () => {
-    expect(hint({ init: { model: "claude-sonnet-5", ultracodeKeyword: false } })).not.toBeNull();
-  });
-
-  it("believes a no from the handshake of a session that pinned no model, and of one whose model id differs only by a bracketed variant", () => {
-    expect(hint({ model: null, init: { model: "claude-fable-5-1", ultracodeKeyword: false } })).toBeNull();
-    expect(hint({ model: "claude-opus-5-5[1m]", init: { model: "claude-opus-5-5", ultracodeKeyword: false } })).toBeNull();
-    expect(hint({ init: { model: "claude-opus-5-5[1m]", ultracodeKeyword: false } })).toBeNull();
+  it("keeps the harness's no whatever model its handshake names, because no model changes whether Claude Code reads the keyword", () => {
+    for (const model of ["claude-sonnet-5", "claude-fable-5-1", "claude-opus-5-5[1m]"]) expect(hint({ init: { model, ultracodeKeyword: false } }), model).toBeNull();
   });
 
   it("says nothing while the session's own Ultracode is on and in force, where the word adds nothing", () => {
     expect(hint({ inForce: true })).toBeNull();
   });
 
-  it("says nothing for a draft that holds a mention of a skill, which Realm sends as a command", () => {
+  it("says nothing for a draft that holds a mention of a skill, which Realm sends as a command wherever the session's process was started with its library", () => {
     expect(hint({ draft: "@mac ultracode this", skillMention: true })).toBeNull();
   });
 
@@ -678,12 +679,49 @@ describe("ultracodeKeywordHint", () => {
     expect(hint({ draft: "  ultracode, then ultracode\n" })?.hits).toEqual([{ start: 2, end: 11 }, { start: 18, end: 27 }]);
   });
 
+  it("counts a word that a link chip, as it is sent, leaves outside the parenthesis the person opened before it", () => {
+    expect(hint({ draft: "Check the fix (see @[acme/app#12], run ultracode) first", links: [PULL] })?.hits).toEqual([{ start: 39, end: 48 }]);
+  });
+
+  it("does not count a quoted word once a link chip, as it is sent, closes the parenthesis the person left open before it", () => {
+    expect(hint({ draft: '(see @[acme/app#12] then "ultracode" twice', links: [PULL] })).toBeNull();
+  });
+
+  it("gives each hit after a link chip in the draft's own offsets, though the text that is sent is longer by every chip's link", () => {
+    expect(hint({ draft: "  ultracode @[ENG-123] ultracode @[acme/app#12] ultracode\n", links: [ISSUE, PULL] })?.hits)
+      .toEqual([{ start: 2, end: 11 }, { start: 23, end: 32 }, { start: 48, end: 57 }]);
+  });
+
+  it("keeps the line and gives the mirror no place to colour for a word that counts only inside the link a chip is sent as", () => {
+    expect(hint({ draft: '"see @[acme/app · README.md] now', links: [ANCHOR] })).toMatchObject({ hits: [], state: "unknown", ask: false });
+  });
+
+  it("leaves the way out off the line where the draft has no place to put the word in backticks", () => {
+    expect(hint({ draft: '"see @[acme/app · README.md] now', links: [ANCHOR] })?.note).toBe(UNKNOWN_NOTE.replace(WAY_OUT, ""));
+  });
+
+  it("leaves the way out off the line for a word that counts although it stands between backticks", () => {
+    expect(hint({ draft: ":( `ultracode` broke my build", init: READS })).toEqual({ hits: [{ start: 4, end: 13 }], state: "read", ask: false, note: NOTE.replace(WAY_OUT, "") });
+  });
+
+  it("ends the line with the way out for a word that counts with a backtick on one side only", () => {
+    expect(hint({ draft: "( `ultracode fix", init: READS })?.note).toBe(NOTE);
+  });
+
   it("is a warning in Ask mode, in words that say Ask mode cannot start the workflow", () => {
-    expect(hint({ permissionMode: "ask" })).toEqual({ hits: [{ start: 0, end: 9 }], ask: true, note: ASK_NOTE });
+    expect(hint({ permissionMode: "ask", init: READS })).toEqual({ hits: [{ start: 0, end: 9 }], state: "read", ask: true, note: ASK_NOTE });
+  });
+
+  it("is a warning in Ask mode before the harness has answered too, in words that leave the keyword to the next turn", () => {
+    expect(hint({ permissionMode: "ask" })).toEqual({ hits: [{ start: 0, end: 9 }], state: "unknown", ask: true, note: UNKNOWN_ASK_NOTE });
+  });
+
+  it("says nothing in Ask mode either once the harness has said it does not read the keyword", () => {
+    expect(hint({ permissionMode: "ask", init: { model: "claude-opus-5-5", ultracodeKeyword: false } })).toBeNull();
   });
 
   it("is no warning in Plan mode, or under any permission of Build", () => {
-    for (const permissionMode of ["plan", "default", "acceptEdits", "bypassPermissions"]) expect(hint({ permissionMode }), permissionMode).toMatchObject({ ask: false, note: NOTE });
+    for (const permissionMode of ["plan", "default", "acceptEdits", "bypassPermissions"]) expect(hint({ permissionMode, init: READS }), permissionMode).toMatchObject({ ask: false, note: NOTE });
   });
 });
 

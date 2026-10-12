@@ -36,10 +36,15 @@ const toggle = () => screen.queryByRole("switch", { name: "Ultracode" }) as HTML
  *  has none. */
 const line = () => document.querySelector(".mp-fast-note");
 
-/** What the prompter says under a draft whose keyword will act. */
-const KEYWORD_NOTE = "“ultracode” has Claude plan this turn as a workflow of sub-agents. It uses many more tokens. To only mention the word, quote it.";
+/** What the prompter says under a draft whose keyword will act, once the harness has said that it
+ *  reads the keyword. */
+const KEYWORD_NOTE = "“ultracode” has Claude plan this turn as a workflow of sub-agents. It uses many more tokens. To only mention the word, put it in backticks.";
 /** What it says of the same draft in Ask mode. */
-const KEYWORD_ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. To only mention the word, quote it.";
+const KEYWORD_ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. To only mention the word, put it in backticks.";
+/** What it says before the harness has answered, as under a session's first draft. */
+const KEYWORD_UNKNOWN_NOTE = "“ultracode” asks Claude to plan this turn as a workflow of sub-agents, which uses many more tokens. The next turn checks whether this session reads the keyword. To only mention the word, put it in backticks.";
+/** What it says of that draft in Ask mode. */
+const KEYWORD_UNKNOWN_ASK_NOTE = "“ultracode” asks Claude for a workflow, and Ask mode can’t start one. The next turn checks whether this session reads the keyword. To only mention the word, put it in backticks.";
 const box = () => screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
 const type = (value: string) => fireEvent.change(box(), { target: { value } });
 /** The line about the keyword in the card's note row, or null where the card draws none. */
@@ -219,12 +224,18 @@ describe("the prompter's Ultracode switch", () => {
   });
 });
 
-describe("the prompter's hint that a typed keyword starts a workflow", () => {
-  it("says under a Claude session's draft what the keyword will do, from the moment the word is typed", async () => {
-    await mount([]);
+describe("the prompter's hint about the workflow a typed keyword asks for", () => {
+  it("says under the draft of a Claude session whose harness reads the keyword what the word will do, from the moment it is typed", async () => {
+    await mount([init({ ultracodeKeyword: true })]);
     expect(keywordNote()).toBeNull();
     type("ultracode review this");
     expect(keywordNote()!.textContent).toBe(KEYWORD_NOTE);
+  });
+
+  it("speaks of a request that the next turn settles under the first draft of a session, whose harness has not answered yet", async () => {
+    await mount([]);
+    type("ultracode review this");
+    expect(keywordNote()!.textContent).toBe(KEYWORD_UNKNOWN_NOTE);
   });
 
   it("colours each hit in the mirror, and the mirror still holds the draft glyph for glyph", async () => {
@@ -234,17 +245,39 @@ describe("the prompter's hint that a typed keyword starts a workflow", () => {
     expect(document.querySelector(".composer-highlight")!.textContent).toBe("ultracode this, then Ultracode that");
   });
 
-  it("takes the line and the colour away when the word is quoted, and again when the word is gone", async () => {
+  it("takes the line and the colour away when the word is put in straight quotes", async () => {
     await mount([]);
     type("ultracode review this");
     expect(keywordNote()).not.toBeNull();
     type('"ultracode" is the keyword');
     expect(keywordNote()).toBeNull();
     expect(keywordRuns()).toEqual([]);
+  });
+
+  it("takes the line and the colour away when the word is gone from the draft", async () => {
+    await mount([]);
     type("ultracode");
     expect(keywordRuns()).toEqual(["ultracode"]);
     type("review this");
     expect(keywordNote()).toBeNull();
+    expect(keywordRuns()).toEqual([]);
+  });
+
+  it("follows the session into Ask mode with the draft untouched, and becomes Ask's warning", async () => {
+    const { store } = await mount([]);
+    type("ultracode review this");
+    expect(keywordNote()!.textContent).toBe(KEYWORD_UNKNOWN_NOTE);
+    await act(async () => { await store.getState().setSessionOptions("se1", { permissionMode: "ask" }); });
+    expect(keywordNote()!.textContent).toBe(KEYWORD_UNKNOWN_ASK_NOTE);
+    expect(keywordNote()).toHaveAttribute("data-disposition", "ignored");
+  });
+
+  it("goes when a later handshake says the harness does not read the keyword, with the draft untouched", async () => {
+    const { store } = await mount([]);
+    type("ultracode review this");
+    expect(keywordNote()).not.toBeNull();
+    act(() => store.getState().applySessionEvent({ seq: 1, sessionId: "se1", event: init({ ultracodeKeyword: false }), ephemeral: false }));
+    await waitFor(() => expect(keywordNote()).toBeNull());
     expect(keywordRuns()).toEqual([]);
   });
 
@@ -257,15 +290,18 @@ describe("the prompter's hint that a typed keyword starts a workflow", () => {
     expect(box().getAttribute("aria-describedby")).toBeNull();
   });
 
-  it("draws the line as information where the keyword will act, with no warning tone and no warning glyph", async () => {
-    await mount([]);
+  it.each<[string, ReturnType<typeof sessionEvent>[]]>([
+    ["before the harness has answered", []],
+    ["once the harness has said it reads the keyword", [init({ ultracodeKeyword: true })]],
+  ])("draws the line as information outside Ask mode %s, with no warning tone and no warning glyph", async (_when, events) => {
+    await mount(events);
     type("ultracode review this");
     expect(keywordNote()).not.toHaveAttribute("data-disposition");
     expect(keywordNote()!.querySelector(".attach-note-glyph")).toBeNull();
   });
 
   it("says in Ask mode that the keyword asks for a workflow Ask mode cannot start, as a warning with its glyph", async () => {
-    await mount([], { permissionMode: "ask" });
+    await mount([init({ ultracodeKeyword: true })], { permissionMode: "ask" });
     type("ultracode review this");
     expect(keywordNote()!.textContent).toBe(KEYWORD_ASK_NOTE);
     expect(keywordNote()).toHaveAttribute("data-disposition", "ignored");
@@ -281,10 +317,11 @@ describe("the prompter's hint that a typed keyword starts a workflow", () => {
     expect(box().getAttribute("aria-describedby")).toBeNull();
   });
 
-  it("does not take the harness's no about another model for one about the model the session asks for", async () => {
+  it("keeps the harness's no about the keyword for a session that asks for another model than its handshake names", async () => {
     await mount([init({ model: "claude-sonnet-5", ultracodeKeyword: false })], { model: "claude-opus-5" });
     type("ultracode review this");
-    expect(keywordNote()!.textContent).toBe(KEYWORD_NOTE);
+    expect(keywordNote()).toBeNull();
+    expect(keywordRuns()).toEqual([]);
   });
 
   it("draws nothing for the keyword while the session's own Ultracode is on and in force, where the word adds nothing", async () => {
@@ -294,10 +331,33 @@ describe("the prompter's hint that a typed keyword starts a workflow", () => {
     expect(keywordRuns()).toEqual([]);
   });
 
+  it("still draws the line for a session whose Ultracode switch is on while Claude Code says the session cannot run it, because the keyword acts all the same", async () => {
+    await mount([init({ ultracodeAvailable: false, ultracodeKeyword: true })], { ultracode: true, model: "claude-opus-5" });
+    type("ultracode review this");
+    expect(keywordNote()!.textContent).toBe(KEYWORD_NOTE);
+  });
+
   it("speaks in Ask mode though the session's Ultracode switch is on, because Ask keeps the switch from being in force", async () => {
-    await mount([init({ ultracodeAvailable: true })], { ultracode: true, model: "claude-opus-5", permissionMode: "ask" });
+    await mount([init({ ultracodeAvailable: true, ultracodeKeyword: true })], { ultracode: true, model: "claude-opus-5", permissionMode: "ask" });
     type("ultracode review this");
     expect(keywordNote()!.textContent).toBe(KEYWORD_ASK_NOTE);
+  });
+
+  it("gives the lines of two prompters on one screen an id each, so each textarea is described by its own line", async () => {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude" }), session("se2", "s1", { status: "idle", agentKind: "claude" })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ sessionStatus: { se1: "idle", se2: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) }, se2: { lastSeq: 0, t: reduceAll([]) } } });
+    render(
+      <StoreContext.Provider value={store}>
+        <SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible />
+        <SessionPane item={item("i10", "s1", { kind: "session", refId: "se2", title: "t" })} visible />
+      </StoreContext.Provider>,
+    );
+    const boxes = screen.getAllByRole("textbox", { name: /message/i });
+    for (const el of boxes) fireEvent.change(el, { target: { value: "ultracode review this" } });
+    const ids = Array.from(document.querySelectorAll(".composer-keyword-note")).map((el) => el.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(boxes.map((el) => el.getAttribute("aria-describedby"))).toEqual(ids);
   });
 
   it.each(["codex", "fake"] as const)("draws nothing for the keyword in a %s session, whose harness reads no such word", async (agentKind) => {

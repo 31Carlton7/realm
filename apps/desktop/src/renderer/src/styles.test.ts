@@ -761,6 +761,12 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor('.composer-attach-note[data-disposition="ignored"]')).toEqual(["color: var(--rl-warning);"]);
   });
 
+  it("the line about the keyword is ruled after the note row it stands in, so its secondary ink is the one that holds over the row's faint ink", () => {
+    const rowsLast = RULES.map((r) => r.selectors.includes(".composer-attach-note")).lastIndexOf(true);
+    expect(rowsLast).toBeGreaterThanOrEqual(0);
+    expect(RULES.findIndex((r) => r.selectors.includes(".composer-keyword-note"))).toBeGreaterThan(rowsLast);
+  });
+
   it("the prompter's column gives up MORE width than the zoom already takes", () => {
     /* ⌘− scales every px, so a px column keeps the same share of the window at every zoom — zooming
        out to fit more of the work on screen bought nothing back from the prompter. Multiplying by
