@@ -12,7 +12,7 @@ import { layoutStreams, pathOf } from "./geometry"
  * lights, measured from the same elements, drawn once and redrawn when the layout moves. No pulses —
  * a still drawing of where the light would run.
  */
-export function StreamsFallback({ always = false }: { always?: boolean }) {
+export function StreamsFallback() {
   const ref = useRef<SVGSVGElement>(null)
   const [paths, setPaths] = useState<{ d: string; y0: number; y1: number }[]>([])
 
@@ -52,7 +52,7 @@ export function StreamsFallback({ always = false }: { always?: boolean }) {
     <svg
       ref={ref}
       aria-hidden
-      className={`pointer-events-none absolute inset-0 h-full w-full overflow-visible ${always ? "" : "hidden [html[data-lab-field=off]_&]:block"}`}
+      className="pointer-events-none absolute inset-0 hidden h-full w-full overflow-visible [html[data-lab-field=off]_&]:block"
     >
       <defs>
         {/* Each line brightens toward the window it runs into, as the lit version does. */}

@@ -165,10 +165,11 @@ fn landing(du: f32, age: f32, inward: f32) -> f32 {
     let s = n.y;
 
     // The pulse: a bright head, a hard front ahead of it, and behind it the fibre lit for a while —
-    // the stream shows where work is running in and is nearly gone where none is.
+    // the stream shows where work is running in and is nearly gone where none is. Once the head is
+    // under the window's edge only its tail is left, draining in after it.
     let lag = (pulse.x - s) * arc.w;
     let tail = select(exp(-lag * lag / 6.0), exp(-lag / pulse.z), lag >= 0.0);
-    let head = exp(-lag * lag / 50.0) * step(s, 1.0) * step(pulse.x, 1.02);
+    let head = exp(-lag * lag / 50.0) * step(pulse.x, 1.02);
     let level = pulse.w * (0.7 + 0.5 * s) + pulse.y * (tail * 0.85 + head * 0.9);
 
     let core = clamp(1.0 - n.x / (px * 1.1), 0.0, 1.0);

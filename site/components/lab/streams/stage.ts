@@ -3,7 +3,7 @@ import { effect } from "vgpu"
 import { anchor, type StageFactory } from "@/components/lab/stage"
 
 import { AGENTS, STREAM_COUNT } from "./agents"
-import { arcTable, layoutStreams, measure, PORTAL_RADIUS, rimLength, type Curve, type Point } from "./geometry"
+import { arcTable, layoutStreams, nearestPoint, PORTAL_RADIUS, rimLength, type Curve, type Point } from "./geometry"
 import { hotStream } from "./hot"
 import { streamsShader } from "./shader"
 
@@ -51,6 +51,8 @@ const STILL: readonly (readonly [number, number])[] = [
 const REACH = 36
 /** The length of a pulse's tail, CSS px: how much of the stream it lights behind it. */
 const TAIL = 110
+/** A pulse's average pace along its stream, CSS px a second; a run takes 1.5 to 3 seconds. */
+const SPEED = 230
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x))
 const smoothstep = (a: number, b: number, x: number) => {
@@ -129,14 +131,12 @@ export const createStreams: StageFactory = (gpu, output) => {
   const eased = AGENTS.map(() => ({ near: 0, bendX: 0, bendY: 0, hover: 0, kick: -Infinity }))
   let wasHot = -1
   let last: number | undefined
-  const frozen = Number(new URLSearchParams(window.location.search).get("t") ?? NaN)
 
   return {
     draw(frame, input) {
-      const still = input.still
-      const seconds = Number.isFinite(frozen) ? frozen : input.seconds
-      const dt = last === undefined || still ? Infinity : clamp(input.seconds - last, 0, 0.1)
-      last = input.seconds
+      const { seconds, still } = input
+      const dt = last === undefined || still ? Infinity : clamp(seconds - last, 0, 0.1)
+      last = seconds
       // The share of the way an eased value closes on its target this frame; a still frame snaps.
       const close = (tau: number) => 1 - Math.exp(-dt / tau)
 
@@ -171,7 +171,7 @@ export const createStreams: StageFactory = (gpu, output) => {
           return
         }
         const base = layout.curve
-        const near = measure(base, pointer)
+        const near = nearestPoint(base, pointer)
         if (near.distance < nearestDistance) {
           nearestDistance = near.distance
           nearest = i
@@ -197,7 +197,7 @@ export const createStreams: StageFactory = (gpu, output) => {
         const table = arcTable(curve)
         const length = table[3]
 
-        const travel = clamp(length / 230, 1.5, 3)
+        const travel = clamp(length / SPEED, 1.5, 3)
         if (hot === i && wasHot !== i && !still) {
           const idle = schedule(i, seconds, travel, length, e.kick).head < 0
           if (idle && seconds - e.kick > travel + 0.6) e.kick = seconds

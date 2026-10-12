@@ -24,10 +24,6 @@ export type StreamLayout = {
 const add = (a: Point, b: Point, k = 1): Point => [a[0] + b[0] * k, a[1] + b[1] * k]
 const sub = (a: Point, b: Point): Point => [a[0] - b[0], a[1] - b[1]]
 const len = (a: Point) => Math.hypot(a[0], a[1])
-const unit = (a: Point): Point => {
-  const l = len(a) || 1
-  return [a[0] / l, a[1] / l]
-}
 
 /** The rim's length — the same walk `rimU` takes in the shader: four edges and four quarter turns. */
 export function rimLength(portal: Rect, r = PORTAL_RADIUS) {
@@ -57,9 +53,9 @@ export function layoutStreams(portal: Rect, marks: readonly (Rect | undefined)[]
     const land: Point = row
       ? [centre + (c[0] - centre) * 0.74, top]
       : [agent.side === "left" ? left + agent.land * w : left + w - agent.land * w, top]
-    // Angles from straight down, toward the window's middle.
-    const inward = land[0] >= c[0] ? 1 : -1
-    const dir = (angle: number): Point => [inward * Math.sin(angle), Math.cos(angle)]
+    // Angles from straight down, turning toward the side the landing is on.
+    const toward = land[0] >= c[0] ? 1 : -1
+    const dir = (angle: number): Point => [toward * Math.sin(angle), Math.cos(angle)]
     const chord = Math.atan2(Math.abs(land[0] - c[0]), Math.max(land[1] - c[1], 1))
     const bend = row ? BEND * 0.6 : BEND
     const leave = dir(chord + bend)
@@ -86,10 +82,9 @@ export function pointAt([a, b, c, d]: Curve, t: number): Point {
   return [k0 * a[0] + k1 * b[0] + k2 * c[0] + k3 * d[0], k0 * a[1] + k1 * b[1] + k2 * c[1] + k3 * d[1]]
 }
 
-/** The curve's length and the point of it nearest `p`, from 32 samples — plenty for a pointer. */
-export function measure(curve: Curve, p: Point) {
+/** The point of a curve nearest `p`, its distance and its parameter, from 32 samples — plenty for a pointer. */
+export function nearestPoint(curve: Curve, p: Point) {
   let prev = curve[0]
-  let length = 0
   let best = Infinity
   let at: Point = prev
   let t = 0
@@ -107,10 +102,9 @@ export function measure(curve: Curve, p: Point) {
       at = [qx, qy]
       t = (k - 1 + h) / 32
     }
-    length += Math.sqrt(ee)
     prev = cur
   }
-  return { length, distance: Math.sqrt(best), at, t }
+  return { distance: Math.sqrt(best), at, t }
 }
 
 export const pathOf = ([a, b, c, d]: Curve) =>

@@ -75,6 +75,7 @@ function Mark({ agent, index }: { agent: StreamAgent; index: number }) {
   const sign = agent.side === "left" ? "-" : "+"
   // On a phone the nine sit in one row that bows gently up toward its middle.
   const fromMiddle = (index - (AGENTS.length - 1) / 2) / ((AGENTS.length - 1) / 2)
+  // Where it sits on its arc; `left` and `top` only take effect once the item is positioned, at xl.
   const style = {
     left: `calc(50% ${sign} ${COLUMN_HALF_REM}rem ${sign} ${agent.dx}px)`,
     top: `${-agent.dy}px`,
@@ -90,10 +91,10 @@ function Mark({ agent, index }: { agent: StreamAgent; index: number }) {
         onPointerLeave={() => dimStream(index)}
         onFocus={() => lightStream(index)}
         onBlur={() => dimStream(index)}
-        className="group relative grid size-8 place-items-center rounded-full bg-page text-ink-3 shadow-[inset_0_0_0_1px_var(--color-line-strong)] transition-[color,box-shadow] duration-200 hover:text-[var(--brand)] hover:shadow-[inset_0_0_0_1px_oklch(1_0_0/0.2)] focus-visible:text-[var(--brand)] sm:size-10"
+        className="group relative grid size-8 place-items-center rounded-full bg-page text-ink-3 shadow-[inset_0_1px_0_oklch(1_0_0/0.05),inset_0_0_0_1px_oklch(1_0_0/0.105)] transition-[color,box-shadow] duration-200 hover:text-[var(--brand)] hover:shadow-[inset_0_1px_0_oklch(1_0_0/0.08),inset_0_0_0_1px_oklch(1_0_0/0.2)] focus:text-[var(--brand)] sm:size-10"
       >
         <AgentMark id={agent.id} className="size-4 sm:size-5" />
-        <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap text-[12.5px] text-ink-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
+        <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap text-[12.5px] text-ink-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus:opacity-100">
           {agent.name}
         </span>
       </span>
