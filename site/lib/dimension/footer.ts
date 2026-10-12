@@ -2,13 +2,13 @@
  * The page's last dimension: the edge of the world, with the realm rising over it.
  *
  * The mark's own lattice is laid flat as a floor and seen in perspective, running out to a horizon,
- * and the glass mark — the same `glassMark` the pinned track lit — rises from behind that horizon as
+ * and the flat mark — the same `flatMark` the pinned track built — rises from behind that horizon as
  * the page ends, reflected faintly in the floor. It is the lattice the page assembled the mark on,
  * seen from ground level: the section that explained a realm, turned into a place to stand.
  *
  * Expects, from the including shader: `field` with `footer` (presence, rise 0..1, CSS px per mark
  * unit, horizon as a fraction of the area's height) and `footerAt` (the area's rect), plus PAGE,
- * INK, ACCENT, ACCENT_INK, MARK_CENTER and `glassMark` from the faces module.
+ * INK, ACCENT, ACCENT_INK, MARK_CENTER and `flatMark` from the faces module.
  */
 export const footerWgsl = /* wgsl */ `
 fn horizonY() -> f32 {
@@ -68,7 +68,7 @@ fn footerSolid(p: vec2f, t: f32) -> vec4f {
   let ripple = sin(p.y * 0.09 + t * 1.3) * 2.2 * under / 40.0;
   let q = select(vec2f(p.x + ripple, 2.0 * hy - p.y), p, above);
   let unit = 1.0 / max(field.footer.z, 1e-3);
-  let g = glassMark((q - footerMarkCentre()) * unit + MARK_CENTER, unit, t, 1.0, 0.0);
+  let g = flatMark((q - footerMarkCentre()) * unit + MARK_CENTER, unit, 1.0);
   // The part of the mark still below the horizon is behind it, and does not reflect either.
   let clip = smoothstep(0.0, 1.5, hy - q.y);
   let fade = select(0.3 * exp(-under / 120.0), 1.0, above);

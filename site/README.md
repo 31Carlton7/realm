@@ -128,8 +128,10 @@ The mark is flat: the cube's silhouette with the doorway cut out of it. `scripts
 icon has no file convention and naming any icon in the metadata replaces the file-based ones.
 
 `lib/mark.ts` works the mark's geometry out the way `mark.mjs` does: its six faces, the walls and
-the doorway's floor, jamb and lit back. The landing page's field (`lib/dimension/`) assembles, lights
-and tiles exactly those faces, and `lib/realm-liquid-glass.ts` bakes the same mark's walls into a signed distance field and refracts
+the doorway's floor, jamb and back. The landing page's field (`lib/dimension/`) assembles and tiles
+exactly those faces, drawn flat like the logo: the walls in the three blues, and the doorway's parts
+as pieces of empty space that each cut their part of the doorway out of the right wall as they land.
+The footer's mark is the same flat mark. Separately, `lib/realm-liquid-glass.ts` bakes the same mark's walls into a signed distance field and refracts
 Realm-blue, white and silver light streams through it, and `components/RealmCanvas.tsx` runs it —
 pausing offscreen and in a hidden tab, one frozen frame under reduced motion, the vector mark where
 WebGPU is unavailable. No page mounts it now: the landing page leads with a capture of the product,

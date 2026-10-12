@@ -8,7 +8,11 @@ import { FACES, MARK_CENTER, MARK_RADIUS } from "../mark"
  * centre, is a node. This dimension IS that lattice, drawn at half the cube's edge so the cells are
  * small enough to read as a grid, and the faces are not placed on it so much as returned to it: each
  * flies in from elsewhere and settles where it was always drawn, while the ones still to come show as
- * empty slots. The walls come first, then the doorway's floor, its jamb, and last its lit back.
+ * empty slots. The walls come first, then the doorway's floor, its jamb, and last its back.
+ *
+ * The mark is drawn flat, the way the logo is: each wall one of three blues, and the doorway a hole.
+ * The doorway's three parts still arrive in turn, as pieces of empty space; each one cuts its part
+ * out of the right wall as it lands, so the doorway is fully open when the last one is in.
  */
 
 /**
@@ -21,17 +25,22 @@ const MANY_STEP = 7
 
 /**
  * Which face arrives at which step — `ORDER[step]` is an index into FACES, which already lists them
- * walls first and the doorway's lit back last. The page's copy is written in the same order.
+ * walls first and the doorway's back last. The page's copy is written in the same order.
  */
 export const ORDER = [0, 1, 2, 3, 4, 5] as const
+/** The face that arrives last, a part of the doorway: once it is in, the doorway is fully open. */
+const LAST = ORDER[ORDER.length - 1]
 
-/** How much light each face catches, so the assembled mark reads as a lit solid the way the app
- *  icon does: the top brightest, the dark wall darkest, the doorway's back lit. Indexed like FACES,
- *  and read from the mark's own tones (mark.mjs's MARK_TONES). */
-const SHADE_OF = { top: 0.93, left: 0.68, right: 0.4, floor: 0.88, jamb: 0.62, lit: 1 } as const
-const SHADE = FACES.map((face) => SHADE_OF[face.name])
-/** The lit back, the one face that gives off light of its own once it lands. */
-const LIT = FACES.findIndex((face) => face.name === "lit")
+/** The walls' colours, the logo's three planes (sRGB, as the shader writes them): top #9cc1ff, left
+ *  #4f8cf5, right #2457c4. The doorway has none — it is a hole. */
+const TONE = {
+  top: [156 / 255, 193 / 255, 1],
+  left: [79 / 255, 140 / 255, 245 / 255],
+  right: [36 / 255, 87 / 255, 196 / 255],
+} as const
+/** FACES lists the three walls first and the doorway's parts after them. */
+const WALL_COUNT = 3
+const RIGHT = FACES.findIndex((face) => face.name === "right")
 
 /** The lattice's cell edge and its line spacing, in mark units: half the cube's edge. */
 const EDGE = MARK_RADIUS / 2
@@ -107,7 +116,7 @@ fn faceDistance(i: i32, p: vec2f) -> f32 {
 var<private> FACE_CENTROID: array<vec2f, 6> = array<vec2f, 6>(${centroids.map(v2).join(", ")});
 var<private> FACE_RADIUS: array<f32, 6> = array<f32, 6>(${radii.map(f).join(", ")});
 var<private> FACE_STEP: array<f32, 6> = array<f32, 6>(${FACES.map((_, i) => f((ORDER as readonly number[]).indexOf(i))).join(", ")});
-var<private> FACE_SHADE: array<f32, 6> = array<f32, 6>(${SHADE.map(f).join(", ")});
+var<private> WALL_TONE: array<vec3f, ${WALL_COUNT}> = array<vec3f, ${WALL_COUNT}>(${(["top", "left", "right"] as const).map((name) => `vec3f(${TONE[name].map(f).join(", ")})`).join(", ")});
 var<private> FACE_FLIGHT: array<vec2f, 6> = array<vec2f, 6>(${flights.map(v2).join(", ")});
 var<private> FACE_SPIN: array<f32, 6> = array<f32, 6>(${spins.map(f).join(", ")});
 
@@ -157,7 +166,21 @@ fn flyingDistance(i: i32, m: vec2f, e: f32) -> f32 {
   let rest = centroid + vec2f(local.x * cs.x + local.y * cs.y, -local.x * cs.y + local.y * cs.x);
   // Cheap reject: most pixels are nowhere near most faces.
   if (length(rest - centroid) > FACE_RADIUS[i] + 4.0) { return 99.0; }
-  return faceDistance(i, rest) * scale;
+  return assemblingDistance(i, rest) * scale;
+}
+
+// Face i while the mark assembles. The right wall arrives whole, and each part of the doorway cuts
+// its piece out of it once that part has landed; the doorway is open when all three are in.
+fn assemblingDistance(i: i32, p: vec2f) -> f32 {
+  if (i != ${RIGHT} || arrival(${LAST}) >= 0.999) { return faceDistance(i, p); }
+  var d = facePolygon${RIGHT}(p);
+  // Until the last part is in, the hole is the landed parts together. Each is grown by a pixel so
+  // the edges they share do not leave a hairline of wall standing between them.
+  let grow = 1.0 / markScale();
+  for (var k = ${WALL_COUNT}; k < 6; k++) {
+    if (arrival(k) >= 0.999) { d = max(d, grow - faceDistance(k, p)); }
+  }
+  return d;
 }
 
 // The lattice the mark is drawn on. Three families of lines, all through the node at the mark's
@@ -203,11 +226,15 @@ fn facesLight(p: vec2f, t: f32) -> vec3f {
 
   for (var i = 0; i < 6; i++) {
     let e = arrival(i);
-    // Not arrived: its slot, a faint outline where it will land, brightest for the one due next.
+    // Not arrived: its slot, a faint outline where it will land, brightest for the one due next. The
+    // doorway's parts share one slot, the doorway's rim, a third each, since the flat mark has no
+    // inside to them.
     if (e < 0.999) {
-      let slot = faceDistance(i, m);
+      let wall = i < ${WALL_COUNT};
+      let slot = select(faceCut${RIGHT}(m), faceDistance(i, m), wall);
       let due = 1.0 - saturate(abs(steps - FACE_STEP[i]) * 0.9);
-      light += ACCENT_INK * exp(-abs(slot) / (unit * 1.6)) * (0.18 + due * 0.4) * (1.0 - e);
+      let share = select(0.34, 1.0, wall);
+      light += ACCENT_INK * exp(-abs(slot) / (unit * 1.6)) * (0.18 + due * 0.4) * (1.0 - e) * share;
     }
     // In flight: a trail of where it has been, fading behind it.
     if (e > 0.001 && e < 0.999) {
@@ -216,46 +243,21 @@ fn facesLight(p: vec2f, t: f32) -> vec3f {
         light += ACCENT * exp(-abs(ghost) / (unit * 2.0)) * 0.22 / f32(g);
       }
     }
-    // Just landed: a flash along its edges that fades over the step after.
+    // Just landed: a flash along its edges that fades over the step after. A part of the doorway
+    // flashes round the doorway's rim, the edge it has just cut, rather than round its own outline,
+    // which would draw the inside of a recess the flat mark does not have.
     let landed = steps - FACE_STEP[i] - 1.0;
     if (landed > 0.0 && landed < 1.5) {
-      let here = faceDistance(i, m);
+      let here = select(faceCut${RIGHT}(m), faceDistance(i, m), i < ${WALL_COUNT});
       light += ACCENT_INK * exp(-abs(here) / (unit * 2.4)) * exp(-landed * 3.0) * 1.3;
     }
   }
-
-  // The doorway's back, once it is in, is lit from inside the cube: light spills close round the
-  // opening before the rest of the mark catches it.
-  let doorway = max(faceDistance(${LIT}, m), 0.0);
-  light += ACCENT_INK * exp(-doorway / 2.4) * 0.3 * arrival(${LIT});
 
   // All six in: the mark is lit from within and throws light around itself.
   let dm = length(m - MARK_CENTER);
   light += ACCENT * exp(-dm / 20.0) * 0.34 * complete;
   light += ACCENT_INK * exp(-dm / 55.0) * 0.12 * complete;
   return light;
-}
-
-// The liquid-glass hero's light: three streams — accent, silver, sky — converging along a diagonal
-// into one white one. Same shape as lib/realm-liquid-glass.ts, swinging more gently, because here it
-// runs through a finished mark rather than across a whole screen.
-fn markStreams(point: vec2f, seconds: f32) -> vec3f {
-  let direction = normalize(vec2f(0.7071 + sin(seconds * 0.35) * 1.2, -0.7071));
-  let normal = vec2f(0.7071, 0.7071);
-  let along = dot(point, direction);
-  let across = dot(point, normal);
-  let convergence = smoothstep(-0.55, 0.38, along);
-  let pulse = 0.76 + 0.24 * sin(seconds * 2.2 - along * 7.5);
-  let shimmer = 0.82 + 0.18 * sin(seconds * 4.1 + along * 14.0 + across * 5.0);
-  let split = 0.15;
-  let width = mix(0.045, 0.075, convergence);
-  let accent = exp(-pow(abs(across + split * (1.0 - convergence) - 0.01 * sin(along * 8.0 - seconds * 1.7)) / width, 1.65));
-  let silver = exp(-pow(abs(across - 0.01 * sin(along * 9.0 + seconds * 1.3)) / width, 1.65));
-  let sky = exp(-pow(abs(across - split * (1.0 - convergence) - 0.01 * sin(along * 7.0 + seconds * 1.9)) / width, 1.65));
-  var color = (ACCENT * accent + INK * 0.28 * silver + ACCENT_INK * sky) * pulse * shimmer;
-  let merged = exp(-pow(abs(across) / (0.06 + 0.035 * convergence), 1.45)) * convergence;
-  color += INK * merged * (1.15 + 0.35 * sin(seconds * 2.7 - along * 9.0));
-  return color + ACCENT * 0.5 * exp(-abs(across) * 7.5) * (0.16 + 0.22 * convergence);
 }
 
 // The mark's outline is a flat-topped hexagon 40 wide and 34.64 tall, and hexagons tile: columns
@@ -278,30 +280,25 @@ fn realmCell(m: vec2f) -> vec2f {
   return best;
 }
 
-// One realm as the finished glass mark, lit as brightly as its agents are busy. The home realm, at
-// full activity with no seed, is exactly the lit mark the seventh step ends on, so pulling back
-// shows the same object rather than swapping it for a copy.
-fn glassMark(local: vec2f, unit: f32, t: f32, activity: f32, seed: f32) -> vec4f {
-  var color = vec3f(0.0);
-  var cover = 0.0;
-  for (var i = 0; i < 6; i++) {
+// One realm as the finished flat mark: the three walls in their blues, the doorway a hole, and the
+// whole realm dimmer the less its agents are doing. The home realm, at full activity, is exactly the
+// mark the seventh step ends on, so pulling back shows the same object rather than swapping it.
+fn flatMark(local: vec2f, unit: f32, activity: f32) -> vec4f {
+  var tone = vec3f(0.0);
+  var weight = 0.0;
+  var nearest = 99.0;
+  for (var i = 0; i < ${WALL_COUNT}; i++) {
     if (length(local - FACE_CENTROID[i]) > FACE_RADIUS[i] + 3.0) { continue; }
     let d = faceDistance(i, local);
-    let inside = smoothstep(unit, -unit, d);
-    if (inside <= 0.0) { continue; }
-    let shade = FACE_SHADE[i];
-    let bend = normalize(FACE_CENTROID[i] - MARK_CENTER + vec2f(1e-4)) * (0.05 + (1.0 - shade) * 0.07);
-    let through = markStreams((local - MARK_CENTER) / 40.0 + bend, t + seed * 17.0);
-    let rim = exp(-abs(d) / (unit * 1.4));
-    var glass = mix(PAGE, INK, 0.07 + shade * 0.1);
-    glass += through * (0.6 + shade * 0.45) * activity;
-    glass = mix(glass, INK, rim * 0.55) + ACCENT_INK * rim * 0.2;
-    // The doorway's back is lit from inside, as brightly as the realm's agents are busy.
-    if (i == ${LIT}) { glass = mix(glass, INK, 0.62 * activity) + ACCENT_INK * 0.12 * activity; }
-    color = mix(color, glass, inside);
-    cover = max(cover, inside);
+    let w = smoothstep(unit, -unit, d);
+    tone += WALL_TONE[i] * w;
+    weight += w;
+    nearest = min(nearest, d);
   }
-  return vec4f(color, cover);
+  // Coverage from the walls' union and colour from their weighted mix, so where two walls meet the
+  // edge is the two blues blended, not a hairline of the page showing between them.
+  let wall = tone / max(weight, 1e-4);
+  return vec4f(mix(PAGE, wall, 0.45 + 0.55 * activity), smoothstep(unit, -unit, nearest));
 }
 
 // Every realm but home has its own seed: how busy it is, and the rate it breathes at, so the field
@@ -317,7 +314,7 @@ fn realmActivity(cell: vec2f, t: f32) -> vec2f {
 
 // How present a realm is while the view pulls back: the nearer rings first, and only as many rings as
 // fit inside the mark's own square — a hexagonal cluster, not wallpaper. The text sits beside that
-// square (under it, on a phone), so bounding the cluster by it is what keeps glass out from behind the
+// square (under it, on a phone), so bounding the cluster by it is what keeps marks out from behind the
 // words at every zoom, rather than a fade that a big enough tile can always reach across. Decided per
 // realm, so each one comes and goes whole instead of being sliced by a gradient.
 fn realmPresence(cell: vec2f, many: f32) -> f32 {
@@ -328,7 +325,7 @@ fn realmPresence(cell: vec2f, many: f32) -> f32 {
   return arrive * (1.0 - smoothstep(fits - 0.6, fits, ring));
 }
 
-// The faces themselves, as solid glass: colour and coverage, composited over the light.
+// The faces themselves, flat: colour and coverage, composited over the light.
 fn facesSolid(p: vec2f, t: f32) -> vec4f {
   let m = toMark(p);
   let unit = 1.0 / markScale();
@@ -336,46 +333,44 @@ fn facesSolid(p: vec2f, t: f32) -> vec4f {
   if (many > 0.001) {
     let cell = realmCell(m);
     let life = realmActivity(cell, t);
-    let g = glassMark(m - cell, unit, t, life.x, life.y);
+    let g = flatMark(m - cell, unit, life.x);
     return vec4f(g.rgb, g.a * realmPresence(cell, many));
   }
   let steps = field.faces.y * ${TRACK_STEPS}.0;
-  let complete = smoothstep(${LIT_STEP}.0, ${LIT_STEP}.6, steps);
-  var color = vec3f(0.0);
-  var cover = 0.0;
-  for (var i = 0; i < 6; i++) {
+  // The walls first, as one surface: coverage from their union and colour from their weighted mix,
+  // so where two walls meet the edge is their two colours blended, not a hairline of the page.
+  var tone = vec3f(0.0);
+  var weight = 0.0;
+  var nearest = 99.0;
+  var shown = 0.0;
+  for (var i = 0; i < ${WALL_COUNT}; i++) {
     let e = arrival(i);
     if (e <= 0.001) { continue; }
     let d = flyingDistance(i, m, e);
-    let inside = smoothstep(unit, -unit, d);
-    if (inside <= 0.0) { continue; }
-    let shade = FACE_SHADE[i];
-    // A little depth across the face, lit from the top left like the icon.
-    let across = dot(m - FACE_CENTROID[i], vec2f(-0.5, -0.86)) / FACE_RADIUS[i];
-    var face = mix(PAGE, INK, shade * (0.86 + across * 0.12));
-    face = mix(face, ACCENT_INK, 0.1 * (1.0 - shade));
-    // In flight it is still charged from wherever it came from, and cools to silver as it lands.
-    face = mix(face, ACCENT_INK, (1.0 - e) * 0.4);
+    let fade = smoothstep(0.0, 0.3, e);
+    let w = smoothstep(unit, -unit, d) * fade;
+    if (w <= 0.0) { continue; }
+    // In flight a wall is still charged from wherever it came from, and settles to its blue as it
+    // lands, with a brief brightening the step after.
+    var face = mix(WALL_TONE[i], ACCENT_INK, (1.0 - e) * 0.4);
     let landed = steps - FACE_STEP[i] - 1.0;
     face += INK * 0.2 * exp(-max(landed, 0.0) * 3.0) * step(0.0, landed) * step(landed, 1.5);
-    // The rim of each face, so adjacent facets read as separate planes.
-    let rim = exp(-abs(d) / (unit * 1.4));
-    face = mix(face, INK, rim * 0.5);
-
-    // All six in: the mark turns to glass and the light runs THROUGH it. Each facet bends the streams
-    // along its own outward direction, a little more the darker it sits, so the facets break the light
-    // differently — which is what makes glass read as cut rather than poured.
-    let point = (m - MARK_CENTER) / 40.0;
-    let bend = normalize(FACE_CENTROID[i] - MARK_CENTER + vec2f(1e-4)) * (0.05 + (1.0 - shade) * 0.07);
-    let through = markStreams(point + bend, t);
-    var glass = mix(PAGE, INK, 0.07 + shade * 0.1);
-    glass += through * (0.6 + shade * 0.45);
-    glass = mix(glass, INK, rim * 0.55) + ACCENT_INK * rim * 0.2;
-    // The doorway's back stays lit through the glass: the light the mark is named for.
-    if (i == ${LIT}) { glass = mix(glass, INK, 0.62) + ACCENT_INK * 0.12; }
-    face = mix(face, glass, complete);
-    let alpha = inside * smoothstep(0.0, 0.3, e);
-    color = mix(color, face, alpha);
+    tone += face * w;
+    weight += w;
+    nearest = min(nearest, d);
+    shown = max(shown, fade);
+  }
+  var color = tone / max(weight, 1e-4);
+  var cover = smoothstep(unit, -unit, nearest) * shown;
+  // Then the doorway's parts, each a piece of empty space: the page's own colour while it flies,
+  // gone once it lands, because by then it has cut its hole in the right wall.
+  for (var i = ${WALL_COUNT}; i < 6; i++) {
+    let e = arrival(i);
+    if (e <= 0.001 || e >= 0.999) { continue; }
+    let d = flyingDistance(i, m, e);
+    let alpha = smoothstep(unit, -unit, d) * smoothstep(0.0, 0.3, e);
+    if (alpha <= 0.0) { continue; }
+    color = mix(color, mix(PAGE, ACCENT_INK, (1.0 - e) * 0.4), alpha);
     cover = max(cover, alpha);
   }
   return vec4f(color, cover);
