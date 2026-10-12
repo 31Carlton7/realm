@@ -15,6 +15,7 @@ import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, resol
 import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
+import { trayIconPath } from "./tray-icon";
 import { confirmQuitCopy, decideQuit } from "./quit-policy";
 import { isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
@@ -171,11 +172,18 @@ function forgetProfile(profile: ProfileFacts): void {
  *
  * It is the only visible thing left after ⌘Q, which is why it exists at all: a person is entitled to
  * know that something is still running and to be able to stop it, and with the window gone there is
- * nowhere else to say either.
+ * nowhere else to say either. It wears Realm's flat mark as a template image (tray-icon.ts), so it is
+ * there to click even when its title has nothing to report.
  */
+function trayImage() {
+  const image = nativeImage.createFromPath(trayIconPath({ packaged: app.isPackaged, appPath: app.getAppPath(), resourcesPath: process.resourcesPath }));
+  // The file's name already says Template; this says it again for a picture loaded some other way.
+  image.setTemplateImage(true);
+  return image;
+}
 const sessionTray = new SessionTray({
   createTray: () => {
-    const tray = new Tray(nativeImage.createEmpty());
+    const tray = new Tray(trayImage());
     return {
       setTitle: (t) => tray.setTitle(t),
       setToolTip: (t) => tray.setToolTip(t),

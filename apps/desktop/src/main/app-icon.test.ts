@@ -2,9 +2,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inflateSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import { APP_ICON_IDS, AppIconStore, isIconPng, registerAppIcon, type IconFs } from "./app-icon";
+import { decodeRgbaPng as rgbaPng, hex } from "./png.test-util";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 
@@ -170,30 +170,3 @@ describe("app icon", () => {
     }
   });
 });
-
-const hex = ([r, g, b]: number[]) => `#${[r, g, b].map((v) => v!.toString(16).padStart(2, "0")).join("")}`;
-
-/** An 8-bit RGBA, non-interlaced PNG, decoded far enough to read a pixel — what the renderer writes. */
-function rgbaPng(png: Buffer) {
-  const width = png.readUInt32BE(16), height = png.readUInt32BE(20);
-  expect([png[24], png[25], png[28]]).toEqual([8, 6, 0]);
-  const idat: Buffer[] = [];
-  for (let at = 8; at < png.length;) {
-    const len = png.readUInt32BE(at), type = png.toString("latin1", at + 4, at + 8);
-    if (type === "IDAT") idat.push(png.subarray(at + 8, at + 8 + len));
-    at += 12 + len;
-  }
-  const raw = inflateSync(Buffer.concat(idat));
-  const stride = width * 4, px = Buffer.alloc(stride * height);
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)]!, line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
-    for (let x = 0; x < stride; x++) {
-      const a = x >= 4 ? px[y * stride + x - 4]! : 0, b = y > 0 ? px[(y - 1) * stride + x]! : 0;
-      const c = x >= 4 && y > 0 ? px[(y - 1) * stride + x - 4]! : 0;
-      const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
-      const pred = [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][filter]!;
-      px[y * stride + x] = (line[x]! + pred) & 0xff;
-    }
-  }
-  return { width, height, pixel: (x: number, y: number) => [...px.subarray((Math.round(y) * width + Math.round(x)) * 4, (Math.round(y) * width + Math.round(x)) * 4 + 4)] };
-}

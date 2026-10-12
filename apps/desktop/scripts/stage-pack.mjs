@@ -71,6 +71,10 @@ for (const [binary, missing] of [
   else console.warn(`[stage-pack] native/bin/${binary} not built; ${missing}`);
 }
 
+// 3b. The menu-bar item's template image, both scales (main/tray-icon.ts reads <resources>/trayTemplate.png,
+// and macOS finds the @2x beside it by name).
+for (const name of ["trayTemplate.png", "trayTemplate@2x.png"]) cpSync(join(desktop, "resources", name), join(stage, name));
+
 // 4. App icon where electron-builder's mac.icon points.
 mkdirSync(join(desktop, "build"), { recursive: true });
 cpSync(join(root, "resources", "icon.icns"), join(desktop, "build", "icon.icns"));

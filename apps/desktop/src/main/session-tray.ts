@@ -2,9 +2,9 @@
  * The menu-bar item that exists whenever Realm's window does not.
  *
  * It is the only visible thing left after ⌘Q, which makes it the answer to two questions a person is
- * entitled to ask: is anything still running, and how do I stop it. Both are answered in words —
- * per design.md, where a glyph would be one more unexplained icon in a menu bar full of them, and
- * where "3 working" said plainly beats any badge.
+ * entitled to ask: is anything still running, and how do I stop it. The item is Realm's own flat mark,
+ * so it says whose it is, and the status beside it is in words — "3 working" said plainly beats any
+ * badge drawn on the mark.
  *
  * `trayTitle` and `trayMenu` are pure descriptors so both are testable without a menu bar, the same
  * split `computer-driving.ts` uses for the same reason.
