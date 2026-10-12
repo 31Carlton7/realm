@@ -214,6 +214,15 @@ describe("the prompter's limit warning", () => {
     expect(warning()?.textContent).toContain("Plan limit reached");
   });
 
+  /* The last reading is kept across launches, so a warning can outlive its window: "5-hour limit
+   * reached" the morning after, on a window that reset at midnight, would hold back a message that
+   * would go through. */
+  it("drops a warning whose window has reset since the reading", async () => {
+    const past = Date.now() - 60 * 60 * 1000;
+    await withLimits(limits({ alert: "exceeded", alertWindow: "five_hour", windows: [w("five_hour", "5-hour", 100, past)] }));
+    expect(warning()).toBeNull();
+  });
+
   /* A Claude warning means nothing in a Cursor pane: the row is picked by the session's own kind. */
   it("ignores a warning belonging to another provider", async () => {
     await withLimits(limits({ agentKind: "claude", alert: "exceeded", alertWindow: "seven_day", windows: [w("seven_day", "Weekly", 100)] }));
