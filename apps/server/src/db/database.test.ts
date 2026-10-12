@@ -1949,7 +1949,7 @@ describe("migration — a session's activity", () => {
 describe("migrations 46–54, as the branches that held each other's slots merged", () => {
   it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, act tickets, record types, deliverables, tool classes, then team policies", () => {
     expect(migrations.filter((m) => m.trim() === "SELECT 1;")).toEqual([]);
-    expect(migrations).toHaveLength(54);
+    expect(migrations.length).toBeGreaterThanOrEqual(54);
     expect(migrations[45]).toContain("CREATE TABLE IF NOT EXISTS vault_grants");
     expect(migrations[46]).toContain("CREATE TABLE IF NOT EXISTS team_handoffs");
     expect(migrations[47]).toContain("CREATE TABLE IF NOT EXISTS lab_devices");

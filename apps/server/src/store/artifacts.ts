@@ -1,6 +1,7 @@
 import { artifactsFromEvent, extsOfType, KNOWN_EXTS, LibraryQuerySchema, type Artifact, type ArtifactKind, type ArtifactType, type LibraryEntry, type LibraryQuery } from "@realm/contracts";
 import type { Db } from "../db/database";
 import type { SettingsStore } from "./settings";
+import { parsePayload, type StoredPayload } from "./event-payload";
 
 /** The resumable event-backfill cursor, written by migration v25 and advanced by `runBackfill`.
  *  `done` is the last seq indexed; `target` is frozen at migration time — events past it are indexed
@@ -202,7 +203,7 @@ export class ArtifactsStore {
           SELECT seq, session_id, ts, type, payload_json FROM session_events
           WHERE seq > ? AND seq <= ? AND type IN ('tool_call', 'user_message')
           ORDER BY seq LIMIT ?`).all(cursor.done, cursor.target, ARTIFACTS_BACKFILL_CHUNK) as
-          { seq: number; session_id: string; ts: number; type: string; payload_json: string }[];
+          { seq: number; session_id: string; ts: number; type: string; payload_json: StoredPayload }[];
         /* A short chunk means the range is exhausted, so the cursor jumps to `target` rather than to
            the last row's seq — otherwise a history whose final events are all `assistant_text` would
            leave the cursor short of target forever and re-scan the same tail on every boot. */
@@ -210,8 +211,8 @@ export class ArtifactsStore {
         this.db.exec("BEGIN");
         try {
           for (const r of rows) {
-            let payload: unknown;
-            try { payload = JSON.parse(r.payload_json); } catch { continue; }
+            const payload = parsePayload(r.payload_json);
+            if (payload === undefined) continue;
             this.index(r.session_id, r.seq, r.ts, r.type, payload);
           }
           this.settings.set(ARTIFACTS_BACKFILL_KEY, { done, target: cursor.target });

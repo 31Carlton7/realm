@@ -1176,4 +1176,15 @@ export const migrations: string[] = [
         UNION ALL SELECT 'irreversible-external', 'ask') f;
   END;
   `,
+  // v56 — compressed event payloads, found by its text. `session_events.payload_json` may now hold a
+  // BLOB: a codec byte and the deflated UTF-8 of the same JSON text (`store/event-payload.ts`). The
+  // storage class is the marker, so the events table is untouched and a text row stays readable as
+  // it always was. New events are written compressed when that pays; the rows already here are
+  // compressed after boot, in small batches, by `PayloadCompactor`, which keeps its place in this
+  // one-row table (`done` is the last seq it has looked at). Nothing is rewritten in the migration,
+  // so it costs the same however large the history is. Safe to meet twice.
+  `
+  CREATE TABLE IF NOT EXISTS event_payload_compaction (id INTEGER PRIMARY KEY CHECK (id = 1), done INTEGER NOT NULL);
+  INSERT OR IGNORE INTO event_payload_compaction (id, done) VALUES (1, 0);
+  `,
 ];

@@ -7,6 +7,7 @@ import {
 } from "@realm/contracts";
 import type { Db } from "../db/database";
 import type { SettingsStore } from "../store/settings";
+import { payloadSql } from "../store/event-payload";
 import { aggregateUsage, modelKey, sliceSession, turnDurations, type PriceLookup, type SessionFacts, type StatusSample } from "./aggregate";
 
 /**
@@ -29,6 +30,9 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
  *  a day the grid beside it shows as empty would be a contradiction on one screen. */
 const USED = "type = 'user_message'";
 const LOCAL_DAY = "date(ts / 1000, 'unixepoch', 'localtime')";
+/** An event's payload as JSON text for `json_extract`, whether it is stored plain or compressed (v56). */
+const PAYLOAD = payloadSql("payload_json");
+const EV_PAYLOAD = payloadSql("ev.payload_json");
 
 export type UsageDeps = {
   db: Db;
@@ -172,7 +176,7 @@ export class UsageService {
   private longestTurn(): UsageRecords["longestTurn"] {
     const bySession = new Map<string, StatusSample[]>();
     for (const r of this.d.db.prepare(
-      "SELECT session_id, ts, json_extract(payload_json, '$.status') AS status FROM session_events WHERE type = 'status' ORDER BY seq",
+      `SELECT session_id, ts, json_extract(${PAYLOAD}, '$.status') AS status FROM session_events WHERE type = 'status' ORDER BY seq`,
     ).all() as Row[]) {
       const id = str(r.session_id);
       const list = bySession.get(id) ?? [];
@@ -247,9 +251,9 @@ export class UsageService {
   private topSkills(): UsageRecords["skills"] {
     const by = new Map<string, number>();
     for (const r of this.d.db.prepare(`
-      SELECT COALESCE(json_extract(payload_json, '$.input.skill'), json_extract(payload_json, '$.input.command')) AS skill, COUNT(*) AS n
+      SELECT COALESCE(json_extract(${PAYLOAD}, '$.input.skill'), json_extract(${PAYLOAD}, '$.input.command')) AS skill, COUNT(*) AS n
         FROM session_events
-       WHERE type = 'tool_call' AND json_extract(payload_json, '$.name') = 'Skill'
+       WHERE type = 'tool_call' AND json_extract(${PAYLOAD}, '$.name') = 'Skill'
        GROUP BY skill
     `).all() as Row[]) {
       const name = skillUseName(str(r.skill));
@@ -361,13 +365,13 @@ export class UsageService {
       // (Codex counts cached input inside `inputTokens`) — see `usageSampleFromPayload`.
       const rows = this.d.db.prepare(`
         SELECT ev.session_id, ev.ts, s.agent_kind,
-               json_extract(ev.payload_json, '$.costUsd') AS costUsd,
-               json_extract(ev.payload_json, '$.inputTokens') AS inputTokens,
-               json_extract(ev.payload_json, '$.outputTokens') AS outputTokens,
-               json_extract(ev.payload_json, '$.numTurns') AS numTurns,
-               json_extract(ev.payload_json, '$.cacheReadTokens') AS cacheReadTokens,
-               json_extract(ev.payload_json, '$.cacheWriteTokens') AS cacheWriteTokens,
-               json_extract(ev.payload_json, '$.cumulativeTokens') AS cumulativeTokens
+               json_extract(${EV_PAYLOAD}, '$.costUsd') AS costUsd,
+               json_extract(${EV_PAYLOAD}, '$.inputTokens') AS inputTokens,
+               json_extract(${EV_PAYLOAD}, '$.outputTokens') AS outputTokens,
+               json_extract(${EV_PAYLOAD}, '$.numTurns') AS numTurns,
+               json_extract(${EV_PAYLOAD}, '$.cacheReadTokens') AS cacheReadTokens,
+               json_extract(${EV_PAYLOAD}, '$.cacheWriteTokens') AS cacheWriteTokens,
+               json_extract(${EV_PAYLOAD}, '$.cumulativeTokens') AS cumulativeTokens
           FROM session_events ev JOIN sessions s ON s.id = ev.session_id
          WHERE ev.type = 'usage' AND ev.session_id IN (${chunk.map(() => "?").join(",")})
          ORDER BY ev.session_id, ev.seq
@@ -471,7 +475,7 @@ export class UsageService {
    *  ranking, shared with the page about you so the two can never order tools differently. */
   private topTools(scope: string, args: readonly (string | number)[], limit: number): { name: string; calls: number }[] {
     return (this.d.db.prepare(`
-      SELECT json_extract(ev.payload_json, '$.name') AS name, COUNT(*) AS n
+      SELECT json_extract(${EV_PAYLOAD}, '$.name') AS name, COUNT(*) AS n
         FROM session_events ev WHERE ${scope} AND ev.type = 'tool_call'
        GROUP BY name ORDER BY n DESC, name ASC LIMIT ?
     `).all(...args, limit) as Row[]).map((r) => ({ name: str(r.name) || "(unnamed)", calls: num(r.n) }));

@@ -1,6 +1,7 @@
 import type { Db } from "../db/database";
 import { newId, SessionEventSchema, type AgentKind, type DispatchedBy, type DispatchKind, type Session, type SessionEvent, type SessionStatus, type StoredSessionEvent } from "@realm/contracts";
 import { NotFoundError, RpcError, now } from "./rows";
+import { encodePayload, parsePayload, type StoredPayload } from "./event-payload";
 
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null; fast_mode: number;
   permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number; seen_seq: number;
@@ -248,7 +249,7 @@ export function replyLine(text: string): string | null {
   return null;
 }
 
-type EventRow = { seq: number; session_id: string; ts: number; type: string; payload_json: string };
+type EventRow = { seq: number; session_id: string; ts: number; type: string; payload_json: StoredPayload };
 
 export class SessionEventsStore {
   /** `artifacts` is optional so every existing construction site (and every store test) keeps
@@ -257,7 +258,7 @@ export class SessionEventsStore {
   constructor(private db: Db, private artifacts?: { index(sessionId: string, seq: number, ts: number, type: string, payload: unknown): void }) {}
   append(sessionId: string, event: SessionEvent): StoredSessionEvent {
     const r = this.db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)")
-      .run(sessionId, event.ts, event.type, JSON.stringify(event.payload));
+      .run(sessionId, event.ts, event.type, encodePayload(JSON.stringify(event.payload)));
     const seq = Number(r.lastInsertRowid);
     // The search index's session source (Plan 16 W1), written HERE — the one choke point every
     // persisted event passes through — so no producer (pump, emitExternal, boot's synthetic denies)
@@ -323,7 +324,7 @@ export class SessionEventsStore {
     const rows = this.db.prepare("SELECT type, payload_json FROM session_events WHERE session_id = ? AND type IN ('permission_request', 'permission_response') ORDER BY seq").all(sessionId) as Pick<EventRow, "type" | "payload_json">[];
     const open = new Set<string>();
     for (const r of rows) {
-      let requestId: unknown; try { requestId = (JSON.parse(r.payload_json) as { requestId?: unknown }).requestId; } catch { continue; }
+      const requestId = (parsePayload(r.payload_json) as { requestId?: unknown } | undefined)?.requestId;
       if (typeof requestId !== "string") continue;
       if (r.type === "permission_request") open.add(requestId); else open.delete(requestId);
     }
@@ -342,7 +343,7 @@ export class SessionEventsStore {
     const rows = this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND type IN (${types.map(() => "?").join(", ")}) ORDER BY seq DESC LIMIT 20`)
       .all(sessionId, ...types) as EventRow[];
     for (const r of rows) {
-      let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { continue; }
+      const payload = parsePayload(r.payload_json); if (payload === undefined) continue;
       const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
       if (p.success) return p.data;
     }
@@ -356,10 +357,9 @@ export class SessionEventsStore {
   lastReplies(spaceId: string): { sessionId: string; lastReply: string | null }[] {
     const rows = this.db.prepare(`SELECT s.id AS session_id,
         (SELECT ev.payload_json FROM session_events ev WHERE ev.session_id = s.id AND ev.type = 'assistant_text' ORDER BY ev.seq DESC LIMIT 1) AS payload
-      FROM sessions s WHERE s.space_id = ?`).all(spaceId) as { session_id: string; payload: string | null }[];
+      FROM sessions s WHERE s.space_id = ?`).all(spaceId) as { session_id: string; payload: StoredPayload | null }[];
     return rows.map((r) => {
-      let text: unknown = null;
-      if (r.payload) { try { text = (JSON.parse(r.payload) as { text?: unknown }).text; } catch { /* unreadable: no line */ } }
+      const text = (parsePayload(r.payload) as { text?: unknown } | undefined)?.text;
       return { sessionId: r.session_id, lastReply: typeof text === "string" ? replyLine(text) : null };
     });
   }
@@ -368,7 +368,7 @@ export class SessionEventsStore {
     const r = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1")
       .get(sessionId, type) as EventRow | undefined;
     if (!r) return null;
-    let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { return null; }
+    const payload = parsePayload(r.payload_json); if (payload === undefined) return null;
     const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
     return p.success ? p.data : null;
   }
@@ -386,7 +386,7 @@ export class SessionEventsStore {
       .all(sessionId, upToTs) as Pick<EventRow, "type" | "payload_json">[];
     const out: { role: "user" | "assistant"; text: string }[] = [];
     for (const r of rows) {
-      let text: unknown; try { text = (JSON.parse(r.payload_json) as { text?: unknown }).text; } catch { continue; }
+      const text = (parsePayload(r.payload_json) as { text?: unknown } | undefined)?.text;
       if (typeof text !== "string" || text.trim() === "") continue;
       out.push({ role: r.type === "user_message" ? "user" : "assistant", text });
     }
@@ -407,7 +407,7 @@ export class SessionEventsStore {
       : this.db.prepare(`SELECT * FROM session_events WHERE session_id = ? AND ${inTypes} ORDER BY seq DESC LIMIT ?`).all(sessionId, ...types, opts.limit).reverse()) as EventRow[];
     const out: StoredSessionEvent[] = [];
     for (const r of rows) {
-      let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { continue; }
+      const payload = parsePayload(r.payload_json); if (payload === undefined) continue;
       const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
       if (p.success) out.push({ seq: r.seq, sessionId, event: p.data });
     }
@@ -419,7 +419,7 @@ export class SessionEventsStore {
     const rows = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?").all(sessionId, afterSeq, limit) as EventRow[];
     const out: StoredSessionEvent[] = [];
     for (const r of rows) {
-      let payload: unknown; try { payload = JSON.parse(r.payload_json); } catch { continue; }
+      const payload = parsePayload(r.payload_json); if (payload === undefined) continue;
       const p = SessionEventSchema.safeParse({ type: r.type, ts: r.ts, payload });
       if (p.success) out.push({ seq: r.seq, sessionId, event: p.data });
     }

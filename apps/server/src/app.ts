@@ -13,6 +13,7 @@ import { ProjectsStore } from "./store/projects";
 import { ItemsStore } from "./store/items";
 import { SettingsStore } from "./store/settings";
 import { ArtifactsStore } from "./store/artifacts";
+import { PayloadCompactor } from "./store/payload-compaction";
 import { TerminalHistoryStore, TerminalsStore } from "./store/terminals";
 import { Drain } from "./daemon/drain";
 
@@ -1699,6 +1700,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // The pre-v25 history reaches the Library's file index the same way, on the same terms: chunked,
   // yielding, resumable, and merely incomplete rather than wrong while it runs.
   void artifacts.runBackfill(() => false);
+  // The event payloads written before v56 are compressed the same way: in batches, after boot,
+  // resumable, and standing aside while an agent works (`PayloadCompactor` states the design).
+  const payloadCompactor = new PayloadCompactor({ db, busy: () => sessions.statusCounts().working > 0 });
+  void payloadCompactor.run();
   // …and the pictures the last fortnight's turns made, which no write tool named: once per home, in
   // the background (`SessionService.backfillTurnMedia`).
   void sessions.backfillTurnMedia().catch((e) => console.error(`[sessions] media catch-up failed: ${e instanceof Error ? e.message : String(e)}`));
@@ -1734,6 +1739,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    */
   const closeApp = async (): Promise<void> => {
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
+    payloadCompactor.stop(); // likewise its batches
     team?.close();
     handoffs?.close();
     lab?.close();

@@ -8,6 +8,7 @@ import type { SkillsService } from "../skills/service";
 import type { MemoryService } from "../memory/service";
 import type { MemoryRepoService } from "../memory/repo";
 import { NotFoundError } from "../store/rows";
+import { parsePayload, type StoredPayload } from "../store/event-payload";
 
 /** The resumable event-backfill cursor, written by migration v15 and advanced by `runBackfill`.
  *  `done` is the last seq indexed; `target` is frozen at migration time — events past it are indexed
@@ -265,14 +266,13 @@ export class SearchService {
         const rows = this.d.db.prepare(`
           SELECT seq, session_id, payload_json FROM session_events
           WHERE seq > ? AND seq <= ? AND type IN ('user_message', 'assistant_text')
-          ORDER BY seq LIMIT ?`).all(cursor.done, cursor.target, BACKFILL_CHUNK) as { seq: number; session_id: string; payload_json: string }[];
+          ORDER BY seq LIMIT ?`).all(cursor.done, cursor.target, BACKFILL_CHUNK) as { seq: number; session_id: string; payload_json: StoredPayload }[];
         const done = rows.length < BACKFILL_CHUNK ? cursor.target : Number(rows.at(-1)!.seq);
         this.d.db.exec("BEGIN");
         try {
           const ins = this.d.db.prepare("INSERT INTO search_index (text, kind, ref, seq) VALUES (?, 'session', ?, ?)");
           for (const r of rows) {
-            let text: unknown;
-            try { text = (JSON.parse(r.payload_json) as { text?: unknown }).text; } catch { continue; }
+            const text = (parsePayload(r.payload_json) as { text?: unknown } | undefined)?.text;
             if (typeof text !== "string" || text.trim() === "") continue;
             ins.run(text, r.session_id, r.seq);
           }
