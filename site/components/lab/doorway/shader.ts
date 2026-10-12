@@ -190,8 +190,9 @@ fn streak(w: vec2f, t: f32) -> f32 {
   let mid = noise(dir * 13.0 + vec2f(-t * 0.03, t * 0.022));
   let fine = noise(dir * 37.0 + vec2f(t * 0.05, t * 0.031));
   // Every ray meets at the light's projection, which sits just inside the window's top edge: fade the
-  // variation out there, or the meeting point would show as a little star on the frame.
-  let away = smoothstep(0.02, 0.16, length(v));
+  // variation out around it, or the rim over the top edge would fan like a sunrise from one point. The
+  // window's corners and the floor are far enough away to keep all of it.
+  let away = smoothstep(0.08, 0.3, length(v));
   return max(1.0 + away * (1.0 * (broad - 0.5) + 0.5 * (mid - 0.5) + 0.36 * (fine - 0.5)), 0.0);
 }
 
