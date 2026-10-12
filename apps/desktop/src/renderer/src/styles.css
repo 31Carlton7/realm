@@ -3439,8 +3439,18 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .status-dot[data-status="recording"]::after {
   content: ""; position: absolute; inset: -3px; border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--ring) 60%, transparent);
-  animation: rl-ping var(--ring-rate) var(--ease-out-strong) infinite;
+  animation: rl-ping var(--ring-rate) var(--ease-out-strong) var(--ring-pings),
+    rl-halo-in var(--dur-slow) var(--ease-fade) calc(var(--ring-rate) * var(--ring-pings)) forwards;
 }
+/* A few pings, then the steady halo. A ring pinging for as long as a turn runs kept the window
+   producing a frame every vsync for minutes — 120 frames a second composited for a 13px circle, about
+   ten points of CPU on its own (PERF.md B2). The pings are what catches the eye when a state begins;
+   once it has been seen the halo says the same thing standing still, as it does under Reduce motion.
+   The ring comes back with its pings whenever it is drawn again: a status that changes, or a window
+   coming back from quiet (which takes the ring away, below). The halo fades in from the last ping's
+   end — scale(1), nothing visible — so the hand-over has no jump. */
+.status-dot::after { --ring-pings: 3; }
+@keyframes rl-halo-in { from { opacity: 0; } }
 /* Told apart by colour AND rate, never by rate alone — 1.8s against 0.9s of the same motion is not a
    distinction anyone makes at a glance, but success-slow against warning-fast is. waiting_permission
    is the one that needs a human, so it is the loudest in BOTH motion modes: fastest ping with motion,
@@ -4348,11 +4358,18 @@ button.edit-file:hover { background: var(--rl-hover); }
    work; only the chevron stands off it. */
 .tool-group-row > .tool-chevron { margin-left: 4px; }
 /* BUI Shimmer, verbatim gradient/animation (atoms/Shimmer.tsx; keyframes live in tokens.css).
-   Driven by data-working — the group's own unsettled steps — never by a demo clock. */
+   Driven by data-working — the group's own unsettled steps — never by a demo clock.
+   Three sweeps, then the words rest in the quiet ink. A sweep moves `background-position`, which no
+   compositor can take, so for as long as it ran the window laid out and painted every vsync — 41% of
+   the CPU with nothing else moving, against 8% at rest (PERF.md B2). The sweep is what says a thing
+   just started working; the words and the status dot keep saying it after. Each start sweeps again:
+   a label that is drawn anew (the next step, the next "Thinking…") starts its own three. `forwards`
+   holds the last frame, where the bright band has left the box — without it the box would fall back
+   to position 0, which leaves the band's edge lit on the right of the words. */
 .shimmer-text, .tool-group[data-working] .tool-group-summary, .composer-thinking span {
   background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
   background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
-  animation: shimmer-text 1.4s linear infinite; }
+  animation: shimmer-text 1.4s linear 3 forwards; }
 /* The rail sits 4px left of the steps' lead glyphs, and the glyphs on the same column as every other
    row's: the rail is at 3, a step's row starts its glyph 4 past it, and 3 + 1 + 4 is a free row's 8. */
 .tool-group-steps { margin-left: 3px; padding-left: 0; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px; }

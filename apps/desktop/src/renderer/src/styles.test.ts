@@ -493,6 +493,13 @@ describe("§6 motion table", () => {
     // Only the ring moves; the core is untouched, so the row's dot column cannot jitter.
     const ring = bodiesFor('.status-dot[data-status="running"]::after').join(" ");
     expect(ring).toContain("animation: rl-ping var(--ring-rate)");
+    // A few pings, then the steady halo, faded in from the last ping's end: a ring that pings for the
+    // whole turn keeps the window producing a frame every vsync for minutes (PERF.md B2).
+    expect(ring).not.toContain("infinite");
+    expect(ring).toContain("var(--ring-pings)");
+    expect(ring).toContain("rl-halo-in var(--dur-slow) var(--ease-fade) calc(var(--ring-rate) * var(--ring-pings)) forwards");
+    expect(bodiesFor(".status-dot::after").join(" ")).toContain("--ring-pings: 3");
+    expect(blockAfter("@keyframes rl-halo-in")).toContain("opacity: 0");
     // Authored at full strength with NO transform: the un-animated form has to be a steady halo, not
     // a half-scaled ghost. This one line is the whole reason the state is still legible when the
     // preference takes the motion away — a `transform: scale(...)` here silently breaks that.
@@ -1658,7 +1665,8 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
 
   it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, a quiet lead glyph", () => {
     const shimmer = bodiesFor('.tool-group[data-working] .tool-group-summary').join(" ");
-    expect(shimmer).toContain("animation: shimmer-text 1.4s linear infinite");
+    // Three sweeps, then still on the last frame: a sweep repaints every vsync (PERF.md B2).
+    expect(shimmer).toContain("animation: shimmer-text 1.4s linear 3 forwards");
     expect(shimmer).toContain("background-clip: text");
     // BUI's trace rail is a solid hairline; the old dashed connector is gone.
     expect(bodiesFor(".tool-group-steps").join(" ")).toContain("border-left: var(--hairline-w) solid var(--line)");
@@ -1912,7 +1920,10 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     /* THE mutant, and the bug this replaced: pausing `*`. An entrance animation — `rl-msg-in`,
        `rl-fade-in` — starts at `opacity: 0`, so freezing one at its first frame leaves the thing
        invisible for as long as the window stays unfocused; a transcript an agent was talking into
-       went blank. So every selector the quiet rules pause must name an animation that never ends. */
+       went blank. So every selector the quiet rules pause must name an animation that never ends —
+       or the shimmer, which ends on purpose (three sweeps, PERF.md B2) and has no invisible frame:
+       paused mid-sweep it is the words with the band standing on them. */
+    const shimmer = new Set(RULES.find((r) => r.selectors.includes(".shimmer-text"))!.selectors);
     for (const part of paused.flatMap(partsOf)) {
       if (!part.startsWith(":root[data-quiet] ")) continue;
       const target = part.slice(":root[data-quiet] ".length);
@@ -1921,6 +1932,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
       const declaring = decls.filter((b) => /(^|;|\s)animation: /.test(b) && !b.includes("animation: none"));
       expect(declaring.length, `${target} is paused when quiet but declares no animation`).toBeGreaterThan(0);
       for (const b of declaring) {
+        if (shimmer.has(target)) { expect(b, target).toContain("animation: shimmer-text"); continue; }
         expect(b, `${target} is paused when quiet but its animation ends`).toContain("infinite");
       }
     }

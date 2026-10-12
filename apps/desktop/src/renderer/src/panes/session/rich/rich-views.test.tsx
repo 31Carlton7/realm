@@ -82,6 +82,15 @@ describe("TodoList", () => {
     expect(q(".todo-active")[0]).toHaveTextContent("Drawing the card");
   });
 
+  it("draws the next in-flight item as a new label, so its shimmer sweeps again", () => {
+    // The shimmer rests after three sweeps; a label element React reused would stay at rest.
+    const { rerender } = render(<TodoList todos={todos} />);
+    const first = q(".todo-active")[0];
+    rerender(<TodoList todos={todos.map((t, i) => ({ ...t, status: i < 2 ? "completed" as const : "in_progress" as const }))} />);
+    expect(q(".todo-active")[0]).toHaveTextContent("Test it");
+    expect(q(".todo-active")[0]).not.toBe(first);
+  });
+
   it("falls back to the item's title when it carries no activeForm", () => {
     render(<TodoList todos={[{ content: "Just this", status: "in_progress", activeForm: null }]} />);
     expect(q(".todo-active")[0]).toHaveTextContent("Just this");
