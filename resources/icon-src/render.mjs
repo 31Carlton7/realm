@@ -116,7 +116,7 @@ function bootMark() {
   const shine = [
     '<linearGradient id="b-shine" x1="0" y1="0" x2="1" y2="0">',
     '  <stop offset="0" stop-color="#fff" stop-opacity="0"/>',
-    '  <stop offset=".5" stop-color="#fff" stop-opacity=".72"/>',
+    '  <stop offset=".5" stop-color="#fff" stop-opacity=".45"/>',
     '  <stop offset="1" stop-color="#fff" stop-opacity="0"/>',
     "</linearGradient>",
   ];
