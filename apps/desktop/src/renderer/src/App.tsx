@@ -283,12 +283,9 @@ function CaretBridge() {
   return null;
 }
 
-/** The app's scrollers give at their ends (rubber-band.ts). Off under reduced motion, as AppKit's is. */
+/** The app's scrollers give at their ends (rubber-band.ts), under Reduce motion too, as AppKit's do. */
 function RubberBandBridge() {
-  useEffect(() => installRubberBand(document, {
-    onPhase: window.realm?.onScrollPhase,
-    reducedMotion: () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
-  }), []);
+  useEffect(() => installRubberBand(document, { onPhase: window.realm?.onScrollPhase }), []);
   return null;
 }
 
