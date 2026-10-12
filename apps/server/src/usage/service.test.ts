@@ -7,6 +7,7 @@ import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { SettingsStore } from "../store/settings";
 import { UsageService, environmentLabel, startOfMonth } from "./service";
+import { deflateEveryPayload } from "../store/event-payload.test-fakes";
 
 let db: Db; let settings: SettingsStore; let spaceA: string; let spaceB: string; let profileId: string;
 let budgetAlerts: { threshold: number; spendUsd: number; monthKey: string }[];
@@ -242,6 +243,22 @@ describe("UsageService.records — the page about you", () => {
     call(new Date(2025, 0, 2, 2).getTime(), "Read");
     call(day(2), "Bash");
     expect(service().records().tools).toEqual([{ name: "Read", calls: 3 }, { name: "Bash", calls: 1 }]);
+  });
+
+  it("reads tools, skills, turns and tokens the same off compressed payloads (v56)", () => {
+    makeSession("s1", { agentKind: "claude" });
+    appendEvent("s1", day(2), "tool_call", { toolUseId: "a", name: "Skill", input: { skill: "browsing" }, parentToolUseId: null });
+    appendEvent("s1", day(2, 13), "tool_call", { toolUseId: "b", name: "Read", input: {}, parentToolUseId: null });
+    appendEvent("s1", day(3), "status", { status: "running" });
+    appendEvent("s1", day(3, 13), "status", { status: "idle" });
+    appendUsage("s1", day(3, 13), { inputTokens: 100, outputTokens: 20, costUsd: 0.5 } as SessionEventPayload<"usage">);
+    const plain = service().records();
+    expect(plain.skills).toEqual([{ name: "browsing", uses: 1 }]);
+    expect(deflateEveryPayload(db)).toBe(5);
+    expect(service().records()).toEqual(plain);
+    // The name beside a call is what ranks it: no call is inflated just to be counted.
+    db.prepare("INSERT INTO event_tool_names (seq, tool) SELECT MAX(seq), 'Grep' FROM session_events WHERE type = 'tool_call'").run();
+    expect(service().records().tools).toEqual([{ name: "Grep", calls: 1 }, { name: "Skill", calls: 1 }]);
   });
 });
 

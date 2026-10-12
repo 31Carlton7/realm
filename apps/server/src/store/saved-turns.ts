@@ -1,21 +1,22 @@
 import { SAVED_REPLY_MAX, SAVED_TURNS_MAX, type SavedTurn } from "@realm/contracts";
 import type { Db } from "../db/database";
 import { NotFoundError, RpcError, now } from "./rows";
+import { parsePayload, type StoredPayload } from "./event-payload";
 
 type ListRow = {
-  seq: number; session_id: string; saved_at: number; ts: number; payload_json: string;
-  reply_json: string | null; session_title: string; space_id: string;
+  seq: number; session_id: string; saved_at: number; ts: number; payload_json: StoredPayload;
+  reply_json: StoredPayload | null; session_title: string; space_id: string;
 };
 
 /** An event's payload as an object, or `{}` for one that does not parse — a damaged row still lists,
  *  as a prompt with no words, rather than failing the whole read. */
-const payload = (json: string | null): Record<string, unknown> => {
-  if (json === null) return {};
-  try { const v: unknown = JSON.parse(json); return v && typeof v === "object" ? v as Record<string, unknown> : {}; } catch { return {}; }
+const payload = (stored: StoredPayload | null): Record<string, unknown> => {
+  const v = parsePayload(stored);
+  return v && typeof v === "object" ? v as Record<string, unknown> : {};
 };
 
 /** What a saved turn says about its prompt, read off the `user_message` it names. */
-function promptOf(json: string): Pick<SavedTurn, "text" | "attachments" | "goal"> {
+function promptOf(json: StoredPayload): Pick<SavedTurn, "text" | "attachments" | "goal"> {
   const p = payload(json);
   const files = Array.isArray(p.attachments) ? p.attachments : [];
   return {
@@ -26,7 +27,7 @@ function promptOf(json: string): Pick<SavedTurn, "text" | "attachments" | "goal"
 }
 
 /** The answer's first stretch: enough for three lines of a card, and no more of a long answer than that. */
-function replyOf(json: string | null): string | null {
+function replyOf(json: StoredPayload | null): string | null {
   const text = payload(json).text;
   return typeof text === "string" && text.trim() !== "" ? text.slice(0, SAVED_REPLY_MAX) : null;
 }
