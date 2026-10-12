@@ -52,13 +52,18 @@
  * request main makes) is the only one that can open it. `vault-allow` seals no secret: like `unlock`,
  * it seals a setting an agent must not be able to write — a grant's "use without asking". Both are
  * held only by Electron main.
+ *
+ * `team-policy` seals no secret either: it seals a team's policy row, or a tool's class, that lets a
+ * role do more without the person — a row realm-server keeps in `realm.db`, where an agent's shell can
+ * write. The seal is the stamp beside the row; the server cannot make one, only ask main whether one
+ * opens. Held only by Electron main.
  */
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
 
 /** Domain → the byte written into the header and mixed in as AAD. Codes are permanent: changing one
  *  makes every existing blob of that domain unopenable, which for credentials means silent data
  *  loss the user only discovers at a sign-in prompt. Add, never renumber. */
-export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8 } as const;
+export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8, "team-policy": 9 } as const;
 export type SecretDomain = keyof typeof SECRET_DOMAINS;
 
 const VERSION = 1;

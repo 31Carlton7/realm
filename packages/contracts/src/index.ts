@@ -30,6 +30,7 @@ export * from "./browser-agent";
 export * from "./key-chord";
 export * from "./realm-tools";
 export * from "./risk-class";
+export * from "./team-policy";
 export * from "./risk-vendors";
 export * from "./browser-upload";
 export * from "./browser-load-error";

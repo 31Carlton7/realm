@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { HIDDEN_ANSWER, type SessionEvent, type SessionEventOf, type SessionEventType } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
+import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, codexUserMcpServers, pickCodexDecision } from "./codex-adapter";
 import { GATEWAY_TOOL_TIMEOUT_MS, type AgentHandle, type StartOptions } from "../types";
 
 /**
@@ -652,6 +653,28 @@ describe("CodexAdapter", () => {
       await handle.dispose();
     });
 
+    it("is answered with no card of Codex's own when a team's policy decides the gateway's tool", async () => {
+      const asked: string[] = [];
+      const { handle, evs } = await booted({ gatewayDecides: async (t) => { asked.push(t); return true; } });
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      // THE MUTANT: the card drawn anyway — the person would answer the engine's card and then the policy's.
+      expect(asked).toEqual(["mcp__realm__realm-agent__agent_peers"]);
+      expect(of(evs, "permission_request")).toEqual([]);
+      expect(reply(evs)).toEqual({ action: "accept", content: {}, _meta: null });
+      await handle.dispose();
+    });
+
+    it("still draws the card when the policy does not decide, or asking it fails", async () => {
+      for (const gatewayDecides of [async () => false, async () => { throw new Error("gone"); }]) {
+        const { handle, evs } = await booted({ gatewayDecides });
+        await handle.send({ text: "ELICITTOOL", attachments: [] });
+        await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+        expect(texts(evs)).toEqual([]);
+        await handle.dispose();
+      }
+    });
+
     it("never asks Codex to remember the grant, even for Always allow", async () => {
       const { handle, evs } = await booted();
       await handle.send({ text: "ELICITTOOL", attachments: [] });
@@ -1212,6 +1235,35 @@ describe("CodexAdapter memory", () => {
   it("leaves instructionSources absent when the server does not report it (older build), not []", async () => {
     const { evs } = await booted({ env: { FAKE_CODEX_NO_INSTRUCTION_SOURCES: "1" } });
     expect("instructionSources" in of(evs, "init")[0]!.payload).toBe(false);
+  });
+});
+
+describe("a team role's run", () => {
+  const reflected = (evs: SessionEvent[]) => JSON.parse(of(evs, "init")[0]!.payload.model) as Record<string, unknown>;
+  const gateway = { name: "realm", transport: "http" as const, url: "http://127.0.0.1:1/mcp", headers: {} };
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("pins the sandbox's network off and turns off every server of the user's own config, for its thread only", async () => {
+    const home = tempDir("realm-codex-home-");
+    writeFileSync(join(home, "config.toml"), 'model = "x"\n[mcp_servers.userstub]\ncommand = "node"\n[mcp_servers.userstub.env]\nA = "1"\n[sandbox_workspace_write]\nnetwork_access = true\n');
+    vi.stubEnv("CODEX_HOME", home);
+    const { evs } = await booted({ model: "reflect", roleRun: true, mcpServers: [gateway] });
+    const config = reflected(evs).config as Record<string, Record<string, unknown>>;
+    // THE MUTANT: the pin dropped — a role's `curl` reaches the world past the gateway's policy.
+    expect(config.sandbox_workspace_write).toEqual({ network_access: false });
+    expect(config.mcp_servers).toEqual({ userstub: { enabled: false }, realm: expect.objectContaining({ url: gateway.url }) });
+  });
+
+  it("leaves the person's own session as it was", async () => {
+    const { evs } = await booted({ model: "reflect", mcpServers: [gateway] });
+    const config = reflected(evs).config as Record<string, unknown>;
+    expect(config.sandbox_workspace_write).toBeUndefined();
+    expect(Object.keys(config.mcp_servers as object)).toEqual(["realm"]);
+  });
+
+  it("reads the user's server names from the config's table headers", () => {
+    expect(codexUserMcpServers('[mcp_servers.a]\n[mcp_servers.a.env]\n[mcp_servers."b c"]\n  [ mcp_servers.d-e ]\n[other]\nmcp_servers = 1\n')).toEqual(["a", "b c", "d-e"]);
+    expect(codexUserMcpServers("")).toEqual([]);
   });
 });
 

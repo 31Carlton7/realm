@@ -41,7 +41,16 @@ const SCRIPT: FakeScript = [
 async function client(port: number) {
   const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
   const pending = new Map<string, (v: Any) => void>();
-  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); });
+  ws.on("message", (d) => {
+    const m = JSON.parse(d.toString());
+    if ("id" in m) { pending.get(m.id)?.(m); return; }
+    // The person says yes to each card a team's policy draws: a role's read of a record asks first (it logs
+    // the read), and in Default mode each write asks; these runs are about what the calls do.
+    const ev = m.event === "session.event" ? m.payload.event : null;
+    if (ev?.type === "permission_request" && /policy asks/.test(ev.payload.title)) {
+      void call("sessions.respondPermission", { id: m.payload.sessionId, requestId: ev.payload.requestId, decision: "allow" });
+    }
+  });
   let n = 0;
   const call = (method: string, params: unknown) => new Promise<Any>((res, rej) => {
     const id = String(++n);

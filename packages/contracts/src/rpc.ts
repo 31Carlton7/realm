@@ -35,7 +35,7 @@ import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchem
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { ActTicketSchema } from "./team-acts";
-import { TeamPoliciesSchema } from "./risk-class";
+import { TeamPoliciesSchema, TeamPolicyInputSchema, TeamPolicyRowSchema, ToolClassInputSchema, ToolClassSetResultSchema } from "./team-policy";
 import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
 import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
 import { SetRoleHandoffsSchema, SetTeamLimitsSchema } from "./team-handoffs";
@@ -1661,6 +1661,14 @@ export const Methods = {
   // decided it, and whether a call asks first today. Listing a server's tools connects to it, as a
   // session's own tool list does.
   "team.policies": { params: z.object({ spaceId: IdSchema }), result: TeamPoliciesSchema },
+  // A team's policy row, written from the Policies page. Tightening is open, as a hold is; a write that
+  // loosens anything holds only with the person's press in Realm's own window, confirmed by macOS and
+  // sealed by main — the server asks main for that press and refuses without one. No agent tool
+  // reaches either method.
+  "team.policySet": { params: TeamPolicyInputSchema, result: TeamPolicyRowSchema },
+  // A person's word on what one tool does ("What does this do?"). Raising a class is open; lowering one
+  // below what Realm derived is a loosening, and takes the same press.
+  "team.toolClassSet": { params: ToolClassInputSchema, result: ToolClassSetResultSchema },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),

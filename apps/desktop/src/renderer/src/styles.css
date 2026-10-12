@@ -10366,6 +10366,11 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tpol-chevron { flex: none; color: var(--rl-text-dim); }
 .settings-row.tpol-tool { padding-left: 48px; }
 .settings-row.tpol-tool + .settings-row::before, .settings-row + .settings-row.tpol-tool::before { left: 48px; }
+/* A rule's decision is the value in force and a chevron, the system's menu under it. On a connection
+   the row's disclosure keeps the width and the decision sits past it, inside the row's own padding. */
+.tpol-pick { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.settings-row.tpol-connector > .tp-row-button { flex: 1; min-width: 0; }
+.settings-row.tpol-connector > .tpol-pick { margin-right: 16px; }
 .tv-uses td.tv-where { white-space: normal; }
 .tv-who { display: inline-flex; align-items: center; gap: 6px; }
 .tv-foot { display: flex; align-items: center; gap: 8px; width: 100%; }

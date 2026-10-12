@@ -142,6 +142,15 @@ export type VaultAllowAuditEntry = {
   outcome: "set" | "refused" | "cleared";
 };
 
+/** One line per press on a team's Policies page that loosens a rule or a tool's class. `refused` is a
+ *  press macOS did not confirm, or one Realm could not keep a stamp for. */
+export type TeamPolicyAuditEntry = {
+  ts: number;
+  kind: "team-policy";
+  scope: string;
+  outcome: "sealed" | "refused";
+};
+
 /** One line of the passkey audit log, written to the same file for the same reason: an auditor asks
  *  "was a key of mine used, for which site, and did it go through", and every answer past that is
  *  the key leaking by instalments. `rpId` is Realm's own derivation from the pane's URL, never the
@@ -924,6 +933,69 @@ export class SecretStore {
     return pruned;
   }
 
+  /* -------------------------------- team policies -------------------------------- */
+
+  /**
+   * Seal one loosening from a team's Policies page: a rule, or a tool's class, that lets a role do more
+   * without the person. Reachable ONLY from the page's press handler (`policy-presses.ts`), for
+   * `setUnlockPolicy`'s reason — there is no tool, RPC method or bridge op that makes a seal — and
+   * confirmed by macOS (Touch ID or the login password) every time.
+   *
+   * What it seals is the exact text the server will store (`policySealText`, `toolClassSealText`), the
+   * scope it belongs to, this Mac, and the scope's Keychain stamp, moved on first. So a row edited in
+   * realm.db no longer matches its text, one copied to another Mac carries the wrong machine, and an
+   * older sealed row put back after a tightening carries an older stamp: each reads as not sealed, which
+   * the server reads as the floor. A stamp that will not move keeps the loosening from being made at all.
+   */
+  async sealTeamPolicy(scope: string, text: string, reason: string): Promise<{ ok: true; seal: string } | { ok: false; error: string }> {
+    if (!this.available) return { ok: false, error: "macOS is not offering Realm an encryption key right now (Keychain unavailable), so nothing changed." };
+    const machine = this.machine();
+    if (!machine) return { ok: false, error: "Realm could not read this Mac's hardware ID, so it cannot tie this to this Mac. Nothing changed." };
+    if (!(await this.confirmOwner(reason))) {
+      this.audit({ ts: this.d.now(), kind: "team-policy", scope, outcome: "refused" });
+      return { ok: false, error: "macOS did not confirm it was you, so nothing changed." };
+    }
+    let gen: number | null = null;
+    try { gen = this.d.policyStamp?.bump(scope) ?? null; } catch { gen = null; }
+    this.stamps.delete(scope);
+    if (gen === null) {
+      this.audit({ ts: this.d.now(), kind: "team-policy", scope, outcome: "refused" });
+      return { ok: false, error: "Realm could not keep a record of this in your Keychain, so nothing changed." };
+    }
+    this.stamps.set(scope, gen);
+    const sealed = seal(this.key("team-policy"), "team-policy", JSON.stringify({ scope, text, machine, gen }));
+    this.audit({ ts: this.d.now(), kind: "team-policy", scope, outcome: "sealed" });
+    return { ok: true, seal: sealed };
+  }
+
+  /** Whether each seal opens under the `team-policy` key and covers exactly this scope and text, on this
+   *  Mac, at the scope's current stamp. Every failure is false — never a reason, which would be an oracle. */
+  teamPolicySealed(items: readonly { scope: string; text: string; seal: string }[]): boolean[] {
+    const machine = this.machine();
+    return items.map((i) => {
+      if (!this.available || !machine) return false;
+      try {
+        const text = open(this.key("team-policy"), "team-policy", i.seal);
+        if (text === null) return false;
+        const r = JSON.parse(text) as { scope?: unknown; text?: unknown; machine?: unknown; gen?: unknown };
+        const stamp = this.stampOf(i.scope);
+        return r.scope === i.scope && r.text === i.text && r.machine === machine && typeof stamp === "number" && r.gen === stamp;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /** A tightening at this scope: move its stamp on, so an older seal there stops checking out. Never
+   *  confirmed — putting a gate back must always be one click — and never prompts. */
+  bumpTeamPolicy(scope: string): boolean {
+    let gen: number | null = null;
+    try { gen = this.d.policyStamp?.bump(scope) ?? null; } catch { gen = null; }
+    this.stamps.delete(scope);
+    if (gen !== null) this.stamps.set(scope, gen);
+    return gen !== null;
+  }
+
   /* ---------------------------------- passkeys ---------------------------------- */
 
   /** Metadata for every passkey this profile holds. `sealed` is stripped HERE, at the boundary, for
@@ -1133,7 +1205,7 @@ export class SecretStore {
   /** One JSONL line per fill attempt, whatever the outcome. Never throws: an unwritable log is a
    *  degraded audit trail, not a reason to fail a sign-in the user just approved with their
    *  fingerprint. */
-  audit(entry: CredentialAuditEntry | PasskeyAuditEntry | UnlockAuditEntry | UnlockPolicyAuditEntry | VaultHttpAuditEntry | VaultAllowAuditEntry): void {
+  audit(entry: CredentialAuditEntry | PasskeyAuditEntry | UnlockAuditEntry | UnlockPolicyAuditEntry | VaultHttpAuditEntry | VaultAllowAuditEntry | TeamPolicyAuditEntry): void {
     try { this.d.appendAudit(`${JSON.stringify(entry)}\n`); } catch { /* see above */ }
   }
 
@@ -1268,7 +1340,7 @@ export class SecretStore {
              and each is folded in the same way and for the reason above: a missing domain is a
              key to mint, never a corrupt keyring to discard. */
           const added: Record<string, string> = {};
-          const fold = (name: "machine" | "eggs" | "passkey" | "unlock" | "vault-key" | "vault-allow"): Buffer => {
+          const fold = (name: "machine" | "eggs" | "passkey" | "unlock" | "vault-key" | "vault-allow" | "team-policy"): Buffer => {
             const existing = Buffer.from(String(json[name] ?? ""), "base64");
             if (existing.length === SECRET_KEY_BYTES) return existing;
             const minted = newSecretKey();
@@ -1281,12 +1353,13 @@ export class SecretStore {
           const unlock = fold("unlock");
           const vaultKey = fold("vault-key");
           const vaultAllow = fold("vault-allow");
+          const teamPolicy = fold("team-policy");
           if (Object.keys(added).length > 0) {
             file.keyring = this.d.safeStorage.encryptString(JSON.stringify({ ...json, ...added })).toString("base64");
             this.file = file;
             this.save();
           }
-          return { oauth, credential, machine, eggs, passkey, unlock, "vault-key": vaultKey, "vault-allow": vaultAllow };
+          return { oauth, credential, machine, eggs, passkey, unlock, "vault-key": vaultKey, "vault-allow": vaultAllow, "team-policy": teamPolicy };
         }
       } catch { /* falls through to a fresh keyring */ }
       file.credentials = [];
@@ -1304,7 +1377,7 @@ export class SecretStore {
     const keys = {
       oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey(),
       eggs: newSecretKey(), passkey: newSecretKey(), unlock: newSecretKey(),
-      "vault-key": newSecretKey(), "vault-allow": newSecretKey(),
+      "vault-key": newSecretKey(), "vault-allow": newSecretKey(), "team-policy": newSecretKey(),
     };
     file.keyring = this.d.safeStorage
       .encryptString(JSON.stringify({
@@ -1316,6 +1389,7 @@ export class SecretStore {
         unlock: keys.unlock.toString("base64"),
         "vault-key": keys["vault-key"].toString("base64"),
         "vault-allow": keys["vault-allow"].toString("base64"),
+        "team-policy": keys["team-policy"].toString("base64"),
       }))
       .toString("base64");
     this.file = file;

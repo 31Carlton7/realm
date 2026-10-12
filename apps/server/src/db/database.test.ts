@@ -1946,10 +1946,10 @@ describe("migration — a session's activity", () => {
   });
 });
 
-describe("migrations 46–53, as the eight branches that held each other's slots merged", () => {
-  it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, act tickets, record types, deliverables, then tool classes", () => {
+describe("migrations 46–54, as the branches that held each other's slots merged", () => {
+  it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, act tickets, record types, deliverables, tool classes, then team policies", () => {
     expect(migrations.filter((m) => m.trim() === "SELECT 1;")).toEqual([]);
-    expect(migrations).toHaveLength(53);
+    expect(migrations).toHaveLength(54);
     expect(migrations[45]).toContain("CREATE TABLE IF NOT EXISTS vault_grants");
     expect(migrations[46]).toContain("CREATE TABLE IF NOT EXISTS team_handoffs");
     expect(migrations[47]).toContain("CREATE TABLE IF NOT EXISTS lab_devices");
@@ -1958,5 +1958,6 @@ describe("migrations 46–53, as the eight branches that held each other's slots
     expect(migrations[50]).toContain("CREATE TABLE IF NOT EXISTS team_record_types");
     expect(migrations[51]).toContain("ALTER TABLE team_review_items ADD COLUMN action_json");
     expect(migrations[52]).toContain("CREATE TABLE IF NOT EXISTS tool_classes");
+    expect(migrations[53]).toContain("CREATE TABLE IF NOT EXISTS team_policies");
   });
 });

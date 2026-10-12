@@ -324,6 +324,10 @@ contextBridge.exposeInMainWorld("realm", {
   team: {
     pressTicket: (input: { ticketId: string; contentHash: string; slotAt: number; label: boolean }): Promise<boolean> =>
       ipcRenderer.invoke("team:press-ticket", input),
+    /** A team's Policies page (`main/policy-presses.ts`): the person's press on a loosening — a rule,
+     *  or a tool's class — confirmed by macOS and sealed in main for realm-server to spend. */
+    pressPolicy: (input: unknown): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke("team:press-policy", input),
   },
   vault: {
     list: (profileId: string, spaceId: string): Promise<{ available: boolean; secrets: VaultSecrets; allows: VaultAllow[]; profileUnattended: boolean }> =>
