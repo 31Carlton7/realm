@@ -1,5 +1,11 @@
-import { PLAN_LIMIT_REPORTING, mergeWindows, type AgentKind, type PlanLimits, type SessionEventPayload } from "@realm/contracts";
+import { codexRateLimitsReading } from "@realm/adapters";
+import { PLAN_LIMIT_REPORTING, PlanLimitsSchema, mergeWindows, type AgentKind, type PlanLimits, type SessionEventPayload } from "@realm/contracts";
 import type { RpcServer } from "../rpc/server";
+import type { SettingsStore } from "../store/settings";
+import { latestCodexRateLimits } from "./codex-rollout";
+
+/** `settings` row holding the last reading per kind. Generic table, so no migration. */
+export const PLAN_LIMITS_KEY = "limits.last";
 
 /**
  * What each provider says about the account's plan quota.
@@ -9,15 +15,22 @@ import type { RpcServer } from "../rpc/server";
  * at one number. Folding per-session readings into per-kind state is what stops the panel from
  * showing the same window twice with different values because one session heard about it later.
  *
- * In memory, like the mid-turn queue and for a weaker version of the same reason: a quota reading is
- * only true for the moment it was taken. A figure restored from disk at boot would be presented as
- * current when nobody has asked the provider since the last run, and "78% as of some point
- * yesterday" is worse than an honest "run a session and this will fill in".
+ * The last reading is KEPT, with the time it was taken. It used to live in memory only, on the
+ * argument that a figure restored at boot would be presented as current — and so after every launch
+ * the one question the page exists for, "how much is left", had no answer until a session happened
+ * to run. The reading carries its `ts` and every window its `resetsAt`, so the panel can say "as of
+ * 40 minutes ago" and can tell a window that has since reset from one that has not; that is a stale
+ * figure presented honestly, which beats no figure.
+ *
+ * Codex is also read from its own rollouts on disk (`latestCodexRateLimits`), which costs nothing and
+ * covers Codex run outside Realm. Claude has no such file; its reading comes from sessions only.
  */
 export class PlanLimitsService {
   private byKind = new Map<AgentKind, PlanLimits>();
 
-  constructor(private d: { rpc: RpcServer }) {}
+  constructor(private d: { rpc: RpcServer; settings?: SettingsStore; codexHome?: string }) {
+    for (const row of restore(d.settings?.get(PLAN_LIMITS_KEY))) this.byKind.set(row.agentKind as AgentKind, row);
+  }
 
   /**
    * Fold one adapter reading into the kind's state.
@@ -44,7 +57,21 @@ export class PlanLimitsService {
       detail: reading.detail,
       ts: now,
     });
+    this.d.settings?.set(PLAN_LIMITS_KEY, [...this.byKind.values()]);
     this.d.rpc.broadcast("limits.changed", { limits: this.list() });
+  }
+
+  /**
+   * Catch up on what Codex wrote to disk since the last reading. Only a NEWER reading is taken: the
+   * rollout of a session Realm itself ran repeats what the app-server already pushed, and an older
+   * one must never roll a fresher bar back.
+   */
+  async readLocal(): Promise<void> {
+    if (!this.d.codexHome) return;
+    const found = await latestCodexRateLimits(this.d.codexHome).catch(() => null);
+    if (!found || found.ts <= (this.byKind.get("codex")?.ts ?? 0)) return;
+    const reading = codexRateLimitsReading(found.rateLimits);
+    if (reading && reading.windows.length > 0) this.apply("codex", reading, found.ts);
   }
 
   /**
@@ -67,4 +94,14 @@ export class PlanLimitsService {
       ts: 0,
     });
   }
+}
+
+/** A stored list, parsed row by row: the settings table is user-editable JSON, and one bad row must
+ *  not cost the others. A kind this build does not know is dropped, as the usage page drops one. */
+function restore(raw: unknown): PlanLimits[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((r) => {
+    const p = PlanLimitsSchema.safeParse(r);
+    return p.success && p.data.agentKind in PLAN_LIMIT_REPORTING ? [p.data] : [];
+  });
 }
