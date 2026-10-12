@@ -1710,7 +1710,7 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .gen-glow,
 :root[data-quiet] .drive-frame-glow,
 :root[data-quiet] .wash[data-grain],
-:root[data-quiet] .reach-mark[data-busy] .reach-mark-pulse,
+:root[data-quiet] .reach-mark[data-busy] .reach-mark-glint,
 :root[data-quiet] .mp-track-facets,
 :root[data-quiet] .mp-track-flow,
 :root[data-quiet] .mp-track-core,
@@ -2819,27 +2819,27 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-connecting { position: absolute; inset: 0; display: grid; place-items: center; padding-bottom: 12%; pointer-events: none;
   animation: rl-connecting-in var(--dur-fast) var(--ease-fade) 600ms both; }
 @keyframes rl-connecting-in { from { opacity: 0; } to { opacity: 1; } }
-/* The marks (BrowserErrorPage.tsx), drawn in the stroke of one hand. The spiral is the accent's one
-   appearance on the page; the padlock is danger, because a certificate Realm will not trust is a state,
-   not a mood. The spiral draws itself in once, from the middle out. While a load is in flight it dims
-   and a pulse runs out along it, looping until the load settles, and the line lights back up. Only
-   then: an error page can sit for hours, and a loop that kept running under `opacity: 0` would spend a
-   core on a pane nobody is looking at (the power audit's finding, § Quiet). */
+/* The marks (BrowserErrorPage.tsx). Realm's flat mark is the accent's one appearance on the page; the
+   padlock is danger, because a certificate Realm will not trust is a state, not a mood. The mark fades
+   up once as it arrives. While a load is in flight it dims and a glint crosses it, looping until the
+   load settles, and the mark lights back up. Only then: an error page can sit for hours, and a loop
+   that kept running under `opacity: 0` would spend a core on a pane nobody is looking at (the power
+   audit's finding, § Quiet). */
 .reach-mark, .lock-mark { flex: none; overflow: visible; }
-.reach-mark path, .lock-mark :is(path, rect) { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.lock-mark :is(path, rect) { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 .reach-mark { color: var(--rl-accent); }
 .lock-mark { color: var(--rl-danger); }
-.reach-mark-line { stroke-dasharray: 100; animation: rl-reach-draw var(--dur-move) var(--ease-out-strong) both; transition: opacity var(--dur-swap) var(--ease-fade); }
-.reach-mark-pulse { stroke-dasharray: 16 100; stroke-dashoffset: 16; opacity: 0; }
-.reach-mark[data-busy] .reach-mark-line { opacity: .3; }
-.reach-mark[data-busy] .reach-mark-pulse { opacity: 1; animation: rl-reach-pulse 1.4s linear infinite; }
-@keyframes rl-reach-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
-@keyframes rl-reach-pulse { from { stroke-dashoffset: 16; } to { stroke-dashoffset: -100; } }
+.reach-mark-shape { fill: currentColor; animation: rl-reach-in var(--dur-move) var(--ease-out-strong) backwards; transition: opacity var(--dur-swap) var(--ease-fade); }
+.reach-mark-glint { opacity: 0; }
+.reach-mark[data-busy] .reach-mark-shape { opacity: .35; }
+.reach-mark[data-busy] .reach-mark-glint { opacity: 1; animation: rl-reach-glint 1.4s linear infinite; }
+@keyframes rl-reach-in { from { opacity: 0; } }
+@keyframes rl-reach-glint { from { transform: translateX(0); } to { transform: translateX(64px); } }
 @media (prefers-reduced-motion: reduce) {
-  /* Simply drawn: nothing dims and nothing runs along it. The first page's mark goes altogether, since
+  /* Simply drawn: nothing dims and nothing crosses it. The first page's mark goes altogether, since
      a spinner frozen in place reads as a hang (A-L5) — the toolbar's Stop still says a load is on. */
-  .reach-mark[data-busy] .reach-mark-line { opacity: 1; }
-  .reach-mark-pulse, .browser-connecting { display: none; }
+  .reach-mark[data-busy] .reach-mark-shape { opacity: 1; }
+  .reach-mark-glint, .browser-connecting { display: none; }
 }
 
 /* Socket down: slim fixed banner, above panes but below sheets/palette. */
@@ -6331,8 +6331,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .onboarding > :nth-child(4) { animation-delay: calc(40ms * 6); }
 @keyframes onboarding-rise { from { opacity: 0; translate: 0 8px; } }
 .onboarding-hero { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+/* The three-plane mark, as drawn: its blues read on the light face and the dark one alike, so it takes
+   no filter in either. */
 .onboarding-mark { width: 40px; height: 48px; margin-bottom: 6px; }
-:root[data-mode="light"] .onboarding-mark { filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.18)) brightness(0.92); }
 .onboarding-hero h1 { margin: 0; font-size: 28px; line-height: 1.2; font-weight: var(--fw-title); letter-spacing: -0.02em; color: var(--rl-text-bright); }
 .onboarding-lead { margin: 0; font-size: 15px; line-height: 1.5; color: var(--rl-text-dim); text-wrap: balance; }
 /* A step: its number and name, one line under it saying what it is for, then the thing itself. */
