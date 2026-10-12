@@ -148,7 +148,9 @@ describe("the rubber band", () => {
     band.phase({ phase: "ended", momentum: "none" }, 0);
     coast(band, el, 40, 2, 10, 4);
     run();
+    // A bounce, which comes home by itself — not a stretch held out waiting for a lift that came already.
     expect(Math.max(...drawn)).toBeGreaterThan(30);
+    expect(drawn.at(-1)).toBe(0);
   });
 
   it("takes hold of a spring mid-flight from where the content is", () => {
