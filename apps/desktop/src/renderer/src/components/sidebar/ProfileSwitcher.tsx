@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { useRef, useState } from "react";
 import { useApp } from "../../state/store";
 import { Menu } from "../Menu";
+import { SpaceIcon } from "../SpaceIcon";
 import { profileWaiting } from "./model";
 import { useSidebarState } from "./use-sidebar-model";
 
@@ -42,7 +43,7 @@ export function ProfileSwitcher() {
         aria-label={active ? `Profile: ${active.name}` : "Profiles"} title="Switch profile"
         disabled={profiles.length === 0} onClick={() => setOpen((o) => !o)}>
         <span className="sb-profile-mark" style={active ? { color: active.color } : undefined}>
-          <Icon name={active?.icon ?? "user"} size={16} />
+          <SpaceIcon icon={active?.icon || "user"} size={16} />
         </span>
         <span className="sb-profile-name">{active?.name ?? "Profiles"}</span>
         <Icon name="chevronDown" size={12} className="sb-profile-caret" />
@@ -52,7 +53,7 @@ export function ProfileSwitcher() {
           ...profiles.map((p) => ({
             label: label(p.id, p.name),
             // Each profile wears its own mark in its own colour, and every row reserves the slot.
-            icon: <span className="sb-profile-mark" style={{ color: p.color }}><Icon name={p.icon || "user"} size={16} /></span>,
+            icon: <span className="sb-profile-mark" style={{ color: p.color }}><SpaceIcon icon={p.icon || "user"} size={16} /></span>,
             checked: p.id === activeProfileId,
             disabled: spaceCount(p.id) === 0,
             onSelect: () => run(() => switchProfile(p.id)),
