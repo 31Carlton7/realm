@@ -9870,37 +9870,81 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .budget-projection { position: absolute; top: -2px; bottom: -2px; width: 2px; border-radius: 1px;
   background: var(--rl-text-dim); }
 .budget-line { margin: 0; font-size: 12.5px; color: var(--rl-text-dim); }
-/* Plan & limits — what the PROVIDER says is left, next to what the user budgeted. Same track idiom as
-   the budget meter above so the two read as one family, with one difference that is the whole point:
-   the state ramp is driven by the provider's own alert (`data-alert` on the account), never by a
-   percentage compared against a threshold picked here. */
-.plan-card { display: flex; flex-direction: column; gap: 14px; }
-.plan-account { --plan-hue: var(--rl-accent); display: flex; flex-direction: column; gap: 6px; }
-.plan-account[data-alert="approaching"] { --plan-hue: var(--rl-warning); }
-.plan-account[data-alert="exceeded"] { --plan-hue: var(--rl-danger); }
-.plan-account-head { display: flex; align-items: baseline; gap: 8px; }
-.plan-account-name { font-weight: var(--fw-label); color: var(--rl-text-bright); }
-.plan-account-tier { font-size: 12px; color: var(--rl-text-dim); }
-.plan-account-org { font-size: 12px; color: var(--rl-text-faint); }
-/* A grid, not a flex row: the labels, the bars and the reset times line up down the column, which is
-   what makes four windows comparable at a glance instead of four separate readings. */
-.plan-window { display: grid; grid-template-columns: 7.5rem 1fr 2.5rem auto; align-items: center;
-  gap: 10px; font-size: 12px; color: var(--rl-text-dim); }
-.plan-window-label { color: var(--rl-text-bright); }
-/* Only the window the provider actually named carries the tone. A row that took the account's colour
-   would say all four windows are in trouble when one is. */
-.plan-window:not([data-alerted]) { --plan-hue: var(--rl-accent); }
-.plan-track { position: relative; height: 8px; border-radius: var(--r-pill); overflow: hidden;
+/* ——— the page's sections ———
+   Two sections head the page in the settings head's own type (15/20, title weight): what the plan has
+   left, then what the range came to. Everything under them is cards; the heads are not, because a
+   head inside a card is a card that has to explain itself. */
+.usage-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.usage-section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.usage-section-head h2 { margin: 0; font-size: 15px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.usage-section-sub { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.usage-error { margin: 0; font-size: 13px; color: var(--rl-danger); }
+
+/* ——— Plan limits ———
+   One card per engine that reports, side by side where the page is wide enough for two to read as
+   peers, stacked where it is not. A window is a row of three lines: its name and what is LEFT (the
+   question asked), the bar (what is used), then the countdown and pace in words. The tone follows the
+   provider's own alert (`data-alert`), never a percentage compared against a threshold picked here. */
+.plan-accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.plan-account { --plan-hue: var(--rl-accent); display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 14px 16px;
+  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface); }
+.plan-account-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.plan-account-name { font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.plan-account-tier, .plan-account-org { font-size: 13px; color: var(--rl-text-dim); }
+/* The reading's age sits at the head's far end: read last, and only there when it is worth saying. */
+.plan-account-age { margin-left: auto; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }
+.plan-windows { display: flex; flex-direction: column; gap: 14px; }
+.plan-window { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.plan-window[data-alert="approaching"] { --plan-hue: var(--rl-warning); }
+.plan-window[data-alert="exceeded"] { --plan-hue: var(--rl-danger); }
+.plan-window-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.plan-window-label { font-size: 13px; color: var(--rl-text-bright); }
+.plan-window-figure { font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.plan-window[data-alert] .plan-window-figure { color: var(--plan-hue); }
+.plan-window[data-reset] .plan-window-figure { font-weight: var(--fw-label); color: var(--rl-text-dim); }
+/* The unfilled track is a lighter step of the SAME ramp, so state reads across the whole bar. */
+.plan-track { position: relative; height: 8px; border-radius: var(--r-pill);
   background: color-mix(in srgb, var(--plan-hue) 16%, transparent); }
 .plan-fill { height: 100%; border-radius: var(--r-pill); background: var(--plan-hue);
   transition: width var(--dur-base) var(--ease-out-strong); }
-.plan-window-pct { font-variant-numeric: tabular-nums; text-align: right; color: var(--rl-text-bright); }
-/* A window the provider named without a number. Italic rather than a 0% bar, because the bar would be
-   a figure Realm invented about a limit it cannot see. */
-.plan-window-unknown { font-style: italic; color: var(--rl-text-faint); }
-.plan-window-reset { color: var(--rl-text-faint); white-space: nowrap; }
-.plan-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }
-.plan-note-silent { padding-top: 2px; border-top: var(--hairline-w) solid var(--rl-line); }
+/* Where even spending would have the fill by now. A tick in the ink, taller than the track, because it
+   is a position to compare against and not usage. */
+.plan-pace-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--rl-text-dim); }
+.plan-window-foot { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.plan-window-used { font-variant-numeric: tabular-nums; }
+.plan-window-pace[data-pace="ahead"] { color: var(--rl-warning); }
+.plan-note { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.plan-note-silent { font-size: 12px; line-height: 16px; }
+
+/* ——— the range's figures ———
+   One strip, four cells divided by hairlines: one reading of one range, so one object. The spend
+   leads at the title rung; the rest sit a rung down. The cells wrap to two-by-two, then one column. */
+.usage-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); min-width: 0;
+  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface); overflow: hidden; }
+.usage-figure { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 16px;
+  box-shadow: calc(-1 * var(--hairline-w)) 0 0 var(--rl-line), 0 calc(-1 * var(--hairline-w)) 0 var(--rl-line); }
+.usage-figure-label { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.usage-figure-value { font-size: 24px; line-height: 30px; font-weight: var(--fw-title); letter-spacing: -0.02em; color: var(--rl-text-bright); }
+.usage-figure-hero .usage-figure-value { font-size: 28px; }
+.usage-figure-sub { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.usage-skeleton-bar, .usage-skeleton-line { display: block; border-radius: var(--r-sm); background: var(--rl-hover); }
+.usage-skeleton-bar { width: 6em; height: 24px; margin: 3px 0; }
+.usage-skeleton-line { width: 9em; height: 12px; margin: 2px 0; }
+
+/* ——— two cards that share a row where the page is wide ——— */
+.usage-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; align-items: start; }
+.usage-pair > * { min-width: 0; }
+
+/* ——— heaviest sessions: rows that open ——— */
+.usage-sessions { display: flex; flex-direction: column; margin: 0 -8px; padding: 0; list-style: none; }
+.usage-session { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 1px; width: 100%;
+  padding: 7px 8px; border: none; border-radius: var(--r-ctl); background: transparent; text-align: left; font: inherit; }
+.usage-session:hover { background: var(--rl-hover); }
+.usage-session:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
+.usage-session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.usage-session-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.usage-session-cost { grid-column: 2; grid-row: 1; text-align: right; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); font-variant-numeric: tabular-nums; }
+.usage-session-tokens { grid-column: 2; grid-row: 2; text-align: right; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 
 .budget-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .budget-input { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--rl-text-dim); }
@@ -9919,7 +9963,10 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 
 /* ——— activity ——— */
 .usage-activity { display: flex; flex-wrap: wrap; gap: 12px; }
-.usage-activity-stats { flex: 1 1 320px; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.usage-activity-stats { flex: 1 1 320px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 0; }
+.usage-activity-stats dt { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.usage-activity-stats dd { margin: 0; font-size: 20px; line-height: 26px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.usage-activity-stats dd.usage-activity-sub { font-size: 12px; line-height: 16px; font-weight: normal; color: var(--rl-text-dim); }
 .usage-activity-lists { flex: 1 1 300px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .usage-toplist h4 { margin: 0 0 6px; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .usage-toplist ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
@@ -9930,7 +9977,8 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .usage-toplist-value { flex: none; font-variant-numeric: tabular-nums; color: var(--rl-text-bright); }
 
 /* ——— caveats: why a number is missing, named rather than left as a puzzle ——— */
-.usage-caveats { display: flex; flex-direction: column; gap: 6px; }
+.usage-caveats { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+.usage-caveats h3 { margin: 0 0 2px; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .usage-caveats p { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--rl-text-dim); max-width: 88ch; }
 .usage-caveats strong { font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .usage-caveats svg { vertical-align: -2px; }
