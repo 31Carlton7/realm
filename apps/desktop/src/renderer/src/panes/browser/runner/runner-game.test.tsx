@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { BrowserLoadError } from "@realm/contracts";
+import { realmiteFromSeed } from "@realm/ui";
 import { BrowserErrorPage } from "../BrowserErrorPage";
+import { heroSpec } from "./runner-view";
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 
@@ -60,5 +62,19 @@ describe("the runner on the error page", () => {
     localStorage.setItem("realm.runner.best", "1234");
     page(error("ERR_CONNECTION_REFUSED", -102));
     expect(screen.getByText("Best 01234")).toBeInTheDocument();
+  });
+});
+
+describe("the hero", () => {
+  it("is the seed's Realmite, never in a blue hue", () => {
+    let recoloured = 0;
+    for (let i = 0; i < 300; i++) {
+      const seed = `localhost:${3000 + i}`;
+      const own = realmiteFromSeed(seed), hero = heroSpec(seed);
+      expect(["sky", "realm", "iris", "teal"]).not.toContain(hero.palette);
+      expect({ ...hero, palette: own.palette }).toEqual(own);
+      if (hero.palette !== own.palette) recoloured++;
+    }
+    expect(recoloured).toBeGreaterThan(0);
   });
 });

@@ -12,7 +12,7 @@
  * Reduce motion the game still plays when asked to, but the hills stand still, the ball does not spin
  * and nothing sparkles.
  */
-import { colours, realmiteFromSeed, realmiteSvg, REALMITE_CSS, type Colours } from "@realm/ui";
+import { colours, realmiteFromSeed, realmiteSvg, REALMITE_CSS, type Colours, type PaletteId, type RealmiteSpec } from "@realm/ui";
 import { advance, createRun, heroCentre, nextBest, parseBest, RUN, score, type Run, type RunEvent } from "./runner";
 
 /** The canvas's height in CSS pixels, and how much of it is earth below the running line. */
@@ -23,6 +23,19 @@ const HERO_SIZE = 32;
 
 const BEST_KEY = "realm.runner.best";
 const SOUND_KEY = "realm.runner.sound";
+
+/** Blue hues a runner never wears: a blue ball rolling through green hills is somebody else's hero. */
+const BLUES: readonly PaletteId[] = ["sky", "realm", "iris", "teal"];
+const WARMS: readonly PaletteId[] = ["rose", "apricot", "honey", "moss", "orchid", "clay"];
+
+/** The Realmite that runs for a seed: the seed's own, recoloured from a warm hue if it came out blue. */
+export function heroSpec(seed: string): RealmiteSpec {
+  const spec = realmiteFromSeed(seed);
+  if (!BLUES.includes(spec.palette)) return spec;
+  let h = 0;
+  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return { ...spec, palette: WARMS[h % WARMS.length]! };
+}
 
 export type RunnerState = "idle" | "running" | "paused" | "over";
 
@@ -94,6 +107,7 @@ export class RunnerView {
   private dpr = 1;
   private palette: Palette | null = null;
   private sprites: { run: HTMLImageElement; over: HTMLImageElement } | null = null;
+  private spritesAsked = false;
   private sparks: Spark[] = [];
   private shownScore = -1;
   private synth = new Synth();
@@ -118,10 +132,12 @@ export class RunnerView {
     });
     // The theme and the quiet switch both live on the root.
     const root = document.documentElement;
-    const watch = new MutationObserver(() => {
+    const watch = new MutationObserver((changes) => {
       if (root.hasAttribute("data-quiet")) this.pause();
+      if (!changes.some((c) => c.attributeName === "data-mode" || c.attributeName === "data-theme")) return;
+      // A new face: new colours, and the hero redrawn in them (the old one stands in until it loads).
       this.palette = null;
-      this.sprites = null;
+      this.loadSprites();
       this.paint();
     });
     watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "data-quiet"] });
@@ -251,7 +267,7 @@ export class RunnerView {
     const css = getComputedStyle(this.canvas);
     const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
     const face = document.documentElement.getAttribute("data-mode") === "light" ? "light" : "dark";
-    const spec = realmiteFromSeed(this.opts.seed);
+    const spec = heroSpec(this.opts.seed);
     return {
       green: v("--green", "#3fb26b"), accent: v("--accent", "#4a8df8"), accentInk: v("--accent-ink", "#9cc1ff"),
       red: v("--red", "#e5534b"), ink: v("--ink", "#f2f3f5"), ink2: v("--ink-2", "#a7abb3"), ink3: v("--ink-3", "#737882"),
@@ -259,20 +275,21 @@ export class RunnerView {
     };
   }
 
+  /** Draw the hero's two poses as images; they replace the ones shown once both have loaded. */
   private loadSprites() {
     const face = document.documentElement.getAttribute("data-mode") === "light" ? "light" : "dark";
-    const spec = realmiteFromSeed(this.opts.seed);
+    const spec = heroSpec(this.opts.seed);
     const image = (state: "working" | "needs-you") => {
       // The Realmite's own drawing, with its stylesheet carried inside so it paints as an image.
       const svg = realmiteSvg(spec, { size: 64, state, uid: `runner-${state}`, face })
         .replace(/ data-animate=""/, "")
         .replace(/^<svg([^>]*)>/, `<svg$1><style>${REALMITE_CSS}</style>`);
       const img = new Image();
-      img.onload = () => this.paint();
       img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
       return img;
     };
-    return { run: image("working"), over: image("needs-you") };
+    const next = { run: image("working"), over: image("needs-you") };
+    void Promise.all([next.run.decode(), next.over.decode()]).then(() => { this.sprites = next; this.paint(); }, () => {});
   }
 
   /** Draw the run as it stands. Cheap enough to call on any change while the loop is stopped. */
@@ -280,7 +297,7 @@ export class RunnerView {
     const ctx = this.ctx;
     if (!ctx || !this.width) return;
     this.palette ??= this.readPalette();
-    this.sprites ??= this.loadSprites();
+    if (!this.spritesAsked) { this.spritesAsked = true; this.loadSprites(); }
     const p = this.palette;
     const run = this.run;
     const W = this.width, H = VIEW_HEIGHT, ground = H - EARTH;
@@ -380,9 +397,9 @@ export class RunnerView {
     // The hero: on its feet, the Realmite at work; in the air, curled into a ball.
     const hx = heroX, hy = sy(run.y);
     if (run.grounded || this.state === "over") {
-      const img = this.state === "over" ? this.sprites.over : this.sprites.run;
+      const img = this.state === "over" ? this.sprites?.over : this.sprites?.run;
       const bob = this.state === "running" && !still ? Math.abs(Math.sin(run.distance / 9)) * 1.5 : 0;
-      if (img.complete && img.naturalWidth) {
+      if (img) {
         ctx.drawImage(img, hx - HERO_SIZE / 2, hy - HERO_SIZE * (58 / 64) - bob, HERO_SIZE, HERO_SIZE);
       }
     } else {
