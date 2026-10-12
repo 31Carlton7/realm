@@ -40,7 +40,11 @@ export type FakeStep =
   | { kind: "rateLimit"; payload: SessionEventPayload<"rate_limit"> }
   /** A usage report mid-turn, with what this stretch cost — how a live check drives a team role's run
    *  to its dollar cap. A turn that scripted one does not add the fixed end-of-turn report. */
-  | { kind: "usage"; costUsd: number };
+  | { kind: "usage"; costUsd: number }
+  /** One of the harness's OWN sub-agents run in the background, the way Claude's `Agent` tool with
+   *  `run_in_background` looks on the wire: a launch that returns at once and is marked running, then
+   *  a stop `runMs` later — after the turn has ended, if it ends first. */
+  | { kind: "background"; description: string; prompt?: string; runMs: number };
 /**
  * `on` is matched as a substring of the message. `turn` narrows an entry to one turn of a goal: the
  * continuation must also say `goalTurnLine(turn)` ("This is turn 3."), so a live check can script
@@ -122,6 +126,15 @@ export class FakeAdapter implements AgentAdapter {
           if ("error" in seen) { sayAll(`tools/list failed: ${seen.error}`); continue; }
           const missing = (st.expect ?? []).filter((name) => !seen.names.includes(name));
           sayAll([`tools/list: ${seen.names.join(", ")}`, `list_changed: ${seen.listChanged}`, ...(st.expect ? [`missing: ${missing.length ? missing.join(", ") : "none"}`] : [])].join("\n"));
+          continue;
+        }
+        if (st.kind === "background") {
+          const toolUseId = newId();
+          q.push(sessionEvent("tool_call", { toolUseId, name: "Agent", parentToolUseId: null,
+            input: { description: st.description, prompt: st.prompt ?? st.description, subagent_type: "general-purpose", run_in_background: true } }));
+          q.push(sessionEvent("tool_result", { toolUseId, content: "Async agent launched successfully.", isError: false }));
+          q.push(sessionEvent("background_task", { toolUseId, status: "running" }));
+          setTimeout(() => { if (!disposed) q.push(sessionEvent("background_task", { toolUseId, status: "stopped" })); }, st.runMs);
           continue;
         }
         if (st.kind === "plan") { q.push(sessionEvent("plan", { planId: st.planId, ...(st.text ? { text: st.text } : {}), ...(st.steps ? { steps: st.steps } : {}) })); continue; }
