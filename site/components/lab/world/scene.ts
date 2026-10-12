@@ -5,7 +5,7 @@ import { anchor, labWgsl, type Rect, type StageFactory } from "@/components/lab/
 /**
  * World: the workspace above the lit edge of a planet.
  *
- * A camera in low orbit looks along the night side's limb a moment before sunrise. The planet is a
+ * A camera in orbit looks along the night side's limb a moment before sunrise. The planet is a
  * sphere and its air an exponential shell around it; every pixel near the limb integrates single
  * scattering along its view ray (Rayleigh and a little Mie), with the sunlight's way in through the
  * air taken from an analytic Chapman approximation instead of a second march, so a long grazing path
@@ -17,7 +17,10 @@ import { anchor, labWgsl, type Rect, type StageFactory } from "@/components/lab/
  * every frame, so the limb crosses behind the window the same way at every size.
  */
 
-/** The angle between the camera's axis and its view of the limb: a low orbit, so the curve is gentle. */
+/**
+ * The angle between the camera's axis and its view of the limb. It sets how the sunlight meets the
+ * air along the limb; how gently the limb curves on the page is the radius's business.
+ */
 const ALPHA = (50 * Math.PI) / 180
 
 /** The Rayleigh scale height in planet radii — the shader's HR, which is written from this. */
@@ -65,6 +68,7 @@ const SUN_TINT = vec3f(0.95, 0.975, 1.0);
 const EXT_R = 13.0;
 const EXT_M = 8.0;
 const EXPOSURE = 3.2;
+const GLARE = 0.32;
 
 fn henyeyGreenstein(cosTheta: f32, g: f32) -> f32 {
   return 0.0795775 * (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * cosTheta, 1e-7), 1.5);
@@ -91,8 +95,8 @@ fn opticalDepth(r: f32, mu: f32, h: f32) -> f32 {
 // Single scattering along one view ray. rgb is the light that reaches the camera, a the
 // transmittance of the whole path (how much of a star behind it survives).
 fn atmosphere(rd: vec3f, sun: vec3f, ground: bool) -> vec4f {
-  // A small planet (a phone's) gets a thicker shell so its air still reads; the coefficients fall
-  // by the square root so the tangent optical depth, and so the brightness, are unchanged.
+  // k scales the shell to one apparent thickness for the page's width; the coefficients fall by its
+  // square root so the tangent optical depth, and so the brightness, are unchanged.
   let k = world.air.x;
   let hr = HR * k;
   let hm = HM * k;
@@ -212,14 +216,14 @@ fn roundRectNormal(q: vec2f, half: vec2f, r: f32) -> vec2f {
   }
 
   // Glare: the camera's own response to the brightest air, centred a few pixels up into it over the
-  // sun. Held off the night side, which stays dark.
-  // Sized with the planet, so a phone's smaller limb gets a smaller glow rather than the same blob.
+  // sun, and held off the night side, which stays dark. Sized with the planet, so a phone's smaller
+  // limb gets a smaller glow rather than the same blob.
   let unit = clamp(radius / 2340.0, 0.4, 1.3);
   let limbPoint = world.sun.zw;
   let up = normalize(limbPoint - centre);
   let toLimb = length(p - (limbPoint + up * 4.0 * unit)) / unit;
   let tail = 1.0 + toLimb * toLimb / (60.0 * 60.0);
-  let glare = world.look.z * (0.6 * exp(-toLimb / 8.0) + 0.25 * exp(-toLimb / 28.0) + 0.15 / (tail * sqrt(tail)) + 0.05 * exp(-toLimb / 170.0)) * mix(1.0, 0.3, cover);
+  let glare = GLARE * (0.6 * exp(-toLimb / 8.0) + 0.25 * exp(-toLimb / 28.0) + 0.15 / (tail * sqrt(tail)) + 0.05 * exp(-toLimb / 170.0)) * mix(1.0, 0.3, cover);
   light += mix(INK, ACCENT_INK, 0.5) * glare;
 
   // Stars: never behind words or the header, hidden by the planet, dimmed through the air.
@@ -237,10 +241,10 @@ fn roundRectNormal(q: vec2f, half: vec2f, r: f32) -> vec2f {
     let out = max(edge, 0.0);
     let n = roundRectNormal(p - pc, half, PORTAL_RADIUS);
     let toward = limbPoint - p;
-    let facing = max(dot(n, normalize(toward)), 0.0);
+    let faces = max(dot(n, normalize(toward)), 0.0);
     let fall = 1.0 / (1.0 + dot(toward, toward) / (280.0 * 280.0));
-    let rim = (exp(-out * dpx / 1.1) * 1.25 + exp(-out / 6.0) * 0.22) * facing * facing * fall;
-    light += mix(INK, ACCENT_INK, 0.3) * rim * world.look.w;
+    let rim = (exp(-out * dpx / 1.1) * 1.25 + exp(-out / 6.0) * 0.22) * faces * faces * fall;
+    light += mix(INK, ACCENT_INK, 0.3) * rim;
   }
 
   // Area light never reaches the words: bounded by the copy's rect, not faded toward it, and kept
@@ -267,7 +271,8 @@ const smooth = (v: number) => v * v * (3 - 2 * v)
 
 /**
  * Where the planet sits, solved from the window: its limb's apex a little above the window's top
- * edge, centred on the window, with a radius that keeps the curve gentle at every width.
+ * edge and left of its middle, so the curve reads as photographed rather than drawn, with a radius
+ * that keeps the curve gentle at every width.
  */
 function placePlanet(portal: Rect, copy: Rect, width: number) {
   const [left, top, w] = portal
@@ -354,7 +359,7 @@ export const createWorld: StageFactory = (gpu, output) => {
           copy: rectOf(copy),
           words: [rectOf(anchor(input, "words-a")), rectOf(anchor(input, "words-h")), rectOf(anchor(input, "words-l"))],
           stage: rectOf(stage),
-          look: [presence, night, 0.32, 1.0],
+          look: [presence, night, 0, 0],
           air: [thicken, 0, 0, 0],
         },
       })
