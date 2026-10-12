@@ -4831,8 +4831,41 @@ describe("the drawn caret (caret.ts)", () => {
     expect(rule, "the Low power caret rule").toBeDefined();
     for (const a of ["smooth", "phase", "expand", "pulse"]) expect(rule!.selectors.join(" ")).toContain(`[data-caret-animation="${a}"]`);
     expect(rule!.selectors.join(" ")).not.toContain('[data-caret-animation="blink"]');
-    expect(rule!.body).toContain("--caret-motion: rl-caret-blink var(--caret-tempo) step-end infinite");
-    expect(rule!.body).toContain("--caret-block: rl-caret-block-blink var(--caret-tempo) step-end infinite");
+    expect(rule!.body).toContain("--caret-motion: rl-caret-blink var(--caret-tempo) step-end var(--caret-blinks)");
+    expect(rule!.body).toContain("--caret-block: rl-caret-block-blink var(--caret-tempo) step-end var(--caret-blinks)");
+  });
+});
+
+describe("the drawn caret rests (the 2026-10-12 power audit)", () => {
+  // The root rules that SET the motions; a terminal program that asks for its own blink keeps it.
+  const motions = RULES.filter((r) => partsOf(r).some((p) => (p.startsWith(":root[data-caret-animation=") && !p.includes(" "))
+    || (p.startsWith(':root[data-quiet="always"]:is(') && p.endsWith(")"))))
+    .map((r) => r.body).join(" ");
+
+  it("runs every motion about ten seconds after the caret last moved, then stands solid", () => {
+    /* Expand cost 23.5% of the CPU, Blink 4.5%, with the window doing nothing but holding a caret in an
+       empty prompter. THE mutant: any one of them back on `infinite`. */
+    expect(motions).toContain("--caret-motion:");
+    expect(motions).not.toContain("infinite");
+    expect(bodiesFor(":root").join(" ")).toContain("--caret-blinks: 10");
+    for (const a of ["blink", "smooth", "phase", "expand", "rest"]) {
+      expect(bodiesFor(`:root[data-caret-animation="${a}"]`).join(" "), a).toMatch(/--caret-motion: rl-caret-\S+ var\(--caret-tempo\) \S+ var\(--caret-blinks\)/);
+    }
+    expect(bodiesFor(':root[data-caret-animation="pulse"]').join(" ")).toContain("ease-in-out 4;");
+  });
+
+  it("expands by `scale`, which the compositor runs, never by a clip that repaints every frame", () => {
+    for (const k of ["rl-caret-expand", "rl-caret-expand-x"]) {
+      const frames = blockAfter(`@keyframes ${k}`);
+      expect(frames, k).toContain("scale:");
+      expect(frames, k).not.toMatch(/clip-path|transform/);
+    }
+    // The caret is placed by `translate` (caret.ts), so that is what a glide moves.
+    expect(bodiesFor(".caret-layer .caret[data-glide]").join(" ")).toMatch(/transition: translate /);
+    // A block's character fades while its fill is narrow, and holds still with everything else.
+    expect(bodiesFor(':root[data-caret="block"][data-caret-animation="expand"]:not([data-quiet="always"]) .caret-glyph').join(" "))
+      .toContain("animation: rl-caret-glyph-expand var(--caret-tempo) ease-in-out var(--caret-blinks)");
+    expect(bodiesFor(":root[data-caret-still] .caret-layer .caret-glyph").join(" ")).toContain("animation: none");
   });
 });
 
