@@ -63,9 +63,9 @@ describe("the sidebar's head row", () => {
     expect(made.spaceId).toBe("s1");
     expect(store.getState().items.some((i) => i.kind === "session" && i.refId === made.id)).toBe(true);
     // The tooltip names the agent you will get, and follows the last one used.
-    expect(button).toHaveAttribute("title", "New Claude session (⌘N)");
+    expect(button).toHaveAttribute("title", "New session (⌘N)");
     await act(() => store.getState().newSession({ agentKind: "codex" }));
-    expect(button).toHaveAttribute("title", "New Codex session (⌘N)");
+    expect(button).toHaveAttribute("title", "New session (⌘N)");
   });
 
   it("drags a new session onto a pane without making one until it is dropped", async () => {
