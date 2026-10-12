@@ -6,7 +6,7 @@ Three routes and nothing else:
 
 | Route | What it is |
 | --- | --- |
-| `/` | The hero in a portal, the mark assembling face by face, one claim per section with its own capture, the delegation interlude, the questions, the download, and the footer. |
+| `/` | The landing page, laid out in [The landing page](#the-landing-page) below. |
 | `/changelog`, `/changelog/[slug]` | Every notable change under one date marker per day, eight at a time behind a **Load more**; each one opens as an article. |
 | `/features` | One non-scrolling screen: a carousel of real captures of the app, arrow keys included. |
 
@@ -20,6 +20,31 @@ cd site
 pnpm install
 pnpm dev        # http://localhost:3100
 ```
+
+## The landing page
+
+`app/page.tsx` stacks one component per section, top to bottom. One WebGPU field
+(`components/dimension/DimensionField`) sits behind all of it; a section marks where it is with
+`data-dim-stage`, and an element the field should light marks itself with `data-dim`.
+
+| Section | Component | What it does |
+| --- | --- | --- |
+| Header | `SiteHeader` (`floating`) | Inset from the viewport edge, the download always one click away. |
+| Hero | `app/page.tsx`, `home/mini/MiniRealm` | The 2.0 link, the headline, and a working sample of Realm's window: pick a session, open a side-panel tab, answer what's waiting. A segmented row under it jumps between five views. Labelled as a sample; its copy is `content/mini-realm.ts`. |
+| Agents | `home/AgentStrip` | The agents Realm runs, as one still row of their marks (`lib/agent-marks.ts`). |
+| What a realm is made of | `home/SixFaces` | The pinned WebGPU track: the mark assembles face by face. |
+| Capability grid | `home/Bento`, `home/SpotlightGrid` | Nine cards on a slab chamfered at the mark's 60°. Each picture is drawn in the app's tokens, or a capture cut to the component it shows (`Crop`). The rims light toward a mouse pointer (`.spot` in `globals.css`); touch keeps the resting rim. |
+| Delegation | `home/Delegation` | The pinned interlude: one agent starting more, two levels deep. |
+| Proof | `home/Proof` | The claims in `content/home.ts` as one tabbed viewer, each with its real capture. WAI-ARIA tabs: arrow keys, Home and End. |
+| Teams | `home/Teams`, `lib/realmite` | 2.1's teams, clickable: roles wearing Realmites (the app's generator, ported whole), handoffs, and a Review you can approve from. |
+| Facts | `home/LocalFacts` | Four lines on where the work lives. |
+| Questions, close | `home/Faq`, `home/CloseCta` | The questions, then the download through a portal. |
+| Footer | `home/Footer` | The flat cube rising over its lattice. |
+
+The rules it keeps: every effect argues something the copy also says, motion follows the reader
+rather than looping, `prefers-reduced-motion` drops the transitions, and a picture is either a real
+capture or plainly drawn. Focus rings draw inside a clipped surface (the hero window, a card, a
+scrolling tab row) so the clip cannot cut them off.
 
 ## Why it is not in the pnpm workspace
 
