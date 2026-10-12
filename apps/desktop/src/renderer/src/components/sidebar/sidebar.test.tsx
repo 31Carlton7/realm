@@ -255,6 +255,14 @@ describe("a session's row", () => {
     expect(row.querySelector(".sb-gutter svg")).not.toBeNull();
   });
 
+  it("wears the reviewer's mark and says it is a reviewer when the person started a review", async () => {
+    await mount(home({ sessions: [session("a", "s1", { title: "Alpha", dispatchedBy: { kind: "review", sessionId: null } }), session("b", "s2", {})] }));
+    const row = within(section("Versed")).getByRole("button", { name: /^Alpha/ });
+    expect(row).toHaveAccessibleName("Alpha, a reviewer");
+    expect(row.querySelector(".sb-gutter")).toHaveAttribute("title", "Reviewer");
+    expect(row.querySelector(".sb-gutter svg")).not.toBeNull();
+  });
+
   it("leaves out a sub-agent and an archived session", async () => {
     await mount(home({
       items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("kid", "s1", "Agent: look it up"), sessionItem("old", "s1", "Put away", { archived: true })] },

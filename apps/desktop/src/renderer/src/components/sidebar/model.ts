@@ -60,6 +60,8 @@ export type SessionRow = {
   unread: boolean;
   /** Started by a schedule (a durable run's session). */
   scheduled: boolean;
+  /** A reviewer the person started. One an agent asked for is its lead's, and has no row. */
+  reviewer: boolean;
   /** When it last moved, live. */
   at: number;
   createdAt: number;
@@ -103,8 +105,16 @@ export function spaceOfSession(s: SidebarState, session: Session): string {
   return s.sessionSpace[session.id] ?? session.spaceId;
 }
 
-/** A sub-agent a session started — listed under its lead's running-agents control, never as a row. */
-const isChild = (session: Session | undefined): boolean => !!session?.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind);
+/** A sub-agent a session started — listed under its lead's running-agents control, never as a row.
+ *  A reviewer nobody leads is not one: the person started it, from Code review or a diff pane's
+ *  Request review, so it has no lead to be listed under and takes a row like any session of theirs.
+ *  The exception is the reviewer's alone. An `agent_run` or a `browser_agent_run` child stays a
+ *  child with or without a lead. */
+const isChild = (session: Session | undefined): boolean => {
+  const origin = session?.dispatchedBy;
+  if (!origin || !CHILD_ORIGINS.has(origin.kind)) return false;
+  return origin.kind !== "review" || origin.sessionId !== null;
+};
 
 /** Every live item the window knows of, each once. The window's own list carries every space of its
  *  profile (there is no room any more) and is the fresher of the two, so for those spaces it alone
@@ -144,6 +154,7 @@ export function listedSessions(s: SidebarState): SessionRow[] {
       status: s.sessionStatus[item.refId] ?? session?.status,
       unread: session ? isUnread(session) : false,
       scheduled: session?.dispatchedBy?.kind === "run",
+      reviewer: session?.dispatchedBy?.kind === "review",
       at: s.sessionUpdatedAt[item.refId] ?? session?.updatedAt ?? item.updatedAt,
       createdAt: session?.createdAt ?? item.createdAt,
     });

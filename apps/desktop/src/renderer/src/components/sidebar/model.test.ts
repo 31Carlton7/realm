@@ -64,6 +64,25 @@ describe("listedSessions — what the sidebar lists as a row", () => {
     expect(ids(listedSessions(s))).toEqual(["lead"]);
   });
 
+  it("lists a reviewer nobody leads under its space", () => {
+    const s = seed([{ id: "rev", space: "th", session: { dispatchedBy: { kind: "review", sessionId: null } } }]);
+    expect(ids(rowsBySpace(listedSessions(s)).get("th") ?? [])).toEqual(["rev"]);
+  });
+
+  it("leaves out a reviewer an agent asked for: it is listed under its lead", () => {
+    const s = seed([{ id: "lead", space: "hw" }, { id: "rev", space: "hw", session: { dispatchedBy: { kind: "review", sessionId: "lead" } } }]);
+    expect(ids(listedSessions(s))).toEqual(["lead"]);
+  });
+
+  it("leaves out an agent_run child and a browser agent with no lead, because only a reviewer takes a row for want of one", () => {
+    const s = seed([
+      { id: "a", space: "hw" },
+      { id: "kid", space: "hw", session: { dispatchedBy: { kind: "agent_run", sessionId: null } } },
+      { id: "browser", space: "hw", session: { dispatchedBy: { kind: "browser_agent_run", sessionId: null } } },
+    ]);
+    expect(ids(listedSessions(s))).toEqual(["a"]);
+  });
+
   it("keeps a fork and an import — sessions the user owns, whatever started them", () => {
     const s = seed([{ id: "f", space: "hw", session: { dispatchedBy: { kind: "fork", sessionId: "x" } } }]);
     expect(ids(listedSessions(s))).toEqual(["f"]);
@@ -78,6 +97,15 @@ describe("listedSessions — what the sidebar lists as a row", () => {
   it("marks a schedule's session, so its row can wear the clock", () => {
     const s = seed([{ id: "r", space: "hw", session: { dispatchedBy: { kind: "run", sessionId: null } } }, { id: "a", space: "hw" }]);
     expect(listedSessions(s).map((r) => [r.id, r.scheduled])).toEqual([["r", true], ["a", false]]);
+  });
+
+  it("marks a reviewer, so its row can say what it is", () => {
+    const s = seed([
+      { id: "rev", space: "hw", session: { dispatchedBy: { kind: "review", sessionId: null } } },
+      { id: "f", space: "hw", session: { dispatchedBy: { kind: "fork", sessionId: "x" } } },
+      { id: "a", space: "hw" },
+    ]);
+    expect(listedSessions(s).map((r) => [r.id, r.reviewer])).toEqual([["rev", true], ["f", false], ["a", false]]);
   });
 
   it("reads the LIVE status, space and activity, never the row's", () => {
@@ -236,6 +264,14 @@ describe("needsYou — the one list of what waits on you", () => {
     const child = { dispatchedBy: { kind: "agent_run" as const, sessionId: "lead" } };
     const s = seed([{ id: "asks", space: "hw", status: "waiting_permission", session: child }, { id: "fails", space: "hw", status: "error", session: child }]);
     expect(needsYou(s).map((r) => r.session.id)).toEqual(["asks"]);
+  });
+
+  it("lists the failure of a reviewer nobody leads, as it does for any row the person owns", () => {
+    const s = seed([
+      { id: "rev", space: "hw", status: "error", session: { dispatchedBy: { kind: "review", sessionId: null } } },
+      { id: "led", space: "hw", status: "error", session: { dispatchedBy: { kind: "review", sessionId: "lead" } } },
+    ]);
+    expect(needsYou(s).map((r) => r.session.id)).toEqual(["rev"]);
   });
 
   it("lists an archived session's question, and leaves its failure put away", () => {

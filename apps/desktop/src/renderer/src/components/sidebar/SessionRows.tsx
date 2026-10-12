@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useState } from "react";
 import { itemIdOfLeaf } from "@realm/contracts";
+import { ORIGIN_META } from "../../panes/session-labels";
 import { sessionMark } from "../../state/attention";
 import { useApp } from "../../state/store";
 import { RenameInput } from "../RenameInput";
@@ -37,6 +38,17 @@ export function ListRowView({ row, where, nested = false, onChanged }: { row: Li
 }
 
 /**
+ * What a row wears for where its session came from: a schedule's clock, or a reviewer's glyph and
+ * word from `ORIGIN_META`, the ones the Tasks tab names it by. `said` is what the row's accessible
+ * name adds. Null for a session the person started by hand.
+ */
+function originMark(row: SessionRow): { icon: string; title: string; said: string } | null {
+  if (row.scheduled) return { icon: "clock", title: "Started by a schedule", said: ", from a schedule" };
+  if (row.reviewer) return { icon: ORIGIN_META.review.icon, title: ORIGIN_META.review.label, said: ", a reviewer" };
+  return null;
+}
+
+/**
  * A session, in the sidebar row's anatomy (ItemList): the title takes the width, the state sits at
  * the far end, and the row's action — the shelf — takes that slot under the pointer or the keyboard.
  *
@@ -44,6 +56,7 @@ export function ListRowView({ row, where, nested = false, onChanged }: { row: Li
  * takes); ⌘-click opens it BESIDE the one in focus — the window's one split. The row of the session
  * in focus is lit, whichever space it is in. A session a schedule started wears a clock — in
  * the gutter under its section's icon when nested, so its title stays on the column the others use.
+ * A reviewer the person started wears the reviewer's glyph in the same place (`originMark`).
  */
 export function SessionRowView({ row, where, nested = false, onChanged }: { row: SessionRow; where?: string; nested?: boolean; onChanged: () => void }) {
   const layout = useApp((s) => s.layout);
@@ -56,7 +69,8 @@ export function SessionRowView({ row, where, nested = false, onChanged }: { row:
   const [dragging, setDragging] = useState(false);
   const { onContextMenu, element } = useItemContextMenu(() => setRenaming(true), { onChanged });
   const mark = sessionMark(row.status, row.unread);
-  const named = `${row.title}${row.scheduled ? ", from a schedule" : ""}${where ? ` in ${where}` : ""}`;
+  const origin = originMark(row);
+  const named = `${row.title}${origin?.said ?? ""}${where ? ` in ${where}` : ""}`;
   return (
     // Every space of the profile is loaded, so any row can be dragged into the view or lit as its focus.
     <div className="item sb-row" data-nested={nested || undefined} data-active={focused || undefined} data-actions="1"
@@ -68,8 +82,8 @@ export function SessionRowView({ row, where, nested = false, onChanged }: { row:
           <button type="button" className="item-row" aria-label={mark ? `${named} — ${mark.label}` : named}
             onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : revealSession(row.id, row.spaceId)))}>
             {nested
-              ? <span className="sb-gutter" title={row.scheduled ? "Started by a schedule" : undefined}>{row.scheduled && <Icon name="clock" size={12} />}</span>
-              : <Icon name={row.scheduled ? "clock" : "session"} size={16} />}
+              ? <span className="sb-gutter" title={origin?.title}>{origin && <Icon name={origin.icon} size={12} />}</span>
+              : <Icon name={origin?.icon ?? "session"} size={16} />}
             <span className="item-title">{row.title}</span>
             {where && <span className="item-where">{where}</span>}
             <span className="item-trail">
