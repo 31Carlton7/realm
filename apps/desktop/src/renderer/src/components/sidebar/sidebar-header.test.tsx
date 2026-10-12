@@ -103,6 +103,17 @@ describe("the profile switcher", () => {
     expect(container.querySelector<HTMLElement>(".sb-title .sb-profile-mark")!.style.color).toBe("rgb(255, 0, 0)");
   });
 
+  it("wears the profile's chosen icon — an emoji too — on the button and in its menu", async () => {
+    // THE MUTANT: draw `icon` with the glyph set alone — "emoji:🛠️" is no glyph name, so the button
+    // fell back to the folder and the person's chosen mark never showed.
+    const d = data();
+    d.profiles = [profile("p1", "Work", { icon: "emoji:🛠️" }), profile("p2", "School", { icon: "emoji:🏫" })];
+    const { container } = await mount(d);
+    expect(container.querySelector(".sb-title .sb-profile-mark")).toHaveTextContent("🛠️");
+    const menu = await open();
+    expect(menu.getByRole("menuitemcheckbox", { name: /School/ })).toHaveTextContent("🏫");
+  });
+
   it("lists every profile, checks the one on screen, and says what waits in the others", async () => {
     // THE MUTANT: count the active profile's waiting too, or not at all — a question in School would
     // then wait unseen behind the switcher.
