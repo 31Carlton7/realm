@@ -4219,6 +4219,10 @@ describe("custom themes", () => {
       expect(bodiesFor(sel).join(" "), sel).toContain("var(--rl-accent-fill-hover)");
     }
     expect(css).toContain("--rl-accent-press: var(--accent-fill-press)");
+    // Painted controls take their ground from --sq-fill, not background — the Connect button kept
+    // the bare accent there and the live check read it at 2.89 : 1.
+    expect(css).not.toMatch(/--sq-fill:\s*var\(--(rl-)?accent\)/);
+    expect(bodiesFor(":root[data-squircle] .machine-primary").join(" ")).toContain("--sq-fill: var(--rl-accent-fill)");
   });
 
   it("the picker's copy of Realm's own colours has not drifted from tokens.css", () => {

@@ -5979,12 +5979,14 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .machine-primary {
   border-radius: 0;
   background: paint(rl-squircle);
-  --sq-fill: var(--rl-accent);
+  --sq-fill: var(--rl-accent-fill);
   --sq-ring-w: 0;
   --sq-radius-top: calc(34px * var(--sq-ratio-ctl));
   --sq-radius-bottom: calc(34px * var(--sq-ratio-ctl));
   --sq-n: var(--sq-n-ctl);
 }
+/* Painted, the press has to reach the painter: `background` is the paint() call here. */
+:root[data-squircle] .machine-primary:is([data-pressed], :active:focus-visible):not(:disabled) { --sq-fill: var(--rl-accent-press); }
 /* ── Painted CONTROLS ──────────────────────────────────────────────────────
    The surfaces above are one-per-pane and wear a 36px corner, where a superellipse and a circular
    arc are plainly different shapes. These are the buttons and the rows you pick from, at a 12–14px
