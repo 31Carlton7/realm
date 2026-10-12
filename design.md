@@ -60,15 +60,20 @@ Inspect the existing implementation before designing.
 - Shared theme derivation: `packages/ui/src/theme.ts` and `packages/ui/src/themes.ts`
 - Marketing tokens and prose styles: `site/app/globals.css`
 - App icon: `resources/icon-src/`
-- The mark is a cube lying on its side with a lit doorway in its dark wall (`resources/icon-src/mark.mjs`):
-  a space, and the way into it. It is drawn in the family of Cursor's cube — crisp facets on one
-  lattice, monochrome, one bold negative-space facet — and kept apart from it on purpose: Cursor's
-  stands on a corner with an arrow cut from its top, Realm's lies on the edge it always has and is
-  cut with a door. Every drawing of the mark is written from that one file, the flat one included.
-- The app icon and its Dock alternates are one vector drawing in nine colourings
-  (`resources/icon-src/icons.mjs`), rendered natively at every size. The body and its shadow are
-  macOS's own, measured on the machine rather than recalled from a template (`shape.swift`): an app
-  icon whose body is not the system's shape is shrunk onto a grey plate, which is how the last one
+- The mark is a cube lying on its side with a doorway cut through its right wall
+  (`resources/icon-src/mark.mjs`): a space, and the way into it. It is flat, drawn two ways. Where the
+  brand is the subject — the app icon, the boot mark, onboarding — it is three planes, the top
+  `#9cc1ff`, the left wall `#4f8cf5`, the right wall `#2457c4`, with the doorway knocked out so what is
+  behind the mark shows through. Everywhere small — a glyph, a loading state, the menu bar's template
+  image — it is the silhouette in one ink (`mark-flat.svg`, `currentColor`; `RealmMark.tsx` in the
+  renderer), because three tones blur into one at that size. A loading mark dims and a glint crosses
+  it, the boot mark's sweep at the same tempo; under Reduce motion it is simply drawn. Every drawing of
+  the mark is written from that one file.
+- The app icon is the three-plane mark on a near-black body (`#15161a`), one look that holds in a
+  light Dock and a dark one. It and its eight Dock alternates (the shaded mark in eight colourings)
+  are one vector drawing (`resources/icon-src/icons.mjs`), rendered natively at every size. The body
+  and its shadow are macOS's own, measured on the machine rather than recalled from a template
+  (`shape.swift`): an app icon whose body is not the system's shape is shrunk onto a grey plate, which is how the last one
   sat in the Dock. The artwork carries no edge light of its own, because macOS lays its glass edge
   over every app icon it draws, and an icon lit twice is the shine the generated set was dropped for.
   A picture with no source can only be regenerated, never adjusted, which is why the colourings are
