@@ -31,6 +31,17 @@ describe("imported VS Code themes", () => {
     expect(allThemes().some((t) => t.name === "night-owl")).toBe(true);
   });
 
+  it("a face saved on an imported theme is still wearing it after a relaunch", async () => {
+    /* THE MUTANT: read the saved selection before the imports are registered. `storedPalette` finds
+       no such name and answers `realm`, so every launch — an update is one — put the owner back on
+       the default theme while `realm.db` still named theirs. */
+    const { api, store } = await boot({ customThemes: [DARK_IMPORT], settings: { "ui.theme": "dark", "ui.themeName.dark": "night-owl", "ui.themeName.light": "one" } });
+    expect(store.getState().themeNames).toEqual({ dark: "night-owl", light: "one" });
+    expect(store.getState().themePref).toBe("dark");
+    // Read, never written back: boot is not a place that saves a theme.
+    expect(api.calls.filter((c) => c.startsWith("setSetting:ui.theme"))).toEqual([]);
+  });
+
   it("offer only the face the VS Code file actually stated", async () => {
     // A VS Code theme states one face. Offering a dark import to the light slot would derive a light
     // palette from a dark ground, whose surface ramp climbs the wrong way.
