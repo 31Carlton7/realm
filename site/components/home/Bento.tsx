@@ -188,7 +188,7 @@ function TerminalArt() {
         <p className="text-ink-3">2 migrations pending: 0041_invites, 0042_roles</p>
         <p className="relative -mx-2 mt-1 rounded-[7px] px-2 py-0.5 text-ink shadow-[inset_0_0_0_1px_oklch(0.68_0.173_253.301/0.7)] [background:oklch(0.68_0.173_253.301/0.1)]">
           ? Apply them to staging? (y/N) <span className="mini-caret" />
-          <span className="absolute -top-2.5 right-2 rounded-[5px] bg-accent px-1.5 font-sans text-[10.5px] leading-[1.5] text-white">
+          <span className="absolute -top-2.5 right-2 rounded-[5px] bg-accent-fill px-1.5 font-sans text-[10.5px] leading-[1.5] text-white">
             on screen
           </span>
         </p>

@@ -165,7 +165,7 @@ export function Teams() {
                         <button
                           type="button"
                           onClick={() => setDecided((d) => ({ ...d, [item.id]: "approved" }))}
-                          className="app-corner rounded-[9px] bg-accent px-2.5 py-1.5 text-[12.5px] text-white transition-[background-color,scale] hover:bg-accent-ink active:scale-[0.97]"
+                          className="app-corner rounded-[9px] bg-accent-fill px-2.5 py-1.5 text-[12.5px] text-white transition-[background-color,scale] hover:bg-accent-fill-hover active:bg-accent-fill-press active:scale-[0.97]"
                         >
                           Approve
                         </button>

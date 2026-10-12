@@ -20,6 +20,12 @@
 
   --color-accent: oklch(0.68 0.173 253.301);
   --color-accent-ink: oklch(0.788 0.113 248.33);
+  /* The ground of anything that carries a word on the accent. White on --color-accent itself is
+     2.9 : 1; on this fill — the same hue and chroma, 0.136 deeper, as the app's --accent-fill — it is
+     5.0, and hover and press step deeper still (5.9, 7.3). scripts/check-contrast.mjs holds it. */
+  --color-accent-fill: oklch(0.544 0.173 253.301);
+  --color-accent-fill-hover: oklch(0.504 0.173 253.301);
+  --color-accent-fill-press: oklch(0.454 0.173 253.301);
 
   --color-green: oklch(0.705 0.154 153.814);
   --color-orange: oklch(0.746 0.156 55.642);

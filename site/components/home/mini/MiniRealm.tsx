@@ -840,7 +840,7 @@ function WaitingCard({ session, onAnswer, compact = false }: { session: MiniSess
             {w.command}
           </p>
           <div className="mt-2.5 flex gap-1">
-            <button type="button" onClick={() => onAnswer("Allow")} className={`${button} bg-accent text-white hover:bg-accent-ink`}>
+            <button type="button" onClick={() => onAnswer("Allow")} className={`${button} bg-accent-fill text-white hover:bg-accent-fill-hover active:bg-accent-fill-press`}>
               Allow
             </button>
             <button type="button" onClick={() => onAnswer("Allow always")} className={`${button} bg-raised text-ink hover:bg-raised-2`}>
@@ -939,7 +939,7 @@ function Prompter({ session, onSend }: { session: MiniSession; onSend: (text: st
           <button
             type="submit"
             aria-label="Send"
-            className="grid h-7 w-7 place-items-center rounded-full bg-raised text-ink transition-[background-color,scale] duration-150 hover:bg-accent active:scale-[0.94]"
+            className="grid h-7 w-7 place-items-center rounded-full bg-raised text-ink transition-[background-color,scale] duration-150 hover:bg-accent-fill hover:text-white active:scale-[0.94]"
           >
             <Icon name="arrowUp" className="h-3.5 w-3.5" />
           </button>
