@@ -6,8 +6,9 @@ import { BrowserWindow, ipcMain, Menu, nativeImage, type NativeImage } from "ele
  * Two needs met by one mechanism. Nothing drawn in the DOM can open over a browser pane — its page is
  * a native view that composites over the window (W2.3's no-overlay rule) — so the browser's ⋯ menu
  * (Plan 26 W7a) is the OS's. And a Mac app's menus are the system's, not a page's: the app's `Menu`
- * component hands every menu it would have drawn to this, rows, checkmarks, shortcut hints and icons
- * included (the Mac idiom), and keeps its drawn menu only where there is no bridge (jsdom).
+ * component hands the menus it would have drawn to this, rows, checkmarks, shortcut hints and icons
+ * included (the Mac idiom), and keeps its drawn menu where there is no bridge (jsdom), where its
+ * caller asks for it, and where a menu has more rows than one request may describe (`MENU_ITEMS_MAX`).
  *
  * One contract for both: a row with an `id` answers that id when it is chosen; a row without one is a
  * line of information — drawn, never chosen ("Nothing downloaded in this pane"). The renderer's own
@@ -45,7 +46,10 @@ export type MenuTemplateItem = {
 };
 
 export const MENU_LABEL_MAX = 64;
-/** Bounds one request, not a design limit: a model list is the longest menu the app draws. */
+/** Bounds one request, not a design limit: the request comes from a renderer, and nothing from one
+ *  is trusted to be of a reasonable size. The app's `Menu` never sends more rows than this. A menu
+ *  that has more is drawn in the app, where it scrolls and keeps every row (`OS_MENU_ROWS_MAX` in
+ *  the renderer's components/native-menu.ts, held to this number by a test). */
 export const MENU_ITEMS_MAX = 100;
 export const MENU_DEPTH_MAX = 3;
 const ID_MAX = 200;

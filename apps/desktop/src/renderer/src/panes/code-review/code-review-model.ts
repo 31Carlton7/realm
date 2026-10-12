@@ -113,28 +113,55 @@ const inSentence = (names: readonly string[]): string =>
  * What the column says, over the lists, while the profile's choice of owners leaves anything out,
  * and null while it leaves nothing out. `how` and `who` are the line as it is drawn, which is the
  * way the choice runs and then the owners, each once. The owners are what is cut where the line is
- * longer than the column. `sentence` says all of it, to a screen reader and on hover, and says that
- * the pinned requests are no part of the choice.
+ * longer than the column. `sentence` says all of it to a screen reader, and `tip` says it on hover.
+ * The two differ only where they name the menu the choice is made in, which is the way out when no
+ * owner is selected. Each names it as its reader meets it: the tooltip by the label the button
+ * shows, and the sentence by the button's accessible name (`PrColumn`).
+ *
+ * Over the three lists both say that the pinned requests are no part of the choice. With `searched`
+ * the line stands over the results of a search of plain words, and both say only what is true of
+ * those. The choice is added to that search, and nothing puts a pinned request back among its
+ * results.
  */
-export type OwnersLine = { how: string; who: string; sentence: string };
-export function ownersLine(owners: PrOwners): OwnersLine | null {
+export type OwnersLine = { how: string; who: string; sentence: string; tip: string };
+export function ownersLine(owners: PrOwners, searched = false): OwnersLine | null {
   const once = ownersOnce(owners.others ? owners.hidden : owners.shown);
   if (once.length === 0) {
-    return owners.others ? null : {
+    if (owners.others) return null;
+    const why = searched ? "No owner is selected, so this search finds nothing." : "No owner is selected, so this profile lists only pinned pull requests.";
+    return {
       how: "No owner is selected.", who: "",
-      sentence: "No owner is selected, so this profile lists only pinned pull requests. In Code review options, select an owner or Other owners.",
+      sentence: `${why} In Code review options, select an owner or Other owners.`,
+      tip: `${why} In the More menu, select an owner or Other owners.`,
     };
   }
-  return owners.others
-    ? { how: "Not listed:", who: once.join(", "), sentence: `This profile leaves out pull requests in repositories owned by ${inSentence(once)}, unless they are pinned.` }
-    : { how: "Only", who: once.join(", "), sentence: `This profile lists only pinned pull requests and those in repositories owned by ${inSentence(once)}.` };
+  const whose = inSentence(once);
+  const sentence = owners.others
+    ? searched ? `This search leaves out pull requests in repositories owned by ${whose}.` : `This profile leaves out pull requests in repositories owned by ${whose}, unless they are pinned.`
+    : searched ? `This search finds only pull requests in repositories owned by ${whose}.` : `This profile lists only pinned pull requests and those in repositories owned by ${whose}.`;
+  return { how: owners.others ? "Not listed:" : "Only", who: once.join(", "), sentence, tip: sentence };
 }
 
 /**
- * What a list says when it holds nothing. `narrowed` is a choice of owners that leaves any out. The
- * line then keeps to the owners that are listed, since a request may be open under one that is not.
+ * How a choice of owners bears on what an empty list says. False while it lists every owner, and
+ * the line is the one from before there was a choice. True while it leaves any out and lists some,
+ * and the line keeps to the owners that are listed. Null where it lists no owner at all, and the
+ * list says nothing: the line over the lists says that none is selected, and "the listed owners"
+ * would name nobody.
  */
-export function emptyLine(section: PrSection, narrowed: boolean): string {
+export function narrowing(owners: PrOwners): boolean | null {
+  const gained = ownerQualifiers(owners);
+  return gained === null ? null : gained !== "";
+}
+
+/**
+ * What a list says when it holds nothing. `narrowed` is `narrowing`'s answer for the choice the
+ * column is drawn under, and null as well while that choice is not known. True, the line keeps to
+ * the owners that are listed, since a request may be open under one that is not. Null, the list
+ * says nothing.
+ */
+export function emptyLine(section: PrSection, narrowed: boolean | null): string | undefined {
+  if (narrowed === null) return undefined;
   if (section === "authored") return narrowed ? "Nothing of yours is open for the listed owners." : "Nothing of yours is open.";
   if (section === "review") return narrowed ? "Nobody is waiting on your review for the listed owners." : "Nobody is waiting on your review.";
   return narrowed ? "No team of yours is waiting on a review for the listed owners." : "No team of yours is waiting on a review.";
@@ -142,8 +169,10 @@ export function emptyLine(section: PrSection, narrowed: boolean): string {
 
 /** What a search says when nothing matches. `narrowed` is as for `emptyLine`, and holds only for a
  *  search the choice of owners is added to. One sent as typed is not narrowed by it. */
-export const noMatchLine = (query: string, narrowed: boolean): string =>
-  narrowed ? `No pull request you are part of matches “${query}” for the listed owners.` : `No pull request you are part of matches “${query}”.`;
+export function noMatchLine(query: string, narrowed: boolean | null): string | undefined {
+  if (narrowed === null) return undefined;
+  return narrowed ? `No pull request you are part of matches “${query}” for the listed owners.` : `No pull request you are part of matches “${query}”.`;
+}
 
 /* ───────────────────────────── the request's facts ───────────────────────────── */
 

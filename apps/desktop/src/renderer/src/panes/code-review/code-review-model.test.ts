@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { Finding, PrDetail, PrFile, PrSummary } from "@realm/contracts";
 import type { AgentProbe } from "../../state/store";
 import {
-  EMPTY_DRAFT, age, ago, appendPage, canSubmit, checksFact, dropComment, emptyLine, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact, namedOwners, noMatchLine,
-  ownerTicked, ownersLine, postsLine, pressOthers, pressOwner, readQuery, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerRows, sameListing, sameLogin,
-  sentAs, stillListed,
+  EMPTY_DRAFT, age, ago, appendPage, canSubmit, checksFact, dropComment, emptyLine, isKept, isOwnRequest, keepFinding, keepSummary, mergeFact, namedOwners, narrowing,
+  noMatchLine, ownerTicked, ownersLine, postsLine, pressOthers, pressOwner, readQuery, reviewBlocked, reviewPayload, reviewRun, reviewerCatalog, reviewerRows, sameListing,
+  sameLogin, sentAs, stillListed,
 } from "./code-review-model";
 import { fileTree, filterFiles, treeRows } from "./file-tree";
 
@@ -88,6 +88,10 @@ describe("the owners a profile lists", () => {
     expect(named.map((o) => ownerTicked(off, o))).toEqual(named.map((o) => ownerTicked(all, o)));
   });
 
+  it("leaves a hidden owner out of the shown ones when Other owners is turned off, where the menu spells it in another case than the hidden list does", () => {
+    expect(pressOthers({ hidden: ["mara"], shown: [], others: true }, ["acme", "Mara"])).toEqual({ hidden: ["mara"], shown: ["acme"], others: false });
+  });
+
   it("keeps both lists when Other owners is turned back on, so the owners that were unticked stay unticked", () => {
     expect(pressOthers(only, ["acme", "mara"])).toEqual({ hidden: ["mara"], shown: ["acme"], others: true });
   });
@@ -96,6 +100,11 @@ describe("the owners a profile lists", () => {
     expect(sameListing({ hidden: [], shown: [], others: true }, { hidden: [], shown: ["acme"], others: true })).toBe(true);
     expect(sameListing(all, only)).toBe(false);
     expect(sameListing({ hidden: [], shown: [], others: true }, { hidden: [], shown: [], others: false })).toBe(false);
+  });
+
+  it("takes two choices that run the same way and name different owners for two listings", () => {
+    expect(sameListing({ hidden: ["mara"], shown: [], others: true }, { hidden: ["mara", "acme"], shown: [], others: true })).toBe(false);
+    expect(sameListing({ hidden: [], shown: ["acme"], others: false }, { hidden: [], shown: ["acme", "mara"], others: false })).toBe(false);
   });
 
   it("keeps of a list's rows the ones a new choice still lists", () => {
@@ -110,33 +119,54 @@ describe("the owners a profile lists", () => {
   });
 
   it("says which owners are not listed, in a few words to draw and a sentence for the tooltip and a screen reader that leaves the pinned requests out of it", () => {
-    expect(ownersLine(all)).toEqual({
-      how: "Not listed:", who: "mara", sentence: "This profile leaves out pull requests in repositories owned by mara, unless they are pinned.",
-    });
-    expect(ownersLine({ hidden: ["mara", "globex", "zeta"], shown: [], others: true })).toEqual({
-      how: "Not listed:", who: "mara, globex, zeta",
-      sentence: "This profile leaves out pull requests in repositories owned by mara, globex, and zeta, unless they are pinned.",
-    });
+    const one = "This profile leaves out pull requests in repositories owned by mara, unless they are pinned.";
+    expect(ownersLine(all)).toEqual({ how: "Not listed:", who: "mara", sentence: one, tip: one });
+    const three = "This profile leaves out pull requests in repositories owned by mara, globex, and zeta, unless they are pinned.";
+    expect(ownersLine({ hidden: ["mara", "globex", "zeta"], shown: [], others: true })).toEqual({ how: "Not listed:", who: "mara, globex, zeta", sentence: three, tip: three });
   });
 
   it("says which owners alone are listed, beside the pinned requests", () => {
-    expect(ownersLine(only)).toEqual({
-      how: "Only", who: "acme", sentence: "This profile lists only pinned pull requests and those in repositories owned by acme.",
-    });
-    expect(ownersLine({ hidden: [], shown: ["acme", "globex"], others: false })).toEqual({
-      how: "Only", who: "acme, globex", sentence: "This profile lists only pinned pull requests and those in repositories owned by acme and globex.",
-    });
+    const one = "This profile lists only pinned pull requests and those in repositories owned by acme.";
+    expect(ownersLine(only)).toEqual({ how: "Only", who: "acme", sentence: one, tip: one });
+    const two = "This profile lists only pinned pull requests and those in repositories owned by acme and globex.";
+    expect(ownersLine({ hidden: [], shown: ["acme", "globex"], others: false })).toEqual({ how: "Only", who: "acme, globex", sentence: two, tip: two });
   });
 
-  it("says that no owner is ticked, and where to tick one, when other owners are not listed and none is shown", () => {
+  it("says that no owner is ticked and where to tick one, when other owners are not listed and none is shown: in the menu as its button is labelled for the tooltip, and as it is named to a screen reader", () => {
     expect(ownersLine({ hidden: ["mara"], shown: [], others: false })).toEqual({
       how: "No owner is selected.", who: "",
       sentence: "No owner is selected, so this profile lists only pinned pull requests. In Code review options, select an owner or Other owners.",
+      tip: "No owner is selected, so this profile lists only pinned pull requests. In the More menu, select an owner or Other owners.",
     });
   });
 
+  it("says of a search of plain words only what is true of its results, with nothing of pinned requests, which the search does not find under an owner left out", () => {
+    const left = "This search leaves out pull requests in repositories owned by mara.";
+    expect(ownersLine(all, true)).toEqual({ how: "Not listed:", who: "mara", sentence: left, tip: left });
+    const alone = "This search finds only pull requests in repositories owned by acme.";
+    expect(ownersLine(only, true)).toEqual({ how: "Only", who: "acme", sentence: alone, tip: alone });
+    expect(ownersLine({ hidden: ["mara"], shown: [], others: false }, true)).toEqual({
+      how: "No owner is selected.", who: "",
+      sentence: "No owner is selected, so this search finds nothing. In Code review options, select an owner or Other owners.",
+      tip: "No owner is selected, so this search finds nothing. In the More menu, select an owner or Other owners.",
+    });
+    expect(ownersLine({ hidden: [], shown: ["acme"], others: true }, true)).toBeNull();
+  });
+
   it("names an owner once in the column's line, however often its list holds it", () => {
-    expect(ownersLine({ hidden: ["Mara", "mara"], shown: [], others: true })!.who).toBe("Mara");
+    const once = "This profile leaves out pull requests in repositories owned by Mara, unless they are pinned.";
+    expect(ownersLine({ hidden: ["Mara", "mara"], shown: [], others: true })).toEqual({ how: "Not listed:", who: "Mara", sentence: once, tip: once });
+    expect(ownersLine({ hidden: [], shown: ["acme", "ACME", "globex"], others: false })!.sentence).toBe("This profile lists only pinned pull requests and those in repositories owned by acme and globex.");
+  });
+
+  it("has an empty list say what it said before there was a choice while every owner is listed, keep to the listed owners while some are, and say nothing while none is", () => {
+    expect(narrowing({ hidden: [], shown: [], others: true })).toBe(false);
+    expect(narrowing({ hidden: [], shown: ["acme"], others: true })).toBe(false);
+    expect(narrowing(all)).toBe(true);
+    expect(narrowing(only)).toBe(true);
+    expect(narrowing({ hidden: ["mara"], shown: [], others: false })).toBeNull();
+    expect((["authored", "review", "team"] as const).map((s) => emptyLine(s, null))).toEqual([undefined, undefined, undefined]);
+    expect(noMatchLine("tokenizer", null)).toBeUndefined();
   });
 
   it("keeps each list's empty line to the owners listed while the choice leaves any out, and says it as it always did while it leaves none", () => {

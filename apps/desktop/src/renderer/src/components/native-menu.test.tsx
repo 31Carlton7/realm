@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { Menu, type MenuItem } from "./Menu";
-import { acceleratorFor, menuLabelText } from "./native-menu";
+import { OS_MENU_ROWS_MAX, acceleratorFor, menuLabelText } from "./native-menu";
 
 type Bridge = { popupMenu: ReturnType<typeof vi.fn>; closeMenu: ReturnType<typeof vi.fn> };
 const install = (answers: (string | null)[]): Bridge => {
@@ -34,6 +34,13 @@ describe("shortcut hints as accelerators", () => {
     const el = document.createElement("span");
     el.innerHTML = '<span>Mode <span class="v"><svg></svg>Ask</span></span>';
     expect(menuLabelText(el)).toBe("Mode — Ask");
+  });
+});
+
+describe("the most rows an OS menu takes", () => {
+  it("is the number main cuts a request at, read from main's source since this project cannot import main", () => {
+    const source = Object.values(import.meta.glob("../../../main/native-menu.ts", { query: "?raw", import: "default", eager: true }) as Record<string, string>)[0]!;
+    expect(/^export const MENU_ITEMS_MAX = (\d+);$/m.exec(source)?.[1]).toBe(String(OS_MENU_ROWS_MAX));
   });
 });
 
@@ -72,6 +79,48 @@ describe("Menu as an OS menu", () => {
     expect(await findByRole("menu", { name: "Add" })).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 5));
     expect(bridge.popupMenu).not.toHaveBeenCalled();
+  });
+
+  it("draws a menu with more rows than an OS menu takes in the app, where none is lost, and sends the OS no part of it", async () => {
+    const bridge = install([]);
+    const others = vi.fn();
+    const items: MenuItem[] = [
+      { kind: "header", label: "Owners" },
+      ...Array.from({ length: OS_MENU_ROWS_MAX - 1 }, (_, i): MenuItem => ({ label: `owner-${i}`, checked: true, onSelect: () => {} })),
+      { label: "Other owners", checked: true, onSelect: others },
+    ];
+    const { findByRole } = render(<Menu items={items} onClose={() => {}} at={{ x: 0, y: 0 }} label="Options" />);
+    const drawn = within(await findByRole("menu", { name: "Options" })).getAllByRole("menuitemcheckbox");
+    expect(drawn).toHaveLength(OS_MENU_ROWS_MAX);
+    expect(drawn.at(-1)).toHaveAccessibleName("Other owners");
+    fireEvent.click(drawn.at(-1)!);
+    expect(others).toHaveBeenCalledOnce();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(bridge.popupMenu).not.toHaveBeenCalled();
+  });
+
+  it("hands the OS a menu of exactly as many rows as it takes, every one of them", async () => {
+    const bridge = install([null]);
+    const onClose = vi.fn();
+    const items = Array.from({ length: OS_MENU_ROWS_MAX }, (_, i): MenuItem => ({ label: `Row ${i}`, onSelect: () => {} }));
+    render(<Menu items={items} onClose={onClose} at={{ x: 0, y: 0 }} />);
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(bridge.popupMenu.mock.calls[0]![0]).toHaveLength(OS_MENU_ROWS_MAX);
+    expect(document.querySelector(".menu")).toBeNull();
+  });
+
+  it("moves a menu that grows past what an OS menu takes while it is up into the app, and takes the OS menu down", async () => {
+    let settle: (v: string | null) => void = () => {};
+    const bridge = install([]);
+    bridge.popupMenu.mockImplementation(() => new Promise((r) => { settle = r; }));
+    const rows = (n: number) => Array.from({ length: n }, (_, i): MenuItem => ({ label: `Row ${i}`, onSelect: () => {} }));
+    const { rerender, findByRole } = render(<Menu items={rows(OS_MENU_ROWS_MAX)} onClose={() => {}} at={{ x: 0, y: 0 }} label="Options" />);
+    await waitFor(() => expect(bridge.popupMenu).toHaveBeenCalledOnce());
+    rerender(<Menu items={rows(OS_MENU_ROWS_MAX + 1)} onClose={() => {}} at={{ x: 0, y: 0 }} label="Options" />);
+    expect(within(await findByRole("menu", { name: "Options" })).getAllByRole("menuitem")).toHaveLength(OS_MENU_ROWS_MAX + 1);
+    expect(bridge.closeMenu).toHaveBeenCalledOnce();
+    await act(async () => settle(null));
+    expect(bridge.popupMenu).toHaveBeenCalledOnce();
   });
 
   it("hands a section head to the OS as a line of information, and a row's detail as its tooltip", async () => {

@@ -160,9 +160,9 @@ describe("the owners a profile lists: its own choice, read where the search is m
     for (const value of [{ hidden: "mara", shown: [], others: true }, { hidden: ["mara"], shown: [] }, { hidden: ["not an owner"], shown: [], others: false }, "mara", 7]) {
       await rpc.call("settings.set", { key: prOwnersKey(profileId), value });
       expect(await rpc.call("codeReview.owners", { profileId }), JSON.stringify(value)).toEqual(EVERY);
+      expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId, force: true })), JSON.stringify(value)).toEqual([42, 7, 3]);
     }
-    expect(numbers(await rpc.call("codeReview.list", { section: "authored", profileId }))).toEqual([42, 7, 3]);
-    expect(queries(gh)).toEqual(["is:pr is:open archived:false author:@me sort:updated-desc"]);
+    expect(queries(gh)).toEqual(Array.from({ length: 5 }, () => "is:pr is:open archived:false author:@me sort:updated-desc"));
   });
 
   it("stores a profile's choice, answers with it, and keeps it for that profile alone", async () => {

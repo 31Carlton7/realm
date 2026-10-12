@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import { PR_SECTIONS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrOwners, type PrRef, type PrSection, type PrSummary, type ReviewerPick } from "@realm/contracts";
+import { EVERY_OWNER, PR_SECTIONS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrOwners, type PrRef, type PrSection, type PrSummary, type ReviewerPick } from "@realm/contracts";
 import { EMPTY_DRAFT, sameListing, stillListed, type ReviewDraft } from "./code-review-model";
 
 /**
@@ -71,6 +71,11 @@ export const pageHeld = {
   /** By profile: each profile's choice of owners as this window last heard it, so its column says
    *  what is left out, and ticks its menu, in its first frame. */
   owners: {} as Record<string, PrOwners>,
+  /** By profile: the profiles whose choice the server refused to read, having no call for it. That
+   *  is a server from before there was a choice, which an update can leave a window on, and it lists
+   *  every owner. Such a profile's column is drawn as one that lists every owner, with no choice to
+   *  make in its menu, until a choice is heard for it. */
+  ownersRefused: {} as Record<string, true>,
   selection: null as PrRef | null,
   lists: {} as Partial<Record<PrSection, Listed>>,
   /** The choice of owners `lists` was read under, or null while that is not known. */
@@ -107,9 +112,10 @@ export function signInSent(): void {
 
 /**
  * The lists held, for a column about to be drawn under `owners`, which is its profile's choice of
- * owners, or null while this window has not heard it. Lists read under a choice that came to another
- * search are let go first, and so are any while either choice is not known. Two profiles can share
- * an account and not a choice, and one's rows are not drawn as the other's.
+ * owners, `EVERY_OWNER` for a profile whose choice the server refused to read, or null while this
+ * window has heard neither. Lists read under a choice that came to another search are let go first,
+ * and so are any while either choice is not known. Two profiles can share an account and not a
+ * choice, and one's rows are not drawn as the other's.
  */
 export function listsHeldUnder(owners: PrOwners | null): Partial<Record<PrSection, Listed>> {
   if (!owners || !pageHeld.listedUnder || !sameListing(owners, pageHeld.listedUnder)) pageHeld.lists = {};
@@ -117,9 +123,29 @@ export function listsHeldUnder(owners: PrOwners | null): Partial<Record<PrSectio
   return pageHeld.lists;
 }
 
-/** A profile's choice of owners as just heard, held for its column's next first frame. */
+/** A profile's choice of owners as just heard, held for its column's next first frame. It was heard
+ *  from a server that keeps choices, so a refusal held for the profile is let go. */
 export function holdOwners(profileId: string, owners: PrOwners): void {
   pageHeld.owners[profileId] = owners;
+  delete pageHeld.ownersRefused[profileId];
+}
+
+/**
+ * The server refused to read a profile's choice of owners, having no call for it. That is held for
+ * the profile, and the answer is whether it was: a choice already heard for the profile stands, and
+ * the refusal is then let go.
+ *
+ * `shown` is whether the profile's column is the one on screen, whose lists are the ones held here.
+ * That server read them, and it lists every owner, so they are marked as read under `EVERY_OWNER`: a
+ * choice heard later that leaves an owner out still moves them, and the column draws them in its
+ * next first frame. Where another column has taken the page since, the lists held are that one's,
+ * and they are left as they are.
+ */
+export function holdRefused(profileId: string, shown: boolean): boolean {
+  if (pageHeld.owners[profileId]) return false;
+  pageHeld.ownersRefused[profileId] = true;
+  if (shown) pageHeld.listedUnder = EVERY_OWNER;
+  return true;
 }
 
 /**
@@ -146,6 +172,6 @@ export function forgetHeld(): void {
   drafts.clear();
   for (const m of [heldDetails, heldFiles, heldPatches, heldLines, reviewers]) m.clear();
   Object.assign(pageHeld, { status: null, statusProfile: null, readAs: null, accounts: [], stale: { status: false, accounts: false },
-    pins: {}, owners: {}, selection: null, lists: {}, listedUnder: null, teamOpen: false, tabs: new Map(), view: { split: true, tree: true } });
+    pins: {}, owners: {}, ownersRefused: {}, selection: null, lists: {}, listedUnder: null, teamOpen: false, tabs: new Map(), view: { split: true, tree: true } });
   for (const fn of listeners) fn();
 }

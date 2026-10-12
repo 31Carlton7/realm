@@ -23,8 +23,9 @@ import { IdSchema } from "./ids";
 
 /** GitHub's own name rules, enforced at the wire: these land in `gh api repos/<owner>/<repo>/…`
  *  paths and in `--repo`, and a name that could carry a `/`, a `..` or a space is a path a pasted
- *  link could steer. A login is letters, digits and single hyphens; a repository adds `.` and `_`. */
-const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+ *  link could steer. A login is letters, digits and single hyphens, and for an Enterprise Managed
+ *  User an underscore as well, before its enterprise's short code; a repository adds `.`. */
+const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,38})$/;
 const REPO = /^[A-Za-z0-9._-]{1,100}$/;
 
 /** A pull request by its address. */

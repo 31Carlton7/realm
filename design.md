@@ -566,13 +566,18 @@ acronym that is uppercase anyway (a file extension on a tile).
   only surface that can open over a browser pane's native view — and draws its own only where there
   is no bridge (tests, and live scripts that set `REALM_HTML_MENUS`). A two-step confirm reopens the
   menu with its rebuilt rows, because an OS menu cannot change under the pointer.
-- The exception is a menu whose rows have to explain themselves — section heads, and a line after
+- One exception is a menu whose rows have to explain themselves — section heads, and a line after
   each name saying what the row does — which an OS menu row cannot carry: the prompter's "+". It is
   drawn in the app (`inApp`), and it owes everything the OS menu gave: the arrows across its
   sections as one list, Return, Escape, focus home to its control, the pointer moving the one
   highlight the keys move, and placement clear of a browser pane's native view (the popover hook
   slides it along its anchor's edge). A description belongs to the row's description, never its
   name, so a row is still found by what it is called.
+- The other is a menu with more rows than an OS menu takes. Main bounds the rows one request from a
+  window may describe and cuts the rest without a word, and a menu of a person's own things can be
+  of any length: the owners a profile lists in Code review, whose last row is the one that changes
+  what the others mean. Such a menu is drawn in the app, where it scrolls with every row in it.
+  Nothing a person chose is dropped to fit a menu.
 - A right-click in text gets what a Cocoa text view gives it: spelling guesses, Look Up, the link or
   image under the pointer, then the edit commands — and nothing at all where there is nothing to
   offer. Electron gives a page none of this on its own.

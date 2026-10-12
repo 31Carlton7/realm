@@ -36,6 +36,12 @@ describe("a pull request named in pasted text", () => {
     }
     expect(parsePrRef("https://github.com/../widgets/pull/1")).toBeNull();
   });
+
+  it("reads a request in a repository a managed user owns, whose login GitHub writes with an underscore", () => {
+    const want = { owner: "mona-cat_octo", repo: "notes", number: 7 };
+    expect(parsePrRef("https://github.com/mona-cat_octo/notes/pull/7")).toEqual(want);
+    expect(parsePrRef("mona-cat_octo/notes#7")).toEqual(want);
+  });
 });
 
 describe("a profile's choice of owners, as what it adds to a search", () => {
@@ -54,6 +60,7 @@ describe("a profile's choice of owners, as what it adds to a search", () => {
 
   it("answers that nothing can match, and not with the empty string, when other owners are not listed and none is shown", () => {
     expect(ownerQualifiers({ hidden: ["acme"], shown: [], others: false })).toBeNull();
+    expect(ownerQualifiers({ hidden: [], shown: [], others: false })).toBeNull();
   });
 
   it("names an owner once, as first spelled, however often and in whatever case a list holds it", () => {
@@ -73,7 +80,7 @@ describe("a profile's choice of owners as the wire and the store take it", () =>
       expect(PrOwnersSchema.safeParse({ hidden: [bad], shown: [], others: true }).success, bad).toBe(false);
       expect(PrOwnersSchema.safeParse({ hidden: [], shown: [bad], others: false }).success, bad).toBe(false);
     }
-    expect(PrOwnersSchema.safeParse({ hidden: ["acme"], shown: ["Widgets-Inc"], others: false }).success).toBe(true);
+    expect(PrOwnersSchema.safeParse({ hidden: ["acme", "mona-cat_octo"], shown: ["Widgets-Inc"], others: false }).success).toBe(true);
   });
 
   it("is not a choice with one of its three parts missing", () => {

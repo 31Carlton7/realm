@@ -3,7 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import { createPortal } from "react-dom";
 import { useDissolve } from "./ScrollFades";
 import { useAnchoredPopover } from "./use-anchored-popover";
-import { acceleratorFor, menuLabelText, rasteriseIcon } from "./native-menu";
+import { OS_MENU_ROWS_MAX, acceleratorFor, menuLabelText, rasteriseIcon } from "./native-menu";
 
 export type MenuItem =
   | { kind?: "item"; label: ReactNode; onSelect: () => void; disabled?: boolean; title?: string; checked?: boolean; danger?: boolean;
@@ -59,10 +59,14 @@ type MenuProps = {
 };
 
 /** In the app, an OS menu; where there is no bridge to one (jsdom, a browser, a live script that set
- *  REALM_HTML_MENUS), the menu draws itself. Decided once per menu, by what the window offers — or by
- *  the caller, with `inApp`. */
+ *  REALM_HTML_MENUS), the menu draws itself. Decided by what the window offers, by the caller with
+ *  `inApp`, and by how many rows the menu has: one with more rows than an OS menu takes
+ *  (`OS_MENU_ROWS_MAX`) draws itself too, since main would cut it short, and drawn here it scrolls
+ *  with every row in it. The rows are counted at every render, so the OS is never handed more of
+ *  them than it takes, whatever a menu's rows come to while it is up. */
 export function Menu(props: MenuProps) {
-  return window.realm?.popupMenu && !window.realm.htmlMenus && !props.inApp ? <NativeMenu {...props} /> : <HtmlMenu {...props} />;
+  const os = window.realm?.popupMenu && !window.realm.htmlMenus && !props.inApp && props.items.length <= OS_MENU_ROWS_MAX;
+  return os ? <NativeMenu {...props} /> : <HtmlMenu {...props} />;
 }
 
 /**

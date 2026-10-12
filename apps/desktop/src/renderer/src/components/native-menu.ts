@@ -1,5 +1,14 @@
 /** Helpers that turn a rendered `Menu` row into what an OS menu can draw (main/native-menu.ts). */
 
+/**
+ * The most rows an OS menu takes: `MENU_ITEMS_MAX` in main/native-menu.ts, which this project cannot
+ * import, so the number is written again here and a test holds the two to each other. Main cuts a
+ * request at that many rows and says nothing, so `Menu` draws a menu with more of them in the app,
+ * where it scrolls and keeps every row. A section head and a separator each count as a row, as they
+ * do in main.
+ */
+export const OS_MENU_ROWS_MAX = 100;
+
 const MODIFIERS: Record<string, string> = { "⌘": "Command", "⇧": "Shift", "⌥": "Alt", "⌃": "Control" };
 const NAMED_KEYS: Record<string, string> = {
   "⏎": "Return", "↩": "Return", "⌫": "Backspace", "⌦": "Delete", "⎋": "Escape", "⇥": "Tab",

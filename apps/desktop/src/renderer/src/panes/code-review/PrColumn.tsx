@@ -1,14 +1,15 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PR_SECTIONS, hasSearchQualifiers, prKey, prName, type PrOwners, type PrPage, type PrRef, type PrSection, type PrSummary } from "@realm/contracts";
+import { EVERY_OWNER, PR_SECTIONS, hasSearchQualifiers, prKey, prName, type PrOwners, type PrPage, type PrRef, type PrSection, type PrSummary } from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useDissolve } from "../../components/ScrollFades";
 import { useApp } from "../../state/store";
 import {
-  SECTION_LABEL, age, appendPage, emptyLine, namedOwners, noMatchLine, ownerTicked, ownersLine, pressOthers, pressOwner, readQuery, sameLogin, sameRef, stillListed,
+  SECTION_LABEL, age, appendPage, emptyLine, namedOwners, narrowing, noMatchLine, ownerTicked, ownersLine, pressOthers, pressOwner, readQuery, sameLogin, sameRef, stillListed,
+  type OwnersLine,
 } from "./code-review-model";
 import { codeReview } from "./code-review-api";
-import { holdOwners, listsHeldUnder, listsMovedTo, pageHeld, type Listed } from "./held";
+import { holdOwners, holdRefused, listsHeldUnder, listsMovedTo, pageHeld, type Listed } from "./held";
 
 const LOADING: Listed = { prs: [], next: null, state: "loading", error: null };
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -41,14 +42,22 @@ const rowsOf = (listed: Partial<Record<PrSection, Listed>>): PrSummary[] => PR_S
  * again under it, and a search of plain words with them. The server reads the stored choice for
  * itself on every read, so the column says only whose choice to read under. While the choice leaves
  * anything out, one line over the lists says what, and a list's empty line keeps to the owners that
- * are listed. Another window's change to the same profile's choice is taken the same way, and the
- * choice is asked for again when the server is back after a break, since a change made meanwhile
- * went unheard.
+ * are listed. Where it lists no owner at all, an empty list says nothing, since that line says why.
+ * Over the results of a search of plain words the line says only what is true of those results.
+ * Another window's change to the same profile's choice is taken the same way, and the choice is
+ * asked for again when the server is back after a break, since a change made meanwhile went
+ * unheard. A change heard to another profile's choice is held for that profile's own column.
  *
  * A read asked for before a change of choice was heard is not drawn when it answers, since it may
  * have been made under the choice from before, and each list keeps the rows the new choice still
  * lists until it has been read again. A press made while an earlier one is still being stored builds
  * on that one, so a press changes its own row and no other.
+ *
+ * An update can leave a window on a server from before there was a choice, which has no call to
+ * read one. Its refusal is held for the profile (`holdRefused`), and the column is drawn as that
+ * server lists, which is every owner: each empty list says what it always said, the lists held are
+ * drawn in the first frame, and the menu offers no owners, since no press could be stored. A read
+ * of the choice that failed on its way is not a refusal, and is asked again once the server is back.
  */
 export function PrColumn({ login, account, accounts, profile, profileId, pins, selected, onSelect, onAccount, onRefresh, onSignIn, onLost }: {
   login: string | null;
@@ -74,9 +83,11 @@ export function PrColumn({ login, account, accounts, profile, profileId, pins, s
   const run = useApp((s) => s.run);
   const connected = useApp((s) => s.connectionState === "connected");
   const [owners, setOwners] = useState<PrOwners | null>(() => pageHeld.owners[profileId] ?? null);
+  const [refused, setRefused] = useState(() => pageHeld.ownersRefused[profileId] === true);
+  const under = owners ?? (refused ? EVERY_OWNER : null);
   /* The lists as they were last drawn, so coming back to the page shows them at once rather than
      three empty headings; each is read again behind them, from the server's cache. */
-  const [lists, setLists] = useState<Partial<Record<PrSection, Listed>>>(() => ({ ...listsHeldUnder(owners) }));
+  const [lists, setLists] = useState<Partial<Record<PrSection, Listed>>>(() => ({ ...listsHeldUnder(under) }));
   const held = pageHeld.lists;
   const [teamOpen, setTeamOpen] = useState(pageHeld.teamOpen);
   const [query, setQuery] = useState("");
@@ -101,7 +112,11 @@ export function PrColumn({ login, account, accounts, profile, profileId, pins, s
     setResults((cur) => (cur && !hasSearchQualifiers(cur.query) ? { ...cur, prs: stillListed(next, cur.prs), next: null, state: "loading", error: null } : cur));
     setAgain(changes.current);
   }, [profileId]);
-  const ask = useCallback(() => { codeReview.owners(profileId).then(take, () => {}); }, [profileId, take]);
+  const refuse = useCallback((e: unknown) => {
+    if ((e as { code?: unknown } | null)?.code !== "METHOD_NOT_FOUND") return;
+    if (holdRefused(profileId, here.current) && here.current) setRefused(true);
+  }, [profileId]);
+  const ask = useCallback(() => { codeReview.owners(profileId).then(take, refuse); }, [profileId, take, refuse]);
   const choose = (change: (from: PrOwners) => PrOwners) => run(async () => {
     const from = ahead.current ?? pageHeld.owners[profileId];
     if (!from) return;
@@ -112,7 +127,7 @@ export function PrColumn({ login, account, accounts, profile, profileId, pins, s
   });
   useEffect(() => { here.current = true; return () => { here.current = false; }; }, []);
   useEffect(() => { if (connected) ask(); }, [connected, ask]);
-  useEffect(() => codeReview.onOwners((p) => { if (p.profileId === profileId) take(p.owners); }), [profileId, take]);
+  useEffect(() => codeReview.onOwners((p) => { if (p.profileId === profileId) take(p.owners); else holdOwners(p.profileId, p.owners); }), [profileId, take]);
 
   const put = (section: PrSection, next: Listed) => {
     held[section] = next;
@@ -228,15 +243,14 @@ export function PrColumn({ login, account, accounts, profile, profileId, pins, s
   ];
 
   const whose = !login ? null : profile ? `Code review in the ${profile} profile reads and posts as @${login}.` : `Code review reads and posts as @${login}.`;
-  const leftOut = owners ? ownersLine(owners) : null;
-  const says = leftOut && (
-    <p className="cr-col-note cr-col-owners" title={leftOut.sentence}>
-      <span className="visually-hidden">{leftOut.sentence}</span>
-      <span className="cr-col-owners-how" aria-hidden="true">{leftOut.how}</span>
-      {leftOut.who && <span className="cr-col-owners-who" aria-hidden="true">{leftOut.who}</span>}
+  const says = (line: OwnersLine | null) => line && (
+    <p className="cr-col-note cr-col-owners" title={line.tip}>
+      <span className="visually-hidden">{line.sentence}</span>
+      <span className="cr-col-owners-how" aria-hidden="true">{line.how}</span>
+      {line.who && <span className="cr-col-owners-who" aria-hidden="true">{line.who}</span>}
     </p>
   );
-  const empty = (section: PrSection) => (owners ? emptyLine(section, leftOut !== null) : undefined);
+  const narrowed = under && narrowing(under);
   const asTyped = results !== null && hasSearchQualifiers(results.query);
 
   const toggleTeam = () => {
@@ -278,26 +292,26 @@ export function PrColumn({ login, account, accounts, profile, profileId, pins, s
           </ul>
         ) : results ? (
           <>
-            {!asTyped && says}
+            {!asTyped && owners && says(ownersLine(owners, true))}
             <Section label="Results" listed={results} selected={selected} onSelect={onSelect} onMore={moreResults}
-              empty={asTyped ? noMatchLine(results.query, false) : owners ? noMatchLine(results.query, leftOut !== null) : undefined} />
+              empty={noMatchLine(results.query, asTyped ? false : narrowed)} />
           </>
         ) : (
           <>
             {pins.length > 0 && (
               <Section label="Pinned" listed={{ prs: pins, next: null, state: "ready", error: null }} selected={selected} onSelect={onSelect} />
             )}
-            {says}
+            {owners && says(ownersLine(owners))}
             <Section label={SECTION_LABEL.authored} listed={lists.authored ?? LOADING} selected={selected} onSelect={onSelect}
-              onMore={() => showMore("authored")} onRetry={() => load("authored", true)} empty={empty("authored")} />
+              onMore={() => showMore("authored")} onRetry={() => load("authored", true)} empty={emptyLine("authored", narrowed)} />
             <Section label={SECTION_LABEL.review} listed={lists.review ?? LOADING} selected={selected} onSelect={onSelect}
-              onMore={() => showMore("review")} onRetry={() => load("review", true)} empty={empty("review")} />
+              onMore={() => showMore("review")} onRetry={() => load("review", true)} empty={emptyLine("review", narrowed)} />
             <button type="button" className="cr-section-toggle" aria-expanded={teamOpen} onClick={toggleTeam}>
               {SECTION_LABEL.team}<Icon name="chevronRight" size={12} />
             </button>
             {teamOpen && (
               <Section label={null} listed={lists.team ?? LOADING} selected={selected} onSelect={onSelect}
-                onMore={() => showMore("team")} onRetry={() => load("team", true)} empty={empty("team")} />
+                onMore={() => showMore("team")} onRetry={() => load("team", true)} empty={emptyLine("team", narrowed)} />
             )}
           </>
         )}
