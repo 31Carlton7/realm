@@ -78,6 +78,13 @@ const REALM_ANSI: Record<Mode, readonly Oklch[]> = {
  * toward the phosphor except red and yellow, which carry failure and warning.
  */
 export const THEME_TERMINALS: Partial<Record<ThemeName, Partial<Record<Mode, readonly string[]>>>> = {
+  /* Codex's own (`--color-codex-terminal-ansi-*`, light): its ink tiers for the greys, its state
+     colours and its accent for the hues. The two dim greys are alphas of the ink in Codex, written
+     here as they land on its white terminal. */
+  codex: {
+    light: ["#8e8f90", "#e02e2a", "#00a240", "#ffc300", "#3a83f7", "#924ff7", "#3a83f7", "#1a1c1f",
+      "#606164", "#e02e2a", "#00a240", "#ffc300", "#3a83f7", "#924ff7", "#3a83f7", "#1a1c1f"],
+  },
   one: {
     dark: ["#282c34", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#dcdfe4",
       "#5d677a", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#dcdfe4"],

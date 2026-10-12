@@ -713,7 +713,7 @@ a {
    * The range is the reading's, not the sidebar's. 84 is measured, not chosen (`pane-ground.test.ts`
    * walks it against `PANE_ALPHA_RANGE` in packages/ui/src/theme.ts). Composite each face's
    * `--canvas` over a WHITE desktop and over a BLACK one — the two extremes every wallpaper sits
-   * between — and 84% opacity is the thinnest at which `--ink` still clears WCAG AA on all eighteen
+   * between — and 84% opacity is the thinnest at which `--ink` still clears WCAG AA on all nineteen
    * faces. Below that, body text on a light face over a dark desktop goes under 4.5:1, and body text
    * is the one thing here that may never be a judgement call.
    *
@@ -766,7 +766,7 @@ a {
  * A calm surface may carry a soft field of the theme's own accent and, where there is room for it,
  * a film of grain. Both are decoration, and the app holds text to a contrast floor per role
  * (CONTRAST_FLOOR, packages/ui/src/themes.ts), so the numbers below are not taste — they are the
- * band inside which every ink tier on all eighteen faces still clears its floor. grain.test.ts
+ * band inside which every ink tier on all nineteen faces still clears its floor. grain.test.ts
  * walks the faces and proves it.
  *
  * The derivation leaves NO headroom: it places --ink-3 at exactly 2.400 against a 2.4 floor on six

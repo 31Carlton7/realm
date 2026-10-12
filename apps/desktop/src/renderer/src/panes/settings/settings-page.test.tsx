@@ -224,14 +224,15 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
 
   it("there is a palette row per face, and each writes only its own key", async () => {
     const { store, api } = await openPage("Appearance");
-    expect(row("Light").getByRole("radio", { name: "Realm" })).toBeChecked();
+    // Codex is the light default for a home that never chose a light palette.
+    expect(row("Light").getByRole("radio", { name: "Codex" })).toBeChecked();
     fireEvent.click(row("Dark").getByRole("radio", { name: "One" }));
     await waitFor(() => expect(store.getState().themeNames.dark).toBe("one"));
     expect(api.calls).toContain("setSetting:ui.themeName.dark=one");
     // THE shared-row mutant: render one picker and point both faces at it. The two rows would move
     // together and the whole feature would be a relabelled single selection.
-    expect(store.getState().themeNames.light).toBe("realm");
-    expect(row("Light").getByRole("radio", { name: "Realm" })).toBeChecked();
+    expect(store.getState().themeNames.light).toBe("codex");
+    expect(row("Light").getByRole("radio", { name: "Codex" })).toBeChecked();
     // THE conflated-axis mutant: have the picker set the mode too. The light/dark preference is the
     // user's and a palette choice is not permission to overwrite it.
     expect(api.calls.filter((c) => c.startsWith("setSetting:ui.theme="))).toEqual([]);
@@ -275,8 +276,8 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     fireEvent.change(field, { target: { value: "not a colour" } });
     fireEvent.blur(field);
     expect(store.getState().themeOverrides).toEqual({});
-    // Realm's light background seed (REALM_SEED.light.bg) — its paper, since the light ramp anchors there.
-    expect(field.value).toBe("#f9fafb");
+    // Codex's light background seed — the light default's surface.
+    expect(field.value).toBe("#ffffff");
   });
 
   it("an edited palette offers a way back to the palette itself", async () => {
@@ -287,8 +288,8 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     const field = colours("Light").getByRole("textbox", { name: "Accent hex" });
     fireEvent.change(field, { target: { value: "#ff0000" } });
     fireEvent.blur(field);
-    await waitFor(() => expect(colours("Light").getByRole("button", { name: "Reset to Realm" })).toBeInTheDocument());
-    fireEvent.click(colours("Light").getByRole("button", { name: "Reset to Realm" }));
+    await waitFor(() => expect(colours("Light").getByRole("button", { name: "Reset to Codex" })).toBeInTheDocument());
+    fireEvent.click(colours("Light").getByRole("button", { name: "Reset to Codex" }));
     await waitFor(() => expect(store.getState().themeOverrides).toEqual({}));
   });
 
@@ -302,7 +303,7 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
       fireEvent.change(field, { target: { value: hex } });
       fireEvent.blur(field);
     }
-    await waitFor(() => expect(store.getState().themeOverrides["realm:light"]).toMatchObject({ bg: "#282828", ink: "#2b2b2b" }));
+    await waitFor(() => expect(store.getState().themeOverrides["codex:light"]).toMatchObject({ bg: "#282828", ink: "#2b2b2b" }));
     expect(await colours("Light").findByText(/Below the contrast Realm holds every palette to.*Foreground/)).toBeInTheDocument();
   });
 
