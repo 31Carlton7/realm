@@ -9,7 +9,7 @@ import { RenameInput } from "../RenameInput";
 import { SpaceIcon } from "../SpaceIcon";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { ItemGlyph } from "./ItemList";
-import { tallyWords, type FanOutRow, type ListRow, type SessionRow } from "./model";
+import { recentAt, tallyWords, type FanOutRow, type ListRow, type SessionRow } from "./model";
 import { SessionRowView, TallyMarks, sessionWords, useOpenSessionRow } from "./SessionRows";
 import { useArchiveAnywhere, useSpaceTint } from "./use-sidebar-model";
 
@@ -77,7 +77,7 @@ export function ActivityCard({ row, space, usual, now, onChanged }: {
                 {row.item.pinned && <span title="Pinned"><Icon name="pin" size={12} /></span>}
                 {row.scheduled && <span title="Started by a schedule"><Icon name="clock" size={12} /></span>}
                 {agent && <span title={agent.label}><Icon name={agent.icon} size={12} /></span>}
-                <CardWhen at={row.at} now={now} />
+                <CardWhen row={row} now={now} />
               </span>
             </span>
             <span className="sb-card-line">
@@ -121,7 +121,7 @@ function FanOutCard({ row, space, now, onChanged }: { row: FanOutRow; space: Spa
         <button type="button" className="item-row" aria-expanded={open} aria-label={said} title={said} onClick={() => setOpen((v) => !v)}>
           <span className="sb-card-line sb-card-head">
             <CardSpace space={space} tint={tint} />
-            <span className="sb-card-marks"><CardWhen at={row.at} now={now} /></span>
+            <span className="sb-card-marks"><CardWhen row={row} now={now} /></span>
           </span>
           <span className="sb-card-line">
             <span className="sb-caret" data-open={open || undefined}><Icon name="chevronRight" size={12} /></span>
@@ -149,8 +149,10 @@ function CardSpace({ space, tint }: { space: Space | undefined; tint: string | u
   );
 }
 
-/** How long since the conversation last moved, in a few tabular characters — the full moment in the
- *  tooltip, for the reader who needs more than "3d". */
-function CardWhen({ at, now }: { at: number; now: number }) {
-  return <time className="sb-card-when" dateTime={new Date(at).toISOString()} title={stampTitle(at)}>{age(at, now)}</time>;
+/** How long since the row last moved, in a few tabular characters — "now" while it is at work, as its
+ *  day heading counts it (`recentAt`) — and in the tooltip the moment its conversation last moved, for
+ *  the reader who needs more than "3d". */
+function CardWhen({ row, now }: { row: ListRow; now: number }) {
+  const at = recentAt(row, now);
+  return <time className="sb-card-when" dateTime={new Date(row.at).toISOString()} title={stampTitle(row.at)}>{age(at, now)}</time>;
 }

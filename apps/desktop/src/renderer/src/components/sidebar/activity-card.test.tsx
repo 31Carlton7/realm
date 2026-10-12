@@ -168,6 +168,15 @@ describe("an Activity card's time", () => {
     for (const [ago, said] of cases) expect([ago, (await when(ago)).said]).toEqual([ago, said]);
   });
 
+  it("says now for a session still at work, as its Today heading does, and keeps the last message in the tooltip", async () => {
+    // THE MUTANT: the card's time read from `row.at` alone — a running session under Today saying "3d".
+    clock.at(NOW);
+    const { container } = await mount([chat("a", "s1", NOW - 3 * 24 * HOUR, { status: "running" })]);
+    const t = (await card(container, "chat a")).querySelector<HTMLElement>(".sb-card-when")!;
+    expect(t).toHaveTextContent("now");
+    expect(t.getAttribute("title")).toBe(stampTitle(NOW - 3 * 24 * HOUR));
+  });
+
   it("gives the full moment in its tooltip", async () => {
     // THE MUTANT: the tooltip dropped from `CardWhen`.
     const { t } = await when(2 * HOUR);
