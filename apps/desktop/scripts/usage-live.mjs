@@ -127,6 +127,8 @@ globalThis.__live = {
     const page = document.querySelector(".settings-page-pane .page-body") ?? document.querySelector(".usage-panel");
     const limit = page.getBoundingClientRect().right + 1;
     return [...document.querySelectorAll(".usage-panel *")]
+      // A visually-hidden label is clipped to nothing, and the calendar scrolls its own year sideways.
+      .filter((el) => !el.closest(".visually-hidden, .cal-scroll"))
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.right > limit; })
       .slice(0, 5).map((el) => el.className && String(el.className).slice(0, 60));
   },

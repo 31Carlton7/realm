@@ -157,7 +157,7 @@ export function UsagePanel() {
         )}
         {data === null
           ? error === null && <UsageSkeleton />
-          : <Figures data={data} claudePlan={claudePlan} />}
+          : <Figures data={data} />}
       </section>
 
       {data !== null && (
@@ -195,13 +195,12 @@ function UsageSkeleton() {
  * Four figures for the range, in one strip under hairlines rather than four floating tiles — they are
  * one reading of one range, and a card each made them look like four separate things.
  */
-function Figures({ data, claudePlan }: { data: UsageSummary; claudePlan: string | null }) {
+function Figures({ data }: { data: UsageSummary }) {
   const t = data.totals;
   const tokens = totalTokens(t);
   const cache = t.cacheReadTokens + t.cacheWriteTokens;
   const b = data.budget;
   const monthName = new Date(b.monthStart).toLocaleDateString(undefined, { month: "long" });
-  const subscription = planLabel("claude", claudePlan);
   return (
     <div className="usage-figures" data-usage-ready="">
       <div className="usage-figure usage-figure-hero">
@@ -212,7 +211,6 @@ function Figures({ data, claudePlan }: { data: UsageSummary; claudePlan: string 
           {t.reportedUsd > 0 && t.estimatedUsd > 0 && " · "}
           {t.estimatedUsd > 0 && <span title="Priced from public catalog list prices">{formatUsd(t.estimatedUsd)} estimated</span>}
           {t.costUsd === 0 && "No engine in range reported or priced any spend"}
-          {t.costUsd > 0 && subscription && <> · API value, not billed on {subscription}</>}
         </span>
       </div>
       <div className="usage-figure">

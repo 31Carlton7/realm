@@ -9848,7 +9848,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .usage-table caption { text-align: left; }
 .usage-table th, .usage-table td { padding: 6px 8px; text-align: left; border-bottom: var(--hairline-w) solid var(--rl-line); }
 .usage-table thead th { font-weight: var(--fw-medium); font-size: 12.5px; color: var(--rl-text-dim); }
-.usage-table tbody th { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.usage-table tbody th { font-weight: var(--fw-medium); color: var(--rl-text-bright); white-space: nowrap; }
 .usage-table td { color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 .usage-table tbody tr:last-child th, .usage-table tbody tr:last-child td { border-bottom: none; }
 .usage-swatch { display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 2px; vertical-align: baseline; }
@@ -9963,7 +9963,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 
 /* ——— activity ——— */
 .usage-activity { display: flex; flex-wrap: wrap; gap: 12px; }
-.usage-activity-stats { flex: 1 1 320px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 0; }
+.usage-activity-stats { flex: 1 1 320px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); align-content: start; gap: 12px; margin: 0; }
 .usage-activity-stats dt { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 .usage-activity-stats dd { margin: 0; font-size: 20px; line-height: 26px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .usage-activity-stats dd.usage-activity-sub { font-size: 12px; line-height: 16px; font-weight: normal; color: var(--rl-text-dim); }
@@ -9981,7 +9981,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .usage-caveats h3 { margin: 0 0 2px; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .usage-caveats p { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--rl-text-dim); max-width: 88ch; }
 .usage-caveats strong { font-weight: var(--fw-medium); color: var(--rl-text-dim); }
-.usage-caveats svg { vertical-align: -2px; }
+.usage-caveats svg { display: inline-block; vertical-align: -2px; }
 
 /* ── The page about you (YouPage.tsx) ─────────────────────────────────────
    The face first: the picture the person chose, or a person in a circle until they choose one — the

@@ -166,8 +166,7 @@ describe("the Usage panel", () => {
     const store = createAppStore(api);
     await store.getState().boot();
     render(<StoreContext.Provider value={store}><UsagePanel /></StoreContext.Provider>);
-    expect(await screen.findByText(/API value, not billed on Claude Max/)).toBeInTheDocument();
-    expect(screen.getByText(/On Claude Max that is what the work would have cost, not what you pay/)).toBeInTheDocument();
+    expect(await screen.findByText(/On Claude Max that is what the work would have cost, not what you pay/)).toBeInTheDocument();
   });
 
   it("says when usage could not be read, and offers to try again", async () => {
