@@ -85,6 +85,19 @@ export type StartOptions = {
    * rather than merely equivalent to what it was.
    */
   wrap?: (command: string, args: string[]) => { command: string; args: string[] };
+  /**
+   * Asked before the engine raises its own approval for an MCP tool, with the name the engine gives it
+   * (`mcp__<server>__<tool>`). True means Realm's gateway answers for this call itself — a team's
+   * policy, which draws its own card where one is owed — so the engine approves without a card of its
+   * own and the person sees one card, not two. False, or absent, and the engine asks as it always has.
+   * Only an MCP tool's approval reaches it; a command or an edit never does.
+   */
+  gatewayDecides?: (toolName: string) => Promise<boolean>;
+  /**
+   * A team role's run (team/policies). Codex pins its sandbox's network off for it, so a command cannot
+   * reach the world past the gateway's policy; an engine with no such knob ignores it.
+   */
+  roleRun?: boolean;
   /** Diagnostic sink for provider stderr / log lines. */
   onLog?: (line: string) => void;
 };

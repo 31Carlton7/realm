@@ -281,6 +281,11 @@ export class ClaudeAdapter implements AgentAdapter {
       if (permissionMode === ASK_PERMISSION_MODE && !askTools.has(toolName)) {
         return { behavior: "deny", message: `This session is in Ask mode: read-only. ${toolName} cannot run. Reading, searching (Grep, Glob) and web lookups are available; to change files or run commands, the user has to leave Ask.` };
       }
+      // A team's policy answers for its gateway's tools itself, drawing the one card owed (one card,
+      // not two). Only an MCP tool reaches it; a command or an edit asks as it always has.
+      if (toolName.startsWith("mcp__") && opts.gatewayDecides && await opts.gatewayDecides(toolName).catch(() => false)) {
+        return { behavior: "allow", updatedInput: toolInput };
+      }
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
       // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
