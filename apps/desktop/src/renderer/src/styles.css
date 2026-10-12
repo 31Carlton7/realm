@@ -6495,16 +6495,21 @@ select { appearance: none; padding-right: 22px;
 .agent-name { font-weight: var(--fw-label); } .agent-hint { margin-left: auto; font-size: 11px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 
 /* ── Scrollbars: one thumb, no track, everywhere ──────────────────────────────
-   The ask was to stop drawing tracks — in the model picker, the skill picker and everywhere else.
-   The mechanism that makes "everywhere" true rather than a list to keep up with is inheritance:
-   `scrollbar-color` is an inherited property, so stating it once on the root hides the track in every
-   scroller in the app, including ones added after this line is written. `scrollbar-width` does NOT
-   inherit, so the scrollers that should be thin rather than default-width are named below.
+   "We shouldn't be showing scroll bar tracks anywhere in the app" (the owner, 10-12). A track is
+   never drawn, on either kind of Mac, and the thumb shows only while a scroller is in use.
 
-   The thumb is quiet at rest and steps up under the pointer. `:hover` is deliberately bare: hover
-   matches up the ancestor chain, so a scroller lights its own thumb the moment the pointer is inside
-   it, with no second copy of the list. `:focus-within` cannot join it for the same reason in reverse
-   — it would match <body> whenever anything in the app had focus, which is always.
+   Overlay bars (the trackpad Mac's default). The system's own bar is kept — it appears on scroll,
+   fades on its own and reserves no width — but under the pointer macOS widens it and lays a track
+   the full height of the scroller beside the thumb: the grey lane the owner pointed at, measured
+   (scrollbar-tracks-live.mjs: the lane differs from the ground on 100% of its rows mid-scroll).
+   A `scrollbar-color` with a transparent track keeps the overlay bar, still with no gutter, and
+   takes the lane away; the thumb is the mid ink at the system thumb's weight. Nothing else may be
+   said to an overlay bar: a `::-webkit-scrollbar` rule turns it into a classic bar with a gutter.
+
+   Classic bars (a mouse plugged in, or "Always"). Every element states its own colour, so nothing
+   inherits a lit thumb from a hovered ancestor: the thumb is transparent until the pointer is in
+   that scroller, and the track is transparent always. The lane's width is the system's to reserve
+   while bars are classic; nothing is painted in it.
 
    What this replaces was four rules, and three of them had been dead since Chromium 121: setting
    either standard property makes the browser ignore `::-webkit-scrollbar` entirely, and every
@@ -6512,8 +6517,9 @@ select { appearance: none; padding-right: 22px;
    scroller with only the pseudo-element rules reserves the 24px they ask for, one with both reserves
    the 11px the standard property asks for. The 10px width, the thumb colour and the transparent
    track were all already coming from the line above them. */
-:root:not([data-overlay-scrollbars]) { scrollbar-color: var(--mark) transparent; }
-:root:not([data-overlay-scrollbars]) :hover { scrollbar-color: var(--mark-strong) transparent; }
+:root[data-overlay-scrollbars] { scrollbar-color: color-mix(in oklab, var(--ink-3) 75%, transparent) transparent; }
+:root:not([data-overlay-scrollbars]) * { scrollbar-color: transparent transparent; }
+:root:not([data-overlay-scrollbars]) *:hover { scrollbar-color: var(--mark-strong) transparent; }
 :where(:root:not([data-overlay-scrollbars])) :where(
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu-list, .mention-list, .skill-picker-list, .mp-list, .ip-grid,
@@ -6572,15 +6578,15 @@ select { appearance: none; padding-right: 22px;
    both are handed back here first. The track margins read the same two custom properties the mask
    does, so the thumb starts where the content stops dissolving and the two cannot drift.
 
-   The bar is redrawn to what the standard properties were already producing: a 10px channel, the
-   line colour at rest, a step up under the pointer. `:hover` has to be restated because the root's
-   `scrollbar-color` hover step no longer reaches an element that has reclaimed the pseudo-elements. */
+   The bar is a 10px channel with nothing in it at rest — no track, and no thumb until the pointer
+   is in the scroller, where it steps up to the mark. `:hover` has to be restated because the root's
+   `scrollbar-color` step no longer reaches an element that has reclaimed the pseudo-elements. */
 :root:not([data-overlay-scrollbars]) [data-dissolve], :root:not([data-overlay-scrollbars]) [data-dissolve-x] { scrollbar-color: auto; scrollbar-width: auto; }
 :root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar, :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar { width: 10px; height: 10px; }
 :root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar-track { background: transparent; margin-block: var(--fade-top-h, 40px) var(--fade-h, 68px); }
 :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar-track { background: transparent; margin-inline: var(--fade-w, 28px); }
 :root:not([data-overlay-scrollbars]) [data-dissolve]::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) [data-dissolve-x]::-webkit-scrollbar-thumb {
-  background: var(--mark); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+  background: transparent; border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
 :root:not([data-overlay-scrollbars]) [data-dissolve]:hover::-webkit-scrollbar-thumb, :root:not([data-overlay-scrollbars]) [data-dissolve-x]:hover::-webkit-scrollbar-thumb {
   background: var(--mark-strong); background-clip: content-box; }
 /* Where a vertical and a horizontal bar meet. The pseudo-elements own the whole scrollbar once they
@@ -6607,7 +6613,7 @@ select { appearance: none; padding-right: 22px;
 :root:not([data-overlay-scrollbars]) .space-body::-webkit-scrollbar-thumb,
 :root:not([data-overlay-scrollbars]) .sb-page-nav::-webkit-scrollbar-thumb,
 :root:not([data-overlay-scrollbars]) .sb-page-nav > .sched-col > .sched-col-body::-webkit-scrollbar-thumb,
-:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar-thumb { background: var(--mark); border-radius: 999px;
+:root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px;
   /* Inset from the 8px channel so the thumb reads as a 4px line with air either side rather than a
      bar wedged against the column's edge. `background-clip: content-box` is what makes the border
      transparent padding instead of a second colour. */
@@ -6622,11 +6628,10 @@ select { appearance: none; padding-right: 22px;
 :root:not([data-overlay-scrollbars]) .sb-page-nav > .cr-col > .cr-col-body::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── Scrollbars: on scroll, in the prompter ────────────────────────────────
-   Everywhere above keeps the persistent hairline: a transcript, a diff, a settings page is long
-   enough that "there is more this way" is worth saying continuously. The prompter's own popovers —
-   the mention and slash lists, the skill picker, the model picker's list — are dropdowns glanced at
-   mid-sentence, not columns read top to bottom, and a line down their
-   edge at rest was chrome with nothing to answer. `use-auto-hide-scrollbar.ts` marks `data-scrolling`
+   Everywhere above shows its thumb while the pointer is in the scroller. The prompter's own
+   popovers — the mention and slash lists, the skill picker, the model picker's list — are dropdowns
+   the pointer sits in while a choice is read, and a line down their edge for as long as it sat there
+   was chrome with nothing to answer. `use-auto-hide-scrollbar.ts` marks `data-scrolling`
    on the scroller for a moment after each scroll event; these rules are what that attribute means.
 
    Deliberately scroll-only, not hover-only: `:hover` still matches while idle (the root rule two
@@ -6655,10 +6660,10 @@ select { appearance: none; padding-right: 22px;
    content overflows regardless of thumb colour — which would misalign the highlight mirror's wrapped
    lines under the caret the instant a long draft needed to scroll (see `.composer-input`, above). */
 
-/* xterm keeps an explicit treatment rather than inheriting the app's. It owns this element: it
-   measures the viewport to decide the terminal's column count, so the thumb here answers to the
-   terminal rather than to whatever the rule above becomes next. */
-:root:not([data-overlay-scrollbars]) .terminal-pane .xterm-viewport { scrollbar-width: thin; scrollbar-color: var(--mark-strong) transparent; }
+/* xterm keeps its own width rather than the list's. It owns this element: it measures the viewport
+   to decide the terminal's column count, so the bar's width here answers to the terminal. Its
+   colours are everyone's: no track, and a thumb only under the pointer. */
+:root:not([data-overlay-scrollbars]) .terminal-pane .xterm-viewport { scrollbar-width: thin; }
 
 /* Rubber-banding (rubber-band.ts). The scroller's CHILDREN move, never the scroller: its box, its
    mask and its scrollbar stay where they are, the way an NSClipView holds still while the document

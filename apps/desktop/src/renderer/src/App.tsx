@@ -218,14 +218,14 @@ export function KeyWindowBridge() {
 /**
  * Whether the system draws OVERLAY scrollbars — macOS's "show scroll bars: when scrolling", which is
  * also what "automatically" resolves to on a Mac with only a trackpad. Stamped on `:root` as
- * `data-overlay-scrollbars`, and the stylesheet's own scrollbar treatment stands down under it.
+ * `data-overlay-scrollbars`, and the stylesheet's own scrollbar treatment stands down under it but for
+ * one thing: the root's colour pair, whose transparent track takes away the lane macOS lays beside
+ * an overlay thumb under the pointer (styles.css).
  *
- * Realm's thin line is a better classic scrollbar than the classic one, and on an overlay Mac it is
- * worse than the system's. Chromium keeps the overlay bar when a page only colours or thins it, but
- * paints it in the page's colour instead of the system's; and a `::-webkit-scrollbar` rule — which the
- * sidebar and every masked scroller need, for their track margins — turns it into a classic bar that
- * holds a gutter (measured on an overlay Mac: 8px against 0). So the styling is for the Macs whose
- * system draws classic bars anyway, and the rest get the system's own bar.
+ * Chromium keeps the overlay bar when a page only colours or thins it; a `::-webkit-scrollbar` rule —
+ * which the sidebar and every masked scroller need, for their track margins — turns it into a classic
+ * bar that holds a gutter (measured on an overlay Mac: 8px against 0). So the thin styled bar is for
+ * the Macs whose system draws classic bars anyway, and the rest get the system's own bar, trackless.
  *
  * Measured, not read from a preference: "automatically" depends on what is plugged in, and the only
  * party that knows the answer is the scroller Chromium draws. A probe with every scrollbar property

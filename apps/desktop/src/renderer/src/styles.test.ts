@@ -2542,27 +2542,56 @@ const leaf = (sel: string): string => sel.split(" ").pop()!;
 
 describe("scrollbars", () => {
   const GUARD = ":root:not([data-overlay-scrollbars])";
-  it("the track is hidden by INHERITANCE, so a scroller written tomorrow is covered too", () => {
-    // The whole point of putting it on :root: `scrollbar-color` inherits, and a list is a thing to
-    // keep up with. The transparent second value is the track.
-    // A thumb is a MARK, not an edge: it keeps its weight when the app's borders soften.
-    expect(bodiesFor(GUARD).join(" ")).toContain("scrollbar-color: var(--mark) transparent");
-    expect(bodiesFor(`${GUARD} :hover`).join(" ")).toContain("scrollbar-color: var(--mark-strong) transparent");
+  const OVERLAY = ":root[data-overlay-scrollbars]";
+  /* "We shouldn't be showing scroll bar tracks anywhere in the app" (the owner, 10-12). On an overlay
+     Mac the system widens its bar under the pointer and lays a full-height track beside the thumb;
+     a transparent track colour on the root is what takes it away (scrollbar-tracks-live.mjs). */
+  it("draws no track on an overlay Mac: a thumb colour and a transparent track, said once on the root", () => {
+    // THE MUTANT: the overlay rule deleted — the system's lane is back under the pointer.
+    expect(bodiesFor(OVERLAY).join(" ")).toMatch(/scrollbar-color:\s*\S.*\stransparent;/);
   });
 
-  /* On a Mac whose system draws overlay bars, every rule that styles one stands down (App.tsx,
-     ScrollbarStyleBridge): a colour repaints the system's thumb in the page's ink, and a
-     `::-webkit-scrollbar` rule turns it into a classic bar holding a gutter (8px against 0, measured).
-     THE mutant is a new scrollbar rule written without the guard. `none` is exempt: hiding a bar is
-     not drawing one. */
-  it("stands down wherever the system draws overlay scrollbars", () => {
+  it("on a classic Mac, every element states its own colour: no track ever, a thumb only under the pointer", () => {
+    // THE MUTANTS: a thumb colour at rest (a line down every scroller), or the bare `:hover` that
+    // lit every scroller inside a hovered ancestor by inheritance.
+    expect(bodiesFor(`${GUARD} *`).join(" ")).toContain("scrollbar-color: transparent transparent");
+    expect(bodiesFor(`${GUARD} *:hover`).join(" ")).toContain("scrollbar-color: var(--mark-strong) transparent");
+    expect(RULES.filter((r) => r.selectors.includes(GUARD))).toEqual([]);
+  });
+
+  it("never colours a track, by either API", () => {
+    // THE MUTANT: any `scrollbar-color` whose second value is not transparent, or a
+    // `::-webkit-scrollbar-track` given a background — the solid lane the owner asked to be rid of.
+    const colours = [...css.matchAll(/scrollbar-color:\s*([^;]+);/g)].map((m) => m[1]!.trim()).filter((v) => v !== "auto");
+    expect(colours.length).toBeGreaterThan(2);
+    for (const v of colours) expect(v, v).toMatch(/\btransparent$/);
+    const tracks = RULES.filter((r) => r.selectors.some((sel) => sel.includes("::-webkit-scrollbar-track")));
+    expect(tracks.length).toBeGreaterThan(0);
+    for (const r of tracks) expect(r.body, r.selectors.join(", ")).not.toMatch(/background(-color)?:\s*(?!\s|transparent)/);
+  });
+
+  it("a webkit thumb rests transparent and shows only under the pointer or while scrolling", () => {
+    // THE MUTANT: `background: var(--mark)` back on a resting thumb — a line down the sidebar always.
+    const resting = RULES.filter((r) => r.selectors.some((sel) => sel.endsWith("::-webkit-scrollbar-thumb") && !/:hover::|\[data-scrolling\]::/.test(sel)));
+    expect(resting.length).toBeGreaterThan(1);
+    for (const r of resting) expect(r.body, r.selectors.join(", ")).toMatch(/background:\s*transparent/);
+  });
+
+  /* On a Mac whose system draws overlay bars, the only thing said to them is the root's colour pair
+     above. A `::-webkit-scrollbar` rule turns an overlay bar into a classic bar holding a gutter (8px
+     against 0, measured), and a per-element colour or width would drift from the root's. THE mutant
+     is a new scrollbar rule written without the guard. `none` is exempt: hiding a bar is not drawing
+     one. */
+  it("stands down wherever the system draws overlay scrollbars, but for the root's colour", () => {
     const styling = RULES.filter((r) =>
       r.selectors.some((sel) => sel.includes("::-webkit-scrollbar"))
       || /scrollbar-color:\s*(?!auto)/.test(r.body)
       || /scrollbar-width:\s*thin/.test(r.body));
     expect(styling.length).toBeGreaterThan(10);
-    for (const r of styling) for (const sel of partsOf(r))
+    for (const r of styling) for (const sel of partsOf(r)) {
+      if (sel === OVERLAY) { expect(r.body).not.toMatch(/scrollbar-width|webkit/); continue; }
       expect(sel.startsWith(GUARD) || sel.startsWith(`:where(${GUARD})`), sel).toBe(true);
+    }
   });
 
   /** Base selectors that own a `::-webkit-scrollbar*` rule, deduped. */
