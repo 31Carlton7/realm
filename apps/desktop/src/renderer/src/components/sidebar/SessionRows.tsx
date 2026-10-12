@@ -41,6 +41,26 @@ export function ListRowView({ row, where, nested = false, onChanged }: { row: Li
     : <FanOutRowView row={row} where={where} nested={nested} onChanged={onChanged} />;
 }
 
+/** What a session row says about itself: its state's mark, its sub-agents' request in words, and the
+ *  whole of it as the row's accessible name — one sentence whichever shape the row is drawn in. */
+export function sessionWords(row: SessionRow, where?: string): { mark: ReturnType<typeof sessionMark>; agents: string; said: string } {
+  const mark = sessionMark(row.status, row.unread);
+  const agents = row.agentsWaiting > 0 ? `${row.agentsWaiting} sub-agent${row.agentsWaiting === 1 ? " needs" : "s need"} you` : "";
+  const named = `${row.title}${row.scheduled ? ", from a schedule" : ""}${where ? ` in ${where}` : ""}${agents ? `, ${agents}` : ""}`;
+  return { mark, agents, said: mark ? `${named} — ${mark.label}` : named };
+}
+
+/** Open a session from its row: wherever it is (`revealSession`), and a lead with sub-agents waiting
+ *  on the one that has waited longest, in its Agents tab, where the request is answered. */
+export function useOpenSessionRow(row: SessionRow): () => Promise<void> {
+  const revealSession = useApp((s) => s.revealSession);
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
+  return async () => {
+    await revealSession(row.id, row.spaceId);
+    if (row.firstWaiting) await openAgentsTab(row.id, { childId: row.firstWaiting });
+  };
+}
+
 /**
  * A session, in the sidebar row's anatomy (ItemList): the title takes the width, the state sits at
  * the far end, and the row's action — the shelf — takes that slot under the pointer or the keyboard.
@@ -59,25 +79,15 @@ export function SessionRowView({ row, where, nested = false, pinned = false, onC
 }) {
   const layout = useApp((s) => s.layout);
   const focused = useApp((s) => (s.layout ? itemIdOfLeaf(s.layout, s.focusedLeafId) === row.item.id : false));
-  const revealSession = useApp((s) => s.revealSession);
-  const openAgentsTab = useApp((s) => s.openAgentsTab);
   const openItemBeside = useApp((s) => s.openItemBeside);
   const run = useApp((s) => s.run);
   const archive = useArchiveAnywhere(onChanged);
   const [renaming, setRenaming] = useState(false);
   const [dragging, setDragging] = useState(false);
   const { onContextMenu, element } = useItemContextMenu(() => setRenaming(true), { onChanged });
-  const mark = sessionMark(row.status, row.unread);
-  const agents = row.agentsWaiting > 0 ? `${row.agentsWaiting} sub-agent${row.agentsWaiting === 1 ? " needs" : "s need"} you` : "";
-  const named = `${row.title}${row.scheduled ? ", from a schedule" : ""}${where ? ` in ${where}` : ""}${agents ? `, ${agents}` : ""}`;
-  const said = mark ? `${named} — ${mark.label}` : named;
+  const { mark, agents, said } = sessionWords(row, where);
   const agent = row.session ? AGENT_META[row.session.agentKind] : null;
-  // A lead with sub-agents waiting opens on the one that has waited longest, in its Agents tab, where
-  // the request is answered.
-  const open = async () => {
-    await revealSession(row.id, row.spaceId);
-    if (row.firstWaiting) await openAgentsTab(row.id, { childId: row.firstWaiting });
-  };
+  const open = useOpenSessionRow(row);
   return (
     // Every space of the profile is loaded, so any row can be dragged into the view or lit as its focus.
     <div className="item sb-row" data-nested={nested || undefined} data-active={focused || undefined} data-unread={mark?.mark === "unseen" || undefined} data-actions="1"
