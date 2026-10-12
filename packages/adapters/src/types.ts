@@ -43,6 +43,15 @@ export type StartOptions = {
   model?: string | null;
   effort?: string | null;
   permissionMode?: string;
+  /** Set for a reviewer, a session whose durable origin is a review. `SessionService.ensureLive`
+   *  sets it from the session row, and no other caller does. The Claude and Codex adapters pass it
+   *  to `reviewerAsksNobody` with their own kind and the mode Realm last set, which each keeps from
+   *  `start` and from every `setOptions`. While the rule holds, the adapter refuses at once whatever
+   *  it would have put to the person, and a person who changes the mode has the session asking
+   *  again from the next call on. On Codex that kept mode has no other reader, because a thread's
+   *  approval policy and sandbox are fixed when it starts. The ACP and scripted adapters do not
+   *  read the flag. Absent for every other session. */
+  reviewer?: true;
   /** The session has ASKED for fast mode. `claude` and `codex` act on it (`AGENT_FAST_MODE`); every
    *  other adapter ignores it, and none of them is obliged to report back — the honest answer for an
    *  engine with no such concept is silence, which the prompter reads as "no switch to offer". */

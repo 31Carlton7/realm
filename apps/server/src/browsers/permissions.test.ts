@@ -533,4 +533,39 @@ describe("BrowserPermissionBroker.ask — a question, on the same card and the s
     broker.release("s1");
     expect(await asked).toEqual({ outcome: "cancelled" });
   });
+
+  function unwatched() {
+    const events: { sessionId: string; ev: SessionEvent }[] = [];
+    const consulted: string[] = [];
+    let nobody = true;
+    const broker = new BrowserPermissionBroker({
+      permissionMode: () => "plan",
+      asksNobody: (sessionId) => { consulted.push(sessionId); return nobody; },
+      emit: (sessionId, ev) => events.push({ sessionId, ev }),
+    });
+    return { broker, events, consulted, watch: () => { nobody = false; } };
+  }
+
+  it("ends a question from a session nobody is watching as unasked, with no card and no event", async () => {
+    const { broker, events, consulted } = unwatched();
+    expect(await ask(broker)).toEqual({ outcome: "unasked" });
+    expect(events).toEqual([]);
+    expect(consulted).toEqual(["s1"]);
+  });
+
+  it("does not record the card Realm would have declined either, for a session nobody is watching", async () => {
+    const { broker, events } = unwatched();
+    expect(await ask(broker, card({ mode: "form", refused: "It asked for a password." }))).toEqual({ outcome: "unasked" });
+    expect(events).toEqual([]);
+  });
+
+  it("asks as before once the session has been taken over, on the very next question", async () => {
+    const { broker, events, watch } = unwatched();
+    expect(await ask(broker)).toEqual({ outcome: "unasked" });
+    watch();
+    const asked = ask(broker);
+    expect(events.map((e) => e.ev.type)).toEqual(["permission_request", "status"]);
+    broker.resolve(requestIdOf(events), "allow", { db: "pg" });
+    expect(await asked).toEqual({ outcome: "answered", answers: { db: "pg" } });
+  });
 });

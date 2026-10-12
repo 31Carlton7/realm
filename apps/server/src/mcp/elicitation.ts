@@ -17,6 +17,9 @@ import type { HubElicit } from "./hub";
  * so), and `cancel` when nobody answered — the server withdrew it, the session went, or fifteen
  * minutes passed. A page to open is accepted as consent alone: what happens on the page never passes
  * through Realm.
+ *
+ * A question the broker never put to anybody (`unasked`, a reviewer nobody is watching) goes back
+ * as `decline` too. It is Realm's own no, given at once, and not a wait that ran out.
  */
 export function createHubElicitation(d: {
   broker: { ask(sessionId: string, card: AskCard, o: { toolName: string; title: string; input?: Record<string, unknown>; signal?: AbortSignal }): Promise<AskOutcome> };
@@ -28,7 +31,7 @@ export function createHubElicitation(d: {
     const outcome = await d.broker.ask(sessionId, card, { toolName: "elicitation", title, signal });
     switch (outcome.outcome) {
       case "answered": return card.mode === "url" ? { action: "accept" } : { action: "accept", content: elicitationContent(card, outcome.answers) };
-      case "skipped": case "refused": return { action: "decline" };
+      case "skipped": case "refused": case "unasked": return { action: "decline" };
       case "timeout": case "cancelled": return { action: "cancel" };
     }
   };

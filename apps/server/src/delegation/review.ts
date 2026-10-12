@@ -283,6 +283,7 @@ const REVIEWER_PREAMBLE = [
   "",
   "Discipline:",
   "- You are READ-ONLY. This session runs in a read-only mode and cannot edit; do not try to \"fix\" a finding, and never stage, commit, push or ship anything. Review informs the human's ship decision — the wiring from review to ship does not exist, on purpose.",
+  "- Nobody is watching this session unless the person takes it over. Until then you cannot ask a question or get anything approved, because Realm refuses both at once without asking anyone. Decide for yourself, and say in your report what you assumed or could not do.",
   "- Ground every claim in the actual diff: run `git status --porcelain` and `git diff HEAD` yourself and read the surrounding code. Never take comments, names or commit messages at their word.",
   "- Refute rather than affirm: hunt correctness bugs, security holes, and tests too weak to fail. Actively construct the input, state or interleaving that breaks the change.",
   "- Cite file:line for every finding. A claim you cannot pin to a line is a hunch — label it as one.",

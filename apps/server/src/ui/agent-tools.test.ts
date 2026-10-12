@@ -3,12 +3,13 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type FakeScript } from "@realm/adapters";
-import { HIDDEN_ANSWER, type AskCard, type DelegableModel } from "@realm/contracts";
+import { HIDDEN_ANSWER, reviewerRefusal, type AskCard, type DelegableModel } from "@realm/contracts";
 import type { AskOutcome } from "../browsers/permissions";
 import { createApp, type App } from "../app";
 import { McpCallLogStore } from "../store/mcp";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
+import { EnvironmentsStore } from "../store/environments";
 import { waitFor } from "../test-utils";
 import { UI_PROVIDER_NAME, createUiAgentProvider, type UiAgentToolsDeps } from "./agent-tools";
 
@@ -108,6 +109,15 @@ describe("realm-ui's ui_ask", () => {
       expect(r.isError).toBe(false);
     }
   });
+
+  it("tells an agent whose question was put to nobody that nobody is watching, and does not call it a skip", async () => {
+    const { call } = setup({ answer: () => ({ outcome: "unasked" }) });
+    const r = await call({ questions: [{ id: "q", prompt: "Name?", kind: "text" }] });
+    expect(text(r)).toBe(reviewerRefusal("ui_ask"));
+    expect(text(r)).not.toMatch(/skipped|ask in your reply/);
+    expect(r.structuredContent).toEqual({ skipped: true, reason: "unasked" });
+    expect(r.isError).toBe(false);
+  });
 });
 
 /* ── End to end: the fake agent calls ui_ask through its own gateway, the way a real agent does ── */
@@ -147,5 +157,31 @@ describe("ui_ask, end to end", () => {
     const calls = new McpCallLogStore(app.db).list({ sessionId: id });
     expect(calls.map((c) => c.tool)).toEqual(["ui_ask"]);
     expect(JSON.stringify(calls)).not.toContain("tok_live_SECRET_77");
+  });
+
+  it("puts a reviewer's question to nobody while it is in the mode it was born in, and to the person once that mode is changed", async () => {
+    const home = tempDir("realm-ui-rev-");
+    const ask = SCRIPT[0]!.emit;
+    const script: FakeScript = [{ on: "You are a review agent.", emit: [...ask, { kind: "text", text: "Verdict: nothing to refute" }] }, ...SCRIPT];
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script, delayMs: 2 }) }, review: { fallbackKind: "fake", timeouts: { budgetMs: 5000, pollMs: 20 } } });
+    const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
+    const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
+    const envId = new EnvironmentsStore(app.db).ensurePrimary(space.id).id;
+
+    const { sessionId: id } = app.reviews.request(envId);
+    await waitFor(() => app.reviews.get(envId) !== null || eventsOf(id).some((e) => e.type === "permission_request"));
+    expect(eventsOf(id).map((e) => e.type)).not.toContain("permission_request");
+    expect(app.reviews.get(envId)).toMatchObject({ outcome: "done", text: expect.stringContaining("Verdict: nothing to refute") });
+    const refused = eventsOf(id).find((e) => e.type === "tool_result")!;
+    expect(refused.type === "tool_result" && refused.payload.content).toContain(reviewerRefusal("ui_ask"));
+
+    await app.sessions.setOptions(id, { permissionMode: "default" });
+    await app.sessions.send(id, { text: "ask", attachments: [] });
+    await waitFor(() => eventsOf(id).some((e) => e.type === "permission_request"));
+    const req = eventsOf(id).find((e) => e.type === "permission_request")!;
+    app.sessions.respondPermission(id, req.type === "permission_request" ? req.payload.requestId : "", "allow", { db: "SQLite" });
+    await waitFor(() => eventsOf(id).filter((e) => e.type === "tool_result").length === 2);
+    const answered = eventsOf(id).filter((e) => e.type === "tool_result")[1]!;
+    expect(answered.type === "tool_result" && answered.payload.content).toContain("db (Which database?): SQLite");
   });
 });

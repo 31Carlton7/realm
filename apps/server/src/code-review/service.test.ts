@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -69,7 +69,7 @@ async function boot(fixture: GhFixture = FIXTURE, home = tempDir("realm-cr-")) {
   const profile = profiles.list()[0] ?? profiles.create({ name: "P", icon: "x", color: "#000" });
   const spaces = new SpacesStore(app.db, home);
   const space = spaces.list(profile.id)[0] ?? spaces.create({ profileId: profile.id, name: "S", icon: "folder" });
-  return { home, gh, rpc: await wsClient(app.port), profileId: profile.id, space };
+  return { home, gh, fake, rpc: await wsClient(app.port), profileId: profile.id, space };
 }
 
 const ghCalls = (gh: FakeGh, pred: (args: string[]) => boolean) => gh.calls().filter((c) => pred(c.args));
@@ -291,6 +291,19 @@ describe("Review with… — a read-only reviewer whose findings are only findin
     const started: PrReview = await rpc.call("codeReview.review", { ref, profileId, spaceId: space.id, agentKind: "claude" });
     expect(app!.sessions.get(started.sessionId)).toMatchObject({ agentKind: "claude", permissionMode: PLAN_PERMISSION_MODE });
     await waitFor(settled(rpc));
+  });
+
+  it("tells the reviewer's adapter that it is one, and not the adapter of a session that asks about the request", async () => {
+    const { fake, rpc, profileId, space } = await boot();
+    const starts = vi.spyOn(fake, "start");
+    await rpc.call("codeReview.review", { ref, profileId, spaceId: space.id, agentKind: "claude" });
+    await waitFor(settled(rpc));
+    await rpc.call("codeReview.ask", { ref, spaceId: space.id, agentKind: "claude", text: "What does this change?", permissionMode: PLAN_PERMISSION_MODE });
+    await waitFor(() => starts.mock.calls.length === 2);
+    expect(starts.mock.calls.map(([o]) => [o.reviewer, o.permissionMode])).toEqual([[true, PLAN_PERMISSION_MODE], [undefined, PLAN_PERMISSION_MODE]]);
+    expect(starts.mock.calls[1]![0]).not.toHaveProperty("reviewer");
+    expect(starts.mock.calls[0]![0].systemContext).toContain("- Nobody is watching this session unless the person takes it over. Until then you cannot ask a question or get anything approved, because Realm refuses both at once without asking anyone.");
+    expect(starts.mock.calls[1]![0].systemContext ?? "").not.toContain("Nobody is watching this session");
   });
 
   it("anchors a finding to a line the diff shows, and keeps one off the diff as text", async () => {

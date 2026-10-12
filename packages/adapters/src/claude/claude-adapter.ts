@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
 import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, reviewerAsksNobody, reviewerRefusal, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
@@ -230,6 +230,7 @@ export class ClaudeAdapter implements AgentAdapter {
     // Tracked rather than read off `options`, because Ask has to hold on a LIVE session: the mode can
     // change mid-turn and `Options` is only ever read at start.
     let permissionMode = opts.permissionMode ?? "default";
+    const asksNobody = (): boolean => reviewerAsksNobody(opts.reviewer === true, this.kind, permissionMode);
     const askTools = claudeAskTools(opts.mcpServers);
     let running = false;
     let sawResult = false;
@@ -269,6 +270,7 @@ export class ClaudeAdapter implements AgentAdapter {
     // Several tools may ask at once (parallel tool calls): status flips to waiting_permission on the first open request
     // and back only when the last one is answered.
     const canUseTool: NonNullable<Options["canUseTool"]> = async (toolName, toolInput, o) => {
+      if (asksNobody()) return { behavior: "deny", message: reviewerRefusal(toolName) };
       // Ask, enforced: refused here, before the tool runs, and never put to the user — a prompt the
       // user could answer "allow" to would make the mode advisory. The message names what IS
       // available, so the model re-plans within the mode instead of retrying the same call.

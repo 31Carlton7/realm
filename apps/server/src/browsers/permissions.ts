@@ -23,14 +23,17 @@ type PendingPrompt = { sessionId: string; toolKey: string; settle: Settle; timer
 /**
  * How a question ended, for the caller that asked it. `refused`: Realm declined it before anyone saw
  * it (the card says why). `timeout`: nobody answered within the prompt limit. `cancelled`: it stopped
- * mattering — the asker withdrew it, or the session went.
+ * mattering — the asker withdrew it, or the session went. `unasked`: it was never put to anybody,
+ * because the session that asked puts nothing to the person (`reviewerAsksNobody`). It is not a
+ * skip, because no person saw the question and said no.
  */
 export type AskOutcome =
   | { outcome: "answered"; answers: AskAnswers }
   | { outcome: "skipped" }
   | { outcome: "refused" }
   | { outcome: "timeout" }
-  | { outcome: "cancelled" };
+  | { outcome: "cancelled" }
+  | { outcome: "unasked" };
 
 /**
  * Per-call gate behaviour.
@@ -110,6 +113,10 @@ export class BrowserPermissionBroker {
   constructor(private readonly d: {
     /** Fresh read of the session's CURRENT permission mode — a mid-session setOptions must count. */
     permissionMode: (sessionId: string) => string;
+    /** Whether the session puts nothing to the person, which is `reviewerAsksNobody` over its row.
+     *  Read as fresh as the mode, so a reviewer whose mode a person changed is asked for again.
+     *  `ask` raises no card for a session it holds for. Unwired, it holds for none. */
+    asksNobody?: (sessionId: string) => boolean;
     /** Persist + broadcast one session event through the session's normal event path. */
     emit: (sessionId: string, ev: SessionEvent) => void;
   }) {}
@@ -181,11 +188,17 @@ export class BrowserPermissionBroker {
    * whose mode refused it would be one that cannot ask what it needs to know. For the same reason
    * there is no "always": every question is asked.
    *
+   * The one session it is not asked for is one that puts nothing to the person (`asksNobody`, a
+   * reviewer still in the mode it was born in). Nobody is watching it, so its question would only
+   * wait out the prompt limit. It ends at once as `unasked`, with no card and no event, and the
+   * caller tells the asker so.
+   *
    * A card Realm already declined (`refused`) is recorded and answered at once, so the transcript says
    * what was declined and why. `signal` is the asker withdrawing the question — an MCP server whose
    * own request timed out, say — and takes the card down with it.
    */
   ask(sessionId: string, card: AskCard, o: { toolName: string; title: string; input?: Record<string, unknown>; signal?: AbortSignal }): Promise<AskOutcome> {
+    if (this.d.asksNobody?.(sessionId)) return Promise.resolve({ outcome: "unasked" });
     const requestId = REQUEST_PREFIX + randomBytes(12).toString("base64url");
     const request = sessionEvent("permission_request", { requestId, toolName: o.toolName, input: o.input ?? {}, title: o.title, suggestions: [], ask: card });
     if (card.refused) {

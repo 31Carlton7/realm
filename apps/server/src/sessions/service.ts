@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, reviewerAsksNobody, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -78,6 +78,33 @@ export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): str
   if (!AGENT_SUPPORTS_PERMISSION_MODES[kind]) return "default";
   return PERMISSION_MODES.some((m) => m.id === raw) ? (raw as string) : "default";
 }
+
+/**
+ * Whether a session is a reviewer, which is to say its durable origin is a review.
+ * `ReviewService.start` and `CodeReviewService.review` are the two places that write that origin.
+ * The store writes it with the row and never rewrites it, and no client can claim it, because
+ * `sessions.create` takes none. So the answer needs nothing but the row, and is the same after a
+ * restart.
+ *
+ * This is the one definition behind what a reviewer's adapter is told (`StartOptions.reviewer`),
+ * what the broker passes to `reviewerAsksNobody`, and the failover's `reviewer`. The marks the two
+ * services keep in settings (`review.child:`, `codeReview.reviewer:`) say the same of every session
+ * the server makes. They are not asked here, because `settings.set` lets any client write them.
+ */
+export const isReviewer = (session: Pick<Session, "dispatchedBy"> | null | undefined): boolean =>
+  session?.dispatchedBy?.kind === "review";
+
+/**
+ * Whether the session with this id is a reviewer still in the mode it was born in
+ * (`reviewerAsksNobody`), read off its row. The broker ends such a session's question unasked, and
+ * the failover keeps such a reviewer in the reviewer mode of the kind it is handed to. A reviewer
+ * whose mode a person changed is none, and neither is an id with no row.
+ */
+export const asksNobody = (sessions: Pick<SessionsStore, "get">, id: string): boolean => {
+  const s = sessions.get(id);
+  return s !== null && reviewerAsksNobody(isReviewer(s), s.agentKind, s.permissionMode);
+};
+
 /** `skillsInjected` remembers whether THIS handle was started with Realm's library — the fact mention
  *  resolution gates on, because a `/realm:<name>` prepend into a session that never loaded the plugin
  *  is a command that does not exist there. */
@@ -1217,6 +1244,7 @@ export class SessionService {
     // pair is declared where it is passed instead of being an unchecked cast at the call.
     const startOptions: import("@realm/adapters").StartOptions & { resumeAt?: string | null; resumeDropsTurn?: string | null } = {
       cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
+      ...(isReviewer(s) ? { reviewer: true as const } : {}),
       skills,
       systemContext,
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started

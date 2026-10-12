@@ -85,10 +85,12 @@ export type FailoverDeps = {
    * the thirty seconds in which the credential changed.
    */
   probe: (opts: { force: boolean }) => Promise<ProbeResult[]>;
-  /** Whether a session is a reviewer (`ReviewService`, `CodeReviewService`). A reviewer is held
-   *  read-only on whatever agent it runs on, and both places that start one refuse a kind that
-   *  cannot be held to that. A handoff keeps the same rule: it passes over such a kind, and moves
-   *  the reviewer into the read-only mode of the kind it lands on. Unwired, no session is one. */
+  /** Whether a session is a reviewer still in the mode it was born in (`reviewerAsksNobody`). Such
+   *  a reviewer is held read-only on whatever agent it runs on, and both places that start one
+   *  refuse a kind that cannot be held to that. A handoff keeps the same rule: it passes over such a
+   *  kind, and moves the reviewer into the mode a reviewer of the kind it lands on is born in. A
+   *  reviewer whose mode a person changed is handed over as any session is, with the mode they
+   *  chose. Unwired, no session is one. */
   reviewer?: (sessionId: string) => boolean;
   /** Injectable so tests do not spend real seconds on the backoff ladder. */
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
@@ -313,21 +315,21 @@ export class FailoverService {
   }
 
   /**
-   * The kinds of the chain this session may not be handed to. For a reviewer that is every kind
-   * Realm cannot hold read-only (`AGENT_SUPPORTS_PLAN_MODE`), which is the test both places that
-   * start a reviewer apply. `escalate` counts them as tried, so the chain goes on to the next kind
-   * that can be held, and a chain with none ends as an exhausted one. No other session is closed
-   * to any kind.
+   * The kinds of the chain this session may not be handed to. For a reviewer still in the mode it
+   * was born in, that is every kind Realm cannot hold read-only (`AGENT_SUPPORTS_PLAN_MODE`), which
+   * is the test both places that start a reviewer apply. `escalate` counts them as tried, so the
+   * chain goes on to the next kind that can be held, and a chain with none ends as an exhausted
+   * one. No other session is closed to any kind.
    */
   private closedTo(session: Session, policy: FailoverPolicy): AgentKind[] {
     return this.d.reviewer?.(session.id) ? policy.chain.filter((k) => !AGENT_SUPPORTS_PLAN_MODE[k]) : [];
   }
 
   /**
-   * Move the session onto `to` and replay the turn there. A reviewer also takes the read-only mode
-   * a reviewer on `to` is born in (`reviewerPermissionMode`), because the mode it was born in is
-   * the one for the kind it leaves: Plan on Codex would put every command Codex does not trust to
-   * the person again, and Ask on Claude refuses the shell commands a reviewer reads a diff with.
+   * Move the session onto `to` and replay the turn there. A reviewer still in the mode it was born
+   * in also takes the mode a reviewer on `to` is born in (`reviewerPermissionMode`), because the
+   * mode it has is the one for the kind it leaves: Plan on Codex would put every command Codex does
+   * not trust to the person again, and a reviewer on Claude is born in Plan.
    *
    * Order matters and is load-bearing throughout: the adapter is stopped BEFORE the row is rewritten
    * (a live handle outliving its own `agentKind` would keep pumping the old agent's events into a

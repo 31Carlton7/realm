@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
@@ -142,6 +142,37 @@ describe("the read-only cap — hard, per agent kind (the write-permission mutan
     expect(reviewer.permissionMode).toBe(PLAN_PERMISSION_MODE);
   });
 
+});
+
+describe("a reviewer's adapter is told at start that nobody is watching it", () => {
+  const CHILD: FakeScript = [...REVIEW_SCRIPT, { on: "You are a delegated agent.", emit: [{ kind: "text", text: "FINAL: did the task" }] }];
+
+  it("tells the adapter of a reviewer that it is one, whichever way the review was asked for", async () => {
+    const { fake, spaceId, parentId, envId } = await boot({ parentKind: "codex" });
+    const starts = vi.spyOn(fake, "start");
+    await app.reviews.runTool({ sessionId: parentId, spaceId }, { environmentId: envId });
+    expect(starts.mock.calls.map(([o]) => [o.reviewer, o.permissionMode])).toEqual([[true, ASK_PERMISSION_MODE]]);
+    app.reviews.dismiss(envId);
+    app.reviews.request(envId);
+    await waitFor(() => app.reviews.get(envId) !== null);
+    expect(starts.mock.calls.map(([o]) => [o.reviewer, o.permissionMode])).toEqual([[true, ASK_PERMISSION_MODE], [true, PLAN_PERMISSION_MODE]]);
+    for (const [o] of starts.mock.calls) expect(o.systemContext).toContain("- Nobody is watching this session unless the person takes it over. Until then you cannot ask a question or get anything approved, because Realm refuses both at once without asking anyone.");
+  });
+
+  it("tells it of no other session, neither an agent_run child nor a session a person put in the same mode", async () => {
+    const { fake, spaceId, parentId } = await boot({ script: CHILD });
+    const starts = vi.spyOn(fake, "start");
+    await app.agentRuns.run({ sessionId: parentId, spaceId }, { goal: "task" });
+    expect(app.sessions.list(spaceId).filter((s) => s.dispatchedBy?.kind === "agent_run")).toHaveLength(1);
+    const plain = app.sessions.create({ spaceId, agentKind: "claude", projectId: null, model: null, effort: null, permissionMode: PLAN_PERMISSION_MODE });
+    await app.sessions.send(plain.session.id, { text: "hello", attachments: [] });
+    await waitFor(() => starts.mock.calls.length === 2);
+    expect(starts.mock.calls[1]![0].permissionMode).toBe(PLAN_PERMISSION_MODE);
+    for (const [o] of starts.mock.calls) {
+      expect(o).not.toHaveProperty("reviewer");
+      expect(o.systemContext ?? "").not.toContain("Nobody is watching this session");
+    }
+  });
 });
 
 describe("the verdict lands — KV + broadcast + notification, and stops there", () => {

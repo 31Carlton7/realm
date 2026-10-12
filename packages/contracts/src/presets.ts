@@ -373,16 +373,52 @@ export const isReadOnlyMode = (permissionMode: string): boolean =>
  *   keeps the approval policy `untrusted`, under which Codex puts to the person every command it
  *   does not know as safe, so a review nobody is watching stops on a card. Ask turns approvals off:
  *   the kernel refuses a write and nothing is put to anybody.
- * - **Claude** stays in Plan, where Claude Code's own plan mode judges commands itself and asks for
- *   none of them. It can still ask before it writes a file or leaves Plan. Ask would not serve a
- *   reviewer there, because `claudeAskTools` leaves `Bash` out and the diff pane's reviewer starts
- *   from `git diff HEAD`.
+ * - **Claude** is born in Plan, Claude Code's own read-only mode, where a command Claude Code can
+ *   tell only reads runs unasked. Ask is not the mode for a reviewer here, because Realm defines
+ *   Ask on Claude with no shell tool (`claudeAskTools`) and the diff pane's reviewer is told to
+ *   start from `git diff HEAD`.
+ *
+ * Neither mode keeps every card away by itself. In Plan, Claude Code still asks before it writes a
+ * file, puts a question, leaves Plan and, at times, runs a command. In Ask, a question Codex passes
+ * on would still be drawn. `reviewerAsksNobody` refuses all of these before they become a card, for
+ * as long as the reviewer stays in the mode named here.
  *
  * Every other kind that can review (`AGENT_SUPPORTS_PLAN_MODE`) is born in Plan, and a kind that
  * cannot is never asked about.
  */
 export const reviewerPermissionMode = (kind: import("./entities").AgentKind): string =>
   kind === "codex" ? ASK_PERMISSION_MODE : PLAN_PERMISSION_MODE;
+
+/**
+ * Whether a session puts nothing to the person. It holds for a reviewer that is on a kind that can
+ * review and is still in the mode a reviewer of that kind is born in (`reviewerPermissionMode`).
+ * Realm puts none of such a session's requests to the person. Where it would have raised a card
+ * for a permission, a question, a plan to approve or a server's form, the caller refuses at once,
+ * with `reviewerRefusal` where the refusal can carry text.
+ *
+ * `reviewer` is the session's durable origin, `dispatchedBy.kind === "review"`. With the kind and
+ * the mode, that makes the answer a function of the session row alone, the same before and after a
+ * restart. A person who changes a reviewer's mode has taken the session over. The answer turns
+ * false, and the session asks as any session does for as long as it stays out of that mode.
+ *
+ * This is the one statement of the rule. `canUseTool` in the Claude adapter, the server requests of
+ * the Codex adapter and `BrowserPermissionBroker.ask` each call it, and none restates it. Those are
+ * the places a card is born for a reviewer, because no reviewer is started on, or handed over to, a
+ * kind that cannot review (`AGENT_SUPPORTS_PLAN_MODE`). The answer for such a kind is always false,
+ * so its adapter is never asked to refuse anything. The scripted `fake` kind can review and does not
+ * call this. It plays the cards its script names, in any mode.
+ */
+export const reviewerAsksNobody = (reviewer: boolean, kind: import("./entities").AgentKind, permissionMode: string): boolean =>
+  reviewer && AGENT_SUPPORTS_PLAN_MODE[kind] && permissionMode === reviewerPermissionMode(kind);
+
+/**
+ * What an agent is told when `reviewerAsksNobody` refuses a call, in the two places a refusal can
+ * carry text: the Claude adapter's denial and the answer of Realm's own question tool. The wording
+ * is the same for every tool it can name. It says to reply with the review because the refused call
+ * is at times the one the agent meant to deliver the review through, as when it asks to leave Plan.
+ */
+export const reviewerRefusal = (tool: string): string =>
+  `Realm puts nothing to the person for a reviewer in this mode, so it refused this ${tool} call without asking anyone. Carry on without it. Give your review as your reply, and say in it what you could not do or had to assume.`;
 
 /**
  * Agent kinds that can actually be put into Plan.

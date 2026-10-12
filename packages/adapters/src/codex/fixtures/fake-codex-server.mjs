@@ -20,6 +20,7 @@
  *   GHOST     opens a turn the server does not register as steerable  (turn/steer -> turn/start fallback)
  *   APPROVE   runs one command that needs an approval decision
  *   USAGE     (modifier, with APPROVE) reports token usage before the turn ends (per-turn usage stamps)
+ *   DECIDED   (modifier, with APPROVE) says which decision the client sent, as the agent message
  *   PATCH     edits a file and asks for a fileChange approval instead
  *   REFUSE    fails `turn/start` outright
  *   APPROVE2  runs two commands whose approvals are open at once      (waiting_permission bookkeeping)
@@ -153,7 +154,8 @@ async function streamApprovalTurn(threadId, turnId, text) {
     reason: "fake approval", command, cwd, commandActions: [],
     availableDecisions: ["accept", "cancel"],
   });
-  const accepted = (await reply).result?.decision === "accept";
+  const decision = (await reply).result?.decision;
+  const accepted = decision === "accept";
   notify("serverRequest/resolved", { threadId, requestId });
   notify("item/completed", {
     threadId, turnId, completedAtMs: Date.now(),
@@ -165,6 +167,7 @@ async function streamApprovalTurn(threadId, turnId, text) {
     },
   });
   if (text.includes("USAGE")) tokenUsage(threadId, turnId);
+  if (text.includes("DECIDED")) agentMessage(threadId, turnId, `decided ${decision ?? "none"}`);
   endTurn(threadId, turnId);
 }
 

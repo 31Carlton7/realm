@@ -28,6 +28,12 @@ describe("an MCP server's question, on Realm's card", () => {
     expect(await setup({ outcome: "cancelled" }).run(form)).toEqual({ action: "cancel" });
   });
 
+  it("declines a question the broker put to nobody, where one nobody answered is cancelled", async () => {
+    const { run, asked } = setup({ outcome: "unasked" });
+    expect(await run(form)).toEqual({ action: "decline" });
+    expect(asked).toHaveLength(1);
+  });
+
   it("declines a form asking for a key without the user ever seeing a field for it", async () => {
     const { run, asked } = setup({ outcome: "answered", answers: { key: "x" } });
     const credential = { mode: "form", message: "Connect", requestedSchema: { type: "object", properties: { api_key: { type: "string", title: "API key" } } } };

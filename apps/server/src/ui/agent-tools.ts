@@ -1,7 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, resolve, sep } from "node:path";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { AGENT_META, ASK_QUESTIONS_MAX, AskCardSchema, UiAskInputSchema, type AgentKind, type AskAnswers, type AskCard, type AskOption, type AskQuestion, type DelegableModel, type Session, type UiAskInput } from "@realm/contracts";
+import { AGENT_META, ASK_QUESTIONS_MAX, AskCardSchema, UiAskInputSchema, reviewerRefusal, type AgentKind, type AskAnswers, type AskCard, type AskOption, type AskQuestion, type DelegableModel, type Session, type UiAskInput } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, parseArgs } from "../mcp/tool-result";
 import type { AskOutcome } from "../browsers/permissions";
@@ -22,6 +22,10 @@ export const UI_PROVIDER_NAME = "realm-ui";
  * **It can only ask.** Nothing it does changes a file, a page or a setting, so it is on by default,
  * allowed in every permission mode, and never needs an approval of its own. The answer is the user's
  * click, and nothing reaches the agent without one.
+ *
+ * **A reviewer nobody is watching is not asked for.** The broker ends its question as `unasked`
+ * before any card (`reviewerAsksNobody`), and the tool tells the agent so in the words every such
+ * refusal uses (`reviewerRefusal`).
  *
  * **Realm fills everything a field offers.** The agent names the KIND of field; the options for a
  * model, a branch or a file come from Realm's catalog, git and the workspace, never from the agent —
@@ -222,8 +226,12 @@ async function pictureIn(cwd: string, path: string, where: string): Promise<stri
   return real;
 }
 
-/** How the agent is told what happened: words it can read, and the same answers as data. */
+/** How the agent is told what happened: words it can read, and the same answers as data. A question
+ *  that was never put to anybody (`unasked`) is not called a skip in words. The agent is told that
+ *  nobody is watching, with the refusal every such session gets. */
 function resultOf(card: AskCard, outcome: AskOutcome): CallToolResult {
+  if (outcome.outcome === "unasked")
+    return { content: [{ type: "text", text: reviewerRefusal(TOOL.name) }], structuredContent: { skipped: true, reason: outcome.outcome }, isError: false };
   if (outcome.outcome !== "answered") {
     const why = outcome.outcome === "timeout" ? "No answer came within 15 minutes, so the question was withdrawn."
       : outcome.outcome === "cancelled" ? "The question was withdrawn before it was answered."

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type StartOptions } from "@realm/adapters";
 import { createApp, type App } from "../app";
+import { EnvironmentsStore } from "../store/environments";
 import { waitFor } from "../test-utils";
 
 /**
@@ -118,6 +119,53 @@ describe("failover over rpc", () => {
     });
     expect((await c.call("sessions.get", { id: session.id })).result.agentKind).toBe("fake");
     expect(second.starts).toHaveLength(0);
+    c.close();
+  });
+
+  it("keeps a handed-over reviewer a reviewer, so the next agent starts in its own reviewer mode and is told it is one", async () => {
+    const home = tempDir("realm-failover-rev-");
+    if (!resolve(home).startsWith(resolve(tmpdir()))) throw new Error(`refusing to run against ${home}`);
+    const first = new RecordingFake({ script: [{ on: "You are a review agent.", emit: [{ kind: "throw", message: "Claude AI usage limit reached|123" }] }] });
+    const second = new RecordingFake({ script: [{ on: "You are a review agent.", emit: [{ kind: "text", text: "Verdict: nothing to refute" }] }] });
+    app = await createApp({ home, port: 0, adapters: { fake: first, codex: second }, review: { fallbackKind: "fake", timeouts: { budgetMs: 5000, pollMs: 20 } } });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+    await c.call("failover.set", { spaceId: sp.id, policy: { retry: true, chain: ["codex"] } });
+    const environmentId = new EnvironmentsStore(app.db).ensurePrimary(sp.id).id;
+
+    const { sessionId } = (await c.call("review.request", { environmentId })).result;
+    await waitFor(() => second.starts.length === 1);
+    expect(first.starts[0]).toMatchObject({ reviewer: true, permissionMode: "plan" });
+    expect(second.starts[0]).toMatchObject({ reviewer: true, permissionMode: "ask" });
+    expect((await c.call("sessions.get", { id: sessionId })).result)
+      .toMatchObject({ agentKind: "codex", permissionMode: "ask", dispatchedBy: { kind: "review", sessionId: null } });
+    c.close();
+  });
+
+  it("hands over a reviewer whose mode a person changed with the mode they chose, as any session is handed over", async () => {
+    const home = tempDir("realm-failover-taken-");
+    if (!resolve(home).startsWith(resolve(tmpdir()))) throw new Error(`refusing to run against ${home}`);
+    const first = new RecordingFake({ script: [
+      { on: "You are a review agent.", emit: [{ kind: "text", text: "Verdict: nothing to refute" }] },
+      { on: "fix finding 2", emit: [{ kind: "throw", message: "Claude AI usage limit reached|123" }] },
+    ] });
+    const second = new RecordingFake({ script: [{ on: "fix finding 2", emit: [{ kind: "text", text: "fixed" }] }] });
+    app = await createApp({ home, port: 0, adapters: { fake: first, codex: second }, review: { fallbackKind: "fake", timeouts: { budgetMs: 5000, pollMs: 20 } } });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+    await c.call("failover.set", { spaceId: sp.id, policy: { retry: true, chain: ["codex"] } });
+    const environmentId = new EnvironmentsStore(app.db).ensurePrimary(sp.id).id;
+
+    const { sessionId } = (await c.call("review.request", { environmentId })).result;
+    await waitFor(async () => (await c.call("review.get", { environmentId })).result.review !== null);
+    await c.call("sessions.setOptions", { id: sessionId, permissionMode: "acceptEdits" });
+    await c.call("sessions.send", { id: sessionId, text: "fix finding 2" });
+    await waitFor(() => second.starts.length === 1);
+    expect(second.starts[0]).toMatchObject({ reviewer: true, permissionMode: "acceptEdits" });
+    expect((await c.call("sessions.get", { id: sessionId })).result)
+      .toMatchObject({ agentKind: "codex", permissionMode: "acceptEdits", dispatchedBy: { kind: "review", sessionId: null } });
     c.close();
   });
 });

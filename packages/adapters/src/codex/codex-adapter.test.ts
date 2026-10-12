@@ -978,6 +978,90 @@ describe("CodexAdapter", () => {
   });
 });
 
+describe("a reviewer nobody is watching puts nothing to the person", () => {
+  const born = { reviewer: true as const, permissionMode: "ask" };
+  const CUES = ["ASKUSER", "ELICIT", "APPROVE"];
+  const expectNoCard = (evs: SessionEvent[]) => {
+    expect(types(evs)).not.toContain("permission_request");
+    expect(types(evs)).not.toContain("permission_response");
+    expect(statuses(evs)).not.toContain("waiting_permission");
+  };
+
+  it("answers Codex's own question with no answers, at once and with no card", async () => {
+    const { handle, evs } = await booted(born);
+    await handle.send({ text: "ASKUSER", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toEqual(["answered {\"answers\":{}}"]));
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    expectNoCard(evs);
+  });
+
+  it("declines a server's form, at once and with no card", async () => {
+    const { handle, evs } = await booted(born);
+    await handle.send({ text: "ELICIT", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!.slice("elicited ".length))).toEqual({ action: "decline", content: null, _meta: null });
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    expectNoCard(evs);
+  });
+
+  it("leaves no declined card behind either, for a form Realm would not have drawn", async () => {
+    const { handle, evs } = await booted(born);
+    await handle.send({ text: "ELICITSECRET", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toHaveLength(1));
+    expect(JSON.parse(texts(evs)[0]!.slice("elicited ".length))).toEqual({ action: "decline", content: null, _meta: null });
+    expectNoCard(evs);
+  });
+
+  it("denies an approval, at once and with no card, so the command does not run", async () => {
+    const { handle, evs } = await booted(born);
+    await handle.send({ text: "APPROVE", attachments: [] });
+    await waitFor(() => expect(of(evs, "tool_result")).toHaveLength(1));
+    expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ isError: true });
+    expect(of(evs, "tool_result")[0]!.payload.content).not.toContain("hi");
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    expectNoCard(evs);
+  });
+
+  it("denies an approval with a decision Codex offered, which is cancel where decline is not on offer", async () => {
+    const { handle, evs } = await booted(born);
+    await handle.send({ text: "APPROVE DECIDED", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toEqual(["decided cancel"]));
+    expectNoCard(evs);
+  });
+
+  it("raises the approval card for a reviewer moved into Plan, the read-only mode it was not born in", async () => {
+    const { handle, evs } = await booted(born);
+    await handle.setOptions({ permissionMode: "plan" });
+    await handle.send({ text: "APPROVE", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    expect(statuses(evs).at(-1)).toBe("waiting_permission");
+  });
+
+  it.each(CUES)("raises the card for %s again once the mode has been changed", async (cue) => {
+    const { handle, evs } = await booted(born);
+    await handle.setOptions({ permissionMode: "default" });
+    await handle.send({ text: cue, attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    expect(statuses(evs).at(-1)).toBe("waiting_permission");
+  });
+
+  it.each(CUES)("still raises the card for %s in Ask for a session that is no reviewer", async (cue) => {
+    const { handle, evs } = await booted({ permissionMode: "ask" });
+    await handle.send({ text: cue, attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    expect(statuses(evs).at(-1)).toBe("waiting_permission");
+  });
+
+  it("declines again when the mode is put back to the one the reviewer was born in", async () => {
+    const { handle, evs } = await booted(born);
+    await handle.setOptions({ permissionMode: "default" });
+    await handle.setOptions({ permissionMode: "ask" });
+    await handle.send({ text: "ASKUSER", attachments: [] });
+    await waitFor(() => expect(texts(evs)).toEqual(["answered {\"answers\":{}}"]));
+    expectNoCard(evs);
+  });
+});
+
 /**
  * `skills/extraRoots/set` is per-CONNECTION, not per-thread, and CodexAdapter shares one connection across
  * every session — so these tests are as much about the union and the refcount as about the call itself.

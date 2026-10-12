@@ -226,7 +226,7 @@ describe("a reviewer that is handed over", () => {
     expect(h.session().permissionMode).toBe("ask");
   });
 
-  it("moves a reviewer born on Codex into Plan when it lands on Claude, where Ask refuses the shell", async () => {
+  it("moves a reviewer born on Codex into Plan when it lands on Claude, where a reviewer is born in Plan", async () => {
     const h = harness({ policy: { retry: false, chain: ["claude"] }, agentKind: "codex", reviewer: true, permissionMode: "ask" });
     await limit(h, "claude");
     expect(h.session().permissionMode).toBe("plan");

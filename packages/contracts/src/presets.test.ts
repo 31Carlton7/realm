@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, reviewerPermissionMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerNote, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, reviewerAsksNobody, reviewerPermissionMode, reviewerRefusal, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerNote, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has no duplicate icon names", () => { expect(new Set(SPACE_ICONS).size).toBe(SPACE_ICONS.length); });
@@ -226,6 +226,38 @@ describe("reviewerPermissionMode", () => {
       const mode = reviewerPermissionMode(k);
       expect(isReadOnlyMode(mode), k).toBe(true);
       expect((mode === ASK_PERMISSION_MODE ? AGENT_SUPPORTS_ASK_MODE : AGENT_SUPPORTS_PLAN_MODE)[k], k).toBe(true);
+    }
+  });
+});
+
+describe("reviewerAsksNobody", () => {
+  const MODES = [PLAN_PERMISSION_MODE, ASK_PERMISSION_MODE, "default", "acceptEdits", "bypassPermissions"];
+  const holdsIn = (reviewer: boolean, kind: (typeof AgentKindSchema.options)[number]): string[] =>
+    MODES.filter((mode) => reviewerAsksNobody(reviewer, kind, mode));
+
+  it("holds for a reviewer in the one mode a reviewer of its kind is born in, and in no other", () => {
+    expect(holdsIn(true, "claude")).toEqual([PLAN_PERMISSION_MODE]);
+    expect(holdsIn(true, "codex")).toEqual([ASK_PERMISSION_MODE]);
+  });
+
+  it("holds for no session that is not a reviewer, whatever its kind and its mode", () => {
+    for (const k of AgentKindSchema.options) expect(holdsIn(false, k), k).toEqual([]);
+  });
+
+  it("holds on no kind that cannot review, where no adapter would refuse the card", () => {
+    const cannot = AgentKindSchema.options.filter((k) => !AGENT_SUPPORTS_PLAN_MODE[k]);
+    expect(cannot.length).toBeGreaterThan(0);
+    for (const k of cannot) expect(holdsIn(true, k), k).toEqual([]);
+  });
+});
+
+describe("reviewerRefusal", () => {
+  it("names the call that was refused, and says to give the review as the reply", () => {
+    for (const tool of ["ExitPlanMode", "AskUserQuestion", "Bash", "ui_ask"]) {
+      const said = reviewerRefusal(tool);
+      expect(said, tool).toContain(`Realm puts nothing to the person for a reviewer in this mode, so it refused this ${tool} call without asking anyone.`);
+      expect(said, tool).toContain("Give your review as your reply");
+      expect(said, tool).not.toMatch(/[\u2013\u2014]/);
     }
   });
 });

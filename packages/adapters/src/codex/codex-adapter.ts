@@ -1,4 +1,4 @@
-import { ASK_PERMISSION_MODE, AskCardSchema, askCardFromElicitation, elicitationContent, loggableAnswers, normalizeAnswers, requiredAnswered, sessionEvent, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, AskCardSchema, askCardFromElicitation, elicitationContent, loggableAnswers, normalizeAnswers, requiredAnswered, reviewerAsksNobody, sessionEvent, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, isRpcTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { CodexConnection, type ThreadListener } from "./connection";
@@ -424,6 +424,8 @@ export class CodexAdapter implements AgentAdapter {
     let disposed = false;
     /** Set only once this session's root is counted into the union, so shutdown drops exactly what boot added. */
     let ownedRoot: string | null = null;
+    let permissionMode = opts.permissionMode ?? "default";
+    const asksNobody = (): boolean => reviewerAsksNobody(opts.reviewer === true, this.kind, permissionMode);
 
     const fail = (text: string) => {
       events.push(sessionEvent("error", { message: text }));
@@ -467,8 +469,11 @@ export class CodexAdapter implements AgentAdapter {
     const denyAllPending = () => { for (const id of [...pending.keys()]) respond(id, "deny", undefined, true); };
 
     /** Put a question to the user, or — when it is one Realm will not draw — answer it at once and
-     *  leave the declined card in the transcript, so the refusal is not silent. */
+     *  leave the declined card in the transcript, so the refusal is not silent. A session that puts
+     *  nothing to the person (`asksNobody`) has its question declined at once too, with the
+     *  question's own decline and with no card and no event. */
     const ask = (id: JsonRpcId, method: string, card: AskCard, title: string, replies: Pick<Extract<Pending, { kind: "question" }>, "accept" | "decline" | "cancel">) => {
+      if (asksNobody()) { conn?.respond(id, replies.decline()); return; }
       const requestId = String(id);
       if (card.refused) {
         conn?.respond(id, replies.decline());
@@ -620,6 +625,7 @@ export class CodexAdapter implements AgentAdapter {
           ? { command: str(p.command), cwd: str(p.cwd) }
           : { itemId: str(p.itemId), grantRoot: p.grantRoot ?? null };
         const decisions = Array.isArray(p.availableDecisions) ? p.availableDecisions : [];
+        if (asksNobody()) { conn?.respond(id, { decision: pickCodexDecision("deny", decisions) }); return; }
         if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
         pending.set(requestId, { kind: "approval", id, decisions });
         events.push(sessionEvent("permission_request", { requestId, toolName: approval.toolName, input, title: str(p.reason) || approval.title, suggestions: decisions }));
@@ -821,6 +827,7 @@ export class CodexAdapter implements AgentAdapter {
        * effect the next time this session starts a thread.
        */
       setOptions: async (o) => {
+        if (o.permissionMode !== undefined) permissionMode = o.permissionMode;
         // Unlike the two below, these take effect on the next turn: the tier and the level ride on `turn/start`.
         if (o.fastMode !== undefined) fastMode = o.fastMode;
         if (o.effort !== undefined) effort = o.effort;

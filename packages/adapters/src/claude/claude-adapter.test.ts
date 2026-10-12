@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
-import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
+import { HIDDEN_ANSWER, reviewerRefusal, type SessionEvent } from "@realm/contracts";
 import type { StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
@@ -162,6 +162,68 @@ describe("Ask — read-only, enforced by the adapter", () => {
     await h.setOptions({ permissionMode: "ask" });
     const c = collectUntil(h.events, () => false);
     await h.send({ text: "hi", attachments: [] }); await h.dispose(); const got = await c;
+    expect(types(got)).not.toContain("permission_request");
+  });
+});
+
+describe("a reviewer nobody is watching puts nothing to the person", () => {
+  const CALLS: Record<string, unknown> = {
+    Write: { file_path: "/tmp/w.txt", content: "x" },
+    ExitPlanMode: { plan: "1. Ship it." },
+    AskUserQuestion: { questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A" }, { label: "B" }] }] },
+    Bash: { command: "touch made.txt" },
+  };
+  const TOOLS = Object.keys(CALLS);
+
+  const turn = async (tool: string, o: { reviewer?: true; switchTo?: string } = {}) => {
+    const handed: unknown[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: tool, permissionInput: CALLS[tool], permissionResults: handed }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "plan", ...(o.reviewer ? { reviewer: true as const } : {}) });
+    if (o.switchTo) await h.setOptions({ permissionMode: o.switchTo });
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle",
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "deny"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    return { handed, got };
+  };
+
+  it.each(TOOLS)("refuses %s at once with the one message, and raises no card and no wait", async (tool) => {
+    const { handed, got } = await turn(tool, { reviewer: true });
+    expect(handed).toEqual([{ behavior: "deny", message: reviewerRefusal(tool) }]);
+    expect(types(got)).not.toContain("permission_request");
+    expect(types(got)).not.toContain("permission_response");
+    expect(statuses(got)).toEqual(["running", "idle"]);
+  });
+
+  it.each(TOOLS)("puts %s to the person again once the mode has been changed", async (tool) => {
+    const { handed, got } = await turn(tool, { reviewer: true, switchTo: "default" });
+    expect(types(got).filter((t) => t === "permission_request")).toHaveLength(1);
+    expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
+    expect(handed).toEqual([{ behavior: "deny", message: "User denied" }]);
+  });
+
+  it.each(TOOLS)("still puts %s to the person in Plan for a session that is no reviewer", async (tool) => {
+    const { handed, got } = await turn(tool);
+    expect(types(got).filter((t) => t === "permission_request")).toHaveLength(1);
+    expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
+    expect(handed).toEqual([{ behavior: "deny", message: "User denied" }]);
+  });
+
+  it("puts a question to the person for a reviewer moved into Ask, the read-only mode it was not born in", async () => {
+    const { handed, got } = await turn("AskUserQuestion", { reviewer: true, switchTo: "ask" });
+    expect(types(got).filter((t) => t === "permission_request")).toHaveLength(1);
+    expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
+    expect(handed).toEqual([{ behavior: "deny", message: "User denied" }]);
+  });
+
+  it("refuses again when the mode is put back to the one the reviewer was born in", async () => {
+    const handed: unknown[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Write", permissionInput: CALLS.Write, permissionResults: handed }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "plan", reviewer: true });
+    await h.setOptions({ permissionMode: "acceptEdits" });
+    await h.setOptions({ permissionMode: "plan" });
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    expect(handed).toEqual([{ behavior: "deny", message: reviewerRefusal("Write") }]);
     expect(types(got)).not.toContain("permission_request");
   });
 });

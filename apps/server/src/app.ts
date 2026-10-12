@@ -78,7 +78,7 @@ import { GhClient, ghRunner } from "./code-review/gh";
 import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
-import { SessionService } from "./sessions/service";
+import { SessionService, asksNobody } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { PlanLimitsService } from "./limits/service";
 import type { ProbeResult } from "@realm/adapters";
@@ -954,6 +954,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const browserBroker = new BrowserPermissionBroker({
     // A missing row degrades to "plan" — the refuse-mutations mode — never to a prompt on a ghost.
     permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "plan",
+    asksNobody: (sessionId) => asksNobody(sessionsStore, sessionId),
     emit: (sessionId, ev) => {
       sessionService?.emitExternal(sessionId, ev);
       // The shadow reads a card's answer as the `user` label for the step it was raised for.
@@ -1106,8 +1107,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     timeouts: opts.codeReview?.timeouts,
   });
   /* `realm-ui`: questions asked on Realm's own card, with fields only Realm can fill. On by default and
-     in every mode — it can only ask, and an answer is the user's click. The model field offers what a
-     sub-agent can be put on, from the same catalog `delegation.models` answers with. */
+     in every mode — it can only ask, and an answer is the user's click. The one exception is a
+     reviewer still in the mode it was born in, whose question the broker ends as `unasked`. The
+     model field offers what a sub-agent can be put on, from the same catalog `delegation.models`
+     answers with. */
   const agentRunsForUi = agentRuns;
   mcpGateway.registerProvider(createUiAgentProvider({
     mcp, broker: browserBroker, session: (id) => sessions.get(id), models: (id) => agentRunsForUi.catalogFor(id), branches: listBranches,
@@ -1240,7 +1243,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     resend: (id, msg) => sessions.resendTurn(id, msg),
     stop: (id) => sessions.stopAgent(id),
     probe: (opts) => sessions.probe(opts),
-    reviewer: (id) => Boolean(reviews?.isChild(id) || codeReview?.isReviewer(id)),
+    reviewer: (id) => asksNobody(sessionsStore, id),
   });
   // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
   // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or
