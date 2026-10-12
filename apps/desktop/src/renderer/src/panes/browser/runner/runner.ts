@@ -34,12 +34,6 @@ export const RUN = {
   critterRadius: 9,
   critterSpeed: 55,
   shardRadius: 6,
-  loopRadius: 46,
-  /** How far the exit of a loop sits past its entry, so the track does not run back over itself. */
-  loopShift: 70,
-  /** After a hit that cost shards: how long nothing else can hurt, and what is left of the speed. */
-  mercy: 1.4,
-  hitSlow: 0.7,
   /** Points: a stretch of distance, a shard, a critter. */
   pxPerPoint: 8,
   shardPoints: 10,
@@ -65,11 +59,9 @@ export type Critter = { kind: "critter"; x: number; alive: boolean; spin: number
 export type Shard = { kind: "shard"; x: number; y: number; taken: boolean };
 /** A wedge that rises as `h·u²` over `len` and drops straight down at its lip. */
 export type Ramp = { kind: "ramp"; x: number; len: number; h: number };
-/** A loop the hero runs round on its own at any speed. Entry at `x`, exit at `x + loopShift`. */
-export type Loop = { kind: "loop"; x: number };
-export type Thing = Spike | Critter | Shard | Ramp | Loop;
+export type Thing = Spike | Critter | Shard | Ramp;
 
-export type RunEvent = "jump" | "shard" | "pop" | "hit" | "over" | "land";
+export type RunEvent = "jump" | "shard" | "pop" | "over" | "land";
 
 export type Run = {
   seed: number;
@@ -81,23 +73,20 @@ export type Run = {
   vy: number;
   grounded: boolean;
   speed: number;
-  /** Distance run, which the loop does not double back on the way `x` does. */
+  /** Distance run: `x`, kept apart so the score never reads the world's coordinates. */
   distance: number;
   /** Time left on the held jump's lighter pull; 0 once released or spent. */
   hold: number;
   /** Time since a press that has not jumped yet, and since the hero last stood on something. */
   sincePress: number;
   sinceGround: number;
-  /** The loop being run, and how far round it (radians, 0 → 2π). */
-  loop: { at: Loop; theta: number } | null;
   shards: number;
   bonus: number;
-  mercy: number;
   over: boolean;
   things: Thing[];
   /** Where the next stretch of world starts. */
   laidTo: number;
-  /** The kind of the stretch laid last, so a loop never follows a loop. */
+  /** The kind of the stretch laid last, so a ramp never follows a ramp. */
   lastPattern: string;
 };
 
@@ -111,7 +100,7 @@ export type RunInput = {
 export function createRun(seed: number): Run {
   const run: Run = {
     seed, rand: seededRandom(seed), t: 0, x: 0, y: 0, vy: 0, grounded: true, speed: RUN.baseSpeed,
-    distance: 0, hold: 0, sincePress: Infinity, sinceGround: 0, loop: null, shards: 0, bonus: 0, mercy: 0,
+    distance: 0, hold: 0, sincePress: Infinity, sinceGround: 0, shards: 0, bonus: 0,
     over: false, things: [], laidTo: RUN.runway, lastPattern: "start",
   };
   layWorld(run);
@@ -131,15 +120,6 @@ export function groundAt(things: readonly Thing[], x: number): number {
   return 0;
 }
 
-/** Where on a loop the hero is at `theta`: up the far wall, over the top, down the near one, out. */
-export function loopPoint(loop: Loop, theta: number): { x: number; y: number } {
-  const r = RUN.loopRadius;
-  return {
-    x: loop.x + r * Math.sin(theta) + (theta / (2 * Math.PI)) * RUN.loopShift,
-    y: r - r * Math.cos(theta),
-  };
-}
-
 /** How long a stretch of hazards gives the hero to react, in seconds of running at the current speed. */
 const gapFor = (run: Run) => run.speed * (0.75 + run.rand() * 0.7);
 
@@ -148,10 +128,8 @@ function layWorld(run: Run) {
   while (run.laidTo < run.x + RUN.lookahead) {
     const at = run.laidTo;
     const r = run.rand();
-    const far = run.distance > 2400;
     let pattern: string;
-    if (far && run.lastPattern !== "loop" && r < 0.1) pattern = "loop";
-    else if (run.distance > 900 && run.lastPattern !== "ramp" && r < 0.22) pattern = "ramp";
+    if (run.distance > 900 && run.lastPattern !== "ramp" && r < 0.22) pattern = "ramp";
     else if (r < 0.5) pattern = "spikes";
     else if (r < 0.75) pattern = "critter";
     else pattern = "shards";
@@ -187,16 +165,6 @@ function layWorld(run: Run) {
         len = ramp.len + 200;
         break;
       }
-      case "loop": {
-        const loop: Loop = { kind: "loop", x: at + 30 };
-        run.things.push(loop);
-        for (let i = 1; i < 8; i++) {
-          const p = loopPoint(loop, (i / 8) * 2 * Math.PI);
-          run.things.push({ kind: "shard", x: p.x, y: p.y + RUN.radius, taken: false });
-        }
-        len = 30 + RUN.loopShift + 60;
-        break;
-      }
     }
     run.lastPattern = pattern;
     run.laidTo = at + len + gapFor(run);
@@ -207,7 +175,6 @@ function layWorld(run: Run) {
 function thingEnd(t: Thing): number {
   switch (t.kind) {
     case "ramp": return t.x + t.len;
-    case "loop": return t.x + RUN.loopShift + RUN.loopRadius;
     default: return t.x + 20;
   }
 }
@@ -221,71 +188,47 @@ export function step(run: Run, input: RunInput, dt: number): RunEvent[] {
   if (run.over) return events;
   run.t += dt;
   run.speed = Math.min(RUN.maxSpeed, run.speed + RUN.accel * dt);
-  run.mercy = Math.max(0, run.mercy - dt);
   run.sincePress = input.pressed ? 0 : run.sincePress + dt;
   if (!input.held) run.hold = 0;
 
-  if (run.loop) {
-    // Round the loop on rails: it is the one stretch the hero cannot jump out of.
-    const { at } = run.loop;
-    run.loop.theta = Math.min(2 * Math.PI, run.loop.theta + (run.speed / RUN.loopRadius) * dt);
-    const p = loopPoint(at, run.loop.theta);
-    run.x = p.x;
-    run.y = p.y;
-    run.distance += run.speed * dt;
-    if (run.loop.theta >= 2 * Math.PI) { run.loop = null; run.y = 0; run.vy = 0; run.grounded = true; }
-  } else {
-    const dx = run.speed * dt;
-    const nextX = run.x + dx;
-    const entering = run.grounded
-      ? run.things.find((t): t is Loop => t.kind === "loop" && run.x <= t.x && nextX > t.x)
-      : undefined;
-    if (entering) {
-      run.loop = { at: entering, theta: 0 };
-      run.x = entering.x;
-      run.distance += entering.x - (nextX - dx);
+  const nextX = run.x + run.speed * dt;
+  run.distance += nextX - run.x;
+  if (run.grounded) {
+    const g = groundAt(run.things, nextX);
+    if (g < run.y - 0.5) {
+      // The ground fell away (a ramp's lip): carry on at the slope's speed, now in the air.
+      run.grounded = false;
     } else {
-      run.distance += dx;
-      if (run.grounded) {
-        const g = groundAt(run.things, nextX);
-        if (g < run.y - 0.5) {
-          // The ground fell away (a ramp's lip): carry on at the slope's speed, now in the air.
-          run.grounded = false;
-        } else {
-          run.vy = (g - run.y) / dt;
-          run.y = g;
-        }
-        run.x = nextX;
-      } else {
-        run.x = nextX;
-      }
-      if (run.grounded) run.sinceGround = 0;
-      else run.sinceGround += dt;
+      run.vy = (g - run.y) / dt;
+      run.y = g;
+    }
+  }
+  run.x = nextX;
+  if (run.grounded) run.sinceGround = 0;
+  else run.sinceGround += dt;
 
-      const canJump = run.grounded || run.sinceGround < RUN.coyote;
-      if (run.sincePress < RUN.buffer && canJump) {
-        run.vy = Math.max(run.vy, 0) + RUN.jumpSpeed;
-        run.grounded = false;
-        run.sinceGround = RUN.coyote;
-        run.hold = input.held ? RUN.holdMax : 0;
-        run.sincePress = Infinity;
-        events.push("jump");
-      }
+  const canJump = run.grounded || run.sinceGround < RUN.coyote;
+  if (run.sincePress < RUN.buffer && canJump) {
+    run.vy = Math.max(run.vy, 0) + RUN.jumpSpeed;
+    run.grounded = false;
+    run.sinceGround = RUN.coyote;
+    run.hold = input.held ? RUN.holdMax : 0;
+    run.sincePress = Infinity;
+    events.push("jump");
+  }
 
-      if (!run.grounded) {
-        const lighter = run.hold > 0 && run.vy > 0;
-        run.vy -= RUN.gravity * (lighter ? RUN.holdGravity : 1) * dt;
-        run.hold = Math.max(0, run.hold - dt);
-        run.y += run.vy * dt;
-        const g = groundAt(run.things, run.x);
-        if (run.y <= g && run.vy <= 0) {
-          run.y = g;
-          run.vy = 0;
-          run.grounded = true;
-          run.hold = 0;
-          events.push("land");
-        }
-      }
+  if (!run.grounded) {
+    const lighter = run.hold > 0 && run.vy > 0;
+    run.vy -= RUN.gravity * (lighter ? RUN.holdGravity : 1) * dt;
+    run.hold = Math.max(0, run.hold - dt);
+    run.y += run.vy * dt;
+    const g = groundAt(run.things, run.x);
+    if (run.y <= g && run.vy <= 0) {
+      run.y = g;
+      run.vy = 0;
+      run.grounded = true;
+      run.hold = 0;
+      events.push("land");
     }
   }
 
@@ -311,15 +254,15 @@ function collide(run: Run, events: RunEvent[]) {
     } else if (t.kind === "critter" && t.alive) {
       const cy = RUN.critterRadius;
       if (Math.hypot(t.x - c.x, cy - c.y) < R + RUN.critterRadius - 2) {
-        if (!run.grounded || run.loop) {
-          // Curled into a ball in the air: the critter pops, and a falling hero bounces off it.
+        if (!run.grounded && c.y > cy + 2) {
+          // Curled into a ball in the air and over it: the critter pops, and one landed on bounces.
           t.alive = false;
           run.bonus += RUN.popPoints;
           if (run.vy < 0) run.vy = RUN.bounceSpeed;
           run.hold = 0;
           events.push("pop");
         } else {
-          hurt(run, events);
+          end(run, events);
         }
       }
     } else if (t.kind === "spike") {
@@ -327,25 +270,14 @@ function collide(run: Run, events: RunEvent[]) {
       const left = t.x + 2, right = t.x + RUN.spikeWidth - 2, top = RUN.spikeHeight - 3;
       const nx = Math.max(left, Math.min(c.x, right));
       const ny = Math.max(0, Math.min(c.y, top));
-      if (Math.hypot(nx - c.x, ny - c.y) < R - 1) hurt(run, events);
+      if (Math.hypot(nx - c.x, ny - c.y) < R - 1) end(run, events);
     }
     if (run.over) return;
   }
 }
 
-/** Shards are the hero's cover: a hit while holding any scatters them all; a hit with none ends the run. */
-function hurt(run: Run, events: RunEvent[]) {
-  if (run.mercy > 0) return;
-  if (run.shards > 0) {
-    run.shards = 0;
-    run.mercy = RUN.mercy;
-    run.speed = Math.max(RUN.baseSpeed, run.speed * RUN.hitSlow);
-    run.vy = 260;
-    run.grounded = false;
-    run.hold = 0;
-    events.push("hit");
-    return;
-  }
+/** Any hit ends the run, as it does for the desert runner every browser keeps behind its own error page. */
+function end(run: Run, events: RunEvent[]) {
   run.over = true;
   events.push("over");
 }
@@ -369,4 +301,16 @@ export function advance(run: Run, input: RunInput, frameDt: number): RunEvent[] 
 export function parseBest(raw: string | null): number {
   const n = raw === null ? NaN : Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/** Keep the higher of a finished run's score and the best so far. */
+export const nextBest = (best: number, finished: number): number => Math.max(best, finished);
+
+/**
+ * Whether a failed load offers the runner: only when the network is the thing in the way — a local
+ * server that is not up yet, or no connection at all. Never on a certificate or security page, where
+ * the page's one job is to say why Realm stopped, and a game beside it would make light of that.
+ */
+export function offersRunner(errorName: string): boolean {
+  return errorName === "ERR_CONNECTION_REFUSED" || errorName === "ERR_INTERNET_DISCONNECTED";
 }
