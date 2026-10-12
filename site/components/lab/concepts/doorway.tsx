@@ -18,16 +18,16 @@ export default function Doorway({ download }: ConceptProps) {
       <LabCanvas create={createDoorway} />
       <div
         data-lab-anchor="copy"
-        className="mx-auto flex w-full max-w-[60rem] flex-col items-center px-6 pt-10 text-center sm:px-10 sm:pt-12"
+        className="mx-auto flex w-full max-w-[60rem] flex-col items-center px-6 pt-6 text-center sm:px-10 sm:pt-12"
       >
         <Announcement />
-        <Headline className="mt-7 lg:mt-8" />
-        <Lede className="mt-6 max-w-[42rem]" />
-        <Actions download={download} center className="mt-8" />
+        <Headline className="mt-5 sm:mt-7 lg:mt-8" />
+        <Lede className="mt-5 max-w-[42rem] sm:mt-6" />
+        <Actions download={download} center className="mt-7 sm:mt-8" />
       </div>
       <ProductWindow
-        className="relative mx-auto mt-12 w-full max-w-[72rem] px-5 sm:px-10"
-        frameClassName="h-[560px] sm:h-[600px] lg:h-[min(620px,calc(100dvh-8rem))] lg:min-h-[540px] [html[data-lab-field=on]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.16)] [html[data-lab-field=off]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.16),0_0_60px_-12px_oklch(0.86_0.04_250/0.55),0_30px_140px_-40px_oklch(0.8_0.05_250/0.45)]"
+        className="relative mx-auto mt-9 w-full max-w-[72rem] px-6 sm:mt-12 sm:px-10"
+        frameClassName="h-[540px] sm:h-[600px] lg:h-[min(620px,calc(100dvh-8rem))] lg:min-h-[540px] [html[data-lab-field=on]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.16)] [html[data-lab-field=off]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.16),0_0_60px_-12px_oklch(0.86_0.04_250/0.55),0_30px_140px_-40px_oklch(0.8_0.05_250/0.45)]"
       />
       {/* Without WebGPU there is no room to light, so the floor's pool is drawn plainly: a soft ellipse of
           the same cool light, widening toward the reader, under the window it comes from. */}

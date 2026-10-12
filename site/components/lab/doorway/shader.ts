@@ -24,10 +24,12 @@ const vec3 = (rgb: readonly number[]) => `vec3f(${rgb.map((c) => c.toFixed(5)).j
 
 const PAGE_LINEAR = PAGE.map(linear)
 const ACCENT_LINEAR = ACCENT.map(linear)
-/** Light scattered by fine haze leans blue: Realm's accent, at low saturation. */
-const HAZE = mix([1, 1, 1], ACCENT_LINEAR, 0.3)
+/** Light scattered by fine haze leans blue — Realm's accent at low saturation — and more so where it is
+ *  thin, since what reaches the eye there has been scattered more than once. */
+const HAZE = mix([1, 1, 1], ACCENT_LINEAR, 0.22)
+const HAZE_THIN = mix([1, 1, 1], ACCENT_LINEAR, 0.5)
 /** What arrives straight through the opening: near white, a touch cool. */
-const CORE = mix([1, 1, 1], ACCENT_LINEAR, 0.08)
+const CORE = mix([1, 1, 1], ACCENT_LINEAR, 0.06)
 
 export const doorwayWgsl = /* wgsl */ `
 ${labWgsl}
@@ -46,6 +48,7 @@ struct Door {
 
 const PAGE_LIN = ${vec3(PAGE_LINEAR)};
 const HAZE = ${vec3(HAZE)};
+const HAZE_THIN = ${vec3(HAZE_THIN)};
 const CORE = ${vec3(CORE)};
 // The window's corner — the 20px of \`rounded-[20px]\` on the frame it belongs to, drawn as the squircle
 // \`corner-shape\` makes of it.
@@ -176,41 +179,53 @@ fn beamAt(x: vec3f, g: f32) -> f32 {
 // Light through haze is never even: a faint variation by direction from the light, constant along every
 // ray of it, which is what reads as shafts. Sampled on a circle, so it has no seam; slow, as haze drifts.
 fn streak(w: vec2f, t: f32) -> f32 {
-  let dir = normalize(w - lightOnWall + vec2f(1e-5, 0.0));
-  let n = fbm(dir * 3.4 + vec2f(t * 0.018, -t * 0.013));
-  return 1.0 + 0.6 * (n - 0.5);
+  let v = w - lightOnWall;
+  let dir = normalize(v + vec2f(1e-5, 0.0));
+  let broad = fbm(dir * 2.7 + vec2f(t * 0.016, -t * 0.011));
+  let fine = noise(dir * 13.0 + vec2f(-t * 0.03, t * 0.022));
+  // Every ray meets at the light's projection, which sits on the window's top edge: fade the variation
+  // out there, or the meeting point would show as a little star on the frame.
+  let away = smoothstep(0.02, 0.16, length(v));
+  return max(1.0 + away * (0.95 * (broad - 0.5) + 0.42 * (fine - 0.5)), 0.0);
 }
 
-// Dust: sparse motes at three depths of the room, drifting, each lit only by the beam where it is and
-// only as much as the haze it floats in. Nearer motes are bigger and softer, so dimmer per pixel; the
-// pointer's air pushes the nearest aside.
+// The haze is not even either: a faint, slow unevenness, fixed to the room so it scrolls with it.
+fn hazeDensity(q: vec2f, t: f32) -> f32 {
+  let n = fbm(q / 230.0 + vec2f(t * 0.011, -t * 0.006));
+  return 0.72 + 0.56 * n;
+}
+
+// Dust: sparse motes at three depths near the wall, drifting, each lit by the beam where it is. They are
+// seen only where the air itself is seen to glow, so they read as dust in the light rather than as points
+// in the dark. Nearer motes are a little bigger and softer; the pointer's air pushes the nearest aside.
 fn dust(p: vec2f, t: f32, dpr: f32) -> f32 {
   var sum = 0.0;
   for (var layer = 0; layer < 3; layer++) {
     let fl = f32(layer);
-    let s = 0.9 - fl * 0.14;
-    let cell = 58.0 / s;
+    let s = 0.965 - fl * 0.055;
+    let cell = 46.0 / s;
     let drift = vec2f(sin(t * 0.045 + fl * 2.1) * 12.0, t * (2.2 + fl * 0.9)) / s;
-    let g = (p + drift) / cell;
+    let g = (p - axis + drift) / cell;
     let base = floor(g);
     let o = select(vec2f(-1.0), vec2f(0.0), g - base > vec2f(0.5));
     for (var j = 0; j < 4; j++) {
       let id = base + o + vec2f(f32(j & 1), f32(j >> 1));
       let h = hash22(id + fl * 19.31);
-      if (h.x > 0.16) { continue; }
+      if (h.x > 0.13) { continue; }
       let jit = hash22(id * 1.37 + 5.17);
       let wob = vec2f(sin(t * (0.13 + jit.x * 0.17) + h.y * 40.0), cos(t * (0.11 + jit.y * 0.13) + h.y * 23.0)) * 0.09;
-      var m = (id + 0.25 + 0.5 * jit + wob) * cell - drift;
+      var m = (id + 0.25 + 0.5 * jit + wob) * cell - drift + axis;
       let away = m - door.pointer.xy;
       let dist = length(away) + 1e-3;
       m += away / dist * 34.0 * door.pointer.z * exp(-dist * dist / 15000.0);
       let r = length(p - m) * dpr;
-      let sigma = max((0.32 + h.y * 0.3) / s * dpr, 0.62);
+      let sigma = max((0.28 + h.y * 0.3 + fl * 0.12) * dpr, 0.55);
       if (r > sigma * 4.0) { continue; }
       let x = vec3f((m - axis) / F, 1.0) * s;
       let profile = exp(-r * r / (2.0 * sigma * sigma)) * min(1.0, 0.6 / (sigma * sigma));
-      let haze = exp((s - 1.0) / (hazeDepth * 1.6));
-      sum += beamAt(x, 0.7) * haze * profile * (0.45 + 0.55 * fract(h.y * 7.3));
+      let haze = exp((s - 1.0) / (hazeDepth * 1.3));
+      let glint = fract(h.y * 7.3);
+      sum += beamAt(x, 0.45) * haze * profile * (0.25 + 0.75 * glint * glint);
     }
   }
   return sum;
@@ -236,34 +251,43 @@ fn scene(p: vec2f, t: f32, sdWin: f32, dpr: f32) -> vec3f {
   let sEnd = select(1.0, floorY / max(w.y, 1e-5), onFloor);
   let shafts = streak(w, t);
 
-  var light = HAZE * volume(w, d, sEnd) * shafts * 0.35;
+  let haze = volume(w, d, sEnd) * shafts * hazeDensity(p - axis, t) * 0.3;
+  var light = mix(HAZE_THIN, HAZE, smoothstep(0.0, 0.2, haze)) * haze;
 
   if (onFloor) {
-    // The light that lands on the floor.
+    // Polished concrete: a faint, broad unevenness, in the floor's own coordinates so it foreshortens.
     let x = d * sEnd;
+    let grain = fbm(vec2f(x.x, x.z) * vec2f(7.0, 11.0) + 3.7);
+    let albedo = 0.86 + 0.28 * grain;
+
+    // The light that lands on it.
     let toLight = lightPos - x;
     let r2 = dot(toLight, toLight);
     let cosI = max(-toLight.y, 0.0) * inverseSqrt(r2);
     let k = kappa - 1.0;
-    light += CORE * throughWindow(x) * cosI * k * k / r2 * shafts * 0.12;
+    light += CORE * throughWindow(x) * cosI * k * k / r2 * mix(1.0, shafts, 0.55) * albedo * 0.14;
 
-    // The window's reflection: the pixel's wall point mirrored in the floor, blurred more the further
-    // the reflected ray runs and more along the floor than across it, as a polished floor stretches it.
-    let mirrored = vec2f(w.x, 2.0 * floorY - w.y);
+    // The window's reflection: the pixel's wall point mirrored in the floor, blurred more the further the
+    // reflected ray runs and far more along the floor than across it, as a polished floor stretches it.
+    // The window's face is dim — it is the product — and its frame is lit, so the reflection is mostly
+    // the frame's: two long edges falling away under the window's sides, and its foot along the sill.
+    let mirrored = (vec2f(w.x, 2.0 * floorY - w.y) - apC) * F;
     let travel = 1.0 - sEnd;
-    let blur = vec2f(0.004 + travel * 0.05, 0.012 + travel * 0.24);
-    let dq = abs(mirrored - apC) - apH;
-    let inside = (1.0 - smoothstep(-blur.x, blur.x, dq.x)) * (1.0 - smoothstep(-blur.y, blur.y, dq.y));
+    let blur = vec2f(2.0 + travel * 0.05 * F, 4.0 + travel * 0.3 * F);
+    let edge = abs(mirrored) - apH * F;
+    let inside = (1.0 - smoothstep(-blur.x, blur.x, edge.x)) * (1.0 - smoothstep(-blur.y, blur.y, edge.y));
+    let rim = exp(-abs(edge.x) / (blur.x * 1.6)) * (1.0 - smoothstep(-blur.y, blur.y, edge.y))
+      + exp(-abs(edge.y) / (blur.y * 0.8)) * (1.0 - smoothstep(-blur.x, blur.x, edge.x));
     let cosV = w.y * inverseSqrt(dot(d, d));
     let fresnel = 0.04 + 0.96 * pow(1.0 - cosV, 5.0);
-    light += CORE * inside * fresnel * 0.08;
+    light += CORE * (inside * 0.05 + rim * 0.12) * fresnel * exp(-travel * 2.5) * mix(1.0, albedo, 0.5);
   }
 
   // The eye's own glare round a lit opening: tight, and quick to fall away.
   let sd = max(sdWin, 0.0);
   light += CORE * (0.06 * exp(-sd / 2.0) + 0.016 * exp(-sd / 22.0)) * mix(1.0, shafts, 0.6);
 
-  light += CORE * dust(p, t, dpr) * 0.6;
+  light += CORE * dust(p, t, dpr) * 0.35 * smoothstep(0.004, 0.05, haze);
   return light;
 }
 

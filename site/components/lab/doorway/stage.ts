@@ -10,29 +10,36 @@ const clamp = (value: number, lo = -1, hi = 1) => Math.min(hi, Math.max(lo, valu
 
 /**
  * The room's geometry, every length a multiple of the window's own size so the scene is the same
- * room at every viewport: the eye level with the window's middle, the floor at its sill, and the light
- * high behind the wall — just above the window's top edge as the eye sees it, so its beam comes down
- * through the opening toward the floor and passes under the eye rather than into it.
+ * room at every viewport: the eye a little above the window, the floor at its sill, and the light
+ * behind the wall at the height of the window's upper part. The haze is thickest at the wall, so the
+ * light is seen where it leaves the opening and on the floor it lands on, and the room around stays dark.
  */
 const ROOM = {
-  /** The focal length, in window widths: how far the eye stands from the wall. */
+  /** The focal length, in window widths (or one and a half heights, for a window taller than wide). */
   focal: 1.25,
-  /** The light's projection, down from the window's top edge, in window heights (negative: above it). */
-  lightDrop: -0.1,
+  /** The eye's height, above the window's top edge in window heights. Looking down at the floor a little
+   *  is what keeps the pool's sides on screen as they run toward the reader; the wall stays square to
+   *  the eye, so the window itself is never skewed. */
+  eyeLevel: 0.35,
+  /** The light's projection, down from the window's top edge, in window heights (negative: above it).
+   *  Just inside: a thin rim of light over the window's top edge, and the light at its sides beginning
+   *  above its top corners. */
+  lightDrop: 0.12,
   /** The light's depth: the wall is at 1, the eye at 0. */
-  lightDepth: 2.6,
+  lightDepth: 1.8,
   /** The light's radius, in focal lengths — what softens the floor's pool toward the eye. */
   lightRadius: 0.22,
-  /** The light's disc as the eye sees it on the wall, in window widths and heights: wide and shallow,
-   *  so it softens the beam's upper faces without ever reaching down past the window's top edge. */
+  /** The light's disc as the eye sees it on the wall, in window widths and heights. Tall enough to
+   *  straddle the window's top edge, so the light at the window's sides fades in below its top corners
+   *  instead of starting at a level line, and leaves only a thin rim above the window. */
   spreadX: 0.07,
-  spreadY: 0.035,
+  spreadY: 0.1,
   /** How far the haze reaches out from the wall before thinning, in focal lengths. */
-  hazeDepth: 0.08,
+  hazeDepth: 0.065,
   /** The haze's forward scattering: how tightly it glows round the light's direction. */
   hazeG: 0.6,
   /** How far the pointer moves the light, as a share of the window: a few degrees either way. */
-  swayX: 0.07,
+  swayX: 0.1,
   swayY: 0.02,
   /** Seconds for the light to follow the pointer: slow, so it drifts like a head turning. */
   swayLag: 0.9,
@@ -70,7 +77,7 @@ export const createDoorway: StageFactory = (gpu, output) => {
           copy: [...anchor(input, "copy")],
           stage: [...anchor(input, "stage")],
           light: [cx + sway.x * ww * ROOM.swayX, wy + wh * ROOM.lightDrop + sway.y * wh * ROOM.swayY, ROOM.lightDepth, ROOM.lightRadius],
-          cam: [cx, cy, ROOM.focal * Math.max(ww, 1), wy + wh],
+          cam: [cx, wy - wh * ROOM.eyeLevel, ROOM.focal * Math.max(ww, wh * 1.5, 1), wy + wh],
           look: [ROOM.hazeDepth, ROOM.hazeG, ww * ROOM.spreadX, wh * ROOM.spreadY],
         },
       })
