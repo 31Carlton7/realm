@@ -28,17 +28,19 @@ const UP = add(scale(FLAT_RIGHT, Math.sin(ROLL)), scale(FLAT_UP, Math.cos(ROLL))
 
 /** A long lens: about 18° across the height of a laptop's window, so the field flattens like a model
  *  photographed from across the room. In CSS px, so the perspective is the same on every screen. */
-const FOCAL = 2800
+const FOCAL = 2500
 /** A cube's edge, as drawn at the distance the lens is aimed at, in CSS px. */
-const EDGE_PX = 19
+const EDGE_PX = 16
 const ISO = Math.sqrt(2 / 3)
 const DISTANCE = (ISO * FOCAL) / EDGE_PX
 const EYE = scale(FORWARD, -DISTANCE)
 
 /** How long the cubes take to follow the pointer up and down, in seconds. */
 const RISE_EASE = 0.32
-/** How quickly the field goes into the fog above the window: 95% gone at the words. */
-const FOG_AT_WORDS = Math.sqrt(-Math.log(0.05))
+/** How much of the field the haze has taken by the window's top edge; it is clear a window's
+ *  height below that, near the bottom of the first screen, and the page by the words. */
+const HAZE_AT_WINDOW = 0.24
+const CLEAR_BELOW = 270
 
 /** The point of the plane at height `z` that a pixel of the page looks at. */
 function onPlane(x: number, y: number, principal: readonly [number, number], z: number): Vec3 {
@@ -82,14 +84,11 @@ export const createHive: StageFactory = (gpu, output) => {
       const principal: [number, number] =
         portal[2] > 0 ? [portal[0] + portal[2] * 0.5, portal[1]] : [input.width * 0.5, input.height * 0.6]
 
-      // Focused on the ground at the window's top edge; the fog begins a little above it and has
-      // taken the field by the bottom of the words.
+      // Focused on the ground at the window's top edge. The haze starts from the near field below it,
+      // so contrast falls away steadily into the distance rather than in a band under the words.
       const focus = along(onPlane(principal[0], principal[1], principal, 0))
-      const wordsY = copy[2] > 0 ? copy[1] + copy[3] : principal[1] - input.height * 0.4
-      const fogFrom = principal[1] - (principal[1] - wordsY) * 0.45
-      const fogStart = along(onPlane(principal[0], fogFrom, principal, 0)) - focus
-      const fogEnd = along(onPlane(principal[0], wordsY, principal, 0)) - focus
-      const fogScale = FOG_AT_WORDS / Math.max(fogEnd - fogStart, 1)
+      const fogStart = along(onPlane(principal[0], principal[1] + CLEAR_BELOW, principal, 0)) - focus
+      const fogScale = -Math.log(1 - HAZE_AT_WINDOW) / Math.max(-fogStart, 1)
 
       const [px, py, presence] = input.pointer
       const dt = eased.seconds < 0 ? 1 : Math.max(0, input.seconds - eased.seconds)
@@ -111,7 +110,7 @@ export const createHive: StageFactory = (gpu, output) => {
       uniforms.pointer = [pointer[0], pointer[1], input.still ? 0 : eased.presence, 0]
       uniforms.copy = rect(copy)
       uniforms.portal = rect(portal)
-      uniforms.look = [fogStart, fogScale, 0.18, 2.5]
+      uniforms.look = [fogStart, fogScale, 0.28, 2]
       shader.set({ hive: uniforms })
       frame.pass(output, shader)
     },

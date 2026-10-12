@@ -1,5 +1,6 @@
-import { labWgsl } from "../stage"
+import { labWgsl, PAGE } from "../stage"
 import { DOORWAY, TONES } from "./cube"
+import { DOOR_BLUE, DOOR_LIGHT, DUSK, OPEN_SKY, POINTER_LIGHT, SPACING, SPILL_LIGHT, toLinear } from "./light"
 
 /**
  * The hive: a field of realms seen from above, each one Realm's mark as a solid — the cube with its
@@ -18,11 +19,8 @@ import { DOORWAY, TONES } from "./cube"
  */
 
 const f = (n: number) => n.toFixed(5)
-const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
-const lin3 = (rgb: readonly number[]) => `vec3f(${rgb.map((c) => f(linear(c))).join(", ")})`
-
-/** How far apart the cubes stand, as a multiple of the spacing at which their outlines would touch. */
-export const SPACING = 1.3
+const vec3 = (rgb: readonly number[]) => `vec3f(${rgb.map(f).join(", ")})`
+const lin3 = (rgb: readonly number[]) => vec3(rgb.map(toLinear))
 
 export type HiveUniforms = {
   view: [number, number, number, number]
@@ -88,26 +86,24 @@ const RIGHT_LOW = ${lin3(TONES.right[1])};
 const LIT_HIGH = ${lin3(TONES.lit[0])};
 const LIT_LOW = ${lin3(TONES.lit[1])};
 
-// Blue hour: the cubes catch only a cool sky, a long way down from the mark's daylight. They stand on
-// the page itself — the open ground is the page's own colour — so the field rises out of the page
-// rather than sitting on it as a darker slab.
-const DUSK = vec3f(0.062, 0.068, 0.085);
-// Door light: white, a little toward the accent; what it throws onto the ground is bluer still.
-const DOOR_LIGHT = vec3f(0.82, 0.9, 1.0);
-const SPILL_LIGHT = vec3f(0.62, 0.80, 1.0);
-const POINTER_LIGHT = vec3f(0.84, 0.9, 1.0);
-const MAX_RISE = 0.42;
+// The light (light.ts). The cubes stand on the page itself — the open ground is the page's own colour
+// — so the field rises out of the page rather than sitting on it as a darker slab.
+const DUSK = ${vec3(DUSK)};
+const OPEN_SKY = ${f(OPEN_SKY)};
+const DOOR_LIGHT = ${vec3(DOOR_LIGHT)};
+const DOOR_BLUE = ${vec3(DOOR_BLUE)};
+const SPILL_LIGHT = ${vec3(SPILL_LIGHT)};
+const POINTER_LIGHT = ${vec3(POINTER_LIGHT)};
+const PAGE_LINEAR = ${lin3(PAGE)};
+const MAX_RISE = 0.5;
 
 var<private> RAY_DX: vec3f;
 var<private> RAY_DY: vec3f;
 // The sky this pixel's field gets, less what the floating window keeps off it.
 var<private> SKY: f32;
-
-fn toLinear(c: vec3f) -> vec3f {
-  let lo = c / 12.92;
-  let hi = pow((c + 0.055) / 1.055, vec3f(2.4));
-  return select(hi, lo, c <= vec3f(0.04045));
-}
+// How far this pixel is from the words, 0 at them: a doorway's light, far brighter than the walls
+// around it, would outlast them there as a mark with nothing around it, so it fades on this squared.
+var<private> CLEAR: f32;
 
 fn toSrgb(c: vec3f) -> vec3f {
   let x = max(c, vec3f(0.0));
@@ -153,24 +149,38 @@ fn cellCentre(cell: vec2f) -> vec2f {
 
 // ---- what happens in a realm -------------------------------------------------------------------
 
-// How lit a realm's doorway is: each keeps its own long cycle, its agent at work for part of it, and
-// its light comes up over a couple of seconds and goes down the same way, so nothing ever blinks.
-fn doorGlow(cell: vec2f, t: f32) -> f32 {
-  let h1 = hash21(cell * 0.731 + vec2f(11.3, 3.7));
-  let h2 = hash21(cell * 1.137 + vec2f(5.1, 17.9));
-  let h3 = hash21(cell * 0.593 + vec2f(23.3, 7.1));
-  let h4 = hash21(cell * 0.977 + vec2f(2.9, 31.7));
-  let period = 26.0 + 44.0 * h1;
-  let busy = period * (0.05 + 0.17 * h3);
-  let x = fract(t / period + h2) * period;
-  let lit = smoothstep(0.0, 1.8, x) * (1.0 - smoothstep(busy, busy + 1.8, x));
-  return lit * (0.6 + 0.4 * h4);
+// One integer hash per realm, four bytes of it: a realm's whole character from its place in the hive.
+fn pcg(v: u32) -> u32 {
+  let state = v * 747796405u + 2891336453u;
+  let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (word >> 22u) ^ word;
+}
+
+fn seedOf(cell: vec2f) -> vec4f {
+  let c = vec2i(cell);
+  let h = pcg((bitcast<u32>(c.x) * 1597334677u) ^ (bitcast<u32>(c.y) * 3812015801u));
+  return vec4f(f32(h & 255u), f32((h >> 8u) & 255u), f32((h >> 16u) & 255u), f32(h >> 24u)) / 255.0;
+}
+
+// How lit a realm's doorway is, and how blue. Each keeps its own long rhythm: its agent at work for
+// half a minute to a minute and a half, then dark for half an hour or so. So a handful are lit at
+// any moment, one comes on or goes out somewhere every few seconds, and each light comes up
+// over two seconds and goes down the same way — an event, never a blink. About one in four of them
+// burns Realm's blue rather than white.
+fn door(cell: vec2f, t: f32) -> vec2f {
+  let h = seedOf(cell);
+  let busy = 30.0 + 50.0 * h.x;
+  let period = busy / (0.018 + 0.022 * h.z);
+  let x = fract(t / period + h.y) * period;
+  let lit = smoothstep(0.0, 2.0, x) * (1.0 - smoothstep(busy, busy + 2.0, x));
+  let blue = smoothstep(0.7, 0.8, fract(h.w * 7.31));
+  return vec2f(lit * (0.75 + 0.25 * h.w), blue);
 }
 
 // The cubes under the pointer rise a little, the nearest most.
 fn riseAt(centre: vec2f) -> f32 {
   let d = centre - hive.pointer.xy;
-  return MAX_RISE * hive.pointer.z * exp(-dot(d, d) / 5.0);
+  return MAX_RISE * hive.pointer.z * exp(-dot(d, d) / 3.2);
 }
 
 // A lamp held over the model where the pointer is.
@@ -207,10 +217,10 @@ fn depthOf(p: vec3f) -> f32 {
   return dot(p - hive.eye.xyz, hive.forward.xyz) - hive.forward.w;
 }
 
-// Fog that begins softly a little beyond the focus and thickens with depth until the field is the page.
+// Haze that thickens with depth from the nearest cubes on, so the field's contrast falls away into
+// the distance the way a model's does through a long lens, until it is the page.
 fn fogAt(depth: f32) -> f32 {
-  let x = max(depth - hive.look.x, 0.0) * hive.look.y;
-  return 1.0 - exp(-x * x);
+  return 1.0 - exp(-max(depth - hive.look.x, 0.0) * hive.look.y);
 }
 
 // Coverage is a box filter this many device pixels wide: one in the band the lens is focused on,
@@ -221,7 +231,7 @@ fn blurWidth(depth: f32) -> f32 {
 
 fn finish(radiance: vec3f, depth: f32) -> vec3f {
   let shaped = vec3f(1.0) - exp(-radiance);
-  return mix(shaped, toLinear(PAGE), fogAt(depth));
+  return mix(shaped, PAGE_LINEAR, fogAt(depth));
 }
 
 // A plane the ray meets: where (in the plane's two axes), and how that point moves per device pixel.
@@ -304,9 +314,11 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
   let doorHalf = vec2f((DOOR_A1 - DOOR_A0) * 0.5, (DOOR_C1 - DOOR_C0) * 0.5);
   let dDoor = rectPx(right, doorAt, doorHalf);
   let opening = coverage(dDoor, w);
-  // A doorway's light is far brighter than its walls, so in fog it would outlast them as a mark with
-  // nothing around it; it goes into the fog a little faster than the cube that holds it.
-  let glow = doorGlow(cell, t) * (1.0 - fogAt(depth));
+  // A doorway's light is far brighter than its walls, so in deep fog it would outlast them as a mark
+  // with nothing around it; there it goes into the fog a little faster than the cube that holds it.
+  let own = door(cell, t);
+  let glow = own.x * (1.0 - smoothstep(0.25, 0.62, fogAt(depth))) * CLEAR * CLEAR;
+  let tint = mix(DOOR_LIGHT, DOOR_BLUE, own.y);
 
   var sum = vec3f(0.0);
   var weight = 0.0;
@@ -317,7 +329,7 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     let k = saturate((top.p.x - x0 + top.p.y - y0) * 0.5);
     let tone = mix(TOP_NEAR, TOP_FAR, k);
     let lamp = pointerLight(top.p, vec3f(0.0, 0.0, 1.0));
-    sum += tone * (DUSK * 1.35 * SKY + POINTER_LIGHT * lamp * 0.3) * wTop;
+    sum += tone * (DUSK * OPEN_SKY * SKY + POINTER_LIGHT * lamp * 0.3) * wTop;
     weight += wTop;
   }
 
@@ -330,9 +342,10 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     let n = vec3f(-1.0, 0.0, 0.0);
     let beside = cell - vec2f(1.0, 0.0);
     let besideCentre = cellCentre(beside);
-    let spill = doorSpill(besideCentre, riseAt(besideCentre), doorGlow(beside, t), left.p, n);
+    let next = door(beside, t);
+    let spill = doorSpill(besideCentre, riseAt(besideCentre), next.x, left.p, n);
     let lamp = pointerLight(left.p, n);
-    sum += tone * (DUSK * ao * SKY + SPILL_LIGHT * spill * 0.16 + POINTER_LIGHT * lamp * 0.3) * wLeft;
+    sum += tone * (DUSK * ao * SKY + mix(SPILL_LIGHT, DOOR_BLUE, next.y) * spill * 0.16 + POINTER_LIGHT * lamp * 0.3) * wLeft;
     weight += wLeft;
   }
 
@@ -359,15 +372,15 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     if (wBack > 0.0) {
       let k = saturate((back.p.z - (z1 - DOOR_C1)) / (DOOR_C1 - DOOR_C0));
       let tone = mix(LIT_LOW, LIT_HIGH, k);
-      sum += (tone * DOOR_LIGHT * glow * 2.6 + RIGHT_LOW * DUSK * 0.25) * wBack;
+      sum += (tone * tint * glow * 2.6 + RIGHT_LOW * DUSK * 0.25) * wBack;
       weight += wBack;
     }
     if (wJamb > 0.0) {
-      sum += LEFT_LOW * (DUSK * 0.4 + DOOR_LIGHT * glow * 0.55) * wJamb;
+      sum += LEFT_LOW * (DUSK * 0.4 + tint * glow * 0.55) * wJamb;
       weight += wJamb;
     }
     if (wSill > 0.0) {
-      sum += TOP_NEAR * (DUSK * 0.5 + DOOR_LIGHT * glow * 0.7) * wSill;
+      sum += TOP_NEAR * (DUSK * 0.5 + tint * glow * 0.7) * wSill;
       weight += wSill;
     }
   }
@@ -386,7 +399,7 @@ fn ground(o: vec3f, d: vec3f, t: f32) -> vec3f {
   let p = o + d * (-o.z / d.z);
   let cell = cellAt(p, 0.0);
   var ao = 1.0;
-  var spill = 0.0;
+  var spill = vec3f(0.0);
   for (var k = 0; k < 7; k++) {
     let c = cell + AROUND[k];
     let centre = cellCentre(c);
@@ -396,24 +409,23 @@ fn ground(o: vec3f, d: vec3f, t: f32) -> vec3f {
     // Close in to a cube's foot the ground sees less sky. A risen cube still keeps the sky off the
     // ground under it, with a wider, softer edge the higher it goes.
     ao *= 1.0 - 0.55 * exp(-max(edge, 0.0) / (0.1 + lift * 0.6)) * (1.0 - 0.3 * lift / MAX_RISE);
-    let glow = doorGlow(c, t);
-    if (glow > 0.001) {
-      spill += doorSpill(centre, lift, glow, p, vec3f(0.0, 0.0, 1.0));
+    let lit = door(c, t);
+    if (lit.x > 0.001) {
+      spill += mix(SPILL_LIGHT, DOOR_BLUE, lit.y) * doorSpill(centre, lift, lit.x, p, vec3f(0.0, 0.0, 1.0));
     }
   }
   let lamp = pointerLight(p, vec3f(0.0, 0.0, 1.0));
-  let light = toLinear(PAGE) * ao * SKY + SPILL_LIGHT * spill * 0.1 + POINTER_LIGHT * lamp * 0.02;
+  let light = PAGE_LINEAR * ao * SKY + spill * 0.13 + POINTER_LIGHT * lamp * 0.02;
   return finish(light, depthOf(p));
 }
 
-// The window floats over the field and keeps the sky off what is under it: a soft shadow straight
-// down from it, which on the page is mostly behind the window and shows only beside its lower half.
-fn windowShade(p: vec2f) -> f32 {
+// The window floats over the field with a calm margin around it: close in, the field gives way to
+// the page, so the product is never set against texture.
+fn windowCalm(p: vec2f) -> f32 {
   let r = hive.portal;
   if (r.z <= 0.0) { return 1.0; }
   let h = r.zw * 0.5;
-  let sd = sdRoundRect(p - r.xy - h - vec2f(0.0, 46.0), h + vec2f(10.0, 0.0), 40.0);
-  return 1.0 - 0.6 * (1.0 - smoothstep(-30.0, 70.0, sd));
+  return smoothstep(6.0, 72.0, sdRoundRect(p - r.xy - h, h, 20.0));
 }
 
 // Where a point of the world is drawn on the page, in CSS px, and how far away it is.
@@ -431,7 +443,8 @@ fn doorHalo(p: vec2f, home: vec2f, t: f32) -> vec3f {
   var light = vec3f(0.0);
   for (var k = 0; k < 7; k++) {
     let c = home + AROUND[k];
-    let glow = doorGlow(c, t);
+    let lit = door(c, t);
+    let glow = lit.x;
     if (glow <= 0.001) { continue; }
     let centre = cellCentre(c);
     let lift = riseAt(centre);
@@ -441,8 +454,9 @@ fn doorHalo(p: vec2f, home: vec2f, t: f32) -> vec3f {
     let r = hive.portal;
     if (r.z > 0.0 && sdRoundRect(at.xy - r.xy - r.zw * 0.5, r.zw * 0.5, 20.0) < 0.0) { continue; }
     let d = length(p - at.xy) / (hive.eye.w / at.z);
-    let fade = 1.0 - fogAt(at.z - hive.forward.w);
-    light += SPILL_LIGHT * glow * fade * fade * (exp(-d * d / 0.045) * 0.22 + exp(-d / 0.3) * 0.05);
+    let haze = fogAt(at.z - hive.forward.w);
+    let fade = (1.0 - haze) * (1.0 - smoothstep(0.25, 0.62, haze)) * CLEAR * CLEAR;
+    light += mix(SPILL_LIGHT, DOOR_BLUE, lit.y) * glow * fade * (exp(-d * d / 0.045) * 0.3 + exp(-d / 0.3) * 0.06);
   }
   return light;
 }
@@ -470,18 +484,24 @@ fn clearance(p: vec2f) -> f32 {
   if (window.z > 0.0 && sdRoundRect(p - window.xy - wh, wh, 20.0) < -2.0) {
     return vec4f(dither(PAGE, px, t), 1.0);
   }
-  let open = clearance(p);
+  CLEAR = clearance(p);
+  let open = CLEAR * windowCalm(p);
   if (open <= 0.0) {
     return vec4f(dither(PAGE, px, t), 1.0);
   }
 
-  SKY = windowShade(p);
+  SKY = 1.0;
   let focal = hive.eye.w;
   let o = hive.eye.xyz;
   let rel = (p - hive.principal.xy) / focal;
   let d = hive.forward.xyz + hive.right.xyz * rel.x - hive.up.xyz * rel.y;
   RAY_DX = hive.right.xyz / (focal * dpr);
   RAY_DY = -hive.up.xyz / (focal * dpr);
+
+  // Where the fog has taken even the tops of the cubes this ray could meet, there is only the page.
+  if (fogAt(depthOf(o + d * (-o.z / d.z)) - 2.0) > 0.997) {
+    return vec4f(dither(PAGE, px, t), 1.0);
+  }
 
   // The cell the ray crosses at half height, and the two in front of it, nearest first.
   let home = cellAt(o + d * ((0.5 - o.z) / d.z), 0.5);
@@ -500,7 +520,11 @@ fn clearance(p: vec2f) -> f32 {
   }
   color += doorHalo(p, home, t);
 
-  let lit = mix(toLinear(PAGE), color, open);
+  // The lens: a little light lost toward the frame's edges, and a whisper of grain that moves.
+  let edge = (uv - vec2f(0.5, 0.42)) * vec2f(1.0, 1.25);
+  color *= 1.0 - 0.14 * smoothstep(0.3, 0.85, length(edge));
+  color *= 1.0 + (hash21(px + fract(t * 7.3) * 113.0) - 0.5) * 0.05;
+  let lit = mix(PAGE_LINEAR, color, open);
   return vec4f(dither(toSrgb(lit), px, t), 1.0);
 }
 `
