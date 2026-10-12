@@ -111,10 +111,21 @@ Four things the script and the pages are careful about, all of which have bitten
 
 ## The mark, and the glass
 
-`public/realm-mark.svg` is `resources/icon-src/mark.svg` — the cube with a lit doorway, written by
-`resources/icon-src/render.mjs` from `mark.mjs` — and the header draws it beside the name. The
-favicons (`app/icon.png`, `app/apple-icon.png`) and `public/app-icon.png` are the app icon drawn from
-`resources/icon-src/icons.mjs`; the share images come from `/share` (`pnpm capture:share`).
+The mark is flat: the cube's silhouette with the doorway cut out of it. `scripts/render-icons.mjs`
+(`node scripts/render-icons.mjs`) draws every file of it the site serves, two ways:
+
+- **One colour**, for small uses. `public/icon.svg` is the favicon, dark ink on a light tab strip and
+  light ink on a dark one (`prefers-color-scheme`); `app/favicon.ico` is the same mark in white on a
+  Realm-blue tile, for browsers that ask for an .ico; `public/mask-icon.svg` is Safari's pinned tab.
+  The header and footer draw the mark inline beside the name (`components/Wordmark.tsx`), in the
+  text colour.
+- **Three flat planes**, top `#9cc1ff`, left `#4f8cf5`, right `#2457c4`, for the app icon:
+  `public/realm-mark.svg` wherever the page shows the mark large, `public/apple-icon.png` (full-bleed,
+  iOS rounds it) and `public/app-icon.png` (the tile inset the way the Dock draws it). The share
+  images come from `/share` (`pnpm capture:share`), whose wordmark carries this mark.
+
+`app/layout.tsx` lists the icons rather than leaving them to Next's file names, because Safari's mask
+icon has no file convention and naming any icon in the metadata replaces the file-based ones.
 
 `lib/mark.ts` works the mark's geometry out the way `mark.mjs` does: its six faces, the walls and
 the doorway's floor, jamb and lit back. The landing page's field (`lib/dimension/`) assembles, lights

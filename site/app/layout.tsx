@@ -25,6 +25,13 @@ export const metadata: Metadata = {
     description: site.description,
   },
   twitter: { card: "summary_large_image", title: site.name, description: site.description },
+  // Drawn by scripts/render-icons.mjs. The one-colour mark follows the browser's colour scheme;
+  // app/favicon.ico, added by file name, is the fallback for browsers that do not read SVG.
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180" }],
+    other: [{ rel: "mask-icon", url: "/mask-icon.svg", color: "#3b7cf0" }],
+  },
 }
 
 export const viewport: Viewport = {
