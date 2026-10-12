@@ -169,8 +169,10 @@ async function measure(c, lens) {
      hit test on the main thread for every step and measure the harness. Down most of the list and
      back, twice. */
   const travel = Math.min(5000, facts.scrollHeight - facts.clientHeight - 40);
-  for (const dir of [-1, 1, -1, 1]) {
-    await c.send("Input.synthesizeScrollGesture", { x: Math.round(x), y: Math.round(y), yDistance: dir * travel, speed: 2500, gestureSourceType: "mouse", preventFling: false });
+  // Then past both ends, so every run measures the rubber band's stretch and bounce as well.
+  const past = facts.scrollHeight + 400;
+  for (const dy of [-travel, travel, -travel, travel, -past, past]) {
+    await c.send("Input.synthesizeScrollGesture", { x: Math.round(x), y: Math.round(y), yDistance: dy, speed: dy === past || dy === -past ? 6000 : 2500, gestureSourceType: "mouse", preventFling: false });
   }
   const wheelMs = Date.now() - t0;
   await streaming?.stop();
