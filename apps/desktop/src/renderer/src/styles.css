@@ -2773,7 +2773,9 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-runner { margin-top: 32px; width: min(720px, 100cqw - 48px); align-self: center; }
 .browser-runner-stage { position: relative; }
 .browser-runner-canvas { display: block; width: 100%; height: 176px; border-radius: var(--r-ctl); touch-action: manipulation; }
-.browser-runner-canvas:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+/* The ring says where the keys go while the game waits; a run in motion says it by itself. */
+.browser-runner-stage:not([data-state="running"]) .browser-runner-canvas:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.browser-runner-canvas:focus-visible { outline: none; }
 .browser-runner-note { position: absolute; top: 12px; left: 0; right: 0; margin: 0; text-align: center; font-size: 13px; line-height: 16px;
   color: var(--rl-text-dim); pointer-events: none; }
 .browser-runner-bar { margin-top: 12px; display: flex; align-items: center; gap: 12px; }

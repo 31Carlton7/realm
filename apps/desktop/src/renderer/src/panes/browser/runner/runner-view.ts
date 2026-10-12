@@ -280,9 +280,10 @@ export class RunnerView {
     const face = document.documentElement.getAttribute("data-mode") === "light" ? "light" : "dark";
     const spec = heroSpec(this.opts.seed);
     const image = (state: "working" | "needs-you") => {
-      // The Realmite's own drawing, with its stylesheet carried inside so it paints as an image.
+      // The Realmite's own drawing, with its stylesheet carried inside so it paints as an image, and
+      // without its bare `data-animate` (HTML, not XML: an image that kept it would not decode).
       const svg = realmiteSvg(spec, { size: 64, state, uid: `runner-${state}`, face })
-        .replace(/ data-animate=""/, "")
+        .replace(/ data-animate(?:="")?(?=[\s/>])/, "")
         .replace(/^<svg([^>]*)>/, `<svg$1><style>${REALMITE_CSS}</style>`);
       const img = new Image();
       img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
@@ -311,8 +312,8 @@ export class RunnerView {
 
     // Hills, far and near, in the grass's colour laid thin over the pane's ground.
     const scroll = still ? 0 : run.distance;
-    hills(ctx, W, ground, p.green, 0.1, scroll * 0.15, 46, 0.011, 1.7);
-    hills(ctx, W, ground, p.green, 0.18, scroll * 0.4, 26, 0.019, 4.1);
+    hills(ctx, W, ground, p.green, 0.08, scroll * 0.15, 46, 0.011, 1.7);
+    hills(ctx, W, ground, p.green, 0.14, scroll * 0.4, 26, 0.019, 4.1);
 
     // Earth: a checker in the accent, scrolling with the ground.
     ctx.save();
