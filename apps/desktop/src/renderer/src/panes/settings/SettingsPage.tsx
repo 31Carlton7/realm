@@ -6,7 +6,7 @@ import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGEN
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
   EDITOR_NAMES, resolveEditor, type OpenFilesIn, type LinksOpenIn, type TerminalDockEdge, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
-  THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
+  THEMES, contrastMisses, derivationFor, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
   type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
   CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
@@ -614,7 +614,7 @@ function faceSeed(name: ThemeName, face: Mode, override: ThemeOverride | undefin
  *  nested in the page cannot reach — `data-mode` only flips the token blocks at `:root` — so it is
  *  derived here like any other palette's. */
 function facePalette(name: ThemeName, face: Mode, override: ThemeOverride | undefined, contrast: number): Record<string, string> {
-  return deriveVars(faceSeed(name, face, override), face, contrast);
+  return derivationFor(name)(faceSeed(name, face, override), face, contrast);
 }
 
 /** The window, small enough to read at a glance: the ground, the sidebar over it, two cards and the
@@ -913,7 +913,7 @@ function ThemeOverrideEditor({ name, face }: { name: ThemeName; face: Mode }) {
   // Measured at the contrast the app is actually running at, not at the default — the ramp's spread
   // is one of the things a tier's ratio depends on, and a warning computed against a setting the
   // user is not using would name the wrong roles.
-  const misses = contrastMisses(seed, face, contrast);
+  const misses = contrastMisses(seed, face, contrast, derivationFor(name));
   const label = THEMES.find((t) => t.name === name)?.label ?? name;
 
   return (

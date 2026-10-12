@@ -3201,8 +3201,8 @@ const themeDefOf = (t: StoredTheme): ThemeDef => ({
 const isPageItemKind = (kind: string): boolean => kind.endsWith("-page");
 
 const storedPalette = (stored: unknown, legacy: unknown, mode: Mode): ThemeName => {
-  const name = isThemeName(stored) ? stored : isThemeName(legacy) ? legacy : "realm";
-  return themeModes(name).includes(mode) ? name : "realm";
+  const name = isThemeName(stored) ? stored : isThemeName(legacy) ? legacy : DEFAULT_SELECTION[mode];
+  return themeModes(name).includes(mode) ? name : DEFAULT_SELECTION[mode];
 };
 
 /** Forget both sides of every named path in one checkout — what staging or unstaging invalidates. */

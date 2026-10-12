@@ -36,7 +36,7 @@ it("re-colours the terminals already open when the face changes", async () => {
   const store = await bridge("dark");
   expect(term.options!.theme!.background).toBe("#1c1d1f00");
   act(() => store.setState({ themePref: "light" }));
-  expect(term.options!.theme!.background).toBe("#f9fafb00");
+  expect(term.options!.theme!.background).toBe("#ffffff00"); // the light default, Codex: its white canvas
   expect(term.options!.minimumContrastRatio).toBe(4.5);
 });
 
@@ -48,5 +48,5 @@ it("follows the Mac's own switch under System, where the preference never change
   await bridge("system");
   expect(term.options!.theme!.background).toBe("#1c1d1f00");
   act(() => { query.matches = false; flip(); });
-  expect(term.options!.theme!.background).toBe("#f9fafb00");
+  expect(term.options!.theme!.background).toBe("#ffffff00"); // the light default, Codex: its white canvas
 });
