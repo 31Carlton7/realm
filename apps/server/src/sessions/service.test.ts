@@ -7,7 +7,7 @@ import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import { createApp, type App } from "../app";
 import { DEFAULT_PERMISSION_MODE_KEY } from "@realm/contracts";
-import { AGENT_PROBE_TTL_MS, PROBE_CRASH_BACKOFF_MS, titleFromMessage, TITLE_MAX } from "./service";
+import { AGENT_PROBE_TTL_MS, ENGINE_IDLE_MINUTES_KEY, PROBE_CRASH_BACKOFF_MS, titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
 let app: App;
@@ -262,6 +262,68 @@ describe("SessionService over rpc", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("an engine idle past sessions.engineIdleMinutes is stopped, the row stays idle, and the next send resumes it", async () => {
+    // 15 idle claude engines, some 14 h old, held ~1.6 GB. Stopping one must look like nothing at all
+    // to the user: no "ended" in the transcript, and the next message carries on the conversation.
+    const starts: (string | null | undefined)[] = [];
+    class Counting extends FakeAdapter {
+      override start(opts: Parameters<FakeAdapter["start"]>[0]) { starts.push(opts.resume); return super.start(opts); }
+    }
+    const { c, sp } = await boot(new Counting({ script: [{ on: "hi", emit: [{ kind: "text", text: "hello" }] }] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const status = async () => (await c.call("sessions.get", { id: session.id })).result;
+    await c.call("sessions.send", { id: session.id, text: "hi" });
+    await waitFor(async () => (await status()).status === "idle" && (await status()).providerSessionId !== null);
+    const provider = (await status()).providerSessionId;
+    const seq = (await status()).lastEventSeq;
+    expect(app.sessions.isLive(session.id)).toBe(true);
+
+    expect(await app.sessions.reapIdle(Date.now() + 29 * 60_000)).toEqual([]);
+    expect(app.sessions.isLive(session.id)).toBe(true);
+    expect(await app.sessions.reapIdle(Date.now() + 31 * 60_000)).toEqual([session.id]);
+    expect(app.sessions.isLive(session.id)).toBe(false);
+    // The teardown's own `ended` is dropped: same row, same log.
+    expect(await status()).toMatchObject({ status: "idle", providerSessionId: provider, lastEventSeq: seq });
+
+    await c.call("sessions.send", { id: session.id, text: "hi" });
+    await waitFor(() => starts.length === 2);
+    expect(starts).toEqual([null, provider]);
+    await waitFor(async () => (await status()).status === "idle" && (await status()).lastEventSeq > seq);
+    c.close();
+  });
+
+  it("never stops an engine waiting on the user, however long it has waited", async () => {
+    const { c, sp } = await boot(); // "go" stops on a permission card
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "waiting_permission");
+    const later = Date.now() + 24 * 60 * 60_000;
+    expect(await app.sessions.reapIdle(later)).toEqual([]);
+    expect(app.sessions.isLive(session.id)).toBe(true);
+    c.close();
+  });
+
+  it("leaves an idle engine running when keepEngine says something counts on it, or the setting is 0", async () => {
+    let kept = true;
+    const home = tempDir("realm-");
+    app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [{ on: "hi", emit: [{ kind: "text", text: "hello" }] }] }) } });
+    (app.sessions as unknown as { d: { keepEngine: (id: string) => boolean } }).d.keepEngine = () => kept;
+    const c = await client(app.port);
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: prof.id, name: "S" })).result;
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hi" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    const later = Date.now() + 24 * 60 * 60_000;
+    expect(await app.sessions.reapIdle(later)).toEqual([]);
+    kept = false;
+    await c.call("settings.set", { key: ENGINE_IDLE_MINUTES_KEY, value: 0 });
+    expect(await app.sessions.reapIdle(later)).toEqual([]);
+    await c.call("settings.set", { key: ENGINE_IDLE_MINUTES_KEY, value: 5 });
+    expect(await app.sessions.reapIdle(Date.now() + 6 * 60_000)).toEqual([session.id]);
+    c.close();
   });
 
   it("respondPermission routes broker-owned requestIds (bperm_) even with NO live handle (Plan 11 W3)", async () => {

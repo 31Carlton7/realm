@@ -1211,6 +1211,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
   const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
+    // What the idle reaper must leave running between turns. Read at sweep time, long after every
+    // service named here exists.
+    keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
+      || (runs?.listLive().some((r) => r.sessionId === sessionId) ?? false)
+      || delegationEngine.involves(sessionId),
     // A team's policy answers for its gateway's calls itself: the engine's own MCP card is answered
     // before it is drawn wherever the policy decides (team/policies/gate.ts `decides`).
     teamPolicy: {
