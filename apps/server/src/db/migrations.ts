@@ -1131,4 +1131,49 @@ export const migrations: string[] = [
     set_at INTEGER NOT NULL,
     PRIMARY KEY (profile_id, connector, tool));
   `,
+  // v54 — team policies (dynamic Teams, PR 4a), after the tool classes, and found by its text. What a
+  // call to each kind of tool, each connector or each tool does in a team's space: `auto` (goes ahead),
+  // `ask` (Realm's card), `ticket` (waits for Review and a press) or `block` (never runs). `scope` is
+  // class|verb|connector|tool and `scope_key` what it names ('irreversible-external', 'post',
+  // 'mcp:<row id>', 'mcp:<row id>#send_message'). `caps_json` and `checks_json` go with auto and
+  // ticket. `seal` is main's stamp, and a row looser than the class floor holds only with one that
+  // checks out on this Mac; `set_by` says who wrote it: 'migration', 'template' or 'user'.
+  //
+  // Backfilled, for every team (a space with a `team_meta` row): the four class floors as explicit
+  // rows, so the Policies page shows what is in force — reading and changing this space go ahead,
+  // anything elsewhere asks. The creator-campaigns verb rows (posts, DMs, email under a ticket) are
+  // v55's, with the generic tickets that carry them out. A team made after this gets the same four
+  // rows the moment its `team_meta` row is written (the trigger), so no read ever has to write them.
+  // Safe to meet twice: every insert is OR IGNORE on the (space, scope, key) index.
+  `
+  CREATE TABLE IF NOT EXISTS team_policies (
+    id TEXT PRIMARY KEY,
+    space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL,
+    scope_key TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    caps_json TEXT NOT NULL DEFAULT '{}',
+    checks_json TEXT NOT NULL DEFAULT '[]',
+    set_by TEXT NOT NULL,
+    seal TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  CREATE UNIQUE INDEX IF NOT EXISTS team_policies_scope ON team_policies(space_id, scope, scope_key);
+  INSERT OR IGNORE INTO team_policies (id, space_id, scope, scope_key, decision, caps_json, checks_json, set_by, created_at, updated_at)
+    SELECT hex(randomblob(13)), m.space_id, 'class', f.class, f.decision, '{}', '[]', 'migration', m.created_at, m.created_at
+    FROM team_meta m CROSS JOIN (
+      SELECT 1 AS n, 'read' AS class, 'auto' AS decision
+      UNION ALL SELECT 2, 'internal-write', 'auto'
+      UNION ALL SELECT 3, 'reversible-external', 'ask'
+      UNION ALL SELECT 4, 'irreversible-external', 'ask') f
+    ORDER BY m.space_id, f.n;
+  CREATE TRIGGER IF NOT EXISTS team_policies_floors AFTER INSERT ON team_meta BEGIN
+    INSERT OR IGNORE INTO team_policies (id, space_id, scope, scope_key, decision, caps_json, checks_json, set_by, created_at, updated_at)
+      SELECT hex(randomblob(13)), NEW.space_id, 'class', f.class, f.decision, '{}', '[]', 'template', NEW.created_at, NEW.created_at
+      FROM (
+        SELECT 'read' AS class, 'auto' AS decision
+        UNION ALL SELECT 'internal-write', 'auto'
+        UNION ALL SELECT 'reversible-external', 'ask'
+        UNION ALL SELECT 'irreversible-external', 'ask') f;
+  END;
+  `,
 ];

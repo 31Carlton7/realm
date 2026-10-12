@@ -99,6 +99,15 @@ export const VAULT_HOST_OPS = [
  */
 export const TEAM_HOST_OPS = [
   "teamTicketPress",
+  /** A team's policy rows and tools' classes (team/policies/seals.ts). The seal main made at the
+   *  person's press on the Policies page for exactly this row — read and spent, never made, here. */
+  "teamPolicySeal",
+  /** Whether each stored seal opens, covers its row, was made on this Mac and matches the Keychain
+   *  stamp. A no only ever tightens. */
+  "teamPolicyVerify",
+  /** Move a scope's stamp on after a tightening, so a copy of an older, looser sealed row put back
+   *  reads as not confirmed. Only ever narrows. */
+  "teamPolicyBump",
 ] as const;
 
 export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS, ...VAULT_HOST_OPS, ...TEAM_HOST_OPS] as const;

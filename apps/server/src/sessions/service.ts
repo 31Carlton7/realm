@@ -252,6 +252,14 @@ export class SessionService {
       claim(sessionId: string, toolUseId: string): AppViewRef | null;
       forget(sessionId: string): void;
     };
+    /** A team's policies (team/policies/gate.ts). Where the gate at Realm's gateway answers for a call
+     *  itself, the engine's own MCP approval is answered before it draws a card, so the person sees one
+     *  card — the policy's. And a role's run is told it is one, so Codex pins its sandbox's network
+     *  off. Optional: without it every session starts as it always did. */
+    teamPolicy?: {
+      decides(sessionId: string, spaceId: string, gatewayTool: string): Promise<boolean>;
+      isRoleRun(sessionId: string): boolean;
+    };
   }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
@@ -1501,6 +1509,10 @@ export class SessionService {
       env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId) },
       ...(wrap ? { wrap } : {}),
       ...(fork ? { resumeAt: fork.at, resumeDropsTurn: fork.dropsTurn } : {}),
+      ...(this.d.teamPolicy ? {
+        gatewayDecides: (toolName: string) => this.gatewayDecides(id, s.spaceId, mcpServers[0]!.name, toolName),
+        roleRun: this.d.teamPolicy.isRoleRun(id),
+      } : {}),
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`),
     };
     let handle: AgentHandle;
@@ -1680,6 +1692,17 @@ export class SessionService {
     if (ev.type !== "tool_result" || ev.payload.view) return ev;
     const view = this.d.views.claim(id, ev.payload.toolUseId);
     return view ? { ...ev, payload: { ...ev.payload, view } } : ev;
+  }
+
+  /**
+   * Whether the engine's own approval for this MCP tool is already answered: a call to Realm's gateway
+   * (`mcp__<gateway>__<tool>`) that the team's policy decides itself. Any other server's tool, or an
+   * error asking, is the engine's to ask about as it always has.
+   */
+  private async gatewayDecides(id: string, spaceId: string, gateway: string, toolName: string): Promise<boolean> {
+    const prefix = `mcp__${gateway}__`;
+    if (!this.d.teamPolicy || !toolName.startsWith(prefix)) return false;
+    try { return await this.d.teamPolicy.decides(id, spaceId, toolName.slice(prefix.length)); } catch { return false; }
   }
 
   /** Keep `turnSeen` for the turn in flight: a `user_message` opens it, each tool call counts, and the

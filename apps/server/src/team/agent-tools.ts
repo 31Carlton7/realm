@@ -13,6 +13,9 @@ export type TeamAgentToolsDeps = {
   /** The team's kinds of record: what `record_types` answers, and the record tools' words per space. */
   types: Pick<RecordTypeService, "describe" | "descriptions">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
+  /** The team's policies, in the Policies page's words (`policy_read`). Optional: without it the tool
+   *  says there is nothing to read. */
+  policies?: { describe(spaceId: string): Promise<string> };
   /** More tools on this provider (Phase 4's handoff and mention), answering null for a name not theirs. */
   more?: { tools: Tool[]; call(ctx: ProviderCallContext, tool: string, args: unknown): Promise<CallToolResult | null> };
 };
@@ -44,6 +47,7 @@ const SubmitArgs = z.object({
   }).strict()).min(1).max(30),
 }).strict().refine((a) => !(a.label && a.kind && a.label !== a.kind), { message: "give `label` or `kind`, not two different ones" });
 const StatusArgs = z.object({ id: z.string().min(1).max(40).optional() }).strict();
+const PolicyReadArgs = z.object({}).strict();
 
 const TOOLS: Tool[] = [
   {
@@ -126,6 +130,11 @@ const TOOLS: Tool[] = [
     description: "Where your submissions to Review stand — waiting, changes asked (with the person's note), approved, done. Give `id` for one review, or nothing for every review this session sent. Read-only.",
     inputSchema: { type: "object", properties: { id: { type: "string" } }, additionalProperties: false },
   },
+  {
+    name: "policy_read",
+    description: "What this team's policies let a role do here without the person: for each kind of action, and for each connection or tool with a rule of its own, whether a call goes ahead, asks the person, waits for Review and their press, or never runs — with any daily limits. Plan inside these: a call the policy refuses is refused. Read-only; only the person changes policies, on the team's Policies page.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
 ];
 
 /**
@@ -191,6 +200,10 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
             const a = parseArgs(StatusArgs, args); if ("error" in a) return a.error;
             const rows = d.team.reviewStatus(ctx.spaceId, a.value.id ?? null, ctx.sessionId);
             return ok(rows.length ? rows.map(statusLine).join("\n") : "This session has sent nothing to Review.");
+          }
+          case "policy_read": {
+            const a = parseArgs(PolicyReadArgs, args); if ("error" in a) return a.error;
+            return ok(d.policies ? await d.policies.describe(ctx.spaceId) : "This team keeps no policies of its own: reading and changing this space go ahead, and anything elsewhere asks the person.");
           }
           default: {
             const answered = await d.more?.call(ctx, tool, args);

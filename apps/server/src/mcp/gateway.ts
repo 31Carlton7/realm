@@ -6,6 +6,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, typ
 import type { McpServerConfig } from "@realm/adapters";
 import { REALM_READ_ONLY_TOOLS, callableByApp, visibleToModel } from "@realm/contracts";
 import type { DrawnView } from "../apps/views";
+import { policyAnswered } from "../browsers/permissions";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
 import type { McpCallLogStore, McpServerRow, McpServersStore } from "../store/mcp";
@@ -186,6 +187,17 @@ export class McpGateway {
     views?: { drew(sessionId: string, v: DrawnView): void };
     /** How often a running call says it is still running (`HEARTBEAT_MS`). Tests shrink it. */
     heartbeatMs?: number;
+    /**
+     * A team's policies (team/policies/gate.ts): asked about every routed call — Realm's own tools and
+     * every server row's — after the allowlist and before the provider or the hub. A refusal is logged
+     * and returned like any other blocked call and never reaches either; a call the policy answered for
+     * runs with `policyAnswered` set, so its own ordinary gate does not ask a second time. Unwired (a
+     * test, a harness), no call is gated by a policy.
+     */
+    policy?: {
+      check(ctx: { sessionId: string; spaceId: string; fromView?: boolean }, call: PolicyRoute & { fullName: string; args: unknown }):
+        Promise<{ ok: true; answered: boolean } | { ok: false; message: string; summary: string }>;
+    };
   }) {}
 
   /** The restriction for one session, `null` meaning unrestricted. One read path shared by
@@ -551,10 +563,13 @@ export class McpGateway {
     // Provider calls land in the same Activity log, with `serverId: null` — there is no row behind them.
     const provider = this.resolveProvider(spaceId, fullName, toolset);
     if (provider) {
+      const gate = await this.gatePolicy(sessionId, spaceId, { connector: `realm:${provider.p.name}`, tool: provider.tool, fullName, args });
+      if (!gate.ok) return this.blocked(sessionId, null, provider.p.name, provider.tool, argsJson, gate.message, gate.summary);
       const start = Date.now();
       const alive = this.keepAlive(fullName, channel);
       try {
-        const result = await provider.p.call({ sessionId, spaceId, progress: alive.progress, signal: channel.signal }, provider.tool, args);
+        const run = () => provider.p.call({ sessionId, spaceId, progress: alive.progress, signal: channel.signal }, provider.tool, args);
+        const result = await (gate.answered ? policyAnswered.run(true, run) : run());
         this.record(sessionId, null, provider.p.name, provider.tool, argsJson, result.isError !== true, Date.now() - start, summarize(result));
         return result;
       } catch (err) {
@@ -629,6 +644,8 @@ export class McpGateway {
         `mcp: "${tool}" on "${serverName}" is for that server's view to call, not the agent.`,
         "blocked: a view-only tool");
     }
+    const gate = await this.gatePolicy(sessionId, spaceId, { connector: `mcp:${serverId}`, tool, host: hostOf(this.d.servers.get(serverId)?.url ?? ""), annotations: live?.def.annotations ?? null, fullName, args });
+    if (!gate.ok) return this.blocked(sessionId, serverId, serverName, tool, argsJson, gate.message, gate.summary);
     const start = Date.now();
     const alive = this.keepAlive(fullName, channel);
     try {
@@ -667,6 +684,32 @@ export class McpGateway {
     } finally {
       alive.stop();
     }
+  }
+
+  /** The team policy's word on one routed call; a thrown check refuses rather than letting it through. */
+  private async gatePolicy(sessionId: string, spaceId: string, call: PolicyRoute & { fullName: string; args: unknown }, fromView = false) {
+    if (!this.d.policy) return { ok: true as const, answered: false };
+    try {
+      return await this.d.policy.check({ sessionId, spaceId, ...(fromView ? { fromView } : {}) }, call);
+    } catch (err) {
+      return { ok: false as const, summary: "blocked: the policy check failed", message: `mcp: Realm could not check this space's policy for "${call.fullName}" (${err instanceof Error ? err.message : String(err)}), so it did not run.` };
+    }
+  }
+
+  /**
+   * Where a call by this name would go for this session, as the policy reads it: the connector, the tool,
+   * and what its server said about it. Null for a name that routes nowhere. What the engines ask before
+   * their own MCP card (`PolicyGate.decides`) — the same routing `handleCall` does, without calling.
+   */
+  async route(sessionId: string, spaceId: string, fullName: string): Promise<PolicyRoute | null> {
+    const toolset = this.toolsetOf(sessionId);
+    const provider = this.resolveProvider(spaceId, fullName, toolset);
+    if (provider) return { connector: `realm:${provider.p.name}`, tool: provider.tool };
+    if (Array.isArray(toolset)) return null;
+    const resolved = this.resolveCall(spaceId, fullName);
+    if (!resolved) return null;
+    const live = await this.d.hub.toolOf(resolved.serverId, resolved.tool).catch(() => null);
+    return { connector: `mcp:${resolved.serverId}`, tool: resolved.tool, host: hostOf(this.d.servers.get(resolved.serverId)?.url ?? ""), annotations: live?.def.annotations ?? null };
   }
 
   /**
@@ -747,6 +790,10 @@ export class McpGateway {
     if (!live || !callableByApp(live.ui)) {
       return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${row.name}" has no tool "${tool}" its view may call.`, "blocked: a view's call to a tool not open to views");
     }
+    // The person clicked to allow this, so only what binds every session applies: a team's "never" and
+    // "approve, then press".
+    const gate = await this.gatePolicy(sessionId, session.spaceId, { connector: `mcp:${serverId}`, tool, host: hostOf(row.url), annotations: live.def.annotations ?? null, fullName: `${row.name}__${tool}`, args }, true);
+    if (!gate.ok) return this.blocked(sessionId, serverId, row.name, tool, argsJson, gate.message, `${gate.summary} (from its view)`);
     const start = Date.now();
     try {
       const result = await this.d.hub.call(serverId, tool, args, { sessionId });
@@ -833,6 +880,11 @@ function providerVisible(name: string, toolset: SessionToolset): boolean {
   if (Array.isArray(toolset)) return toolset.includes(name);
   return !toolset.exclude.includes(name);
 }
+
+/** One routed call as a team's policy reads it. */
+export type PolicyRoute = { connector: string; tool: string; host?: string | null; annotations?: Record<string, unknown> | null };
+
+const hostOf = (url: string): string | null => { try { return url ? new URL(url).host.toLowerCase() : null; } catch { return null; } };
 
 const errorResult = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
 

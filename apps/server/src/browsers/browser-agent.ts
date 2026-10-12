@@ -112,6 +112,11 @@ export class BrowserAgentService {
     return this.childRecord(sessionId) !== null;
   }
 
+  /** The session that started this browser agent, or null for one nobody delegated. */
+  parentOf(sessionId: string): string | null {
+    return this.childRecord(sessionId)?.parentSessionId ?? null;
+  }
+
   /** The goal this browser agent was handed, for its lead's list of sub-agents. */
   goalOf(sessionId: string): string | null {
     return this.childRecord(sessionId)?.goal ?? null;

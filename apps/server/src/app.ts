@@ -167,7 +167,10 @@ import { RecordTypeService } from "./team/record-types/service";
 import { adoptRecordTypes } from "./team/record-types/adopt";
 import { registerRecordTypeMethods } from "./team/record-types/rpc";
 import { PoliciesService } from "./team/policies/service";
+import { PolicyGate } from "./team/policies/gate";
 import { registerPolicyMethods } from "./team/policies/rpc";
+import { SealChecker, type SealBridge } from "./team/policies/seals";
+import { PolicyStore } from "./team/policies/store";
 import { ToolClassesStore } from "./team/policies/tool-classes";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
@@ -683,6 +686,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  Production passes neither — the platform is the fake only under REALM_FAKE_ACT_ADAPTER=1 (live
    *  checks), not connected otherwise, and a press is asked of Electron main over the bridge. */
   acts?: { adapter?: ActAdapter; presses?: { consume(ticketId: string, contentHash: string): Promise<TicketPress> } };
+  /** A team's policies' test knob: main's side of the seals (verify, spend a press, move a stamp).
+   *  Production passes none — they are asked of Electron main over the bridge. */
+  policySeals?: SealBridge;
   /** The RPC token every client must offer as its `realm.<token>` subprotocol. Undefined leaves the
    *  socket open to anything on loopback, which is what the suite's several hundred `createApp` calls
    *  want — production mints one in `main.ts` and writes it to the 0600 state file. */
@@ -1000,6 +1006,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let vault: VaultService | null = null;
   // Teams, Phase 4: handoffs, mentions, role goals and the back-off — read through the same hooks.
   let handoffs: HandoffService | null = null;
+  /* A team's policies (team/policies): the one gate at the gateway every Realm and server tool call
+     passes, made once the team exists below and read lazily by the gateway and the sessions, which are
+     made before it. */
+  let policyGate: PolicyGate | null = null;
   // The lab's update window holds team runs while an update waits to install (lab/service.ts).
   let lab: LabService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
@@ -1035,7 +1045,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       return spentChild || reviews?.isChild(sessionId) || codeReview?.isReviewer(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
     },
     // Activity keeps no masked answer: what a session was told in secret is scrubbed from its calls.
-    redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text });
+    redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text,
+    policy: { check: (ctx, call) => (policyGate ? policyGate.check(ctx, call) : Promise.resolve({ ok: true as const, answered: false })) } });
   gateway = mcpGateway;
   /* The profile's memory repo (Agent Memory Repo): what agents write. The memory documents stay the
      user's standing instructions; this is the memory agents save into and read back, through the
@@ -1187,6 +1198,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
   const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
+    // A team's policy answers for its gateway's calls itself: the engine's own MCP card is answered
+    // before it is drawn wherever the policy decides (team/policies/gate.ts `decides`).
+    teamPolicy: {
+      decides: async (sessionId, spaceId, tool) => {
+        if (!policyGate) return false;
+        return policyGate.decides(sessionId, spaceId, await mcpGateway.route(sessionId, spaceId, tool));
+      },
+      isRoleRun: (sessionId) => roleRunOf(sessionId) !== null,
+    },
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
@@ -1469,7 +1489,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
   });
   team.attach(handoffs);
-  mcpGateway.registerProvider(createTeamAgentProvider({ team, types: recordTypes, mcp, more: createHandoffTools({ handoffs, teamStore }) }));
+  mcpGateway.registerProvider(createTeamAgentProvider({ team, types: recordTypes, mcp, more: createHandoffTools({ handoffs, teamStore }), policies: { describe: (id) => policies.describe(id) } }));
   const teamFinal = team;
   vault = new VaultService({
     store: new VaultStore(db), team: teamStore, runs, bridge: browserBridge,
@@ -1479,6 +1499,50 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     vault, bridge: browserBridge, broker: browserBroker, mcp,
     profileOf: (id) => spaces.get(id)?.profileId ?? null, isTeam: (id) => teamFinal.isTeam(id),
   }));
+  /* A team's policies (team/policies, the dynamic-Teams plan §4): its rows, the seals main keeps on
+     the looser ones, and the gate at the gateway. Main makes a seal only at the person's press on the
+     Policies page, confirmed by macOS; this side reads a seal, spends one, and moves a stamp on, and
+     with no main every looser row reads as the floor. */
+  const policyStore = new PolicyStore(db);
+  const policies = new PoliciesService({
+    profileIdOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
+    spaceName: (spaceId) => spaces.get(spaceId)?.name ?? "This team",
+    isTeam: (spaceId) => teamFinal.isTeam(spaceId),
+    realmProviders: (spaceId) => mcpGateway.realmProvidersFor("", spaceId),
+    serverIds: (spaceId) => mcp.effectiveServerIds(spaceId),
+    server: (id) => mcpServersStore.get(id),
+    allowedTools: (spaceId, id) => mcp.allowedTools(spaceId, id),
+    liveTools: (id) => mcpHub.tools(id),
+    overrides: new ToolClassesStore(db),
+    store: policyStore,
+    seals: new SealChecker(opts.policySeals ?? {
+      connected: () => browserBridge.connected,
+      verify: (items) => browserBridge.call("teamPolicyVerify", { items }),
+      consume: (text) => browserBridge.call("teamPolicySeal", { text }),
+      bump: (scope) => browserBridge.call("teamPolicyBump", { scope }),
+    }),
+    log: (spaceId, verb, object, detail) => { teamStore.appendActivity({ spaceId, actor: "user", verb, object, detail }); },
+    changed: (spaceId) => { rpc.broadcast("team.changed", { spaceId }); mcpGateway.notifyPolicyChanged(spaceId); },
+  });
+  policyGate = new PolicyGate({
+    policies, store: policyStore,
+    roleRunOf: (sessionId) => roleRunOf(sessionId),
+    permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "default",
+    broker: browserBroker,
+    log: (spaceId, actor, verb, object, detail, run) => { teamStore.appendActivity({ spaceId, actor, verb, object, detail, runId: run?.runId ?? null, sessionId: run?.sessionId ?? null }); },
+    now: () => Date.now(),
+  });
+  /** The role run a session works for: a run's own worker session, or a session delegated from one —
+   *  a sub-agent of a role is bound as its role is. Null for the person's own sessions. */
+  const roleRunOf = (sessionId: string): { roleId: string; runId: string | null; sessionId: string } | null => {
+    let id: string | null = sessionId;
+    for (let depth = 0; id && depth < 8; depth++) {
+      const run = runs?.workerRun(id) ?? null;
+      if (run?.roleId) return { roleId: run.roleId, runId: run.id, sessionId: id };
+      id = agentRuns?.record(id)?.parentSessionId ?? browserAgents?.parentOf(id) ?? null;
+    }
+    return null;
+  };
   /* The lab: this Mac's readiness, the devices on its cables, and the update window that holds team
      runs while an update waits to install. Realm-wide — one Mac serves every team on it. */
   lab = new LabService({
@@ -1594,15 +1658,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerLabMethods(rpc, lab);
   registerActMethods(rpc, acts!, (id) => Boolean(spaces.get(id)));
   registerRecordTypeMethods(rpc, recordTypes, (id) => Boolean(spaces.get(id)));
-  registerPolicyMethods(rpc, new PoliciesService({
-    profileIdOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
-    realmProviders: (spaceId) => mcpGateway.realmProvidersFor("", spaceId),
-    serverIds: (spaceId) => mcp.effectiveServerIds(spaceId),
-    server: (id) => mcpServersStore.get(id),
-    allowedTools: (spaceId, id) => mcp.allowedTools(spaceId, id),
-    liveTools: (id) => mcpHub.tools(id),
-    overrides: new ToolClassesStore(db),
-  }), (id) => Boolean(spaces.get(id)));
+  registerPolicyMethods(rpc, policies, (id) => Boolean(spaces.get(id)));
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.

@@ -68,7 +68,17 @@ const SCRIPT: FakeScript = [
 async function client(port: number) {
   const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
   const pending = new Map<string, (v: Any) => void>(); const events: Any[] = [];
-  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); else events.push(m); });
+  ws.on("message", (d) => {
+    const m = JSON.parse(d.toString());
+    if ("id" in m) { pending.get(m.id)?.(m); return; }
+    events.push(m);
+    // The person says yes to each card a team's policy draws: a role's read of a record asks first (it
+    // logs the read), and these runs are about what follows it.
+    const ev = m.event === "session.event" ? m.payload.event : null;
+    if (ev?.type === "permission_request" && /policy asks/.test(ev.payload.title)) {
+      void call("sessions.respondPermission", { id: m.payload.sessionId, requestId: ev.payload.requestId, decision: "allow" });
+    }
+  });
   let n = 0;
   const call = (method: string, params: unknown) => new Promise<Any>((res, rej) => {
     const id = String(++n);
@@ -90,7 +100,9 @@ async function boot() {
   SLIDES.forEach((f, i) => writeFileSync(join(space.folderPath, f), `png-${i}`));
   const c = await client(app.port);
   await c.must("team.make", { spaceId: space.id, templates: [] });
-  const role = await c.must("team.roleCreate", { spaceId: space.id, name: "Content Producer", brief: "Make slides for each creator.", realmite: { seed: "cp" }, agentKind: "fake" });
+  // Accept edits: in Default mode a role asks the person before each write it makes (the policy gate,
+  // team/policies/gate.ts), and these runs are about what the writes do.
+  const role = await c.must("team.roleCreate", { spaceId: space.id, name: "Content Producer", brief: "Make slides for each creator.", realmite: { seed: "cp" }, agentKind: "fake", permissionMode: "acceptEdits" });
   return { c, spaceId: space.id, folder: space.folderPath, roleId: role.id as string };
 }
 

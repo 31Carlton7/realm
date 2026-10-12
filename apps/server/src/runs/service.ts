@@ -137,6 +137,12 @@ export class RunService {
 
   isWorker(sessionId: string): boolean { return this.workerRecord(sessionId) !== null; }
 
+  /** The run this session is the worker of, settled or not — null for a session no run started. */
+  workerRun(sessionId: string): Run | null {
+    const w = this.workerRecord(sessionId);
+    return w ? this.get(w.runId)?.run ?? null : null;
+  }
+
   /** `SessionService.ensureLive`'s narrowing seam — the subset of the space's enabled skills this
    *  worker is staged, or null for no narrowing. */
   skillsFilter(sessionId: string): string[] | null { return this.workerRecord(sessionId)?.skills ?? null; }

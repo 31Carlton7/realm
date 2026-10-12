@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import { isReadOnlyMode, loggableAnswers, normalizeAnswers, requiredAnswered, sessionEvent, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import type { PermissionDecision } from "@realm/adapters";
@@ -82,6 +83,18 @@ export type GateOptions = {
 };
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string };
+
+/**
+ * A team's policy has already answered for the call in progress (team/policies/gate.ts): it went ahead
+ * under a "without asking" row, or the person said yes on the policy's own card. Set by the gateway
+ * around ONE provider call, so the ordinary gate inside that call does not raise a second card for the
+ * same act — the person sees one card, and it names the policy.
+ *
+ * It answers only the ordinary gate. `alwaysPrompt` (a secret onto a page) and `promptUnderBypass` (the
+ * first touch of an app or a device) are Realm's hard gates, and they ask whatever any policy said; a
+ * read-only mode still refuses first.
+ */
+export const policyAnswered = new AsyncLocalStorage<true>();
 
 /**
  * The mutating browser tools' permission gate (Plan 11 W3) — Realm's NORMAL permission flow, raised
@@ -235,6 +248,7 @@ export class BrowserPermissionBroker {
   async gate(sessionId: string, toolKey: string, title: string, input: Record<string, unknown>, toolName: string = toolKey, opts: GateOptions = {}): Promise<GateResult> {
     const mode = this.d.permissionMode(sessionId);
     if (isReadOnlyMode(mode)) return { allowed: false, reason: `this session is in ${mode === "plan" ? "Plan" : "Ask"} (read-only) mode — mutating tools are refused; switch modes to act` };
+    if (!opts.alwaysPrompt && !opts.promptUnderBypass && policyAnswered.getStore() === true) return { allowed: true };
     if (!opts.alwaysPrompt) {
       // `allow_always` is consulted BEFORE the mode, so a `promptUnderBypass` gate the user has
       // already answered "always" to stops asking. For every other caller the two orders agree:
