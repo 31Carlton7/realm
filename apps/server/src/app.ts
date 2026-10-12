@@ -39,7 +39,7 @@ import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
@@ -1064,10 +1064,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      `realm-memory` tools registered further down. A repo may never sit inside a space's checkout, an
      agent's own config folder or Realm's install — the spec's first rule, and W3's read-only one. */
   const userHome = opts.userHome ?? homedir();
+  // A space that works in `/` or the home folder itself is not a project a repo could be mixed into —
+  // counted as one, it would forbid every folder on the Mac and no team could ever be made.
+  const holdsUserHome = (p: string): boolean => !relative(resolve(p), userHome).startsWith("..");
   const memoryRepos = new MemoryRepoService({
     home: opts.home, settings, scopes: scopeSeam,
     forbiddenRoots: () => [
-      ...spaces.listAll().flatMap((sp) => [sp.folderPath, ...environments.list(sp.id).map((e) => e.path)]).filter((p): p is string => typeof p === "string" && p !== ""),
+      ...spaces.listAll().flatMap((sp) => [sp.folderPath, ...environments.list(sp.id).map((e) => e.path)]).filter((p): p is string => typeof p === "string" && p !== "" && !holdsUserHome(p)),
       ...[".claude", ".codex", ".cursor", ".agents"].map((d) => join(userHome, d)),
       ...((process as { resourcesPath?: string }).resourcesPath ? [(process as { resourcesPath?: string }).resourcesPath!] : []),
     ],
