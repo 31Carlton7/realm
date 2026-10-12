@@ -28,12 +28,12 @@ export const RUN = {
   buffer: 0.12,
   coyote: 0.08,
   /** The hero is a ball of this radius standing on its lowest point. */
-  radius: 10,
-  spikeWidth: 16,
-  spikeHeight: 13,
-  critterRadius: 9,
+  radius: 14,
+  spikeWidth: 18,
+  spikeHeight: 15,
+  critterRadius: 11,
   critterSpeed: 55,
-  shardRadius: 6,
+  shardRadius: 7,
   /** Points: a stretch of distance, a shard, a critter. */
   pxPerPoint: 8,
   shardPoints: 10,
@@ -140,7 +140,7 @@ function layWorld(run: Run) {
         const n = 1 + Math.floor(run.rand() * (run.distance > 1500 ? 3 : 1.6));
         for (let i = 0; i < n; i++) run.things.push({ kind: "spike", x: at + i * RUN.spikeWidth });
         // A shard over the row says "jump here", and pays for it.
-        run.things.push({ kind: "shard", x: at + (n * RUN.spikeWidth) / 2, y: 56, taken: false });
+        run.things.push({ kind: "shard", x: at + (n * RUN.spikeWidth) / 2, y: 66, taken: false });
         len = n * RUN.spikeWidth;
         break;
       }
@@ -151,10 +151,10 @@ function layWorld(run: Run) {
       case "shards": {
         const high = run.rand() < 0.5;
         for (let i = 0; i < 5; i++) {
-          const y = high ? 30 + Math.sin((i / 4) * Math.PI) * 44 : 12;
-          run.things.push({ kind: "shard", x: at + i * 22, y, taken: false });
+          const y = high ? 34 + Math.sin((i / 4) * Math.PI) * 44 : 16;
+          run.things.push({ kind: "shard", x: at + i * 26, y, taken: false });
         }
-        len = 88;
+        len = 104;
         break;
       }
       case "ramp": {
