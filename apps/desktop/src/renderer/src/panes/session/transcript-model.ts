@@ -140,6 +140,11 @@ export type Usage = { costUsd: number; inputTokens: number; outputTokens: number
   /** Whether the turn this reports ASKED for fast mode. Undefined on transcripts written before it
    *  was stamped, and on engines that do not report fast mode at all. */
   fastModeRequested?: boolean };
+/** Where a transcript read from its end begins: `from`, the seq of the first event it was built from,
+ *  and `settledAt`, when the turn before that one settled — what the first turn's edit card measures
+ *  its checkpoint against (turn-edits.ts) — or null when the read did not reach it. */
+export type Earlier = { from: number; settledAt: number | null };
+
 export type Transcript = {
   blocks: Block[];
   /** Open permission requests, oldest first (an agent may ask for several tools at once). */
@@ -177,10 +182,10 @@ export type Transcript = {
   /** The media each turn left on disk (`files_made`), keyed the same way and for the same reason as
    *  `changes`. Nothing draws it yet; the documents home counts it to know the index has moved. */
   made?: Record<number, FilesMade>;
-  /** Set while the log's start is still on the server: the seq of the first event this transcript was
-   *  built from. A long session opens on its newest turns and reads further back as the reader goes
-   *  there (`prependTranscript`). Absent once — or because — it holds everything. */
-  earlierFrom?: number;
+  /** Set while the log's start is still on the server. A long session opens on its newest turns and
+   *  reads further back as the reader goes there (`prependTranscript`). Absent once — or because — it
+   *  holds everything. */
+  earlier?: Earlier;
   /** Where `blocks[0]` sits in the transcript's own numbering: 0 for one built from the start, below
    *  zero once earlier blocks have been put in front. A block's position-based key is its index plus
    *  this (`blockKey`), so loading earlier turns never renames, remounts or replays the ones on screen. */
@@ -553,10 +558,10 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
  * last turn of `older` is closed the way `newer`'s first prompt would have closed it, had it been
  * reduced in one pass.
  */
-export function prependTranscript(older: Transcript, newer: Transcript, earlierFrom: number | undefined): Transcript {
+export function prependTranscript(older: Transcript, newer: Transcript, earlier: Earlier | undefined): Transcript {
   const open = older.run ? null : unsettledTurn(older.blocks);
   const front = open ? [...older.blocks, derivedRun(open, open.lastTs)] : older.blocks;
-  const { earlierFrom: _loaded, ...rest } = newer;
+  const { earlier: _loaded, ...rest } = newer;
   const changes = older.changes || newer.changes ? { changes: { ...older.changes, ...newer.changes } } : {};
   const made = older.made || newer.made ? { made: { ...older.made, ...newer.made } } : {};
   return {
@@ -564,7 +569,7 @@ export function prependTranscript(older: Transcript, newer: Transcript, earlierF
     blocks: [...front, ...newer.blocks],
     base: (newer.base ?? 0) - front.length,
     feedback: { ...older.feedback, ...newer.feedback },
-    ...(earlierFrom === undefined ? {} : { earlierFrom }),
+    ...(earlier === undefined ? {} : { earlier }),
   };
 }
 

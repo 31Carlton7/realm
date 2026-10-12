@@ -39,7 +39,7 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
-import { emptyTranscript, lastUserMessage, prependTranscript, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
+import { emptyTranscript, lastUserMessage, prependTranscript, reduceTranscript, type Earlier, type Rating, type Transcript } from "../panes/session/transcript-model";
 import { CARRIED_LIMIT, CARRIED_TYPES, EARLIER_EVENTS, TAIL_EVENTS, readBack } from "./transcript-paging";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
@@ -5805,15 +5805,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
              reach, and the last word on what the prompter reads from wherever it was said. A catch-up
              (a reconnect, a reopen) reads forward from what is already held. */
           const markAt = (get().sessions[id] ?? get().allSessions[id])?.seenSeq ?? 0;
-          const fetchTail = async (): Promise<{ events: StoredSessionEvent[]; from: number | null; carried: StoredSessionEvent[] }> => {
+          const fetchTail = async (): Promise<{ events: StoredSessionEvent[]; earlier: Earlier | null; carried: StoredSessionEvent[] }> => {
             const [tail, carried] = await Promise.all([
               readBack((before, limit) => api.sessionEventsBefore(id, before, limit), Number.MAX_SAFE_INTEGER, TAIL_EVENTS, markAt > 0 ? markAt : null),
               api.sessionEventsBefore(id, Number.MAX_SAFE_INTEGER, CARRIED_LIMIT, CARRIED_TYPES),
             ]);
-            return { events: tail.events, from: tail.complete ? null : tail.events[0]!.seq, carried };
+            return { events: tail.events, earlier: tail.earlier, carried };
           };
           const [session, read] = await Promise.all([get().sessions[id] ? null : api.getSession(id),
-            held ? fetchAll().then((events) => ({ events, from: null, carried: [] })) : fetchTail()]);
+            held ? fetchAll().then((events) => ({ events, earlier: null, carried: [] })) : fetchTail()]);
           const events = read.events;
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
@@ -5832,12 +5832,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // missed nothing, and one already caught up has nothing to divide.
           const row = get().sessions[id];
           // A mark before the stretch read is out of reach: the rule would land on its first event.
-          const seenSeq = row && row.seenSeq > 0 && (read.from === null || row.seenSeq >= read.from) ? row.seenSeq : null;
+          const { earlier } = read;
+          const seenSeq = row && row.seenSeq > 0 && (earlier === null || row.seenSeq >= earlier.from) ? row.seenSeq : null;
           let { lastSeq, t } = get().transcripts[id] ?? prev;
-          if (read.from !== null && !get().transcripts[id]) {
+          if (earlier !== null && !get().transcripts[id]) {
             // What the log last said before the stretch read, about what outlives it — see `CARRIED_TYPES`.
-            for (const e of read.carried) if (e.seq < read.from) t = reduceTranscript(t, e.event, false, e.seq);
-            t = { ...t, earlierFrom: read.from };
+            for (const e of read.carried) if (e.seq < earlier.from) t = reduceTranscript(t, e.event, false, e.seq);
+            t = { ...t, earlier };
           }
           let marked = get().newSinceSeq[id] !== undefined;
           for (const e of [...events, ...(loading.get(id) ?? [])]) {
@@ -5856,7 +5857,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         } finally { loading.delete(id); }
       },
       loadEarlierEvents(id) {
-        const from = get().transcripts[id]?.t.earlierFrom;
+        const from = get().transcripts[id]?.t.earlier?.from;
         if (from === undefined) return Promise.resolve();
         const inFlight = loadingEarlier.get(id);
         if (inFlight) return inFlight;
@@ -5866,10 +5867,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
             // Closed, reopened from scratch or already extended while this read: what it read is not
             // the stretch in front of what is held now.
             const cur = get().transcripts[id];
-            if (!cur || cur.t.earlierFrom !== from) return;
+            if (!cur || cur.t.earlier?.from !== from) return;
             let older = emptyTranscript();
             for (const e of read.events) older = reduceTranscript(older, e.event, false, e.seq);
-            setTranscript(id, { ...cur, t: prependTranscript(older, cur.t, read.complete ? undefined : read.events[0]!.seq) });
+            setTranscript(id, { ...cur, t: prependTranscript(older, cur.t, read.earlier ?? undefined) });
           } finally { loadingEarlier.delete(id); }
         })();
         loadingEarlier.set(id, load);
@@ -5877,11 +5878,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async loadEventsThrough(id, seq) {
         for (;;) {
-          const from = get().transcripts[id]?.t.earlierFrom;
+          const from = get().transcripts[id]?.t.earlier?.from;
           if (from === undefined || from <= seq) return;
           await get().loadEarlierEvents(id);
           // A read that changed nothing (the transcript was dropped or replaced) must not spin.
-          if (get().transcripts[id]?.t.earlierFrom === from) return;
+          if (get().transcripts[id]?.t.earlier?.from === from) return;
         }
       },
       applySessionEvent(ev) {

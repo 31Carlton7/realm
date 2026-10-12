@@ -1321,7 +1321,7 @@ describe("app store", () => {
       expect(e.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant"]);
       // A first open reads from the end; this log is shorter than a page, so that is all of it.
       expect(api.calls).toContain("sessionEventsBefore:se1:end");
-      expect(e.t.earlierFrom).toBeUndefined();
+      expect(e.t.earlier).toBeUndefined();
       api.data.sessionEvents.se1!.push(stored("se1", 3, sessionEvent("error", { message: "x" })));
       await store.getState().openSession("se1");
       expect(api.calls).toContain("sessionEvents:se1:2");
@@ -1348,7 +1348,7 @@ describe("app store", () => {
       const e = store.getState().transcripts.se1!;
       expect(e.lastSeq).toBe(2500);
       expect(e.t.blocks).toHaveLength(2500);
-      expect(e.t.earlierFrom).toBeUndefined();
+      expect(e.t.earlier).toBeUndefined();
       expect(api.calls.filter((c) => /^sessionEventsBefore:se1:[^:]*$/.test(c))).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:1501", "sessionEventsBefore:se1:501"]);
     });
 

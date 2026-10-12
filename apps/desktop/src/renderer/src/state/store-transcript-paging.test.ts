@@ -36,7 +36,7 @@ describe("opening a long session", () => {
     const { t, lastSeq } = store.getState().transcripts.se1!;
     expect(lastSeq).toBe(N);
     // 2701..3000: three hundred events, the first of them a prompt.
-    expect(t.earlierFrom).toBe(2701);
+    expect(t.earlier?.from).toBe(2701);
     expect(t.blocks[0]).toMatchObject({ kind: "user", text: "q2701", seq: 2701 });
     expect(said(t.blocks)).toHaveLength(300);
     expect(reads(api.calls)).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:end:init,usage,summary,prompt_hint"]);
@@ -55,11 +55,19 @@ describe("opening a long session", () => {
     expect(t.summary?.text).toBe("Built the thing.");
   });
 
+  it("knows when the turn before it settled, for the first turn's checkpoint", async () => {
+    const log = Array.from({ length: N }, (_, i) => ev(i + 1));
+    for (let seq = 100; seq <= N; seq += 100) log[seq - 1] = { seq, sessionId: "se1", event: sessionEvent("status", { status: "idle" }, seq) };
+    const { store } = seed({ log }); await store.getState().boot();
+    await store.getState().openSession("se1");
+    expect(store.getState().transcripts.se1!.t.earlier).toEqual({ from: 2701, settledAt: 2700 });
+  });
+
   it("reads back to the reader's mark, so the rule lands where they stopped", async () => {
     const { store } = seed({ seenSeq: 1500 }); await store.getState().boot();
     await store.getState().openSession("se1");
     const { t } = store.getState().transcripts.se1!;
-    expect(t.earlierFrom).toBe(1401);
+    expect(t.earlier?.from).toBe(1401);
     const rule = t.blocks.findIndex((b) => b.kind === "unseen-mark");
     // Before the answer at 1501, with the turn from 1401 (and its run line) above it.
     expect(t.blocks[rule - 1]).toMatchObject({ kind: "run" });
@@ -76,7 +84,7 @@ describe("reading further back", () => {
     const before = store.getState().transcripts.se1!.t;
     await store.getState().loadEarlierEvents("se1");
     const { t } = store.getState().transcripts.se1!;
-    expect(t.earlierFrom).toBe(1701);
+    expect(t.earlier?.from).toBe(1701);
     expect(said(t.blocks)).toHaveLength(1300);
     const front = t.blocks.length - before.blocks.length;
     expect(t.base).toBe(-front);
@@ -92,7 +100,7 @@ describe("reading further back", () => {
     await store.getState().openSession("se1");
     await store.getState().loadEventsThrough("se1", 0);
     const { t } = store.getState().transcripts.se1!;
-    expect(t.earlierFrom).toBeUndefined();
+    expect(t.earlier).toBeUndefined();
     const once = Array.from({ length: N }, (_, i) => ev(i + 1)).reduce((acc, e) => reduceTranscript(acc, e.event, false, e.seq), emptyTranscript());
     expect(t.blocks).toEqual(once.blocks);
   });
@@ -106,7 +114,7 @@ describe("reading further back", () => {
     const { t, lastSeq } = store.getState().transcripts.se1!;
     expect(lastSeq).toBe(N + 1);
     expect(t.blocks.at(-1)).toMatchObject({ kind: "assistant", text: "live" });
-    expect(t.earlierFrom).toBe(1701);
+    expect(t.earlier?.from).toBe(1701);
     expect(reads(api.calls).filter((c) => c === "sessionEventsBefore:se1:2701")).toHaveLength(1);
   });
 
@@ -115,13 +123,13 @@ describe("reading further back", () => {
     await store.getState().openSession("se1");
     await Promise.all([store.getState().loadEarlierEvents("se1"), store.getState().loadEarlierEvents("se1")]);
     expect(reads(api.calls).filter((c) => c === "sessionEventsBefore:se1:2701")).toHaveLength(1);
-    expect(store.getState().transcripts.se1!.t.earlierFrom).toBe(1701);
+    expect(store.getState().transcripts.se1!.t.earlier?.from).toBe(1701);
   });
 
   it("exports the whole conversation, not the stretch on screen", async () => {
     const { store } = seed(); await store.getState().boot();
     await store.getState().openSession("se1");
     await store.getState().exportSession("se1");
-    expect(store.getState().transcripts.se1!.t.earlierFrom).toBeUndefined();
+    expect(store.getState().transcripts.se1!.t.earlier).toBeUndefined();
   });
 });

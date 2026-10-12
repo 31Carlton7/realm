@@ -366,6 +366,15 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const onSaveTurn = useCallback((seq: number, saved: boolean) => { run(() => saveTurn(id, seq, saved)); }, [id, saveTurn, run]);
   const promptFor = useApp((s) => (s.promptFor?.sessionId === id ? s.promptFor : null));
   const promptTaken = useApp((s) => s.promptTaken);
+  /* A long session opens on its newest turns; scrolling up past them, or a saved turn further back,
+     reads the log back to there. A failed read says so like any other action. */
+  const loadEarlierEvents = useApp((s) => s.loadEarlierEvents);
+  const loadEventsThrough = useApp((s) => s.loadEventsThrough);
+  const onEarlier = useCallback((throughSeq?: number) => {
+    const read = throughSeq === undefined ? loadEarlierEvents(id) : loadEventsThrough(id, throughSeq);
+    run(() => read);
+    return read;
+  }, [id, loadEarlierEvents, loadEventsThrough, run]);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
   // What is docked to this pane's right edge, if anything — one strip, one occupant.
   const dock = useApp((s) => s.sessionDock[id]);
@@ -636,7 +645,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       data-peek={peek || undefined}
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track
-        saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken}
+        saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken} onEarlier={onEarlier}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         // A plan, or an answer, handed to other models: this session's Agents tab, with it as the work.
         onImplementWith={peek ? undefined : (text) => run(() => openAgentsTabFor(id, { plan: text }))}

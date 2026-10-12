@@ -161,6 +161,11 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, barRef, on
   const ref = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const rect = usePaneRect(anchorRef);
+  /* The summary is of the whole session, and a long one opens holding only its newest turns: opening
+     the panel reads the rest, and the lists fill in as it lands. */
+  const loadEventsThrough = useApp((s) => s.loadEventsThrough);
+  const readAll = useApp((s) => s.run);
+  useEffect(() => { readAll(() => loadEventsThrough(sessionId, 0)); }, [sessionId, loadEventsThrough, readAll]);
   /* Pinned or floating, decided by how much room the pane has.
    *
    * The panel is a fixed 320 plus its inset. A pane wide enough to give that up and still leave a

@@ -1,4 +1,5 @@
 import type { SessionEvent, StoredSessionEvent } from "@realm/contracts";
+import type { Earlier } from "../panes/session/transcript-model";
 
 /**
  * How a transcript is read from its end.
@@ -25,21 +26,31 @@ export type ReadBefore = (beforeSeq: number, limit: number) => Promise<StoredSes
 
 /**
  * Events before `beforeSeq`, read a page at a time back from there, until there are at least `want`
- * of them and the first is a prompt — or until the log's start (`complete`). With `reach`, the first
- * must also be at or before that seq, for as long as `MARK_REACH` allows.
+ * of them and the first is a prompt — or until the log's start (`earlier` null). With `reach`, the
+ * first must also be at or before that seq, for as long as `MARK_REACH` allows.
  */
-export async function readBack(read: ReadBefore, beforeSeq: number, want: number, reach: number | null = null): Promise<{ events: StoredSessionEvent[]; complete: boolean }> {
+export async function readBack(read: ReadBefore, beforeSeq: number, want: number, reach: number | null = null): Promise<{ events: StoredSessionEvent[]; earlier: Earlier | null }> {
   let events: StoredSessionEvent[] = [];
   let before = beforeSeq;
   for (;;) {
     const page = await read(before, PAGE_BACK);
     events = [...page, ...events];
-    if (page.length < PAGE_BACK) return { events, complete: true };
+    if (page.length < PAGE_BACK) return { events, earlier: null };
     before = page[0]!.seq;
     const reached = (seq: number) => reach === null || seq <= reach || events.length >= MARK_REACH;
     for (let i = events.length - want; i >= 0; i--) {
       const e = events[i]!;
-      if (e.event.type === "user_message" && reached(e.seq)) return { events: events.slice(i), complete: false };
+      if (e.event.type === "user_message" && reached(e.seq)) return { events: events.slice(i), earlier: { from: e.seq, settledAt: settledBefore(events, i) } };
     }
   }
+}
+
+/** When the turn before `events[at]` settled, if the events read reach back to it: the last status
+ *  that settles a run, which is the time the reducer gives that turn's run line. */
+function settledBefore(events: readonly StoredSessionEvent[], at: number): number | null {
+  for (let i = at - 1; i >= 0; i--) {
+    const e = events[i]!.event;
+    if (e.type === "status" && e.payload.status !== "running" && e.payload.status !== "waiting_permission") return e.ts;
+  }
+  return null;
 }
