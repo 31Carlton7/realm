@@ -697,6 +697,27 @@ describe("the owners a profile lists", () => {
     expect(called("codeReview.list").map((c) => c.params.section).sort()).toEqual(["authored", "review"]);
   });
 
+  it("leaves the column as it was when the server refuses to store a press: no line about owners, no row let go and no list read again, and the next press on that row builds on the choice that is still stored", async () => {
+    pages.authored = [acmeAndMara()];
+    const { store } = await mount();
+    await listed();
+    await screen.findByRole("button", { name: /^Notes on streams/ });
+    const rows = await ownerRows();
+    calls.length = 0;
+    listFor = () => new Promise<PrPage>(() => {});
+    storedFor = () => Promise.reject(Object.assign(new Error("no such profile"), { code: "NOT_FOUND" }));
+    fireEvent.click(rows[1]!);
+    await waitFor(() => expect(store.getState().toasts.map((t) => t.text)).toContain("no such profile"));
+    await exited();
+    expect(line()).toBeNull();
+    expect(screen.getByRole("button", { name: /^Notes on streams/ })).toBeInTheDocument();
+    expect(called("codeReview.list")).toHaveLength(0);
+    storedFor = null;
+    fireEvent.click((await ownerRows())[1]!);
+    await waitFor(() => expect(stored()).toHaveLength(2));
+    expect(stored()[1]).toEqual(NOT_MARA);
+  });
+
   it("takes a second owner unticked the same way for a new listing: its rows go at once, and the lists are read again", async () => {
     ownersOf.p1 = NOT_MARA;
     await mount();
@@ -966,6 +987,18 @@ describe("the owners a profile lists", () => {
     await waitFor(() => expect(called("codeReview.list").map((c) => c.params.section).sort()).toEqual(["authored", "review"]));
   });
 
+  it("keeps an empty list's line to the owners listed once a server that has no call for the choice has given way to one that answers with a choice that leaves an owner out", async () => {
+    ownersRefusal = noSuchCall();
+    pages = { authored: [nothing()], review: [nothing()], team: [nothing()] };
+    const { store } = await mount();
+    await screen.findByText("Nothing of yours is open.");
+    ownersRefusal = null;
+    ownersOf.p1 = NOT_MARA;
+    act(() => store.getState().applyConnectionState("reconnecting"));
+    await act(async () => { store.getState().applyConnectionState("connected"); });
+    expect(await screen.findByText("Nothing of yours is open for the listed owners.")).toBeInTheDocument();
+  });
+
   it("does not take a read of the choice that failed on its way for a refusal: a column opened again lets its held rows go, as while the choice is not known", async () => {
     ownersRefusal = Object.assign(new Error("socket closed"), { code: "DISCONNECTED" });
     await mount();
@@ -1089,6 +1122,40 @@ describe("the owners a profile lists", () => {
     expect(await within(results).findByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
     await act(async () => { answers[0]!({ prs: [ROW, under("mara", 7, "Notes on streams")], nextCursor: null, total: 2 }); });
     expect(within(results).queryByRole("button", { name: /^Notes on streams/ })).toBeNull();
+    expect(within(results).getByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+  });
+
+  it("does not say the results of a search of plain words could not be loaded when a search it asked for before a change of choice was heard fails after the search read again", async () => {
+    const answers: { go: (page: PrPage) => void; fail: (e: Error) => void }[] = [];
+    foundFor = () => new Promise<PrPage>((resolve, reject) => { answers.push({ go: resolve, fail: reject }); });
+    await mount();
+    await listed();
+    await searchFor("streams");
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await act(async () => { tell("codeReview.ownersChanged", { profileId: "p1", owners: NOT_MARA }); });
+    await waitFor(() => expect(answers).toHaveLength(2));
+    await act(async () => { answers[1]!.go({ prs: [ROW], nextCursor: null, total: 1 }); });
+    const results = screen.getByRole("region", { name: "Results" });
+    expect(await within(results).findByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+    await act(async () => { answers[0]!.fail(new Error("GitHub took too long to answer")); });
+    expect(screen.queryByText(/^Could not load these/)).toBeNull();
+    expect(within(results).getByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
+  });
+
+  it("does not add a further page of the results of a search of plain words it asked for before a change of choice was heard", async () => {
+    found = { prs: [ROW], nextCursor: "o2", total: 2 };
+    await mount();
+    await listed();
+    await searchFor("streams");
+    const results = await screen.findByRole("region", { name: "Results" });
+    const more = await within(results).findByRole("button", { name: "Show more" });
+    const answers: ((page: PrPage) => void)[] = [];
+    foundFor = () => new Promise<PrPage>((resolve) => { answers.push(resolve); });
+    fireEvent.click(more);
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await act(async () => { tell("codeReview.ownersChanged", { profileId: "p1", owners: NOT_MARA }); });
+    await act(async () => { answers[0]!({ prs: [under("mara", 8, "More notes")], nextCursor: null, total: 2 }); });
+    expect(within(results).queryByRole("button", { name: /^More notes/ })).toBeNull();
     expect(within(results).getByRole("button", { name: /^Stream the tokenizer/ })).toBeInTheDocument();
   });
 

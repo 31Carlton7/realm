@@ -109,18 +109,21 @@ describe("Menu as an OS menu", () => {
     expect(document.querySelector(".menu")).toBeNull();
   });
 
-  it("moves a menu that grows past what an OS menu takes while it is up into the app, and takes the OS menu down", async () => {
+  it("moves a menu that grows past what an OS menu takes while it is up into the app, takes the OS menu down, and leaves the menu up when the OS menu's answer comes late", async () => {
     let settle: (v: string | null) => void = () => {};
     const bridge = install([]);
     bridge.popupMenu.mockImplementation(() => new Promise((r) => { settle = r; }));
+    const onClose = vi.fn();
     const rows = (n: number) => Array.from({ length: n }, (_, i): MenuItem => ({ label: `Row ${i}`, onSelect: () => {} }));
-    const { rerender, findByRole } = render(<Menu items={rows(OS_MENU_ROWS_MAX)} onClose={() => {}} at={{ x: 0, y: 0 }} label="Options" />);
+    const { rerender, findByRole, getByRole } = render(<Menu items={rows(OS_MENU_ROWS_MAX)} onClose={onClose} at={{ x: 0, y: 0 }} label="Options" />);
     await waitFor(() => expect(bridge.popupMenu).toHaveBeenCalledOnce());
-    rerender(<Menu items={rows(OS_MENU_ROWS_MAX + 1)} onClose={() => {}} at={{ x: 0, y: 0 }} label="Options" />);
+    rerender(<Menu items={rows(OS_MENU_ROWS_MAX + 1)} onClose={onClose} at={{ x: 0, y: 0 }} label="Options" />);
     expect(within(await findByRole("menu", { name: "Options" })).getAllByRole("menuitem")).toHaveLength(OS_MENU_ROWS_MAX + 1);
     expect(bridge.closeMenu).toHaveBeenCalledOnce();
     await act(async () => settle(null));
     expect(bridge.popupMenu).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(getByRole("menu", { name: "Options" })).toBeInTheDocument();
   });
 
   it("hands a section head to the OS as a line of information, and a row's detail as its tooltip", async () => {
