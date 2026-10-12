@@ -1,5 +1,6 @@
 /** Registers concrete pane implementations. Import once from App. */
 import { registerPane } from "./registry";
+import { lazyComponent } from "../lazy-component";
 import { TerminalPane } from "./TerminalPane";
 registerPane("terminal", TerminalPane);
 import { SessionPane } from "./session/SessionPane";
@@ -20,10 +21,9 @@ import { LibraryPage } from "./library/LibraryPage";
 registerPane("library-page", LibraryPage);
 import { ConnectionsPage } from "./connections/ConnectionsPage";
 registerPane("connections-page", ConnectionsPage);
-import { CodeReviewPage } from "./code-review/CodeReviewPage";
-registerPane("code-review-page", CodeReviewPage);
-import { SettingsPage } from "./settings/SettingsPage";
-registerPane("settings-page", SettingsPage);
+// Code review and Settings are their own chunks: nobody opens either before the window is up.
+registerPane("code-review-page", lazyComponent(() => import("./code-review/CodeReviewPage").then((m) => m.CodeReviewPage)));
+registerPane("settings-page", lazyComponent(() => import("./settings/SettingsPage").then((m) => m.SettingsPage)));
 import { ProfilePage } from "./profile/ProfilePage";
 registerPane("profile-page", ProfilePage);
 import { SchedulesPage } from "./schedules/SchedulesPage";

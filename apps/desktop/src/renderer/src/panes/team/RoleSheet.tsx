@@ -1,10 +1,12 @@
 import { Icon, parseRealmiteSpec, realmiteFromSeed, randomSeed, type RealmiteSpec } from "@realm/ui";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { AGENT_MODELS, CustomRoleSchema, teamShares, TEAM_DEFAULTS, type CustomRoleInput, type TeamRole, type TeamSpace } from "@realm/contracts";
-import { RealmiteMaker } from "../../components/RealmiteMaker";
+import { lazyComponent } from "../../lazy-component";
 import { Sheet } from "../../components/Sheet";
 import { useApp } from "../../state/store";
 import { invalidIssues, plainError, roleFieldErrors, sharesNote, wakeSentence, type RoleFieldErrors } from "./team-format";
+
+const RealmiteMaker = lazyComponent(() => import("../../components/RealmiteMaker").then((m) => m.RealmiteMaker));
 
 /** What a role runs on, named as the model catalog names it. The starters run on an ALIAS — "sonnet"
  *  is whichever Sonnet the Claude harness has now, so a template never pins a version that ages out —
@@ -131,7 +133,7 @@ export function RoleSheet({ spaceId, team, role, copyOf, draft, onDraft, otherSh
       </>}>
       <form className="form tp-role-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Podcast Booker" maxLength={60} autoFocus={!role} {...invalid("name")} />{said("name")}</label>
-        <div className="field"><span>Realmite</span><RealmiteMaker spec={spec} onChange={setSpec} name={name.trim() || undefined} />{said("realmite")}</div>
+        <div className="field"><span>Realmite</span><Suspense fallback={null}><RealmiteMaker spec={spec} onChange={setSpec} name={name.trim() || undefined} /></Suspense>{said("realmite")}</div>
         <label className="field"><span>What they do</span>
           <textarea rows={6} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="What this teammate does, for whom, and what it must never do. It delivers to Review; it never sends or posts." {...invalid("brief")} />
           {said("brief")}
