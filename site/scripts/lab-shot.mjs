@@ -4,7 +4,7 @@
  *
  *   node scripts/lab-shot.mjs --url http://localhost:3611/lab/hero/doorway --out ~/.cache/hero-lab/doorway \
  *     [--name desk] [--port 9411] [--size 1440x900] [--dpr 1] [--mobile] [--reduced] \
- *     [--pointer 980,520] [--frames 3] [--gap 400] [--wait 3500] [--scroll 0] [--nogpu]
+ *     [--pointer 980,520] [--frames 3] [--gap 400] [--wait 3500] [--scroll 0] [--nogpu] [--switcher]
  *
  * Writes <out>/<name>-<i>.png (one per frame) and prints a JSON summary: the canvas state
  * (`data-lab-field`: on | off | pending), an estimated frame rate over two seconds, and any page
@@ -153,6 +153,9 @@ try {
     }
     await sleep(900)
   }
+
+  // The lab's own switcher is review chrome, not part of any concept: out of every picture unless asked for.
+  if (!args.switcher) await evaluate(`document.querySelector('nav[aria-label="Hero concepts"]')?.remove()`)
 
   const field = await evaluate("document.documentElement.dataset.labField ?? document.documentElement.dataset.dimField ?? null")
   const before = await evaluate("window.__labFrames ?? -1")
