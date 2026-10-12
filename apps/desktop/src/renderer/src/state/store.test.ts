@@ -407,7 +407,7 @@ describe("app store", () => {
     const set: string[] = []; const store = createAppStore({ ...api, setSetting: async (k, v) => { set.push(`${k}=${v}`); } });
     await store.getState().boot();
     await store.getState().setThemeName("dark", "monokai");
-    expect(store.getState().themeNames).toEqual({ light: "realm", dark: "monokai" });
+    expect(store.getState().themeNames).toEqual({ light: "codex", dark: "monokai" });
     await store.getState().setThemeName("light", "solarized");
     expect(store.getState().themeNames).toEqual({ light: "solarized", dark: "monokai" });
     expect(store.getState().themePref).toBe("system");
@@ -507,8 +507,8 @@ describe("app store", () => {
       .toEqual({ light: "solarized", dark: "one" });
     // A home written by a build that shipped a theme this one does not have must not leave the app
     // with a palette it cannot derive.
-    expect(await stored({ "ui.themeName.dark": "cobalt" })).toEqual({ light: "realm", dark: "realm" });
-    expect(await stored({ "ui.themeName.light": { mode: "x" } })).toEqual({ light: "realm", dark: "realm" });
+    expect(await stored({ "ui.themeName.dark": "cobalt" })).toEqual({ light: "codex", dark: "realm" });
+    expect(await stored({ "ui.themeName.light": { mode: "x" } })).toEqual({ light: "codex", dark: "realm" });
   });
 
   it("a home last opened by the single-selection build keeps its palette on the faces that have one", async () => {
@@ -521,8 +521,8 @@ describe("app store", () => {
     expect(await stored("one")).toEqual({ light: "one", dark: "one" });
     // ...and only those faces. Monokai in the light slot is a slot the light window cannot read;
     // it has to become the palette that always has a light face, not a dark window at noon.
-    expect(await stored("monokai")).toEqual({ light: "realm", dark: "monokai" });
-    expect(await stored("cobalt")).toEqual({ light: "realm", dark: "realm" });
+    expect(await stored("monokai")).toEqual({ light: "codex", dark: "monokai" });
+    expect(await stored("cobalt")).toEqual({ light: "codex", dark: "realm" });
   });
 
   it("the per-face key wins over the legacy one, and the legacy key is never written again", async () => {
