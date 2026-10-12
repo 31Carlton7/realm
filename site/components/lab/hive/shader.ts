@@ -304,7 +304,9 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
   let doorHalf = vec2f((DOOR_A1 - DOOR_A0) * 0.5, (DOOR_C1 - DOOR_C0) * 0.5);
   let dDoor = rectPx(right, doorAt, doorHalf);
   let opening = coverage(dDoor, w);
-  let glow = doorGlow(cell, t);
+  // A doorway's light is far brighter than its walls, so in fog it would outlast them as a mark with
+  // nothing around it; it goes into the fog a little faster than the cube that holds it.
+  let glow = doorGlow(cell, t) * (1.0 - fogAt(depth));
 
   var sum = vec3f(0.0);
   var weight = 0.0;
@@ -315,7 +317,7 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     let k = saturate((top.p.x - x0 + top.p.y - y0) * 0.5);
     let tone = mix(TOP_NEAR, TOP_FAR, k);
     let lamp = pointerLight(top.p, vec3f(0.0, 0.0, 1.0));
-    sum += tone * (DUSK * SKY + POINTER_LIGHT * lamp * 0.3) * wTop;
+    sum += tone * (DUSK * 1.35 * SKY + POINTER_LIGHT * lamp * 0.3) * wTop;
     weight += wTop;
   }
 
@@ -373,7 +375,7 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
   return Layer(finish(sum / max(weight, 1e-4), depth), alpha);
 }
 
-const AROUND = array<vec2f, 7>(
+var<private> AROUND: array<vec2f, 7> = array<vec2f, 7>(
   vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(-1.0, 0.0), vec2f(0.0, 1.0),
   vec2f(0.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
 );
@@ -391,7 +393,9 @@ fn ground(o: vec3f, d: vec3f, t: f32) -> vec3f {
     let lift = riseAt(centre);
     let q = abs(p.xy - centre) - vec2f(0.5);
     let edge = length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0);
-    ao *= 1.0 - 0.5 * exp(-max(edge, 0.0) / 0.1) * mix(0.35, 1.0, exp(-lift / 0.18));
+    // Close in to a cube's foot the ground sees less sky. A risen cube still keeps the sky off the
+    // ground under it, with a wider, softer edge the higher it goes.
+    ao *= 1.0 - 0.55 * exp(-max(edge, 0.0) / (0.1 + lift * 0.6)) * (1.0 - 0.3 * lift / MAX_RISE);
     let glow = doorGlow(c, t);
     if (glow > 0.001) {
       spill += doorSpill(centre, lift, glow, p, vec3f(0.0, 0.0, 1.0));
@@ -410,6 +414,37 @@ fn windowShade(p: vec2f) -> f32 {
   let h = r.zw * 0.5;
   let sd = sdRoundRect(p - r.xy - h - vec2f(0.0, 46.0), h + vec2f(10.0, 0.0), 40.0);
   return 1.0 - 0.6 * (1.0 - smoothstep(-30.0, 70.0, sd));
+}
+
+// Where a point of the world is drawn on the page, in CSS px, and how far away it is.
+fn toPage(q: vec3f) -> vec3f {
+  let v = q - hive.eye.xyz;
+  let z = dot(v, hive.forward.xyz);
+  let s = hive.eye.w / z;
+  return vec3f(hive.principal.xy + vec2f(dot(v, hive.right.xyz), -dot(v, hive.up.xyz)) * s, z);
+}
+
+// Light scattered in the evening air close around each lit doorway: in front of everything near it,
+// so it is summed over the doorways around the pixel rather than drawn on any one surface. Small —
+// a lit opening is a few pixels across — and gone in fog with the doorway.
+fn doorHalo(p: vec2f, home: vec2f, t: f32) -> vec3f {
+  var light = vec3f(0.0);
+  for (var k = 0; k < 7; k++) {
+    let c = home + AROUND[k];
+    let glow = doorGlow(c, t);
+    if (glow <= 0.001) { continue; }
+    let centre = cellCentre(c);
+    let lift = riseAt(centre);
+    let door = vec3f(centre.x - 0.5 + (DOOR_A0 + DOOR_A1) * 0.5, centre.y - 0.5, lift + 1.0 - (DOOR_C0 + DOOR_C1) * 0.5);
+    let at = toPage(door);
+    // A doorway under the window is behind it, and lights nothing outside it.
+    let r = hive.portal;
+    if (r.z > 0.0 && sdRoundRect(at.xy - r.xy - r.zw * 0.5, r.zw * 0.5, 20.0) < 0.0) { continue; }
+    let d = length(p - at.xy) / (hive.eye.w / at.z);
+    let fade = 1.0 - fogAt(at.z - hive.forward.w);
+    light += SPILL_LIGHT * glow * fade * fade * (exp(-d * d / 0.045) * 0.22 + exp(-d / 0.3) * 0.05);
+  }
+  return light;
 }
 
 // The words keep the page's own colour: the field is held off them by a hard bound around their
@@ -463,6 +498,7 @@ fn clearance(p: vec2f) -> f32 {
   if (cover < 0.999) {
     color += (1.0 - cover) * ground(o, d, t);
   }
+  color += doorHalo(p, home, t);
 
   let lit = mix(toLinear(PAGE), color, open);
   return vec4f(dither(toSrgb(lit), px, t), 1.0);

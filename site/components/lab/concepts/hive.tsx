@@ -21,7 +21,7 @@ export default function Hive({ download }: ConceptProps) {
           </div>
         </div>
       </div>
-      <ProductWindow className="mx-auto mt-14 w-full max-w-[72rem] px-4 sm:mt-24 sm:px-10 lg:mt-36" />
+      <ProductWindow className="mx-auto mt-40 w-full max-w-[72rem] px-4 sm:mt-24 sm:px-10 lg:mt-36" />
     </section>
   )
 }

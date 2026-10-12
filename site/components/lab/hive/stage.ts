@@ -86,7 +86,7 @@ export const createHive: StageFactory = (gpu, output) => {
       // taken the field by the bottom of the words.
       const focus = along(onPlane(principal[0], principal[1], principal, 0))
       const wordsY = copy[2] > 0 ? copy[1] + copy[3] : principal[1] - input.height * 0.4
-      const fogFrom = principal[1] - (principal[1] - wordsY) * 0.2
+      const fogFrom = principal[1] - (principal[1] - wordsY) * 0.45
       const fogStart = along(onPlane(principal[0], fogFrom, principal, 0)) - focus
       const fogEnd = along(onPlane(principal[0], wordsY, principal, 0)) - focus
       const fogScale = FOG_AT_WORDS / Math.max(fogEnd - fogStart, 1)
@@ -111,7 +111,7 @@ export const createHive: StageFactory = (gpu, output) => {
       uniforms.pointer = [pointer[0], pointer[1], input.still ? 0 : eased.presence, 0]
       uniforms.copy = rect(copy)
       uniforms.portal = rect(portal)
-      uniforms.look = [fogStart, fogScale, 0.1, 3]
+      uniforms.look = [fogStart, fogScale, 0.18, 2.5]
       shader.set({ hive: uniforms })
       frame.pass(output, shader)
     },
