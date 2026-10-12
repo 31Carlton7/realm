@@ -1,11 +1,15 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { DiffView } from "./DiffView";
 import { CodeBlock, CommandView, MatchList, RequestView, TerminalView, TodoList, UploadView, clampGroups } from "./ToolViews";
 import { fileDiffsFor, parseUnifiedDiff } from "./diff";
 import { PermissionCard } from "../PermissionCard";
 import { ToolCard, ToolCwd } from "../ToolCard";
 import type { ToolBlock } from "../tool-group";
+import { loadRichLibs } from "./rich-libs";
+
+// KaTeX and highlight.js load after boot in the app; these cases are about what they draw.
+beforeAll(loadRichLibs);
 
 const q = (sel: string) => [...document.querySelectorAll<HTMLElement>(sel)];
 const text = (sel: string) => q(sel).map((e) => e.textContent);

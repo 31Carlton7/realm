@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useDissolve } from "../../../components/ScrollFades";
 import { DiffView, PathLabel } from "./DiffView";
 import { grammarForPath, highlightToHtml } from "./highlight";
+import { useRichLibs } from "./rich-libs";
 import type { MatchGroup, ToolArg, ToolInputView, ToolPanel, ToolResultView, Todo, UploadFile } from "./tool-view";
 
 /** The drawn forms of a tool call's input and result (AICSS's tool/structured-output blocks, fitted
@@ -39,7 +40,8 @@ export function CodeBlock({ text, lang, firstLine = null, clamp = LINE_CLAMP }: 
   // highlight.js escapes everything it does not tokenise, and emits only <span class>. DOMPurify
   // runs anyway: the sanitizer is this app's single gate for generated markup, and carving out an
   // exception for "markup we believe is safe" is how the one that is not gets in.
-  const html = useMemo(() => DOMPurify.sanitize(highlightToHtml(shown, lang)), [shown, lang]);
+  const libs = useRichLibs();
+  const html = useMemo(() => DOMPurify.sanitize(highlightToHtml(shown, lang)), [shown, lang, libs]);
   /* The block scrolls down past its cap and its body scrolls across: each dissolves where it runs on
      downwards, and neither sideways — a code line is read to its last character. */
   const block = useRef<HTMLDivElement>(null);

@@ -20,13 +20,33 @@ export function TerminalView({ terminalId, title, visible }: { terminalId: strin
   const subscribe = useCallback((cb: () => void) => (store ? store.subscribe(cb) : () => {}), [store]);
   const driving = useSyncExternalStore(subscribe, () => store?.getState().terminalDriving[terminalId] ?? false);
 
+  // Read by the mount below, which may finish after the `visible` effect has already run.
+  const shown = useRef(visible);
+  shown.current = visible;
+
   useEffect(() => {
     const container = ref.current!;
-    const entry = getTerminalHub().acquire(terminalId);
-    entry.attach(container);
-    const ro = new ResizeObserver(() => { try { entry.fit.fit(); } catch { /* not visible */ } });
-    ro.observe(container);
-    return () => { ro.disconnect(); entry.detach(); };
+    const hub = getTerminalHub();
+    let undo: (() => void) | null = null;
+    let gone = false;
+    const mount = () => {
+      if (gone) return;
+      const entry = hub.acquire(terminalId);
+      entry.attach(container);
+      const ro = new ResizeObserver(() => { try { entry.fit.fit(); } catch { /* not visible */ } });
+      ro.observe(container);
+      undo = () => { ro.disconnect(); entry.detach(); };
+      return entry;
+    };
+    // xterm is its own chunk. Once it is here (every mount after the first) the terminal attaches in
+    // this effect as it always did; the first one waits for it, with the hint already drawn over the
+    // empty pane, and then takes the focus the `visible` effect could not give it.
+    if (hub.ready()) mount();
+    else void hub.whenReady().then(() => {
+      const entry = mount();
+      if (entry && shown.current) try { entry.term.focus(); } catch { /* ignore */ }
+    }, (e: unknown) => console.warn("[terminal] xterm failed to load:", e));
+    return () => { gone = true; undo?.(); };
   }, [terminalId]);
 
   useEffect(() => {

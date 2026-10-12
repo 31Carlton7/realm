@@ -1,7 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Markdown, renderMarkdown } from "./Markdown";
 import { BLOCK_MARK } from "./rich/ui-block-md";
+import { loadRichLibs } from "./rich/rich-libs";
+
+// KaTeX and highlight.js load after boot in the app; these cases are about what they draw.
+beforeAll(loadRichLibs);
 
 /**
  * Chart, diagram and comparison blocks in assistant prose (`rich/UiBlock.tsx`): what draws, when it
