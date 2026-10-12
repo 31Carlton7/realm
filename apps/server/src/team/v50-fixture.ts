@@ -33,6 +33,9 @@ export const ROLE = { manager: fid("RB", 1), producer: fid("RB", 2), researcher:
 export const REVIEW = { slides: fid("RV", 1), dm: fid("RV", 2), email: fid("RV", 3), doc: fid("RV", 4), report: fid("RV", 5), deskLeads: fid("RV", 6), studio: fid("RV", 7), shop: fid("RV", 8) };
 
 export const V50_SCHEMA = `
+-- Every home has the event log (v3); later migrations index it.
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL,
+  type TEXT NOT NULL, payload_json TEXT NOT NULL);
 CREATE TABLE profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL, color TEXT NOT NULL,
   sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE spaces (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,

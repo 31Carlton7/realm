@@ -58,9 +58,8 @@ describe("the tool_classes migration", () => {
 });
 
 describe("migration v54 — team policies", () => {
-  it("comes right after the tool classes, and is the last migration on this branch", () => {
+  it("comes right after the tool classes", () => {
     expect(POLICIES_AT).toBe(CLASSES_AT + 1);
-    expect(POLICIES_AT).toBe(migrations.length - 1);
   });
 
   it("loses nothing: every v50 row of every table is byte-equal after, on its v50 columns", () => {
