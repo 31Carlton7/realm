@@ -388,6 +388,16 @@ describe("a queue of three or more", () => {
     expect(rows()).toHaveLength(0);
   });
 
+  it("does not fold away a field that is open when a third message arrives", async () => {
+    // THE MUTANT: the fold ignoring the edit — the field the user is typing in vanishes under them.
+    const { store } = await mount([prompt("q1", "first"), prompt("q2", "second")]);
+    fireEvent.click(rows()[1]!.querySelector(".queue-edit-btn")!);
+    await waitFor(() => expect(document.querySelector(".queue-edit")).not.toBeNull());
+    act(() => { store.getState().applySessionQueue("se1", [prompt("q1", "first"), prompt("q2", "second", { held: true }), prompt("q3", "third")]); });
+    expect(document.querySelector(".queue-edit")).not.toBeNull();
+    expect(rows()).toHaveLength(3);
+  });
+
   it("says on the folded line that one of them is being edited", async () => {
     await mount([...three.slice(0, 2), prompt("q3", "third", { held: true })]);
     expect(document.querySelector(".queue-head")!.textContent).toContain("1 being edited");
