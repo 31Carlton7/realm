@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { describe, expect, it, vi } from "vitest";
 import { APP_ICON_IDS, AppIconStore, isIconPng, registerAppIcon, type IconFs } from "./app-icon";
 import { decodeRgbaPng as rgbaPng, hex } from "./png.test-util";
@@ -155,18 +155,13 @@ describe("app icon", () => {
      and 1024 in Get Info — and an icns missing one is scaled from another, blurred. iconutil reading
      it back is the check that it is a real icns and holds every size. */
   it.skipIf(process.platform !== "darwin")("resources/icon.icns holds every size, at 1x and 2x", () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-icns-"));
-    try {
-      const out = join(dir, "icon.iconset");
-      execFileSync("iconutil", ["-c", "iconset", join(__dirname, "../../../../resources/icon.icns"), "-o", out]);
-      const want = [16, 32, 128, 256, 512].flatMap((n) => [`icon_${n}x${n}.png`, `icon_${n}x${n}@2x.png`]).sort();
-      expect(readdirSync(out).sort()).toEqual(want);
-      for (const n of [16, 32, 128, 256, 512]) {
-        const png = readFileSync(join(out, `icon_${n}x${n}@2x.png`));
-        expect(png.readUInt32BE(16), `${n}@2x`).toBe(n * 2);
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
+    const out = join(tempDir("realm-icns-"), "icon.iconset");
+    execFileSync("iconutil", ["-c", "iconset", join(__dirname, "../../../../resources/icon.icns"), "-o", out]);
+    const want = [16, 32, 128, 256, 512].flatMap((n) => [`icon_${n}x${n}.png`, `icon_${n}x${n}@2x.png`]).sort();
+    expect(readdirSync(out).sort()).toEqual(want);
+    for (const n of [16, 32, 128, 256, 512]) {
+      const png = readFileSync(join(out, `icon_${n}x${n}@2x.png`));
+      expect(png.readUInt32BE(16), `${n}@2x`).toBe(n * 2);
     }
   });
 });
