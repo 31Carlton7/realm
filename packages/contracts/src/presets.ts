@@ -340,7 +340,9 @@ export const PLAN_PERMISSION_MODE = "plan";
  *    and refuses everything outside `claudeAskTools` in `canUseTool` before the call runs.
  *  - **Codex** — `codexPolicyFor` maps it onto `approvalPolicy: "never"` + `sandbox: "read-only"`:
  *    read-only, with no approval to escalate through. Strictly tighter than Plan, whose `untrusted`
- *    policy can be answered "yes" and let a write out of the sandbox.
+ *    policy can be answered "yes" and let a write out of the sandbox. A command still runs here,
+ *    inside that sandbox, where it can write nothing. That is what lets a reviewer on Codex be
+ *    born in Ask (`reviewerPermissionMode`).
  *  - **ACP** — the agent's OWN `ask` mode when it advertises one (`acpAskMode`), and no chip at all
  *    when it does not.
  */
@@ -362,6 +364,25 @@ export const sessionModeOf = (permissionMode: string): SessionMode =>
  *  The one predicate every read-only gate asks, so widening the axis can never leave one behind. */
 export const isReadOnlyMode = (permissionMode: string): boolean =>
   permissionMode === PLAN_PERMISSION_MODE || permissionMode === ASK_PERMISSION_MODE;
+
+/**
+ * The mode a reviewer session is born in, for the agent kind it runs on. Both answers are read-only
+ * (`isReadOnlyMode`). They differ in what is put to the person while the review runs.
+ *
+ * - **Codex** is born in Ask. `codexPolicyFor` gives Plan and Ask the same read-only sandbox. Plan
+ *   keeps the approval policy `untrusted`, under which Codex puts to the person every command it
+ *   does not know as safe, so a review nobody is watching stops on a card. Ask turns approvals off:
+ *   the kernel refuses a write and nothing is put to anybody.
+ * - **Claude** stays in Plan, where Claude Code's own plan mode judges commands itself and asks for
+ *   none of them. It can still ask before it writes a file or leaves Plan. Ask would not serve a
+ *   reviewer there, because `claudeAskTools` leaves `Bash` out and the diff pane's reviewer starts
+ *   from `git diff HEAD`.
+ *
+ * Every other kind that can review (`AGENT_SUPPORTS_PLAN_MODE`) is born in Plan, and a kind that
+ * cannot is never asked about.
+ */
+export const reviewerPermissionMode = (kind: import("./entities").AgentKind): string =>
+  kind === "codex" ? ASK_PERMISSION_MODE : PLAN_PERMISSION_MODE;
 
 /**
  * Agent kinds that can actually be put into Plan.

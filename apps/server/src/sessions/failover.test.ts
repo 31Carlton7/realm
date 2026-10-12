@@ -20,11 +20,13 @@ function harness(opts: {
    *  signed out and the next one signed in, which is the only way to tell a carried verdict from a
    *  fresh one. */
   loggedIn?: boolean | null | ((k: AgentKind) => boolean | null);
+  /** Whether the session is a reviewer, and the mode it was born in. */
+  reviewer?: boolean; permissionMode?: string;
 } = {}) {
   const settings = new Map<string, unknown>([["failover.policy:sp1", opts.policy]]);
   let session: Session = {
     id: "se1", spaceId: "sp1", projectId: null, agentKind: opts.agentKind ?? "claude",
-    model: "claude-opus-5", effort: null, permissionMode: "default", fastMode: false,
+    model: "claude-opus-5", effort: null, permissionMode: opts.permissionMode ?? "default", fastMode: false,
     environmentId: "en1", cwd: "/tmp/x", status: "running", providerSessionId: "prov-1",
     title: "t", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null,
     createdAt: 0, updatedAt: 0,
@@ -60,6 +62,7 @@ function harness(opts: {
     },
     setTimer: (fn) => { pending = fn; return 0 as never; },
     clearTimer: () => { pending = null; },
+    ...(opts.reviewer === undefined ? {} : { reviewer: () => opts.reviewer === true }),
   });
 
   return {
@@ -207,6 +210,51 @@ describe("the handover itself", () => {
     h.svc.onError(h.session(), "usage limit reached");
     await vi.waitFor(() => expect(h.session().agentKind).toBe("codex"));
     expect(h.svc.onError(h.session(), "socket hang up")).toBe("retry");
+  });
+});
+
+describe("a reviewer that is handed over", () => {
+  const limit = async (h: ReturnType<typeof harness>, lands: AgentKind) => {
+    h.svc.turnStarted("se1", msg);
+    h.svc.onError(h.session(), "usage limit reached");
+    await vi.waitFor(() => expect(h.session().agentKind).toBe(lands));
+  };
+
+  it("moves a reviewer born on Claude into Ask when it lands on Codex, where Plan would ask before every command", async () => {
+    const h = harness({ policy: RETRY_CHAIN, reviewer: true, permissionMode: "plan" });
+    await limit(h, "codex");
+    expect(h.session().permissionMode).toBe("ask");
+  });
+
+  it("moves a reviewer born on Codex into Plan when it lands on Claude, where Ask refuses the shell", async () => {
+    const h = harness({ policy: { retry: false, chain: ["claude"] }, agentKind: "codex", reviewer: true, permissionMode: "ask" });
+    await limit(h, "claude");
+    expect(h.session().permissionMode).toBe("plan");
+  });
+
+  it("passes a reviewer over an agent that cannot be held read-only and goes on to the next one that can", async () => {
+    const h = harness({ policy: { retry: false, chain: ["acp:gemini", "codex"] }, reviewer: true, permissionMode: "plan" });
+    await limit(h, "codex");
+    expect(h.emitted.filter((e) => e.type === "handoff")).toHaveLength(1);
+  });
+
+  it("stops a reviewer whose chain holds no agent that can be held read-only, and leaves it where it is", () => {
+    const h = harness({ policy: { retry: false, chain: ["acp:gemini"] }, reviewer: true, permissionMode: "plan" });
+    h.svc.turnStarted("se1", msg);
+    expect(h.svc.onError(h.session(), "usage limit reached")).toBe("stop");
+    expect(h.session()).toMatchObject({ agentKind: "claude", permissionMode: "plan" });
+    expect(h.stopped).toEqual([]);
+  });
+
+  it("leaves the mode of a session that is no reviewer as it was across a handoff", async () => {
+    const h = harness({ policy: RETRY_CHAIN, reviewer: false, permissionMode: "acceptEdits" });
+    await limit(h, "codex");
+    expect(h.session().permissionMode).toBe("acceptEdits");
+  });
+
+  it("still hands a session that is no reviewer to an agent that cannot be held read-only", async () => {
+    const h = harness({ policy: { retry: false, chain: ["acp:gemini"] }, reviewer: false });
+    await limit(h, "acp:gemini");
   });
 });
 

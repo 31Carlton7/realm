@@ -132,6 +132,11 @@ export function pickCodexDecision(decision: PermissionDecision, availableDecisio
  * through: Codex's own config validator describes exactly this pairing as "read-only permissions with
  * approvals disabled". The sandbox does the refusing in the kernel — a write under
  * `codex sandbox -c sandbox_mode='"read-only"'` fails with "Operation not permitted".
+ *
+ * Ask is also the pair a reviewer on Codex is born under (`reviewerPermissionMode`). `untrusted`
+ * puts more to the person than a refused write: every command Codex does not know as safe waits on
+ * a card, and a review nobody is watching waits with it. With approvals off nothing is put to
+ * anybody, and the sandbox still refuses the write.
  */
 export function codexPolicyFor(permissionMode: string | undefined): { approvalPolicy: string; sandbox: string } {
   if (permissionMode === "plan") return { approvalPolicy: "untrusted", sandbox: "read-only" };

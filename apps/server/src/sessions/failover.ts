@@ -1,7 +1,7 @@
 import {
-  AUTH_MAX_RECHECKS, DEFAULT_FAILOVER_POLICY, FailoverPolicySchema, authBackoffFor, authFix, backoffFor,
+  AGENT_SUPPORTS_PLAN_MODE, AUTH_MAX_RECHECKS, DEFAULT_FAILOVER_POLICY, FailoverPolicySchema, authBackoffFor, authFix, backoffFor,
   buildHandoffContext, classifyFailure, exhaustedNote, failoverPolicyKey, handoffContextKey, handoffNote,
-  isHandoffable, isRetryable, nextInChain, sessionEvent, FAILOVER_MAX_RETRIES,
+  isHandoffable, isRetryable, nextInChain, reviewerPermissionMode, sessionEvent, FAILOVER_MAX_RETRIES,
   type AgentKind, type FailoverPolicy, type FailureKind, type Session, type SessionEvent,
 } from "@realm/contracts";
 import type { SessionsStore, SessionEventsStore } from "../store/sessions";
@@ -85,6 +85,11 @@ export type FailoverDeps = {
    * the thirty seconds in which the credential changed.
    */
   probe: (opts: { force: boolean }) => Promise<ProbeResult[]>;
+  /** Whether a session is a reviewer (`ReviewService`, `CodeReviewService`). A reviewer is held
+   *  read-only on whatever agent it runs on, and both places that start one refuse a kind that
+   *  cannot be held to that. A handoff keeps the same rule: it passes over such a kind, and moves
+   *  the reviewer into the read-only mode of the kind it lands on. Unwired, no session is one. */
+  reviewer?: (sessionId: string) => boolean;
   /** Injectable so tests do not spend real seconds on the backoff ladder. */
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (t: ReturnType<typeof setTimeout>) => void;
@@ -217,7 +222,7 @@ export class FailoverService {
    */
   private escalate(session: Session, kind: FailureKind, turn: Attempt, policy: FailoverPolicy): "handoff" | "stop" {
     if (!isHandoffable(kind)) { this.cancel(session.id); return "stop"; }
-    const to = nextInChain(policy, [session.agentKind, ...turn.tried]);
+    const to = nextInChain(policy, [session.agentKind, ...turn.tried, ...this.closedTo(session, policy)]);
     if (!to) {
       // Nowhere to go. Said out loud rather than swallowed: a user who configured no chain and just
       // lost an hour to a usage limit should learn that a chain is the thing that would have helped.
@@ -308,7 +313,21 @@ export class FailoverService {
   }
 
   /**
-   * Move the session onto `to` and replay the turn there.
+   * The kinds of the chain this session may not be handed to. For a reviewer that is every kind
+   * Realm cannot hold read-only (`AGENT_SUPPORTS_PLAN_MODE`), which is the test both places that
+   * start a reviewer apply. `escalate` counts them as tried, so the chain goes on to the next kind
+   * that can be held, and a chain with none ends as an exhausted one. No other session is closed
+   * to any kind.
+   */
+  private closedTo(session: Session, policy: FailoverPolicy): AgentKind[] {
+    return this.d.reviewer?.(session.id) ? policy.chain.filter((k) => !AGENT_SUPPORTS_PLAN_MODE[k]) : [];
+  }
+
+  /**
+   * Move the session onto `to` and replay the turn there. A reviewer also takes the read-only mode
+   * a reviewer on `to` is born in (`reviewerPermissionMode`), because the mode it was born in is
+   * the one for the kind it leaves: Plan on Codex would put every command Codex does not trust to
+   * the person again, and Ask on Claude refuses the shell commands a reviewer reads a diff with.
    *
    * Order matters and is load-bearing throughout: the adapter is stopped BEFORE the row is rewritten
    * (a live handle outliving its own `agentKind` would keep pumping the old agent's events into a
@@ -323,6 +342,7 @@ export class FailoverService {
     this.d.settings.set(handoffContextKey(session.id), buildHandoffContext({ from: session.agentKind, turns }));
     this.d.sessions.update({
       id: session.id, agentKind: to,
+      ...(this.d.reviewer?.(session.id) ? { permissionMode: reviewerPermissionMode(to) } : {}),
       // All three are per-kind and none of them survives the move. A stale providerSessionId would
       // ask the new adapter to resume a thread it has never heard of; a stale model id would ask it
       // for a model from another vendor's catalogue.

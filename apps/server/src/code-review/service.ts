@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AGENT_META, AGENT_SUPPORTS_PLAN_MODE, PLAN_PERMISSION_MODE, PR_PAGE_SIZE, PR_PINS_MAX, PrReviewSchema, PrSummarySchema, REVIEW_INSTRUCTIONS_MAX, ReviewerPickSchema,
-  prKey, prName, prPinsKey, prReviewKey, prThreadKey, reviewInstructionsKey, reviewerPickKey, sameRepo,
+  AGENT_META, AGENT_SUPPORTS_PLAN_MODE, PR_PAGE_SIZE, PR_PINS_MAX, PrReviewSchema, PrSummarySchema, REVIEW_INSTRUCTIONS_MAX, ReviewerPickSchema,
+  prKey, prName, prPinsKey, prReviewKey, prThreadKey, reviewInstructionsKey, reviewerPermissionMode, reviewerPickKey, sameRepo,
   type AgentKind, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrPlace, type PrRef, type PrReview,
   type PrSection, type PrSummary, type ReviewInstructions, type ReviewerPick, type SubmitReview, type SubmittedReview,
 } from "@realm/contracts";
@@ -450,9 +450,10 @@ export class CodeReviewService {
   }
 
   /**
-   * Review with… — a reviewer session on the chosen model, read-only (plan mode, `requireReadOnly`),
-   * over the request's diff and under the profile's instructions, at the level and speed the menu's
-   * card set. Returns as soon as the session exists; the findings arrive as `codeReview.reviewChanged`.
+   * Review with… — a reviewer session on the chosen model, read-only (the mode
+   * `reviewerPermissionMode` names for its kind, `requireReadOnly`), over the request's diff and
+   * under the profile's instructions, at the level and speed the menu's card set. Returns as soon
+   * as the session exists; the findings arrive as `codeReview.reviewChanged`.
    */
   async review(input: { ref: PrRef; profileId: string; spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null;
     fastMode?: boolean }): Promise<PrReview> {
@@ -465,7 +466,7 @@ export class CodeReviewService {
     const { session } = this.d.sessions.create({
       spaceId: input.spaceId, agentKind: input.agentKind, projectId: input.projectId,
       model: input.model, effort: input.effort,
-      permissionMode: PLAN_PERMISSION_MODE, // HARD: a reviewer never runs in anything but read-only
+      permissionMode: reviewerPermissionMode(input.agentKind), // HARD: a reviewer never runs in anything but a read-only mode
       title: clip(`Review: ${prName(detail.ref)}`, 40),
       dispatchedBy: { sessionId: null, kind: "review" },
     });

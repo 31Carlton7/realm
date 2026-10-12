@@ -67,8 +67,9 @@ export const parsedPatch = (file: PrFile, patch: string | null): FileDiff => (pa
   : { path: file.path, oldPath: file.oldPath, staged: false, binary: false, hunks: [], truncated: false, truncatedReason: null, additions: file.additions, deletions: file.deletions });
 
 /** The reviewer's standing context: what this session is for and what it may not do. Enforced where
- *  it can be — the session runs in plan mode, without the delegation tools, and nothing it writes
- *  reaches GitHub — and stated for the rest. */
+ *  it can be — the session runs in the read-only mode `reviewerPermissionMode` names for its
+ *  kind, without the delegation tools, and nothing it writes reaches GitHub — and stated for the
+ *  rest. */
 export const PR_REVIEWER_PREAMBLE = [
   "# Pull request reviewer (Realm)",
   "",

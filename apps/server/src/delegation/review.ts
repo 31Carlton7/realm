@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AGENT_SUPPORTS_PLAN_MODE, PLAN_PERMISSION_MODE, reviewResultKey, type AgentKind, type Environment, type ReviewResult } from "@realm/contracts";
+import { AGENT_SUPPORTS_PLAN_MODE, reviewResultKey, reviewerPermissionMode, type AgentKind, type Environment, type ReviewResult } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "@realm/contracts";
 import type { ProviderCallContext } from "../mcp/gateway";
@@ -35,10 +35,13 @@ type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown
  * "Request review" RPC and the provider's `agent_review` tool). A reviewer is a REAL, visible Realm
  * session over the SAME environment as the diff it reviews, delegated through the shared W1 engine.
  *
- * **The read-only cap, hard and per-agent-kind.** The reviewer is always born in
- * `PLAN_PERMISSION_MODE` ("plan") — Claude Code's own read-only plan mode; on Codex,
- * `codexPolicyFor("plan")` starts the thread `sandbox: "read-only"` under an untrusted approval
- * policy. There is no requested mode to cap because the tool takes none: review is read-only by
+ * **The read-only cap, hard and per-agent-kind.** The reviewer is always born in the read-only mode
+ * `reviewerPermissionMode` names for its kind. On Claude that is `PLAN_PERMISSION_MODE` ("plan"),
+ * Claude Code's own read-only plan mode. On Codex it is `ASK_PERMISSION_MODE` ("ask"):
+ * `codexPolicyFor("ask")` starts the thread `sandbox: "read-only"` under the approval policy
+ * `never`, so the kernel refuses a write and nothing is put to anybody. Plan on Codex is the same
+ * sandbox under `untrusted`, where a review waits on a card for every command Codex does not know
+ * as safe. There is no requested mode to cap because the tool takes none: review is read-only by
  * definition, not by negotiation. The kinds where "plan" would be a LIE — the ACP agents, whose
  * adapter never transmits `permissionMode` at all (`AGENT_SUPPORTS_PLAN_MODE` false) — are never
  * used as reviewer kinds: an ACP parent's reviewer falls back to `fallbackKind` (claude in
@@ -197,7 +200,7 @@ export class ReviewService {
     const label = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? env.path;
     const created = this.d.sessions.create({
       spaceId: env.spaceId, agentKind, projectId: null, environmentId: env.id, model: null, effort: null,
-      permissionMode: PLAN_PERMISSION_MODE, // HARD: never the parent's mode, never a requested one
+      permissionMode: reviewerPermissionMode(agentKind), // HARD: a reviewer never runs in anything but a read-only mode, never the parent's and never a requested one
       title: clip(`Review: ${label}`, 40),
       dispatchedBy: { sessionId: parent?.sessionId ?? null, kind: "review" },
     });

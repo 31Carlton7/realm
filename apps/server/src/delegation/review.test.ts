@@ -8,7 +8,7 @@ import { FakeAdapter, type FakeScript, type McpServerConfig } from "@realm/adapt
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { PLAN_PERMISSION_MODE, reviewResultKey } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, PLAN_PERMISSION_MODE, reviewResultKey } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -58,12 +58,12 @@ function initRepo(dir: string): void {
   git(dir, "add", "."); git(dir, "commit", "-m", "init");
 }
 
-async function boot(opts: { script?: FakeScript; delayMs?: number; parentKind?: "fake" | "claude" | "acp:cursor"; parentMode?: string;
+async function boot(opts: { script?: FakeScript; delayMs?: number; parentKind?: "fake" | "claude" | "codex" | "acp:cursor"; parentMode?: string;
   timeouts?: { budgetMs: number; pollMs: number } } = {}) {
   const home = tempDir("realm-rv-");
   const fake = new FakeAdapter({ script: opts.script ?? REVIEW_SCRIPT, delayMs: opts.delayMs ?? 5 });
   app = await createApp({
-    home, port: 0, adapters: { fake, claude: fake, "acp:cursor": fake },
+    home, port: 0, adapters: { fake, claude: fake, codex: fake, "acp:cursor": fake },
     browserAgent: { fallbackKind: "fake", timeouts: { baseMs: 5000, perActMs: 0, pollMs: 20 } },
     agentRun: { timeouts: { baseMs: 5000, perTurnMs: 0, pollMs: 20 } },
     review: { fallbackKind: "fake", timeouts: opts.timeouts ?? { budgetMs: 5000, pollMs: 20 } },
@@ -121,6 +121,24 @@ describe("the read-only cap — hard, per agent kind (the write-permission mutan
     const reviewer = reviewerOf(spaceId)!;
     expect(reviewer.agentKind).toBe("fake");        // the harness's fallbackKind — claude in production
     expect(reviewer.agentKind).not.toBe("acp:cursor"); // AcpAdapter.start never reads permissionMode
+    expect(reviewer.permissionMode).toBe(PLAN_PERMISSION_MODE);
+  });
+
+  it("a Codex parent's reviewer is born in Ask, not in Plan", async () => {
+    const { spaceId, parentId, envId } = await boot({ parentKind: "codex" });
+    const result = await app.reviews.runTool({ sessionId: parentId, spaceId }, { environmentId: envId });
+    expect(result.isError).toBe(false);
+    const reviewer = reviewerOf(spaceId)!;
+    expect(reviewer.agentKind).toBe("codex");
+    expect(reviewer.permissionMode).toBe(ASK_PERMISSION_MODE);
+  });
+
+  it("a Claude parent's reviewer is born in Plan, not in Ask", async () => {
+    const { spaceId, parentId, envId } = await boot({ parentKind: "claude" });
+    const result = await app.reviews.runTool({ sessionId: parentId, spaceId }, { environmentId: envId });
+    expect(result.isError).toBe(false);
+    const reviewer = reviewerOf(spaceId)!;
+    expect(reviewer.agentKind).toBe("claude");
     expect(reviewer.permissionMode).toBe(PLAN_PERMISSION_MODE);
   });
 

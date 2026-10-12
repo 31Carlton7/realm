@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type FakeScript } from "@realm/adapters";
-import { PLAN_PERMISSION_MODE, REVIEW_INSTRUCTIONS_MAX, prReviewKey, type PrReview } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, PLAN_PERMISSION_MODE, REVIEW_INSTRUCTIONS_MAX, prReviewKey, type PrReview } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { ProjectsStore } from "../store/projects";
@@ -64,7 +64,7 @@ async function wsClient(port: number) {
 async function boot(fixture: GhFixture = FIXTURE, home = tempDir("realm-cr-")) {
   const gh: FakeGh = fakeGh(fixture);
   const fake = new FakeAdapter({ script: SCRIPT, delayMs: 2 });
-  app = await createApp({ home, port: 0, adapters: { fake }, codeReview: { gh: gh.command, timeouts: { budgetMs: 5000, pollMs: 20 } } });
+  app = await createApp({ home, port: 0, adapters: { fake, claude: fake, codex: fake }, codeReview: { gh: gh.command, timeouts: { budgetMs: 5000, pollMs: 20 } } });
   const profiles = new ProfilesStore(app.db);
   const profile = profiles.list()[0] ?? profiles.create({ name: "P", icon: "x", color: "#000" });
   const spaces = new SpacesStore(app.db, home);
@@ -277,6 +277,20 @@ describe("Review with… — a read-only reviewer whose findings are only findin
     expect(text).toContain("+++ b/src/a.ts");
     // Nothing reached GitHub but reads: a finding is the person's to post.
     expect(gh.calls().some((c) => c.args.includes("POST"))).toBe(false);
+  });
+
+  it("starts a reviewer on Codex in Ask, not in Plan", async () => {
+    const { rpc, profileId, space } = await boot();
+    const started: PrReview = await rpc.call("codeReview.review", { ref, profileId, spaceId: space.id, agentKind: "codex" });
+    expect(app!.sessions.get(started.sessionId)).toMatchObject({ agentKind: "codex", permissionMode: ASK_PERMISSION_MODE });
+    await waitFor(settled(rpc));
+  });
+
+  it("starts a reviewer on Claude in Plan, not in Ask", async () => {
+    const { rpc, profileId, space } = await boot();
+    const started: PrReview = await rpc.call("codeReview.review", { ref, profileId, spaceId: space.id, agentKind: "claude" });
+    expect(app!.sessions.get(started.sessionId)).toMatchObject({ agentKind: "claude", permissionMode: PLAN_PERMISSION_MODE });
+    await waitFor(settled(rpc));
   });
 
   it("anchors a finding to a line the diff shows, and keeps one off the diff as text", async () => {

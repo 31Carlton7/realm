@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerNote, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, reviewerPermissionMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerNote, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has no duplicate icon names", () => { expect(new Set(SPACE_ICONS).size).toBe(SPACE_ICONS.length); });
@@ -210,6 +210,23 @@ describe("the mode axis on the permissionMode wire", () => {
     expect(isReadOnlyMode(PLAN_PERMISSION_MODE)).toBe(true);
     expect(isReadOnlyMode(ASK_PERMISSION_MODE)).toBe(true);
     for (const p of PERMISSION_MODES) expect(isReadOnlyMode(p.id), p.id).toBe(false);
+  });
+});
+
+describe("reviewerPermissionMode", () => {
+  const reviewing = AgentKindSchema.options.filter((k) => AGENT_SUPPORTS_PLAN_MODE[k]);
+
+  it("is Ask on Codex and Plan on every other kind that can review", () => {
+    expect(Object.fromEntries(reviewing.map((k) => [k, reviewerPermissionMode(k)])))
+      .toEqual({ claude: PLAN_PERMISSION_MODE, codex: ASK_PERMISSION_MODE, fake: PLAN_PERMISSION_MODE });
+  });
+
+  it("is a read-only mode its kind's adapter enforces, for every kind that can review", () => {
+    for (const k of reviewing) {
+      const mode = reviewerPermissionMode(k);
+      expect(isReadOnlyMode(mode), k).toBe(true);
+      expect((mode === ASK_PERMISSION_MODE ? AGENT_SUPPORTS_ASK_MODE : AGENT_SUPPORTS_PLAN_MODE)[k], k).toBe(true);
+    }
   });
 });
 
