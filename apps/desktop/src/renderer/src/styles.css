@@ -1699,8 +1699,9 @@ kbd { font: 11px var(--font-mono); }
    because it loops for as long as the picker is open on one; its fast-mode moment is not, because it
    is one pass and over.
 
-   `data-quiet` is set for two reasons — the window is not focused, or Low power is on — and the
-   stylesheet treats them the same. The difference is only how long it lasts. */
+   `data-quiet` is set for three reasons — the window is not focused, nobody has touched it for half
+   a minute (`idle`), or Low power is on — and the stylesheet treats them the same. The difference is
+   only how long it lasts. */
 :root[data-quiet] .spinner-dot,
 :root[data-quiet] .shimmer-text,
 :root[data-quiet] .tool-group[data-working] .tool-group-summary,
@@ -1719,12 +1720,15 @@ kbd { font: 11px var(--font-mono); }
 
 /* The ping is the exception to the pause: frozen mid-flight it leaves a static ring standing around
    the dot at whatever radius it had reached, which reads as a rendering fault rather than as a state.
-   It is pure decoration on top of a dot that already carries the status, so it goes and comes back. */
-:root[data-quiet] .status-dot[data-status="running"]::after,
-:root[data-quiet] .status-dot[data-status="waiting_permission"]::after,
-:root[data-quiet] .status-dot[data-status="driving"]::after,
-:root[data-quiet] .status-dot[data-status="machine-booting"]::after,
-:root[data-quiet] .status-dot[data-status="recording"]::after { display: none; }
+   It is pure decoration on top of a dot that already carries the status, so it goes and comes back.
+   Not when the window is only idle — in front, untouched for half a minute: by then the ring has
+   pinged its three and stands as the halo, which costs nothing, and taking it away would be the one
+   thing on screen to change while someone sat reading. */
+:root[data-quiet]:not([data-quiet="idle"]) .status-dot[data-status="running"]::after,
+:root[data-quiet]:not([data-quiet="idle"]) .status-dot[data-status="waiting_permission"]::after,
+:root[data-quiet]:not([data-quiet="idle"]) .status-dot[data-status="driving"]::after,
+:root[data-quiet]:not([data-quiet="idle"]) .status-dot[data-status="machine-booting"]::after,
+:root[data-quiet]:not([data-quiet="idle"]) .status-dot[data-status="recording"]::after { display: none; }
 
 /* The other thing that must NOT freeze: a transition the user is looking at mid-flight when the
    window loses focus would stick half-open. Transitions are not animations, so they are unaffected

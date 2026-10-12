@@ -500,6 +500,11 @@ describe("§6 motion table", () => {
     expect(ring).toContain("rl-halo-in var(--dur-slow) var(--ease-fade) calc(var(--ring-rate) * var(--ring-pings)) forwards");
     expect(bodiesFor(".status-dot::after").join(" ")).toContain("--ring-pings: 3");
     expect(blockAfter("@keyframes rl-halo-in")).toContain("opacity: 0");
+    // Quiet takes the ring away — but not merely idle quiet, where it already stands as the halo and
+    // taking it away would be the one thing to change on screen while someone sat reading.
+    const gone = RULES.filter((r) => /display:\s*none/.test(r.body)).flatMap(partsOf).filter((p) => p.includes(".status-dot[data-status="));
+    expect(gone.length).toBeGreaterThanOrEqual(5);
+    for (const p of gone) expect(p).toMatch(/^:root\[data-quiet\]:not\(\[data-quiet="idle"\]\) /);
     // Authored at full strength with NO transform: the un-animated form has to be a steady halo, not
     // a half-scaled ghost. This one line is the whole reason the state is still legible when the
     // preference takes the motion away — a `transform: scale(...)` here silently breaks that.
@@ -4435,7 +4440,7 @@ describe("the machine pane's screen", () => {
     const reduced = RULES.filter((r) => /animation:\s*none/.test(r.body)).flatMap(partsOf);
     expect(reduced).toContain('.status-dot[data-status="recording"]::after');
     const quiet = RULES.filter((r) => /display:\s*none/.test(r.body)).flatMap(partsOf);
-    expect(quiet).toContain(':root[data-quiet] .status-dot[data-status="recording"]::after');
+    expect(quiet).toContain(':root[data-quiet]:not([data-quiet="idle"]) .status-dot[data-status="recording"]::after');
   });
 
   it("puts `booting` in the in-flight ping family rather than giving it a second animation", () => {

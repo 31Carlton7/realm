@@ -25,6 +25,7 @@ import { PageOverlay } from "./components/PageOverlay";
 import { PageNavProvider } from "./components/page-nav";
 import { SpaceOverview } from "./components/sidebar/SpaceOverview";
 import { useKonami } from "./use-konami";
+import { useIdle } from "./use-idle";
 import { useKeybindings, useMenuBar } from "./keys";
 import { PaneHost } from "./components/PaneHost";
 import { getTerminalHub } from "./panes/terminal-hub";
@@ -148,8 +149,8 @@ function useSidebarFolded(collapsed: boolean): boolean {
  * Whether the app's decorative motion is allowed to run right now, stamped on `:root` for the
  * stylesheet to answer to.
  *
- * Two reasons it stops: the window does not have the user's attention, or they asked for it to stay
- * off. The first is the one that matters for a laptop — an agent working for an hour while its
+ * Three reasons it stops: the window does not have the user's attention, nobody has touched it for
+ * half a minute, or they asked for it to stay off. The first is the one that matters for a laptop — an agent working for an hour while its
  * person is in another app used to cost exactly what one being watched costs, and measured
  * (`scripts/power-audit.mjs`) that is about half a core per pane.
  *
@@ -179,11 +180,13 @@ function QuietBridge() {
     };
   }, [setWindowActive]);
 
+  // The third reason: in front, but nobody has touched it for half a minute (use-idle.ts).
+  const idle = useIdle(windowActive && !lowPower);
   useEffect(() => {
-    const quiet = lowPower || !windowActive;
-    if (quiet) document.documentElement.setAttribute("data-quiet", lowPower ? "always" : "unfocused");
+    const quiet = lowPower ? "always" : !windowActive ? "unfocused" : idle ? "idle" : null;
+    if (quiet) document.documentElement.setAttribute("data-quiet", quiet);
     else document.documentElement.removeAttribute("data-quiet");
-  }, [lowPower, windowActive]);
+  }, [lowPower, windowActive, idle]);
   return null;
 }
 
