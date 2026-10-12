@@ -309,6 +309,8 @@ Rules:
   and press step the fill AWAY from its label, deeper under white and brighter under a dark label, so
   no state reads worse than rest. `--accent` stays the bright one, for rings, links on dark,
   progress, dots and highlights — the marks that carry no word.
+  A destructive button is the same rule in red: `--danger-fill`, solved the same way (Realm's dark
+  red 0.102 deeper, white at 5.0:1), never the bare `--red`, which stays for error text and dots.
 - A chip drawn on a RAISED surface may not take its fill from the neutral ladder. One step off the
   ground it sits on is a step nobody can see — the sent element chip was `inset` on `raised`, which
   measures 1.05:1, so the chip existed only as text with a smudge behind it. A tint is what separates
