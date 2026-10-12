@@ -47,6 +47,7 @@ import { SecretStore, SecretStoreError } from "./secret-store";
 import { VaultHost } from "./vault-host";
 import { registerVaultIpc } from "./vault-ipc";
 import { TicketPresses } from "./ticket-presses";
+import { PolicyPresses } from "./policy-presses";
 import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-owner";
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
@@ -1048,6 +1049,16 @@ ipcMain.handle("team:press-ticket", (e, input: unknown): boolean => {
   return ticketPresses.press(input);
 });
 
+/** A team's Policies page: the person's press on a loosening (`policy-presses.ts`), confirmed by macOS
+ *  and sealed here. Taken only from the top frame of one of Realm's own windows, and realm-server asks
+ *  for the seal over the bridge (`teamPolicySeal`). There is no other way to make one. */
+const policyPresses = new PolicyPresses(() => secrets());
+ipcMain.handle("team:press-policy", async (e, input: unknown) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.webContents !== e.sender || e.senderFrame !== e.sender.mainFrame) return { ok: false, error: "Only Realm's own window can change a team's policies." };
+  return policyPresses.press(input);
+});
+
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0] ?? null;
@@ -1856,6 +1867,10 @@ app.whenReady().then(async () => {
           const p = params as { ticketId?: unknown; contentHash?: unknown };
           return Promise.resolve(ticketPresses.consume(p.ticketId, p.contentHash));
         }
+        // A policy's seal: spent, checked, or its stamp moved on — never made, from this side.
+        if (op === "teamPolicySeal") return Promise.resolve(policyPresses.consume((params as { text?: unknown }).text));
+        if (op === "teamPolicyVerify") return Promise.resolve(policyPresses.verify((params as { items?: unknown }).items));
+        if (op === "teamPolicyBump") return Promise.resolve(policyPresses.bump((params as { scope?: unknown }).scope));
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);

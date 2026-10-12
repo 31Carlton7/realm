@@ -214,6 +214,9 @@ interface Window {
      *  Optional like every bridge: jsdom has none, and without it nothing can be posted. */
     team?: {
       pressTicket(input: { ticketId: string; contentHash: string; slotAt: number; label: boolean }): Promise<boolean>;
+      /** The Policies page's press on a loosening (main/policy-presses.ts): macOS confirms the person,
+       *  then main seals exactly this row for the server's write to spend. */
+      pressPolicy(input: import("@realm/contracts").PolicyPressInput): Promise<{ ok: true } | { ok: false; error: string }>;
     };
     /** A team's Vault page (main/vault-ipc.ts). Optional like every bridge: jsdom has none. Values go
      *  in once and never come back; `setAllow` is confirmed by macOS in main. */
