@@ -11,11 +11,24 @@ export const isDelegationLine = (b: ToolBlock): boolean => SPAWNS.has(bareToolNa
 /** The call that collects them, drawn as a line of its own too (DelegationWait). */
 export const isDelegationWait = (b: ToolBlock): boolean => bareToolName(b.name) === "agent_wait" && !b.result?.isError;
 
-/** Calls that never fold into a run. A fan-out is two starts and a wait in a row — a run by the rule
- *  below — and a run collapses to "Worked for 8s" once it settles, which hid the one thing a reader
- *  of a delegation wants to see: each sub-agent, and how it ended. A call that drew a view is the
- *  same case: the view is what the call was for, and a ledger line is no place to keep it. */
-const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegationWait(b) || b.view !== undefined;
+/**
+ * Tool names that spawn sub-agents INSIDE the harness.
+ *
+ * `Workflow` is here because it is what a real run turned out to use — a request for ten research
+ * agents produced one `Workflow` call, not ten `Task` ones, so a list that knew only about `Task`
+ * showed nothing for exactly the case that prompted asking for this card.
+ */
+export const SUBAGENT_TOOLS = new Set(["Task", "Agent", "Workflow"]);
+/** A call that started one of the session's OWN in-harness sub-agents, drawn as that sub-agent's
+ *  line (AgentLaunchLine). One a sub-agent made inside itself is its business, and stays a card. */
+export const isHarnessLaunch = (b: ToolBlock): boolean => SUBAGENT_TOOLS.has(b.name) && b.parentToolUseId === undefined;
+
+/** Calls that never fold into a run. A fan-out is two starts and a wait in a row, or three
+ *  background agents launched together — a run by the rule below — and a run collapses to
+ *  "Worked for 8s" once it settles, which hid the one thing a reader of a delegation wants to see:
+ *  each sub-agent, and how it ended. A call that drew a view is the same case: the view is what the
+ *  call was for, and a ledger line is no place to keep it. */
+const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegationWait(b) || isHarnessLaunch(b) || b.view !== undefined;
 
 /** §2.8: "the agent's work is a quiet ledger" — a run of consecutive tool calls collapses to one
  *  summary line ("18 tools · 5 files · 2 commands · 6m 12s") that expands into its steps.

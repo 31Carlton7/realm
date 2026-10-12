@@ -6,7 +6,8 @@ import { useApp } from "../../state/store";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useDissolve } from "../../components/ScrollFades";
 import { CHILD_ORIGINS, ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
-import { formatDuration, type ToolBlock } from "./tool-group";
+import { formatDuration, isHarnessLaunch, SUBAGENT_TOOLS, type ToolBlock } from "./tool-group";
+import type { SubagentState } from "../agents-tab/subagent-state";
 import type { Block } from "./transcript-model";
 import { useElapsed } from "./use-elapsed";
 
@@ -28,14 +29,6 @@ const ASKED_META = { icon: "session", label: "Asked a question (agent_ask)" };
  * delegating session's own bar IS the link to that session, and the control leaves when the
  * session's runs do.
  */
-/**
- * Tool names that spawn sub-agents INSIDE the harness.
- *
- * `Workflow` is here because it is what a real run turned out to use — a request for ten research
- * agents produced one `Workflow` call, not ten `Task` ones, so a list that knew only about `Task`
- * showed nothing for exactly the case that prompted asking for this card.
- */
-const SUBAGENT_TOOLS = new Set(["Task", "Agent", "Workflow"]);
 
 /**
  * Whether this call still has an agent working behind it — the two ways that can be true, because
@@ -50,41 +43,64 @@ const SUBAGENT_TOOLS = new Set(["Task", "Agent", "Workflow"]);
  * as this list could tell. `background` is set by the adapter, off the harness's own launch text and
  * completion notification, and it is the only honest signal for the mode.
  */
-export function stillWorking(b: Extract<Block, { kind: "tool" }>): boolean {
+export function stillWorking(b: Extract<Block, { kind: "tool" }>, live = true): boolean {
   if (b.background !== undefined) return b.background === "running";
-  return SUBAGENT_TOOLS.has(b.name) && b.result === null;
+  return SUBAGENT_TOOLS.has(b.name) && b.result === null && live;
+}
+
+/** One of the session's own in-harness sub-agents, in any state — the inline strip's and the Agents
+ *  tab's row for it. `endedAt` is null while it works. */
+export type HarnessAgent = { id: string; label: string; startedAt: number; endedAt: number | null; state: SubagentState };
+
+/**
+ * Where a harness sub-agent stands. The harness reports no more than started, stopped and the
+ * launching call's result, so it is one of four: still `working` (see `stillWorking`); `failed` where
+ * the call came back an error; `done` where it came back or the background agent stopped; and
+ * `stopped` for a blocking call whose session is no longer live — the turn was cut off under it and
+ * no result will ever land, so calling it working would keep a clock running forever.
+ */
+export function harnessState(b: ToolBlock, live = true): SubagentState {
+  if (b.background !== undefined) return b.background === "running" ? "working" : "done";
+  if (b.result) return b.result.isError ? "failed" : "done";
+  return live ? "working" : "stopped";
 }
 
 /**
- * Sub-agents the HARNESS is running, read off the transcript.
+ * Sub-agents the HARNESS ran for this session, read off the transcript — every one, finished or not.
  *
  * These are a different animal to a delegated run and the difference is why they were invisible:
- * `agent_run` creates a real Realm session, with a row, a pane and a place in the layout, and the
- * dock below lists those. Claude's own `Task`/`Agent` tools create none of that — the subagent lives
- * and dies inside the CLI process, and the only trace it leaves on the wire is its launching call.
- * See `stillWorking` for the two very different shapes that trace takes.
+ * `agent_run` creates a real Realm session, with a row, a pane and a place in the layout. Claude's
+ * own `Task`/`Agent` tools create none of that — the subagent lives and dies inside the CLI process,
+ * and the only trace it leaves on the wire is its launching call. See `stillWorking` for the two very
+ * different shapes that trace takes.
  *
- * What they get is the same card and honestly less than a real run does: elapsed time and what they
- * were asked, but no jump — there is no pane to jump to. Pretending otherwise would be a button that
- * cannot work.
+ * `live` is whether the session itself is mid-turn: a blocking call outlives nothing.
  */
-export function harnessSubagents(blocks: readonly Block[]): { id: string; label: string; startedAt: number }[] {
+export function harnessAgents(blocks: readonly Block[], live = true): HarnessAgent[] {
   return blocks
-    .filter((b): b is Extract<Block, { kind: "tool" }> =>
-      b.kind === "tool" && stillWorking(b)
-      // A call made UNDER another Task is that Task's business, not a second row here.
-      && b.parentToolUseId === undefined)
-    .map((b) => ({
-      id: b.toolUseId,
-      // `name` is what a Workflow calls itself; `description` is Task's. Falling through both before
-      // the prompt, because a prompt's first eighty characters are usually boilerplate.
-      label: labelOf(b.input).slice(0, 80),
-      // The START, not an elapsed span frozen at the moment this list was last rebuilt. A background
-      // agent produces no transcript events while it runs, so the list is rebuilt once and then not
-      // again for ten minutes — a precomputed duration would sit at "0s" for the entire run, next to
-      // a header clock that ticks. The Dock's one clock subtracts this instead.
-      startedAt: b.ts,
-    }));
+    // A call made UNDER another Task is that Task's business, not a second row here.
+    .filter((b): b is ToolBlock => b.kind === "tool" && isHarnessLaunch(b))
+    .map((b) => {
+      const state = harnessState(b, live);
+      return {
+        id: b.toolUseId,
+        // `name` is what a Workflow calls itself; `description` is Task's. Falling through both before
+        // the prompt, because a prompt's first eighty characters are usually boilerplate.
+        label: labelOf(b.input).slice(0, 80),
+        // The START, not an elapsed span frozen at the moment this list was last rebuilt. A background
+        // agent produces no transcript events while it runs, so the list is rebuilt once and then not
+        // again for ten minutes — a precomputed duration would sit at "0s" for the entire run, next to
+        // a header clock that ticks. Each surface's one clock subtracts this instead.
+        startedAt: b.ts,
+        endedAt: state === "working" ? null : b.endedAt ?? null,
+        state,
+      };
+    });
+}
+
+/** The ones still working — what the pane-bar chip counts. */
+export function harnessSubagents(blocks: readonly Block[], live = true): { id: string; label: string; startedAt: number }[] {
+  return harnessAgents(blocks, live).filter((h) => h.state === "working").map(({ id, label, startedAt }) => ({ id, label, startedAt }));
 }
 
 /** What to call an in-flight sub-agent run. A Workflow names itself in its script's `meta`, which is
@@ -185,7 +201,9 @@ export function RunningAgents({ sessionId }: { sessionId: string }) {
   // Covers the runs that began before this window connected — a reload, a second window, a pane
   // opened ten minutes into a delegation. Every later change arrives on `delegation.changed`.
   useEffect(() => { run(() => refreshDelegatedRuns(sessionId)); }, [sessionId, refreshDelegatedRuns, run]);
-  const inHarness = useMemo(() => harnessSubagents(blocks), [blocks]);
+  const status = useApp((s) => s.sessionStatus[sessionId]);
+  const live = status === undefined || status === "running" || status === "waiting_permission";
+  const inHarness = useMemo(() => harnessSubagents(blocks, live), [blocks, live]);
   if ((!running || running.length === 0) && inHarness.length === 0) return null;
   return <Control sessionId={sessionId} running={running ?? NO_RUNS} harness={inHarness} />;
 }

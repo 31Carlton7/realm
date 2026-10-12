@@ -1,10 +1,10 @@
 import { AGENT_META, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { Spinner } from "../../components/Spinner";
 import { useApp } from "../../state/store";
 import { STATE_VERB, isLive, modelLabel, subagentElapsed, subagentState, taskTitle, type SubagentState } from "../agents-tab/subagent-state";
-import { delegatedChildIds } from "./DelegatedRuns";
+import { delegatedChildIds, harnessState, labelOf } from "./DelegatedRuns";
 import { formatDuration, type ToolBlock } from "./tool-group";
 
 export { isDelegationLine, isDelegationWait } from "./tool-group";
@@ -60,14 +60,7 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
         title={lead && id ? "Show it in this session's Agents tab" : undefined}
         aria-label={`${gone ? "Sub-agent" : STATE_VERB[state]}: ${task}${model ? `, on ${model}` : ""}`}
         onClick={() => { if (lead && id) run(() => openAgentsTab(lead, { childId: id })); }}>
-        <span className="tool-status" aria-hidden="true">
-          {gone ? null
-            : state === "working" || state === "queued" ? <Spinner size={16} />
-            : state === "waiting" ? <span className="status-dot" data-status="waiting_permission" />
-            : state === "done" ? <Icon name="check" size={14} />
-            : state === "stopped" || state === "cancelled" ? <Icon name="stop" size={14} />
-            : <Icon name="errorCircle" size={14} />}
-        </span>
+        <span className="tool-status" aria-hidden="true">{!gone && <LineMark state={state} />}</span>
         <span className="tool-name">{gone ? "Sub-agent" : STATE_VERB[state]}</span>
         <span className="delegation-line-task" title={goal}>{task}</span>
         {model && (
@@ -78,6 +71,62 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
         )}
         {!gone && <span className="delegation-line-time">{formatDuration(elapsed)}</span>}
       </button>
+    </div>
+  );
+}
+
+/** A sub-agent line's lead glyph: the transcript's spinner while it works, its tick, stop and error
+ *  glyphs once it has ended. */
+function LineMark({ state }: { state: SubagentState }) {
+  switch (state) {
+    case "working": case "queued": return <Spinner size={16} />;
+    case "waiting": return <span className="status-dot" data-status="waiting_permission" />;
+    case "done": return <Icon name="check" size={14} />;
+    case "stopped": case "cancelled": return <Icon name="stop" size={14} />;
+    case "failed": case "timeout": return <Icon name="errorCircle" size={14} />;
+  }
+}
+
+/**
+ * A sub-agent the session's OWN harness started — Claude's `Task`/`Agent`, often in the background —
+ * as the same line a delegated one gets: "Sub-agent working · Audit the mapper", its type, how long,
+ * and a click to its card in this session's Agents tab. The calls it makes hang underneath
+ * (`children`), as they did under the generic card this replaces.
+ *
+ * The raw input and result are not here for the reason they are not on a delegation line: the brief
+ * and the report are on the sub-agent's own panel, which its card in the Agents tab opens.
+ */
+export function AgentLaunchLine({ block, sessionStatus, enter = false, children }: {
+  block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean; children?: ReactNode;
+}) {
+  const lead = useContext(LeadSessionContext);
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
+  const run = useApp((s) => s.run);
+  const state = harnessState(block, sessionStatus === "running" || sessionStatus === "waiting_permission");
+  const ticking = state === "working";
+  const runningFor = useElapsed(block.ts, ticking);
+  const elapsed = ticking ? runningFor : block.endedAt !== undefined ? Math.max(0, block.endedAt - block.ts) : null;
+  const task = labelOf(block.input);
+  const type = typeof block.input.subagent_type === "string" && block.input.subagent_type.trim() ? block.input.subagent_type.trim() : null;
+  const brief = typeof block.input.prompt === "string" ? block.input.prompt : undefined;
+  return (
+    <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={state} data-enter={enter || undefined}>
+      <button type="button" className="tool-row" disabled={!lead}
+        title={lead ? "Show it in this session's Agents tab" : undefined}
+        aria-label={`${STATE_VERB[state]}: ${task}${type ? `, ${type}` : ""}`}
+        onClick={() => { if (lead) run(() => openAgentsTab(lead, { childId: block.toolUseId })); }}>
+        <span className="tool-status" aria-hidden="true"><LineMark state={state} /></span>
+        <span className="tool-name">{STATE_VERB[state]}</span>
+        <span className="delegation-line-task" title={brief}>{task}</span>
+        {type && (
+          <span className="delegation-line-model">
+            <Icon name="bot" size={12} />
+            <span>{type}</span>
+          </span>
+        )}
+        {elapsed !== null && <span className="delegation-line-time">{formatDuration(elapsed)}</span>}
+      </button>
+      {children}
     </div>
   );
 }

@@ -6,6 +6,8 @@ import * as summaryModule from "./tool-summary";
 import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
 import { stampLabel, stampTitle } from "./timestamps";
 import { Transcript } from "./Transcript";
+import { StoreContext, createAppStore } from "../../state/store";
+import { fakeApi } from "../../state/store.test-fakes";
 import { waitingToolIds, type Block, type PendingPermission, type Transcript as TranscriptModel } from "./transcript-model";
 
 const block = (content: string, isError = false): ToolBlock =>
@@ -174,9 +176,10 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
       tool("t2", "Read", { file_path: "/b" }),
     ]);
     // Kills "lift the child but leave a hole where it was": t1 and t2 were one run all along, and a
-    // hole would have them read as two separate stretches of work.
-    expect(withParent.map((i) => i.kind)).toEqual(["group"]);
-    expect(withParent[0]!.kind === "group" && withParent[0]!.steps.map((x) => x.key)).toEqual(["tool:task1", "tool:t1", "tool:t2"]);
+    // hole would have them read as two separate stretches of work. The launch itself stands alone,
+    // as the sub-agent's own line.
+    expect(withParent.map((i) => i.kind)).toEqual(["block", "group"]);
+    expect(withParent[1]!.kind === "group" && withParent[1]!.steps.map((x) => x.key)).toEqual(["tool:t1", "tool:t2"]);
   });
 
   it("nests recursively, and never loses a call to an id it cannot resolve", () => {
@@ -188,12 +191,12 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
       sub("orphan", "gone", "Read", { file_path: "/o" }),
       sub("selfie", "selfie", "Read", { file_path: "/s" }),
     ]);
-    expect(items).toHaveLength(1);
-    const group = items[0]!;
+    expect(items).toHaveLength(2);
+    const [launch, group] = [items[0]!, items[1]!];
     // Kills "drop any call whose parent cannot be resolved", which silently swallows work the agent
     // really did — and kills losing a self-referential id down its own hole.
-    expect(group.kind === "group" && group.steps.map((x) => x.key)).toEqual(["tool:task1", "tool:orphan", "tool:selfie"]);
-    expect(group.kind === "group" && flatKeys(group.steps[0]!.nested)).toEqual(["tool:task2", "tool:s1"]);
+    expect(group.kind === "group" && group.steps.map((x) => x.key)).toEqual(["tool:orphan", "tool:selfie"]);
+    expect(launch.kind === "block" && flatKeys(launch.nested)).toEqual(["tool:task2", "tool:s1"]);
   });
 
   it("cannot be talked into a cycle by two calls naming each other", () => {
@@ -211,21 +214,23 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
   it("counts the sub-agent's calls in the run that spawned them, over the run's real span", () => {
     // The child outlives the parent's own next call, which is the ordinary shape: they run
     // concurrently, so the LAST call in tree order is not the last one to happen.
+    // A launch's own ledger, with a sub-agent of ITS own inside it.
     const items = groupTranscript([
-      tool("t1", "Read", { file_path: "/a.ts" }, 1_000),
       tool("task1", "Task", { description: "audit" }, 2_000),
-      tool("t2", "Read", { file_path: "/c.ts" }, 5_000),
-      sub("s1", "task1", "Read", { file_path: "/b.ts" }, 302_000),
+      sub("s0", "task1", "Read", { file_path: "/a.ts" }, 3_000),
+      sub("task2", "task1", "Task", { description: "dig" }, 4_000),
+      sub("s1", "task2", "Read", { file_path: "/b.ts" }, 302_000),
+      sub("s2", "task1", "Read", { file_path: "/c.ts" }, 5_000),
     ]);
-    const group = items[0]!;
-    render(<ToolGroup steps={withEnter(group.kind === "group" ? group.steps : [], () => false)} sessionStatus="idle" />);
-    // TWO MUTANTS. Summarize the top-level steps alone: nesting took the child's call out of the run,
-    // so the counts under-report it and the span ends when the parent stopped, not when the work did.
-    // Or keep first→last instead of min→max: tree order ends on `t2` at 5s, and a row that ticked
-    // upward for five minutes would freeze at "3s" the instant it settled.
+    const launch = items[0]!;
+    render(<ToolGroup steps={withEnter(launch.kind === "block" ? launch.nested : [], () => false)} sessionStatus="idle" />);
+    // TWO MUTANTS. Summarize the top-level steps alone: nesting took the inner child's call out of the
+    // run, so the counts under-report it and the span ends when the parent stopped, not when the work
+    // did. Or keep first→last instead of min→max: tree order ends on `s2` at 5s, and a row that ticked
+    // upward for five minutes would freeze at "2s" the instant it settled.
     const row = screen.getByRole("button", { name: "4 tool calls" });
-    expect(row).toHaveTextContent("Worked for 5m 1s");
-    expect(row).toHaveAttribute("title", "4 tools · 3 files · 5m 1s");
+    expect(row).toHaveTextContent("Worked for 4m 59s");
+    expect(row).toHaveAttribute("title", "4 tools · 3 files · 4m 59s");
   });
 
   it("draws the sub-agent's steps under its Task row, labelled as the sub-agent's own work", () => {
@@ -233,15 +238,16 @@ describe("in-harness sub-agents (Claude's parent_tool_use_id)", () => {
       { key: "tool:s1", block: sub("s1", "task1", "Read", { file_path: "/a.ts" }), enter: false, nested: [] },
       { key: "tool:s2", block: sub("s2", "task1", "Bash", { command: "pnpm test" }, 0, false), enter: false, nested: [] },
     ];
-    render(<ToolCard sessionStatus="running" nested={nested}
-      block={{ kind: "tool", toolUseId: "task1", name: "Task", input: { description: "audit the mapper" }, result: null, ts: 0 }} />);
+    // The session's own launch is a sub-agent line, which reads the store for its Agents tab.
+    render(<StoreContext.Provider value={createAppStore(fakeApi())}><ToolCard sessionStatus="running" nested={nested}
+      block={{ kind: "tool", toolUseId: "task1", name: "Task", input: { description: "audit the mapper" }, result: null, ts: 0 }} /></StoreContext.Provider>);
     // Named apart from the agent's own runs: directly under a Task row, a bare "Worked for" reads as
     // the Task's elapsed time rather than the child's.
     const row = screen.getByRole("button", { name: "2 sub-agent tool calls" });
     expect(row).toHaveTextContent("Sub-agent worked for");
     // Open while the child is still working — the one thing this treatment must not do is collapse
     // live activity out of sight.
-    expect(cards().map((c) => c.querySelector(".tool-name")!.textContent)).toEqual(["Delegate", "Read", "Run"]);
+    expect(cards().map((c) => c.querySelector(".tool-name")!.textContent)).toEqual(["Sub-agent working", "Read", "Run"]);
   });
 });
 
@@ -632,7 +638,8 @@ describe("the row says what the act is, not what the tool is called", () => {
     render(<>
       <ToolCard sessionStatus="idle" block={tool("t1", "Bash", { command: "ls" })} />
       <ToolCard sessionStatus="idle" block={tool("t2", "Grep", { pattern: "x" })} />
-      <ToolCard sessionStatus="idle" block={tool("t3", "Task", { description: "audit" })} />
+      {/* A Task a sub-agent made inside itself — the session's own launches are lines (below). */}
+      <ToolCard sessionStatus="idle" block={sub("t3", "task0", "Task", { description: "audit" })} />
     </>);
     const glyphs = [...document.querySelectorAll(".tool-status [data-glyph]")].map((g) => g.getAttribute("data-glyph"));
     expect(glyphs).toEqual(["terminal", "search", "agents"]);
