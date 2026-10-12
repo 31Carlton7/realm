@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { tempDir } from "@realm/test-utils";
@@ -159,8 +160,13 @@ describe("PayloadCompactor", () => {
   });
 
   it("is idempotent even when its cursor is lost: a rerun from zero skips rows already compressed", () => {
-    const { db, texts } = oldLog(6);
+    const { db, texts, session } = oldLog(6);
+    // One row whose compressed form is itself past the threshold, so only its storage class says "done".
+    const noise = sessionEvent("tool_result", { toolUseId: "n", content: randomBytes(1500).toString("hex"), isError: false }, 99);
+    const n = writePlain(db, session.id, noise);
+    texts.set(n, JSON.stringify(noise.payload));
     new PayloadCompactor({ db }).step();
+    expect((stored(db, n).v as Uint8Array).byteLength).toBeGreaterThan(COMPRESS_MIN_BYTES);
     db.prepare("UPDATE event_payload_compaction SET done = 0").run();
     expect(new PayloadCompactor({ db }).step()).toMatchObject({ scanned: 0, compressed: 0 });
     expect(textsNow(db)).toEqual(texts);
