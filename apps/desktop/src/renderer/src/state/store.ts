@@ -4345,6 +4345,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Every boot, "system" included: the window may still hold the answer an earlier preference
         // gave it, and asking is how it is put back.
         void api.setReducedMotion(isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT).catch(() => {});
+        /* The imported themes are registered BEFORE the saved selection is read, because
+           `storedPalette` checks each name against the registry: read first, a face wearing an
+           imported theme found no such name and was set to `realm` — on every launch, which the
+           owner met as "every update puts my theme back to the default". Also before the spaces
+           are published, so the first painted frame already wears it. */
+        await get().refreshCustomThemes().catch(() => {});
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
           themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default, fonts: parseFontPref(fonts),
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, lowPower: lowPower === true,
@@ -4371,13 +4377,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
         // icon can resolve, rather than visibly rendering its folder fallback first.
-        /* Before the spaces are published, and so before the first painted frame: `applyTheme`
-           resolves a palette name through the registry, and a saved selection naming an imported
-           theme would otherwise fall back to `realm` for one frame and then repaint. */
-await get().refreshCustomThemes().catch(() => {});
         // Same reason, same place: a preference naming a downloaded family needs its `@font-face` in
         // the document before the first paint that reads `--font-ui`.
         await get().refreshFonts().catch(() => {});
+        /* The friend packs this Realm has the words for. At boot rather than when Settings opens,
+           because the transcript's labels and greetings read them too. Not a dependency of boot. */
+        void get().refreshEggPacks().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
         /* Which profile this window shows. The bound one first — a window opened for a profile is that

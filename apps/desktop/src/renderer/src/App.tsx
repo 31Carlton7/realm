@@ -609,6 +609,12 @@ export function App() {
       const st = store.getState();
       st.run(() => st.refreshFonts());
     });
+    // The friend packs opened late — the server could only read the remembered words once the app
+    // handed it their key. Unconditional: the transcript's labels read them, not only Settings.
+    const offEggs = rpc().on("eggs.changed", () => {
+      const st = store.getState();
+      st.run(() => st.refreshEggPacks());
+    });
     // The picture on the page about you changed, here or in another window. The payload is the new
     // copy's path, so it is applied as it stands rather than re-read.
     const offAv = rpc().on("avatar.changed", ({ path }) => store.getState().applyAvatarChanged(path));
@@ -749,6 +755,7 @@ export function App() {
       offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
+      offEggs();
       window.removeEventListener("drop", swallowDrop);
       offOS?.(); offLink?.();
     };
