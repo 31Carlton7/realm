@@ -32,6 +32,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateRawSync } from "node:zlib";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -357,12 +358,17 @@ async function main() {
   const db = path.join(home, "realm.db");
   const q = (sql) => execFileSync("sqlite3", ["-readonly", db, sql], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   const b64 = Buffer.from(SECRET).toString("base64");
+  // An event payload of 512 bytes or more is stored deflated (migration v56): a codec byte, then raw
+  // deflate. Neither a SELECT nor .dump shows what is inside one, so those are read inflated.
+  const inflated = q("SELECT hex(payload_json) FROM session_events WHERE typeof(payload_json) = 'blob'").split("\n").filter(Boolean)
+    .map((h) => inflateRawSync(Buffer.from(h, "hex").subarray(1)).toString("utf8")).join("\n");
   for (const [table, sql] of [["session_events", "SELECT payload_json FROM session_events"], ["mcp_call_log", "SELECT * FROM mcp_call_log"], ["team_activity", "SELECT detail_json || coalesce(object,'') FROM team_activity"]]) {
     let text = "";
     try { text = q(sql); } catch (e) { text = q(`SELECT * FROM ${table}`); }
+    if (table === "session_events") text += `\n${inflated}`;
     check(`V6 the key is in no row of ${table}`, text.length > 0 && !text.includes(SECRET) && !text.includes(b64), { bytes: text.length });
   }
-  const dump = q(".dump");
+  const dump = `${q(".dump")}\n${inflated}`;
   check("V6 nor anywhere in realm.db", !dump.includes(SECRET) && !dump.includes(b64), { bytes: dump.length });
   const logs = fs.readdirSync(path.join(home, "logs")).map((f) => fs.readFileSync(path.join(home, "logs", f), "utf8")).join("\n");
   const audit = fs.readFileSync(path.join(home, "logs/credential-audit.log"), "utf8");
