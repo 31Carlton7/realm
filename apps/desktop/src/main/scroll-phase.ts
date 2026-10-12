@@ -46,6 +46,9 @@ export function startScrollPhaseStream(win: BrowserWindow): { stop(): void } {
     }
   });
   child.stderr!.on("data", (d: Buffer) => { const s = d.toString().trim(); if (s) console.warn("[scrollphase]", s); });
+  // A spawn that fails (a REALM_SCROLLPHASE_BIN that is not there) reports here, after the call has
+  // returned; unheard, it is an uncaught exception and main stops behind its crash dialog.
+  child.on("error", (e) => { console.warn("[scrollphase] failed to spawn:", e.message); child = null; });
   child.on("exit", (code) => {
     if (code === 2) console.warn("[scrollphase] native trackpad phases: OFF — event tap unavailable (grant Input Monitoring to the app that launched Realm), using timer fallback");
     else if (code && code !== 0) console.warn(`[scrollphase] exited with ${code}; using timer fallback`);
