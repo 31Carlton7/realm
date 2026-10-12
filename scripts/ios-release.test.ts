@@ -4,12 +4,18 @@ import { exportOptionsPlist, ipaProblems, isBetaXcode, marketingVersion, nextBui
 
 describe("parseIosReleaseArgs", () => {
   it("defaults to asking App Store Connect, uploading, for real, with the selected Xcode", () => {
-    expect(parseIosReleaseArgs([])).toEqual({ build: null, notes: null, xcode: null, skipUpload: false, dryRun: false });
+    expect(parseIosReleaseArgs([])).toEqual({ build: null, notes: null, xcode: null, cloud: false, skipUpload: false, dryRun: false });
   });
   it("takes a build number, an Xcode, notes, and the two switches", () => {
     expect(parseIosReleaseArgs(["--build", "12", "--xcode", "/Applications/Xcode-27.0.0.app/", "--notes", "Pairing from Settings", "--skip-upload", "--dry-run"])).toEqual({
-      build: 12, xcode: "/Applications/Xcode-27.0.0.app", notes: "Pairing from Settings", skipUpload: true, dryRun: true,
+      build: 12, xcode: "/Applications/Xcode-27.0.0.app", notes: "Pairing from Settings", cloud: false, skipUpload: true, dryRun: true,
     });
+  });
+  it("takes --cloud with --dry-run, and refuses what only a build on this Mac could use", () => {
+    expect(parseIosReleaseArgs(["--cloud", "--dry-run"])).toMatchObject({ cloud: true, dryRun: true });
+    expect(() => parseIosReleaseArgs(["--cloud", "--build", "3"])).toThrow(/--cloud builds in Xcode Cloud, so --build cannot apply/);
+    expect(() => parseIosReleaseArgs(["--cloud", "--xcode", "/Applications/Xcode.app"])).toThrow(/so --xcode cannot apply/);
+    expect(() => parseIosReleaseArgs(["--cloud", "--notes", "hi", "--skip-upload"])).toThrow(/so --notes and --skip-upload cannot apply/);
   });
   it("refuses a build number that is not a whole number above 0", () => {
     for (const bad of ["0", "-3", "1.5", "07", "seven"]) expect(() => parseIosReleaseArgs(["--build", bad])).toThrow(/--build must be/);

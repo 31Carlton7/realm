@@ -17,6 +17,9 @@
  *        --xcode <app>  build with this Xcode (e.g. /Applications/Xcode-27.0.0.app) instead of the
  *                       selected one, leaving the selection alone
  *        --notes <text> "What to Test" for the build
+ *        --cloud        build in Xcode Cloud instead, with its "TestFlight" workflow on this branch as
+ *                       GitHub has it. App Store Connect refuses builds from a beta Xcode, and Xcode
+ *                       Cloud builds with the latest release. It numbers and uploads the build itself.
  *        --skip-upload  stop once the IPA is exported and checked
  *        --dry-run      print the plan and the commands; build and upload nothing
  * Env:   ASC=<path>     the asc binary (default: asc on PATH)
@@ -32,14 +35,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const APP_ID = "6820452196";
 export const TEAM_ID = "FY9QB79VAP";
 export const GROUP = "Internal Testers";
+/** The Xcode Cloud workflow `--cloud` starts: archive the Realm scheme, for TestFlight only. */
+export const CLOUD_WORKFLOW = "TestFlight";
 
 // ---------- pure logic (tested in ios-release.test.ts) ----------
 
 export function parseIosReleaseArgs(argv) {
-  const out = { build: null, notes: null, xcode: null, skipUpload: false, dryRun: false };
+  const out = { build: null, notes: null, xcode: null, cloud: false, skipUpload: false, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === "--skip-upload") out.skipUpload = true;
+    else if (flag === "--cloud") out.cloud = true;
     else if (flag === "--dry-run") out.dryRun = true;
     else if (flag === "--build" || flag === "--notes" || flag === "--xcode") {
       const value = argv[++i];
@@ -49,8 +55,14 @@ export function parseIosReleaseArgs(argv) {
       else if (!/^[1-9]\d*$/.test(value)) throw new Error(`--build must be a whole number above 0, not "${value}"`);
       else out.build = Number(value);
     } else {
-      throw new Error(`unknown flag ${flag} — pnpm ios:release [--build <n>] [--xcode <app>] [--notes <text>] [--skip-upload] [--dry-run]`);
+      throw new Error(`unknown flag ${flag} — pnpm ios:release [--cloud] [--build <n>] [--xcode <app>] [--notes <text>] [--skip-upload] [--dry-run]`);
     }
+  }
+  // Xcode Cloud numbers, builds and uploads on its own, so none of these can mean anything there.
+  if (out.cloud) {
+    const given = [["--build", out.build !== null], ["--xcode", out.xcode !== null], ["--notes", out.notes !== null], ["--skip-upload", out.skipUpload]];
+    const local = given.filter(([, was]) => was).map(([flag]) => flag);
+    if (local.length > 0) throw new Error(`--cloud builds in Xcode Cloud, so ${local.join(" and ")} cannot apply`);
   }
   return out;
 }
@@ -186,8 +198,20 @@ function readIpaFacts(ipa, scratch) {
   };
 }
 
+/** `--cloud`: Xcode Cloud builds the branch as GitHub has it, so what is here must be exactly that. */
+async function cloud(args) {
+  const branch = sh("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+  sh("git", ["fetch", "--quiet", "origin", branch]);
+  const [here, pushed] = [sh("git", ["rev-parse", "HEAD"]), sh("git", ["rev-parse", `origin/${branch}`])];
+  if (here !== pushed) throw new Error(`${branch} here (${here.slice(0, 8)}) is not what GitHub has (${pushed.slice(0, 8)}): Xcode Cloud builds what is pushed, so push first`);
+  console.log(`Realm on ${branch} at ${here.slice(0, 8)} → Xcode Cloud's "${CLOUD_WORKFLOW}" workflow, then TestFlight's "${GROUP}"`);
+  await step("Build in Xcode Cloud", asc, ["xcode-cloud", "run", "--app", APP_ID, "--workflow", CLOUD_WORKFLOW, "--branch", branch, "--wait", "--timeout", "90m", "--output", "table"], { dryRun: args.dryRun });
+  if (!args.dryRun) console.log(`\nXcode Cloud built and uploaded ${branch}. Once App Store Connect has processed it, it is on TestFlight for "${GROUP}".`);
+}
+
 async function main() {
   const args = parseIosReleaseArgs(process.argv.slice(2));
+  if (args.cloud) return cloud(args);
   if (args.xcode) {
     const dir = join(args.xcode, "Contents/Developer");
     if (!existsSync(dir)) throw new Error(`--xcode ${args.xcode} is not an Xcode: there is no ${dir}`);
