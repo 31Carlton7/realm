@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { CONNECTORS, connectorServerName, type Connector, type McpServer } from "@realm/contracts";
+import { CONNECTORS, SYSTEM_BROWSER_FRAME, connectorServerName, type Connector, type McpServer } from "@realm/contracts";
 import { useState, type FormEvent } from "react";
 import { PageScroll } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
@@ -67,7 +67,7 @@ function ConnectorMarket({ spaceId }: { spaceId: string }) {
   const [appFor, setAppFor] = useState<Connector | null>(null);
   const connect = (c: Connector, client?: { clientId: string; clientSecret?: string }) => run(async () => {
     const { authUrl } = await connectApp(spaceId, c.id, client);
-    window.open(authUrl, "_blank");
+    window.open(authUrl, SYSTEM_BROWSER_FRAME);
   });
   /* A vendor that issues no client on the fly asks for the user's own app first — whenever the row
      holds no client yet, which includes a row left behind by a Connect that failed for exactly that

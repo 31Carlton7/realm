@@ -16,7 +16,7 @@ import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { confirmQuitCopy, decideQuit } from "./quit-policy";
-import { NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY } from "@realm/contracts";
+import { isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
@@ -59,6 +59,7 @@ import { InstalledApps, applicationDirs } from "./installed-apps";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { registerNativeMenus } from "./native-menu";
 import { attachTextContextMenu } from "./text-context-menu";
+import { windowOpenTarget } from "./link-open";
 import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom } from "./window-registry";
@@ -472,8 +473,14 @@ async function createWindow(info: { port: number; home: string; token: string },
   // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
   win.on("page-title-updated", (e) => e.preventDefault());
   if (profileId !== null) win.setTitle(profileDirectory.get(profileId)?.name ?? "Realm");
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url)) void shell.openExternal(url);
+  // Every link in the app reaches main as a window request (they are all target="_blank"): denied as
+  // a window, and opened where Settings ▸ General ▸ Links says — the default browser, or a Realm
+  // Browser tab the renderer makes beside the session.
+  const openInRealm = (url: string) => win.webContents.send("links:open-in-realm", url);
+  win.webContents.setWindowOpenHandler((details) => {
+    const to = windowOpenTarget(details, linksOpenIn);
+    if (to === "realm") openInRealm(details.url);
+    else if (to === "default") void shell.openExternal(details.url);
     return { action: "deny" };
   });
   // Keep the top frame inside the app: dev server origin in dev, file:// in production.
@@ -497,7 +504,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   else if (savedWindow?.maximized) win.maximize();
   trackWindowState(win, windowStateFile);
   wireKeyWindow(win);
-  attachTextContextMenu(win.webContents);
+  attachTextContextMenu(win.webContents, { realmBrowser: () => ({ open: openInRealm, linksOpenIn }) });
   // Replay whatever the server's health last was. A window created after the event — reopened from
   // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
   if (lastDaemonState) win.webContents.send("daemon:state", lastDaemonState);
@@ -1469,6 +1476,10 @@ ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Nu
 ipcMain.handle("motion:set", (e, pref: unknown) => applyReducedMotion(e.sender, pref));
 /** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
  *  a turn already running rather than at the next status change. */
+/** Settings ▸ General ▸ Links, as the renderer last said: where a clicked link opens, and which
+ *  browser a link's right-click menu lists first. The renderer reads it at boot and says so. */
+let linksOpenIn: LinksOpenIn = LINKS_OPEN_IN_DEFAULT;
+ipcMain.on("links:open-in", (_e, pref: unknown) => { if (isLinksOpenIn(pref)) linksOpenIn = pref; });
 ipcMain.handle("power:prevent-sleep", (_e, on: unknown) => { sleepGuard.setPreference(on === true); });
 /** Settings ▸ General ▸ Open files in, and the transcript's path menu: the editors this Mac has, and
  *  opening a path that exists in one of them. `existingPath` is the gate Reveal in Finder uses, and it

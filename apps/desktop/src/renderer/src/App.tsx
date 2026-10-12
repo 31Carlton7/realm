@@ -690,6 +690,12 @@ export function App() {
       const st = store.getState();
       st.run(() => st.revealSession(sessionId, spaceId));
     });
+    // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, or the
+    // link's right-click menu): main routed it here, and the tab goes beside the session in view.
+    const offLink = window.realm?.links?.onOpenInRealm((url) => {
+      const st = store.getState();
+      st.run(() => st.openLinkInBrowser(url));
+    });
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
@@ -744,7 +750,7 @@ export function App() {
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       window.removeEventListener("drop", swallowDrop);
-      offOS?.();
+      offOS?.(); offLink?.();
     };
   }, [store]);
   return (

@@ -17,7 +17,7 @@ import {
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
   type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
@@ -211,7 +211,7 @@ export type Api = TeamApi & LabApi & {
   /** `cwd`: the checkout the shell starts in — the server's primary one when absent. */
   createTerminal(spaceId: string, cwd?: string): Promise<{ terminalId: string; itemId: string }>;
   /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
-  createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
+  createBrowser(spaceId: string, url?: string): Promise<{ browserId: string; itemId: string; url: string }>;
   /** `machines.create` — row + item, with no address yet (Plan 25 W3). The connect flow is the
    *  pane's own body rather than a sheet, so the pane has to exist before there is an address. */
   createMachine(spaceId: string, name: string): Promise<{ machineId: string; itemId: string }>;
@@ -570,6 +570,8 @@ export type Api = TeamApi & LabApi & {
   setReducedMotion(pref: ReducedMotionPref): Promise<void>;
   /** Tell main the keep-awake switch moved; main holds the blocker while a session works. */
   setPreventSleep(on: boolean): Promise<void>;
+  /** Tell main where a clicked link opens (Settings ▸ General ▸ Links); main routes the click. */
+  setLinksOpenIn(pref: LinksOpenIn): void;
   /** The apps installed on this Mac (main's scan), for the `@` list. [] without the bridge. */
   installedApps(): Promise<InstalledApp[]>;
   /** Those apps' own icons by bundle path. Main answers only for bundles its scan found. */
@@ -2799,6 +2801,12 @@ export type AppState = TeamSlice & LabSlice & {
   /** Keep the Mac awake while a session works (Settings ▸ General ▸ Power). Off by default. */
   preventSleep: boolean;
   setPreventSleep(on: boolean): Promise<void>;
+  /** Where a clicked web link opens (Settings ▸ General ▸ Links): the default browser unless asked. */
+  linksOpenIn: LinksOpenIn;
+  setLinksOpenIn(pref: LinksOpenIn): Promise<void>;
+  /** A web link in a Realm Browser tab: a new tab in the side pane of the session in view, the way
+   *  ⌘T opens one, already on `url` — and with no session on screen, a browser beside the focus. */
+  openLinkInBrowser(url: string): Promise<void>;
   /** Which editor the transcript's path menu offers — an id, "realm" for none, null for the first
    *  installed one (see `resolveEditor`). */
   openFilesIn: OpenFilesIn | null;
@@ -3899,6 +3907,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       await persist();
       return true;
     };
+    /** `newTab`'s browser, and a link's: a tab in the side pane of the session the ask is about, on
+     *  `url` (blank without one). Answers the browser's item, or null when it never reached the screen. */
+    const openBrowserTab = async (leafId: string | null, url?: string): Promise<string | null> => {
+      // For the session the ask came from — read before the awaits, since the click or the key was
+      // about the panes as they stood when it landed: the session pane `leafId` (else the focus) is
+      // in, or in the panel the session whose tab is showing, else the first session on screen.
+      const owner = leafId ? sessionAt(leafId) ?? get().peekOwner() : get().peekOwner();
+      const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
+      const sid = ownerItem?.spaceId ?? get().activeSpaceId; if (!sid) return null;
+      const { itemId } = await api.createBrowser(sid, url);
+      await loadSpaceItems(sid);
+      if (!inProfile(sid)) return null;
+      // A tab of that session's run — and with no session on screen, an ordinary browser beside the
+      // focused pane.
+      if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
+      return itemId;
+    };
     /** Bring the side panel back if it was put away: a person just asked to look at something in it
      *  (a tool asked for by its key, a tab, a row whose item is a tab), and a keyboard parked in a pane
      *  nobody can see is a click that missed. */
@@ -4286,7 +4311,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
+      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
@@ -4403,6 +4428,10 @@ await get().refreshCustomThemes().catch(() => {});
         const awake = await api.getSetting(POWER_PREVENT_SLEEP_KEY).catch(() => null);
         set({ preventSleep: awake === true });
         void api.setPreventSleep(awake === true).catch(() => {});
+        const linksIn = await api.getSetting(LINKS_OPEN_IN_KEY).catch(() => null);
+        const linksOpenIn = isLinksOpenIn(linksIn) ? linksIn : LINKS_OPEN_IN_DEFAULT;
+        set({ linksOpenIn });
+        api.setLinksOpenIn(linksOpenIn);
         const openIn = await api.getSetting(FILES_OPEN_IN_KEY).catch(() => null);
         set({ openFilesIn: isOpenFilesIn(openIn) ? openIn : null, editors: await api.listEditors().catch(() => []) });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
@@ -5094,19 +5123,11 @@ await get().refreshCustomThemes().catch(() => {});
         await persist();
       },
       async newTab(leafId = null, opts = {}) {
-        // For the session the ask came from — read before the awaits, since the click or the key was
-        // about the panes as they stood when it landed: the session pane `leafId` (else the focus) is
-        // in, or in the panel the session whose tab is showing, else the first session on screen.
-        const owner = leafId ? sessionAt(leafId) ?? get().peekOwner() : get().peekOwner();
-        const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
-        const sid = ownerItem?.spaceId ?? get().activeSpaceId; if (!sid) return;
-        const { itemId } = await api.createBrowser(sid);
-        await loadSpaceItems(sid);
-        if (!inProfile(sid)) return;
-        // A tab of that session's run — and with no session on screen, an ordinary browser beside the
-        // focused pane.
-        if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
-        if (opts.full) await zoomItemPane(itemId);
+        const itemId = await openBrowserTab(leafId);
+        if (itemId && opts.full) await zoomItemPane(itemId);
+      },
+      async openLinkInBrowser(url) {
+        await openBrowserTab(null, url);
       },
       peekOwner() {
         const layout = get().layout; if (!layout) return null;
@@ -7666,6 +7687,11 @@ await get().refreshCustomThemes().catch(() => {});
       async setTerminalDock(edge) {
         set({ terminalDock: edge });
         await api.setSetting(TERMINALS_DOCK_KEY, edge);
+      },
+      async setLinksOpenIn(pref) {
+        set({ linksOpenIn: pref });
+        api.setLinksOpenIn(pref);
+        await api.setSetting(LINKS_OPEN_IN_KEY, pref);
       },
       async setPreventSleep(on) {
         set({ preventSleep: on });

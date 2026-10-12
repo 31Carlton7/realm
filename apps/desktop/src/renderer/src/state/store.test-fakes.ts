@@ -955,8 +955,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       api.onCreateTerminal?.(); await wait("createTerminal");
       return { terminalId: it.refId, itemId: it.id };
     },
-    createBrowser: async (sid) => {
-      calls.push(`createBrowser:${sid}`);
+    createBrowser: async (sid, url) => {
+      calls.push(`createBrowser:${sid}${url ? `:${url}` : ""}`);
       const it = item(`i${++n}`, sid, { kind: "browser", title: "Browser" }); (data.items[sid] ??= []).push(it);
       await wait("createBrowser");
       return { browserId: it.refId, itemId: it.id, url: "" };
@@ -1607,6 +1607,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     setBadgeCount: async (count) => { calls.push(`setBadgeCount:${count}`); data.badgeCount = count; },
     setReducedMotion: async (pref) => { calls.push(`setReducedMotion:${pref}`); },
     setPreventSleep: async (on) => { calls.push(`setPreventSleep:${on}`); },
+    setLinksOpenIn: (pref) => { calls.push(`setLinksOpenIn:${pref}`); },
     listEditors: async () => { calls.push("listEditors"); return [...data.editors]; },
     installedApps: async () => { calls.push("installedApps"); return [...data.installedApps]; },
     appIcons: async (paths) => {

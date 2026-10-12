@@ -55,6 +55,12 @@ interface Window {
       arm(on: boolean): void;
       capture(rect: { x: number; y: number; w: number; h: number }, ground: [number, number, number] | null, name: string): Promise<{ file: PickedFile | null; webView: boolean }>;
     };
+    /** Settings ▸ General ▸ Links: where a clicked link opens, told to main; and a link main hands
+     *  back to open in a Realm Browser tab. Optional like the other late bridges. */
+    links?: {
+      setOpenIn(pref: import("@realm/contracts").LinksOpenIn): void;
+      onOpenInRealm(cb: (url: string) => void): () => void;
+    };
     /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
     power?: { preventSleep(on: boolean): Promise<void> };
     /** The apps installed on this Mac and their icons (the prompter's `@` list). Optional like every

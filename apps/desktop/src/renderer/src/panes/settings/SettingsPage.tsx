@@ -4,7 +4,7 @@ import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
-  EDITOR_NAMES, resolveEditor, type OpenFilesIn, type TerminalDockEdge, } from "@realm/contracts";
+  EDITOR_NAMES, resolveEditor, type OpenFilesIn, type LinksOpenIn, type TerminalDockEdge, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, deriveVars, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
@@ -558,6 +558,38 @@ function OpenFilesInRow() {
         </select>
       )}
     </div>
+  );
+}
+
+const LINKS_OPEN_IN_CHOICES: { pref: LinksOpenIn; label: string }[] = [
+  { pref: "default", label: "Default browser" }, { pref: "realm", label: "Realm Browser" },
+];
+
+/** Where a click on a web link opens. The detail names ⌘-click, because it is the only place the
+ *  other browser is said to be one keypress away — the right-click menu offers both. */
+function OpenLinksInRow() {
+  const pref = useApp((s) => s.linksOpenIn);
+  const setLinksOpenIn = useApp((s) => s.setLinksOpenIn);
+  const run = useApp((s) => s.run);
+  return (
+    <ul className="settings-list">
+      <li className="settings-row" data-setting="open-links-in"
+        title="A web link clicked anywhere in Realm — a transcript, a document, a card — opens here. A Realm Browser tab opens beside the session. Mail and app links still open where macOS sends them.">
+        <div className="settings-row-main">
+          <span className="settings-row-name">Open links in</span>
+          <span className="settings-row-detail">⌘-click opens a link in the other one</span>
+        </div>
+        <fieldset className="settings-tabs" aria-label="Open links in">
+          {LINKS_OPEN_IN_CHOICES.map((c) => (
+            <label key={c.pref} className="settings-tab" data-selected={pref === c.pref || undefined}>
+              <input type="radio" name="settings-open-links-in" value={c.pref} checked={pref === c.pref}
+                onChange={() => run(() => setLinksOpenIn(c.pref))} />
+              {c.label}
+            </label>
+          ))}
+        </fieldset>
+      </li>
+    </ul>
   );
 }
 
@@ -1282,6 +1314,9 @@ function GeneralTab() {
           is one setting. */}
       <h3 className="settings-head">Files</h3>
       <OpenFilesInRow />
+
+      <h3 className="settings-head">Links</h3>
+      <OpenLinksInRow />
 
       <h3 className="settings-head">Sidebar</h3>
       <ul className="settings-list">

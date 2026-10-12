@@ -52,6 +52,16 @@ contextBridge.exposeInMainWorld("realm", {
     capture: (rect: { x: number; y: number; w: number; h: number }, ground: [number, number, number] | null, name: string): Promise<{ file: PickedFile | null; webView: boolean }> =>
       ipcRenderer.invoke("app-pick:capture", rect, ground, name),
   },
+  /** Settings ▸ General ▸ Links: tells main where a clicked link opens, and hears the links main
+   *  sends back to open in a Realm Browser tab. */
+  links: {
+    setOpenIn: (pref: string): void => ipcRenderer.send("links:open-in", pref),
+    onOpenInRealm: (cb: (url: string) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, url: string) => cb(url);
+      ipcRenderer.on("links:open-in-realm", handler);
+      return () => ipcRenderer.removeListener("links:open-in-realm", handler);
+    },
+  },
   /** Settings ▸ General ▸ Power. Main holds the blocker; this only tells it the switch moved. */
   power: {
     preventSleep: (on: boolean): Promise<void> => ipcRenderer.invoke("power:prevent-sleep", on),
