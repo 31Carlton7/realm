@@ -57,6 +57,12 @@
   --accent: oklch(0.68 0.173 253.301);
   --accent-ink: oklch(0.788 0.113 248.33);
   --accent-tint: oklch(0.68 0.173 253.301 / 0.16);
+  /* A filled control's ground: the accent's hue and chroma, 0.136 deeper, so its white label reads
+     5.0 : 1 where white on the accent itself read 2.9. Hover and press step further from the label
+     (5.9 and 7.3). Solved by accentFill (packages/ui/src/accent-fill.ts); styles.test re-solves it. */
+  --accent-fill: oklch(0.544 0.173 253.301);
+  --accent-fill-hover: oklch(0.504 0.173 253.301);
+  --accent-fill-press: oklch(0.454 0.173 253.301);
 
   /* semantic */
   --green: oklch(0.705 0.154 153.814);
@@ -147,11 +153,15 @@
   --stripe: oklch(0.405 0 0 / 0.075);
   --stripe-bg: oklch(0.983 0 0);
 
-  /* The fill is Apple's own blue's weight — a white label on it reads 4.0 : 1, where the brighter
-     blue it replaces read 3.6. The ink is the link and prose colour, at 4.8 : 1 on the frame. */
+  /* The accent is Apple's own blue's weight. A white label on it read only 4.0 : 1, so a filled
+     control takes --accent-fill instead: the same hue 0.054 deeper, 5.0 : 1 (hover 5.9, press 7.3).
+     The ink is the link and prose colour, at 4.8 : 1 on the frame. */
   --accent: oklch(0.6 0.2 256);
   --accent-ink: oklch(0.52 0.19 257);
   --accent-tint: oklch(0.959 0.021 256);
+  --accent-fill: oklch(0.546 0.2 256);
+  --accent-fill-hover: oklch(0.506 0.2 256);
+  --accent-fill-press: oklch(0.456 0.2 256);
 
   /* Tints are the hue at paper lightness with a tenth of its chroma — the rule packages/ui/src/themes.ts
      derives every light theme's tints by, now a step under the canvas rather than level with it. */

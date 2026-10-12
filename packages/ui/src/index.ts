@@ -11,6 +11,7 @@ export { applyTheme, clampGroundAlpha, clampPaneAlpha, DEFAULT_GROUND_ALPHA, DEF
    helpers, the brand marks, the document and seed types, and the role lists the parsers
    walk) stay exported from their own modules, where applyTheme and the package's own suites import
    them directly — a barrel entry for each would advertise a public API nothing consumes. */
+export { accentFill, ON_ACCENT_TARGET } from "./accent-fill";
 export { exportTheme, importTheme } from "./theme-io";
 export { clampLeading, CODE_SIZE_RANGE, DEFAULT_FONTS, FONT_FACES, FONT_WEIGHTS, LEADING_RANGE, parseFontPref, UI_SIZE_RANGE,
   type FontId, type FontPref, type FontRole, type FontWeight } from "./fonts";

@@ -137,8 +137,10 @@ describe(`every theme clears the floor (ink ${CONTRAST_FLOOR.ink}:1, ink-2 ${CON
         expect(onSurface(token), token).toBeGreaterThanOrEqual(CONTRAST_FLOOR.chrome);
       }
       expect(onSurface("--accent-ink"), "--accent-ink").toBeGreaterThanOrEqual(CONTRAST_FLOOR.accentInk);
-      expect(contrast(parse(v["--rl-accent-contrast"]!), parse(v["--accent"]!)), "label on the accent fill")
-        .toBeGreaterThanOrEqual(CONTRAST_FLOOR.onAccent);
+      for (const fill of ["--accent-fill", "--accent-fill-hover", "--accent-fill-press"]) {
+        expect(contrast(parse(v["--rl-accent-contrast"]!), parse(v[fill]!)), `label on ${fill}`)
+          .toBeGreaterThanOrEqual(CONTRAST_FLOOR.onAccent);
+      }
 
       for (const token of THEME_VARS.filter((t) => t.startsWith("--syn-"))) {
         expect(onSurface(token), token).toBeGreaterThanOrEqual(CONTRAST_FLOOR.syntax);

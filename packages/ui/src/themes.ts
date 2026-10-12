@@ -2,6 +2,7 @@ import { contrast, css, emitted, hexToOklch, luminance, parseOklch, type Oklch, 
 
 export type { SyntaxSeed, ThemeSeed } from "@realm/contracts";
 import type { Mode } from "./theme";
+import { accentFill } from "./accent-fill";
 import { CODEX_EXTRA_VARS, CODEX_LIGHT_SEED, deriveCodex } from "./codex-theme";
 
 /** Custom themes.
@@ -274,6 +275,7 @@ export const THEME_VARS = [
   "--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field", "--stripe-bg",
   "--ink", "--ink-2", "--ink-3",
   "--accent", "--accent-ink", "--accent-tint", "--rl-accent-contrast",
+  "--accent-fill", "--accent-fill-hover", "--accent-fill-press",
   "--green", "--green-tint", "--orange", "--orange-tint", "--red", "--red-tint",
   "--tooltip-bg", "--tooltip-fg", "--tooltip-muted", "--tooltip-border",
   "--chart-surface",
@@ -326,24 +328,12 @@ export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = 
   const tint = (o: Oklch): string =>
     "alpha" in r.tint ? css(o, r.tint.alpha) : css({ l: r.tint.lightness, c: o.c * r.tint.chroma, h: o.h });
 
-  /** The label on an accent fill, and the fill it is legible on. Realm writes white on its accent in
-   *  both modes because its accent is a mid blue in both; a theme whose accent is Monokai's pink or
-   *  One Light's blue cannot keep that unchanged, so the pair is SOLVED rather than assumed: try the
-   *  theme's own ink and its own ground as the label, lift the fill away from each until the label
-   *  clears, and keep whichever needed the smaller move. A button is the one place in the app where
-   *  colour is load-bearing for reading a word. */
+  /** The accent as a MARK — a focus ring, a progress run, a lit dot — is the seed, lifted only as far
+   *  as a card needs to see it. A fill that carries a word is a different job, solved apart from it
+   *  (`accentFill`), so a button's label can never cost the theme its own blue. */
   const seedAccent = hexToOklch(seed.accent);
-  const candidates = [ink, bg].map((label) => {
-    const fill = lift(seedAccent, label, CONTRAST_FLOOR.onAccent);
-    return { label, fill, moved: Math.abs(fill.l - seedAccent.l), ok: contrast(fill, surface) >= CONTRAST_FLOOR.chrome };
-  });
-  /* Both floors, not one. Lifting the fill to carry a dark label pushes it TOWARDS a light card, so
-   * satisfying the button can cost the accent its own legibility as a link or a focus ring on that
-   * card — which is exactly what Solarized Light does if the label is chosen on the button alone.
-   * Prefer a label that leaves both true; among those, the one that moved the stated hue least. */
-  const viable = candidates.filter((c) => c.ok);
-  const best = (viable.length ? viable : candidates).reduce((a, b) => (b.moved < a.moved ? b : a));
-  const accent = best.fill, onAccent = best.label;
+  const accent = lift(seedAccent, surface, CONTRAST_FLOOR.chrome);
+  const filled = accentFill(seedAccent, { dark: luminance(ink) < luminance(bg) ? ink : bg });
 
   /** The eight `--series-*` are a dataviz palette with a documented ΔE and contrast guarantee against
    *  a ground of a specific lightness (tokens.css), so they are NOT themed — a hue swapped for taste
@@ -385,7 +375,10 @@ export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = 
     "--accent": css(accent),
     "--accent-ink": css(lift({ l: accent.l + (ink.l - accent.l) * r.accentInk.step, c: accent.c * r.accentInk.chroma, h: accent.h }, surface, CONTRAST_FLOOR.accentInk)),
     "--accent-tint": tint(accent),
-    "--rl-accent-contrast": css(onAccent),
+    "--rl-accent-contrast": css(filled.label),
+    "--accent-fill": css(filled.fill),
+    "--accent-fill-hover": css(filled.hover),
+    "--accent-fill-press": css(filled.press),
 
     "--green": css(green),
     "--green-tint": tint(green),
@@ -451,7 +444,9 @@ export function contrastMisses(seed: ThemeSeed, mode: Mode, contrastLevel: numbe
     check(role, token, ["--surface"], CONTRAST_FLOOR.chrome);
   }
   check("Link text", "--accent-ink", ["--surface"], CONTRAST_FLOOR.accentInk);
-  check("Button label", "--rl-accent-contrast", ["--accent"], CONTRAST_FLOOR.onAccent);
+  for (const fill of ["--accent-fill", "--accent-fill-hover", "--accent-fill-press"]) {
+    check("Button label", "--rl-accent-contrast", [fill], CONTRAST_FLOOR.onAccent);
+  }
   for (const token of THEME_VARS.filter((t) => t.startsWith("--syn-"))) {
     check(`Code (${token.slice(6)})`, token, ["--surface"], CONTRAST_FLOOR.syntax);
   }

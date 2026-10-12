@@ -299,6 +299,16 @@ Rules:
   stacks. Never invent a single heavy drop shadow.
 - The blue accent is a condiment: focus, selection, progress, links, and primary actions. It is not a
   background wash.
+- A word or a mark on a solid accent fill reads at 4.5:1 or better, in every theme, in both modes,
+  at rest, on hover and pressed. The accent itself is a mid blue (white on Realm's dark #3d9aff is
+  2.9:1), so a filled control never paints with `--accent`: it paints with `--accent-fill`, the same
+  hue and chroma solved for its label (`packages/ui/src/accent-fill.ts`, target 5:1 for the bevel's
+  headroom). White is the label while the fill stays within 0.16 L of the accent — Realm's own fill
+  is 0.136 deeper, white at 5.0:1 — and past that the label goes to the theme's dark pole and the fill
+  brightens (Dracula, Nord). Codex keeps its own pairing, black on its exact #3a83f7 (5.8:1). Hover
+  and press step the fill AWAY from its label, deeper under white and brighter under a dark label, so
+  no state reads worse than rest. `--accent` stays the bright one, for rings, links on dark,
+  progress, dots and highlights — the marks that carry no word.
 - A chip drawn on a RAISED surface may not take its fill from the neutral ladder. One step off the
   ground it sits on is a step nobody can see — the sent element chip was `inset` on `raised`, which
   measures 1.05:1, so the chip existed only as text with a smudge behind it. A tint is what separates
@@ -539,7 +549,8 @@ acronym that is uppercase anyway (a file extension on a tile).
 - Align asymmetric icons optically. A mathematically centered arrow or play mark can still look wrong.
 - A press is a fill, not a size. AppKit buttons darken on the mouse-down frame and never shrink;
   the shrink is a touch idiom, where a finger hides the control and scale is the only feedback left
-  to see. Pressed is one rung past hover on the ladder, or the accent darkened for a filled control.
+  to see. Pressed is one rung past hover on the ladder, or for a filled control the accent fill's
+  press step — darker under a white label, brighter under a dark one.
 - A press TRACKS the pointer: drag off a held button and it lets go at once, drag back and it lights
   again, which is how a person sees that releasing out there will not click. Chromium drops `:active`
   for good when a held pointer leaves, so the press is marked up (`press-tracking.ts`), not inferred.

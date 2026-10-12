@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BAR_CHROME, actionsThatFit } from "./components/pane-bar-fit";
 import { TOOLBAR_BUTTON, TOOLBAR_CHROME } from "./panes/simulator/toolbar-fit";
-import { REALM_SEED, deriveVars } from "@realm/ui";
-import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
+import { REALM_SEED, accentFill, deriveVars } from "@realm/ui";
+import { AGENT_FRAME, contrast, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
 import { MAX_ROWS_PX } from "./panes/session/Composer";
 import { PRESSABLE } from "./press-tracking";
@@ -2493,7 +2493,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(field?.selectors.find((x) => x.startsWith(".field input"))).toContain(":not(.search-field)");
   });
 
-  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn LIFTING to hover; primary = accent with the filled highlight and accent-ink hover", () => {
+  it("buttons are BUI Button's tiers: secondary = surface on shadow-btn LIFTING to hover; primary = the accent FILL with the filled highlight and the fill's hover step", () => {
     /* The tiers are unchanged; where they are WRITTEN moved. Each state sets `--fill` and the base
        rule paints it, so the painted regime can read one property instead of racing each state on
        specificity — see the painted-control test above for the square-on-hover bug that forced it. */
@@ -2521,9 +2521,9 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).toContain("--fill: var(--hover)");
     expect(bodiesFor(".btn:hover:not(:disabled)").join(" ")).not.toContain("--fill: var(--inset)");
     const primary = bodiesFor(".btn.primary").join(" ");
-    expect(primary).toContain("--fill: var(--rl-accent)");
+    expect(primary).toContain("--fill: var(--rl-accent-fill)");
     expect(primary).toContain("box-shadow: var(--fill-bevel)");
-    expect(bodiesFor(".btn.primary:hover:not(:disabled)").join(" ")).toContain("--fill: var(--accent-ink)");
+    expect(bodiesFor(".btn.primary:hover:not(:disabled)").join(" ")).toContain("--fill: var(--rl-accent-fill-hover)");
   });
 });
 
@@ -3626,7 +3626,7 @@ describe("row and control layout", () => {
     // `.btn.primary:disabled` is written for "there is nothing to commit"; applied to "Generating…"
     // it erased the button under the press that started the work.
     const busy = bodiesFor('.btn.primary:disabled[aria-busy="true"]').join(" ");
-    expect(busy).toContain("--fill: var(--rl-accent)");
+    expect(busy).toContain("--fill: var(--rl-accent-fill)");
     expect(bodiesFor('.btn:disabled[aria-busy="true"]').join(" ")).toContain("opacity: .7");
     // The distinction only exists if the plain disabled treatment is still the dimmer one.
     expect(bodiesFor(".btn.primary:disabled").join(" ")).toContain("--fill: var(--rl-raised)");
@@ -4173,6 +4173,52 @@ describe("custom themes", () => {
         expect(Math.abs(derivedL(derived[token]!) - L(token, block)), `${mode} ${token}`).toBeLessThan(0.004);
       }
     }
+  });
+
+  it("a word on Realm's own accent fill reads at AA in both modes, and the fill is the one the solver picks", () => {
+    // White on Realm's dark accent measured 2.89 : 1 and on its light one 4.02 — every primary
+    // button, Send and Approve under AA. The fill a label sits on is its own token now, read straight
+    // out of tokens.css and measured here, with hover and press, against the label styles.css writes.
+    // THE mutant: point --accent-fill back at the accent (or drop a step off the press) and the
+    // ratio falls under 4.5 here.
+    const white = { l: 1, c: 0, h: 0 };
+    expect(css).toMatch(/--rl-accent-contrast: oklch\(1 0 0\)/);
+    for (const mode of ["dark", "light"] as const) {
+      const block = modeBlock(mode);
+      const accent = oklchIn("--accent", block);
+      for (const token of ["--accent-fill", "--accent-fill-hover", "--accent-fill-press"]) {
+        expect(contrast(white, oklchIn(token, block)), `${mode} white on ${token}`).toBeGreaterThanOrEqual(4.5);
+      }
+      // Same hue and chroma as the accent: deeper, not a different blue.
+      expect(oklchIn("--accent-fill", block).h, mode).toBe(accent.h);
+      expect(oklchIn("--accent-fill", block).c, mode).toBe(accent.c);
+      // ...and where accentFill puts it, so a retuned solver cannot leave the shipped palette behind.
+      const want = accentFill(accent, { dark: oklchIn("--ink", block) });
+      expect(want.label).toEqual(white);
+      for (const [token, o] of [["--accent-fill", want.fill], ["--accent-fill-hover", want.hover], ["--accent-fill-press", want.press]] as const) {
+        expect(Math.abs(oklchIn(token, block).l - o.l), `${mode} ${token}`).toBeLessThan(0.0015);
+      }
+    }
+  });
+
+  it("every control that writes a word or a mark on the accent fills with --rl-accent-fill, never the bare accent", () => {
+    // A rule that sets the on-accent label and paints its ground with the ACCENT is a 2.9 : 1 button.
+    // THE mutant: put `.plan-approve` (or any of these) back on var(--rl-accent).
+    const labelled = [...css.matchAll(/([^{}]+)\{([^{}]*color: var\(--rl-accent-contrast\)[^{}]*)\}/g)];
+    expect(labelled.length).toBeGreaterThan(8);
+    for (const [, selector, body] of labelled) {
+      expect(body, selector!.trim()).not.toMatch(/(background|--fill|background-color):\s*var\(--(rl-)?accent\)/);
+    }
+    for (const sel of [".btn.primary", ".composer-send", ".plan-approve", ".machine-primary", ".sim-primary", ".new-msgs-pill",
+      ".drive-frame-label", ".diff-line-comment", ".checkbox:checked", ".rail-update-disc"]) {
+      expect(bodiesFor(sel).join(" "), sel).toMatch(/var\(--rl-accent-fill\)/);
+    }
+    // Hover and press are the fill's own steps — not --accent-ink, which in dark is LIGHTER than the
+    // accent and took a white label to 1.9 : 1 under the pointer.
+    for (const sel of [".btn.primary:hover:not(:disabled)", ".composer-send:hover:not(:disabled)"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain("var(--rl-accent-fill-hover)");
+    }
+    expect(css).toContain("--rl-accent-press: var(--accent-fill-press)");
   });
 
   it("the picker's copy of Realm's own colours has not drifted from tokens.css", () => {

@@ -70,13 +70,18 @@
    `:root[data-mode="light"]` block that follows). applyTheme() writes ONLY
    `--rl-space` and `data-mode` now — everything else is static CSS truth. */
 :root {
-  /* accent: BUI's blue condiment replaces the ink accent — primary buttons, send,
-     focus rings, active ticks, links, carets all take --accent; white text rides on it. */
+  /* accent: BUI's blue condiment replaces the ink accent — focus rings, active ticks, links, carets,
+     progress all take --accent. A control FILLED with it that carries a word or a mark — primary
+     buttons, send, a checked box — takes --rl-accent-fill instead, the accent solved for its label
+     (packages/ui/src/accent-fill.ts): white on Realm's own blue read 2.9 : 1, on the fill 5.0. */
   --rl-accent: var(--accent);                    /* BUI --accent */
-  --rl-accent-contrast: oklch(1 0 0);            /* white on the accent fill, both modes */
-  /* An accent fill held down. Darker in BOTH modes, as a pressed AppKit default button is: the press
-     pushes the control into the page, and the light that lifts it is the same light either way. */
-  --rl-accent-press: color-mix(in oklch, var(--rl-accent) 84%, black);
+  --rl-accent-contrast: oklch(1 0 0);            /* the label on --rl-accent-fill; a theme may make it dark */
+  --rl-accent-fill: var(--accent-fill);
+  /* Hover and press move the fill AWAY from its label — deeper under white, brighter under a dark
+     label — so neither state reads worse than rest. Under white that is the AppKit default button's
+     press: darker, the control pushed into the page. */
+  --rl-accent-fill-hover: var(--accent-fill-hover);
+  --rl-accent-press: var(--accent-fill-press);
   --rl-space: #7c6cff;                           /* runtime: applyTheme() overwrites per space */
   /* type (Ara §1 revised): Inter is the UI face (BUI layout.tsx stacks); JetBrains Mono
      survives in terminals, diffs, code and kbd. */
@@ -342,12 +347,16 @@ kbd { font: 11px var(--font-mono); }
    drained values are computed on :root from the theme's own accent, and handed down from body. */
 :root[data-window-inactive] {
   --accent-drained: color(from var(--accent) xyz-d65 calc(y * 0.9505) y calc(y * 1.089));
+  --accent-fill-drained: color(from var(--accent-fill) xyz-d65 calc(y * 0.9505) y calc(y * 1.089));
+  --accent-fill-hover-drained: color(from var(--accent-fill-hover) xyz-d65 calc(y * 0.9505) y calc(y * 1.089));
+  --accent-fill-press-drained: color(from var(--accent-fill-press) xyz-d65 calc(y * 0.9505) y calc(y * 1.089));
   --accent-tint-drained: color(from var(--accent-tint) xyz-d65 calc(y * 0.9505) y calc(y * 1.089) / alpha);
 }
 :root[data-window-inactive] body {
   --accent: var(--accent-drained); --rl-accent: var(--accent-drained); --color-accent: var(--accent-drained);
   --accent-tint: var(--accent-tint-drained); --color-accent-tint: var(--accent-tint-drained);
-  --rl-accent-press: color-mix(in oklch, var(--accent-drained) 84%, black);
+  --rl-accent-fill: var(--accent-fill-drained); --rl-accent-fill-hover: var(--accent-fill-hover-drained);
+  --rl-accent-press: var(--accent-fill-press-drained);
 }
 /* xterm paints selection via its own layer and ignores native ::selection, so terminals are unaffected. */
 .panel ::selection { background: color-mix(in srgb, var(--rl-accent) 18%, transparent); }
@@ -730,7 +739,7 @@ kbd { font: 11px var(--font-mono); }
    rail's own progress track under the accent's run. */
 .rail-update, .rail-update:hover { color: var(--rl-accent-contrast); }
 .rail-update-disc { position: relative; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
-  background: var(--rl-accent); }
+  background: var(--rl-accent-fill); }
 .rail-update:is([data-pressed], :active:focus-visible) .rail-update-disc { background: var(--rl-accent-press); }
 .rail-update[data-state="downloading"]:hover { background: none; }
 .rail-update[data-state="downloading"] .rail-update-disc::before { content: ""; position: absolute; inset: -4px; border-radius: 50%;
@@ -1968,7 +1977,7 @@ kbd { font: 11px var(--font-mono); }
 .sim-device-name { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .sim-device-facts { font-size: 12px; color: var(--rl-text-faint); }
 .sim-primary { align-self: flex-start; padding: 7px 14px; border: 0; border-radius: var(--r-ctl); corner-shape: squircle;
-  background: var(--rl-accent); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label); }
+  background: var(--rl-accent-fill); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label); }
 
 /* ── Space icon picker (SpacePage's General tab): trigger + tabbed popover ── */
 .icon-picker-trigger { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r-ctl);
@@ -2691,7 +2700,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    0.48 is 16.3 — the figure tokens.css names for a 34px control. */
 .machine-primary { height: 34px; padding: 0 14px; border: none;
   border-radius: calc(34px * var(--sq-ratio-ctl)); corner-shape: squircle;
-  background: var(--rl-accent); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label);
+  background: var(--rl-accent-fill); color: var(--rl-accent-contrast); font-size: 13px; font-weight: var(--fw-label);
   transition: opacity var(--dur-hover) ease, background-color var(--dur-hover) ease; }
 .machine-primary:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-accent-press); }
 .machine-primary:disabled { opacity: 0.6; }
@@ -3223,8 +3232,8 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    is authored per mode to move the right way on both faces — lighter on dark, darker on light. The
    danger variant already reached for it; now all three do. */
 .btn:hover:not(:disabled) { --fill: var(--hover); }
-.btn.primary { --fill: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
-.btn.primary:hover:not(:disabled) { --fill: var(--accent-ink); }
+.btn.primary { --fill: var(--rl-accent-fill); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
+.btn.primary:hover:not(:disabled) { --fill: var(--rl-accent-fill-hover); }
 .btn.danger { --fill: transparent; color: var(--rl-danger); box-shadow: none; }
 .btn.danger:hover:not(:disabled) { --fill: var(--hover); }
 .icon-grid { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -3377,7 +3386,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    so it never lands on a terminal's active line, which is the top-left half of the pane. */
 .drive-frame-label { position: absolute; left: 50%; bottom: 12px; translate: -50% 0;
   padding: 4px 10px; border-radius: var(--r-chip); white-space: nowrap;
-  background: var(--rl-accent); color: var(--rl-accent-contrast);
+  background: var(--rl-accent-fill); color: var(--rl-accent-contrast);
   font-size: 12px; font-weight: var(--font-weight-medium);
   box-shadow: var(--shadow-pill); }
 
@@ -4185,7 +4194,7 @@ button.edit-file:hover { background: var(--rl-hover); }
   color: var(--rl-text-faint); font-variant-numeric: tabular-nums;
   animation: rl-fade-in var(--dur-slow) var(--ease-fade); }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
-  background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
+  background: var(--rl-accent-fill); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
 
 /* ── The scroll track (ScrollTrack.tsx) ───────────────────────────────────
    A tick down the log's left edge for each prompt, Codex's. It is an overlay in `.transcript-wrap`,
@@ -4683,7 +4692,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 .md li:has(> input[type="checkbox"]) { list-style: none; margin-left: -20px; }
 .md input[type="checkbox"] { appearance: none; width: 12px; height: 12px; margin-right: 7px; border-radius: 3px; vertical-align: -1px;
   box-shadow: inset 0 0 0 1.5px var(--rl-line-strong); }
-.md input[type="checkbox"]:checked { background: var(--rl-accent) no-repeat center /8px 8px
+.md input[type="checkbox"]:checked { background: var(--rl-accent-fill) no-repeat center /8px 8px
   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E");
   box-shadow: none; }
 /* Tables (AICSS "Data Table"): rules between rows only, a quiet header, numbers right-aligned on
@@ -5606,8 +5615,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    Plan 9 W3: the circle wears BUI Button's accent treatment — inset top highlight, accent-ink on
    hover — and PromptBar's disabled send (line-strong fill, ink-2 glyph) replaces the bare fade. */
 .composer-send { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
-  background: var(--rl-accent); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); flex: none; }
-.composer-send:hover:not(:disabled) { background: var(--accent-ink); }
+  background: var(--rl-accent-fill); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); flex: none; }
+.composer-send:hover:not(:disabled) { background: var(--rl-accent-fill-hover); }
 .composer-send:disabled { background: var(--mark-strong); color: var(--ink-2); box-shadow: none; opacity: 1; }
 
 /* ── To-do strip (§4): the session's plan, attached to the TOP of the card ─────────────
@@ -7062,7 +7071,7 @@ select { appearance: none; padding-right: 22px;
    back as unfilled grey text at 45%, which reads as a dead surface, not as work in flight. A busy
    button keeps its fill, one step down in emphasis. */
 .btn:disabled[aria-busy="true"] { opacity: .7; }
-.btn.primary:disabled[aria-busy="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
+.btn.primary:disabled[aria-busy="true"] { --fill: var(--rl-accent-fill); color: var(--rl-accent-contrast); }
 
 /* ── Space settings: the space's checkouts (W1/W2 made visible in W3) ───── */
 .env-empty { margin: 0; font-size: 13px; color: var(--rl-text-dim); }
@@ -7502,7 +7511,7 @@ select { appearance: none; padding-right: 22px;
 .checkbox:hover:not(:disabled) { border-color: var(--rl-accent); }
 .checkbox:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--hover-2); }
 .checkbox:checked:is([data-pressed], :active:focus-visible):not(:disabled) { background: var(--rl-accent-press); border-color: var(--rl-accent-press); }
-.checkbox:checked { background: var(--rl-accent); border-color: var(--rl-accent); }
+.checkbox:checked { background: var(--rl-accent-fill); border-color: var(--rl-accent-fill); }
 /* The tick is drawn, not typed: a glyph would inherit the reader's font stack and land at a
    different size and baseline on every machine. Two borders of a rotated box is the same mark
    everywhere. `--rl-accent-contrast` is the theme's own partner for the accent fill — the same
@@ -7517,7 +7526,7 @@ select { appearance: none; padding-right: 22px;
 .checkbox:checked::after { opacity: 1; scale: 1; filter: blur(0px); }
 /* Indeterminate is its own mark, not a half-drawn tick: a bar says "some of these", where a faded
    check says "we are not sure whether this is on". */
-.checkbox:indeterminate { background: var(--rl-accent); border-color: var(--rl-accent); }
+.checkbox:indeterminate { background: var(--rl-accent-fill); border-color: var(--rl-accent-fill); }
 .checkbox:indeterminate::after {
   left: 3px; top: 6.5px; width: 7px; height: 0; rotate: none;
   border-width: 0 0 1.5px 0; opacity: 1; scale: 1; filter: none;
@@ -8164,7 +8173,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .diff-split-cell[data-kind="empty"] { background: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--mark) 55%, transparent) 5px 6px); }
 /* A line comment starts from the gutter, as GitHub's does: there under the pointer, nowhere at rest. */
 .diff-line-comment { position: absolute; left: 30px; top: 2px; display: grid; place-items: center; width: 16px; height: 16px;
-  border-radius: var(--r-chip); background: var(--rl-accent); color: var(--rl-accent-contrast); opacity: 0; }
+  border-radius: var(--r-chip); background: var(--rl-accent-fill); color: var(--rl-accent-contrast); opacity: 0; }
 .diff-split-cell:hover .diff-line-comment, .diff-line-comment:focus-visible { opacity: 1; }
 .diff-band { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 12px; text-align: left;
   background: var(--inset); font-size: 12px; color: var(--rl-text-faint); }
@@ -10067,7 +10076,7 @@ img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; 
 .plan-decision-ask { flex: 1; min-width: 0; font-size: 13px; color: var(--ink); }
 .plan-decision-actions { display: flex; gap: 6px; }
 .plan-decision button { padding: 6px 12px; border-radius: var(--r-ctl); font-size: 13px; }
-.plan-approve { background: var(--rl-accent); color: var(--rl-accent-contrast); font-weight: var(--fw-label); }
+.plan-approve { background: var(--rl-accent-fill); color: var(--rl-accent-contrast); font-weight: var(--fw-label); }
 .plan-reject { background: var(--hover); color: var(--ink-2); }
 .plan-reject:hover { background: var(--hover-2); color: var(--ink); }
 
@@ -10133,7 +10142,7 @@ img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; 
 .files-root { height: 22px; padding: 0 9px; border: 0; border-radius: var(--r-chip); corner-shape: squircle;
   --fill: transparent; color: var(--rl-text-dim); font-size: 12px; box-shadow: none; }
 .files-root:hover { --fill: var(--rl-hover); color: var(--rl-text-bright); }
-.files-root[aria-checked="true"] { --fill: var(--rl-accent); color: var(--rl-accent-contrast); }
+.files-root[aria-checked="true"] { --fill: var(--rl-accent-fill); color: var(--rl-accent-contrast); }
 /* The trail. Mono, because every segment is a path component and a proportional face makes a folder
    name look like prose; the last crumb is where you are, so it is the only one that reads as text
    rather than as a control. */

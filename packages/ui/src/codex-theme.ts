@@ -1,4 +1,5 @@
 import { css, hexToOklch, type ThemeSeed } from "@realm/contracts";
+import { accentFill } from "./accent-fill";
 
 /** The Codex desktop app's light palette (OpenAI's ChatGPT.app, bundle com.openai.codex), as its own
  *  theme engine derives it.
@@ -117,6 +118,13 @@ export function deriveCodex(seed: ThemeSeed, level: number): Record<string, stri
   const accentTint = account ? rgb(account.soft) : mix(S, A, 0.11 + c * 0.04);
   const tint = (h: string): string => out(STATUS_TINTS[h.toLowerCase()] ? rgb(STATUS_TINTS[h.toLowerCase()]!) : mix(S, rgb(h), 0.15));
 
+  /* The filled control keeps Codex's own pairing — its label rule (`Gba`) on its exact accent, which
+     for the default blue is black at 5.8:1 — and only moves the fill when an account colour or an
+     override leaves that rule short of the target. Hover and press then step AWAY from the label:
+     under black that is lighter, since a darker press would take black on #3a83f7 under 4.5:1. */
+  const label = onAccent(A);
+  const filled = accentFill(hexToOklch(seed.accent), { dark: hexToOklch(hex(BLACK)), prefer: label === WHITE ? "light" : "dark" });
+
   const ink2 = over(canvas, I, 0.65 + c * 0.1);
   const ink3 = over(canvas, I, 0.45 + c * 0.1);
   const red = out(rgb(seed.red));
@@ -142,7 +150,10 @@ export function deriveCodex(seed: ThemeSeed, level: number): Record<string, stri
     "--accent": out(A),
     "--accent-ink": out(accentInk),
     "--accent-tint": out(accentTint),
-    "--rl-accent-contrast": out(onAccent(A)),
+    "--rl-accent-contrast": css(filled.label),
+    "--accent-fill": css(filled.fill),
+    "--accent-fill-hover": css(filled.hover),
+    "--accent-fill-press": css(filled.press),
 
     "--green": out(rgb(seed.green)),
     "--green-tint": tint(seed.green),
