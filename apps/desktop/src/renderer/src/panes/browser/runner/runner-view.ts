@@ -554,8 +554,8 @@ function decor(ctx: CanvasRenderingContext2D, i: number, at: number, ground: num
     ctx.fill();
     ctx.globalAlpha = 1;
   } else if (r < 0.5) {
-    // Never the hazards' red: a flower is scenery, and should never be mistaken for a critter.
-    const petal = [p.orange, p.accentInk, p.ink2][Math.floor(hash(i + 7) * 3)]!;
+    // Never the hazards' red nor the shards' blue: a flower is scenery, never a thing to jump or take.
+    const petal = hash(i + 7) < 0.6 ? p.orange : p.ink2;
     const h = 8 + hash(i + 3) * 6;
     ctx.strokeStyle = p.green;
     ctx.lineWidth = 1.5;
