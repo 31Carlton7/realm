@@ -93,7 +93,7 @@ const STATUS_TINTS: Record<string, string> = { "#00a240": "#edf8f1", "#e25507": 
  *  Realm are fixed alpha overlays and in Codex are alphas of the theme's own ink. */
 export const CODEX_EXTRA_VARS = [
   "--line", "--line-strong", "--line-soft", "--divider", "--divider-hover", "--mark", "--mark-strong",
-  "--rl-hover", "--rl-active", "--scrim", "--scrim-soft", "--shadow-overlay",
+  "--rl-hover", "--rl-active", "--scrim", "--scrim-soft", "--shadow-overlay", "--chrome-tint",
 ] as const;
 
 /** Codex's derivation, on a Realm seed, for Realm's tokens. `level` is Realm's contrast control. */
@@ -185,5 +185,8 @@ export function deriveCodex(seed: ThemeSeed, level: number): Record<string, stri
     "--scrim-soft": rgba(BLACK, 0.08 + c * 0.04),
     // --shadow-dropdown-overlay: a half-pixel ring in the border colour over the xl lift.
     "--shadow-overlay": `0 0 0 0.5px ${rgba(I, 0.06 + c * 0.04)}, 0 8px 16px -4px #0000001f`,
+    // Codex's title bar and icon rail ARE the window ground (surface-under), with nothing laid over
+    // them; Realm darkens its chrome row by a 6% overlay, which Codex does not have.
+    "--chrome-tint": "transparent",
   };
 }
