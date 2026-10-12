@@ -30,7 +30,8 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
  *  a day the grid beside it shows as empty would be a contradiction on one screen. */
 const USED = "type = 'user_message'";
 const LOCAL_DAY = "date(ts / 1000, 'unixepoch', 'localtime')";
-/** An event's payload as JSON text for `json_extract`, whether it is stored plain or compressed (v56). */
+/** An event's payload as JSON text for `json_extract`, whether it is stored plain or compressed (v56).
+ *  A compressed tool call's name is read from `event_tool_names`, which spares inflating it. */
 const PAYLOAD = payloadSql("payload_json");
 const EV_PAYLOAD = payloadSql("ev.payload_json");
 
@@ -252,8 +253,8 @@ export class UsageService {
     const by = new Map<string, number>();
     for (const r of this.d.db.prepare(`
       SELECT COALESCE(json_extract(${PAYLOAD}, '$.input.skill'), json_extract(${PAYLOAD}, '$.input.command')) AS skill, COUNT(*) AS n
-        FROM session_events
-       WHERE type = 'tool_call' AND json_extract(${PAYLOAD}, '$.name') = 'Skill'
+        FROM session_events ev LEFT JOIN event_tool_names tn ON tn.seq = ev.seq
+       WHERE type = 'tool_call' AND COALESCE(tn.tool, json_extract(${PAYLOAD}, '$.name')) = 'Skill'
        GROUP BY skill
     `).all() as Row[]) {
       const name = skillUseName(str(r.skill));
@@ -475,8 +476,8 @@ export class UsageService {
    *  ranking, shared with the page about you so the two can never order tools differently. */
   private topTools(scope: string, args: readonly (string | number)[], limit: number): { name: string; calls: number }[] {
     return (this.d.db.prepare(`
-      SELECT json_extract(${EV_PAYLOAD}, '$.name') AS name, COUNT(*) AS n
-        FROM session_events ev WHERE ${scope} AND ev.type = 'tool_call'
+      SELECT COALESCE(tn.tool, json_extract(${EV_PAYLOAD}, '$.name')) AS name, COUNT(*) AS n
+        FROM session_events ev LEFT JOIN event_tool_names tn ON tn.seq = ev.seq WHERE ${scope} AND ev.type = 'tool_call'
        GROUP BY name ORDER BY n DESC, name ASC LIMIT ?
     `).all(...args, limit) as Row[]).map((r) => ({ name: str(r.name) || "(unnamed)", calls: num(r.n) }));
   }

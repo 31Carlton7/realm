@@ -88,9 +88,11 @@ export class PayloadCompactor {
     db.exec("BEGIN");
     try {
       const put = db.prepare("UPDATE session_events SET payload_json = ? WHERE seq = ? AND payload_json = ?");
+      const name = db.prepare("INSERT OR IGNORE INTO event_tool_names (seq, tool) SELECT seq, json_extract(?, '$.name') FROM session_events WHERE seq = ? AND type = 'tool_call'");
       const back = db.prepare("SELECT payload_json FROM session_events WHERE seq = ?");
       for (const p of packed) {
         if (Number(put.run(p.blob, p.seq, p.text).changes) === 0) continue;
+        name.run(p.text, p.seq);
         const stored = (back.get(p.seq) as { payload_json: Uint8Array | string }).payload_json;
         if (decodePayload(stored) !== p.text) throw new Error(`payload ${p.seq} read back different; batch rolled back`);
         out.compressed++;

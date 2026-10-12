@@ -257,9 +257,13 @@ export class SessionEventsStore {
    *  behaviour for a fixture and never a silent half-write in the app, where it is always passed. */
   constructor(private db: Db, private artifacts?: { index(sessionId: string, seq: number, ts: number, type: string, payload: unknown): void }) {}
   append(sessionId: string, event: SessionEvent): StoredSessionEvent {
+    const payload = encodePayload(JSON.stringify(event.payload));
     const r = this.db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)")
-      .run(sessionId, event.ts, event.type, encodePayload(JSON.stringify(event.payload)));
+      .run(sessionId, event.ts, event.type, payload);
     const seq = Number(r.lastInsertRowid);
+    if (event.type === "tool_call" && typeof payload !== "string") {
+      this.db.prepare("INSERT INTO event_tool_names (seq, tool) VALUES (?, ?)").run(seq, event.payload.name);
+    }
     // The search index's session source (Plan 16 W1), written HERE — the one choke point every
     // persisted event passes through — so no producer (pump, emitExternal, boot's synthetic denies)
     // can skip it, and so the FTS row commits in the same transaction as the event when the caller

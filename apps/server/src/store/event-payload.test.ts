@@ -108,6 +108,16 @@ describe("SessionEventsStore over compressed payloads", () => {
     expect(events.listAfter(session.id, 0, 10)).toHaveLength(4);
   });
 
+  it("names each compressed tool call beside its payload, and it goes with its event", () => {
+    const { db, session, events } = fresh();
+    const big = events.append(session.id, sessionEvent("tool_call", { toolUseId: "t", name: "Write", input: { content: page(60) }, parentToolUseId: null }, 1));
+    events.append(session.id, sessionEvent("tool_call", { toolUseId: "u", name: "Read", input: {}, parentToolUseId: null }, 2));
+    events.append(session.id, sessionEvent("tool_result", { toolUseId: "t", content: page(60), isError: false }, 3));
+    expect(db.prepare("SELECT seq, tool FROM event_tool_names").all()).toEqual([{ seq: big.seq, tool: "Write" }]);
+    events.truncate(session.id, 0);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM event_tool_names").get()).toEqual({ n: 0 });
+  });
+
   it("keeps search indexing the words, not the stored bytes", () => {
     const { db, session, events } = fresh();
     const r = events.append(session.id, sessionEvent("assistant_text", { messageId: "m", text: `zanzibar ${page(50)}` }, 1));
@@ -140,6 +150,16 @@ describe("PayloadCompactor", () => {
     expect((db.prepare("SELECT COUNT(*) AS n FROM session_events WHERE typeof(payload_json) = 'text'").get() as { n: number }).n).toBe(30);
     expect(textsNow(db)).toEqual(texts);
     expect(cursor(db)).toBe(60);
+  });
+
+  it("names the old tool calls it compresses, and only tool calls", () => {
+    const { db, session } = fresh();
+    const call = writePlain(db, session.id, sessionEvent("tool_call", { toolUseId: "t", name: "Write", input: { content: page(60) }, parentToolUseId: null }, 1));
+    const result = writePlain(db, session.id, sessionEvent("tool_result", { toolUseId: "t", content: page(60), isError: false }, 2));
+    new PayloadCompactor({ db }).step();
+    expect(db.prepare("SELECT seq, typeof(payload_json) AS t FROM session_events ORDER BY seq").all())
+      .toEqual([{ seq: call, t: "blob" }, { seq: result, t: "blob" }]);
+    expect(db.prepare("SELECT seq, tool FROM event_tool_names").all()).toEqual([{ seq: call, tool: "Write" }]);
   });
 
   it("resumes where an interrupted run stopped, and a second run finds nothing to do", () => {
@@ -255,7 +275,7 @@ describe("migration v56 — compressed event payloads", () => {
     expect(migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS team_policies"))).toBeLessThan(V56_AT);
   });
 
-  it("adds the cursor, rewrites no row, and is safe to meet twice", () => {
+  it("adds the cursor and the tool names, rewrites no row, and is safe to meet twice", () => {
     const path = join(tempDir("realm-v56-"), "realm.db");
     beforeV56(path);
     const raw = new DatabaseSync(path);
@@ -265,9 +285,19 @@ describe("migration v56 — compressed event payloads", () => {
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     expect(db.prepare("SELECT id, done FROM event_payload_compaction").all()).toEqual([{ id: 1, done: 0 }]);
     expect(rows(db)).toEqual(was);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM event_tool_names").get()).toEqual({ n: 0 });
     db.exec(migrations[V56_AT]!);
-    expect(db.prepare("SELECT id, done FROM event_payload_compaction").all()).toEqual([{ id: 1, done: 0 }]);
-    // …and the compactor then takes the old home's long row, and only it.
+    db.close();
+    const reopened = openDatabase(path);
+    expect(reopened.prepare("SELECT COUNT(*) AS n FROM schema_version").get()).toEqual({ n: migrations.length });
+    expect(reopened.prepare("SELECT id, done FROM event_payload_compaction").all()).toEqual([{ id: 1, done: 0 }]);
+    reopened.close();
+  });
+
+  it("leaves an old home's long row to the compactor, and only it", () => {
+    const path = join(tempDir("realm-v56-"), "realm.db");
+    beforeV56(path);
+    const db = openDatabase(path);
     expect(new PayloadCompactor({ db }).step()).toMatchObject({ compressed: 1, finished: true });
     expect((rows(db) as { t: string }[]).map((r) => r.t)).toEqual(["text", "blob", "text"]);
     db.close();

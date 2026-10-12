@@ -1183,7 +1183,14 @@ export const migrations: string[] = [
   // compressed after boot, in small batches, by `PayloadCompactor`, which keeps its place in this
   // one-row table (`done` is the last seq it has looked at). Nothing is rewritten in the migration,
   // so it costs the same however large the history is. Safe to meet twice.
+  //
+  // `event_tool_names` holds a compressed tool call's `name` (as `tool`), so the Usage page can rank tools
+  // without inflating every call; a call stored as text has no row, and `json_extract` reads its
+  // name as before. It goes with its event (a truncate, a deleted session) by the cascade.
   `
+  CREATE TABLE IF NOT EXISTS event_tool_names (
+    seq INTEGER PRIMARY KEY REFERENCES session_events(seq) ON DELETE CASCADE,
+    tool TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS event_payload_compaction (id INTEGER PRIMARY KEY CHECK (id = 1), done INTEGER NOT NULL);
   INSERT OR IGNORE INTO event_payload_compaction (id, done) VALUES (1, 0);
   `,

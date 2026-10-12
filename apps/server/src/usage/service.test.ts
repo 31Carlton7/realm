@@ -256,6 +256,9 @@ describe("UsageService.records — the page about you", () => {
     expect(plain.skills).toEqual([{ name: "browsing", uses: 1 }]);
     expect(deflateEveryPayload(db)).toBe(5);
     expect(service().records()).toEqual(plain);
+    // The name beside a call is what ranks it: no call is inflated just to be counted.
+    db.prepare("INSERT INTO event_tool_names (seq, tool) SELECT MAX(seq), 'Grep' FROM session_events WHERE type = 'tool_call'").run();
+    expect(service().records().tools).toEqual([{ name: "Grep", calls: 1 }, { name: "Skill", calls: 1 }]);
   });
 });
 
