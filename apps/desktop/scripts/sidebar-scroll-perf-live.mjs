@@ -19,6 +19,7 @@
  * SCROLL_PERF_BARS   macOS scroll bar style forced on the process: WhenScrolling (overlay) or Always
  * SCROLL_PERF_STREAM N: keep N of the latest sessions answering (the fake agent's "stream slowly")
  *                    for the whole scroll, as a working day has agents running while the list moves
+ * SCROLL_PERF_EVAL   an expression run in the page before measuring, for trying a change in place
  * Ports: REALM_DEVTOOLS_PORT (9278), REALM_PORT (8838). Reaps only what holds its own two ports.
  */
 import { execFileSync, execSync, spawn } from "node:child_process";
@@ -138,6 +139,7 @@ async function measure(c, lens) {
   await evalIn(c, `(() => { document.documentElement.removeAttribute('data-window-inactive');
     new MutationObserver(() => document.documentElement.removeAttribute('data-window-inactive')).observe(document.documentElement, { attributes: true, attributeFilter: ['data-window-inactive'] }); return true; })()`);
   await sleep(4000);
+  if (process.env.SCROLL_PERF_EVAL) log("eval", await evalIn(c, process.env.SCROLL_PERF_EVAL));
   const facts = await evalIn(c, `(() => { const b = document.querySelector('.space-body'); b.scrollTop = 0; const r = b.getBoundingClientRect();
     return { rows: b.querySelectorAll('.item').length, nodes: b.getElementsByTagName('*').length, scrollHeight: b.scrollHeight, clientHeight: b.clientHeight,
       rect: { x: r.x, y: r.y, w: r.width, h: r.height }, overlay: document.documentElement.hasAttribute('data-overlay-scrollbars'),
