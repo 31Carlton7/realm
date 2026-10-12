@@ -237,6 +237,7 @@ const runner = (c) => evalIn(c, `(() => {
     play: r.querySelector('.browser-runner-play').textContent,
     score: r.querySelector('.browser-runner-score').textContent,
     width: Math.round(r.querySelector('canvas').getBoundingClientRect().width),
+    height: Math.round(r.querySelector('canvas').getBoundingClientRect().height),
     canvasPx: [r.querySelector('canvas').width, r.querySelector('canvas').height],
     focused: document.activeElement === r.querySelector('canvas'),
   };
@@ -413,6 +414,17 @@ async function main() {
   const cert = await until(async () => { const code = await errorCode(c); return code?.startsWith("ERR_CERT") ? code : null; }, 15_000, "the certificate page");
   check("a certificate page has no runner", !(await runner(c)), { cert });
   await shot(c, "10-certificate-dark");
+
+  // ── A wider window: the world is drawn bigger as well as further ahead ──────────────────────
+  await inMain(m, `(() => { const { BrowserWindow } = require("electron"); for (const w of BrowserWindow.getAllWindows()) w.setContentSize(2400, ${WINDOW.height}); return true; })()`);
+  await go(c, `http://localhost:${CLOSED_PORT}/`);
+  await until(async () => (await errorCode(c)) === "ERR_CONNECTION_REFUSED", 15_000, "the refused page, wide");
+  await sleep(800);
+  const wide = await runner(c);
+  note("wide window", { width: wide?.width, canvasPx: wide?.canvasPx });
+  await shot(c, "11-idle-dark-wide");
+  await midRun(c, "12-midrun-dark-wide");
+  note("frame time, running, wide", await frameTimes(c, 1500));
 }
 
 async function teardown() {

@@ -337,7 +337,13 @@ export class RunnerView {
 
     // Scenery on the running line: posts, flowers, tufts. Behind everything that can be touched.
     const first = Math.floor((run.x - heroX - 20) / DECOR_STEP), last = Math.ceil((run.x - heroX + W + 20) / DECOR_STEP);
-    for (let i = first; i <= last; i++) decor(ctx, i, sx(i * DECOR_STEP), ground, p);
+    // None stands in a spike row or on a ramp, where it could be read as part of the hazard.
+    const blocked = run.things.filter((t) => t.kind === "spike" || t.kind === "ramp");
+    for (let i = first; i <= last; i++) {
+      const at = i * DECOR_STEP + hash(i + 1000) * 40;
+      if (blocked.some((t) => at > t.x - 16 && at < t.x + (t.kind === "ramp" ? t.len : RUN.spikeWidth) + 16)) continue;
+      decor(ctx, i, sx(at), ground, p);
+    }
 
     // Earth: a checker in the accent, scrolling with the ground, darker under the grass.
     ctx.save();
@@ -526,9 +532,8 @@ function speedLines(ctx: CanvasRenderingContext2D, W: number, ground: number, t:
 }
 
 /** One piece of scenery for slot `i`: a hexagon-topped post, a flower, a tuft, or nothing. */
-function decor(ctx: CanvasRenderingContext2D, i: number, x: number, ground: number, p: Palette) {
+function decor(ctx: CanvasRenderingContext2D, i: number, at: number, ground: number, p: Palette) {
   const r = hash(i);
-  const at = x + hash(i + 1000) * 40;
   if (r < 0.14) {
     ctx.strokeStyle = p.ink3;
     ctx.lineWidth = 2;
@@ -549,7 +554,8 @@ function decor(ctx: CanvasRenderingContext2D, i: number, x: number, ground: numb
     ctx.fill();
     ctx.globalAlpha = 1;
   } else if (r < 0.5) {
-    const petal = [p.orange, p.red, p.accentInk][Math.floor(hash(i + 7) * 3)]!;
+    // Never the hazards' red: a flower is scenery, and should never be mistaken for a critter.
+    const petal = [p.orange, p.accentInk, p.ink2][Math.floor(hash(i + 7) * 3)]!;
     const h = 8 + hash(i + 3) * 6;
     ctx.strokeStyle = p.green;
     ctx.lineWidth = 1.5;
