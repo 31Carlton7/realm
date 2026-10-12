@@ -41,7 +41,7 @@
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
-.composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
+.terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
 .subagent-where[data-branch] {
@@ -5027,56 +5027,128 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 
 /* Row 0 — the queue: messages typed during a turn that are waiting for it to end. Above the
    attachments because it is what happens NEXT, while the attachments belong to the message still
-   being typed. Quiet by default — a queue is a held intention, not an alert — and each row carries
-   its own send-now, which is the steering affordance in the one place it names what it delivers. */
-.composer-queue { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 10px 12px 0; list-style: none; }
-.composer-queue-item { display: flex; align-items: center; gap: 8px; min-width: 0;
-  padding: 5px 6px 5px 8px; border-radius: var(--r-chip);
-  background: var(--rl-hover); box-shadow: 0 0 0 var(--hairline-w) var(--rl-line); }
-/* The position, so a queue of three reads as an order rather than a set. Tabular so the digits sit
-   in one column as the queue grows past nine. */
-.composer-queue-item .queue-position { flex: none; min-width: 14px; font-family: var(--font-mono);
-  font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
-.composer-queue-item .queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
-.composer-queue-item .queue-attach { flex: none; display: flex; align-items: center; gap: 2px;
-  font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--rl-text-faint); }
-.composer-queue-item .queue-send { flex: none; padding: 2px 7px; border: 0; border-radius: var(--r-chip);
-  background: transparent; color: var(--rl-text-dim); font-size: 11px; font-weight: var(--fw-label);
+   being typed.
+
+   A tray in the prompter's own card, not a stack of fields above it: a head that says what this is
+   and when it goes, the messages as plain lines of the card's own ink with nothing filled behind
+   them, and a hairline under the lot where the box being typed in begins. Quiet by default — a queue
+   is a held intention, not an alert — and lighter than the prompter it belongs to: the gray bars it
+   replaced read as disabled text fields, two of them as one thing said twice. */
+.composer-queue { margin: 0 12px; padding: 10px 0 8px; border-bottom: var(--hairline-w) solid var(--rl-line);
+  animation: rl-fade-in var(--dur-enter) var(--ease-out-strong); }
+.composer-queue .queue-head { display: flex; align-items: center; gap: 6px; min-width: 0; height: 22px; padding: 0 2px 0 4px;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.composer-queue .queue-head-glyph { flex: none; color: var(--rl-text-faint); }
+.composer-queue .queue-head-title { flex: none; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.composer-queue :is(.queue-head-when, .queue-head-next) { display: flex; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-queue .queue-head-next { display: block; flex: 1; }
+.composer-queue .queue-head-sep { color: var(--rl-text-faint); margin-right: 6px; }
+.composer-queue .queue-head-when .queue-head-sep { margin-right: 0; }
+.composer-queue .queue-head-held { flex: none; color: var(--rl-text-faint); white-space: nowrap; }
+/* Show all / Show less: a word and its chevron at the head's far end, never a second header. */
+.composer-queue .queue-fold { flex: none; display: flex; align-items: center; gap: 3px; margin-left: auto; height: 22px; padding: 0 6px 0 8px;
+  border: 0; border-radius: var(--r-chip); background: transparent; font: inherit; font-size: 12px; color: var(--rl-text-dim);
   transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
-.composer-queue-item .queue-send:hover { background: var(--surface); color: var(--rl-text-bright); }
+.composer-queue .queue-fold:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition-duration: 0s; }
+.composer-queue .queue-fold:disabled { opacity: .45; }
+
+.composer-queue .queue-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; }
+/* A grid of one row so the row can fold to nothing and back: `grid-template-rows` animates where
+   `height: auto` cannot. The body clips while it folds; the tip the attachment tile hangs outside
+   itself is not drawn here (the name is on the chip), so the clip costs nothing. */
+.composer-queue-item { position: relative; display: grid; grid-template-rows: 1fr; min-width: 0;
+  animation: rl-queue-in var(--dur-enter) var(--ease-out-strong); }
+.composer-queue-item[data-leaving] { animation: rl-queue-out var(--dur-swap) var(--ease-fade) forwards; pointer-events: none; }
+@keyframes rl-queue-in { from { grid-template-rows: 0fr; opacity: 0; } }
+@keyframes rl-queue-out { to { grid-template-rows: 0fr; opacity: 0; } }
+.composer-queue-item .queue-item-body { display: flex; align-items: flex-start; gap: 6px; min-width: 0; min-height: 0; overflow: hidden;
+  padding: 5px 2px 5px 4px; border-radius: var(--r-chip); }
+/* A message held by an edit, here or in another window, sits on the card's field fill: it is the one
+   row that is not simply waiting. */
+.composer-queue-item[data-held] .queue-item-body { background: var(--rl-hover); }
+.composer-queue-item[data-dragging] .queue-item-body { opacity: .4; }
+/* Where a dragged message would land: a line in the accent on the edge it would land against. */
+.composer-queue-item[data-drop="before"] .queue-item-body { box-shadow: inset 0 2px 0 var(--rl-accent); }
+.composer-queue-item[data-drop="after"] .queue-item-body { box-shadow: inset 0 -2px 0 var(--rl-accent); }
+
+/* The handle, only once there is an order to change, and only under a pointer that can drag it. It
+   hangs in the card's gutter, left of the text, so every message starts on the head's own edge
+   whether or not the handle is showing. */
+.composer-queue-item .queue-grip { position: absolute; left: -12px; top: 5px; display: flex; align-items: center; justify-content: center; width: 12px; height: 18px;
+  color: var(--rl-text-faint); cursor: grab; opacity: 0; transition: opacity var(--dur-hover) var(--ease-out-strong); }
+.composer-queue-item:is(:hover, :focus-within) .queue-grip { opacity: 1; transition-duration: 0s; }
+
+.composer-queue-item .queue-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+/* The message itself: the card's secondary ink at the small rung, two lines, and the rest on a click
+   — all of it: it is the user's own message, and they asked. A button, so the keyboard reaches it and ⌥↑ / ⌥↓ have a place
+   in the row to start from. */
+.composer-queue-item .queue-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  margin: 0; padding: 0; border: 0; background: none; text-align: left; font: inherit; font-size: 13px; line-height: 18px;
+  color: var(--rl-text-dim); white-space: pre-wrap; overflow-wrap: anywhere; border-radius: var(--r-sm); }
+.composer-queue-item .queue-text[data-long] { display: block; -webkit-line-clamp: none; }
+.composer-queue-item .queue-text:hover { color: var(--rl-text-bright); }
+.composer-queue-item .queue-text-empty { font-style: italic; color: var(--rl-text-faint); }
+.composer-queue-item[data-held]:not([data-editing]) .queue-text { color: var(--rl-text-faint); }
+
+/* Says why Send now is off — the message is being written, not waiting — and, for the field open
+   here, the two keys that close it. */
+.composer-queue-item .queue-held { display: flex; align-items: center; gap: 5px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.composer-queue-item[data-editing] .queue-held { color: var(--rl-text-dim); }
+.composer-queue-item .queue-held-keys { color: var(--rl-text-faint); }
+
+/* The files going with it, as the prompter's own tile in miniature with the name beside it — a count
+   said how many, never which. */
+.composer-queue-item .queue-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 0; padding: 0; list-style: none; }
+.composer-queue-item .queue-file { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; min-width: 0;
+  padding: 2px 8px 2px 2px; --btn-h: 24px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+  background: var(--field); box-shadow: var(--shadow-hairline); font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.composer-queue-item .queue-file .attach-tile { --attach-tile: 20px; }
+.composer-queue-item .queue-file :is(.attach-ext, .attach-tip) { display: none; }
+.composer-queue-item .queue-file .attach-glyph { width: 12px; height: 12px; }
+.composer-queue-item .queue-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The row's actions, on its first line and always on screen: Edit, Send now and Remove are what a
+   queued message is FOR, so none of them waits for a hover. Only the steps of a reorder do, beside a
+   pointer that can drag — and stay out where there is no hover to find them by. */
+.composer-queue-item .queue-actions { flex: none; display: flex; align-items: center; gap: 2px; margin: -2px 0; }
+.composer-queue-item .queue-steps { display: flex; gap: 2px; opacity: 0; transition: opacity var(--dur-hover) var(--ease-out-strong); }
+.composer-queue-item:is(:hover, :focus-within) .queue-steps { opacity: 1; transition-duration: 0s; }
+@media (hover: none) {
+  .composer-queue-item .queue-steps { opacity: 1; }
+  .composer-queue-item .queue-grip { display: none; }
+}
+.composer-queue-item .queue-icon { flex: none; display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
+  color: var(--rl-text-faint); transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+.composer-queue-item .queue-icon:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition-duration: 0s; }
+.composer-queue-item .queue-send { flex: none; display: flex; align-items: center; height: 22px; padding: 0 8px; border: 0; border-radius: var(--r-chip);
+  background: transparent; color: var(--rl-text-dim); font-size: 12px; font-weight: var(--fw-label);
+  transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
+.composer-queue-item .queue-send:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition-duration: 0s; }
 .composer-queue-item .queue-send-glyph { display: none; }
+.composer-queue-item :is(.queue-icon, .queue-send):disabled { opacity: .4; }
 @container (max-width: 420px) {
-  .composer-queue-item .queue-send { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; }
+  .composer-queue-item .queue-send { justify-content: center; width: 22px; padding: 0; }
   .composer-queue-item .queue-send-glyph { display: block; }
   .composer-queue-item .queue-send-label { display: none; }
+  .composer-queue .queue-head-when, .composer-queue-item .queue-held-keys { display: none; }
 }
-.composer-queue-item .queue-drop { flex: none; display: flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
-  color: var(--rl-text-faint); transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
-.composer-queue-item .queue-drop:hover { background: var(--surface); color: var(--rl-text-bright); }
-/* The edit button, in the remove button's box so the row's controls are one set. */
-.composer-queue-item .queue-icon { flex: none; display: flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--r-chip); background: transparent;
-  color: var(--rl-text-faint); transition: background var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
-.composer-queue-item .queue-icon:hover:not(:disabled) { background: var(--surface); color: var(--rl-text-bright); }
-.composer-queue-item :is(.queue-icon, .queue-send):disabled { opacity: .45; }
-.composer-queue-item .queue-send:disabled:hover { background: transparent; color: var(--rl-text-dim); }
-/* A message being edited: the row grows to hold the field, its controls keep to the field's first
-   line — each centred in a box the height of that line, so they sit where they sat at rest. */
-.composer-queue-item[data-editing] { align-items: flex-start; }
-.composer-queue-item[data-editing] > :is(.queue-position, .queue-held, .queue-attach, .queue-send) { display: flex; align-items: center; height: 22px; }
-.composer-queue-item[data-editing] > .queue-drop { margin-top: 2px; }
-/* The field is the row's text grown into an input: the same size and ink, wrapping instead of
-   ellipsizing, and only as tall as what is typed (up to six lines, then it scrolls). */
-.composer-queue-item .queue-edit { flex: 1; min-width: 0; margin: 0; padding: 2px 6px; resize: none;
+/* A container query cannot ask about the pointer, so the media query holds it. */
+@media (hover: hover) {
+  @container (max-width: 420px) {
+    /* The steps would take the width the message needs; the handle and ⌥↑ / ⌥↓ still move it. */
+    .composer-queue-item .queue-steps { display: none; }
+  }
+}
+
+/* A message being edited: the row's text grown into a field — the same size and ink, wrapping instead
+   of clamping, and only as tall as what is typed (up to six lines, then it scrolls). */
+.composer-queue-item .queue-edit { min-width: 0; margin: -2px 0 0 -6px; padding: 2px 6px; resize: none;
   field-sizing: content; min-height: 22px; max-height: calc(6 * 18px + 4px);
-  font: inherit; font-size: 12px; line-height: 18px; color: var(--rl-text-bright);
-  background: var(--surface); border: 0; border-radius: calc(var(--r-chip) - 5px); /* concentric with the row's 5px inset */
+  font: inherit; font-size: 13px; line-height: 18px; color: var(--rl-text-bright);
+  background: var(--surface); border: 0; border-radius: calc(var(--r-chip) - 4px); /* concentric with the row's 4px inset */
   box-shadow: 0 0 0 var(--hairline-w) var(--rl-line); outline: none; }
 .composer-queue-item .queue-edit:focus-visible { box-shadow: 0 0 0 var(--hairline-w) var(--rl-accent); }
-/* Says why Send now is off — the message is being written, not waiting. */
-.composer-queue-item .queue-held { flex: none; font-size: 11px; color: var(--rl-text-faint); white-space: nowrap; }
 
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
    attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a

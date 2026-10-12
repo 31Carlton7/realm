@@ -67,6 +67,8 @@ import {
   // A turn saved from the scroll track's card (ScrollTrack.tsx), and the Library's list of them: the
   // plain ribbon, which fills when the turn is saved. `bookmark` stays the space icon it already is.
   Bookmark02Icon,
+  // The handle a queued message is dragged by, to a new place in the prompter's queue.
+  DragDropVerticalIcon,
 } from "@hugeicons-pro/core-stroke-rounded";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
@@ -235,6 +237,7 @@ export const icons = {
   /* The plain ribbon, outlined until the turn is saved and filled once it is (the model picker's star
      does the same). Bookmark01's band across the top would read as a second, ruled-off control. */
   saved: Bookmark02Icon,
+  grip: DragDropVerticalIcon,
   /* Teams. Review is the tray work arrives in for a yes — the import tray, since that is what it is;
      a team is its people, and its records are each a person's card. A role itself never wears a glyph:
      it is its Realmite. */

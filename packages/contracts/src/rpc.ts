@@ -2051,6 +2051,14 @@ export const Methods = {
    */
   "sessions.editQueued": { params: z.object({ id: IdSchema, queuedId: z.string().min(1), text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).optional() })
     .refine((p) => p.text.length > 0 || (p.attachments?.length ?? 1) > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ edited: z.boolean() }) },
+  /**
+   * Move one queued message to a new place in the queue: in front of `before`, or to the end when
+   * `before` is null. By ids rather than indices for the reason `sessions.dequeue` gives — the queue
+   * drains on its own, so an index read a moment ago may name another message. A move whose message
+   * or anchor has already gone out is a no-op. Moving a message in front of a held head lets go of
+   * the drain that head was stopping: the new head is next, and nothing is holding it.
+   */
+  "sessions.moveQueued": { params: z.object({ id: IdSchema, queuedId: z.string().min(1), before: z.string().min(1).nullable() }), result: z.object({ ok: z.literal(true) }) },
   /** The queue as it stands, for a pane that has just mounted. Live changes arrive on `session.queue`;
    *  this is the initial read, the same split `sessions.events` and `session.event` already use. */
   "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema) }) },

@@ -401,6 +401,8 @@ export type Api = TeamApi & LabApi & {
   /** `sessions.editQueued` — replace a queued message's text where it stands. False when it had
    *  already gone out. */
   editQueuedPrompt(id: string, queuedId: string, text: string): Promise<boolean>;
+  /** `sessions.moveQueued` — put a queued message in front of `before`, or last when it is null. */
+  moveQueuedPrompt(id: string, queuedId: string, before: string | null): Promise<void>;
   sessionQueue(id: string): Promise<QueuedPrompt[]>;
   /** `limits.get` — every provider's plan quota as last reported. */
   planLimits(): Promise<PlanLimits[]>;
@@ -2125,6 +2127,10 @@ export type AppState = TeamSlice & LabSlice & {
   /** Save an edit. A message that went out before the save is not lost: the edit lands in the
    *  session's draft, and a toast says why. */
   saveQueuedEdit(sessionId: string, queuedId: string, text: string): Promise<void>;
+  /** Move a queued message in front of `before`, or to the end. Shown at once — a dragged row that
+   *  waited on the round trip would snap back before it moved — and the server's broadcast, which
+   *  follows, is the order that stands. */
+  moveQueuedPrompt(sessionId: string, queuedId: string, before: string | null): Promise<void>;
   /** Create a session, open its item in the main view, and open its transcript. It goes to
    *  `input.spaceId`, else the current space — the space of the session in focus. When `edge` is
    *  supplied with a target leaf, it opens there the way a dragged row would. */
@@ -5960,6 +5966,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const draft = get().drafts[sessionId] ?? "";
         get().setDraft(sessionId, draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text);
         get().toast({ tone: "info", text: "That message had already gone out. Your edit is in the prompter." });
+      },
+      async moveQueuedPrompt(sessionId, queuedId, before) {
+        const was = get().sessionQueues[sessionId] ?? [];
+        const moving = was.find((q) => q.id === queuedId);
+        if (moving) {
+          const left = was.filter((q) => q !== moving);
+          const at = before === null ? left.length : left.findIndex((q) => q.id === before);
+          if (at >= 0) { left.splice(at, 0, moving); get().applySessionQueue(sessionId, left); }
+        }
+        try { await api.moveQueuedPrompt(sessionId, queuedId, before); }
+        catch (e) { void get().refreshSessionQueue(sessionId); throw e; }
       },
       async newSession(input, targetLeafId = null, edge) {
         await makeSession(input, targetLeafId, edge);

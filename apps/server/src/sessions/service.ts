@@ -553,6 +553,27 @@ export class SessionService {
   }
 
   /**
+   * Move a queued message in front of `before`, or to the end when `before` is null — see
+   * `sessions.moveQueued`. A message or an anchor the queue no longer holds makes it a no-op: the
+   * drain got there first. The hold travels with its message, and a drain a held head was stopping
+   * is paid once the head is a message nobody is editing.
+   */
+  moveQueued(id: string, queuedId: string, before: string | null): void {
+    this.get(id);
+    const waiting = this.queued.get(id);
+    const moving = waiting?.find((w) => w.prompt.id === queuedId);
+    if (!waiting || !moving || before === queuedId) return;
+    const left = waiting.filter((w) => w !== moving);
+    const at = before === null ? left.length : left.findIndex((w) => w.prompt.id === before);
+    if (at < 0) return;
+    left.splice(at, 0, moving);
+    if (left.every((w, i) => w === waiting[i])) return;
+    this.queued.set(id, left);
+    this.broadcastQueue(id);
+    if (this.queueHolds.get(id)?.queuedId !== left[0]!.prompt.id) this.payOwedDrain(id);
+  }
+
+  /**
    * Send one queued message NOW, ahead of the turn it was waiting for — the chip's send-now.
    *
    * By id and through the server rather than by the prompter re-sending the text, because the queue

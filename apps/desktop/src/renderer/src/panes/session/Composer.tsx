@@ -17,6 +17,7 @@ import { ModelPicker } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
 import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
+import { ComposerQueue, type QueueActions } from "./ComposerQueue";
 import { whenLabel } from "../schedules/SchedulesPage";
 import { TodoStrip } from "./TodoStrip";
 import { SessionUsage } from "./SessionUsage";
@@ -147,114 +148,6 @@ function LimitRow({ limits }: { limits: PlanLimits | null }) {
   );
 }
 
-/** What a queued row can do with its message. Edit holds it on the server while the field is open
- *  (`sessions.holdQueued`), so a turn that settles mid-edit cannot send the old text. */
-export type QueueActions = {
-  onRelease: (queuedId: string) => void;
-  onDrop: (queuedId: string) => void;
-  /** Answers false when the message had already gone out, and the field does not open. */
-  onBeginEdit: (queuedId: string) => Promise<boolean>;
-  onSaveEdit: (queuedId: string, text: string) => void;
-  onCancelEdit: (queuedId: string) => void;
-};
-
-/**
- * The messages waiting for this turn to end, oldest first.
- *
- * Above the input rather than in the transcript, because they are not transcript: nothing has been
- * asked yet, and a bubble for a message no agent has seen would make the log claim otherwise.
- *
- * The send-now sits on the row rather than in the button corner, which is Stop's while a turn runs.
- * What it costs is `steerNote`'s answer and differs by agent.
- *
- * A message is edited in place, as plain text: an element chip shows as its `@[label]` token, and
- * taking the token out drops the chip (the server's `keepLiveChips`), exactly as in the prompter.
- */
-function QueueRow({ kind, queued, submitKey, actions }: { kind: AgentKind; queued: QueuedPrompt[]; submitKey: SubmitKey; actions: QueueActions }) {
-  const [editing, setEditingState] = useState<{ id: string; text: string; was: string } | null>(null);
-  // Mirrored in a ref so the Enter that closes the field and the blur that follows it are one close,
-  // not two saves.
-  const open = useRef(editing);
-  const setEditing = (v: typeof editing) => { open.current = v; setEditingState(v); };
-  // The message went out (or was removed elsewhere) while its field was open: what was typed is not
-  // thrown away — a save of a message that is gone lands in the draft.
-  useEffect(() => {
-    if (!editing || queued.some((q) => q.id === editing.id)) return;
-    if (editing.text !== editing.was && editing.text.trim()) actions.onSaveEdit(editing.id, editing.text);
-    setEditing(null);
-  }, [queued, editing, actions]);
-  if (queued.length === 0) return null;
-  const note = steerNote(kind);
-  const begin = async (q: QueuedPrompt) => {
-    if (await actions.onBeginEdit(q.id)) setEditing({ id: q.id, text: q.text, was: q.text });
-  };
-  const close = (save: boolean) => {
-    const e = open.current;
-    if (!e) return;
-    const changed = e.text !== e.was;
-    // An edit to nothing at all is not a message; keep the field open rather than send it or drop it.
-    if (save && changed && !e.text.trim() && !queued.find((q) => q.id === e.id)?.attachments.length) return;
-    setEditing(null);
-    if (save && changed) actions.onSaveEdit(e.id, e.text);
-    else actions.onCancelEdit(e.id);
-  };
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(false); return; }
-    if (e.key !== "Enter" || e.shiftKey) return;
-    // The prompter's own send chord, so a correction is saved with the key that sends a message.
-    if (e.metaKey || e.ctrlKey || submitKey === "enter") { e.preventDefault(); close(true); }
-  };
-  return (
-    <ul className="composer-queue" aria-label="Queued messages">
-      {queued.map((q, i) => {
-        const mine = editing?.id === q.id;
-        // Held and not by this field: another window is editing it, so this one only shows that.
-        const elsewhere = q.held && !mine;
-        return (
-          <li key={q.id} className="composer-queue-item" data-editing={mine || undefined} data-held={q.held || mine || undefined}>
-            <span className="queue-position" aria-hidden="true">{i + 1}</span>
-            {mine ? (
-              <textarea className="queue-edit" aria-label={`Edit queued message ${i + 1}`} autoFocus rows={1}
-                value={editing.text} onChange={(e) => setEditing({ ...editing, text: e.target.value })}
-                onKeyDown={onKeyDown} onBlur={() => close(true)} />
-            ) : (
-              /* One line, with the whole of it in the title: the row is a reminder of what is coming,
-                 and the message becomes a real bubble the moment it goes out. */
-              <span className="queue-text" title={q.text}>{q.text || "(attachments only)"}</span>
-            )}
-            {(mine || elsewhere) && <span className="queue-held">{mine ? "Held while you edit" : "Being edited in another window"}</span>}
-            {q.attachments.length > 0 && (
-              <span className="queue-attach" title={q.attachments.map((a) => basenameOf(a.path)).join(", ")}>
-                <Icon name="attach" size={12} />{q.attachments.length}
-              </span>
-            )}
-            {!mine && (
-              <button type="button" className="queue-icon" aria-label={`Edit queued message: ${q.text}`} title="Edit"
-                disabled={elsewhere} onClick={() => void begin(q)}>
-                <Icon name="edit" size={12} />
-              </button>
-            )}
-            {/* Words where there is room, the send arrow where there is not: in a narrow pane the two
-                words took the width the message needed, and the row read "Then …". */}
-            <button type="button" className="queue-send" aria-label="Send now" title={note} disabled={mine || elsewhere}
-              // Clicked from an open field, the field's blur has already saved; this would only race it.
-              onMouseDown={(e) => { if (mine) e.preventDefault(); }}
-              onClick={() => actions.onRelease(q.id)}>
-              <Icon name="arrowUp" size={12} className="queue-send-glyph" />
-              <span className="queue-send-label">Send now</span>
-            </button>
-            <button type="button" className="queue-drop" aria-label={`Remove queued message: ${q.text}`} title="Remove"
-              onMouseDown={(e) => { if (mine) e.preventDefault(); }}
-              onClick={() => { if (mine) setEditing(null); actions.onDrop(q.id); }}>
-              <Icon name="close" size={12} />
-            </button>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 /**
  * The other sessions this draft points at.
  *
@@ -269,7 +162,7 @@ function QueueRow({ kind, queued, submitKey, actions }: { kind: AgentKind; queue
 /** Stable, so a Composer with no references does not get a new array on every render. */
 const NO_SESSION_REFS: readonly SessionRef[] = [];
 const NO_REFS: readonly MentionRef[] = [];
-const NO_QUEUE_ACTIONS: QueueActions = { onRelease: () => {}, onDrop: () => {}, onBeginEdit: async () => false, onSaveEdit: () => {}, onCancelEdit: () => {} };
+const NO_QUEUE_ACTIONS: QueueActions = { onRelease: () => {}, onDrop: () => {}, onBeginEdit: async () => false, onSaveEdit: () => {}, onCancelEdit: () => {}, onMove: () => {} };
 const NO_SPACES: readonly { id: string; name: string }[] = [];
 
 function SessionRefRow({ refs, onRemove }: { refs: readonly SessionRef[]; onRemove: (sessionId: string) => void }) {
@@ -1383,7 +1276,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           neutral: a colour that is always on is a colour that says nothing. */}
       <div className="composer" data-mode={mode} data-dropping={drop.dropping || itemDrop.dropping || undefined} {...bothDrops}>
         <LimitRow limits={planLimits} />
-        <QueueRow kind={kind} queued={queued} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} />
+        <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
         <SessionRefRow refs={sessionRefs} onRemove={onRemoveSessionRef ?? (() => {})} />
         {/* A mention whose skill vanished after typing (W4): warning tone, same row language as the
