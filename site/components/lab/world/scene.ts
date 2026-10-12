@@ -52,7 +52,7 @@ const HM = 0.0004;            // Mie (haze) scale height, lower and thinner
 const TOP = 1.0135;           // the shell's edge, a dozen Rayleigh heights up
 // Scattering at the surface per planet radius. The Rayleigh colour is Realm's accent rather than
 // lambda^-4, so the air is the page's own blue and not an electric one.
-const BETA_R = vec3f(0.30, 0.58, 1.0) * 110.0;
+const BETA_R = vec3f(0.30, 0.58, 1.0) * 120.0;
 // The haze is one low layer with three ways of scattering: broadly (a pale line along the whole
 // limb), forward (the short stretch the sun turns white), and in a narrow aureole right over it.
 const HAZE_BROAD = 7.0;
@@ -197,7 +197,9 @@ fn roundRectNormal(q: vec2f, half: vec2f, r: f32) -> vec2f {
 
   var light = vec3f(0.0);
   var through = 1.0;
-  if (above > -140.0 && above < 160.0) {
+  // The air is marched only near the limb: above its shell a ray meets nothing, and nothing lit
+  // reaches the camera from more than about 40px inside the limb (measured), so 48 is the bound.
+  if (above > -48.0 && above < 160.0) {
     var sky = atmosphere(rd, sun, true);
     if (cover > 0.0 && cover < 1.0) {
       sky = mix(atmosphere(rd, sun, false), sky, cover);
@@ -265,7 +267,7 @@ function placePlanet(portal: Rect, copy: Rect, width: number) {
   const radius = Math.max(w * 1.9, width * 1.55)
   const copyBottom = copy[1] + copy[3]
   const lift = clamp((top - copyBottom) * 0.48, 34, 96)
-  const cx = left + w / 2
+  const cx = left + w * 0.38
   const cy = top - lift + radius
   const focal = radius / Math.tan(ALPHA)
   return { cx, cy, radius, focal }
@@ -330,10 +332,11 @@ export const createWorld: StageFactory = (gpu, output) => {
       // it was the edge of fades back to the page.
       const apex = cy - radius
       const night = smooth(clamp((apex + height * 0.5) / (height * 0.6), 0, 1))
-      // The air's scale height on screen, in CSS px; on a phone-sized planet the shell is thickened
-      // until it is at least 3.6px, or the limb would be a single hairline.
+      // The air's scale height on screen, in CSS px. The shell keeps one apparent thickness for the
+      // page's width — about 5px at 1440 — rather than growing with the planet, so a wide display
+      // does not get a heavy band and a phone's limb is not a single hairline.
       const scaleHeight = (radius * AIR_SCALE_HEIGHT) / Math.cos(ALPHA) ** 2
-      const thicken = Math.max(1, 3.6 / scaleHeight)
+      const thicken = clamp(width * 0.0035, 3.4, 6) / scaleHeight
 
       fx.set({
         world: {

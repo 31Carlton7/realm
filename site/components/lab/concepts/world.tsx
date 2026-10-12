@@ -32,7 +32,7 @@ export default function World({ download }: ConceptProps) {
             </div>
           </div>
         </div>
-        <div className="relative mx-auto mt-20 w-full max-w-[82rem] px-4 sm:mt-28 sm:px-10 lg:mt-[8.5rem]">
+        <div className="relative mx-auto mt-20 w-full max-w-[82rem] px-4 sm:mt-28 sm:px-10 lg:mt-[clamp(4.5rem,calc(100dvh-47.5rem),8.5rem)]">
           <FallbackPlanet />
           <ProductWindow frameClassName="h-[620px] sm:h-[640px] lg:h-[min(680px,calc(100dvh-7rem))] lg:min-h-[560px] [html[data-lab-field=off]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.12),0_-1px_0_0_oklch(0.93_0.03_250/0.55)]" />
         </div>
@@ -43,7 +43,9 @@ export default function World({ download }: ConceptProps) {
 
 /**
  * Without WebGPU: the same limb drawn by the stylesheet — a planet-sized circle of the night side's
- * colour with the air as a blue edge on it, and the sunrise as a soft white mark on that edge.
+ * colour, centred where the live planet is, with the air as a blue edge on it and the sunrise as a
+ * short white stretch of that edge. The sunrise is placed and sized in the circle's own box, 9 degrees
+ * round from its top, so it sits on the curve at every width.
  */
 function FallbackPlanet() {
   return (
@@ -51,11 +53,10 @@ function FallbackPlanet() {
       aria-hidden
       className="pointer-events-none absolute -top-40 bottom-0 left-1/2 hidden w-screen -translate-x-1/2 overflow-hidden [html[data-lab-field=off]_&]:block"
     >
-      <div className="absolute top-[calc(10rem+2rem-4.5rem)] left-1/2 aspect-square w-[325vw] -translate-x-1/2 rounded-full bg-[oklch(0.165_0.004_264)] shadow-[0_0_0_1px_oklch(0.79_0.11_248/0.5),0_-3px_16px_-2px_oklch(0.68_0.173_253.3/0.5),0_-12px_60px_-8px_oklch(0.68_0.173_253.3/0.22)]" />
-      {/* The sunrise: a short stretch of the edge gone white, tilted to the arc's tangent, and the
-          faint glow over it. */}
-      <div className="absolute top-[calc(7.5rem+10px)] left-[calc(50%+15.5vw)] h-[3px] w-[12rem] -translate-x-1/2 -translate-y-1/2 rotate-[5deg] rounded-full bg-[radial-gradient(closest-side,oklch(0.99_0.01_250),oklch(0.86_0.07_250/0.7)_45%,transparent)]" />
-      <div className="absolute top-[calc(7.5rem+4px)] left-[calc(50%+15.5vw)] h-[3rem] w-[13rem] -translate-x-1/2 -translate-y-1/2 rotate-[5deg] rounded-full bg-[radial-gradient(closest-side,oklch(0.9_0.05_250/0.22),transparent)] blur-[6px]" />
+      <div className="absolute top-[7.5rem] left-[calc(50%-10.5vw)] aspect-square w-[325vw] -translate-x-1/2 rounded-full bg-[oklch(0.165_0.004_264)] shadow-[0_0_0_1px_oklch(0.79_0.11_248/0.5),0_-3px_16px_-2px_oklch(0.68_0.173_253.3/0.5),0_-12px_60px_-8px_oklch(0.68_0.173_253.3/0.22)]">
+        <div className="absolute top-[0.62%] left-[57.8%] h-[3px] w-[4%] -translate-x-1/2 -translate-y-1/2 rotate-[9deg] rounded-full bg-[radial-gradient(closest-side,oklch(0.99_0.01_250),oklch(0.86_0.07_250/0.7)_45%,transparent)]" />
+        <div className="absolute top-[0.62%] left-[57.8%] h-[1.1%] w-[4.5%] -translate-x-1/2 -translate-y-[62%] rotate-[9deg] rounded-full bg-[radial-gradient(closest-side,oklch(0.9_0.05_250/0.22),transparent)] blur-[6px]" />
+      </div>
     </div>
   )
 }
