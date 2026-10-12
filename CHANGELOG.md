@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.1.1 — 2026-10-12
+
+**Make team works when a space works in your whole Mac.** A space with a checkout at `/` or at your
+home folder made every folder count as one of your projects, so Make team refused to place the team's
+memory and asked you to choose a folder. Those spaces no longer count, and Realm makes the team's
+memory folder itself again.
+
 ## v2.1.0 — 2026-10-12
 
 ### Teams
