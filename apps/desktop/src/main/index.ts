@@ -41,7 +41,7 @@ import {
   MAC_CAPABILITIES, MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
-import { RealmUpdater, UPDATE_FEED_LIVE, scheduleUpdateChecks, updaterDecision } from "./updater";
+import { RealmUpdater, UPDATE_FEED_LIVE, UPDATER_CACHE_DIR_NAME, pruneInstalledDownload, scheduleUpdateChecks, updaterDecision } from "./updater";
 import { labInstall, labOnConnected, labPreapprovesRestart, labSettingsUrl, labTakesUpdate, loginItemStatus, setLoginItem, type LabUpdateDeps, type LoginItemDeps } from "./lab-host";
 import { asarReplaced, readAsarStamp } from "./bundle-swap";
 import { SecretStore, SecretStoreError } from "./secret-store";
@@ -435,6 +435,11 @@ if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugg
 // does). With this switch, occluded windows keep compositing and agent input works no matter what is
 // stacked over Realm. Cost: some battery while occluded — a workstation-app tradeoff made knowingly.
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+
+// A ceiling on every session's HTTP cache, each browser profile's partition included: Chromium's
+// default grows with free disk, and one profile's partition had reached 1.1 GB of cached pages.
+// Evicted entries are refetched; cookies, logins and site storage are not cache and are untouched.
+app.commandLine.appendSwitch("disk-cache-size", String(256 * 1024 * 1024));
 
 /**
  * Open a Realm window. With no `profileId` it is the first window, which shows whichever profile its
@@ -1392,6 +1397,12 @@ updater = new RealmUpdater({
   // at the front, which is exactly when nothing else would make the renderer ask.
   onChange: (status) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send("updates:changed", status); },
 });
+// The zip of the update this Realm now is: installed, so never read again (updater.ts). The cache is
+// where electron-updater's `getAppCacheDir` puts it on macOS.
+if (app.isPackaged && process.platform === "darwin") {
+  try { pruneInstalledDownload({ cacheDir: join(app.getPath("home"), "Library", "Caches", UPDATER_CACHE_DIR_NAME), version: app.getVersion(), fs: { readFileSync, rmSync } }); }
+  catch (e) { console.error(`[updater] could not clear the installed download: ${e instanceof Error ? e.message : String(e)}`); }
+}
 /** The archive this process loaded, stamped at launch; null under dev, which has none to swap. */
 const appAsar = join(process.resourcesPath, "app.asar");
 const launchedAsar = app.isPackaged ? readAsarStamp(appAsar) : null;
