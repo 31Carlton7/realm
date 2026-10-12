@@ -931,6 +931,37 @@ kbd { font: 11px var(--font-mono); }
 .sb-new-space { flex: none; width: 100%; min-height: 32px; color: var(--rl-text-dim); }
 .sb-new-space:hover { color: var(--rl-text-bright); }
 .sb-recent .sb-day:first-child > .group-label { padding-top: 4px; }
+/* The Activity view's cards (the owner, 10-12). A session there carries more than one line — where
+   and when over what — and a list of those is a list of cards (design.md, Shape): air between them,
+   no rule, and the row's own fill when lit. Line one is the caption rung in the quiet ink, the
+   space's icon at 12 beside its name and the time at the far end in tabular figures; line two is
+   the row's title at the body rung with its state at the far end, on the same column as every other
+   row's; line three, the worktree, only when there is one. 7 + 16 + 2 + 20 + 7 = 52px for two lines. */
+.sb-cards { gap: 2px; }
+.sb-card > .item-row { flex-direction: column; align-items: stretch; gap: 2px; padding: 7px 8px; }
+.sb-card-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sb-card-line:not(.sb-card-head) { gap: 10px; }
+.sb-card-head, .sb-card-foot { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.sb-card-foot { gap: 6px; }
+.sb-card-foot > svg { flex: none; }
+.sb-card-space { flex: none; display: grid; place-items: center; width: 12px; height: 12px; }
+.sb-card-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-card-head .sb-card-text { font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.sb-card-marks { flex: none; display: flex; align-items: center; gap: 6px; }
+.sb-card-marks > span { display: grid; place-items: center; }
+.sb-card-when { font-variant-numeric: tabular-nums; }
+.sb-card .item-title { line-height: 20px; }
+.item[data-active].sb-card .sb-card-head .sb-card-text { color: var(--rl-text-bright); }
+/* Under the pointer (or the keyboard) the card's action takes the first line's far end and the time
+   steps left by its width; the state on the second line stays where it is — the one thing a card
+   keeps under the pointer that a one-line row gives up, because a card has a slot to spare. */
+.sb-card > .item-actions { top: 4px; translate: none; }
+.sb-card.item:hover .item-trail, .sb-card.item:has(:focus-visible) .item-trail,
+.sb-card.item:has(.item-act[aria-expanded="true"]) .item-trail { display: flex; }
+.sb-card.item:hover > .item-row, .sb-card.item:has(:focus-visible) > .item-row,
+.sb-card.item:has(.item-act[aria-expanded="true"]) > .item-row { padding-right: 8px; }
+.sb-card[data-actions="1"]:hover .sb-card-head, .sb-card[data-actions="1"]:has(:focus-visible) .sb-card-head { padding-right: 24px; }
+.sb-card .sb-caret { margin-right: -4px; }
 /* Nothing yet is its own composition, centred in the room the list would have used. */
 .sb-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 32px 12px; text-align: center;
   color: var(--rl-text-faint); }
