@@ -68,5 +68,13 @@ export default defineConfig({
   preload: {},
   // host 127.0.0.1 so the dev-server / HMR socket matches the renderer CSP (connect-src 127.0.0.1 only)
   // Tailwind v4 runs in the renderer only (Plan 9 W1): electron-vite composes vite plugins per target.
-  renderer: { plugins: [katexWoff2Only(), textScale(), pdfjsAssets(), react(), tailwindcss()], server: { host: "127.0.0.1" } },
+  // electron-vite leaves every target unminified; the renderer is the one a person waits on, so it is
+  // minified. `keepNames` keeps function names through the mangling, because the app picker names the
+  // React components that drew an element from them (app-pick/describe.ts).
+  renderer: {
+    plugins: [katexWoff2Only(), textScale(), pdfjsAssets(), react(), tailwindcss()],
+    server: { host: "127.0.0.1" },
+    build: { minify: "esbuild" },
+    esbuild: { keepNames: true },
+  },
 });
