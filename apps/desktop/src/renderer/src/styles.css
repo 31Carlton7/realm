@@ -5031,7 +5031,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* A grid of one row so the row can fold to nothing and back: `grid-template-rows` animates where
    `height: auto` cannot. The body clips while it folds; the tip the attachment tile hangs outside
    itself is not drawn here (the name is on the chip), so the clip costs nothing. */
-.composer-queue-item { display: grid; grid-template-rows: 1fr; min-width: 0;
+.composer-queue-item { position: relative; display: grid; grid-template-rows: 1fr; min-width: 0;
   animation: rl-queue-in var(--dur-enter) var(--ease-out-strong); }
 .composer-queue-item[data-leaving] { animation: rl-queue-out var(--dur-swap) var(--ease-fade) forwards; pointer-events: none; }
 @keyframes rl-queue-in { from { grid-template-rows: 0fr; opacity: 0; } }
@@ -5046,8 +5046,10 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-queue-item[data-drop="before"] .queue-item-body { box-shadow: inset 0 2px 0 var(--rl-accent); }
 .composer-queue-item[data-drop="after"] .queue-item-body { box-shadow: inset 0 -2px 0 var(--rl-accent); }
 
-/* The handle, only once there is an order to change, and only under a pointer that can drag it. */
-.composer-queue-item .queue-grip { flex: none; display: flex; align-items: center; justify-content: center; width: 12px; height: 18px;
+/* The handle, only once there is an order to change, and only under a pointer that can drag it. It
+   hangs in the card's gutter, left of the text, so every message starts on the head's own edge
+   whether or not the handle is showing. */
+.composer-queue-item .queue-grip { position: absolute; left: -12px; top: 5px; display: flex; align-items: center; justify-content: center; width: 12px; height: 18px;
   color: var(--rl-text-faint); cursor: grab; opacity: 0; transition: opacity var(--dur-hover) var(--ease-out-strong); }
 .composer-queue-item:is(:hover, :focus-within) .queue-grip { opacity: 1; transition-duration: 0s; }
 
@@ -5106,9 +5108,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   .composer-queue-item .queue-send-label { display: none; }
   .composer-queue .queue-head-when, .composer-queue-item .queue-held-keys { display: none; }
 }
-@container (max-width: 420px) and (hover: hover) {
-  /* The steps would take the width the message needs; the handle and ⌥↑ / ⌥↓ still move it. */
-  .composer-queue-item .queue-steps { display: none; }
+/* A container query cannot ask about the pointer, so the media query holds it. */
+@media (hover: hover) {
+  @container (max-width: 420px) {
+    /* The steps would take the width the message needs; the handle and ⌥↑ / ⌥↓ still move it. */
+    .composer-queue-item .queue-steps { display: none; }
+  }
 }
 
 /* A message being edited: the row's text grown into a field — the same size and ink, wrapping instead

@@ -224,20 +224,20 @@ export function ComposerQueue({ kind, queued, running, submitKey, actions }: {
                 onDragOver={(e) => onDragOver(e, q.id)}
                 onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null) && dropAt?.id === q.id) setDropAt(null); }}
                 onDrop={(e) => onDropRow(e, i)}>
+                {n >= 2 && (
+                  <span className="queue-grip" draggable={movable} aria-hidden="true" title="Drag to reorder (⌥↑ ⌥↓)"
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(DRAG_TYPE, q.id);
+                      e.dataTransfer.effectAllowed = "move";
+                      const row = e.currentTarget.closest("li");
+                      if (row) e.dataTransfer.setDragImage(row, 16, 12);
+                      setDragging(q.id);
+                    }}
+                    onDragEnd={() => { setDragging(null); setDropAt(null); }}>
+                    <Icon name="grip" size={12} />
+                  </span>
+                )}
                 <div className="queue-item-body">
-                  {n >= 2 && (
-                    <span className="queue-grip" draggable={movable} aria-hidden="true" title="Drag to reorder (⌥↑ ⌥↓)"
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData(DRAG_TYPE, q.id);
-                        e.dataTransfer.effectAllowed = "move";
-                        const row = e.currentTarget.closest("li");
-                        if (row) e.dataTransfer.setDragImage(row, 16, 12);
-                        setDragging(q.id);
-                      }}
-                      onDragEnd={() => { setDragging(null); setDropAt(null); }}>
-                      <Icon name="grip" size={12} />
-                    </span>
-                  )}
                   <div className="queue-main">
                     {mine ? (
                       <textarea className="queue-edit" aria-label={`Edit queued message ${i + 1}`} autoFocus rows={1}
@@ -276,11 +276,11 @@ export function ComposerQueue({ kind, queued, running, submitKey, actions }: {
                       <span className="queue-steps">
                         <button type="button" className="queue-icon queue-up" aria-label="Move up" title="Move up (⌥↑)"
                           disabled={!movable || i === 0} onClick={() => step(i, -1)}>
-                          <Icon name="arrowUp" size={12} />
+                          <Icon name="chevronUp" size={12} />
                         </button>
                         <button type="button" className="queue-icon queue-down" aria-label="Move down" title="Move down (⌥↓)"
                           disabled={!movable || i === n - 1} onClick={() => step(i, 1)}>
-                          <Icon name="arrowDown" size={12} />
+                          <Icon name="chevronDown" size={12} />
                         </button>
                       </span>
                     )}

@@ -3689,6 +3689,11 @@ describe("narrow panes", () => {
     const touch = blockAfter("@media (hover: none)");
     expect(touch).toMatch(/\.composer-queue-item \.queue-steps \{[^}]*opacity: 1/);
     expect(touch).toMatch(/\.composer-queue-item \.queue-grip \{[^}]*display: none/);
+    // Narrow, they yield to the message only where a pointer can still drag. THE mutant is the one
+    // that shipped first: `@container (…) and (hover: hover)`, which a container query cannot ask,
+    // so the rule never applied and a narrow edit wore five controls beside a three-word field.
+    expect(css).not.toMatch(/@container[^{]*\(hover:/);
+    expect(blockAfter("@media (hover: hover)")).toMatch(/@container \(max-width: 420px\) \{\s*(\/\*[\s\S]*?\*\/\s*)?\.composer-queue-item \.queue-steps \{ display: none; \}/);
   });
 
   it("a queued message's text holds two lines at rest and all of them once opened", () => {
