@@ -254,8 +254,9 @@ async function main() {
   check("the launch lines say finished, with how long", doneLines.filter((l) => l.startsWith("Sub-agent finished")).length === 3, doneLines);
   check("the chip leaves once none is working", await evalIn(c, `!document.querySelector('.agents-chip')`));
   // Close the Agents tab's pane, so the click below has to bring it back.
-  await evalIn(c, `(() => { for (const b of document.querySelectorAll('.panel-bar button[aria-label^="Close"]')) if (!b.closest('.panel').textContent.includes(${JSON.stringify(TITLE)})) b.click(); return true; })()`);
-  await until(() => evalIn(c, `!document.querySelector('.subagents')`), 5_000, "tab closed").catch(() => note("tab still open", true));
+  await evalIn(c, `(() => { document.querySelector('.pane-tab-close[aria-label="Close Agents"], .pane-tab-close[aria-label="Delete Agents"]')?.click(); return true; })()`);
+  const closed = await until(() => evalIn(c, `!document.querySelector('.subagents')`), 5_000, "tab closed").then(() => true, () => false);
+  check("the Agents tab is closed before the folded line is clicked", closed);
   for (const face of ["dark", "light"]) {
     await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(face)}; return true; })()`);
     await sleep(500);
