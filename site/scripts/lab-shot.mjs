@@ -156,6 +156,8 @@ try {
 
   // The lab's own switcher is review chrome, not part of any concept: out of every picture unless asked for.
   if (!args.switcher) await evaluate(`document.querySelector('nav[aria-label="Hero concepts"]')?.remove()`)
+  // So is the dev server's badge in the corner.
+  await evaluate(`document.querySelectorAll("nextjs-portal").forEach((n) => n.remove())`)
 
   const field = await evaluate("document.documentElement.dataset.labField ?? document.documentElement.dataset.dimField ?? null")
   const before = await evaluate("window.__labFrames ?? -1")
