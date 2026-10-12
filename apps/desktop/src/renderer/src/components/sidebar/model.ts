@@ -452,15 +452,8 @@ export function sectionView(rows: readonly ListRow[], limit = SECTION_ROWS): { s
  */
 export function recentDays(rows: readonly SessionRow[], now: number): DayGroup<ListRow>[] {
   const folded = [...rowsBySpace(rows).values()].flat();
-  return groupByDay(folded, (r) => recentAt(r, now), now);
-}
-
-/** When the Activity view counts a row as having last moved: when its conversation did, or now while
- *  it is still at work or stopped on a question. Its day heading and its card's "5m" both read this,
- *  so a session listed under Today never says "3d". */
-export function recentAt(r: ListRow, now: number): number {
-  const live = r.kind === "fan-out" ? r.tally.running + r.tally.waiting > 0 : r.status === "running" || r.status === "waiting_permission";
-  return live ? Math.max(r.at, now) : r.at;
+  const live = (r: ListRow) => (r.kind === "fan-out" ? r.tally.running + r.tally.waiting > 0 : r.status === "running" || r.status === "waiting_permission");
+  return groupByDay(folded, (r) => (live(r) ? Math.max(r.at, now) : r.at), now);
 }
 
 /** A row Needs you lists: waiting on a permission or a question, or failed. */
