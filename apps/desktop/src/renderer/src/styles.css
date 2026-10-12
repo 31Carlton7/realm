@@ -4061,6 +4061,31 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .delegation-line[data-state="done"] .tool-status { color: var(--ink-3); }
 .delegation-line[data-state="failed"] .tool-status, .delegation-line[data-state="timeout"] .tool-status { color: var(--rl-danger); }
 .delegation-line .tool-row:disabled { color: var(--ink); opacity: 1; }
+
+/* The session's sub-agents under its last message (SubagentStrip.tsx): the pane-bar chip, readable.
+   A card at the hairline on the card ground, so it reads as a thing the session has out rather than
+   one more line the agent said; the accent only on its mark, as the chip carries it, and the state
+   colours the Agents tab's own marks use. Settled, it is the head row alone. */
+.subagent-strip { display: flex; flex-direction: column; margin: 12px 0 0; padding: 4px;
+  border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); }
+.subagent-strip-head, .subagent-strip-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0 8px; border: none;
+  border-radius: var(--r-ctl); background: transparent; font: inherit; text-align: left; transition: background-color var(--dur-hover) ease; }
+.subagent-strip-head { height: 30px; font-size: 13px; color: var(--ink); }
+.subagent-strip-head > svg:first-child { flex: none; color: var(--rl-accent); }
+.subagent-strip[data-settled] .subagent-strip-head { color: var(--ink-2); }
+.subagent-strip[data-settled] .subagent-strip-head > svg:first-child { color: var(--ink-3); }
+.subagent-strip-head:hover, .subagent-strip-row:hover { background: var(--rl-hover); transition: none; }
+.subagent-strip-head:focus-visible, .subagent-strip-row:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
+.subagent-strip-line { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.subagent-strip-go { flex: none; color: var(--ink-3); }
+.subagent-strip-list { list-style: none; margin: 0; padding: 0 0 2px; display: flex; flex-direction: column; gap: 2px; }
+.subagent-strip-row { height: 28px; font-size: 12px; color: var(--ink-2); }
+.subagent-strip-mark { flex: none; display: inline-flex; justify-content: center; width: 14px; color: var(--ink-3); }
+.subagent-strip-row[data-state="failed"] .subagent-strip-mark, .subagent-strip-row[data-state="timeout"] .subagent-strip-mark { color: var(--rl-danger); }
+.subagent-strip-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink); }
+.subagent-strip-state { flex: none; color: var(--ink-3); }
+.subagent-strip-row[data-state="waiting"] .subagent-strip-state { color: var(--ink); }
+.subagent-strip-time { flex: none; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .plan-implement-with { gap: 5px; }
 /* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of

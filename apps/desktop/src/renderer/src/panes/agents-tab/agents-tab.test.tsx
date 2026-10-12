@@ -115,6 +115,41 @@ describe("the list of a session's sub-agents", () => {
   });
 });
 
+describe("the lead's own harness sub-agents", () => {
+  const background = (id: string, description: string, ts: number) => [
+    sessionEvent("tool_call", { toolUseId: id, name: "Agent", input: { description, run_in_background: true }, parentToolUseId: null }, ts),
+    sessionEvent("tool_result", { toolUseId: id, content: "Async agent launched successfully.", isError: false }, ts + 500),
+    sessionEvent("background_task", { toolUseId: id, status: "running" }, ts + 600),
+  ];
+  const leadTranscript = [...background("a1", "Teams rule engine", NOW - 90_000), ...background("a2", "Realmite runner game", NOW - 30_000),
+    sessionEvent("background_task", { toolUseId: "a2", status: "stopped" }, NOW - 10_000)];
+
+  it("are cards beside the delegated ones, each with its state, counted in the head", async () => {
+    await mount({ transcripts: { se1: leadTranscript }, status: { se1: "idle" } });
+    // Mutant: list only `children` — the agents the chip counts are nowhere in the tab it opens.
+    const engine = await card(/^Teams rule engine, inside Claude\b.*\. Working, 1m \d+s\. Show what it has done$/);
+    expect(engine.closest("li")).toHaveAttribute("data-state", "working");
+    expect(await card(/^Realmite runner game, inside Claude\b.*\. Done, 20s\. Show what it has done$/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Sub-agents/ })).toHaveTextContent("2 working · 2 done");
+  });
+
+  it("are listed with no delegated children at all, instead of the empty state", async () => {
+    await mount({ children: [], idle: true, transcripts: { se1: leadTranscript }, status: { se1: "idle" } });
+    expect(await card(/^Teams rule engine, inside/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Hand work to sub-agents" })).toBeNull();
+  });
+
+  it("light when a transcript row asks for one, and show what it has done beside the transcript", async () => {
+    const { store, container } = await mount({ transcripts: { se1: leadTranscript }, status: { se1: "idle" } });
+    await card(/^Teams rule engine, inside/);
+    await store.getState().openAgentsTab("se1", { childId: "a1" });
+    // Mutant: compare the ask against session ids only — a harness card is never lit.
+    await waitFor(() => expect(container.querySelector('li.subagent[data-flash]')).toHaveTextContent("Teams rule engine"));
+    fireEvent.click(await card(/^Teams rule engine, inside/));
+    expect(store.getState().sessionDock["se1"]).toEqual({ kind: "subagent", toolUseId: "a1" });
+  });
+});
+
 describe("Build with", () => {
   it("sends the lead a brief naming the chosen model — and not the prompter's draft with it", async () => {
     const { api, store } = await mount();

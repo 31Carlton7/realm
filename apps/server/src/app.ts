@@ -416,6 +416,16 @@ export function defaultAdapters(): AdapterRegistry {
   }, {
     // The Agents tab as an orchestrator: four sub-agents at once, in every state it draws — one asks
     // for a permission, one asks a question, one works for a while, one is done in seconds.
+    // A lead that sends its own harness's agents off in the background and ends its turn while they
+    // work — the transcript's sub-agent strip, live, then folded once both have stopped.
+    on: "Restart the stalled agents", emit: [
+      { kind: "text", paceMs: 30, text: "Restarting both from where they stopped, and checking the policies page first." },
+      { kind: "tool", name: "Task", input: { description: "Check the policies page", prompt: "Read what the policies page left on disk.", subagent_type: "Explore" }, result: "The page renders; two rules are unsaved." },
+      { kind: "background", description: "Teams rule engine", prompt: "Finish the gateway rule engine and run its tests.", runMs: 45_000 },
+      { kind: "background", description: "Realmite runner game", prompt: "Pick up the runner game from the game-logic file.", runMs: 60_000 },
+      { kind: "text", paceMs: 30, text: "I've restarted both from where they stopped. All the earlier work is saved as WIP commits." },
+    ],
+  }, {
     on: "Orchestrate the theme work", emit: [
       { kind: "text", paceMs: 40, text: "Four parts that do not depend on each other, so four sub-agents." },
       { kind: "call", tool: "realm-agent__agent_start", input: { goal: "Run the settings test suite and report what fails", constraints: { model: "GPT-6 Luna" } } },

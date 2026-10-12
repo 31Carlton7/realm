@@ -7,13 +7,14 @@ import { useApp, type DelegableModels } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { AnswerHere } from "../session/AnswerHere";
 import { permissionMark } from "../session/Composer";
-import { harnessSubagents, useOpenChild } from "../session/DelegatedRuns";
+import { harnessAgents, harnessSubagents, useOpenChild, type HarnessAgent } from "../session/DelegatedRuns";
 import { isPlanDecision } from "../session/PlanCard";
 import { formatDuration } from "../session/tool-group";
 import type { Block } from "../session/transcript-model";
 import { useElapsed } from "../session/use-elapsed";
 import { canSend, delegationBrief, type BriefPick } from "./brief";
 import { ModelChooser, OWN } from "./ModelChooser";
+import { StateMark } from "./StateMark";
 import { STATE_LABEL, childTitle, isLive, modelLabel, orchestratorOrder, reportSummary, rollup, spentMs, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
 
 /** How many models the composer offers as one-click chips before the rest are a chooser away. */
@@ -95,8 +96,18 @@ function SubagentList({ leadId, children, loaded, flash, onOpen }: {
 }) {
   const sessionStatus = useApp((s) => s.sessionStatus);
   const runs = useApp((s) => s.delegatedRuns[leadId]);
-  const stateOf = (c: DelegatedChild) => subagentState(c, sessionStatus[c.session.id], runs?.some((r) => r.sessionId === c.session.id) ?? false);
-  const ordered = orchestratorOrder(children, stateOf);
+  const leadBlocks = useApp((s) => s.transcripts[leadId]?.t.blocks ?? NO_BLOCKS);
+  const leadStatus = sessionStatus[leadId];
+  const leadLive = leadStatus === undefined || leadStatus === "running" || leadStatus === "waiting_permission";
+  // The lead's OWN harness sub-agents — Claude's background `Agent` calls — which have no session and
+  // so are not among `children`, but are as much this session's sub-agents as those are.
+  const own = useMemo(() => harnessAgents(leadBlocks, leadLive), [leadBlocks, leadLive]);
+  type Entry = { startedAt: number; child?: DelegatedChild; harness?: HarnessAgent };
+  const stateOf = (e: Entry): SubagentState => e.harness
+    ? e.harness.state
+    : subagentState(e.child!, sessionStatus[e.child!.session.id], runs?.some((r) => r.sessionId === e.child!.session.id) ?? false);
+  const entries: Entry[] = [...children.map((c) => ({ startedAt: c.startedAt, child: c })), ...own.map((h) => ({ startedAt: h.startedAt, harness: h }))];
+  const ordered = orchestratorOrder(entries, stateOf);
   const states = ordered.map(stateOf);
   const live = ordered.filter((_, i) => isLive(states[i]!));
   // The oldest thing still going — how long this session has had agents out.
@@ -104,8 +115,8 @@ function SubagentList({ leadId, children, loaded, flash, onOpen }: {
   const elapsed = useElapsed(since, live.length > 0);
   // Nothing until the list has answered: an empty state shown for the moment before cards arrive is
   // a claim that there are none.
-  if (!loaded) return null;
-  if (children.length === 0) return <SubagentsEmpty />;
+  if (!loaded && own.length === 0) return null;
+  if (entries.length === 0) return <SubagentsEmpty />;
   return (
     <section className="subagents-section" aria-label="Sub-agents">
       {/* Where they all stand, in words — the cards below each say their own. Not sticky: it is a
@@ -116,9 +127,48 @@ function SubagentList({ leadId, children, loaded, flash, onOpen }: {
         {live.length > 0 && <span className="subagents-since" title="Since the oldest sub-agent still going started">{formatDuration(elapsed)}</span>}
       </h2>
       <ul className="subagents-list">
-        {ordered.map((c) => <SubagentCard key={c.session.id} child={c} leadId={leadId} flashId={flash} onOpen={onOpen} />)}
+        {ordered.map((e) => e.child
+          ? <SubagentCard key={e.child.session.id} child={e.child} leadId={leadId} flashId={flash} onOpen={onOpen} />
+          : <HarnessCard key={e.harness!.id} agent={e.harness!} leadId={leadId} flash={flash === e.harness!.id} />)}
       </ul>
     </section>
+  );
+}
+
+/**
+ * One of the lead's own harness sub-agents as a card: its task, where it stands, for how long, and
+ * which harness it runs inside. There is no session behind it to open or message, so the card does
+ * the one thing there is to do — show what it has done, on the panel docked to the lead's transcript.
+ */
+function HarnessCard({ agent, leadId, flash }: { agent: HarnessAgent; leadId: string; flash: boolean }) {
+  const kind = useApp((s) => (s.sessions[leadId] ?? s.allSessions[leadId])?.agentKind ?? "claude");
+  const docked = useApp((s) => s.sessionDock[leadId]);
+  const toggleSessionDock = useApp((s) => s.toggleSessionDock);
+  const ticking = agent.state === "working";
+  const runningFor = useElapsed(agent.startedAt, ticking);
+  const elapsed = ticking ? runningFor : agent.endedAt !== null ? Math.max(0, agent.endedAt - agent.startedAt) : null;
+  const watching = docked?.kind === "subagent" && docked.toolUseId === agent.id;
+  const ref = useRef<HTMLLIElement>(null);
+  useEffect(() => { if (flash) ref.current?.scrollIntoView?.({ block: "nearest" }); }, [flash]);
+  const inside = `inside ${AGENT_META[kind].label}`;
+  return (
+    <li ref={ref} className="subagent subagent-card" data-state={agent.state} data-flash={flash || undefined} data-harness="">
+      <button type="button" className="subagent-summary" aria-pressed={watching}
+        aria-label={`${agent.label}, ${inside}. ${STATE_LABEL[agent.state]}${elapsed !== null ? `, ${formatDuration(elapsed)}` : ""}. Show what it has done`}
+        title="Show what it has done, beside the transcript"
+        onClick={() => { if (!watching) toggleSessionDock(leadId, { kind: "subagent", toolUseId: agent.id }); }}>
+        <span className="subagent-top">
+          <span className="subagent-caret"><Icon name="bot" size={12} /></span>
+          <span className="subagent-task">{agent.label}</span>
+          <span className="subagent-state"><StateMark state={agent.state} />{STATE_LABEL[agent.state]}
+            {elapsed !== null && <span className="subagent-time">{formatDuration(elapsed)}</span>}</span>
+        </span>
+        <span className="subagent-facts">
+          <Icon name={AGENT_META[kind].icon} size={14} colored className="subagent-mark" />
+          <span className="subagent-harness">Runs {inside}</span>
+        </span>
+      </button>
+    </li>
   );
 }
 
@@ -145,19 +195,6 @@ function latestDoing(live: SessionActivity | undefined, fetched: DelegatedChild[
   const fresh = live && live.icon !== "send" ? live : null;
   if (!fresh) return seed;
   return !seed || fresh.ts >= seed.ts ? fresh : seed;
-}
-
-/** The state's mark: the session dot where something is live, the transcript's own glyphs where it
- *  has ended — so the tab and the tool rows above it say "done" and "failed" with the same shapes. */
-function StateMark({ state }: { state: SubagentState }) {
-  switch (state) {
-    case "working": return <span className="status-dot" data-status="running" aria-hidden="true" />;
-    case "waiting": return <span className="status-dot" data-status="waiting_permission" aria-hidden="true" />;
-    case "queued": return <span className="status-dot" data-status="idle" aria-hidden="true" />;
-    case "done": return <Icon name="check" size={12} />;
-    case "failed": case "timeout": return <Icon name="errorCircle" size={12} />;
-    case "stopped": case "cancelled": return <Icon name="stop" size={12} />;
-  }
 }
 
 /** Where a child works: its worktree's branch, or the checkout it shares. Nothing where this window
