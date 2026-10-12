@@ -1,26 +1,38 @@
 import { describeLoadError, type BrowserLoadError } from "@realm/contracts";
 import { useId, useRef } from "react";
+import { REALM_MARK_ASPECT, REALM_MARK_PATH, REALM_MARK_VIEWBOX } from "../../components/RealmMark";
 import { useDissolve } from "../../components/ScrollFades";
 
 /**
- * Realm's hexagon wound in on itself: a spiral of six-sided turns, lying flat as the mark's cube does,
- * that ends in a stroke along its floor. It is the pane reaching for a page, so it is still when
- * nothing is being tried — the error page wears it at rest — and while a load is in flight a pulse
- * runs out along it from the middle. Drawn in once as it arrives. Under reduced motion it is simply
- * drawn.
+ * Realm's flat mark, in the accent: the pane reaching for a page. It is still when nothing is being
+ * tried — the error page wears it at rest — and while a load is in flight it dims and a glint crosses
+ * it, clipped to its shape so the glint goes through the doorway rather than over it: the boot mark's
+ * sweep, at the same tempo, so Realm waits the same way everywhere. It fades up once as it arrives.
+ * Under reduced motion it is simply drawn.
  */
-const SPIRAL = "M18.99 20.48 L18.31 19.31 L20.07 16.26 L25.76 16.26 L29.69 23.06 L24.68 31.74 L12.49 31.74 L5.31 19.31 L13.57 5 L32.26 5 L42.69 23.06 L31.18 43 L5.99 43";
-
 export function ReachMark({ busy, size = 44 }: { busy: boolean; size?: number }) {
+  // useId's own characters are not all safe inside url(#…).
+  const id = `reach-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
   return (
-    <svg className="reach-mark" data-busy={busy || undefined} width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      <path className="reach-mark-line" d={SPIRAL} pathLength={100} />
-      <path className="reach-mark-pulse" d={SPIRAL} pathLength={100} />
+    <svg className="reach-mark" data-busy={busy || undefined} width={size} height={Math.round(size * REALM_MARK_ASPECT)}
+      viewBox={REALM_MARK_VIEWBOX} aria-hidden="true">
+      <defs>
+        <clipPath id={`${id}-shape`}><path clipRule="evenodd" d={REALM_MARK_PATH} /></clipPath>
+        <linearGradient id={`${id}-glint`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="currentColor" stopOpacity="0" />
+          <stop offset=".5" stopColor="currentColor" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path className="reach-mark-shape" fillRule="evenodd" d={REALM_MARK_PATH} />
+      <g clipPath={`url(#${id}-shape)`}>
+        <rect className="reach-mark-glint" x="-24" y="0" width="24" height="48" fill={`url(#${id}-glint)`} />
+      </g>
     </svg>
   );
 }
 
-/** An open padlock, in the spiral's hand: a connection Realm will not trust. */
+/** An open padlock, drawn in a stroke: a connection Realm will not trust. */
 function LockMark({ size = 44 }: { size?: number }) {
   return (
     <svg className="lock-mark" width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
@@ -71,7 +83,7 @@ export function BrowserErrorPage({ error, busy, onReload }: { error: BrowserLoad
 }
 
 /**
- * The first page on its way, in a pane with nothing to show yet: the spiral, quietly, and only once the
+ * The first page on its way, in a pane with nothing to show yet: the mark, quietly, and only once the
  * wait has gone on long enough to notice (the stylesheet holds it back) — a page that answers at once
  * never shows it. Decoration on top of the toolbar's Stop, which already says a load is in flight, so
  * it is hidden from assistive tech, and under reduced motion it goes rather than freezing.

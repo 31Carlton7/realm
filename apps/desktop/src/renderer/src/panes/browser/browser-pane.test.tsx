@@ -326,7 +326,7 @@ describe("BrowserPane", () => {
       expect(host(container)).toHaveAttribute("data-page");
     });
 
-    it("shows the spiral while the first page is on its way, and nothing once it is up", async () => {
+    it("shows the mark while the first page is on its way, and nothing once it is up", async () => {
       const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
       setBrowserBridgesForTests(f.bridges);
       const { container } = render(<BrowserPane item={browserItem()} visible />);
@@ -336,7 +336,7 @@ describe("BrowserPane", () => {
       expect(container.querySelector(".browser-connecting")).toBeNull();
     });
 
-    it("a first load that was stopped shows neither the spiral nor an error page", async () => {
+    it("a first load that was stopped shows neither the mark nor an error page", async () => {
       // Stopping is not failing: Chromium reports no error, and the pane must not invent one.
       const f = fakeBridges({ url: "http://localhost:3000/" }, { ready: false });
       setBrowserBridgesForTests(f.bridges);

@@ -3090,6 +3090,44 @@ describe("the browser pane is one ground", () => {
   });
 });
 
+/* The browser pane's mark is Realm's flat mark (BrowserErrorPage.tsx), filled, not the stroked spiral it
+   replaced. It loops only while a load is in flight, pauses with the rest when nobody is looking, and
+   under reduced motion is simply drawn — the first page's mark going altogether. */
+describe("the browser pane's mark", () => {
+  it("is filled in the accent, and the spiral's stroke and dashes are gone", () => {
+    expect(bodiesFor(".reach-mark").join(" ")).toContain("color: var(--rl-accent)");
+    expect(bodiesFor(".reach-mark-shape").join(" ")).toContain("fill: currentColor");
+    expect(css).not.toMatch(/\.reach-mark-(?:line|pulse)\b/);
+    expect(RULES.filter((r) => partsOf(r).some((p) => p.includes(".reach-mark"))).map((r) => r.body).join(" ")).not.toMatch(/stroke/);
+  });
+
+  it("fades up once without holding its opacity, so the busy dim can still ease in and out", () => {
+    // `both` would hold the animation's implicit end over the property for good, and the dim below
+    // would land in one frame instead of on its transition.
+    expect(bodiesFor(".reach-mark-shape").join(" ")).toMatch(/animation: rl-reach-in var\(--dur-move\) var\(--ease-out-strong\) backwards/);
+  });
+
+  it("dims and runs a glint only while busy, and the glint is a loop the quiet rules pause", () => {
+    expect(bodiesFor(".reach-mark-glint").join(" ")).toContain("opacity: 0");
+    expect(bodiesFor(".reach-mark[data-busy] .reach-mark-shape").join(" ")).toContain("opacity: .35");
+    expect(bodiesFor(".reach-mark[data-busy] .reach-mark-glint").join(" ")).toContain("animation: rl-reach-glint 1.4s linear infinite");
+    const paused = RULES.filter((r) => r.body.includes("animation-play-state: paused")).flatMap(partsOf);
+    expect(paused).toContain(":root[data-quiet] .reach-mark[data-busy] .reach-mark-glint");
+  });
+
+  it("under reduced motion is simply drawn, and the first page's mark goes", () => {
+    const reduced = blockAfter("@media (prefers-reduced-motion: reduce)").replace(/\s+/g, " ");
+    expect(reduced).toContain(".reach-mark[data-busy] .reach-mark-shape { opacity: 1; }");
+    expect(reduced).toContain(".reach-mark-glint, .browser-connecting { display: none; }");
+  });
+
+  it("the onboarding mark is the three-plane mark as drawn, with no filter for the light face", () => {
+    for (const body of RULES.filter((r) => partsOf(r).some((p) => p.includes(".onboarding-mark"))).map((r) => r.body)) {
+      expect(body).not.toMatch(/filter/);
+    }
+  });
+});
+
 describe("light mode", () => {
   const tokens = readFileSync(repoFile("apps/desktop/src/renderer/src/theme/tokens.css"), "utf8");
   const lightBlocks = [...tokens.matchAll(/:root\[data-mode="light"\]\s*\{([^}]*)\}/g)].map((m) => m[1]!).join("\n");
