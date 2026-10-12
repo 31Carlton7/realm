@@ -60,6 +60,16 @@ describe("app store", () => {
     expect(on.getState().easterEggs).toBe(true);
   });
 
+  it("boot loads the friend packs the server has open, without waiting for Settings", async () => {
+    // THE MUTANT: fetch them only when Settings' eggs section mounts. The transcript's labels and
+    // greetings read them too, so after a relaunch the eggs looked gone until Settings was opened.
+    const pack = { id: "p1", group: "Pals", labels: [{ present: "Asking Pat", past: "Asked Pat" }], greetings: [] };
+    const store = createAppStore(fakeApi({ eggPacks: [pack], eggsUnlocked: ["p1"] }));
+    await store.getState().boot();
+    await tick();
+    expect(store.getState().eggPacks.map((p) => p.group)).toEqual(["Pals"]);
+  });
+
   it("the file browser is cards only when the stored row says exactly that", async () => {
     // Rows are what the panel shipped as. An unset key, a failed parse, or a word a newer build wrote
     // that this one does not know must all land there — THE MUTANT: `filesView !== "list"`, which
