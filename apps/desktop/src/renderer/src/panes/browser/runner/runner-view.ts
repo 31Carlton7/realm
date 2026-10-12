@@ -16,10 +16,15 @@ import { colours, realmiteFromSeed, realmiteSvg, REALMITE_CSS, type Colours, typ
 import { advance, createRun, heroCentre, nextBest, parseBest, RUN, score, type Run, type RunEvent } from "./runner";
 
 /** The canvas's height in CSS pixels, and how much of it is earth below the running line. */
-export const VIEW_HEIGHT = 176;
-const EARTH = 36;
-const CHECK = 12;
-const HERO_SIZE = 32;
+/** How many game pixels tall the view is, whatever its CSS height: the canvas scales the world to fit,
+ *  so a taller view (the stylesheet grows it with the pane's width) draws everything bigger. */
+const WORLD_HEIGHT = 170;
+const EARTH = 30;
+const CHECK = 13;
+/** The Realmite on its feet, in game pixels: its body about as wide as the ball it curls into. */
+const HERO_SIZE = 46;
+/** The world's own scenery, laid by position so it scrolls with the ground and is the same each pass. */
+const DECOR_STEP = 70;
 
 const BEST_KEY = "realm.runner.best";
 const SOUND_KEY = "realm.runner.sound";
@@ -40,10 +45,13 @@ export function heroSpec(seed: string): RealmiteSpec {
 export type RunnerState = "idle" | "running" | "paused" | "over";
 
 type Palette = {
-  green: string; accent: string; accentInk: string; red: string; ink: string; ink2: string; ink3: string; hero: Colours;
+  green: string; orange: string; font: string; accent: string; accentInk: string; red: string; ink: string; ink2: string; ink3: string; hero: Colours;
 };
 
-type Spark = { x: number; y: number; age: number };
+/** A flourish that lives a moment: a sparkle where a shard was, dust where the hero landed, and the
+ *  points it scored rising off it. In world coordinates, so they stay where they happened. */
+type Effect = { kind: "spark" | "dust" | "points"; x: number; y: number; age: number; text?: string };
+const EFFECT_LIFE = { spark: 0.4, dust: 0.35, points: 0.7 } as const;
 
 function readStore(key: string): string | null {
   try { return window.localStorage.getItem(key); } catch { return null; }
@@ -108,7 +116,8 @@ export class RunnerView {
   private palette: Palette | null = null;
   private sprites: { run: HTMLImageElement; over: HTMLImageElement } | null = null;
   private spritesAsked = false;
-  private sparks: Spark[] = [];
+  private effects: Effect[] = [];
+  private height = 0;
   private shownScore = -1;
   private synth = new Synth();
   private reduce: MediaQueryList | null;
@@ -195,7 +204,7 @@ export class RunnerView {
 
   private start() {
     this.run = createRun((Math.random() * 2 ** 32) >>> 0);
-    this.sparks = [];
+    this.effects = [];
     this.state = "running";
     this.loop();
     this.emit();
@@ -217,8 +226,8 @@ export class RunnerView {
       const events = advance(this.run, { pressed: this.pressed, held: this.held }, dt);
       this.pressed = false;
       this.react(events);
-      for (const s of this.sparks) s.age += dt;
-      this.sparks = this.sparks.filter((s) => s.age < 0.35);
+      for (const f of this.effects) f.age += dt;
+      this.effects = this.effects.filter((f) => f.age < EFFECT_LIFE[f.kind]);
       this.paint();
       if (this.state === "running") this.raf = requestAnimationFrame(frame);
     };
@@ -228,9 +237,14 @@ export class RunnerView {
   private react(events: RunEvent[]) {
     for (const e of events) {
       if (this.sound) this.synth.play(e);
-      if ((e === "shard" || e === "pop") && !this.reduced()) {
+      if (!this.reduced()) {
         const c = heroCentre(this.run);
-        this.sparks.push({ x: c.x, y: c.y, age: 0 });
+        if (e === "shard" || e === "pop") {
+          this.effects.push({ kind: "spark", x: c.x, y: c.y, age: 0 });
+          this.effects.push({ kind: "points", x: c.x, y: c.y + RUN.radius + 6, age: 0, text: `+${e === "shard" ? RUN.shardPoints : RUN.popPoints}` });
+        } else if (e === "land") {
+          this.effects.push({ kind: "dust", x: this.run.x, y: this.run.y, age: 0 });
+        }
       }
       if (e === "over") {
         this.state = "over";
@@ -252,14 +266,15 @@ export class RunnerView {
   private reduced() { return this.reduce?.matches ?? false; }
 
   private resize() {
-    const w = Math.round(this.canvas.clientWidth);
+    const w = Math.round(this.canvas.clientWidth), h = Math.round(this.canvas.clientHeight);
     const dpr = window.devicePixelRatio || 1;
-    if (!w || (w === this.width && dpr === this.dpr)) return;
+    if (!w || !h || (w === this.width && h === this.height && dpr === this.dpr)) return;
     this.ctx ??= this.canvas.getContext("2d");
     this.width = w;
+    this.height = h;
     this.dpr = dpr;
     this.canvas.width = Math.round(w * dpr);
-    this.canvas.height = Math.round(VIEW_HEIGHT * dpr);
+    this.canvas.height = Math.round(h * dpr);
     this.paint();
   }
 
@@ -270,6 +285,7 @@ export class RunnerView {
     const spec = heroSpec(this.opts.seed);
     return {
       green: v("--green", "#3fb26b"), accent: v("--accent", "#4a8df8"), accentInk: v("--accent-ink", "#9cc1ff"),
+      orange: v("--orange", "#e0913a"), font: getComputedStyle(this.canvas).fontFamily || "system-ui",
       red: v("--red", "#e5534b"), ink: v("--ink", "#f2f3f5"), ink2: v("--ink-2", "#a7abb3"), ink3: v("--ink-3", "#737882"),
       hero: colours(spec.palette, face),
     };
@@ -282,7 +298,7 @@ export class RunnerView {
     const image = (state: "working" | "needs-you") => {
       // The Realmite's own drawing, with its stylesheet carried inside so it paints as an image, and
       // without its bare `data-animate` (HTML, not XML: an image that kept it would not decode).
-      const svg = realmiteSvg(spec, { size: 64, state, uid: `runner-${state}`, face })
+      const svg = realmiteSvg(spec, { size: 128, state, uid: `runner-${state}`, face })
         .replace(/ data-animate(?:="")?(?=[\s/>])/, "")
         .replace(/^<svg([^>]*)>/, `<svg$1><style>${REALMITE_CSS}</style>`);
       const img = new Image();
@@ -301,21 +317,29 @@ export class RunnerView {
     if (!this.spritesAsked) { this.spritesAsked = true; this.loadSprites(); }
     const p = this.palette;
     const run = this.run;
-    const W = this.width, H = VIEW_HEIGHT, ground = H - EARTH;
+    const k = this.height / WORLD_HEIGHT;
+    const W = this.width / k, H = WORLD_HEIGHT, ground = H - EARTH;
     const still = this.reduced();
-    const heroX = Math.min(88, Math.round(W * 0.16));
+    const heroX = Math.min(110, Math.round(W * 0.18));
     const sx = (x: number) => x - run.x + heroX;
     const sy = (y: number) => ground - y;
 
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.setTransform(this.dpr * k, 0, 0, this.dpr * k, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    // Hills, far and near, in the grass's colour laid thin over the pane's ground.
+    // The sky's layers, each slower the further off it is. Under Reduce motion they stand still.
     const scroll = still ? 0 : run.distance;
-    hills(ctx, W, ground, p.green, 0.08, scroll * 0.15, 46, 0.011, 1.7);
-    hills(ctx, W, ground, p.green, 0.14, scroll * 0.4, 26, 0.019, 4.1);
+    clouds(ctx, W, scroll * 0.08, p.accent);
+    if (!still && this.state === "running" && run.speed >= RUN.maxSpeed * 0.9) speedLines(ctx, W, ground, run.t, p.ink);
+    hills(ctx, W, ground, p.green, 0.06, scroll * 0.12, 74, 0.007, 0.4);
+    hills(ctx, W, ground, p.green, 0.1, scroll * 0.3, 48, 0.012, 1.7);
+    hills(ctx, W, ground, p.green, 0.16, scroll * 0.55, 24, 0.021, 4.1);
 
-    // Earth: a checker in the accent, scrolling with the ground.
+    // Scenery on the running line: posts, flowers, tufts. Behind everything that can be touched.
+    const first = Math.floor((run.x - heroX - 20) / DECOR_STEP), last = Math.ceil((run.x - heroX + W + 20) / DECOR_STEP);
+    for (let i = first; i <= last; i++) decor(ctx, i, sx(i * DECOR_STEP), ground, p);
+
+    // Earth: a checker in the accent, scrolling with the ground, darker under the grass.
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, ground, W, EARTH);
@@ -323,10 +347,18 @@ export class RunnerView {
     ctx.fillStyle = p.accent;
     const off = ((run.x % (CHECK * 2)) + CHECK * 2) % (CHECK * 2);
     for (let row = 0; row * CHECK < EARTH; row++) {
-      ctx.globalAlpha = 0.2 - row * 0.045;
-      for (let x = -off + (row % 2) * CHECK; x < W; x += CHECK * 2) ctx.fillRect(x, ground + row * CHECK, CHECK, CHECK);
+      const fade = 1 - row * 0.28;
+      for (let x = -off - CHECK * 2; x < W + CHECK; x += CHECK) {
+        const dark = (Math.round((x + off) / CHECK) + row) % 2 === 0;
+        ctx.globalAlpha = (dark ? 0.24 : 0.1) * fade;
+        ctx.fillRect(x, ground + row * CHECK, CHECK, CHECK);
+      }
     }
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, ground + 5, W, 3);
     ctx.restore();
+    ctx.globalAlpha = 1;
 
     // Ramps: a wedge of the same earth under the same grass.
     for (const t of run.things) {
@@ -336,62 +368,66 @@ export class RunnerView {
       for (let i = 0; i <= 24; i++) { const u = i / 24; ctx.lineTo(sx(t.x + u * t.len), sy(t.h * u * u)); }
       ctx.lineTo(sx(t.x + t.len), ground);
       ctx.closePath();
-      ctx.globalAlpha = 0.16;
+      ctx.globalAlpha = 0.2;
       ctx.fillStyle = p.accent;
       ctx.fill();
       ctx.globalAlpha = 1;
       ctx.beginPath();
       for (let i = 0; i <= 24; i++) { const u = i / 24; ctx.lineTo(sx(t.x + u * t.len), sy(t.h * u * u)); }
       ctx.strokeStyle = p.green;
-      ctx.lineWidth = 4;
+      ctx.lineWidth = 5;
       ctx.lineCap = "round";
       ctx.stroke();
     }
 
-    // The grass along the top, with a scallop of blades.
+    // The grass lip: a band, a lighter edge along its top, and a scallop hanging over the earth.
     ctx.fillStyle = p.green;
-    ctx.fillRect(0, ground - 1, W, 5);
-    const bOff = ((run.x % 10) + 10) % 10;
+    ctx.fillRect(0, ground - 1, W, 6);
+    const bOff = ((run.x % 9) + 9) % 9;
     ctx.beginPath();
-    for (let x = -bOff; x < W + 10; x += 10) { ctx.moveTo(x, ground + 4); ctx.arc(x + 5, ground + 4, 5, Math.PI, 0, true); }
-    ctx.globalAlpha = 0.55;
+    for (let x = -bOff; x < W + 9; x += 9) { ctx.moveTo(x, ground + 5); ctx.arc(x + 4.5, ground + 5, 4.5, Math.PI, 0, true); }
     ctx.fill();
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, ground - 1, W, 1.2);
     ctx.globalAlpha = 1;
 
     for (const t of run.things) {
       const x = sx(t.x);
       if (x < -30 || x > W + 30) continue;
-      if (t.kind === "spike") {
-        ctx.beginPath();
-        ctx.moveTo(x, ground);
-        ctx.lineTo(x + RUN.spikeWidth / 2, ground - RUN.spikeHeight);
-        ctx.lineTo(x + RUN.spikeWidth, ground);
-        ctx.closePath();
-        ctx.fillStyle = p.ink3;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(x + RUN.spikeWidth / 2, ground - RUN.spikeHeight);
-        ctx.lineTo(x + RUN.spikeWidth / 2 + 3, ground - 2);
-        ctx.strokeStyle = p.ink2;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      } else if (t.kind === "shard" && !t.taken) {
-        const turn = still ? 1 : Math.cos(run.t * 4 + t.x * 0.05);
-        hexagon(ctx, x, sy(t.y), RUN.shardRadius, Math.max(0.25, Math.abs(turn)), p.accent);
-        hexagon(ctx, x, sy(t.y), RUN.shardRadius * 0.45, Math.max(0.25, Math.abs(turn)), p.accentInk);
+      if (t.kind === "spike") spike(ctx, x, ground, p);
+      else if (t.kind === "shard" && !t.taken) {
+        const turn = still ? 1 : Math.max(0.25, Math.abs(Math.cos(run.t * 4 + t.x * 0.05)));
+        hexagon(ctx, x, sy(t.y), RUN.shardRadius, turn, p.accent);
+        hexagon(ctx, x, sy(t.y), RUN.shardRadius * 0.45, turn, p.accentInk);
       } else if (t.kind === "critter" && t.alive) {
         critter(ctx, x, sy(RUN.critterRadius), still ? 0 : -t.spin, p);
       }
     }
 
-    for (const s of this.sparks) {
-      const k = s.age / 0.35;
-      ctx.globalAlpha = 1 - k;
-      ctx.strokeStyle = p.accentInk;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      hexPath(ctx, sx(s.x), sy(s.y), 6 + k * 14, 1);
-      ctx.stroke();
+    for (const f of this.effects) {
+      const a = f.age / EFFECT_LIFE[f.kind];
+      ctx.globalAlpha = 1 - a;
+      if (f.kind === "spark") {
+        ctx.strokeStyle = p.accentInk;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        hexPath(ctx, sx(f.x), sy(f.y), 7 + a * 16, 1);
+        ctx.stroke();
+        ctx.fillStyle = p.accentInk;
+        for (let i = 0; i < 6; i++) {
+          const ang = (i * Math.PI) / 3;
+          ctx.fillRect(sx(f.x) + Math.cos(ang) * (8 + a * 22) - 1, sy(f.y) + Math.sin(ang) * (8 + a * 22) - 1, 2, 2);
+        }
+      } else if (f.kind === "dust") {
+        ctx.fillStyle = p.ink2;
+        ctx.globalAlpha = 0.35 * (1 - a);
+        for (const d of [-1, 1]) {
+          ctx.beginPath();
+          ctx.arc(sx(f.x) + d * (6 + a * 14), sy(f.y) - 3 - a * 3, 3 + a * 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
       ctx.globalAlpha = 1;
     }
 
@@ -399,14 +435,173 @@ export class RunnerView {
     const hx = heroX, hy = sy(run.y);
     if (run.grounded || this.state === "over") {
       const img = this.state === "over" ? this.sprites?.over : this.sprites?.run;
-      const bob = this.state === "running" && !still ? Math.abs(Math.sin(run.distance / 9)) * 1.5 : 0;
+      const moving = this.state === "running" && !still;
+      const bob = moving ? Math.abs(Math.sin(run.distance / 11)) * 2 : 0;
       if (img) {
-        ctx.drawImage(img, hx - HERO_SIZE / 2, hy - HERO_SIZE * (58 / 64) - bob, HERO_SIZE, HERO_SIZE);
+        ctx.save();
+        ctx.translate(hx, hy);
+        if (moving) ctx.rotate(0.05 + (run.speed / RUN.maxSpeed) * 0.05);
+        ctx.drawImage(img, -HERO_SIZE / 2, -HERO_SIZE * (58 / 64) - bob, HERO_SIZE, HERO_SIZE);
+        ctx.restore();
       }
     } else {
       ball(ctx, hx, hy - RUN.radius, RUN.radius, still ? 0 : run.distance / RUN.radius, p.hero);
     }
+
+    // Words, in CSS pixels so they keep the type's own sizes.
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const f of this.effects) {
+      if (f.kind !== "points") continue;
+      const a = f.age / EFFECT_LIFE.points;
+      ctx.globalAlpha = 1 - a * a;
+      ctx.font = `600 12px ${p.font}`;
+      ctx.fillStyle = p.accentInk;
+      ctx.fillText(f.text ?? "", sx(f.x) * k, (sy(f.y) - a * 18) * k);
+    }
+    ctx.globalAlpha = 1;
+    const title = TITLES[this.state];
+    if (title) {
+      const cx = this.width / 2, cy = this.height * 0.3;
+      ctx.font = `600 16px ${p.font}`;
+      ctx.fillStyle = p.ink;
+      ctx.fillText(title[0], cx, cy);
+      ctx.font = `400 12px ${p.font}`;
+      ctx.fillStyle = p.ink2;
+      const line = this.state === "over" ? `${formatScore(score(run))}  ·  Best ${formatScore(this.best)}` : this.state === "idle" ? `Hold to jump higher  ·  Best ${formatScore(this.best)}` : title[1];
+      ctx.fillText(line, cx, cy + 22);
+      if (this.state === "over") { ctx.fillText(title[1], cx, cy + 40); }
+    }
   }
+}
+
+/** What the canvas says while nothing is running: a headline, and the line under it. */
+const TITLES: Partial<Record<RunnerState, [string, string]>> = {
+  idle: ["Press Space to run", ""],
+  paused: ["Paused", "Space to carry on"],
+  over: ["Run over", "Space to run again"],
+};
+
+/** A small integer hash, so scenery is laid the same at the same place on every pass. */
+function hash(n: number): number {
+  let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function clouds(ctx: CanvasRenderingContext2D, W: number, scroll: number, colour: string) {
+  const step = 150;
+  ctx.fillStyle = colour;
+  ctx.globalAlpha = 0.09;
+  for (let i = Math.floor(scroll / step) - 1; i * step - scroll < W + step; i++) {
+    const r = hash(i * 7 + 3);
+    if (r < 0.35) continue;
+    const x = i * step - scroll + r * 60, y = 18 + hash(i * 13 + 1) * 34, s = 0.7 + r * 0.5;
+    ctx.beginPath();
+    ctx.arc(x, y, 9 * s, 0, Math.PI * 2);
+    ctx.arc(x + 11 * s, y - 5 * s, 11 * s, 0, Math.PI * 2);
+    ctx.arc(x + 24 * s, y, 8 * s, 0, Math.PI * 2);
+    ctx.rect(x, y, 24 * s, 8 * s);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Thin streaks across the sky at top speed. */
+function speedLines(ctx: CanvasRenderingContext2D, W: number, ground: number, t: number, colour: string) {
+  ctx.strokeStyle = colour;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.14;
+  ctx.beginPath();
+  for (let i = 0; i < 7; i++) {
+    const y = 14 + hash(i + 40) * (ground - 30);
+    const len = 30 + hash(i + 90) * 50;
+    const x = W - ((t * (700 + i * 60) + hash(i) * W) % (W + len));
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + len, y);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+/** One piece of scenery for slot `i`: a hexagon-topped post, a flower, a tuft, or nothing. */
+function decor(ctx: CanvasRenderingContext2D, i: number, x: number, ground: number, p: Palette) {
+  const r = hash(i);
+  const at = x + hash(i + 1000) * 40;
+  if (r < 0.14) {
+    ctx.strokeStyle = p.ink3;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(at, ground);
+    ctx.lineTo(at, ground - 26);
+    ctx.stroke();
+    ctx.beginPath();
+    hexPath(ctx, at, ground - 31, 6, 1);
+    ctx.fillStyle = p.orange;
+    ctx.globalAlpha = 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    hexPath(ctx, at, ground - 31, 2.4, 1);
+    ctx.fillStyle = "#fff";
+    ctx.globalAlpha = 0.6;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  } else if (r < 0.5) {
+    const petal = [p.orange, p.red, p.accentInk][Math.floor(hash(i + 7) * 3)]!;
+    const h = 8 + hash(i + 3) * 6;
+    ctx.strokeStyle = p.green;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(at, ground);
+    ctx.lineTo(at, ground - h);
+    ctx.stroke();
+    ctx.fillStyle = petal;
+    for (let j = 0; j < 5; j++) {
+      const a = (j * 2 * Math.PI) / 5;
+      ctx.beginPath();
+      ctx.arc(at + Math.cos(a) * 2.6, ground - h + Math.sin(a) * 2.6, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(at, ground - h, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (r < 0.85) {
+    ctx.strokeStyle = p.green;
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    for (const [dx, h] of [[-3, 6], [0, 9], [3, 6]] as const) { ctx.moveTo(at + dx * 0.4, ground); ctx.lineTo(at + dx, ground - h); }
+    ctx.stroke();
+  }
+}
+
+function spike(ctx: CanvasRenderingContext2D, x: number, ground: number, p: Palette) {
+  const w = RUN.spikeWidth, h = RUN.spikeHeight;
+  ctx.beginPath();
+  ctx.moveTo(x, ground);
+  ctx.lineTo(x + w / 2, ground - h);
+  ctx.lineTo(x + w, ground);
+  ctx.closePath();
+  ctx.fillStyle = p.ink3;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + w / 2, ground - h);
+  ctx.lineTo(x + w, ground);
+  ctx.lineTo(x + w / 2 + 2, ground);
+  ctx.closePath();
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = "#000";
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + w / 2, ground - h);
+  ctx.lineTo(x + w / 2 - 3, ground - 3);
+  ctx.strokeStyle = p.ink2;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 }
 
 function hills(ctx: CanvasRenderingContext2D, W: number, ground: number, colour: string, alpha: number, scroll: number, height: number, freq: number, phase: number) {
@@ -464,11 +659,11 @@ function critter(ctx: CanvasRenderingContext2D, x: number, y: number, spin: numb
   ctx.restore();
   // One eye, always looking at the hero.
   ctx.beginPath();
-  ctx.arc(x - 4, y - 3, 2.6, 0, Math.PI * 2);
+  ctx.arc(x - r * 0.45, y - r * 0.32, r * 0.3, 0, Math.PI * 2);
   ctx.fillStyle = "#fff";
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(x - 4.8, y - 3, 1.3, 0, Math.PI * 2);
+  ctx.arc(x - r * 0.53, y - r * 0.32, r * 0.15, 0, Math.PI * 2);
   ctx.fillStyle = "#111";
   ctx.fill();
 }

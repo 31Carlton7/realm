@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatScore, RunnerView, VIEW_HEIGHT, type RunnerState } from "./runner-view";
+import { formatScore, RunnerView, type RunnerState } from "./runner-view";
 
 const PLAY_LABEL: Record<RunnerState, string> = { idle: "Play", running: "Pause", paused: "Resume", over: "Play again" };
 const NOTE: Partial<Record<RunnerState, string>> = {
@@ -45,7 +45,6 @@ export function RunnerGame({ seed }: { seed: string }) {
         <canvas
           ref={canvas}
           className="browser-runner-canvas"
-          height={VIEW_HEIGHT}
           tabIndex={0}
           aria-label={`Runner game. Score ${shown.score}, best ${shown.best}. Space to jump.`}
           onKeyDown={onKeyDown}
@@ -54,7 +53,8 @@ export function RunnerGame({ seed }: { seed: string }) {
           onPointerUp={() => view.current?.release()}
           onPointerLeave={() => view.current?.release()}
         />
-        {note && <p className="browser-runner-note" aria-live="polite">{note}</p>}
+        {/* The canvas draws the same words; this is for whoever cannot see it. */}
+        {note && <p className="visually-hidden" aria-live="polite">{note}</p>}
       </div>
       <div className="browser-runner-bar">
         <button

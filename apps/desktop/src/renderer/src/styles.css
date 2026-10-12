@@ -2767,17 +2767,17 @@ button.panel-title:hover { background: var(--rl-hover); }
 .browser-error-code { margin: 16px 0 0; font: 12px/16px var(--font-mono); color: var(--rl-text-faint); }
 .browser-error-reload { margin-top: 24px; }
 /* The runner under Reload (RunnerGame): the full column's width, its canvas on the pane's own ground
-   (the sky is left clear), a quiet line over it while it is not running, and one row under it — Play,
+   (the sky is left clear), its own words drawn on it while it is not running, and one row under it — Play,
    the score, and Sound. Reload keeps the only filled button. Wider than the text's measure when the
    pane has room — a runner sees further on a wider pane — centred under it. */
 .browser-runner { margin-top: 32px; width: min(720px, 100cqw - 48px); align-self: center; }
 .browser-runner-stage { position: relative; }
-.browser-runner-canvas { display: block; width: 100%; height: 176px; border-radius: var(--r-ctl); touch-action: manipulation; }
+/* A third as tall as it is wide, inside a band: the world is drawn to the height, so a wider pane
+   draws it bigger as well as further ahead. */
+.browser-runner-canvas { display: block; width: 100%; height: clamp(200px, calc(min(720px, 100cqw - 48px) / 3), 260px); border-radius: var(--r-ctl); touch-action: manipulation; }
 /* The ring says where the keys go while the game waits; a run in motion says it by itself. */
 .browser-runner-stage:not([data-state="running"]) .browser-runner-canvas:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 .browser-runner-canvas:focus-visible { outline: none; }
-.browser-runner-note { position: absolute; top: 12px; left: 0; right: 0; margin: 0; text-align: center; font-size: 13px; line-height: 16px;
-  color: var(--rl-text-dim); pointer-events: none; }
 .browser-runner-bar { margin-top: 12px; display: flex; align-items: center; gap: 12px; }
 .browser-runner-score { flex: 1; margin: 0; display: flex; gap: 12px; font: 12px/16px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-dim); }
 .browser-runner-best { color: var(--rl-text-faint); }
