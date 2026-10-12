@@ -248,7 +248,11 @@ export function createCodexMapper() {
           // part (the protocol capture's 120 includes its own 20 cached), so nothing is added to it.
           const resident = num(obj(usage.last).inputTokens);
           const window = num(usage.modelContextWindow);
+          // The cache split rides along: Codex's `inputTokens` INCLUDES the cached part, and a long
+          // thread is nearly all cache, so an estimate that cannot see it prices the whole prompt at
+          // the uncached rate — roughly eight times what a 98%-cached session costs.
           return [sessionEvent("usage", { costUsd: 0, inputTokens: num(total.inputTokens), outputTokens: num(total.outputTokens), numTurns,
+            cacheReadTokens: num(total.cachedInputTokens), cacheWriteTokens: num(total.cacheWriteInputTokens),
             ...(resident > 0 && window > 0 ? { contextTokens: resident, contextWindow: window } : {}),
             // The fifth fact off the same sample, the way Claude's result carries `fast_mode_state`:
             // present only once Codex has named a tier at all. Codex has no reason codes — a tier it
@@ -277,18 +281,28 @@ export function createCodexMapper() {
          */
         case "account/rateLimits/updated": {
           const limits = obj(p.rateLimits);
+          // A snapshot for a model-specific allowance (`limitId` other than "codex" — a Spark bucket,
+          // say) describes a different quota with the SAME `primary`/`secondary` keys. Folded in by
+          // id it overwrote the account's own 5-hour and weekly bars with a model nobody was using.
+          // Older builds send no `limitId`; their one snapshot is the account's.
+          const limitId = str(limits.limitId);
+          if (limitId && limitId !== "codex") return [];
+          const planType = str(limits.planType);
           const windows = (["primary", "secondary"] as const).flatMap((slot) => {
             const w = obj(limits[slot]);
             if (typeof w.usedPercent !== "number") return [];
+            // The duration is beside the window on every build measured. Without it, paid plans have
+            // the 5-hour and weekly pair, and Free and Go a single monthly allowance in `primary`.
+            const mins = num(w.windowDurationMins)
+              || (slot === "secondary" ? 10080 : planType === "free" || planType === "go" ? 43200 : 300);
             return [{
               id: slot,
-              label: windowLabelForMinutes(num(w.windowDurationMins)),
+              label: windowLabelForMinutes(mins),
               utilization: w.usedPercent,
               resetsAt: typeof w.resetsAt === "number" ? w.resetsAt * 1000 : null,
             }];
           });
           const reached = str(limits.rateLimitReachedType) || null;
-          const planType = str(limits.planType);
           return [sessionEvent("rate_limit", {
             subscriptionType: planType && planType !== "unknown" ? planType : null,
             organization: null,

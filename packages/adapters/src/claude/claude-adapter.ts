@@ -592,14 +592,14 @@ export class ClaudeAdapter implements AgentAdapter {
             const info = (msg as { rate_limit_info?: Record<string, unknown> }).rate_limit_info ?? {};
             const status = info.status;
             const alert: PlanAlert = status === "rejected" ? "exceeded" : status === "allowed_warning" ? "approaching" : "none";
-            const id = typeof info.rateLimitType === "string" ? info.rateLimitType : null;
-            const window: PlanWindow[] = id
-              ? [{ id, label: planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
-              : [];
             // The full picture first, so a panel opened on this event shows every window rather than
             // only the one that moved. Its `alert` is always "none" — the control request reports
             // quotas, not status — so the stream's verdict is laid over it here.
             const full = await readPlanLimits();
+            const id = streamWindowId(typeof info.rateLimitType === "string" ? info.rateLimitType : null, full?.windows ?? []);
+            const window: PlanWindow[] = id
+              ? [{ id, label: full?.windows.find((w) => w.id === id)?.label ?? planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
+              : [];
             const merged = full
               ? { ...full, windows: mergeWindows(full.windows, window), alert, alertWindow: id }
               : { subscriptionType: null, organization: null, windows: window, alert, alertWindow: id,
@@ -736,4 +736,19 @@ export class ClaudeAdapter implements AgentAdapter {
       },
     };
   }
+}
+
+/**
+ * The window a stream `rate_limit_event` is about, in the ids the control request uses.
+ *
+ * They agree on every account-wide window and disagree on one: the stream names the model bucket
+ * that counts extra usage by its TYPE (`seven_day_overage_included`), while the control request lists
+ * it under the model's own `display_name` in `model_scoped`. Taken literally, the event opened a
+ * second row for the window the panel was already showing, and the two disagreed about it. So that
+ * type lands on the model bucket the control request named — the first, since the CLI lists only the
+ * overage-included model there — and anything else keeps its own id.
+ */
+export function streamWindowId(type: string | null, known: readonly PlanWindow[]): string | null {
+  if (type !== "seven_day_overage_included" || known.some((w) => w.id === type)) return type;
+  return known.find((w) => w.id.startsWith("model:"))?.id ?? type;
 }
