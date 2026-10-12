@@ -310,7 +310,12 @@ export class SessionService {
   /** Going quiet for a handoff: finish what is running, start nothing new. */
   setDraining(draining: boolean): void { this.draining = draining; }
   get(id: string): Session { const s = this.d.sessions.get(id); if (!s) throw new NotFoundError("session", id); return s; }
-  events(id: string, afterSeq: number, limit: number): StoredSessionEvent[] { this.get(id); return this.d.events.listAfter(id, afterSeq, limit); }
+  /** `beforeSeq` reads the newest page before it instead of the first after `afterSeq` (see `sessions.events`). */
+  events(id: string, afterSeq: number, limit: number, opts: { beforeSeq?: number; types?: SessionEvent["type"][] } = {}): StoredSessionEvent[] {
+    this.get(id);
+    if (opts.beforeSeq !== undefined) return this.d.events.listBefore(id, opts.beforeSeq, limit, opts.types);
+    return opts.types ? this.d.events.listOfTypes(id, opts.types, { afterSeq, limit }) : this.d.events.listAfter(id, afterSeq, limit);
+  }
 
   /* Two signatures for one function, because `unlisted` is the only thing that makes `itemId` null
      and every other caller may go on relying on it. An overload says that in the type instead of

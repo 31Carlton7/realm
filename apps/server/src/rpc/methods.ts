@@ -1128,7 +1128,7 @@ export function registerMethods(d: Deps): void {
   });
   reg("sessions.setEnvironment", (p) => d.sessions.setEnvironment(p.id, p.environmentId));
   reg("sessions.moveToSpace", (p) => d.sessions.moveToSpace(p.id, p.spaceId));
-  reg("sessions.events", (p) => d.sessions.events(p.id, p.afterSeq, p.limit));
+  reg("sessions.events", (p) => d.sessions.events(p.id, p.afterSeq, p.limit, { beforeSeq: p.beforeSeq, types: p.types }));
   reg("sessions.openTerminal", (p) => d.sessions.openTerminal(p.id));
   // "Fork from here" (Plan 16 W3): new worktree at the checkpoint's tree + new session carrying the
   // ancestor transcript as text. The service broadcasts environments.changed; sessions.create's own

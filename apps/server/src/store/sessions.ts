@@ -425,4 +425,22 @@ export class SessionEventsStore {
     }
     return out;
   }
+
+  /**
+   * The newest `limit` events before `beforeSeq`, oldest first — a transcript read from its end, a page
+   * at a time (`sessions.events` with `beforeSeq`). With `types`, only those kinds.
+   *
+   * Two steps rather than one `ORDER BY seq DESC` read: find where the page starts, then read it
+   * forward through `listAfter`/`listOfTypes`, so a row is decoded in exactly one place.
+   */
+  listBefore(sessionId: string, beforeSeq: number, limit: number, types?: readonly SessionEvent["type"][]): StoredSessionEvent[] {
+    if (limit <= 0 || types?.length === 0) return [];
+    const inTypes = types ? ` AND type IN (${types.map(() => "?").join(", ")})` : "";
+    const first = this.db.prepare(`SELECT seq FROM session_events WHERE session_id = ? AND seq < ?${inTypes} ORDER BY seq DESC LIMIT 1 OFFSET ?`)
+      .get(sessionId, beforeSeq, ...(types ?? []), limit - 1) as { seq: number } | undefined;
+    // Fewer than `limit` before it: the page is everything from the start.
+    const after = first ? first.seq - 1 : 0;
+    const page = types ? this.listOfTypes(sessionId, types, { afterSeq: after, limit }) : this.listAfter(sessionId, after, limit);
+    return page.filter((e) => e.seq < beforeSeq);
+  }
 }
