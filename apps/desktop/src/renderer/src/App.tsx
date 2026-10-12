@@ -711,9 +711,10 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offEggs(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
+      offEggs();
       window.removeEventListener("drop", swallowDrop);
       offOS?.();
     };
