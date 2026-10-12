@@ -172,6 +172,7 @@ export const liveApi = (): Api => ({
   setSessionEnvironment: (id, environmentId) => rpc().call("sessions.setEnvironment", { id, environmentId }),
   moveSessionToSpace: (id, spaceId) => rpc().call("sessions.moveToSpace", { id, spaceId }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),
+  sessionEventsBefore: (id, beforeSeq, limit, types) => rpc().call("sessions.events", { id, beforeSeq, limit, ...(types ? { types } : {}) }),
   openSessionTerminal: (id) => rpc().call("sessions.openTerminal", { id }),
   writeTerminal: async (terminalId, data) => { await rpc().call("terminals.write", { terminalId, data }); },
   prefillTerminal: async (terminalId, command) => { await rpc().call("terminals.prefill", { terminalId, command }); },

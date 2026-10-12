@@ -1485,6 +1485,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return s;
     },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
+    sessionEventsBefore: async (id, beforeSeq, limit, types) => {
+      calls.push(`sessionEventsBefore:${id}:${beforeSeq === Number.MAX_SAFE_INTEGER ? "end" : beforeSeq}${types ? `:${types.join(",")}` : ""}`);
+      await wait(`sessionEvents:${id}`);
+      const kept = (data.sessionEvents[id] ?? []).filter((e) => e.seq < beforeSeq && (!types || types.includes(e.event.type)));
+      return kept.slice(Math.max(0, kept.length - limit));
+    },
     // Mirrors the server: get-or-create, so a second call for the same session returns the same trio —
     // and the hidden item never joins `data.items` (it is not a sidebar item).
     openSessionTerminal: async (id) => {

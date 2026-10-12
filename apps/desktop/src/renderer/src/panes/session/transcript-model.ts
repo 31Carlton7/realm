@@ -177,11 +177,20 @@ export type Transcript = {
   /** The media each turn left on disk (`files_made`), keyed the same way and for the same reason as
    *  `changes`. Nothing draws it yet; the documents home counts it to know the index has moved. */
   made?: Record<number, FilesMade>;
+  /** Set while the log's start is still on the server: the seq of the first event this transcript was
+   *  built from. A long session opens on its newest turns and reads further back as the reader goes
+   *  there (`prependTranscript`). Absent once — or because — it holds everything. */
+  earlierFrom?: number;
+  /** Where `blocks[0]` sits in the transcript's own numbering: 0 for one built from the start, below
+   *  zero once earlier blocks have been put in front. A block's position-based key is its index plus
+   *  this (`blockKey`), so loading earlier turns never renames, remounts or replays the ones on screen. */
+  base?: number;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
  *  state; everything else keys on position, which is stable because blocks are only ever appended or
- *  replaced in place (a streaming assistant block becomes its final self at the same index). */
+ *  replaced in place (a streaming assistant block becomes its final self at the same index) — or put
+ *  in front, which is why callers pass the index plus the transcript's `base`. */
 export const blockKey = (b: Block, i: number): string =>
   b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : b.kind === "question" ? `question:${b.requestId}` : `${b.kind}:${i}`;
 
@@ -532,6 +541,31 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       }
     }
   }
+}
+
+/**
+ * An earlier stretch of the log put in front of the transcript already built from what followed it.
+ *
+ * `older` is that stretch reduced on its own, from a turn's first prompt to the prompt `newer` starts
+ * on, so every call and its result are on the same side of the seam. What only the newer side can
+ * know — usage, the model, the run in flight, open permissions, the written summary — is the newer
+ * side's. What is keyed to a turn (verdicts, measured changes, files made) is the union of both. The
+ * last turn of `older` is closed the way `newer`'s first prompt would have closed it, had it been
+ * reduced in one pass.
+ */
+export function prependTranscript(older: Transcript, newer: Transcript, earlierFrom: number | undefined): Transcript {
+  const open = older.run ? null : unsettledTurn(older.blocks);
+  const front = open ? [...older.blocks, derivedRun(open, open.lastTs)] : older.blocks;
+  const { earlierFrom: _loaded, ...rest } = newer;
+  const changes = older.changes || newer.changes ? { changes: { ...older.changes, ...newer.changes } } : {};
+  const made = older.made || newer.made ? { made: { ...older.made, ...newer.made } } : {};
+  return {
+    ...rest, ...changes, ...made,
+    blocks: [...front, ...newer.blocks],
+    base: (newer.base ?? 0) - front.length,
+    feedback: { ...older.feedback, ...newer.feedback },
+    ...(earlierFrom === undefined ? {} : { earlierFrom }),
+  };
 }
 
 // Wrapped rather than passed directly: `reduce` hands its callback an index as the third argument,

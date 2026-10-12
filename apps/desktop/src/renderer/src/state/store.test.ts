@@ -1319,7 +1319,9 @@ describe("app store", () => {
       const e = store.getState().transcripts.se1!;
       expect(e.lastSeq).toBe(2);
       expect(e.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant"]);
-      expect(api.calls).toContain("sessionEvents:se1:0");
+      // A first open reads from the end; this log is shorter than a page, so that is all of it.
+      expect(api.calls).toContain("sessionEventsBefore:se1:end");
+      expect(e.t.earlierFrom).toBeUndefined();
       api.data.sessionEvents.se1!.push(stored("se1", 3, sessionEvent("error", { message: "x" })));
       await store.getState().openSession("se1");
       expect(api.calls).toContain("sessionEvents:se1:2");
@@ -1327,7 +1329,18 @@ describe("app store", () => {
       expect(api.calls.filter((c) => c.startsWith("getSession:"))).toEqual([]);
     });
 
-    it("openSession pages through long histories until a short page arrives", async () => {
+    it("a catch-up pages forward through a long stretch until a short page arrives", async () => {
+      api = seed();
+      const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openSession("se1");
+      api.data.sessionEvents.se1!.push(...Array.from({ length: 2500 }, (_, i) => stored("se1", i + 3, sessionEvent("assistant_text", { messageId: `m${i}`, text: String(i) }))));
+      await store.getState().openSession("se1");
+      const e = store.getState().transcripts.se1!;
+      expect(e.lastSeq).toBe(2502);
+      expect(api.calls.filter((c) => c.startsWith("sessionEvents:se1:"))).toEqual(["sessionEvents:se1:2", "sessionEvents:se1:1002", "sessionEvents:se1:2002"]);
+    });
+
+    it("a first open with no prompt to stop at reads back to the log's start", async () => {
       api = seed();
       api.data.sessionEvents.se1 = Array.from({ length: 2500 }, (_, i) => stored("se1", i + 1, sessionEvent("assistant_text", { messageId: `m${i}`, text: String(i) })));
       const store = createAppStore(api); await store.getState().boot();
@@ -1335,7 +1348,8 @@ describe("app store", () => {
       const e = store.getState().transcripts.se1!;
       expect(e.lastSeq).toBe(2500);
       expect(e.t.blocks).toHaveLength(2500);
-      expect(api.calls.filter((c) => c.startsWith("sessionEvents:se1:"))).toEqual(["sessionEvents:se1:0", "sessionEvents:se1:1000", "sessionEvents:se1:2000"]);
+      expect(e.t.earlierFrom).toBeUndefined();
+      expect(api.calls.filter((c) => /^sessionEventsBefore:se1:[^:]*$/.test(c))).toEqual(["sessionEventsBefore:se1:end", "sessionEventsBefore:se1:1501", "sessionEventsBefore:se1:501"]);
     });
 
     it("openSession for a session of another profile fetches the session too", async () => {
