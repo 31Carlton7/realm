@@ -1,8 +1,11 @@
 // Realm's app icon and the eight Dock alternates Settings offers, as vector artwork: the source every
 // size of every one of them is rendered from (render.mjs).
 //
-// One drawing in nine colourings: the mark (mark.mjs) on a body on the macOS icon grid, and the shadow
-// the grid gives it. The body and the shadow are macOS's own, measured on this Mac (macOS 27) rather
+// The app icon is the mark in its three flat planes (mark.mjs) on a near-black body, the doorway cut
+// through to the body. One tile has to serve both Dock appearances, and the dark one is the one that
+// holds in both: the blues carry on near-black and on a light Dock alike, where on white the lightest
+// plane washes into the tile. The alternates are the shaded mark in eight colourings, as they were.
+// Every icon is the mark on a body on the macOS icon grid, and the shadow the grid gives it. The body and the shadow are macOS's own, measured on this Mac (macOS 27) rather
 // than remembered from an older template; shape.swift is the measurement and says how to repeat it.
 //
 // The finish is calm on purpose. The set used to be generated pictures (GPT Image, through Codex) —
@@ -11,7 +14,7 @@
 // macOS lays its own glass edge over every app icon it draws from a bundle, so the bundle's artwork
 // carries none; a picture handed straight to the Dock or drawn in Settings gets a copy of that edge
 // (`glass`), so it sits in the Dock the way the bundle's icon does.
-import { MARK, MARK_BOX, markLayer } from "./mark.mjs";
+import { MARK, MARK_BOX, PLANES, markLayer, planesLayer } from "./mark.mjs";
 
 /** The grid: a 1024 canvas, the body 824 px square at (100, 100). Apple's macOS app icon template, and
  *  where macOS itself draws every app's body (measured on Finder, Mail, Terminal and the rest). */
@@ -60,15 +63,16 @@ const OUTLINE = 3.4;
 
 /**
  * Every icon, in the order Settings offers them; `default` is also the bundle's own. `ground` runs top
- * to bottom (`angle` turns it); each of the mark's faces runs between two tones, `lit` is the
- * doorway's lit back, and `lift` is the colour and strength of the shadow the mark casts on the body.
+ * to bottom (`angle` turns it). `planes` draws the flat three-plane mark in those colours, casting no
+ * shadow — a flat mark lifted off its body is no longer flat. Otherwise `mark` is the shaded mark: each
+ * face runs between two tones, `lit` is the doorway's lit back, and `lift` is the colour and strength
+ * of the shadow it casts on the body.
  */
 export const ICONS = [
   {
     id: "default",
-    ground: ["#33353a", "#151619"],
-    mark: { top: ["#fbfbfc", "#eceef0"], left: ["#c3c7cc", "#aeb2b8"], right: ["#7d828a", "#676b73"], lit: ["#ffffff", "#f3f4f6"] },
-    lift: ["#000000", 0.45],
+    ground: ["#15161a"],
+    planes: PLANES,
   },
   {
     id: "indigo",
@@ -173,8 +177,7 @@ function glassEdge() {
 export function iconSvg(icon, { glass = false } = {}) {
   const tx = CANVAS / 2 - (MARK_BOX.width / 2) * MARK_SCALE;
   const ty = CANVAS / 2 - (MARK_BOX.height / 2) * MARK_SCALE;
-  const mark = markLayer(icon.mark, "mark-");
-  const [liftColor, liftOpacity] = icon.lift;
+  const mark = icon.planes ? planesLayer(icon.planes, "mark-") : markLayer(icon.mark, "mark-");
   const edge = glass ? glassEdge() : { defs: [], body: "" };
   // A die-cut outline is the silhouette grown by a stroke, and the shadow is cast by the cut sticker.
   const cut = (color) => (icon.outline ? ` stroke="${color}" stroke-width="${OUTLINE}" stroke-linejoin="round"` : "");
@@ -190,7 +193,7 @@ ${edge.defs.join("\n")}
 <use href="#body" fill="#000000" fill-opacity="${SHADOW.opacity}" transform="translate(0 ${SHADOW.dy})" filter="url(#shadow)"/>
 <use href="#body" fill="url(#ground)"/>
 <g transform="translate(${num(tx)} ${num(ty)}) scale(${MARK_SCALE})">
-<path d="${MARK.silhouette}" fill="${liftColor}" fill-opacity="${liftOpacity}"${cut(liftColor)} transform="translate(0 ${LIFT.dy})" filter="url(#lift)"/>
+${icon.lift ? `<path d="${MARK.silhouette}" fill="${icon.lift[0]}" fill-opacity="${icon.lift[1]}"${cut(icon.lift[0])} transform="translate(0 ${LIFT.dy})" filter="url(#lift)"/>` : ""}
 ${icon.outline ? `<path d="${MARK.silhouette}" fill="${icon.outline}"${cut(icon.outline)}/>` : ""}
 ${mark.body.join("\n")}
 </g>

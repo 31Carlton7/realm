@@ -1,5 +1,8 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { inflateSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import { APP_ICON_IDS, AppIconStore, isIconPng, registerAppIcon, type IconFs } from "./app-icon";
 
@@ -125,4 +128,72 @@ describe("app icon", () => {
       expect([png.readUInt32BE(16), png.readUInt32BE(20)], id).toEqual([256, 256]);
     }
   });
+
+  /* The bundle's icon is the mark in three flat planes on a near-black body, the doorway cut through
+     to the body. Read off the rendered file, not the source, because the file is what ships. */
+  it("ships the three-plane mark on near-black as the bundle's icon, with the doorway cut through", () => {
+    const icon = rgbaPng(readFileSync(join(__dirname, "../../../../resources/icon.png")));
+    expect([icon.width, icon.height]).toEqual([1024, 1024]);
+    // The mark sits at (232, 176) on the 1024 grid, 14 px to a mark unit (icons.mjs).
+    const at = (x: number, y: number) => hex(icon.pixel(232 + x * 14, 176 + y * 14));
+    expect(at(20, 15)).toBe("#9cc1ff"); // the top
+    expect(at(15, 32)).toBe("#4f8cf5"); // the left wall
+    expect(at(30, 10.5)).toBe("#2457c4"); // the right wall, above the door
+    expect(at(30.15, 24.26)).toBe("#15161a"); // the doorway: the body, through the wall
+    expect(hex(icon.pixel(140, 512))).toBe("#15161a"); // the body itself
+  });
+
+  it("the default icon's source is the flat mark, not the shaded one", async () => {
+    const src = join(__dirname, "../../../../resources/icon-src");
+    const { ICONS, iconSvg } = (await import(join(src, "icons.mjs"))) as { ICONS: { id: string }[]; iconSvg: (i: unknown) => string };
+    const svg = iconSvg(ICONS.find((i) => i.id === "default"));
+    expect(svg).toMatch(/fill="#9cc1ff"/);
+    expect(svg).not.toMatch(/id="mark-(?:top|lit|jamb|floor)"/);
+  });
+
+  /* A Mac asks the .icns for whichever size it is drawing — 16 in a list, 32 in Finder's sidebar, 512
+     and 1024 in Get Info — and an icns missing one is scaled from another, blurred. iconutil reading
+     it back is the check that it is a real icns and holds every size. */
+  it.skipIf(process.platform !== "darwin")("resources/icon.icns holds every size, at 1x and 2x", () => {
+    const dir = mkdtempSync(join(tmpdir(), "realm-icns-"));
+    try {
+      const out = join(dir, "icon.iconset");
+      execFileSync("iconutil", ["-c", "iconset", join(__dirname, "../../../../resources/icon.icns"), "-o", out]);
+      const want = [16, 32, 128, 256, 512].flatMap((n) => [`icon_${n}x${n}.png`, `icon_${n}x${n}@2x.png`]).sort();
+      expect(readdirSync(out).sort()).toEqual(want);
+      for (const n of [16, 32, 128, 256, 512]) {
+        const png = readFileSync(join(out, `icon_${n}x${n}@2x.png`));
+        expect(png.readUInt32BE(16), `${n}@2x`).toBe(n * 2);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
+
+const hex = ([r, g, b]: number[]) => `#${[r, g, b].map((v) => v!.toString(16).padStart(2, "0")).join("")}`;
+
+/** An 8-bit RGBA, non-interlaced PNG, decoded far enough to read a pixel — what the renderer writes. */
+function rgbaPng(png: Buffer) {
+  const width = png.readUInt32BE(16), height = png.readUInt32BE(20);
+  expect([png[24], png[25], png[28]]).toEqual([8, 6, 0]);
+  const idat: Buffer[] = [];
+  for (let at = 8; at < png.length;) {
+    const len = png.readUInt32BE(at), type = png.toString("latin1", at + 4, at + 8);
+    if (type === "IDAT") idat.push(png.subarray(at + 8, at + 8 + len));
+    at += 12 + len;
+  }
+  const raw = inflateSync(Buffer.concat(idat));
+  const stride = width * 4, px = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]!, line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    for (let x = 0; x < stride; x++) {
+      const a = x >= 4 ? px[y * stride + x - 4]! : 0, b = y > 0 ? px[(y - 1) * stride + x]! : 0;
+      const c = x >= 4 && y > 0 ? px[(y - 1) * stride + x - 4]! : 0;
+      const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+      const pred = [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][filter]!;
+      px[y * stride + x] = (line[x]! + pred) & 0xff;
+    }
+  }
+  return { width, height, pixel: (x: number, y: number) => [...px.subarray((Math.round(y) * width + Math.round(x)) * 4, (Math.round(y) * width + Math.round(x)) * 4 + 4)] };
+}

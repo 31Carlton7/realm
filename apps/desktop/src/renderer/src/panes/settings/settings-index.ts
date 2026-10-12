@@ -108,7 +108,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "sidebar-translucency", tab: "appearance", label: "Sidebar translucency", terms: "transparency transparent vibrancy material opacity window" },
   { id: "pane-translucency", tab: "appearance", label: "Pane translucency", terms: "transparency transparent vibrancy material opacity window" },
   { id: "reduce-motion", tab: "appearance", label: "Reduce motion", terms: "animation movement accessibility" },
-  { id: "app-icon", tab: "appearance", label: "App icon", terms: "dock logo alternate custom graphite",
+  { id: "app-icon", tab: "appearance", label: "App icon", terms: "dock logo alternate custom realm",
     available: () => typeof window.realm?.appIcon?.set === "function" },
   { id: "ui-font", tab: "appearance", section: "Text", label: "UI font", terms: "typeface family weight interface" },
   { id: "ui-font-size", tab: "appearance", section: "Text", label: "UI font size", terms: "text bigger smaller larger zoom px" },

@@ -8,7 +8,8 @@
 // stage-pack copies to build/ for electron-builder — and a 256 px picture of each icon into the
 // renderer's assets, which Settings ▸ App draws and hands the Dock at run time (it never draws one
 // larger than 256 px on a 2x display). And the mark wherever it is drawn as itself: mark.svg and
-// mark-flat.svg here, the renderer's realm-mark.svg, and the boot mark inline in its index.html.
+// mark-flat.svg here, the renderer's realm-mark.svg, the boot mark inline in its index.html, and the
+// menu-bar item's template image (apps/desktop/resources/trayTemplate.png and @2x), which macOS tints.
 //
 // Every size is rendered NATIVELY from the vector, never shrunk from a big one, so 16 px is drawn as
 // 16 px. The rasterizer is headless Chrome driven over DevTools: Quick Look thumbnails are flattened
@@ -22,12 +23,13 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { ICONS, iconSvg } from "./icons.mjs";
-import { MARK_BOX, MARK_TONES, flatMarkSvg, markLayer, markSvg } from "./mark.mjs";
+import { MARK_BOX, flatMarkSvg, markSvg, planesLayer } from "./mark.mjs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const resources = join(here, "..");
 const renderer = join(here, "../../apps/desktop/src/renderer");
 const runtime = join(renderer, "src/assets/app-icons");
+const desktopResources = join(here, "../../apps/desktop/resources");
 const chrome = process.env.REALM_CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 if (!existsSync(chrome)) throw new Error(`No Chrome at ${chrome}; point REALM_CHROME at a Chromium binary`);
 
@@ -107,10 +109,10 @@ async function sheet(browser, file) {
 
 /**
  * The boot mark, inline in the renderer's index.html: it covers the gap before the bundle runs, so it
- * may fetch nothing. The page sweeps a highlight across it (`.boot-shine`), clipped to its silhouette.
+ * may fetch nothing. The page sweeps a highlight across it (`.boot-shine`), clipped to its shape.
  */
 function bootMark() {
-  const { defs, body } = markLayer(MARK_TONES, "b-");
+  const { defs, body } = planesLayer(undefined, "b-");
   const shine = [
     '<linearGradient id="b-shine" x1="0" y1="0" x2="1" y2="0">',
     '  <stop offset="0" stop-color="#fff" stop-opacity="0"/>',
@@ -122,7 +124,7 @@ function bootMark() {
     `<svg class="boot-mark" viewBox="0 0 ${MARK_BOX.width} ${MARK_BOX.height}" fill="none" xmlns="http://www.w3.org/2000/svg">`,
     "      <defs>", ...[...defs, ...shine].map((l) => `        ${l}`), "      </defs>",
     ...body.map((l) => `      ${l}`),
-    '      <g clip-path="url(#b-silhouette)"><rect class="boot-shine" x="-44" y="-4" width="44" height="56" fill="url(#b-shine)"/></g>',
+    '      <g clip-path="url(#b-shape)"><rect class="boot-shine" x="-44" y="-4" width="44" height="56" fill="url(#b-shine)"/></g>',
     "    </svg>",
   ].join("\n");
 }
@@ -139,6 +141,28 @@ function writeMarks() {
   console.log("wrote mark.svg, mark-flat.svg, assets/realm-mark.svg and the boot mark in index.html");
 }
 
+/** The menu-bar template's size in points: the silhouette fills it edge to edge, about 15.6 pt tall in
+ *  a 22 pt bar, which is where macOS's own menu-bar glyphs sit. */
+const TRAY = { width: 18, height: 16 };
+
+/**
+ * The menu-bar item's picture: the flat mark in black on transparent, at 1x and 2x. macOS reads only
+ * the alpha of an image named `…Template` and paints it in the menu bar's own ink — black on a light
+ * bar, white on a dark one, dimmed when the menu is inactive — so the file carries no colour of its own.
+ * The viewBox is cropped to the silhouette so the glyph is as tall as the bar allows.
+ */
+async function writeTray(browser) {
+  const svg = flatMarkSvg("#000000")
+    .replace(/width="\d+" height="\d+" viewBox="[^"]+"/, `width="${TRAY.width}" height="${TRAY.height}" viewBox="0 6.6795 40 34.641"`);
+  for (const scale of [1, 2]) {
+    const w = TRAY.width * scale, h = TRAY.height * scale;
+    const png = await browser.shoot(page(`<img src="${svgUrl(svg)}" width="${w}" height="${h}" style="display:block">`), w, h);
+    const name = `trayTemplate${scale === 2 ? "@2x" : ""}.png`;
+    writeFileSync(join(desktopResources, name), png);
+    console.log(`wrote apps/desktop/resources/${name}`);
+  }
+}
+
 const browser = await openChrome();
 try {
   const sheetAt = process.argv.indexOf("--sheet");
@@ -146,6 +170,7 @@ try {
     await sheet(browser, process.argv[sheetAt + 1] ?? "sheet.png");
   } else {
     writeMarks();
+    await writeTray(browser);
     mkdirSync(runtime, { recursive: true });
     for (const icon of ICONS) {
       // Settings draws these and the Dock is handed them as they are, so they carry the glass edge
