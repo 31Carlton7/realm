@@ -1260,7 +1260,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts, maxDepth: opts.agentRun?.maxDepth,
     // A model named by a delegating agent resolves against the same probe rows the model picker
     // draws, so "GPT-6 Luna" in a tool call and "GPT-6 Luna" in the picker are the same model.
-    models: { known: () => sessions.probeCached(), refresh: () => sessions.probe(), kinds: Object.keys(adapterRegistry) as AgentKind[] } });
+    // `refresh` is only reached once the rows are too old to trust a "no such model", so it forces:
+    // an unforced read would hand back those same rows and refresh behind the refusal.
+    models: { known: () => sessions.probeCached(), refresh: () => sessions.probe({ force: true }), kinds: Object.keys(adapterRegistry) as AgentKind[] } });
   // Children named before they were named by their task wear "Agent: <first line>"; renamed once,
   // here, wherever that string is still exactly what both rows say.
   agentRuns.retitleLegacyChildren();

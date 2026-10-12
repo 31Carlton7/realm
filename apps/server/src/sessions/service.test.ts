@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -7,7 +7,7 @@ import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import { createApp, type App } from "../app";
 import { DEFAULT_PERMISSION_MODE_KEY } from "@realm/contracts";
-import { titleFromMessage, TITLE_MAX } from "./service";
+import { AGENT_PROBE_TTL_MS, PROBE_CRASH_BACKOFF_MS, titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
 let app: App;
@@ -231,6 +231,37 @@ describe("SessionService over rpc", () => {
     expect((await c.call("agents.probeOne", { kind: "claude" })).result).toMatchObject({ kind: "claude", loggedIn: true });
     expect((await c.call("agents.probeOne", { kind: "acp:gemini" })).result).toBeNull();
     c.close();
+  });
+
+  it("agents.probe leaves a CLI that crashed on its probe alone for an hour, unless asked on purpose", async () => {
+    // A homebrew opencode macOS refused to run was SIGKILLed on every probe: a dozen crash reports in
+    // twenty minutes. Its row says Realm couldn't check it; only a forced probe spawns it again.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      let crashes = 0;
+      class Crashing extends FakeAdapter {
+        override async probe() { crashes++; return { kind: this.kind, available: false, version: null, loggedIn: null, reason: "Command failed: opencode --version", crashed: true }; }
+      }
+      const home = tempDir("realm-");
+      app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script: [] }), "acp:opencode": Object.assign(new Crashing({ script: [] }), { kind: "acp:opencode" as const }) } });
+      const c = await client(app.port);
+      const row = async (force = false) => (await c.call("agents.probe", { force })).result.find((r: Any) => r.kind === "acp:opencode");
+      expect(await row()).toMatchObject({ available: false, crashed: true, reason: "couldn't check: Command failed: opencode --version" });
+      expect(await row(true)).toMatchObject({ crashed: true });
+      expect(crashes).toBe(2);
+      // Past the probe TTL: the refresh behind the reader asks every other agent, not this one.
+      vi.setSystemTime(Date.now() + AGENT_PROBE_TTL_MS + 1);
+      await row();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(crashes).toBe(2);
+      // And once the hour is up it is asked again.
+      vi.setSystemTime(Date.now() + PROBE_CRASH_BACKOFF_MS);
+      await row();
+      await waitFor(() => crashes === 3);
+      c.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("respondPermission routes broker-owned requestIds (bperm_) even with NO live handle (Plan 11 W3)", async () => {

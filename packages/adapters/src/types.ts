@@ -144,6 +144,8 @@ export interface AgentHandle {
  * provider itself handed over, verbatim.
  */
 export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null;
+  /** The CLI was there but died or hung on the probe (`probeCrashed`), so whether it works is unknown. */
+  crashed?: boolean;
   /** An agent's reasoning levels where they are a session setting (an ACP `thought_level` option), with
    *  the one it starts on. Absent where the agent offers none, or was not asked. */
   efforts?: { id: string; label: string }[]; defaultEffort?: string | null };

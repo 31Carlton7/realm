@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
+import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -103,6 +103,12 @@ const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
 /** How long a queued message stays held for an edit with nobody saving or letting go — a window
  *  closed mid-edit, a client that dropped. Long enough for anyone actually typing. */
 export const QUEUE_HOLD_TTL_MS = 10 * 60_000;
+/** How long an agent probe's answer is reused before it is refreshed (behind the reader). Installs,
+ *  sign-ins, auth failures and "Check again" force a fresh one, so this only bounds the drift nobody
+ *  told Realm about — a CLI upgraded or removed from a terminal. */
+export const AGENT_PROBE_TTL_MS = 15 * 60_000;
+/** How long a CLI that crashed or hung on a probe is left alone by unforced probes. */
+export const PROBE_CRASH_BACKOFF_MS = 60 * 60_000;
 
 type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
 
@@ -263,8 +269,12 @@ export class SessionService {
   }) {}
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
-   *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
-  private probeCache = new ProbeCache(() => this.probeAll());
+   *  and the renderer asks on every prompter mount. Kept for `AGENT_PROBE_TTL_MS` and refreshed behind
+   *  the reader once stale; what can make an answer wrong sooner (an install, a sign-in, an auth
+   *  failure, "Check again") forces a probe — see ProbeCache. */
+  private probeCache = new ProbeCache((opts) => this.probeAll(opts), { ttlMs: AGENT_PROBE_TTL_MS, background: true });
+  /** CLIs that crashed or hung on a probe, and the row to show for them until `until`. */
+  private probeBackoff = new Map<AgentKind, { until: number; row: ProbeResult }>();
 
   probe(opts: { force?: boolean } = {}): Promise<ProbeResult[]> { return this.probeCache.get(opts); }
   /** The last probe's rows, stale or not, without spending a new one — see `ProbeCache.peek`. */
@@ -281,22 +291,38 @@ export class SessionService {
   async probeAgent(kind: AgentKind): Promise<ProbeResult | undefined> {
     const adapter = this.d.adapters[kind];
     if (!adapter) return undefined;
-    const row = await adapter.probe().catch((e: unknown): ProbeResult =>
-      ({ kind, available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }));
+    const row = await this.probeAdapter(adapter, true);
     this.probeCache.amend((rows) => rows.map((r) => (r.kind === kind ? row : r)));
     return row;
   }
 
   /** One adapter's probe throwing must not hide the others; it reports as unavailable with the reason. */
-  async probeAll(): Promise<ProbeResult[]> {
-    const adapters = Object.values(this.d.adapters);
-    const results = await Promise.allSettled(adapters.map((a) => a.probe()));
-    const probes = results.map((r, i): ProbeResult => r.status === "fulfilled" ? r.value
-      : { kind: adapters[i]!.kind, available: false, version: null, loggedIn: null, reason: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+  async probeAll({ force = false }: { force?: boolean } = {}): Promise<ProbeResult[]> {
+    const probes = await Promise.all(Object.values(this.d.adapters).map((a) => this.probeAdapter(a, force)));
     // Every probe that actually ran reports here — the feed's agent_probe rows come from the same
     // results the install card renders, never from a second probe of their own.
     this.d.notifications?.probeResults(probes);
     return probes;
+  }
+
+  /**
+   * One adapter's row. A CLI that crashed or hung on its last probe is not spawned again until
+   * `PROBE_CRASH_BACKOFF_MS` has passed (a homebrew `opencode` macOS refused to run crashed on every
+   * probe, a dozen crash reports in twenty minutes); its row says Realm couldn't check it. A forced
+   * probe is somebody asking on purpose, so it asks the CLI regardless.
+   */
+  private async probeAdapter(adapter: AgentAdapter, force: boolean): Promise<ProbeResult> {
+    const held = this.probeBackoff.get(adapter.kind);
+    if (held && !force && Date.now() < held.until) return held.row;
+    const row = await adapter.probe().catch((e: unknown): ProbeResult =>
+      ({ kind: adapter.kind, available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }));
+    if (row.crashed) {
+      const held = { ...row, reason: `couldn't check: ${row.reason ?? "the CLI crashed"}` };
+      this.probeBackoff.set(adapter.kind, { until: Date.now() + PROBE_CRASH_BACKOFF_MS, row: held });
+      return held;
+    }
+    this.probeBackoff.delete(adapter.kind);
+    return row;
   }
 
   isLive(id: string): boolean { return this.live.has(id); }
