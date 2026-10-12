@@ -1,6 +1,7 @@
 import Link from "next/link"
 
-import { AppleIcon } from "@/components/icons"
+import { DownloadButton } from "@/components/Buttons"
+import { FloatingHeader } from "@/components/FloatingHeader"
 import { Wordmark } from "@/components/Wordmark"
 import { macDownload } from "@/lib/release"
 
@@ -15,12 +16,12 @@ import { macDownload } from "@/lib/release"
  * a reading column, and a wordmark that does not start on the same edge as the content under it
  * reads as a second, misaligned page.
  */
-export async function SiteHeader({ width = "max-w-5xl" }: { width?: string }) {
+export async function SiteHeader({ width = "max-w-5xl", floating = false }: { width?: string; floating?: boolean }) {
   const download = await macDownload()
 
-  return (
+  const header = (
     <header
-      className={`mx-auto flex w-full items-center justify-between gap-4 px-6 py-4 sm:px-10 ${width}`}
+      className={`mx-auto flex w-full items-center justify-between gap-4 ${floating ? "px-4 py-2 sm:px-6" : "px-6 py-4 sm:px-10"} ${width}`}
     >
       <Link href="/" className="text-ink transition-opacity duration-150 hover:opacity-75">
         <Wordmark />
@@ -31,22 +32,18 @@ export async function SiteHeader({ width = "max-w-5xl" }: { width?: string }) {
         <HeaderLink href="/features">Features</HeaderLink>
         <HeaderLink href="/changelog">Changelog</HeaderLink>
       </nav>
-      <a
-        href={download.href}
-        className="app-corner inline-flex min-h-11 items-center gap-2 rounded-[20px] bg-accent px-4.5 py-2.5 text-[14px] font-[500] text-white shadow-[inset_0_1px_0_oklch(1_0_0/0.16)] transition-[scale,background-color] duration-150 ease-out hover:bg-accent-ink active:scale-[0.96]"
-      >
-        <AppleIcon className="h-4 w-4" />
-        Download for Mac
-      </a>
+      <DownloadButton href={download.href} />
     </header>
   )
+  // The landing page is long enough to need its way out on screen everywhere; the other pages are not.
+  return floating ? <FloatingHeader>{header}</FloatingHeader> : header
 }
 
 function HeaderLink({ href, children }: { href: "/features" | "/changelog"; children: string }) {
   return (
     <Link
       href={href}
-      className="app-corner inline-flex min-h-11 items-center rounded-[20px] px-3 text-[14px] text-ink-2 transition-colors duration-150 hover:bg-surface hover:text-ink"
+      className="app-corner inline-flex min-h-11 items-center rounded-[14px] px-3 text-[14px] text-ink-2 transition-colors duration-150 hover:bg-surface hover:text-ink"
     >
       {children}
     </Link>
