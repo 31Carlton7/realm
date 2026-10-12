@@ -136,9 +136,22 @@ describe("installed on a document", () => {
     push("began");
     wheel(-30);
     expect(el.hasAttribute("data-rubber")).toBe(true);
-    expect(parseFloat(el.style.getPropertyValue("--rubber"))).toBeGreaterThan(0);
+    const row = document.getElementById("row")!;
+    expect(parseFloat(row.style.getPropertyValue("--rubber"))).toBeGreaterThan(0);
     off();
     expect(el.hasAttribute("data-rubber")).toBe(false);
+    expect(row.style.getPropertyValue("--rubber")).toBe("");
+  });
+
+  /* THE mutant: the offset written on the scroller again. `--rubber` would inherit into every row of
+     the list, and each frame of a stretch restyles the whole of it. */
+  it("writes the offset on the children it moves, never on the scroller", () => {
+    const { el, off, push, wheel } = mount();
+    push("began");
+    wheel(-30);
+    expect(el.style.getPropertyValue("--rubber")).toBe("");
+    expect(parseFloat(document.getElementById("row")!.style.getPropertyValue("--rubber"))).toBeGreaterThan(0);
+    off();
   });
 
   it("does nothing at all under reduced motion", () => {

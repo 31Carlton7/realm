@@ -185,10 +185,21 @@ export function installRubberBand(
   { onPhase, reducedMotion }: { onPhase?: (cb: (p: Phase) => void) => () => void; reducedMotion: () => boolean },
 ): () => void {
   const win = doc.defaultView!;
+  /* The offset is written on each CHILD, where it is read, and never on the scroller. `--rubber` is
+     registered as not inherited (styles.css), so a write restyles the few children that move and
+     nothing inside them; written on the scroller as an inherited property, every frame of a stretch
+     restyled the whole list under it — 3,500 elements and ~10 ms a frame in the sidebar's Activity
+     view, which is what stuttered at its ends. */
   const band = new RubberBand<HTMLElement>((el, offset) => {
-    if (offset === 0) { el.removeAttribute("data-rubber"); el.style.removeProperty("--rubber"); return; }
+    const kids = Array.from(el.children) as HTMLElement[];
+    if (offset === 0) {
+      el.removeAttribute("data-rubber");
+      for (const kid of kids) kid.style.removeProperty("--rubber");
+      return;
+    }
     el.setAttribute("data-rubber", "");
-    el.style.setProperty("--rubber", `${offset.toFixed(2)}px`);
+    const value = `${offset.toFixed(2)}px`;
+    for (const kid of kids) kid.style.setProperty("--rubber", value);
   });
   let raf = 0;
   let last = 0;

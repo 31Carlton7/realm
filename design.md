@@ -748,12 +748,17 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   are on the trackpad, spring home on lift, and bounce once when a coast reaches an end
   (`rubber-band.ts`). The trackpad phase stream is what tells a trackpad from a mouse wheel, which
   never stretches; editors, terminals and grids keep their own engines' scrolling.
-- Scrollbars follow the system. On a Mac that draws overlay bars, a page's colour repaints the
-  system's thumb in the page's ink, and a `::-webkit-scrollbar` rule turns it into a classic bar with
-  a gutter (8px against 0, measured). So Realm's thin line is for Macs whose system draws classic
-  bars anyway, and stands down on the rest (`data-overlay-scrollbars`, measured, not read from a
-  preference that depends on what is plugged in — this Mac changed mode mid-session as its Bluetooth
-  mouse came and went).
+- No scroll bar draws a track, anywhere (the owner, 10-12: "We shouldn't be showing scroll bar
+  tracks anywhere in the app"). A thumb is the whole bar, and it shows only while the scroller is in
+  use. On a Mac that draws overlay bars the system's bar is kept — it appears on scroll and reserves
+  no width — with its track coloured transparent on the root, because under the pointer macOS widens
+  the bar and lays a full-height lane beside the thumb; no other scrollbar rule applies there, since
+  a `::-webkit-scrollbar` rule turns an overlay bar into a classic one with a gutter (8px against 0,
+  measured). On a Mac drawing classic bars every element states its own colour — transparent, and a
+  quiet thumb under the pointer — so no scroller inherits a lit thumb from a hovered ancestor. Which
+  kind the system draws is measured (`data-overlay-scrollbars`), not read from a preference that
+  depends on what is plugged in — this Mac changed mode mid-session as its Bluetooth mouse came and
+  went. `scrollbar-tracks-live.mjs` looks at both kinds, in both faces.
 - A column that opens or closes is a box that clips what it holds, its content riding one slide on
   the box's moving edge; everything beside it — the panes, a page over them, a bar's title — is laid
   out from that edge or moves on the same curve and duration. A layer placed against the window
