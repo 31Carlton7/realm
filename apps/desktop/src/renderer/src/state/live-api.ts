@@ -148,6 +148,7 @@ export const liveApi = (): Api => ({
   releaseQueuedPrompt: async (id, queuedId) => { await rpc().call("sessions.releaseQueued", { id, queuedId }); },
   holdQueuedPrompt: async (id, queuedId, held) => (await rpc().call("sessions.holdQueued", { id, queuedId, held })).held,
   editQueuedPrompt: async (id, queuedId, text) => (await rpc().call("sessions.editQueued", { id, queuedId, text })).edited,
+  moveQueuedPrompt: async (id, queuedId, before) => { await rpc().call("sessions.moveQueued", { id, queuedId, before }); },
   sessionQueue: async (id) => (await rpc().call("sessions.queued", { id })).queued,
   planLimits: async () => (await rpc().call("limits.get", {})).limits,
   recordFeedback: async (id, messageId, rating) => { await rpc().call("sessions.recordFeedback", { id, messageId, rating }); },

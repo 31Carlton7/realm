@@ -3678,6 +3678,30 @@ describe("narrow panes", () => {
     expect(bodiesFor(".composer-queue-item .queue-send-glyph").join(" ")).toContain("display: none");
   });
 
+  it("a queued message's Edit, Send now and Remove never wait for a hover, and only its reorder steps do", () => {
+    // THE MUTANT: the row's actions faded until hover — on a touch screen, or for a reader who never
+    // points at the row, the queue would have no way to send, change or drop a message.
+    const actions = RULES.filter((r) => r.selectors.some((s) => /\.queue-(actions|send|drop|edit-btn)\b/.test(s) && !s.includes(":hover")));
+    expect(actions.length).toBeGreaterThan(0);
+    for (const r of actions) expect(r.body, r.selectors.join(", ")).not.toMatch(/opacity:\s*0\s*[;}]|opacity:\s*0$|visibility:\s*hidden/);
+    expect(bodiesFor(".composer-queue-item .queue-steps").join(" ")).toContain("opacity: 0");
+    // Where there is no hover to find them by, the steps are simply there, and the drag handle is not.
+    const touch = blockAfter("@media (hover: none)");
+    expect(touch).toMatch(/\.composer-queue-item \.queue-steps \{[^}]*opacity: 1/);
+    expect(touch).toMatch(/\.composer-queue-item \.queue-grip \{[^}]*display: none/);
+  });
+
+  it("a queued message's text holds two lines at rest and all of them once opened", () => {
+    expect(bodiesFor(".composer-queue-item .queue-text").join(" ")).toContain("-webkit-line-clamp: 2");
+    expect(bodiesFor(".composer-queue-item .queue-text[data-long]").join(" ")).toContain("-webkit-line-clamp: none");
+  });
+
+  it("a queued message comes and goes on the list rungs, folding its height rather than popping", () => {
+    expect(bodiesFor(".composer-queue-item").join(" ")).toMatch(/animation: rl-queue-in var\(--dur-enter\) var\(--ease-out-strong\)/);
+    expect(bodiesFor(".composer-queue-item[data-leaving]").join(" ")).toMatch(/animation: rl-queue-out var\(--dur-swap\)[^;]*forwards/);
+    for (const name of ["rl-queue-in", "rl-queue-out"]) expect(blockAfter(`@keyframes ${name}`)).toMatch(/grid-template-rows: 0fr;[^}]*opacity: 0/);
+  });
+
   it("the pane roots refuse to be sized by their content", () => {
     // The named mutant: drop `min-width: 0` and `.page` grows to the width of the 180px rail plus a
     // full row of action buttons, taking its head, rail and actions outside the panel's clip.

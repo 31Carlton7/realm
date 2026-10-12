@@ -1361,6 +1361,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (q) q.text = text;
       return q !== undefined;
     },
+    moveQueuedPrompt: async (id, queuedId, before) => {
+      calls.push(`moveQueued:${id}:${queuedId}>${before ?? "end"}`);
+      const q = queuedPrompts.find((x) => x.id === queuedId);
+      if (!q) return;
+      queuedPrompts.splice(queuedPrompts.indexOf(q), 1);
+      const at = before === null ? queuedPrompts.length : queuedPrompts.findIndex((x) => x.id === before);
+      queuedPrompts.splice(at < 0 ? queuedPrompts.length : at, 0, q);
+    },
     sessionQueue: async () => queuedPrompts,
     planLimits: async () => { calls.push("planLimits"); return planLimitRows; },
     recordFeedback: async (id, messageId, rating) => { calls.push(`recordFeedback:${id}:${messageId}=${rating ?? "none"}`); },

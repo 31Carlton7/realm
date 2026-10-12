@@ -40,7 +40,8 @@ async function mount(queued: QueuedPrompt[], agentKind: AgentKind = "fake", midT
   return { api, store };
 }
 
-const rows = () => Array.from(document.querySelectorAll(".composer-queue-item"));
+/* A row that just left stays a moment to fold away, inert; it is not one of the queue's rows. */
+const rows = () => Array.from(document.querySelectorAll(".composer-queue-item:not([data-leaving])"));
 const list = () => document.querySelector(".composer-queue");
 
 describe("the prompter's queue", () => {
@@ -49,10 +50,10 @@ describe("the prompter's queue", () => {
     expect(list()).toBeNull();
   });
 
-  it("lists what is waiting, oldest first, with its position", async () => {
+  it("lists what is waiting, oldest first, each named by its place for a reader who cannot see the order", async () => {
     await mount([prompt("q1", "first"), prompt("q2", "second")]);
     expect(rows().map((r) => r.querySelector(".queue-text")?.textContent)).toEqual(["first", "second"]);
-    expect(rows().map((r) => r.querySelector(".queue-position")?.textContent)).toEqual(["1", "2"]);
+    expect(screen.getByRole("button", { name: "Queued message 2 of 2: second" })).toBeTruthy();
   });
 
   it("sends one now by id, leaving the others alone", async () => {
@@ -83,15 +84,18 @@ describe("the prompter's queue", () => {
     expect(title).not.toContain("stops the running turn");
   });
 
-  it("counts a queued message's attachments rather than dropping them from the row", async () => {
-    await mount([prompt("q1", "look", { attachments: [{ path: "/tmp/a.png", mime: "image/png" }, { path: "/tmp/b.png", mime: "image/png" }] })]);
-    expect(rows()[0]!.querySelector(".queue-attach")?.textContent).toContain("2");
-    expect(rows()[0]!.querySelector(".queue-attach")?.getAttribute("title")).toBe("a.png, b.png");
+  it("shows a queued message's files as the prompter's tiles, each with its name, rather than a count", async () => {
+    // THE MUTANT: the name dropped from the chip — a row of identical file glyphs says how many, not which.
+    await mount([prompt("q1", "look", { attachments: [{ path: "/tmp/a.png", mime: "image/png" }, { path: "/tmp/notes.pdf", mime: "application/pdf" }] })]);
+    const files = Array.from(rows()[0]!.querySelectorAll(".queue-file"));
+    expect(files.map((f) => f.querySelector(".queue-file-name")?.textContent)).toEqual(["a.png", "notes.pdf"]);
+    expect(files.every((f) => f.querySelector(".attach-tile"))).toBe(true);
+    expect(screen.getByRole("button", { name: "Open a.png" })).toBeTruthy();
   });
 
   it("says so rather than showing an empty row for an attachment-only message", async () => {
     await mount([prompt("q1", "", { attachments: [{ path: "/tmp/a.png", mime: "image/png" }] })]);
-    expect(rows()[0]!.querySelector(".queue-text")?.textContent).toBe("(attachments only)");
+    expect(rows()[0]!.querySelector(".queue-text")?.textContent).toBe("Attachments only");
   });
 
   it("names the message it would remove, for a reader who cannot see the row", async () => {
@@ -220,7 +224,7 @@ describe("the prompter's limit warning", () => {
 describe("editing a queued message", () => {
   const field = () => document.querySelector<HTMLTextAreaElement>(".composer-queue-item .queue-edit");
   const edit = async (row: number) => {
-    fireEvent.click(rows()[row]!.querySelector(".queue-icon")!);
+    fireEvent.click(rows()[row]!.querySelector(".queue-edit-btn")!);
     await waitFor(() => expect(field()).not.toBeNull());
   };
 
@@ -230,7 +234,8 @@ describe("editing a queued message", () => {
     await edit(1);
     expect(api.calls).toContain("holdQueued:se1:q2=true");
     expect(field()!.value).toBe("second");
-    expect(rows()[1]!.querySelector(".queue-held")?.textContent).toBe("Held while you edit");
+    expect(rows()[1]!.querySelector(".queue-held")?.textContent).toContain("Held while you edit");
+    expect(rows()[1]!.querySelector(".queue-held")?.textContent).toContain("↵ saves · esc cancels");
   });
 
   it("saves with Enter, in place", async () => {
@@ -271,7 +276,7 @@ describe("editing a queued message", () => {
     // THE MUTANT: Send now left live on a held row — the half-typed edit's old text sent on a click.
     await mount([prompt("q1", "first"), prompt("q2", "second", { held: true })]);
     expect(rows()[1]!.querySelector<HTMLButtonElement>(".queue-send")!.disabled).toBe(true);
-    expect(rows()[1]!.querySelector<HTMLButtonElement>(".queue-icon")!.disabled).toBe(true);
+    expect(rows()[1]!.querySelector<HTMLButtonElement>(".queue-edit-btn")!.disabled).toBe(true);
     expect(rows()[1]!.querySelector(".queue-held")?.textContent).toBe("Being edited in another window");
     expect(rows()[0]!.querySelector<HTMLButtonElement>(".queue-send")!.disabled).toBe(false);
     await edit(0);
@@ -291,7 +296,7 @@ describe("editing a queued message", () => {
   it("does not open a field on a message that already went out", async () => {
     const { api } = await mount([prompt("q1", "first")]);
     api.queuedPrompts.length = 0; // drained on the server, not yet broadcast
-    fireEvent.click(rows()[0]!.querySelector(".queue-icon")!);
+    fireEvent.click(rows()[0]!.querySelector(".queue-edit-btn")!);
     await waitFor(() => expect(api.calls).toContain("holdQueued:se1:q1=true"));
     expect(field()).toBeNull();
   });
@@ -316,5 +321,155 @@ describe("editing a queued message", () => {
     api.queuedPrompts.length = 0;
     act(() => store.getState().applySessionQueue("se1", []));
     await waitFor(() => expect(store.getState().drafts["se1"]).toBe("first, rewritten"));
+  });
+});
+
+describe("what the queue says it is", () => {
+  const head = () => document.querySelector(".composer-queue .queue-head")?.textContent ?? "";
+
+  it("one message: names itself, and when it goes", async () => {
+    await mount([prompt("q1", "first")]);
+    expect(head()).toContain("Queued");
+    expect(head()).toContain("sends when this turn ends");
+    // Nothing to order, so nothing to order it with.
+    expect(document.querySelector(".queue-grip")).toBeNull();
+    expect(document.querySelector(".queue-up")).toBeNull();
+  });
+
+  it("says the next turn, not this one, when no turn is running", async () => {
+    // THE MUTANT: the head ignoring the session's state — "after this turn" with no turn to be after.
+    const { store } = await mount([prompt("q1", "first")]);
+    act(() => store.setState({ sessionStatus: { se1: "idle" } }));
+    expect(head()).toContain("sends when the next turn ends");
+  });
+
+  it("two messages: counts them and says they go in order", async () => {
+    await mount([prompt("q1", "first"), prompt("q2", "second")]);
+    expect(head()).toContain("2 queued");
+    expect(head()).toContain("in order");
+    expect(rows()).toHaveLength(2);
+    expect(document.querySelector(".queue-fold")).toBeNull();
+  });
+
+  it("shows two lines of a message, and the rest of it on a click", async () => {
+    // THE MUTANT: a text that does not open — a long message stays cut off at its second line.
+    await mount([prompt("q1", "a long message\nthat runs on\nand on")]);
+    const text = rows()[0]!.querySelector<HTMLButtonElement>(".queue-text")!;
+    expect(text.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(text);
+    expect(text.getAttribute("aria-expanded")).toBe("true");
+    expect(text.hasAttribute("data-long")).toBe(true);
+    fireEvent.click(text);
+    expect(text.hasAttribute("data-long")).toBe(false);
+  });
+});
+
+describe("a queue of three or more", () => {
+  const three = [prompt("q1", "first"), prompt("q2", "second"), prompt("q3", "third")];
+  const fold = () => screen.getByRole("button", { name: /Show (all|less)/ });
+
+  it("folds to one line naming the count and what goes next", async () => {
+    // THE MUTANT: the fold starting at four — three full rows push the prompter halfway up the pane.
+    await mount(three);
+    expect(rows()).toHaveLength(0);
+    const head = document.querySelector(".queue-head")!.textContent!;
+    expect(head).toContain("3 queued");
+    expect(head).toContain("Next: first");
+    expect(fold().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("opens to every row and folds again", async () => {
+    await mount(three);
+    fireEvent.click(fold());
+    expect(rows().map((r) => r.querySelector(".queue-text")?.textContent)).toEqual(["first", "second", "third"]);
+    expect(fold().getAttribute("aria-expanded")).toBe("true");
+    expect(fold().textContent).toContain("Show less");
+    fireEvent.click(fold());
+    expect(rows()).toHaveLength(0);
+  });
+
+  it("says on the folded line that one of them is being edited", async () => {
+    await mount([...three.slice(0, 2), prompt("q3", "third", { held: true })]);
+    expect(document.querySelector(".queue-head")!.textContent).toContain("1 being edited");
+  });
+});
+
+describe("reordering the queue", () => {
+  const order = () => rows().map((r) => r.querySelector(".queue-text")?.textContent);
+
+  it("moves a message up and down one place with its buttons, by id", async () => {
+    // THE MUTANT: Move down anchored one row short — the message lands where it already was.
+    const { api } = await mount([prompt("q1", "first"), prompt("q2", "second")]);
+    expect(rows()[0]!.querySelector<HTMLButtonElement>(".queue-up")!.disabled).toBe(true);
+    expect(rows()[1]!.querySelector<HTMLButtonElement>(".queue-down")!.disabled).toBe(true);
+    fireEvent.click(rows()[0]!.querySelector(".queue-down")!);
+    await waitFor(() => expect(api.calls).toContain("moveQueued:se1:q1>end"));
+  });
+
+  it("shows the new order at once, before the server's broadcast", async () => {
+    // THE MUTANT: a move that waits on the round trip — the row snaps back, then jumps.
+    await mount([prompt("q1", "first"), prompt("q2", "second"), prompt("q3", "third")]);
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    fireEvent.click(rows()[2]!.querySelector(".queue-up")!);
+    expect(order()).toEqual(["first", "third", "second"]);
+  });
+
+  it("moves with ⌥↑ and ⌥↓ from anywhere in the row", async () => {
+    // THE MUTANT: the keys not wired — reorder only for a pointer that can drag.
+    const { api } = await mount([prompt("q1", "first"), prompt("q2", "second")]);
+    fireEvent.keyDown(rows()[1]!.querySelector(".queue-text")!, { key: "ArrowUp", altKey: true });
+    await waitFor(() => expect(api.calls).toContain("moveQueued:se1:q2>q1"));
+    // Without ⌥ the arrow is the arrow's, and moves nothing.
+    fireEvent.keyDown(rows()[0]!.querySelector(".queue-text")!, { key: "ArrowDown" });
+    expect(api.calls.filter((c) => c.startsWith("moveQueued"))).toHaveLength(1);
+  });
+
+  it("moves a message dragged by its handle to where it is dropped", async () => {
+    // THE MUTANT: the drop's side swapped — a message dropped on a row's top half lands under it.
+    const { api } = await mount([prompt("q1", "first"), prompt("q2", "second"), prompt("q3", "third")]);
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    const types: string[] = [];
+    const dataTransfer = { types, setData: (t: string) => { types.push(t); }, setDragImage: () => {}, effectAllowed: "", dropEffect: "" };
+    fireEvent.dragStart(rows()[0]!.querySelector(".queue-grip")!, { dataTransfer });
+    // jsdom lays nothing out, so every point is a row's top half: a drop on the third row lands in front of it.
+    fireEvent.dragOver(rows()[2]!, { dataTransfer });
+    expect(rows()[2]!.getAttribute("data-drop")).toBe("before");
+    fireEvent.drop(rows()[2]!, { dataTransfer });
+    await waitFor(() => expect(api.calls).toContain("moveQueued:se1:q1>q3"));
+    expect(order()).toEqual(["second", "first", "third"]);
+  });
+
+  it("does not offer to move the message being edited", async () => {
+    await mount([prompt("q1", "first"), prompt("q2", "second")]);
+    fireEvent.click(rows()[1]!.querySelector(".queue-edit-btn")!);
+    await waitFor(() => expect(document.querySelector(".queue-edit")).not.toBeNull());
+    expect(rows()[1]!.querySelector<HTMLButtonElement>(".queue-up")!.disabled).toBe(true);
+    expect(rows()[1]!.querySelector(".queue-grip")!.getAttribute("draggable")).toBe("false");
+  });
+});
+
+describe("a message leaving the queue", () => {
+  it("folds away rather than vanishing, inert while it does", async () => {
+    // THE MUTANT: no leaving phase — Send now makes the row blink out.
+    const { store } = await mount([prompt("q1", "first"), prompt("q2", "second")]);
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    act(() => { store.getState().applySessionQueue("se1", [prompt("q2", "second")]); });
+    const ghost = document.querySelector(".composer-queue-item[data-leaving]");
+    expect(ghost?.textContent).toContain("first");
+    expect(ghost?.hasAttribute("inert")).toBe(true);
+    expect(rows()).toHaveLength(1);
+    await waitFor(() => expect(document.querySelector(".composer-queue-item[data-leaving]")).toBeNull());
+  });
+
+  it("goes at once under Reduce motion", async () => {
+    // THE MUTANT: the fold kept under Reduce motion — a ghost that holds still for its duration.
+    const was = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: q.includes("reduce"), media: q, addEventListener: () => {}, removeEventListener: () => {} })) as unknown as typeof window.matchMedia;
+    try {
+      const { store } = await mount([prompt("q1", "first"), prompt("q2", "second")]);
+      await waitFor(() => expect(rows()).toHaveLength(2));
+      act(() => { store.getState().applySessionQueue("se1", [prompt("q2", "second")]); });
+      expect(document.querySelector(".composer-queue-item[data-leaving]")).toBeNull();
+    } finally { window.matchMedia = was; }
   });
 });

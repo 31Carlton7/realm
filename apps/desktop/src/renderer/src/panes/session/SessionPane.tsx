@@ -12,7 +12,8 @@ import { spaceIsPlainFolder, useApp, type PickedAttachment } from "../../state/s
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
-import { Composer, type QueueActions } from "./Composer";
+import { Composer } from "./Composer";
+import type { QueueActions } from "./ComposerQueue";
 import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
@@ -238,6 +239,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const cancelQueuedEdit = useApp((s) => s.cancelQueuedEdit);
   const saveQueuedEdit = useApp((s) => s.saveQueuedEdit);
   const dequeuePrompt = useApp((s) => s.dequeuePrompt);
+  const moveQueuedPrompt = useApp((s) => s.moveQueuedPrompt);
   const retryLastTurn = useApp((s) => s.retryLastTurn);
   const rateMessage = useApp((s) => s.rateMessage);
   const respondPermission = useApp((s) => s.respondPermission);
@@ -261,7 +263,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     onBeginEdit: (queuedId) => beginQueuedEdit(id, queuedId).catch(() => false),
     onSaveEdit: (queuedId, text) => run(() => saveQueuedEdit(id, queuedId, text)),
     onCancelEdit: (queuedId) => run(() => cancelQueuedEdit(id, queuedId)),
-  }), [id, run, releaseQueuedPrompt, dequeuePrompt, beginQueuedEdit, saveQueuedEdit, cancelQueuedEdit]);
+    onMove: (queuedId, before) => run(() => moveQueuedPrompt(id, queuedId, before)),
+  }), [id, run, releaseQueuedPrompt, dequeuePrompt, beginQueuedEdit, saveQueuedEdit, cancelQueuedEdit, moveQueuedPrompt]);
   const transcript = entry?.t ?? emptyTranscript();
   /* Having the pane with the keyboard IS reading it. `applySessionEvent` stamps what arrives while the
      pane is focused; this stamps what was already here when the focus did. Without it a session
