@@ -3496,6 +3496,27 @@ describe("row and control layout", () => {
     expect(bodiesFor('.item-disclose[aria-expanded="true"] svg').join(" ")).toContain("rotate(90deg)");
   });
 
+  it("an Activity card is two compact lines, and keeps its state under the pointer while the time steps aside", () => {
+    /* The owner, 10-12: cards with the space and how long ago over the title, and the state kept.
+       THE MUTANTS: the row's own hover rule left to hide the card's state; the head's inset dropped,
+       so Archive lands on the time; tabular figures off, so "11m" and "4m" wobble down the column. */
+    const row = bodiesFor(".sb-card > .item-row").join(" ");
+    expect(row).toContain("flex-direction: column");
+    expect(row).toContain("padding: 7px 8px");
+    // 7 + 16 + 2 + 20 + 7: two lines in 52px.
+    expect(bodiesFor(".sb-card-head").join(" ")).toContain("line-height: 16px");
+    expect(bodiesFor(".sb-card .item-title").join(" ")).toContain("line-height: 20px");
+    expect(row).toContain("gap: 2px");
+    expect(bodiesFor(".sb-card-when").join(" ")).toContain("font-variant-numeric: tabular-nums");
+    for (const when of [":hover", ":has(:focus-visible)"]) {
+      expect(bodiesFor(`.sb-card.item${when} .item-trail`).join(" "), when).toContain("display: flex");
+      expect(bodiesFor(`.sb-card.item${when} > .item-row`).join(" "), when).toContain("padding-right: 8px");
+      expect(bodiesFor(`.sb-card[data-actions="1"]${when} .sb-card-head`).join(" "), when).toContain("padding-right: 24px");
+    }
+    // The action sits on the first line, not centred across both.
+    expect(bodiesFor(".sb-card > .item-actions").join(" ")).toContain("translate: none");
+  });
+
   it("the sidebar's list is headed by a caption and a switch, not a segmented control across the column", () => {
     /* The owner, 10-04: "The tabs between spaces and recent should be removed. It should just have a
        smaller subsection title that says spaces, then all the way to the right a button with an
