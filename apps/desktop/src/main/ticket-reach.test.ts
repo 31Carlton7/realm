@@ -52,7 +52,7 @@ describe("nothing an agent can call fires an act ticket", () => {
     const names = (dir: string) => sourceFiles(dir)
       .flatMap((f) => [...readFileSync(f, "utf8").matchAll(/\bname:\s*"([a-z]+_[a-z_]+)"/g)].map((m) => m[1]!));
     // THE MUTANT: a `review_act` or `ticket_post` tool on the team's provider.
-    expect(names("apps/server/src/team").sort()).toEqual(["record_list", "record_read", "record_types", "record_update", "review_status", "review_submit", "team_roles", "vault_http", "vault_list"]);
+    expect(names("apps/server/src/team").sort()).toEqual(["policy_read", "record_list", "record_read", "record_types", "record_update", "review_status", "review_submit", "team_roles", "vault_http", "vault_list"]);
     expect(names("apps/server/src").filter((n) => /ticket|publish|^post_|_post$|send_dm|^dm_|_dm$|social/i.test(n))).toEqual([]);
   });
 
@@ -66,7 +66,25 @@ describe("nothing an agent can call fires an act ticket", () => {
   it("the bridge carries one ticket op, and it only reads a press", () => {
     const bridge = read("apps/server/src/browsers/host-bridge.ts");
     const ops = [...bridge.slice(bridge.indexOf("export const TEAM_HOST_OPS")).split("] as const")[0]!.matchAll(/^\s+"(\w+)",/gm)].map((m) => m[1]);
-    expect(ops).toEqual(["teamTicketPress"]);
+    expect(ops.filter((o) => /ticket|post|send|press/i.test(o))).toEqual(["teamTicketPress"]);
+    // The rest are PR 4a's team-policy ops: a seal only CONSUMES a press made in Realm's own window, a
+    // bump only invalidates, a verify only reads — pinned below so a new op cannot slip in unseen.
+    expect(ops).toEqual(["teamTicketPress", "teamPolicySeal", "teamPolicyVerify", "teamPolicyBump"]);
+  });
+
+  it("main makes a policy press only from the Policies page's IPC handler, and the bridge only consumes one", () => {
+    const pressers = sourceFiles("apps/desktop/src/main").filter((f) => /policyPresses\.press\(/.test(readFileSync(f, "utf8"))).map(rel);
+    expect(pressers).toEqual(["apps/desktop/src/main/index.ts"]);
+    const main = read("apps/desktop/src/main/index.ts").split("\n");
+    const handler = main.findIndex((l) => l.includes('ipcMain.handle("team:press-policy"'));
+    const press = main.findIndex((l) => l.includes("policyPresses.press("));
+    expect(handler).toBeGreaterThan(-1);
+    expect(press - handler).toBeGreaterThan(0);
+    expect(press - handler).toBeLessThan(5);
+    expect(main.slice(handler, press).join("\n")).toMatch(/senderFrame !== e\.sender\.mainFrame/);
+    const seal = main.find((l) => l.includes('op === "teamPolicySeal"'))!;
+    expect(seal).toMatch(/policyPresses\.consume\(/);
+    expect(seal).not.toMatch(/policyPresses\.press\(/);
   });
 
   it("main makes a press from the post sheet's IPC handler and nowhere else, and only consumes one for the bridge", () => {

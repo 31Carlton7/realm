@@ -60,7 +60,9 @@ describe("nothing an agent can call changes an unlock policy", () => {
     const names = sourceFiles("apps/server/src")
       .flatMap((f) => [...readFileSync(f, "utf8").matchAll(/\bname:\s*"([a-z]+_[a-z_]+)"/g)].map((m) => m[1]!));
     expect(names.length).toBeGreaterThan(20);
-    expect(names.filter((n) => /unlock|presence|policy|touch/i.test(n))).toEqual([]);
+    // `policy_read` reads a team's policies (PR 4a) for a role to plan by; it has nothing to do with the
+    // unlock policy and writes nothing — the team-policy reach is pinned in team/policies tests.
+    expect(names.filter((n) => /unlock|presence|policy|touch/i.test(n))).toEqual(["policy_read"]);
   });
 
   it("main calls setUnlockPolicy from the Settings IPC handler and nowhere else", () => {
