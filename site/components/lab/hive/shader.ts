@@ -104,6 +104,8 @@ var<private> SKY: f32;
 // How far this pixel is from the words, 0 at them: a doorway's light, far brighter than the walls
 // around it, would outlast them there as a mark with nothing around it, so it fades on this squared.
 var<private> CLEAR: f32;
+// The pixel being drawn, in CSS px.
+var<private> PIXEL: vec2f;
 
 fn toSrgb(c: vec3f) -> vec3f {
   let x = max(c, vec3f(0.0));
@@ -180,14 +182,16 @@ fn door(cell: vec2f, t: f32) -> vec2f {
 // The cubes under the pointer rise a little, the nearest most.
 fn riseAt(centre: vec2f) -> f32 {
   let d = centre - hive.pointer.xy;
-  return MAX_RISE * hive.pointer.z * exp(-dot(d, d) / 3.2);
+  let r2 = dot(d, d);
+  if (hive.pointer.z <= 0.0 || r2 > 30.0) { return 0.0; }
+  return MAX_RISE * hive.pointer.z * exp(-r2 / 3.2);
 }
 
 // A lamp held over the model where the pointer is.
 fn pointerLight(p: vec3f, n: vec3f) -> f32 {
   let l = vec3f(hive.pointer.xy, 2.6) - p;
   let r2 = dot(l, l);
-  return hive.pointer.z * max(dot(n, l), 0.0) * inverseSqrt(r2) / (1.0 + r2 / 7.0);
+  return hive.pointer.z * max(dot(n, l), 0.0) * inverseSqrt(r2) / (1.0 + r2 / 4.5);
 }
 
 // Light from a doorway's lit back, leaving through the opening toward -y: brightest straight out,
@@ -300,6 +304,12 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
   let z1 = lift + 1.0;
   let depth = depthOf(vec3f(centre, lift + 0.5));
   let w = blurWidth(depth);
+  // Most of the time the cube in front of this cell reaches nowhere near the pixel: when the pixel is
+  // outside the circle round its half-diagonal, plus its blur, it covers nothing here.
+  let middle = toPage(vec3f(centre, lift + 0.5));
+  if (distance(PIXEL, middle.xy) > 0.9 * hive.eye.w / middle.z + w / hive.right.w + 1.0) {
+    return Layer(vec3f(0.0), 0.0);
+  }
 
   let top = planeZ(o, d, z1);
   let dTop = rectPx(top, centre, vec2f(0.5));
@@ -329,7 +339,7 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     let k = saturate((top.p.x - x0 + top.p.y - y0) * 0.5);
     let tone = mix(TOP_NEAR, TOP_FAR, k);
     let lamp = pointerLight(top.p, vec3f(0.0, 0.0, 1.0));
-    sum += tone * (DUSK * OPEN_SKY * SKY + POINTER_LIGHT * lamp * 0.3) * wTop;
+    sum += tone * (DUSK * OPEN_SKY * SKY + POINTER_LIGHT * lamp * 0.55) * wTop;
     weight += wTop;
   }
 
@@ -345,7 +355,7 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     let next = door(beside, t);
     let spill = doorSpill(besideCentre, riseAt(besideCentre), next.x, left.p, n);
     let lamp = pointerLight(left.p, n);
-    sum += tone * (DUSK * ao * SKY + mix(SPILL_LIGHT, DOOR_BLUE, next.y) * spill * 0.16 + POINTER_LIGHT * lamp * 0.3) * wLeft;
+    sum += tone * (DUSK * ao * SKY + mix(SPILL_LIGHT, DOOR_BLUE, next.y) * spill * 0.16 + POINTER_LIGHT * lamp * 0.4) * wLeft;
     weight += wLeft;
   }
 
@@ -356,7 +366,7 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     let tone = mix(RIGHT_LOW, RIGHT_HIGH, k);
     let ao = 1.0 - 0.45 * exp(-right.p.z / 0.22);
     let lamp = pointerLight(right.p, vec3f(0.0, -1.0, 0.0));
-    sum += tone * (DUSK * ao * SKY + POINTER_LIGHT * lamp * 0.3) * wRight;
+    sum += tone * (DUSK * ao * SKY + POINTER_LIGHT * lamp * 0.4) * wRight;
     weight += wRight;
   }
 
@@ -474,6 +484,7 @@ fn clearance(p: vec2f) -> f32 {
 
 @fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let p = uv * hive.view.xy;
+  PIXEL = p;
   let dpr = hive.right.w;
   let px = p * dpr;
   let t = hive.view.z;

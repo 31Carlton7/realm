@@ -18,15 +18,10 @@ const normalize = (a: Vec3): Vec3 => scale(a, 1 / Math.hypot(...a))
  * ground runs away up the page and into fog; the mark is the same cube turned a sixth of a turn.
  */
 const FORWARD = normalize([1, 1, -1])
-const FLAT_RIGHT = normalize([1, -1, 0])
-const FLAT_UP: Vec3 = normalize([1, 1, 2])
-// DEV: ?roll=30 shows the cubes the way the logo stands, with the ground running off to the upper left.
-const DEV = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)
-const ROLL = DEV.has("roll") ? (Number(DEV.get("roll")) * Math.PI) / 180 : 0
-const RIGHT = add(scale(FLAT_RIGHT, Math.cos(ROLL)), scale(FLAT_UP, -Math.sin(ROLL)))
-const UP = add(scale(FLAT_RIGHT, Math.sin(ROLL)), scale(FLAT_UP, Math.cos(ROLL)))
+const RIGHT = normalize([1, -1, 0])
+const UP = normalize([1, 1, 2])
 
-/** A long lens: about 18° across the height of a laptop's window, so the field flattens like a model
+/** A long lens: about 20° across the height of a laptop's window, so the field flattens like a model
  *  photographed from across the room. In CSS px, so the perspective is the same on every screen. */
 const FOCAL = 2500
 /** A cube's edge, as drawn at the distance the lens is aimed at, in CSS px. */

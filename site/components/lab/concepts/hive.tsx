@@ -26,7 +26,10 @@ export default function Hive({ download }: ConceptProps) {
           </div>
         </div>
       </div>
-      <div className="relative mt-40 sm:mt-24 lg:mt-40">
+      {/* The field shows in the gap between the words and the window. On a laptop it is as tall as the
+          screen allows while a third of the window stays in view (900 tall: 10rem); on a phone and a
+          tablet the window waits below the first screen and the field rises into view under the words. */}
+      <div className="relative mt-32 sm:mt-36 lg:mt-[clamp(4rem,calc(100dvh-46rem),10rem)]">
         {/* Without WebGPU, the field as a still drawing: the same cubes, the same light, rising out of
             the page under the words and fading before the section ends. */}
         <div
