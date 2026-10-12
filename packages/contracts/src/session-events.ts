@@ -434,6 +434,8 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
+/** Every event kind, by name — what a read filtered by kind (`sessions.events` `types`) accepts. */
+export const SessionEventTypeSchema = z.enum(Object.keys(P) as [SessionEventType, ...SessionEventType[]]);
 
 /** One turn's changes, and one file of them (`turn_changes`). */
 export type TurnChanges = z.infer<(typeof P)["turn_changes"]>;

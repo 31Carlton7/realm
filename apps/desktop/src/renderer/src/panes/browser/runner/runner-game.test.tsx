@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { BrowserLoadError } from "@realm/contracts";
 import { realmiteFromSeed } from "@realm/ui";
 import { BrowserErrorPage } from "../BrowserErrorPage";
 import { heroSpec } from "./runner-view";
+import { loadLazyComponents } from "../../../lazy-component";
+
+// The panes and the runner are their own chunks in the app, preloaded once the window is idle.
+beforeAll(loadLazyComponents);
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 

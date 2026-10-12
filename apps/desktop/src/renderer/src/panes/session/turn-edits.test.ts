@@ -95,6 +95,18 @@ describe("what a turn changed", () => {
     expect(cards.get("run:5")!.checkpointId).toBe("cp2");
     expect(turns.map((t) => t.checkpointId)).toEqual(["cp1", "cp2"]);
   });
+
+  it("in a log read from its end, credits the first turn only with a checkpoint taken after the turn before it settled", () => {
+    // Turn "two" of the earlier example, held without turn "one": cp1 fronted the turn that is not here.
+    const blocks = [user("two", 300), edit("e2", "/w/app/b.ts", "x", "y", 310), run(400), user("three", 500)];
+    const checkpoints = [cp("cp1", 90)];
+    // Not knowing when the turn before settled, it credits none, rather than an Undo that takes more.
+    expect(turnEdits(blocks, opts({ checkpoints, settledAt: null })).cards.get("run:2")!.checkpointId).toBeNull();
+    expect(turnEdits(blocks, opts({ checkpoints, settledAt: 200 })).cards.get("run:2")!.checkpointId).toBeNull();
+    expect(turnEdits(blocks, opts({ checkpoints: [cp("cp2", 250), ...checkpoints], settledAt: 200 })).cards.get("run:2")!.checkpointId).toBe("cp2");
+    // And keyed where the whole transcript would key it.
+    expect(turnEdits(blocks, opts({ checkpoints, settledAt: null, base: 3 })).cards.has("run:5")).toBe(true);
+  });
 });
 
 describe("whether Undo is honest", () => {

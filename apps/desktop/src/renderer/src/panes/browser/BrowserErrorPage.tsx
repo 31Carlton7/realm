@@ -1,9 +1,11 @@
 import { describeLoadError, type BrowserLoadError } from "@realm/contracts";
-import { useId, useRef } from "react";
+import { Suspense, useId, useRef } from "react";
 import { REALM_MARK_ASPECT, REALM_MARK_PATH, REALM_MARK_VIEWBOX } from "../../components/RealmMark";
 import { useDissolve } from "../../components/ScrollFades";
-import { RunnerGame } from "./runner/RunnerGame";
+import { lazyComponent } from "../../lazy-component";
 import { offersRunner } from "./runner/runner";
+
+const RunnerGame = lazyComponent(() => import("./runner/RunnerGame").then((m) => m.RunnerGame));
 
 /**
  * Realm's flat mark, in the accent: the pane reaching for a page. It is still when nothing is being
@@ -80,7 +82,7 @@ export function BrowserErrorPage({ error, busy, onReload }: { error: BrowserLoad
             person may want to start again, as every browser's error page lets them. */}
         <button type="button" className="btn primary browser-error-reload" aria-busy={busy || undefined} onClick={onReload}>Reload</button>
         {/* Something to do while a dev server comes up or the Wi-Fi comes back, under Reload. */}
-        {offersRunner(error.name) && <RunnerGame seed={runnerSeed(error.url)} />}
+        {offersRunner(error.name) && <Suspense fallback={null}><RunnerGame seed={runnerSeed(error.url)} /></Suspense>}
       </div>
     </div>
   );

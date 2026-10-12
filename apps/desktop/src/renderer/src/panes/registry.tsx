@@ -1,6 +1,6 @@
 import type { Item } from "@realm/contracts";
 import type { MenuItem } from "../components/Menu";
-import type { ComponentType, JSX } from "react";
+import { Suspense, type ComponentType, type JSX } from "react";
 import { PlaceholderPane } from "./PlaceholderPane";
 import { SessionMeta, SessionPanelActions, useSessionMenuItems } from "./session/SessionPane";
 import { MachineMeta, MachinePanelActions, useMachineMenuItems } from "./machine/MachineBar";
@@ -14,7 +14,8 @@ const registry: Partial<Record<Item["kind"], ComponentType<PaneProps>>> = {};
 export function registerPane(kind: Item["kind"], c: ComponentType<PaneProps>) { registry[kind] = c; }
 export function PaneFor(props: PaneProps) {
   const C = registry[props.item.kind] ?? PlaceholderPane;
-  return <C {...props} />;
+  // A pane whose code is still loading (`lazyComponent`) draws nothing over the pane's own ground.
+  return <Suspense fallback={null}><C {...props} /></Suspense>;
 }
 
 /** Optional right-side PanelBar content per item kind. */

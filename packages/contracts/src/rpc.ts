@@ -5,7 +5,7 @@ import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, 
 import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
-import { StoredSessionEventSchema } from "./session-events";
+import { SessionEventTypeSchema, StoredSessionEventSchema } from "./session-events";
 import { SAVED_TURNS_MAX, SavedTurnSchema } from "./saved-turns";
 import { LibraryAddResultSchema, LibraryAddSchema, LibraryEntrySchema, LibraryQuerySchema, LibraryRemoveResultSchema, LibraryRemoveSchema, LibraryRestoreResultSchema, LibraryRestoreSchema } from "./library";
 import { SkillSchema, SkillDetailSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
@@ -2115,7 +2115,11 @@ export const Methods = {
    *  list; the origin space drops it via items.changed the same way sessions.delete does. Moving to the
    *  space a session is already in is a no-op, even once it has run. */
   "sessions.moveToSpace": { params: z.object({ id: IdSchema, spaceId: IdSchema }), result: SessionSchema },
-  "sessions.events":  { params: z.object({ id: IdSchema, afterSeq: z.number().int().default(0), limit: z.number().int().default(2000) }), result: z.array(StoredSessionEventSchema) },
+  /** A session's stored events, oldest first: the first `limit` after `afterSeq` — or, with `beforeSeq`,
+   *  the newest `limit` before it, which is how a transcript opens on its end and pages back as the
+   *  reader scrolls up. `types` keeps only those kinds. */
+  "sessions.events":  { params: z.object({ id: IdSchema, afterSeq: z.number().int().default(0), limit: z.number().int().default(2000),
+    beforeSeq: z.number().int().optional(), types: z.array(SessionEventTypeSchema).optional() }), result: z.array(StoredSessionEventSchema) },
   /** Get-or-create the session's terminal side panel (W4), at the session's cwd. Idempotent: the pty is
    *  spawned on the FIRST call and only then — a session whose panel is never opened never has one. */
   "sessions.openTerminal": { params: z.object({ id: IdSchema }), result: z.object({ terminalId: IdSchema, itemId: IdSchema }) },

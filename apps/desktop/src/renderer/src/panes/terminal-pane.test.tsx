@@ -28,7 +28,7 @@ function fakeHub() {
     onData: () => ({ dispose() {} }), onResize: () => ({ dispose() {} }),
   };
   const hub = new TerminalHub(transport, () => ({ term, fit: { fit() {} } }));
-  return { hub, emit, emitData, settled };
+  return { hub, term, emit, emitData, settled };
 }
 
 describe("TerminalPane empty hint", () => {
@@ -69,6 +69,39 @@ describe("TerminalPane empty hint", () => {
     await settled();
     act(() => emitData("t-other", "noise"));
     expect(document.querySelector(".terminal-hint")).not.toHaveAttribute("data-hidden");
+  });
+});
+
+describe("xterm loading after the window is up", () => {
+  beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });
+  afterEach(() => { setTerminalHubForTests(null); vi.unstubAllGlobals(); });
+
+  it("only xterm's own factory has to wait for it", () => {
+    const transport: HubTransport = { on: () => () => {}, call: async () => ({}) };
+    expect(new TerminalHub(transport).ready()).toBe(false);
+    expect(fakeHub().hub.ready()).toBe(true);
+  });
+
+  it("acquires nothing until xterm has loaded, then attaches and takes the focus", async () => {
+    const { hub, term, settled } = fakeHub();
+    const focus = vi.spyOn(term, "focus");
+    let land!: () => void;
+    const loaded = new Promise<void>((r) => { land = r; });
+    let isReady = false;
+    vi.spyOn(hub, "ready").mockImplementation(() => isReady);
+    vi.spyOn(hub, "whenReady").mockImplementation(() => loaded);
+    const acquire = vi.spyOn(hub, "acquire");
+    setTerminalHubForTests(hub);
+    render(<TerminalPane item={item("i1", "s1", { kind: "terminal", refId: "t1", title: "homework" })} visible />);
+    await settled();
+    expect(acquire).not.toHaveBeenCalled();
+    expect(document.querySelector(".terminal-hint")).toHaveTextContent("homework");
+    isReady = true;
+    await act(async () => { land(); await loaded; });
+    expect(acquire).toHaveBeenCalledWith("t1");
+    const entry = acquire.mock.results[0]!.value as ReturnType<TerminalHub["acquire"]>;
+    expect(entry.host.parentElement).toBe(document.querySelector(".terminal-pane"));
+    expect(focus).toHaveBeenCalled();
   });
 });
 

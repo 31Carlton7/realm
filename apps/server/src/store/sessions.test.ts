@@ -128,6 +128,41 @@ describe("SessionsStore + SessionEventsStore", () => {
   });
 });
 
+describe("reading a transcript from its end (listBefore)", () => {
+  function logOf(n: number) {
+    const { db, space, env } = fresh(); const sessions = new SessionsStore(db); const ev = new SessionEventsStore(db);
+    const sess = sessions.create(input(space.id, env.id));
+    const other = sessions.create(input(space.id, env.id));
+    const seqs: number[] = [];
+    for (let i = 0; i < n; i++) {
+      seqs.push(ev.append(sess.id, i % 3 === 0 ? sessionEvent("user_message", { text: `q${i}`, attachments: [] }) : sessionEvent("assistant_text", { messageId: `m${i}`, text: `a${i}` })).seq);
+      // Another session's rows between this one's: a page is counted in THIS session's events.
+      ev.append(other.id, sessionEvent("assistant_text", { messageId: "x", text: "x" }));
+    }
+    return { ev, id: sess.id, seqs };
+  }
+
+  it("is the newest page before the seq, oldest first", () => {
+    const { ev, id, seqs } = logOf(10);
+    expect(ev.listBefore(id, Number.MAX_SAFE_INTEGER, 3).map((e) => e.seq)).toEqual(seqs.slice(7));
+    expect(ev.listBefore(id, seqs[7]!, 3).map((e) => e.seq)).toEqual(seqs.slice(4, 7));
+  });
+
+  it("is everything there is when fewer than a page are left, and nothing before the first", () => {
+    const { ev, id, seqs } = logOf(10);
+    expect(ev.listBefore(id, seqs[2]!, 5).map((e) => e.seq)).toEqual(seqs.slice(0, 2));
+    expect(ev.listBefore(id, seqs[0]!, 5)).toEqual([]);
+  });
+
+  it("keeps only the kinds asked for, counting the page in them", () => {
+    const { ev, id, seqs } = logOf(10);
+    const prompts = seqs.filter((_, i) => i % 3 === 0);
+    expect(ev.listBefore(id, Number.MAX_SAFE_INTEGER, 2, ["user_message"]).map((e) => e.seq)).toEqual(prompts.slice(-2));
+    expect(ev.listBefore(id, prompts.at(-1)!, 2, ["user_message"]).map((e) => e.seq)).toEqual(prompts.slice(-3, -1));
+    expect(ev.listBefore(id, Number.MAX_SAFE_INTEGER, 2, [])).toEqual([]);
+  });
+});
+
 describe("where each session left off", () => {
   it("is the first line of each session's NEWEST reply, in this space only, and null before any", () => {
     // Mutants: the oldest reply (ORDER BY seq ASC), or every space's sessions.

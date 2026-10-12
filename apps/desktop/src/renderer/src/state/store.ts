@@ -39,7 +39,8 @@ import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
-import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
+import { emptyTranscript, lastUserMessage, prependTranscript, reduceTranscript, type Earlier, type Rating, type Transcript } from "../panes/session/transcript-model";
+import { CARRIED_LIMIT, CARRIED_TYPES, EARLIER_EVENTS, TAIL_EVENTS, readBack } from "./transcript-paging";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { draftRun, withOptions } from "../panes/session/draft-run";
@@ -439,6 +440,8 @@ export type Api = TeamApi & LabApi & {
   moveSessionToSpace(id: string, spaceId: string): Promise<Session>;
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
+  /** The newest `limit` persisted events before `beforeSeq`, ascending — of `types` only, when given. */
+  sessionEventsBefore(id: string, beforeSeq: number, limit: number, types?: StoredSessionEvent["event"]["type"][]): Promise<StoredSessionEvent[]>;
   /** `sessions.openTerminal` — get-or-create the session's terminal side panel. The FIRST call is what
    *  spawns the pty, so this must only ever be called when the panel is actually being shown. */
   openSessionTerminal(sessionId: string): Promise<{ terminalId: string; itemId: string }>;
@@ -2096,8 +2099,14 @@ export type AppState = TeamSlice & LabSlice & {
    *  window to that profile first. False when its space holds no item for that session, so a caller
    *  with a fallback can take it. */
   revealSession(sessionId: string, spaceId: string | null): Promise<boolean>;
-  /** Load (or catch up) a session's transcript: fetch events after the last known seq and reduce them. */
+  /** Load (or catch up) a session's transcript. A first open reads from the end (`transcript-paging.ts`);
+   *  after that, events after the last known seq are fetched and reduced. */
   openSession(id: string): Promise<void>;
+  /** Read the stretch of an opened transcript before what it holds, and put it in front. Nothing when it
+   *  already starts at the log's start. */
+  loadEarlierEvents(id: string): Promise<void>;
+  /** Read back until the transcript holds `seq` — 0 for the whole log. */
+  loadEventsThrough(id: string, seq: number): Promise<void>;
   /** Persisted events apply at once; ephemeral `assistant_delta`s are buffered and land on the next
    *  painted frame — see `pendingDeltas` for why that is where the app's power goes. */
   applySessionEvent(ev: LiveSessionEvent): void;
@@ -3499,6 +3508,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
+    /** The earlier-stretch read in flight per session, so a second ask joins it rather than reading twice. */
+    const loadingEarlier = new Map<string, Promise<void>>();
     /** `also` is folded into the SAME write. A transcript move and a session's activity line are two
      *  facts about one event, and two `set` calls for them is two notifications — a render of every
      *  subscribed pane — per event, per streaming session. */
@@ -5779,7 +5790,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // spelling out, and deltas arriving DURING the fetch are dropped for exactly that reason.
         pendingDeltas.delete(id);
         try {
-          const prev = get().transcripts[id] ?? { lastSeq: 0, t: emptyTranscript() };
+          const held = get().transcripts[id];
+          const prev = held ?? { lastSeq: 0, t: emptyTranscript() };
           const fetchAll = async () => {
             const all: StoredSessionEvent[] = []; let after = prev.lastSeq;
             for (;;) {
@@ -5789,7 +5801,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
               after = page.at(-1)!.seq;
             }
           };
-          const [session, events] = await Promise.all([get().sessions[id] ? null : api.getSession(id), fetchAll()]);
+          /* A first open reads from the END: the newest turns, back to the reader's mark when it is in
+             reach, and the last word on what the prompter reads from wherever it was said. A catch-up
+             (a reconnect, a reopen) reads forward from what is already held. */
+          const markAt = (get().sessions[id] ?? get().allSessions[id])?.seenSeq ?? 0;
+          const fetchTail = async (): Promise<{ events: StoredSessionEvent[]; earlier: Earlier | null; carried: StoredSessionEvent[] }> => {
+            const [tail, carried] = await Promise.all([
+              readBack((before, limit) => api.sessionEventsBefore(id, before, limit), Number.MAX_SAFE_INTEGER, TAIL_EVENTS, markAt > 0 ? markAt : null),
+              api.sessionEventsBefore(id, Number.MAX_SAFE_INTEGER, CARRIED_LIMIT, CARRIED_TYPES),
+            ]);
+            return { events: tail.events, earlier: tail.earlier, carried };
+          };
+          const [session, read] = await Promise.all([get().sessions[id] ? null : api.getSession(id),
+            held ? fetchAll().then((events) => ({ events, earlier: null, carried: [] })) : fetchTail()]);
+          const events = read.events;
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           refreshGitFor(id); // opening a session refreshes its cwd's git context
@@ -5806,8 +5831,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // is something on both sides of it: a session opened for the first time (`seenSeq` 0) has
           // missed nothing, and one already caught up has nothing to divide.
           const row = get().sessions[id];
-          const seenSeq = row && row.seenSeq > 0 ? row.seenSeq : null;
+          // A mark before the stretch read is out of reach: the rule would land on its first event.
+          const { earlier } = read;
+          const seenSeq = row && row.seenSeq > 0 && (earlier === null || row.seenSeq >= earlier.from) ? row.seenSeq : null;
           let { lastSeq, t } = get().transcripts[id] ?? prev;
+          if (earlier !== null && !get().transcripts[id]) {
+            // What the log last said before the stretch read, about what outlives it — see `CARRIED_TYPES`.
+            for (const e of read.carried) if (e.seq < earlier.from) t = reduceTranscript(t, e.event, false, e.seq);
+            t = { ...t, earlier };
+          }
           let marked = get().newSinceSeq[id] !== undefined;
           for (const e of [...events, ...(loading.get(id) ?? [])]) {
             if (e.seq <= lastSeq) continue;
@@ -5823,6 +5855,35 @@ export function createAppStore(api: Api): StoreApi<AppState> {
             set({ newSinceSeq: { ...get().newSinceSeq, [id]: seenSeq } });
           }
         } finally { loading.delete(id); }
+      },
+      loadEarlierEvents(id) {
+        const from = get().transcripts[id]?.t.earlier?.from;
+        if (from === undefined) return Promise.resolve();
+        const inFlight = loadingEarlier.get(id);
+        if (inFlight) return inFlight;
+        const load = (async () => {
+          try {
+            const read = await readBack((before, limit) => api.sessionEventsBefore(id, before, limit), from, EARLIER_EVENTS);
+            // Closed, reopened from scratch or already extended while this read: what it read is not
+            // the stretch in front of what is held now.
+            const cur = get().transcripts[id];
+            if (!cur || cur.t.earlier?.from !== from) return;
+            let older = emptyTranscript();
+            for (const e of read.events) older = reduceTranscript(older, e.event, false, e.seq);
+            setTranscript(id, { ...cur, t: prependTranscript(older, cur.t, read.earlier ?? undefined) });
+          } finally { loadingEarlier.delete(id); }
+        })();
+        loadingEarlier.set(id, load);
+        return load;
+      },
+      async loadEventsThrough(id, seq) {
+        for (;;) {
+          const from = get().transcripts[id]?.t.earlier?.from;
+          if (from === undefined || from <= seq) return;
+          await get().loadEarlierEvents(id);
+          // A read that changed nothing (the transcript was dropped or replaced) must not spin.
+          if (get().transcripts[id]?.t.earlier?.from === from) return;
+        }
       },
       applySessionEvent(ev) {
         /* The activity line, derived before every early return below — it is the one thing here that
@@ -6129,8 +6190,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
        *
        * Off the STORE's transcript, not a fresh fetch: what the reader asked to export is what they
        * were reading, and a re-read could differ from it by whatever arrived in the meantime. The
-       * store's copy is complete — `openSession` loads the whole event log — so this is not a
-       * shortcut past a page boundary.
+       * store's copy is made complete first — a long session opens on its end (`openSession`) — so
+       * this is not a shortcut past a page boundary.
        *
        * The bridge is optional and the absence is answered with null rather than an error: there is
        * no renderer-side fallback worth building (a download would land in a folder the user did not
@@ -6138,6 +6199,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
        * pane's error toast for a reason the user cannot act on.
        */
       async exportSession(id) {
+        // The whole conversation, not the stretch the pane has read so far.
+        await get().loadEventsThrough(id, 0);
         const t = get().transcripts[id]?.t;
         const session = get().sessions[id];
         if (!t || !session) return null;
