@@ -246,7 +246,7 @@ export function installRubberBand(
   const onWheel = (e: WheelEvent) => {
     if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || e.deltaMode !== 0) return;
     // A notched mouse wheel scrolls in whole lines and never rubber-bands on a Mac; a trackpad does.
-    if (phased) { if (!touching && !band.coasting(e.timeStamp)) return; }
+    if (phased) { if (!touching && !band.coasting(win.performance.now())) return; }
     else {
       // No phase stream (the helper is optional): a whole-notch legacy delta is the mouse's mark.
       const legacy = (e as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY;
@@ -255,7 +255,10 @@ export function installRubberBand(
     const target = e.target instanceof Element ? e.target : null;
     const scroller = target?.closest<HTMLElement>(RUBBER_SCROLLERS);
     if (!target || !scroller || innerScrollerTakes(target, scroller, e.deltaY)) return;
-    band.wheel(scroller, e.deltaY, e.timeStamp);
+    // The event's own time when it has a sane one (a trackpad's, coalesced or late, says when it
+    // happened); one posted without a time stamps 0, and the clock at dispatch has to do.
+    const now = win.performance.now();
+    band.wheel(scroller, e.deltaY, e.timeStamp > 0 && Math.abs(now - e.timeStamp) < 1000 ? e.timeStamp : now);
     kick();
     if (!phased) {
       win.clearTimeout(idleTimer);

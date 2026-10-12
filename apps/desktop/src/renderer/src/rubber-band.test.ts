@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { IDLE_RELEASE_MS, RubberBand, installRubberBand, rubberband, unrubberband } from "./rubber-band";
 
 type El = { clientHeight: number; scrollTop: number; scrollHeight: number };
@@ -222,6 +222,38 @@ describe("installed on a document", () => {
     off();
     expect(el.hasAttribute("data-rubber")).toBe(false);
     expect(row.style.getPropertyValue("--rubber")).toBe("");
+  });
+
+  /* Mutant: timing the wheel by e.timeStamp alone. An event posted without a time carries 0, every
+     gap reads as none, the wheel is never quiet, and the first bounce leaves the scroller spent for good. */
+  it("without the stream, bounces again on the next flick even when events carry no time", () => {
+    vi.useFakeTimers();
+    try {
+      document.body.innerHTML = '<div class="space-body"><div id="row">row</div></div>';
+      const el = document.querySelector<HTMLElement>(".space-body")!;
+      Object.defineProperty(el, "clientHeight", { value: 600 });
+      Object.defineProperty(el, "scrollHeight", { value: 2000 });
+      const off = installRubberBand(document);
+      const row = document.getElementById("row")!;
+      const flickToTop = () => {
+        el.scrollTop = 200;
+        const bounced: boolean[] = [];
+        for (let i = 0; i < 6; i++) {
+          if (i === 3) el.scrollTop = 0;
+          const e = new WheelEvent("wheel", { deltaY: -30, bubbles: true });
+          Object.defineProperty(e, "timeStamp", { value: 0 });
+          row.dispatchEvent(e);
+          vi.advanceTimersByTime(16);
+          bounced.push(el.hasAttribute("data-rubber"));
+        }
+        return bounced.includes(true);
+      };
+      expect(flickToTop()).toBe(true);
+      vi.advanceTimersByTime(2000);
+      expect(el.hasAttribute("data-rubber")).toBe(false);
+      expect(flickToTop()).toBe(true);
+      off();
+    } finally { vi.useRealTimers(); }
   });
 
   /* THE mutant: the offset written on the scroller again. `--rubber` would inherit into every row of
