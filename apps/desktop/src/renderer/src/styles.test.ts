@@ -3553,11 +3553,18 @@ describe("row and control layout", () => {
     expect(actions).toContain("position: absolute");
     expect(actions).toContain("opacity: 0");
     expect(actions).toContain("pointer-events: none");
-    for (const when of [":hover", ":has(:focus-visible)", ":has([data-confirming])"]) {
-      expect(bodiesFor(`.item${when} .item-actions`).join(" "), when).toContain("opacity: 1");
-      expect(bodiesFor(`.item${when} .item-trail`).join(" "), when).toContain("display: none");
-      expect(bodiesFor(`.item${when} .item-row`).join(" "), when).toContain("padding-right:");
-    }
+    expect(bodiesFor(".item:hover .item-actions").join(" ")).toContain("opacity: 1");
+    expect(bodiesFor(".item:hover .item-trail").join(" ")).toContain("display: none");
+    expect(bodiesFor(".item:hover .item-row").join(" ")).toContain("padding-right:");
+    // Keyboard focus, an armed delete and an open menu are flagged on the row, and its parts answer.
+    expect(bodiesFor(".item:has(:focus-visible)").join(" ")).toContain("--item-focus: 1");
+    expect(bodiesFor(".item:has([data-confirming])").join(" ")).toContain("--item-confirm: 1");
+    expect(bodiesFor('.item:has(.item-act[aria-expanded="true"])').join(" ")).toContain("--item-menu: 1");
+    expect(bodiesFor(".item").join(" ")).toContain("--item-focus: 0; --item-confirm: 0; --item-menu: 0");
+    const held = blockAfter("@container style(--item-focus: 1) or style(--item-confirm: 1) or style(--item-menu: 1)");
+    expect(held).toMatch(/\.item \.item-actions \{[^}]*opacity: 1/);
+    expect(held).toMatch(/\.item \.item-trail \{[^}]*display: none/);
+    expect(held).toMatch(/\.item \.item-row \{[^}]*padding-right: 34px/);
     expect(css).not.toMatch(/\.item:focus-within \.item-actions/);
     // The title gives way by the actions' width, so a row with two takes more than a row with one.
     const one = parseFloat(/padding-right: ([\d.]+)px/.exec(bodiesFor(".item:hover .item-row").join(" "))![1]!);
@@ -3567,14 +3574,27 @@ describe("row and control layout", () => {
     expect(bodiesFor(".item-close, .item-shelf, .item-delete".split(", ")[0]!).join(" ")).not.toContain("opacity: 0");
   });
 
+  it("never styles a sidebar row's parts through a `:has()` that is not its selector's subject", () => {
+    /* `.item:has(:focus-visible) .item-row` cannot be traced back from what changed, so Blink restyled
+       every row's parts in the sidebar on ANY insertion or removal anywhere in the window — each key
+       typed in the prompter, each word an agent streamed: 700 elements, about 4 ms a time on a
+       175-row sidebar (the 2026-10-12 power audit). The states are flagged on the row by a `:has()`
+       that IS the subject, and its parts answer through style queries. THE mutant: any of the old
+       descendant forms back. */
+    const nonSubjectHas = /:has\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)[^\s>+~,]*\s*[>+~]?\s*[.#[:\w]/;
+    const offenders = RULES.flatMap(partsOf).filter((p) => /^(\.sb-card)?\.item\b/.test(p) && p.includes(":has(") && nonSubjectHas.test(p));
+    expect(offenders).toEqual([]);
+  });
+
   it("a row with no actions keeps its state under the pointer, and gives its title nothing", () => {
     /* The cross-room rows — a session drawn outside its room, a room with nothing to unfold — have no
        action to show, and W1's rule would still hide their state and pad their title for one. THE
        MUTANT is dropping this pair: the dot vanishes under the pointer for a slot with nothing in it. */
-    for (const when of [":hover", ":has(:focus-visible)"]) {
-      expect(bodiesFor(`.item[data-actions="0"]${when} .item-trail:not(:empty)`).join(" "), when).toContain("display: flex");
-      expect(bodiesFor(`.item[data-actions="0"]${when} .item-row`).join(" "), when).toContain("padding-right: 8px");
-    }
+    expect(bodiesFor('.item[data-actions="0"]:hover .item-trail:not(:empty)').join(" ")).toContain("display: flex");
+    expect(bodiesFor('.item[data-actions="0"]:hover .item-row').join(" ")).toContain("padding-right: 8px");
+    const focused = blockAfter("@container style(--item-focus: 1) {");
+    expect(focused).toMatch(/\.item\[data-actions="0"\] \.item-trail:not\(:empty\) \{[^}]*display: flex/);
+    expect(focused).toMatch(/\.item\[data-actions="0"\] \.item-row \{[^}]*padding-right: 8px/);
     // The resting inset is the same 8px, so a row with nothing to offer does not move at all.
     expect(bodiesFor(".item-row").join(" ")).toContain("padding: 5px 8px");
     // The disclosure is one of the row's own controls: the same box, the same hit area, the same hover.
@@ -3589,17 +3609,19 @@ describe("row and control layout", () => {
        so Archive lands on the time; tabular figures off, so "11m" and "4m" wobble down the column. */
     const row = bodiesFor(".sb-card > .item-row").join(" ");
     expect(row).toContain("flex-direction: column");
-    expect(row).toContain("padding: 7px 8px");
+    expect(row).toContain("padding-block: 7px; padding-left: 8px");
     // 7 + 16 + 2 + 20 + 7: two lines in 52px.
     expect(bodiesFor(".sb-card-head").join(" ")).toContain("line-height: 16px");
     expect(bodiesFor(".sb-card .item-title").join(" ")).toContain("line-height: 20px");
     expect(row).toContain("gap: 2px");
     expect(bodiesFor(".sb-card-when").join(" ")).toContain("font-variant-numeric: tabular-nums");
-    for (const when of [":hover", ":has(:focus-visible)"]) {
-      expect(bodiesFor(`.sb-card.item${when} .item-trail`).join(" "), when).toContain("display: flex");
-      expect(bodiesFor(`.sb-card.item${when} > .item-row`).join(" "), when).toContain("padding-right: 8px");
-      expect(bodiesFor(`.sb-card[data-actions="1"]${when} .sb-card-head`).join(" "), when).toContain("padding-right: 24px");
-    }
+    expect(bodiesFor(".sb-card.item:hover .item-trail").join(" ")).toContain("display: flex");
+    expect(bodiesFor(".sb-card.item:hover > .item-row").join(" ")).toContain("padding-right: 8px");
+    expect(bodiesFor('.sb-card[data-actions="1"]:hover .sb-card-head').join(" ")).toContain("padding-right: 24px");
+    const held = blockAfter("@container style(--item-focus: 1) or style(--item-menu: 1)");
+    expect(held).toMatch(/\.sb-card\.item \.item-trail \{[^}]*display: flex/);
+    expect(held).toMatch(/\.sb-card\.item > \.item-row \{[^}]*padding-right: 8px/);
+    expect(blockAfter("@container style(--item-focus: 1) {")).toMatch(/\.sb-card\[data-actions="1"\] \.sb-card-head \{[^}]*padding-right: 24px/);
     // The action sits on the first line, not centred across both.
     expect(bodiesFor(".sb-card > .item-actions").join(" ")).toContain("translate: none");
   });

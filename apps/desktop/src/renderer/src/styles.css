@@ -873,20 +873,36 @@ kbd { font: 11px var(--font-mono); }
 .item-trail:empty { display: none; }
 .item-actions { position: absolute; right: 4px; top: 50%; translate: 0 -50%; display: flex; align-items: center; gap: 2px;
   opacity: 0; pointer-events: none; }
-/* …and while a menu one of them opened is up, so the control that opened it is still where it was. */
-.item:hover .item-actions, .item:has(:focus-visible) .item-actions, .item:has([data-confirming]) .item-actions,
-.item:has(.item-act[aria-expanded="true"]) .item-actions {
-  opacity: 1; pointer-events: auto; }
-.item:hover .item-trail, .item:has(:focus-visible) .item-trail, .item:has([data-confirming]) .item-trail,
-.item:has(.item-act[aria-expanded="true"]) .item-trail { display: none; }
-.item:hover .item-row, .item:has(:focus-visible) .item-row, .item:has([data-confirming]) .item-row,
-.item:has(.item-act[aria-expanded="true"]) .item-row { padding-right: 34px; }
-.item[data-actions="2"]:hover .item-row, .item[data-actions="2"]:has(:focus-visible) .item-row,
-.item[data-actions="2"]:has([data-confirming]) .item-row, .item[data-actions="2"]:has(.item-act[aria-expanded="true"]) .item-row { padding-right: 58px; }
+/* …and while a menu one of them opened is up, so the control that opened it is still where it was.
+   Those three states are read off the row by `:has()` ONCE, onto the row itself, as flags its
+   descendants answer through style queries. Written the direct way — `.item:has(:focus-visible)
+   .item-row` — a `:has()` that is not the subject of its selector cannot be traced back from what
+   changed, so Blink restyled every row's parts in the sidebar on ANY insertion or removal anywhere in
+   the window: each key typed in the prompter, each word an agent streamed — 700 elements and about
+   4 ms a time on a 175-row sidebar (the 2026-10-12 power audit). A `:has()` that IS the subject is
+   found by walking up from the change, which never reaches the sidebar from the prompter. */
+.item { --item-focus: 0; --item-confirm: 0; --item-menu: 0; }
+.item:has(:focus-visible) { --item-focus: 1; }
+.item:has([data-confirming]) { --item-confirm: 1; }
+.item:has(.item-act[aria-expanded="true"]) { --item-menu: 1; }
+.item:hover .item-actions { opacity: 1; pointer-events: auto; }
+.item:hover .item-trail { display: none; }
+.item:hover .item-row { padding-right: 34px; }
+.item[data-actions="2"]:hover .item-row { padding-right: 58px; }
+@container style(--item-focus: 1) or style(--item-confirm: 1) or style(--item-menu: 1) {
+  .item .item-actions { opacity: 1; pointer-events: auto; }
+  .item .item-trail { display: none; }
+  .item .item-row { padding-right: 34px; }
+  .item[data-actions="2"] .item-row { padding-right: 58px; }
+}
 /* A row with nothing to offer under the pointer keeps its state there: the slot has one occupant,
    so nothing steps aside and the title gives nothing up — a failed row in Needs you, a fan-out. */
-.item[data-actions="0"]:hover .item-trail:not(:empty), .item[data-actions="0"]:has(:focus-visible) .item-trail:not(:empty) { display: flex; }
-.item[data-actions="0"]:hover .item-row, .item[data-actions="0"]:has(:focus-visible) .item-row { padding-right: 8px; }
+.item[data-actions="0"]:hover .item-trail:not(:empty) { display: flex; }
+.item[data-actions="0"]:hover .item-row { padding-right: 8px; }
+@container style(--item-focus: 1) {
+  .item[data-actions="0"] .item-trail:not(:empty) { display: flex; }
+  .item[data-actions="0"] .item-row { padding-right: 8px; }
+}
 .item-close, .item-shelf, .item-delete, .item-disclose, .item-act { display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-chip); color: var(--rl-text-dim); }
 .item-close:hover, .item-shelf:hover, .item-disclose:hover, .item-act:hover, .item-act[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* The disclosure turns to say which way it is facing, on the shelf caret's timing. */
@@ -938,7 +954,8 @@ kbd { font: 11px var(--font-mono); }
    the row's title at the body rung with its state at the far end, on the same column as every other
    row's; line three, the worktree, only when there is one. 7 + 16 + 2 + 20 + 7 = 52px for two lines. */
 .sb-cards { gap: 2px; }
-.sb-card > .item-row { flex-direction: column; align-items: stretch; gap: 2px; padding: 7px 8px; }
+/* The right inset is left to .item-row's own, so the held states' style queries (above) still move it. */
+.sb-card > .item-row { flex-direction: column; align-items: stretch; gap: 2px; padding-block: 7px; padding-left: 8px; }
 .sb-card-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .sb-card-line:not(.sb-card-head) { gap: 10px; }
 .sb-card-head, .sb-card-foot { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
@@ -956,11 +973,14 @@ kbd { font: 11px var(--font-mono); }
    steps left by its width; the state on the second line stays where it is — the one thing a card
    keeps under the pointer that a one-line row gives up, because a card has a slot to spare. */
 .sb-card > .item-actions { top: 4px; translate: none; }
-.sb-card.item:hover .item-trail, .sb-card.item:has(:focus-visible) .item-trail,
-.sb-card.item:has(.item-act[aria-expanded="true"]) .item-trail { display: flex; }
-.sb-card.item:hover > .item-row, .sb-card.item:has(:focus-visible) > .item-row,
-.sb-card.item:has(.item-act[aria-expanded="true"]) > .item-row { padding-right: 8px; }
-.sb-card[data-actions="1"]:hover .sb-card-head, .sb-card[data-actions="1"]:has(:focus-visible) .sb-card-head { padding-right: 24px; }
+.sb-card.item:hover .item-trail { display: flex; }
+.sb-card.item:hover > .item-row { padding-right: 8px; }
+.sb-card[data-actions="1"]:hover .sb-card-head { padding-right: 24px; }
+@container style(--item-focus: 1) or style(--item-menu: 1) {
+  .sb-card.item .item-trail { display: flex; }
+  .sb-card.item > .item-row { padding-right: 8px; }
+}
+@container style(--item-focus: 1) { .sb-card[data-actions="1"] .sb-card-head { padding-right: 24px; } }
 .sb-card .sb-caret { margin-right: -4px; }
 /* Nothing yet is its own composition, centred in the room the list would have used. */
 .sb-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 32px 12px; text-align: center;
