@@ -1176,4 +1176,15 @@ export const migrations: string[] = [
         UNION ALL SELECT 'irreversible-external', 'ask') f;
   END;
   `,
+  // The boot permission scan's index, on the v21/v22 pattern. `markStaleOnBoot` asks every
+  // session "which permission_request has no permission_response" before the server listens, and the
+  // `(session_id, seq)` index finds a session's rows but not those two types among them: every boot read
+  // the whole event log (~320 MB of pages on a heavy home) to keep about a thousand rows. PARTIAL on
+  // exactly the query's `type IN (...)`, so the planner can prove the query implies it; the two types
+  // are written once per approval, so the append path barely pays for it.
+  //
+  // Index-only: nothing to backfill, and every query it serves returns the same rows without it.
+  // `IF NOT EXISTS` so a home where it was added by hand meets it safely.
+  `CREATE INDEX IF NOT EXISTS session_events_permissions ON session_events(session_id, seq)
+    WHERE type IN ('permission_request', 'permission_response');`,
 ];

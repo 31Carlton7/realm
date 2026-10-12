@@ -5,6 +5,7 @@ import { tempDir } from "@realm/test-utils";
 import { openDatabase } from "./database";
 import { migrations } from "./migrations";
 import { ItemsStore } from "../store/items";
+import { SessionEventsStore } from "../store/sessions";
 
 /**
  * Checking a migration against a REAL home directory: never copy `realm.db` on its own. `openDatabase`
@@ -1949,7 +1950,7 @@ describe("migration — a session's activity", () => {
 describe("migrations 46–54, as the branches that held each other's slots merged", () => {
   it("hold no SELECT 1; placeholder, and run vault, handoffs, lab, sessions' activity, act tickets, record types, deliverables, tool classes, then team policies", () => {
     expect(migrations.filter((m) => m.trim() === "SELECT 1;")).toEqual([]);
-    expect(migrations).toHaveLength(54);
+    expect(migrations.length).toBeGreaterThanOrEqual(54);
     expect(migrations[45]).toContain("CREATE TABLE IF NOT EXISTS vault_grants");
     expect(migrations[46]).toContain("CREATE TABLE IF NOT EXISTS team_handoffs");
     expect(migrations[47]).toContain("CREATE TABLE IF NOT EXISTS lab_devices");
@@ -1959,5 +1960,59 @@ describe("migrations 46–54, as the branches that held each other's slots merge
     expect(migrations[51]).toContain("ALTER TABLE team_review_items ADD COLUMN action_json");
     expect(migrations[52]).toContain("CREATE TABLE IF NOT EXISTS tool_classes");
     expect(migrations[53]).toContain("CREATE TABLE IF NOT EXISTS team_policies");
+  });
+});
+
+/**
+ * The index is found by its SQL rather than its slot, so another branch's migration can land beside it in
+ * either order. The upgrade is checked by dropping it from a fresh home and running its statement again,
+ * which is what the runner does for a home stamped just before it.
+ */
+const PERMISSIONS_INDEX_AT = migrations.findIndex((m) => m.includes("CREATE INDEX IF NOT EXISTS session_events_permissions"));
+const DANGLING_QUERY = `SELECT type, payload_json FROM session_events
+  WHERE session_id = ? AND type IN ('permission_request', 'permission_response') ORDER BY seq`;
+
+describe("migration — the boot permission scan's index", () => {
+  const home = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = openDatabase(p);
+    db.exec("PRAGMA foreign_keys = OFF"); // the events alone: no space, project or session rows
+    const ev = db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, ?, ?, ?)");
+    ev.run("s1", 1, "assistant_text", '{"text":"hi"}');
+    ev.run("s1", 2, "permission_request", '{"requestId":"answered"}');
+    ev.run("s1", 3, "permission_response", '{"requestId":"answered","decision":"allow"}');
+    ev.run("s1", 4, "permission_request", '{"requestId":"open"}');
+    ev.run("s2", 5, "tool_result", '{"output":"x"}');
+    return { p, db };
+  };
+  const planFor = (db: DatabaseSync) =>
+    (db.prepare(`EXPLAIN QUERY PLAN ${DANGLING_QUERY}`).all("s1") as { detail: string }[]).map((r) => r.detail).join(" | ");
+
+  it("is appended after team policies, and a new home has it", () => {
+    expect(PERMISSIONS_INDEX_AT).toBeGreaterThan(53);
+    const { db } = home();
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'session_events_permissions'").get())
+      .toEqual({ name: "session_events_permissions" });
+    db.close();
+  });
+
+  it("serves findDanglingPermissions' own query, so boot never reads a session's whole log", () => {
+    const { db } = home();
+    db.exec("DROP INDEX session_events_permissions");
+    expect(planFor(db)).not.toContain("session_events_permissions");
+    db.exec(migrations[PERMISSIONS_INDEX_AT]!);
+    expect(planFor(db)).toContain("USING INDEX session_events_permissions");
+    expect(new SessionEventsStore(db).findDanglingPermissions("s1")).toEqual(["open"]);
+    expect(new SessionEventsStore(db).findDanglingPermissions("s2")).toEqual([]);
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing, and the statement can meet a home that already has it", () => {
+    const { p, db } = home();
+    db.close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(() => again.exec(migrations[PERMISSIONS_INDEX_AT]!)).not.toThrow();
+    again.close();
   });
 });
