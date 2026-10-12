@@ -548,7 +548,9 @@ describe("the scroll track (ScrollTrack.tsx)", () => {
     const lit = px(bodiesFor(".track-tick[data-current] .track-line").join(" "), /width: (\d+)px/);
     const dot = bodiesFor(".track-tick[data-edited] .track-line::after").join(" ");
     const pad = px(bodiesFor(".transcript").join(" "), /padding: \d+px (\d+)px/);
-    expect(start + lit + px(dot, /left: calc\(100% \+ (\d+)px\)/) + px(dot, /width: (\d+)px/)).toBeLessThan(pad);
+    // …and leaves the text a clear 8px beyond the furthest resting mark: at 16px of padding the lit
+    // tick and its dot ended a pixel short of the first letters, and the owner read it as cramped.
+    expect(start + lit + px(dot, /left: calc\(100% \+ (\d+)px\)/) + px(dot, /width: (\d+)px/)).toBeLessThanOrEqual(pad - 8);
   });
 
   it("rests as a mark a rung heavier on the light face, and comes up at once under the pointer", () => {

@@ -3465,7 +3465,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    40px put the last paragraph inside the fade band and a few pixels off the prompter's top edge —
    the message the reader is most likely to still be reading was the one hardest to read. 72px clears
    the band (--fade-h, 68px) outright, so the final line lands on plain canvas. */
-.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 44px 16px 72px; }
+.transcript { flex: 1; min-height: 0; overflow-y: auto; padding: 44px 24px 72px; }
 /* The bottom padding above is the fade band's clearance: scrolled to the end, the last line
    rests in the band's untouched top third rather than under its blur. */
 /* Shared rails (§4): content rides the prompter's 680px column; the scrollbar stays at the pane edge
@@ -4118,7 +4118,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* ── The scroll track (ScrollTrack.tsx) ───────────────────────────────────
    A tick down the log's left edge for each prompt, Codex's. It is an overlay in `.transcript-wrap`,
    outside the scroller and its mask, and it takes no width from the column: where the pane is narrow
-   it lives in the transcript's own 16px of side padding — every resting mark ends inside it — and
+   it lives in the transcript's own 24px of side padding — every resting mark ends well inside it — and
    where the column leaves a wider margin it moves out to sit where Codex's does. Only the band of
    ticks takes the pointer; the rest of the strip passes it through to the log.
 
