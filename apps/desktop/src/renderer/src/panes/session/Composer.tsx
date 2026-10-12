@@ -1,7 +1,7 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
 import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, currentAlert, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useFileDrop } from "../../components/use-file-drop";
 import { useItemDrop } from "../../components/use-item-drop";
@@ -23,16 +23,6 @@ import { TodoStrip } from "./TodoStrip";
 import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
 import type { Todo } from "./rich/tool-view";
-
-// ~7 lines of 15px/1.55 plus the vertical padding. Matches .composer-input's max-height in
-// styles.css — the textarea autogrows to this and scrolls past it, and the two numbers disagreeing
-// is a prompter that grows past its own cap and then jumps back.
-export const MAX_ROWS_PX = 186;
-/** What decides a field's wrapped height, copied onto the sizer (see `measure`). */
-const SIZER_PROPS = ["font-family", "font-size", "font-weight", "font-style", "font-variant", "font-feature-settings",
-  "line-height", "letter-spacing", "word-spacing", "text-transform", "text-indent", "tab-size", "white-space", "word-break",
-  "overflow-wrap", "padding-top", "padding-bottom", "padding-left", "padding-right", "border-top-width", "border-bottom-width",
-  "border-left-width", "border-right-width", "border-style", "box-sizing"] as const;
 
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
@@ -746,85 +736,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     setHotChip(null);
   };
 
-  /**
-   * Size the box to its content.
-   *
-   * Measured on a SIZER — an unseen copy of the field, same width and type, standing outside the
-   * layout — rather than by collapsing the field itself to 0 and reading it back. Collapsing the real
-   * box changed the height of everything beside it in the pane's column, so each keystroke laid out
-   * the whole transcript twice; on a session a few thousand turns long that was most of a frame per
-   * character. The sizer is fixed-position and contained, so measuring it lays out nothing else, and
-   * the field's own height is written only when it changes — which most keystrokes do not.
-   */
-  const sizer = useRef<HTMLTextAreaElement | null>(null);
-  /** Whether the sizer still wears the field's type and width. Copying it reads the field's computed
-   *  style, which is a style pass over whatever is dirty — so it is done when the field's width or
-   *  font can have changed (mount, a resize, the webfont landing), never per keystroke. */
-  const sizerFresh = useRef(false);
-  useEffect(() => {
-    // The type preferences are written on :root (applyTheme), and a font-size change moves the
-    // field's line height without moving its width — so any write there re-copies.
-    const stale = new MutationObserver(() => { sizerFresh.current = false; });
-    stale.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-mode", "data-theme"] });
-    return () => { stale.disconnect(); sizer.current?.remove(); sizer.current = null; };
-  }, []);
-  const measure = useCallback((restyle = false) => {
-    const el = ta.current; if (!el) return;
-    let probe = sizer.current;
-    if (!probe) {
-      probe = document.createElement("textarea");
-      probe.setAttribute("aria-hidden", "true");
-      probe.tabIndex = -1;
-      probe.className = "composer-sizer";
-      document.body.append(probe);
-      sizer.current = probe;
-    }
-    if (restyle || !sizerFresh.current) {
-      const cs = getComputedStyle(el);
-      for (const prop of SIZER_PROPS) probe.style.setProperty(prop, cs.getPropertyValue(prop));
-      probe.style.width = `${el.getBoundingClientRect().width}px`;
-      sizerFresh.current = true;
-    }
-    probe.value = el.value;
-    const next = `${Math.min(MAX_ROWS_PX, probe.scrollHeight)}px`;
-    if (el.style.height === next) return;
-    el.style.height = next;
-    syncScroll(); // growing past max-height starts scrolling; the mirror follows in the same frame
-  }, [syncScroll]);
-
-  useLayoutEffect(() => { measure(); }, [draft, measure]);
-
-  /**
-   * Re-measure when the WIDTH changes, and once the webfont has landed.
-   *
-   * Keying the measurement on the draft alone left the height stale in two ways that both look like
-   * "the prompter is a different height for no reason":
-   *
-   *  - **A pane resize re-wraps the text and nothing re-measured it.** A three-line draft dragged
-   *    narrower needs four lines and kept a three-line box, scrolling instead of growing.
-   *  - **The first measurement can happen before Inter has loaded**, and an EMPTY box is the case
-   *    that shows it: its height is one line of whatever font was resolved at that instant, so a
-   *    pane that mounted during the font swap kept a box a pixel or two off every other pane's, for
-   *    the life of the session. That is the one the user notices, because two prompters sitting side
-   *    by side in a split disagree.
-   *
-   * Only width is acted on: the observed box's HEIGHT is the thing this effect writes, and reacting
-   * to it would be a loop even with the idempotence guard above holding it to two passes.
-   */
-  const lastWidth = useRef(0);
-  useEffect(() => {
-    const el = ta.current; if (!el) return;
-    void (document as Document & { fonts?: FontFaceSet }).fonts?.ready.then(() => measure(true)).catch(() => {});
-    if (typeof ResizeObserver === "undefined") return; // jsdom
-    const ro = new ResizeObserver(([entry]) => {
-      const w = entry?.contentRect.width ?? 0;
-      if (w === lastWidth.current) return;
-      lastWidth.current = w;
-      measure(true);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [measure]);
+  /* The box sizes itself to its content in the stylesheet (`field-sizing: content` on .composer-input),
+     between its min- and max-height. It was measured here, on every keystroke, by reading the height
+     of a hidden copy — a forced style and layout pass in the middle of the input event, over
+     everything the keystroke had dirtied (about 5 ms a key). Layout now does it once, in the frame,
+     and follows a pane resize and the webfont landing without being told. */
 
   // ── @-mention picker (W4) ──────────────────────────────────────────────
   // The caret is tracked as state (onSelect fires for typing, clicks and arrow moves alike) because

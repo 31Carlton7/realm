@@ -6,7 +6,6 @@ import { TOOLBAR_BUTTON, TOOLBAR_CHROME } from "./panes/simulator/toolbar-fit";
 import { REALM_SEED, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
-import { MAX_ROWS_PX } from "./panes/session/Composer";
 import { PRESSABLE } from "./press-tracking";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
@@ -833,16 +832,20 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor("@property --zoom").join(" ")).toContain("initial-value: 1");
   });
 
-  it("the prompter's cap is one number, and both ends of the draft dissolve at it", () => {
-    /* The textarea autogrows in JS and stops at a max-height in CSS. Two numbers for one cap is a
-       prompter that grows a line past its own ceiling and snaps back, so the stylesheet is asserted
-       against the constant the component measures with rather than against a literal.
+  it("the prompter sizes itself to its draft up to one cap, and both ends of the draft dissolve at it", () => {
+    /* The textarea grows by `field-sizing: content` and stops at its max-height: one number, in the
+       stylesheet. It used to be measured in JS on every keystroke — a forced style and layout pass in
+       the input event (about 5 ms a key) — against a constant that had to agree with this one. THE
+       mutant: the sizing gone, which leaves a one-row box that scrolls from the first wrapped line.
+       Not for the placeholder: sized to it, a long one would wrap the empty box onto a second row.
 
        The mask is what makes the cap survivable: past it the draft scrolls, and a hard edge put half
        a line against the attachment chips above and the model row below. Its stops are the text
        box's own padding, so a draft that fits is never touched. */
     const input = bodiesFor(".composer-input").join(" ");
-    expect(input).toContain(`max-height: ${MAX_ROWS_PX}px`);
+    expect(input).toContain("field-sizing: content");
+    expect(input).toContain("max-height: 186px");
+    expect(bodiesFor(".composer-input:placeholder-shown").join(" ")).toContain("field-sizing: fixed");
     const editor = bodiesFor(".composer-editor").join(" ");
     expect(editor).toContain("mask-image: linear-gradient(to bottom, transparent 0, #000 14px");
     // The top stop equals the text box's top padding, or the fade eats the first line while it fits.

@@ -5383,7 +5383,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
   font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px;
   white-space: pre-wrap; overflow-wrap: break-word; color: var(--rl-text-bright); }
-.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px; min-height: 44px; max-height: 186px; caret-color: var(--caret); position: relative; z-index: 1; }
+.composer-input { border: none; outline: none; resize: none; background: transparent; color: transparent; font: inherit; font-size: 15px; line-height: calc(1.55 + var(--lh-shift)); padding: 14px 16px 10px; min-height: 44px; max-height: 186px; field-sizing: content; caret-color: var(--caret); position: relative; z-index: 1; }
 /* The glyphs are the mirror's job. `-webkit-text-fill-color` is what actually hides them in Chromium;
    `color` alone still paints the text on some platforms. The placeholder has to opt back IN, since it
    has no mirror behind it — the mirror is empty in exactly the state the placeholder shows. */
@@ -10215,11 +10215,11 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .app-icon-name { font-size: 12px; color: var(--rl-text-dim); }
 .app-icon-opt[data-selected] .app-icon-name { color: var(--rl-text-bright); }
 
-/* The composer's sizer (Composer.tsx `measure`): an unseen copy of the field that its height is read
-   from. Fixed and fully contained (strict: a relayout boundary), so measuring it lays out nothing else on the page; height 0 so its
-   scrollHeight is the text's. */
-.composer-sizer { position: fixed; left: -10000px; top: 0; height: 0 !important; min-height: 0 !important; max-height: none !important;
-  overflow: hidden; visibility: hidden; pointer-events: none; resize: none; contain: strict; }
+/* The prompter grows with what is typed (`field-sizing: content` on .composer-input, between its min-
+   and max-height) — but not with its placeholder. A sized-to-content box makes room for the
+   placeholder's text too, and a long one would wrap the empty box onto a second line; it is one row,
+   and the placeholder is clipped in it, as it always was. */
+.composer-input:placeholder-shown { field-sizing: fixed; }
 
 /* A long transcript draws its newest part (Transcript's window); this opens onto the rest. It also
    loads on its own as the reader scrolls up toward it, so it is the keyboard's way in and a marker of
