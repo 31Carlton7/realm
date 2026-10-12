@@ -66,7 +66,7 @@ describe("nothing an agent can call fires an act ticket", () => {
   it("the bridge carries one ticket op, and it only reads a press", () => {
     const bridge = read("apps/server/src/browsers/host-bridge.ts");
     const ops = [...bridge.slice(bridge.indexOf("export const TEAM_HOST_OPS")).split("] as const")[0]!.matchAll(/^\s+"(\w+)",/gm)].map((m) => m[1]);
-    expect(ops.filter((o) => /ticket|post|send|press/i.test(o))).toEqual(["teamTicketPress"]);
+    expect(ops.filter((o) => /ticket|post|send|press/i.test(o ?? ""))).toEqual(["teamTicketPress"]);
     // The rest are PR 4a's team-policy ops: a seal only CONSUMES a press made in Realm's own window, a
     // bump only invalidates, a verify only reads — pinned below so a new op cannot slip in unseen.
     expect(ops).toEqual(["teamTicketPress", "teamPolicySeal", "teamPolicyVerify", "teamPolicyBump"]);
