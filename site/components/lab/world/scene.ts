@@ -52,10 +52,10 @@ const HM = 0.0004;            // Mie (haze) scale height, lower and thinner
 const TOP = 1.0135;           // the shell's edge, a dozen Rayleigh heights up
 // Scattering at the surface per planet radius. The Rayleigh colour is Realm's accent rather than
 // lambda^-4, so the air is the page's own blue and not an electric one.
-const BETA_R = vec3f(0.30, 0.58, 1.0) * 120.0;
+const BETA_R = vec3f(0.30, 0.58, 1.0) * 78.0;
 // The haze is one low layer with three ways of scattering: broadly (a pale line along the whole
 // limb), forward (the short stretch the sun turns white), and in a narrow aureole right over it.
-const HAZE_BROAD = 7.0;
+const HAZE_BROAD = 3.2;
 const HAZE_FORWARD = 0.3;
 const HAZE_AUREOLE = 0.045;
 const LOW_TINT = vec3f(0.78, 0.89, 1.0);
@@ -70,7 +70,7 @@ fn henyeyGreenstein(cosTheta: f32, g: f32) -> f32 {
   return 0.0795775 * (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * cosTheta, 1e-7), 1.5);
 }
 
-const NIGHT = PAGE * 0.5;
+const NIGHT = PAGE * 0.42;
 
 // Optical depth from radius r toward a direction at cos(zenith) = mu, for one exponential layer of
 // scale height h, in surface densities times planet radii. Schuler's approximation of the Chapman
@@ -113,7 +113,7 @@ fn atmosphere(rd: vec3f, sun: vec3f, ground: bool) -> vec4f {
 
   let cosTheta = dot(rd, sun);
   let phaseR = 0.0596831 * (1.0 + cosTheta * cosTheta);
-  let haze = LOW_TINT * (HAZE_BROAD * henyeyGreenstein(cosTheta, 0.75))
+  let haze = LOW_TINT * (HAZE_BROAD * henyeyGreenstein(cosTheta, 0.85))
     + SUN_TINT * (HAZE_FORWARD * henyeyGreenstein(cosTheta, 0.97) + HAZE_AUREOLE * henyeyGreenstein(cosTheta, 0.995));
 
   let steps = 16;
@@ -146,12 +146,15 @@ fn clearOf(p: vec2f, r: vec4f, margin: f32, soft: f32) -> f32 {
   return smoothstep(0.0, soft, d);
 }
 
-// A few faint stars, still, each a point in device pixels. Anchored to the hero, so they scroll with it.
+// A few faint stars, still, each a point in device pixels. Anchored to the hero, so they scroll with
+// it. Each column of cells is shifted by its own amount, so the open strips of sky between the words
+// never line their stars up in a row.
 fn stars(p: vec2f, dpx: f32) -> f32 {
-  let q = p - vec2f(0.0, world.stage.y);
   let cell = 84.0;
+  let column = floor(p.x / cell);
+  let q = p - vec2f(0.0, world.stage.y + hash21(vec2f(column, 7.7)) * cell);
   let id = floor(q / cell);
-  if (hash21(id + 17.31) < 0.72) { return 0.0; }
+  if (hash21(id + 17.31) < 0.66) { return 0.0; }
   let at = (id + 0.15 + 0.7 * hash22(id + 3.7)) * cell;
   let d = length(q - at) * dpx;
   let m = hash21(id + 5.13);
@@ -216,13 +219,17 @@ fn roundRectNormal(q: vec2f, half: vec2f, r: f32) -> vec2f {
   let up = normalize(limbPoint - centre);
   let toLimb = length(p - (limbPoint + up * 4.0 * unit)) / unit;
   let tail = 1.0 + toLimb * toLimb / (60.0 * 60.0);
-  let glare = world.look.z * (0.6 * exp(-toLimb / 8.0) + 0.25 * exp(-toLimb / 28.0) + 0.15 / (tail * sqrt(tail))) * mix(1.0, 0.3, cover);
+  let glare = world.look.z * (0.6 * exp(-toLimb / 8.0) + 0.25 * exp(-toLimb / 28.0) + 0.15 / (tail * sqrt(tail)) + 0.05 * exp(-toLimb / 170.0)) * mix(1.0, 0.3, cover);
   light += mix(INK, ACCENT_INK, 0.5) * glare;
 
   // Stars: never behind words or the header, hidden by the planet, dimmed through the air.
   var starClear = clearOf(p, world.words[0], 18.0, 12.0) * clearOf(p, world.words[1], 18.0, 12.0) * clearOf(p, world.words[2], 18.0, 12.0);
-  starClear *= smoothstep(78.0, 96.0, p.y);
-  light += mix(INK, ACCENT_INK, 0.2) * stars(p, dpx) * starClear * through * (1.0 - cover) * exp(-glare * 40.0);
+  // Nor in the narrow strip between the header and the first line of words, where any stars at all
+  // would read as a row.
+  starClear *= smoothstep(78.0, 96.0, p.y) * step(world.words[0].y, p.y);
+  // An exposure set for the sunrise loses any star against bright air, not only one behind thick air.
+  let airGlow = dot(light, vec3f(0.3, 0.5, 0.2));
+  light += mix(INK, ACCENT_INK, 0.2) * stars(p, dpx) * starClear * through * (1.0 - cover) * exp(-glare * 40.0 - airGlow * 12.0);
 
   // The window's top rim catches the sunrise: a hairline on its outer edge, lit where the edge faces
   // the light and fading with distance from it.
@@ -231,8 +238,8 @@ fn roundRectNormal(q: vec2f, half: vec2f, r: f32) -> vec2f {
     let n = roundRectNormal(p - pc, half, PORTAL_RADIUS);
     let toward = limbPoint - p;
     let facing = max(dot(n, normalize(toward)), 0.0);
-    let fall = 1.0 / (1.0 + dot(toward, toward) / (240.0 * 240.0));
-    let rim = (exp(-out * dpx / 1.1) * 0.9 + exp(-out / 6.0) * 0.18) * facing * facing * fall;
+    let fall = 1.0 / (1.0 + dot(toward, toward) / (280.0 * 280.0));
+    let rim = (exp(-out * dpx / 1.1) * 1.25 + exp(-out / 6.0) * 0.22) * facing * facing * fall;
     light += mix(INK, ACCENT_INK, 0.3) * rim * world.look.w;
   }
 
@@ -244,7 +251,7 @@ fn roundRectNormal(q: vec2f, half: vec2f, r: f32) -> vec2f {
   // under the lit edge and lifts toward the page deeper in. Its darkness leaves with the limb.
   let rb = rd.z * DIST;
   let facing = sqrt(max(1.0 - (DIST * DIST - rb * rb), 0.0));
-  let night = clamp(1.0 - 1.3 * pow(facing, 1.2), 0.0, 1.0) * world.look.y;
+  let night = clamp(1.0 - 2.1 * facing, 0.0, 1.0) * world.look.y;
   let base = mix(PAGE, NIGHT, cover * night);
   let lit = vec3f(1.0) - exp(-light * presence * 1.15);
   let color = base + lit * (vec3f(1.0) - base);
