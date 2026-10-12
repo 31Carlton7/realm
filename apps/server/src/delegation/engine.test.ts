@@ -234,3 +234,16 @@ describe("drain — the budget is working time", () => {
     expect(interrupted).toEqual(["child"]);
   });
 });
+
+describe("involves — what the idle-engine reaper asks before it stops a session's engine", () => {
+  it("is true for either end of a run still executing, and false once it settles", () => {
+    const { engine } = engineOver([[]]);
+    const r = engine.begin("parent", "child", { detached: true });
+    expect(engine.involves("parent")).toBe(true);
+    expect(engine.involves("child")).toBe(true);
+    expect(engine.involves("bystander")).toBe(false);
+    r.done = { outcome: "replied" } as unknown as NonNullable<ActiveRun["done"]>;
+    expect(engine.involves("parent")).toBe(false);
+    expect(engine.involves("child")).toBe(false);
+  });
+});

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { CHECK_EVERY_MS, CHECK_ON_FOCUS_AFTER_MS, CHECK_TICK_MS, RealmUpdater, scheduleUpdateChecks, updaterDecision, UPDATE_FEED_LIVE, type UpdaterLike } from "./updater";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
+import { CHECK_EVERY_MS, CHECK_ON_FOCUS_AFTER_MS, CHECK_TICK_MS, pruneInstalledDownload, RealmUpdater, scheduleUpdateChecks, updaterDecision, UPDATE_FEED_LIVE, type UpdaterLike } from "./updater";
 
 describe("updaterDecision — the hard gate (Plan 15 W1)", () => {
   it("dev is absolute: never enabled unpackaged, whatever else claims to be true", () => {
@@ -269,5 +272,35 @@ describe("main schedules the checks", () => {
     const { join } = await import("node:path");
     const src = readFileSync(join(__dirname, "index.ts"), "utf8");
     expect(src).toMatch(/scheduleUpdateChecks\(updater, \{[\s\S]*?setInterval\(fn, ms\)[\s\S]*?app\.on\("browser-window-focus", fn\)/);
+  });
+});
+
+describe("pruneInstalledDownload — the second copy of an update that is already installed", () => {
+  const cache = (fileName: string) => {
+    const dir = tempDir("realm-updater-cache-");
+    mkdirSync(join(dir, "pending"));
+    writeFileSync(join(dir, "update.zip"), "zip");
+    writeFileSync(join(dir, "pending", fileName), "zip");
+    writeFileSync(join(dir, "pending", "update-info.json"), JSON.stringify({ fileName, sha512: "x" }));
+    return dir;
+  };
+  const fs = { readFileSync, rmSync };
+
+  it("deletes the pending zip of the running version, and keeps update.zip for the next differential download", () => {
+    const dir = cache("Realm-2.0.2-arm64-mac.zip");
+    expect(pruneInstalledDownload({ cacheDir: dir, version: "2.0.2", fs })).toBe(join(dir, "pending", "Realm-2.0.2-arm64-mac.zip"));
+    expect(existsSync(join(dir, "pending", "Realm-2.0.2-arm64-mac.zip"))).toBe(false);
+    expect(existsSync(join(dir, "pending", "update-info.json"))).toBe(false);
+    expect(existsSync(join(dir, "update.zip"))).toBe(true);
+  });
+
+  it("leaves a downloaded update that is not installed yet, and anything it cannot read", () => {
+    const dir = cache("Realm-2.0.3-arm64-mac.zip");
+    expect(pruneInstalledDownload({ cacheDir: dir, version: "2.0.2", fs })).toBeNull();
+    expect(existsSync(join(dir, "pending", "Realm-2.0.3-arm64-mac.zip"))).toBe(true);
+    expect(pruneInstalledDownload({ cacheDir: tempDir("realm-updater-none-"), version: "2.0.2", fs })).toBeNull();
+    const odd = cache("x");
+    writeFileSync(join(odd, "pending", "update-info.json"), JSON.stringify({ fileName: "../Realm-2.0.2-arm64-mac.zip" }));
+    expect(pruneInstalledDownload({ cacheDir: odd, version: "2.0.2", fs })).toBeNull();
   });
 });

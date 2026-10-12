@@ -1211,6 +1211,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
   const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
+    // What the idle reaper must leave running between turns. Read at sweep time, long after every
+    // service named here exists.
+    keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
+      || (runs?.listLive().some((r) => r.sessionId === sessionId) ?? false)
+      || delegationEngine.involves(sessionId),
     // A team's policy answers for its gateway's calls itself: the engine's own MCP card is answered
     // before it is drawn wherever the policy decides (team/policies/gate.ts `decides`).
     teamPolicy: {
@@ -1260,7 +1265,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind, timeouts: opts.agentRun?.timeouts, maxDepth: opts.agentRun?.maxDepth,
     // A model named by a delegating agent resolves against the same probe rows the model picker
     // draws, so "GPT-6 Luna" in a tool call and "GPT-6 Luna" in the picker are the same model.
-    models: { known: () => sessions.probeCached(), refresh: () => sessions.probe(), kinds: Object.keys(adapterRegistry) as AgentKind[] } });
+    // `refresh` is only reached once the rows are too old to trust a "no such model", so it forces:
+    // an unforced read would hand back those same rows and refresh behind the refusal.
+    models: { known: () => sessions.probeCached(), refresh: () => sessions.probe({ force: true }), kinds: Object.keys(adapterRegistry) as AgentKind[] } });
   // Children named before they were named by their task wear "Agent: <first line>"; renamed once,
   // here, wherever that string is still exactly what both rows say.
   agentRuns.retitleLegacyChildren();

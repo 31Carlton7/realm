@@ -167,6 +167,15 @@ describe("Engines tab", () => {
     expect(within(ok).queryByText(/opencode auth login/)).toBeNull();
   });
 
+  it("a CLI that crashed on its probe reads Couldn't check, not Not installed, and says why", async () => {
+    // A homebrew opencode macOS refused to run: it is installed, so offering to install it is wrong.
+    const crashed = probe.map((r) => r.kind === "acp:opencode"
+      ? { ...r, available: false, version: null, crashed: true, reason: "couldn't check: Command failed: opencode --version" } : r);
+    await engines({ agentProbe: crashed });
+    const row = await screen.findByRole("listitem", { name: /OpenCode: Couldn't check/ });
+    expect(within(row).getByText(/couldn't check: Command failed/)).toBeInTheDocument();
+  });
+
   it("copying an install command puts the command on the clipboard VERBATIM — no trailing newline (doctrine)", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });

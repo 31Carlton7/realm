@@ -6,6 +6,16 @@ import { StdioJsonRpc, withTimeout } from "../jsonrpc/stdio";
 const run = promisify(execFile);
 
 /**
+ * Whether a probe's child died rather than answered: killed by a signal (a binary macOS refuses to run
+ * dies of SIGKILL, "Code Signature Invalid") or by the probe's own timeout. A missing binary or a
+ * non-zero exit is an answer; this is a CLI that cannot be asked, and asking again soon costs a crash.
+ */
+export function probeCrashed(e: unknown): boolean {
+  const err = e as { signal?: unknown; killed?: unknown } | null;
+  return Boolean(err && (err.signal || err.killed === true));
+}
+
+/**
  * Checks an ACP agent CLI is runnable.
  *
  * `loggedIn` is deliberately `null`: neither Cursor nor Gemini exposes a trustworthy offline login check.
@@ -17,7 +27,7 @@ export async function probeAcp(
   bin: string,
   versionArgs: string[] = ["--version"],
   env?: Record<string, string>,
-): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null }> {
+): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; crashed?: boolean }> {
   try {
     // The spec's `env` is applied here as well as at `start`, because for some CLIs it is what makes
     // `--version` answerable at all: openhands prints a seven-line ASCII banner ahead of the number
@@ -27,7 +37,7 @@ export async function probeAcp(
     const version = stdout.trim().split("\n")[0]?.trim() || null;
     return { available: true, version, loggedIn: null, reason: "unknown until a session starts" };
   } catch (e) {
-    return { available: false, version: null, loggedIn: null, reason: (e as Error).message };
+    return { available: false, version: null, loggedIn: null, reason: (e as Error).message, ...(probeCrashed(e) ? { crashed: true } : {}) };
   }
 }
 

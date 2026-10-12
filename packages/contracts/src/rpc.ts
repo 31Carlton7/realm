@@ -353,6 +353,9 @@ export const AgentProbeRowSchema = z.object({
   version: z.string().nullable(),
   loggedIn: z.boolean().nullable(),
   reason: z.string().nullable(),
+  /** Realm couldn't check this CLI: it crashed or hung on its probe, and is left alone for a while
+   *  (`PROBE_CRASH_BACKOFF_MS`) rather than crashed again on every probe. Not the same as not installed. */
+  crashed: z.boolean().optional(),
   models: z.array(z.object({ id: z.string(), label: z.string(), fastMode: z.boolean().optional(), fastDescription: z.string().optional(), isDefault: z.boolean().optional(),
     efforts: z.array(z.string()).optional(), defaultEffort: z.string().optional() })).nullable().optional(),
   /** An agent's own reasoning levels where they are a session setting rather than a model's — an ACP

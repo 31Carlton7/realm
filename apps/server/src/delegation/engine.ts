@@ -80,6 +80,15 @@ export class DelegationEngine {
     return this.list(parentSessionId).some((r) => !r.detached);
   }
 
+  /** Whether this session is either end of a run still executing — a parent waiting on a child, or the
+   *  child itself. What the idle-engine reaper asks before it stops a session's engine. */
+  involves(sessionId: string): boolean {
+    for (const runs of this.runs.values()) {
+      if (runs.some((r) => r.done === null && (r.parentSessionId === sessionId || r.childSessionId === sessionId))) return true;
+    }
+    return false;
+  }
+
   /** The parent's runs that are still EXECUTING — a settled-but-unclaimed detached run holds a
    *  result, not a machine, so it is not counted against the cap and is not listed here. */
   running(parentSessionId: string): ActiveRun[] {

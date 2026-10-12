@@ -365,8 +365,10 @@ function EngineCard({ kind }: { kind: AgentKind }) {
     : null;
   const offered = (SELECTABLE_AGENT_KINDS as readonly AgentKind[]).includes(kind);
   const blocked = isBlocked(a) && kind !== "fake";
-  const state = !p ? "unknown" : !p.available ? "missing" : p.loggedIn === false ? "logged_out" : "ready";
-  const STATE_LABEL = { unknown: "Checking…", missing: "Not installed", logged_out: "Signed out", ready: "Ready" };
+  // "unchecked": the CLI is there but crashed or hung on its probe, and the server is leaving it alone
+  // for a while. Saying "Not installed" would send the user to install what they already have.
+  const state = !p ? "unknown" : p.crashed ? "unchecked" : !p.available ? "missing" : p.loggedIn === false ? "logged_out" : "ready";
+  const STATE_LABEL = { unknown: "Checking…", unchecked: "Couldn't check", missing: "Not installed", logged_out: "Signed out", ready: "Ready" };
 
   /* The facts, as chips. Each is a separate answer, and only the ones there is an answer FOR are
      drawn — an engine that is not installed has no version, and a probe that could not tell whether

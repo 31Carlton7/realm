@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
+import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -103,6 +103,17 @@ const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
 /** How long a queued message stays held for an edit with nobody saving or letting go — a window
  *  closed mid-edit, a client that dropped. Long enough for anyone actually typing. */
 export const QUEUE_HOLD_TTL_MS = 10 * 60_000;
+/** How long an agent probe's answer is reused before it is refreshed (behind the reader). Installs,
+ *  sign-ins, auth failures and "Check again" force a fresh one, so this only bounds the drift nobody
+ *  told Realm about — a CLI upgraded or removed from a terminal. */
+export const AGENT_PROBE_TTL_MS = 15 * 60_000;
+/** How long a CLI that crashed or hung on a probe is left alone by unforced probes. */
+export const PROBE_CRASH_BACKOFF_MS = 60 * 60_000;
+/** Minutes an engine may sit idle before its process is stopped (`reapIdle`). 0 keeps engines forever. */
+export const ENGINE_IDLE_MINUTES_KEY = "sessions.engineIdleMinutes";
+export const ENGINE_IDLE_MINUTES_DEFAULT = 30;
+/** How often live engines are looked over for one that has sat idle long enough. */
+const REAP_SWEEP_MS = 60_000;
 
 type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
 
@@ -114,6 +125,15 @@ type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean 
  */
 export class SessionService {
   private live = new Map<string, Live>();
+  /** When each live engine last did anything: started, or sent an event. */
+  private lastActive = new Map<string, number>();
+  /** Engines `reapIdle` is stopping, by session: a send waits for the old process to be gone before it
+   *  starts the next, so two never hold the same provider session at once. */
+  private reaping = new Map<string, Promise<void>>();
+  /** Handles stopped for being idle. Their teardown (an `ended` status, a "session ended" error) is
+   *  not news: the session is as idle as it was, and resumes on its next send. */
+  private reapedHandles = new WeakSet<AgentHandle>();
+  private reapTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Messages waiting for the current turn to end, oldest first, per session.
    *
@@ -256,15 +276,27 @@ export class SessionService {
      *  itself, the engine's own MCP approval is answered before it draws a card, so the person sees one
      *  card — the policy's. And a role's run is told it is one, so Codex pins its sandbox's network
      *  off. Optional: without it every session starts as it always did. */
+    /** Whether something other than a turn is counting on this session's engine staying up — an
+     *  active goal, a durable run (schedule, team role), a delegation either end of it. The idle
+     *  reaper never stops an engine this answers true for. */
+    keepEngine?: (sessionId: string) => boolean;
     teamPolicy?: {
       decides(sessionId: string, spaceId: string, gatewayTool: string): Promise<boolean>;
       isRoleRun(sessionId: string): boolean;
     };
-  }) {}
+  }) {
+    // Unref'd: a sweep with nothing to do must not be what keeps a finished process alive.
+    this.reapTimer = setInterval(() => { void this.reapIdle().catch(() => {}); }, REAP_SWEEP_MS);
+    this.reapTimer.unref?.();
+  }
 
   /** Cached probe (TTL + in-flight dedup): each `probeAll` spawns a child process per registered agent,
-   *  and the renderer asks on every prompter mount. `force` bypasses it — see ProbeCache. */
-  private probeCache = new ProbeCache(() => this.probeAll());
+   *  and the renderer asks on every prompter mount. Kept for `AGENT_PROBE_TTL_MS` and refreshed behind
+   *  the reader once stale; what can make an answer wrong sooner (an install, a sign-in, an auth
+   *  failure, "Check again") forces a probe — see ProbeCache. */
+  private probeCache = new ProbeCache((opts) => this.probeAll(opts), { ttlMs: AGENT_PROBE_TTL_MS, background: true });
+  /** CLIs that crashed or hung on a probe, and the row to show for them until `until`. */
+  private probeBackoff = new Map<AgentKind, { until: number; row: ProbeResult }>();
 
   probe(opts: { force?: boolean } = {}): Promise<ProbeResult[]> { return this.probeCache.get(opts); }
   /** The last probe's rows, stale or not, without spending a new one — see `ProbeCache.peek`. */
@@ -281,22 +313,38 @@ export class SessionService {
   async probeAgent(kind: AgentKind): Promise<ProbeResult | undefined> {
     const adapter = this.d.adapters[kind];
     if (!adapter) return undefined;
-    const row = await adapter.probe().catch((e: unknown): ProbeResult =>
-      ({ kind, available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }));
+    const row = await this.probeAdapter(adapter, true);
     this.probeCache.amend((rows) => rows.map((r) => (r.kind === kind ? row : r)));
     return row;
   }
 
   /** One adapter's probe throwing must not hide the others; it reports as unavailable with the reason. */
-  async probeAll(): Promise<ProbeResult[]> {
-    const adapters = Object.values(this.d.adapters);
-    const results = await Promise.allSettled(adapters.map((a) => a.probe()));
-    const probes = results.map((r, i): ProbeResult => r.status === "fulfilled" ? r.value
-      : { kind: adapters[i]!.kind, available: false, version: null, loggedIn: null, reason: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+  async probeAll({ force = false }: { force?: boolean } = {}): Promise<ProbeResult[]> {
+    const probes = await Promise.all(Object.values(this.d.adapters).map((a) => this.probeAdapter(a, force)));
     // Every probe that actually ran reports here — the feed's agent_probe rows come from the same
     // results the install card renders, never from a second probe of their own.
     this.d.notifications?.probeResults(probes);
     return probes;
+  }
+
+  /**
+   * One adapter's row. A CLI that crashed or hung on its last probe is not spawned again until
+   * `PROBE_CRASH_BACKOFF_MS` has passed (a homebrew `opencode` macOS refused to run crashed on every
+   * probe, a dozen crash reports in twenty minutes); its row says Realm couldn't check it. A forced
+   * probe is somebody asking on purpose, so it asks the CLI regardless.
+   */
+  private async probeAdapter(adapter: AgentAdapter, force: boolean): Promise<ProbeResult> {
+    const held = this.probeBackoff.get(adapter.kind);
+    if (held && !force && Date.now() < held.until) return held.row;
+    const row = await adapter.probe().catch((e: unknown): ProbeResult =>
+      ({ kind: adapter.kind, available: false, version: null, loggedIn: null, reason: e instanceof Error ? e.message : String(e) }));
+    if (row.crashed) {
+      const held = { ...row, reason: `couldn't check: ${row.reason ?? "the CLI crashed"}` };
+      this.probeBackoff.set(adapter.kind, { until: Date.now() + PROBE_CRASH_BACKOFF_MS, row: held });
+      return held;
+    }
+    this.probeBackoff.delete(adapter.kind);
+    return row;
   }
 
   isLive(id: string): boolean { return this.live.has(id); }
@@ -615,6 +663,8 @@ export class SessionService {
    *  the two paths that have already chosen — a caller that came here has passed the queue gate. */
   private async deliver(id: string, msg: SendMessage, opts: { checkpoint?: boolean } = {}): Promise<void> {
     await this.measuring.get(id);
+    // A message on its way is activity: the sweep must not stop this engine while the awaits below run.
+    if (this.live.has(id)) this.lastActive.set(id, Date.now());
     // Claim the environment's port block before the adapter can be spawned — `ensureLive` reads it
     // back off the row, so this is the only place the (async) allocation has to happen.
     await this.ensurePorts(id);
@@ -626,6 +676,7 @@ export class SessionService {
     // An app the message mentions is granted BEFORE the handle starts, so a session that starts on
     // this message lists the computer tools from its first read of them.
     await this.grantMentionedApps(id, msg);
+    await this.reaping.get(id);
     const handle = this.ensureLive(id);
     // A start that carried a restore's fork can be refused at fork time, before the model sees a word
     // of this message — so the message is held until that boot proves itself, and re-sent plainly if it
@@ -684,6 +735,7 @@ export class SessionService {
     if (this.closing) return;
     if (!this.d.sessions.get(id)) return; // deleted while a backoff was pending
     await this.ensurePorts(id);
+    await this.reaping.get(id);
     const handle = this.ensureLive(id);
     await handle.send(this.resolveMentions(id, msg));
   }
@@ -799,6 +851,7 @@ export class SessionService {
     // interrupt, and interrupting a handle we just started would abort a turn that never began.
     const wasLive = this.live.has(id);
     await this.ensurePorts(id);
+    await this.reaping.get(id);
     const handle = this.ensureLive(id);
     const interrupted = wasLive && opts.interruptFirst;
     if (interrupted) await this.interruptAndSettle(id, handle);
@@ -1096,9 +1149,59 @@ export class SessionService {
     for (const id of ids) await this.stop(id);
     return ids.length;
   }
+  /**
+   * Stop every engine that has sat idle for `sessions.engineIdleMinutes` (default 30; 0 never). An
+   * idle `claude` holds ~100 MB and wakes a dozen times a second for nothing, and they piled up: 15 idle
+   * engines, some 14 h old, were ~1.6 GB. The row is untouched — it stays idle, with its provider session
+   * id — so the next send resumes the conversation exactly as it does after a restart.
+   *
+   * Never mid-turn. An engine is only idle when its row is neither running nor waiting on the user,
+   * nothing is queued, held or being set up for it, no question it asked is open, and nothing else is
+   * counting on it (`keepEngine`: a goal, a durable run, a delegation). Returns the sessions stopped.
+   */
+  async reapIdle(now = Date.now()): Promise<string[]> {
+    const raw = this.d.settings.get(ENGINE_IDLE_MINUTES_KEY);
+    const minutes = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : ENGINE_IDLE_MINUTES_DEFAULT;
+    if (minutes === 0 || this.closing) return [];
+    const reaped: string[] = [];
+    for (const id of [...this.live.keys()]) {
+      if (now - (this.lastActive.get(id) ?? now) < minutes * 60_000) continue;
+      if (!this.engineIdle(id)) continue;
+      reaped.push(id);
+      await this.reap(id);
+    }
+    return reaped;
+  }
+
+  private engineIdle(id: string): boolean {
+    const row = this.d.sessions.get(id);
+    if (!row || row.status === "running" || row.status === "waiting_permission") return false;
+    if ((this.queued.get(id)?.length ?? 0) > 0 || this.queueHolds.has(id) || this.drainOwed.has(id)) return false;
+    if (this.turnStarted.has(id) || this.measuring.has(id) || this.forkInFlight.has(id) || this.rewindTurns.has(id)) return false;
+    for (const a of this.asked.values()) if (a.sessionId === id) return false;
+    return !(this.d.keepEngine?.(id) ?? false);
+  }
+
+  private reap(id: string): Promise<void> {
+    const l = this.live.get(id);
+    if (!l) return Promise.resolve();
+    // Out of `live` first, so nothing reaches this handle again; a send arriving now waits on
+    // `reaping` and then starts a fresh engine that resumes the conversation.
+    this.live.delete(id);
+    this.lastActive.delete(id);
+    this.reapedHandles.add(l.handle);
+    this.d.gateway.release(id);
+    const done: Promise<void> = (async () => {
+      try { await l.handle.dispose(); await l.pump; } catch { /* already gone */ }
+    })().finally(() => { if (this.reaping.get(id) === done) this.reaping.delete(id); });
+    this.reaping.set(id, done);
+    return done;
+  }
+
   /** Shutdown: dispose live handles; rows/items stay so sessions resume next boot. */
   async closeAll(): Promise<void> {
     this.closing = true;
+    if (this.reapTimer) { clearInterval(this.reapTimer); this.reapTimer = null; }
     this.d.failover?.close();
     for (const id of [...this.live.keys()]) { await this.stop(id); this.d.gateway.release(id); this.d.browserPermissions?.release(id); this.d.computerGrants?.release(id); }
   }
@@ -1556,11 +1659,18 @@ export class SessionService {
       this.forkInFlight.set(id, fork);
     }
     const pump = (async () => {
-      try { for await (const ev of handle.events) this.onEvent(id, ev); }
+      try {
+        for await (const ev of handle.events) {
+          if (this.reapedHandles.has(handle)) continue;
+          this.lastActive.set(id, Date.now());
+          this.onEvent(id, ev);
+        }
+      }
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
       finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.d.gateway.release(id); } }
     })();
     this.live.set(id, { handle, pump, skillsInjected: skills !== undefined });
+    this.lastActive.set(id, Date.now());
     return handle;
   }
 

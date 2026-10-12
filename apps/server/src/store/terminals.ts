@@ -50,10 +50,12 @@ type HistoryRow = { terminal_id: string; data: string; cols: number; rows: numbe
  */
 export class TerminalHistoryStore {
   constructor(private db: Db) {}
+  /** Prepared once: the flush runs every few seconds. */
+  private upsert: ReturnType<Db["prepare"]> | null = null;
   put(input: { terminalId: string; data: string; cols: number; rows: number }): void {
-    this.db.prepare(`INSERT INTO terminal_history (terminal_id, data, cols, rows, captured_at) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(terminal_id) DO UPDATE SET data = excluded.data, cols = excluded.cols, rows = excluded.rows, captured_at = excluded.captured_at`)
-      .run(input.terminalId, input.data, input.cols, input.rows, now());
+    this.upsert ??= this.db.prepare(`INSERT INTO terminal_history (terminal_id, data, cols, rows, captured_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(terminal_id) DO UPDATE SET data = excluded.data, cols = excluded.cols, rows = excluded.rows, captured_at = excluded.captured_at`);
+    this.upsert.run(input.terminalId, input.data, input.cols, input.rows, now());
   }
   get(terminalId: string): TerminalHistoryRow | null {
     const r = this.db.prepare("SELECT * FROM terminal_history WHERE terminal_id = ?").get(terminalId) as HistoryRow | undefined;

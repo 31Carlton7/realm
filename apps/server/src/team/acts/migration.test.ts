@@ -19,6 +19,9 @@ const VAULT_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXI
 /** What it stands on, as the vault's migration left it: the spaces, Review's two tables and the log. */
 const BEFORE = `
 CREATE TABLE spaces (id TEXT PRIMARY KEY);
+-- Every home has the event log (v3); later migrations index it.
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL,
+  type TEXT NOT NULL, payload_json TEXT NOT NULL);
 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE team_reviews (
   id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
