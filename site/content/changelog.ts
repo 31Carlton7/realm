@@ -21,6 +21,46 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-1-0",
+    title: "Realm v2.1.0",
+    date: "2026-10-12",
+    version: "v2.1.0",
+    area: "Release",
+    summary:
+      "Teams for a space, a Realmite for every role, long sessions that open in a fifth of a second, a sixth of the CPU while an agent works, and overscroll that carries past the edge the way macOS does.",
+    body: [
+      { kind: "h", text: "Teams" },
+      { kind: "p", text: "**A space can have a team.** Make team gives a space roles, each with its own Realmite, from seven templates or a custom teammate. Run a role now or on a schedule, and its work waits in Review for you to approve or send back. Teams can hand work to each other, mention one another, carry goals and budgets, and keep their own vault. Posting outside Realm waits for your approval, and the space's policies (what never happens, what asks first) bind every session in it, yours included. No agent can change a policy." },
+      { kind: "h", text: "Sessions" },
+      { kind: "ul", items: [
+        "**Unread sessions** show a bold title and a blue dot, and the sidebar keeps the most recently active spaces and sessions at the top without moving the one you have selected.",
+        "**Queued messages** sit in a tray above the prompter, where each one can be edited or removed.",
+        "**Sub-agents** show as a strip in the transcript while they run, open in your session's mode, and get their own Agents tab.",
+        "**Activity cards** are redesigned, and the Usage page is rebuilt around what each agent actually reports.",
+        "**⌘\\** opens a split with a new session, and a new session uses the model you last sent with.",
+        "A **Sessions page** lists every session in a space, and a **PDF viewer** opens PDFs in Documents.",
+      ] },
+      { kind: "h", text: "Everywhere else" },
+      { kind: "ul", items: [
+        "**Open in Realm Browser** on any link's right-click menu, and a setting for where links open.",
+        "**Light mode** has the depth dark mode has, and your theme and Easter eggs now survive an update.",
+        "**A new flat icon**, with a one-colour mark in the menu bar, and eight others to put on the Dock.",
+        "**The sign-in vault** can unlock with Touch ID, Touch ID or password, once per session, or without asking.",
+      ] },
+      { kind: "h", text: "Faster and lighter" },
+      { kind: "ul", items: [
+        "**Opening a long session** loads its newest part first: the largest session we measured opens in 0.2 s instead of 2–2.6 s, and older turns load as you scroll up.",
+        "**While an agent works** Realm uses about a sixth of the CPU it did, and a window nobody has touched for half a minute goes quiet.",
+        "**Typing** no longer restyles the whole sidebar on every key, and the cursor settles after a few beats.",
+        "**Startup** loads about a third of the code it did; Settings, terminals, maths and code highlighting load when first needed.",
+        "**Session history is stored compressed.** This makes 2.1.0 a one-way upgrade: an older Realm cannot read history written by this one.",
+        "**Idle agents** are stopped after 30 minutes and pick their conversation back up on your next message.",
+      ] },
+      { kind: "h", text: "Scrolling" },
+      { kind: "p", text: "**Overscroll feels like macOS.** A flick that reaches the end of a list carries past it at its own speed, stretches, and springs back, instead of stopping dead. Scroll bar tracks are gone, and the sidebar scrolls smoothly." },
+    ],
+  },
+  {
     slug: "v2-0-0",
     title: "Realm v2.0.0",
     date: "2026-10-06",
