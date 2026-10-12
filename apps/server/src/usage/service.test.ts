@@ -119,12 +119,13 @@ describe("UsageService.records — the page about you", () => {
     appendEvent(sessionId, day(3), "tool_call", { toolUseId: `t${Math.random()}`, name: "Skill", input, parentToolUseId: null });
 
   it("adds up what was reported — differences of a running total, never the totals themselves", () => {
-    // Claude's payloads are running totals: this session spent 3000 in, not 1000 + 3000. The fake
-    // engine is per-turn, so its one event is its own increment.
+    // Claude's tokens are running totals once the event says so (`cumulativeTokens`, what the adapter
+    // writes from `modelUsage`): this session spent 3000 in, not 1000 + 3000. The fake engine is
+    // per-turn, so its one event is its own increment.
     makeSession("s1");
     makeSession("s2", { agentKind: "fake", model: null });
-    appendUsage("s1", day(2), { costUsd: 0.1, inputTokens: 1000, outputTokens: 500, numTurns: 1 });
-    appendUsage("s1", day(3), { costUsd: 0.3, inputTokens: 3000, outputTokens: 1500, numTurns: 2 });
+    appendUsage("s1", day(2), { costUsd: 0.1, inputTokens: 1000, outputTokens: 500, numTurns: 1, cumulativeTokens: true });
+    appendUsage("s1", day(3), { costUsd: 0.3, inputTokens: 3000, outputTokens: 1500, numTurns: 2, cumulativeTokens: true });
     appendUsage("s2", day(3), { costUsd: 0.001, inputTokens: 100, outputTokens: 50, numTurns: 1 });
     const out = service().records();
     expect(out.tokens).toEqual({ input: 3100, output: 1550 });
@@ -247,8 +248,8 @@ describe("UsageService.records — the page about you", () => {
 describe("UsageService.summary", () => {
   it("reads a Claude session's own dollars off its running totals", () => {
     makeSession("s1");
-    appendUsage("s1", day(2), { costUsd: 0.5, inputTokens: 1000, outputTokens: 500, numTurns: 1 });
-    appendUsage("s1", day(3), { costUsd: 1.25, inputTokens: 3000, outputTokens: 1500, numTurns: 3 });
+    appendUsage("s1", day(2), { costUsd: 0.5, inputTokens: 1000, outputTokens: 500, numTurns: 1, cumulativeTokens: true });
+    appendUsage("s1", day(3), { costUsd: 1.25, inputTokens: 3000, outputTokens: 1500, numTurns: 2, cumulativeTokens: true });
     return service().summary(range).then((out) => {
       expect(out.totals.reportedUsd).toBeCloseTo(1.25, 6);
       expect(out.totals.inputTokens).toBe(3000);
@@ -258,7 +259,7 @@ describe("UsageService.summary", () => {
 
   it("prices a Codex session from the catalog, and marks it estimated rather than reported", async () => {
     makeSession("s1", { agentKind: "codex", model: "gpt-5.6" });
-    appendUsage("s1", day(2), { costUsd: 0, inputTokens: 1_000_000, outputTokens: 200_000, numTurns: 2 });
+    appendUsage("s1", day(2), { costUsd: 0, inputTokens: 1_000_000, outputTokens: 200_000, numTurns: 2, cacheReadTokens: 0 });
     const out = await service().summary(range);
     expect(out.totals.reportedUsd).toBe(0);
     expect(out.totals.estimatedUsd).toBeCloseTo(3 + 3, 6); // 1M × $3 + 0.2M × $15
@@ -314,8 +315,8 @@ describe("UsageService.summary", () => {
     // The named mutant: filtering the EVENTS by the window instead of the deltas would make
     // September's first event look like the whole session's running total.
     makeSession("s1", { createdAt: new Date(2026, 7, 1).getTime() });
-    appendUsage("s1", new Date(2026, 7, 20, 12).getTime(), { costUsd: 5, inputTokens: 500_000, outputTokens: 0, numTurns: 4 });
-    appendUsage("s1", day(2), { costUsd: 6, inputTokens: 600_000, outputTokens: 0, numTurns: 5 });
+    appendUsage("s1", new Date(2026, 7, 20, 12).getTime(), { costUsd: 5, inputTokens: 500_000, outputTokens: 0, numTurns: 4, cumulativeTokens: true });
+    appendUsage("s1", day(2), { costUsd: 6, inputTokens: 600_000, outputTokens: 0, numTurns: 5, cumulativeTokens: true });
     const out = await service().summary(range);
     expect(out.totals.costUsd).toBeCloseTo(1, 6);
     expect(out.totals.inputTokens).toBe(100_000);
@@ -323,7 +324,7 @@ describe("UsageService.summary", () => {
 
   it("survives a catalog that is unreachable — a page with no estimates beats no page", async () => {
     makeSession("s1", { agentKind: "codex", model: "gpt-5.6" });
-    appendUsage("s1", day(2), { costUsd: 0, inputTokens: 1_000_000, outputTokens: 0, numTurns: 1 });
+    appendUsage("s1", day(2), { costUsd: 0, inputTokens: 1_000_000, outputTokens: 0, numTurns: 1, cacheReadTokens: 0 });
     const svc = new UsageService({
       db, settings, catalog: { list: async () => { throw new Error("offline"); } }, now: () => NOW,
     });

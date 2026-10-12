@@ -1,5 +1,5 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, currentAlert, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -129,7 +129,8 @@ function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, w
  * what will happen to the NEXT message, not about anything that was said.
  */
 function LimitRow({ limits }: { limits: PlanLimits | null }) {
-  if (!limits || limits.alert === "none") return null;
+  // The reading is kept across launches, so a warning about a window that has since reset is over.
+  if (!limits || currentAlert(limits, Date.now()) === "none") return null;
   const named = limits.windows.find((w) => w.id === limits.alertWindow);
   // The window the provider named, or the fullest one it reported. A warning with neither is still
   // worth showing — the account is near a limit and the useful half of that sentence is not the name.

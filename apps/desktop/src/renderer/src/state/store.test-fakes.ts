@@ -12,7 +12,7 @@ import type { LabCheck, LabDevices, LabSeenDevice, LabStatus } from "@realm/cont
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
-  ({ costUsd: 0, reportedUsd: 0, estimatedUsd: 0, inputTokens: 0, outputTokens: 0, turns: 0, sessions: 0, unmeasuredSessions: 0, ...extra });
+  ({ costUsd: 0, reportedUsd: 0, estimatedUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, turns: 0, sessions: 0, unmeasuredSessions: 0, ...extra });
 
 /** A summary with nothing in it — the "no agent has run yet" answer, which is what a fresh home
  *  really returns and therefore what the panel's empty state must be tested against. */
@@ -22,7 +22,7 @@ export const emptyUsageSummary = (extra: Partial<UsageSummary> = {}): UsageSumma
   sessions: [],
   activity: { toolCalls: 0, userMessages: 0, errors: 0, mcpCalls: 0, mcpFailures: 0, mcpMedianMs: 0, topTools: [], topMcpServers: [] },
   budget: { budget: { monthlyUsd: null, thresholds: [0.5, 0.8, 1], includeEstimated: true }, monthSpendUsd: 0, monthStart: 0, projectedUsd: null },
-  unmeasuredKinds: [], unpricedModels: [],
+  unmeasuredKinds: [], unpricedModels: [], unsplitTokens: 0, mainLoopOnlySessions: 0,
   ...extra,
 });
 

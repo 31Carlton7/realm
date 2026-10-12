@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import {
   AGENT_META, USAGE_BUDGET_KEY, USAGE_RECORDS_TOP, USAGE_REPORTING, canonicalModelKey, dayKey, parseUsageBudget,
-  skillUseName, thresholdsCrossed, usageDeltas, usageStreaks,
+  skillUseName, thresholdsCrossed, totalTokens, usageDeltas, usageSampleFromPayload, usageStreaks,
   type AgentKind, type ModelInfo, type Session, type SessionEvent, type UsageBucketKind,
   type UsageBudget, type UsageDay, type UsageRecords, type UsageSample, type UsageSummary,
 } from "@realm/contracts";
@@ -145,9 +145,10 @@ export class UsageService {
       const reporting = kind ? USAGE_REPORTING[kind] : undefined;
       if (!reporting) continue; // a kind this build has never heard of reports nothing it can read
       for (const d of usageDeltas(samples, reporting.series)) {
-        input += d.inputTokens; output += d.outputTokens;
+        // Everything the model was sent, cached or not: a cache read is still a token processed.
+        input += d.inputTokens + d.cacheReadTokens + d.cacheWriteTokens; output += d.outputTokens;
         const day = dayKey(d.ts);
-        byDay.set(day, (byDay.get(day) ?? 0) + d.inputTokens + d.outputTokens);
+        byDay.set(day, (byDay.get(day) ?? 0) + totalTokens(d));
       }
     }
     let peakDay: UsageRecords["peakDay"] = null;
@@ -356,20 +357,26 @@ export class UsageService {
     // thousands of sessions in a 90-day window.
     for (let i = 0; i < sessionIds.length; i += 400) {
       const chunk = sessionIds.slice(i, i + 400);
+      // The engine is read beside the events because the payload's token vocabulary depends on it
+      // (Codex counts cached input inside `inputTokens`) — see `usageSampleFromPayload`.
       const rows = this.d.db.prepare(`
-        SELECT session_id, ts,
-               json_extract(payload_json, '$.costUsd') AS cost,
-               json_extract(payload_json, '$.inputTokens') AS input,
-               json_extract(payload_json, '$.outputTokens') AS output,
-               json_extract(payload_json, '$.numTurns') AS turns
-          FROM session_events
-         WHERE type = 'usage' AND session_id IN (${chunk.map(() => "?").join(",")})
-         ORDER BY session_id, seq
+        SELECT ev.session_id, ev.ts, s.agent_kind,
+               json_extract(ev.payload_json, '$.costUsd') AS costUsd,
+               json_extract(ev.payload_json, '$.inputTokens') AS inputTokens,
+               json_extract(ev.payload_json, '$.outputTokens') AS outputTokens,
+               json_extract(ev.payload_json, '$.numTurns') AS numTurns,
+               json_extract(ev.payload_json, '$.cacheReadTokens') AS cacheReadTokens,
+               json_extract(ev.payload_json, '$.cacheWriteTokens') AS cacheWriteTokens,
+               json_extract(ev.payload_json, '$.cumulativeTokens') AS cumulativeTokens
+          FROM session_events ev JOIN sessions s ON s.id = ev.session_id
+         WHERE ev.type = 'usage' AND ev.session_id IN (${chunk.map(() => "?").join(",")})
+         ORDER BY ev.session_id, ev.seq
       `).all(...chunk) as Row[];
       for (const r of rows) {
         const id = str(r.session_id);
         const list = out.get(id) ?? [];
-        list.push({ ts: num(r.ts), costUsd: num(r.cost), inputTokens: num(r.input), outputTokens: num(r.output), numTurns: num(r.turns) });
+        // SQLite hands a JSON `true` back as 1.
+        list.push(usageSampleFromPayload(str(r.agent_kind) as AgentKind, num(r.ts), { ...r, cumulativeTokens: r.cumulativeTokens === 1 || r.cumulativeTokens === true }));
         out.set(id, list);
       }
     }
@@ -485,7 +492,7 @@ export class UsageService {
     const lookup: PriceLookup = (model) => {
       if (!model) return null; // the harness's own default: no id, so nothing to price against
       const hit = byKey.get(canonicalModelKey(model));
-      return hit ? { priceIn: hit.priceIn, priceOut: hit.priceOut } : null;
+      return hit ? { priceIn: hit.priceIn, priceOut: hit.priceOut, priceCacheRead: hit.priceCacheRead ?? null, priceCacheWrite: hit.priceCacheWrite ?? null } : null;
     };
     this.cachedPriceLookup = lookup;
     return lookup;

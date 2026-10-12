@@ -145,6 +145,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
 
   // Usage
   { id: "usage", tab: "usage", label: "Spend, tokens and activity", terms: "cost money usage chart heaviest sessions plan limits", page: true },
+  { id: "usage-plan", tab: "usage", label: "Plan limits", terms: "quota left remaining reset 5-hour weekly rate limit subscription claude codex pace" },
+  { id: "usage-sessions", tab: "usage", label: "Heaviest sessions", terms: "most expensive cost tokens open" },
   { id: "usage-budget", tab: "usage", label: "Monthly budget", terms: "spend limit threshold cost" },
 
   // Sign-ins

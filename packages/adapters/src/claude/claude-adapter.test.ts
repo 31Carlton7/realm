@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel } from "./claude-adapter";
+import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, streamWindowId } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import { GATEWAY_TOOL_TIMEOUT_MS, type StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -1075,5 +1075,19 @@ describe("the sandbox wrap", () => {
     const spawn = o.spawnClaudeCodeProcess as (so: { command: string; args: string[]; env: NodeJS.ProcessEnv; signal: AbortSignal }) => unknown;
     expect(() => spawn({ command: "/bin/echo", args: [], env: process.env, signal: new AbortController().signal }))
       .toThrow(/sandbox-exec is missing/);
+  });
+});
+
+describe("streamWindowId", () => {
+  const w = (id: string) => ({ id, label: id, utilization: 10, resetsAt: null });
+  it("files the stream's overage-included window under the model bucket the control request named", () => {
+    // Taken literally the event opened a second row, "Weekly (with extra usage)", beside "Fable
+    // weekly" — one window drawn twice with two different numbers.
+    expect(streamWindowId("seven_day_overage_included", [w("five_hour"), w("model:Fable")])).toBe("model:Fable");
+  });
+  it("keeps every other id, and the type itself when no model bucket is known", () => {
+    expect(streamWindowId("five_hour", [w("model:Fable")])).toBe("five_hour");
+    expect(streamWindowId("seven_day_overage_included", [w("five_hour")])).toBe("seven_day_overage_included");
+    expect(streamWindowId(null, [])).toBeNull();
   });
 });

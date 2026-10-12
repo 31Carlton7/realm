@@ -1088,7 +1088,7 @@ export function registerMethods(d: Deps): void {
     return { ok: true as const };
   });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });
-  reg("limits.get", async () => ({ limits: d.planLimits.list() }));
+  reg("limits.get", async () => { await d.planLimits.readLocal(); return { limits: d.planLimits.list() }; });
   reg("sessions.releaseQueued", async (p) => { await d.sessions.releaseQueued(p.id, p.queuedId); return { ok: true as const }; });
   reg("sessions.holdQueued", (p) => ({ ok: true as const, held: d.sessions.holdQueued(p.id, p.queuedId, p.held) }));
   reg("sessions.editQueued", (p) => ({ edited: d.sessions.editQueued(p.id, p.queuedId, p.text, p.attachments) }));

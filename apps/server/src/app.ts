@@ -1183,7 +1183,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      ship sealed, so a Realm nobody has told a word to has nothing to show. */
   const eggs = new EggService({ settings });
   { const opened = eggs.restore(); if (opened > 0) console.log(`[eggs] ${opened} friend pack(s) unlocked`); }
-  const planLimits = new PlanLimitsService({ rpc });
+  /* Codex's own rollouts are read for its plan bars only when a real home is named: a test or live
+     check passes none, and so never reads the machine's ~/.codex. */
+  const planLimits = new PlanLimitsService({ rpc, settings,
+    codexHome: opts.codexHome ?? (opts.userHome ? join(opts.userHome, ".codex") : undefined) });
   /* Goal mode. Declared before the session service so that service can hold it, and given its own
      seam back — `deliver` goes through `sessions.send`, which is the same door a person's message
      comes through. Late-bound for the reason the machine proxy above is: the two need each other,

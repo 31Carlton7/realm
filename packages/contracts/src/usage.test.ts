@@ -4,7 +4,7 @@ import { SELECTABLE_AGENT_KINDS } from "./presets";
 import {
   DEFAULT_USAGE_BUDGET, USAGE_REPORTING, bucketNext, bucketRange, bucketStart, defaultBucketFor,
   estimateCostUsd, formatTokens, formatUsd, nextDayKey, normalizeThresholds, parseUsageBudget, skillUseName,
-  sumDeltas, thresholdsCrossed, usageDeltas, usageStreaks, type UsageSample,
+  sumDeltas, thresholdsCrossed, usageDeltas, usageSampleFromPayload, usageStreaks, type UsageSample,
 } from "./usage";
 
 const sample = (ts: number, costUsd: number, inputTokens: number, outputTokens: number, numTurns: number): UsageSample =>
@@ -36,7 +36,7 @@ describe("usageDeltas", () => {
     // with the square of the turn count: this session spent 6, not 1+3+6=10.
     const out = usageDeltas([sample(1, 1, 10, 5, 1), sample(2, 3, 30, 15, 2), sample(3, 6, 60, 30, 3)], "cumulative");
     expect(out.map((d) => d.costUsd)).toEqual([1, 2, 3]);
-    expect(sumDeltas(out)).toEqual({ costUsd: 6, inputTokens: 60, outputTokens: 30, turns: 3 });
+    expect(sumDeltas(out)).toEqual({ costUsd: 6, inputTokens: 60, outputTokens: 30, turns: 3, cacheReadTokens: 0, cacheWriteTokens: 0 });
   });
 
   it("treats a drop as a RESTART and takes the new value whole — a resumed session is not a refund", () => {
@@ -52,12 +52,12 @@ describe("usageDeltas", () => {
     // A turn that produced no output tokens leaves that field level while the others climb. Judging
     // the restart field-by-field would re-add the whole running total on that turn.
     const out = usageDeltas([sample(1, 1, 10, 5, 1), sample(2, 2, 20, 5, 2)], "cumulative");
-    expect(sumDeltas(out)).toEqual({ costUsd: 2, inputTokens: 20, outputTokens: 5, turns: 2 });
+    expect(sumDeltas(out)).toEqual({ costUsd: 2, inputTokens: 20, outputTokens: 5, turns: 2, cacheReadTokens: 0, cacheWriteTokens: 0 });
   });
 
   it("sums a per-turn series, because each event is already its own increment", () => {
     const out = usageDeltas([sample(1, 0.001, 10, 10, 1), sample(2, 0.001, 10, 10, 1)], "per-turn");
-    expect(sumDeltas(out)).toEqual({ costUsd: 0.002, inputTokens: 20, outputTokens: 20, turns: 2 });
+    expect(sumDeltas(out)).toEqual({ costUsd: 0.002, inputTokens: 20, outputTokens: 20, turns: 2, cacheReadTokens: 0, cacheWriteTokens: 0 });
   });
 
   it("reads nothing at all for an engine that reports nothing", () => {
@@ -69,7 +69,74 @@ describe("usageDeltas", () => {
   });
 });
 
+describe("usageDeltas — Claude's running-cost series", () => {
+  it("differences the cost alone, and takes each turn's tokens as they come", () => {
+    // The real shape (realm.db, 10-11): `total_cost_usd` is a running total, `usage` is per turn.
+    // The second turn used fewer tokens than the first; read as one running total that is a restart,
+    // and the whole $13.66 would be billed again on top of the first $2.78.
+    const out = usageDeltas([sample(1, 2.78, 48, 29_996, 38), sample(2, 13.66, 30, 4_641, 7)], "running-cost");
+    expect(out.map((d) => d.costUsd)).toEqual([2.78, 13.66 - 2.78]);
+    expect(sumDeltas(out).outputTokens).toBe(29_996 + 4_641);
+    expect(sumDeltas(out).turns).toBe(38 + 7);
+  });
+
+  it("counts a turn once when its usage is restated, even after the next turn has reported", () => {
+    // The adapter restates a turn's usage with the context measurement attached, after a round trip
+    // that can outlast the next turn. Against the last event alone that late copy reads as a cost
+    // DROP — a restart — and the earlier total would be billed a second time.
+    const first = sample(1, 1, 10, 100, 2);
+    const out = usageDeltas([first, sample(2, 3, 20, 200, 3), { ...first, ts: 3 }], "running-cost");
+    expect(sumDeltas(out)).toMatchObject({ costUsd: 3, outputTokens: 300, turns: 5 });
+  });
+
+  it("treats a drop in cost as a restart and takes the new cost whole", () => {
+    const out = usageDeltas([sample(1, 5, 1, 1, 1), sample(2, 1.5, 1, 1, 1)], "running-cost");
+    expect(sumDeltas(out).costUsd).toBeCloseTo(6.5, 9);
+  });
+
+  it("re-baselines without billing when a resumed process restores a slightly stale total", () => {
+    // A resume that finds a saved total continues from it; one that lands just under the last figure
+    // is that, not a process starting from zero, and billing it whole would count the session twice.
+    const out = usageDeltas([sample(1, 100, 1, 1, 1), sample(2, 98.6, 1, 2, 1), sample(3, 101, 1, 3, 1)], "running-cost");
+    expect(sumDeltas(out).costUsd).toBeCloseTo(100 + 0 + 2.4, 9);
+  });
+
+  it("differences tokens too once the event says they are running totals", () => {
+    const cum = (ts: number, cost: number, input: number, read: number, output: number): UsageSample =>
+      ({ ts, costUsd: cost, inputTokens: input, outputTokens: output, numTurns: 1, cacheReadTokens: read, cumulativeTokens: true });
+    const out = usageDeltas([cum(1, 1, 10, 1_000, 50), cum(2, 2, 15, 3_000, 80)], "running-cost");
+    expect(sumDeltas(out)).toMatchObject({ inputTokens: 15, cacheReadTokens: 3_000, outputTokens: 80, costUsd: 2 });
+  });
+});
+
+describe("usageSampleFromPayload", () => {
+  it("takes Codex's cached input out of its inclusive input count", () => {
+    const s = usageSampleFromPayload("codex", 1, { costUsd: 0, inputTokens: 39_563_487, cacheReadTokens: 38_949_888, outputTokens: 45_556, numTurns: 9 });
+    expect(s.inputTokens).toBe(613_599);
+    expect(s.cacheReadTokens).toBe(38_949_888);
+    expect(s.cacheSplit).toBeUndefined();
+  });
+
+  it("marks a Codex event with no recorded split as unsplit rather than as all uncached", () => {
+    expect(usageSampleFromPayload("codex", 1, { inputTokens: 100, outputTokens: 1, numTurns: 1 }).cacheSplit).toBe(false);
+  });
+
+  it("leaves Claude's input alone, since its cache is already reported apart", () => {
+    const s = usageSampleFromPayload("claude", 1, { costUsd: 1, inputTokens: 100, cacheReadTokens: 5_000, outputTokens: 1, numTurns: 1, cumulativeTokens: true });
+    expect(s).toMatchObject({ inputTokens: 100, cacheReadTokens: 5_000, cumulativeTokens: true });
+    expect(s.cacheSplit).toBeUndefined();
+  });
+});
+
+describe("estimateCostUsd — cached input", () => {
+  it("prices cache reads and writes at their own rates, falling back to the input rate", () => {
+    const price = { priceIn: 4, priceOut: 20, priceCacheRead: 0.4, priceCacheWrite: null };
+    expect(estimateCostUsd(0, 0, price, { read: 1_000_000, write: 1_000_000 })).toBeCloseTo(0.4 + 4, 9);
+  });
+});
+
 describe("estimateCostUsd", () => {
+
   it("prices per MILLION tokens, matching ModelInfo's already-converted unit", () => {
     expect(estimateCostUsd(1_000_000, 1_000_000, { priceIn: 3, priceOut: 15 })).toBe(18);
     expect(estimateCostUsd(500_000, 0, { priceIn: 3, priceOut: 15 })).toBe(1.5);

@@ -392,4 +392,29 @@ describe("plan limits, as Codex reports them", () => {
     const p = read({ primary: null });
     expect(p.windows.map((w) => w.id)).toEqual(["secondary"]);
   });
+
+  it("ignores a snapshot for a model-specific allowance, so it cannot overwrite the account's bars", () => {
+    // Same `primary`/`secondary` keys, different quota. Folded in by id, a Spark bucket at 3% would
+    // have replaced a weekly window at 86% — "plenty left" on the account that was nearly out.
+    const out = createCodexMapper().map("account/rateLimits/updated", { rateLimits: { ...CAPTURED.rateLimits, limitId: "codex_bengalfox", primary: { usedPercent: 3, windowDurationMins: 300, resetsAt: 1 } } });
+    expect(out).toEqual([]);
+    expect(read({ limitId: null }).windows).toHaveLength(2);
+  });
+
+  it("labels a window with no stated duration by the plan's shape: one monthly allowance on Free", () => {
+    const strip = { usedPercent: 40, resetsAt: 1 };
+    expect(read({ planType: "free", primary: strip, secondary: null }).windows[0]!.label).toBe("30-day");
+    expect(read({ planType: "plus", primary: strip, secondary: strip }).windows.map((w) => w.label)).toEqual(["5-hour", "Weekly"]);
+  });
+});
+
+describe("token usage, as Codex reports it", () => {
+  it("carries the cache split beside the inclusive input count", () => {
+    // Captured shape (docs/dev/codex-app-server-protocol.md): `inputTokens` 120 includes its own 20
+    // cached. Without the split, an estimate prices all 120 at the uncached rate.
+    const out = createCodexMapper().map("thread/tokenUsage/updated", {
+      tokenUsage: { total: { totalTokens: 154, inputTokens: 120, cachedInputTokens: 20, cacheWriteInputTokens: 0, outputTokens: 34 } },
+    });
+    expect(out[0]).toMatchObject({ type: "usage", payload: { inputTokens: 120, cacheReadTokens: 20, cacheWriteTokens: 0 } });
+  });
 });

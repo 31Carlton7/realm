@@ -1,4 +1,4 @@
-import { sessionEvent, windowLabelForMinutes, type SessionEvent } from "@realm/contracts";
+import { sessionEvent, windowLabelForMinutes, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { obj, str, type Bag } from "../bag";
 
 const num = (v: unknown): number => (typeof v === "number" ? v : 0);
@@ -248,7 +248,11 @@ export function createCodexMapper() {
           // part (the protocol capture's 120 includes its own 20 cached), so nothing is added to it.
           const resident = num(obj(usage.last).inputTokens);
           const window = num(usage.modelContextWindow);
+          // The cache split rides along: Codex's `inputTokens` INCLUDES the cached part, and a long
+          // thread is nearly all cache, so an estimate that cannot see it prices the whole prompt at
+          // the uncached rate — roughly eight times what a 98%-cached session costs.
           return [sessionEvent("usage", { costUsd: 0, inputTokens: num(total.inputTokens), outputTokens: num(total.outputTokens), numTurns,
+            cacheReadTokens: num(total.cachedInputTokens), cacheWriteTokens: num(total.cacheWriteInputTokens),
             ...(resident > 0 && window > 0 ? { contextTokens: resident, contextWindow: window } : {}),
             // The fifth fact off the same sample, the way Claude's result carries `fast_mode_state`:
             // present only once Codex has named a tier at all. Codex has no reason codes — a tier it
@@ -256,49 +260,10 @@ export function createCodexMapper() {
             ...(serviceTier === undefined ? {} : { fastMode: serviceTier === "priority" ? "on" as const : "off" as const }) })];
         }
 
-        /**
-         * The account's plan quota. Captured live from codex-cli 0.154.0 — see
-         * docs/dev/codex-app-server-protocol.md §3 for the verbatim payload.
-         *
-         * Three things about the real shape that the code has to respect:
-         *
-         *  - `resetsAt` is epoch SECONDS here, where Claude's stream reports milliseconds. Multiplied
-         *    once, at the edge, so everything above this line holds one unit.
-         *  - `primary` / `secondary` are POSITIONS, not durations. The duration lives beside them in
-         *    `windowDurationMins` (300 and 10080 as measured), so the label is read off that — which
-         *    is what makes Codex's two windows line up with the 5-hour and weekly ones Claude names.
-         *  - `planType` was the literal string `"unknown"` on a live ChatGPT account, not a tier. It
-         *    is only carried through when it says something, so the card reads "plan not reported"
-         *    rather than "Codex Unknown".
-         *
-         * `rateLimitReachedType` is the only status Codex offers, and it reports a limit ALREADY hit.
-         * There is no approaching-the-limit signal on this wire, so `alert` never becomes
-         * "approaching" for Codex — see PLAN_LIMIT_REPORTING's `warns: false`.
-         */
+        /** The account's plan quota, captured live from codex-cli 0.154.0 — `codexRateLimitsReading`. */
         case "account/rateLimits/updated": {
-          const limits = obj(p.rateLimits);
-          const windows = (["primary", "secondary"] as const).flatMap((slot) => {
-            const w = obj(limits[slot]);
-            if (typeof w.usedPercent !== "number") return [];
-            return [{
-              id: slot,
-              label: windowLabelForMinutes(num(w.windowDurationMins)),
-              utilization: w.usedPercent,
-              resetsAt: typeof w.resetsAt === "number" ? w.resetsAt * 1000 : null,
-            }];
-          });
-          const reached = str(limits.rateLimitReachedType) || null;
-          const planType = str(limits.planType);
-          return [sessionEvent("rate_limit", {
-            subscriptionType: planType && planType !== "unknown" ? planType : null,
-            organization: null,
-            windows,
-            alert: reached ? "exceeded" : "none",
-            // The slot Codex names, when it names one, so the row it belongs to is the row that tones.
-            alertWindow: reached === "primary" || reached === "secondary" ? reached : null,
-            unavailable: null,
-            detail: reached,
-          })];
+          const reading = codexRateLimitsReading(obj(p.rateLimits));
+          return reading ? [sessionEvent("rate_limit", reading)] : [];
         }
 
         case "thread/settings/updated": {
@@ -324,5 +289,60 @@ export function createCodexMapper() {
       openTools.clear();
       return out;
     },
+  };
+}
+
+/**
+ * One Codex rate-limit snapshot as a `rate_limit` reading, or null for a snapshot about some other
+ * allowance. Shared by the app-server notification and the rollout files Codex writes to disk, which
+ * carry the same snapshot — see docs/dev/codex-app-server-protocol.md §3 for the verbatim payload.
+ *
+ * Three things about the real shape that the code has to respect:
+ *
+ *  - `resetsAt` is epoch SECONDS here, where Claude's stream reports milliseconds. Multiplied
+ *    once, at the edge, so everything above this line holds one unit.
+ *  - `primary` / `secondary` are POSITIONS, not durations. The duration lives beside them in
+ *    `windowDurationMins` (300 and 10080 as measured), so the label is read off that — which
+ *    is what makes Codex's two windows line up with the 5-hour and weekly ones Claude names.
+ *  - `planType` was the literal string `"unknown"` on a live ChatGPT account, not a tier. It
+ *    is only carried through when it says something, so the card reads "plan not reported"
+ *    rather than "Codex Unknown".
+ *
+ * `rateLimitReachedType` is the only status Codex offers, and it reports a limit ALREADY hit.
+ * There is no approaching-the-limit signal on this wire, so `alert` never becomes
+ * "approaching" for Codex — see PLAN_LIMIT_REPORTING's `warns: false`.
+ */
+export function codexRateLimitsReading(limits: Record<string, unknown>): SessionEventPayload<"rate_limit"> | null {
+  // A snapshot for a model-specific allowance (`limitId` other than "codex" — a Spark bucket,
+  // say) describes a different quota with the SAME `primary`/`secondary` keys. Folded in by
+  // id it overwrote the account's own 5-hour and weekly bars with a model nobody was using.
+  // Older builds send no `limitId`; their one snapshot is the account's.
+  const limitId = str(limits.limitId);
+  if (limitId && limitId !== "codex") return null;
+  const planType = str(limits.planType);
+  const windows = (["primary", "secondary"] as const).flatMap((slot) => {
+    const w = obj(limits[slot]);
+    if (typeof w.usedPercent !== "number") return [];
+    // The duration is beside the window on every build measured. Without it, paid plans have
+    // the 5-hour and weekly pair, and Free and Go a single monthly allowance in `primary`.
+    const mins = num(w.windowDurationMins)
+      || (slot === "secondary" ? 10080 : planType === "free" || planType === "go" ? 43200 : 300);
+    return [{
+      id: slot,
+      label: windowLabelForMinutes(mins),
+      utilization: w.usedPercent,
+      resetsAt: typeof w.resetsAt === "number" ? w.resetsAt * 1000 : null,
+    }];
+  });
+  const reached = str(limits.rateLimitReachedType) || null;
+  return {
+    subscriptionType: planType && planType !== "unknown" ? planType : null,
+    organization: null,
+    windows,
+    alert: reached ? "exceeded" : "none",
+    // The slot Codex names, when it names one, so the row it belongs to is the row that tones.
+    alertWindow: reached === "primary" || reached === "secondary" ? reached : null,
+    unavailable: null,
+    detail: reached,
   };
 }

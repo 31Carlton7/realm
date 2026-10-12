@@ -182,6 +182,17 @@ const P = {
    * reader with no value draws no context meter.
    */
   usage: z.object({ costUsd: z.number(), inputTokens: z.number(), outputTokens: z.number(), numTurns: z.number(),
+    /**
+     * Cached input, read and written. Claude's are disjoint from `inputTokens` (Anthropic's split);
+     * Codex's read count sits INSIDE its `inputTokens` (OpenAI's) — `usageSampleFromPayload` puts both
+     * in one vocabulary. Absent on events from before they were recorded, which is why a Codex event
+     * without one cannot be priced as if its input were all uncached.
+     */
+    cacheReadTokens: z.number().optional(),
+    cacheWriteTokens: z.number().optional(),
+    /** Claude only: the token fields are the query's RUNNING TOTALS across every model it called,
+     *  sub-agents included (the result's `modelUsage`), rather than the turn's main loop alone. */
+    cumulativeTokens: z.boolean().optional(),
     contextTokens: z.number().optional(),
     contextWindow: z.number().optional(),
     /**
