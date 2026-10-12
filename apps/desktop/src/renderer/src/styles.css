@@ -3448,7 +3448,7 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 }
 /* A few pings, then the steady halo. A ring pinging for as long as a turn runs kept the window
    producing a frame every vsync for minutes — 120 frames a second composited for a 13px circle, about
-   ten points of CPU on its own (PERF.md B2). The pings are what catches the eye when a state begins;
+   ten points of CPU on its own (the 2026-10-12 power audit). The pings are what catches the eye when a state begins;
    once it has been seen the halo says the same thing standing still, as it does under Reduce motion.
    The ring comes back with its pings whenever it is drawn again: a status that changes, or a window
    coming back from quiet (which takes the ring away, below). The halo fades in from the last ping's
@@ -4365,7 +4365,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    Driven by data-working — the group's own unsettled steps — never by a demo clock.
    Three sweeps, then the words rest in the quiet ink. A sweep moves `background-position`, which no
    compositor can take, so for as long as it ran the window laid out and painted every vsync — 41% of
-   the CPU with nothing else moving, against 8% at rest (PERF.md B2). The sweep is what says a thing
+   the CPU with nothing else moving, against 8% at rest (the 2026-10-12 power audit). The sweep is what says a thing
    just started working; the words and the status dot keep saying it after. Each start sweeps again:
    a label that is drawn anew (the next step, the next "Thinking…") starts its own three. `forwards`
    holds the last frame, where the bright band has left the box — without it the box would fall back

@@ -11,7 +11,7 @@ export const IDLE_AFTER_MS = 30_000;
  *
  * A focused window is not a watched one. Realm sits in front for hours while its person reads, thinks
  * or looks at another screen, and every loop on it — the orb beside a tool in flight costs about five
- * points of CPU each (PERF.md B2) — ran the whole time. One timer per window, re-armed only when it
+ * points of CPU each (the 2026-10-12 power audit) — ran the whole time. One timer per window, re-armed only when it
  * fires, so a pointer moving across the window costs a timestamp and nothing else.
  */
 export function useIdle(watching: boolean, after = IDLE_AFTER_MS): boolean {

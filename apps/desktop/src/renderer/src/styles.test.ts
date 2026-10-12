@@ -494,7 +494,7 @@ describe("§6 motion table", () => {
     const ring = bodiesFor('.status-dot[data-status="running"]::after').join(" ");
     expect(ring).toContain("animation: rl-ping var(--ring-rate)");
     // A few pings, then the steady halo, faded in from the last ping's end: a ring that pings for the
-    // whole turn keeps the window producing a frame every vsync for minutes (PERF.md B2).
+    // whole turn keeps the window producing a frame every vsync for minutes (the 2026-10-12 power audit).
     expect(ring).not.toContain("infinite");
     expect(ring).toContain("var(--ring-pings)");
     expect(ring).toContain("rl-halo-in var(--dur-slow) var(--ease-fade) calc(var(--ring-rate) * var(--ring-pings)) forwards");
@@ -1670,7 +1670,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
 
   it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, a quiet lead glyph", () => {
     const shimmer = bodiesFor('.tool-group[data-working] .tool-group-summary').join(" ");
-    // Three sweeps, then still on the last frame: a sweep repaints every vsync (PERF.md B2).
+    // Three sweeps, then still on the last frame: a sweep repaints every vsync (the 2026-10-12 power audit).
     expect(shimmer).toContain("animation: shimmer-text 1.4s linear 3 forwards");
     expect(shimmer).toContain("background-clip: text");
     // BUI's trace rail is a solid hairline; the old dashed connector is gone.
@@ -1926,7 +1926,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
        `rl-fade-in` — starts at `opacity: 0`, so freezing one at its first frame leaves the thing
        invisible for as long as the window stays unfocused; a transcript an agent was talking into
        went blank. So every selector the quiet rules pause must name an animation that never ends —
-       or the shimmer, which ends on purpose (three sweeps, PERF.md B2) and has no invisible frame:
+       or the shimmer, which ends on purpose (three sweeps, the 2026-10-12 power audit) and has no invisible frame:
        paused mid-sweep it is the words with the band standing on them. */
     const shimmer = new Set(RULES.find((r) => r.selectors.includes(".shimmer-text"))!.selectors);
     for (const part of paused.flatMap(partsOf)) {
