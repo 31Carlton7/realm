@@ -71,6 +71,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *   - `record_list` — the team's record files, by name;
  *   - `record_types` — the kinds of record the team keeps: folders, fields and sections;
  *   - `review_status` — where this session's submissions to Review stand;
+ *   - `policy_read` — the team's policies in the Policies page's words; it writes nothing;
  *   - `memory_index`, `memory_read`, `memory_search` — the memory repo, which refuses a secret's shape
  *     on every write;
  *   - `goal_status` — the session's goal, turns and budget;
@@ -99,6 +100,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-team__record_list": read,
   "realm-team__record_types": read,
   "realm-team__review_status": read,
+  "realm-team__policy_read": read,
   "realm-memory__memory_index": read,
   "realm-memory__memory_read": read,
   "realm-memory__memory_search": read,
@@ -323,38 +325,3 @@ function derivedClass(t: ToolToClass): ToolClass {
   }
   return { ...base, class: "irreversible-external", source: "unclassified" };
 }
-
-/* ─────────────────────────────── the Policies page ─────────────────────────────── */
-
-export const TeamPolicyToolSchema = z.object({
-  tool: z.string(),
-  class: RiskClassSchema,
-  source: RiskSourceSchema,
-  verb: z.string(),
-  floor: z.string().nullable(),
-  overrideIgnored: z.boolean(),
-  asksFirst: z.string().nullable(),
-  /** What a role's call does today with no policy in force: true when the engine asks first. */
-  asksToday: z.boolean(),
-});
-export type TeamPolicyTool = z.infer<typeof TeamPolicyToolSchema>;
-
-export const TeamPolicyConnectorSchema = z.object({
-  /** `realm:<provider>` or `mcp:<server row id>`. */
-  connector: z.string(),
-  kind: z.enum(["realm", "server"]),
-  /** What the person calls it: "Realm", "Linear", or a server row's own name. */
-  name: z.string(),
-  /** A brand mark for a connector Realm offers; null otherwise. */
-  icon: z.string().nullable(),
-  /** False when the server could not be reached to list its tools just now. */
-  reached: z.boolean(),
-  tools: z.array(TeamPolicyToolSchema),
-});
-export type TeamPolicyConnector = z.infer<typeof TeamPolicyConnectorSchema>;
-
-export const TeamPoliciesSchema = z.object({
-  spaceId: z.string(),
-  connectors: z.array(TeamPolicyConnectorSchema),
-});
-export type TeamPolicies = z.infer<typeof TeamPoliciesSchema>;
