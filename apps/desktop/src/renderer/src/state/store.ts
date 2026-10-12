@@ -4143,6 +4143,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Same reason, same place: a preference naming a downloaded family needs its `@font-face` in
         // the document before the first paint that reads `--font-ui`.
         await get().refreshFonts().catch(() => {});
+        /* The friend packs this Realm has the words for. At boot rather than when Settings opens,
+           because the transcript's labels and greetings read them too. Not a dependency of boot. */
+        void get().refreshEggPacks().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
         /* Which profile this window shows. The bound one first — a window opened for a profile is that

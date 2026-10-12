@@ -862,7 +862,11 @@ export function registerMethods(d: Deps): void {
        remembered in the clear — see `eggSecretBox.seal` for why that is the right trade here and
        the wrong one for a machine password. */
     void d.browserBridge.call("eggsKey", {})
-      .then((r) => { eggSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); })
+      .then((r) => {
+        eggSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null);
+        // Boot's restore ran before this key existed, so the sealed words are opened now.
+        if (d.eggs.restore() > 0) rpc.broadcast("eggs.changed", {});
+      })
       .catch(() => {});
     return { ok: true as const };
   });

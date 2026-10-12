@@ -1999,6 +1999,9 @@ export const Events = {
   "themes.changed":   z.object({}),
   /** A font family was installed or removed. */
   "fonts.changed":    z.object({}),
+  /** The friend packs that are open changed without anybody unlocking one — the desktop app handed
+   *  over the key the remembered words are sealed under, after boot had tried them without it. */
+  "eggs.changed":     z.object({}),
   /** The picture on the page about you changed — chosen, replaced or removed. Carries the new path
    *  (or null) so every window shows the same face without a re-read. */
   "avatar.changed":   z.object({ path: z.string().nullable() }),
