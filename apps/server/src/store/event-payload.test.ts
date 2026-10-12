@@ -172,6 +172,17 @@ describe("PayloadCompactor", () => {
     expect(textsNow(db)).toEqual(texts);
   });
 
+  it("rolls the whole batch back, cursor and all, when a row reads back different", () => {
+    const { db, texts } = oldLog(4);
+    // Something between the write and the read-back changes the third long row.
+    db.exec(`CREATE TRIGGER garble AFTER UPDATE OF payload_json ON session_events WHEN NEW.seq = 5
+      BEGIN UPDATE session_events SET payload_json = '{"garbled":true}' WHERE seq = NEW.seq; END;`);
+    expect(() => new PayloadCompactor({ db }).step()).toThrow(/payload 5 read back different/);
+    expect(blobCount(db)).toBe(0);
+    expect(textsNow(db)).toEqual(texts);
+    expect(cursor(db)).toBe(0);
+  });
+
   it("bounds a batch by its seq window and by its byte budget", () => {
     const { db, session } = fresh();
     for (let i = 0; i < COMPACTION_SEQ_WINDOW + 5; i++) writePlain(db, session.id, sessionEvent("status", { status: "idle" }, i));
