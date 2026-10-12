@@ -1,4 +1,6 @@
 import { clipboard, Menu, shell, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from "electron";
+import type { LinksOpenIn } from "@realm/contracts";
+import { isWebLink } from "./link-open";
 
 /** The slice of Chromium's context-menu params the menu is built from. */
 export type TextMenuParams = Pick<ContextMenuParams,
@@ -11,6 +13,9 @@ export type TextMenuActions = {
   openLink(url: string): void;
   copyLink(url: string): void;
   copyImageAt(x: number, y: number): void;
+  /** Present for a Realm window, where a web link can also open in a Realm Browser tab. `linksOpenIn`
+   *  is Settings ▸ General ▸ Links, whose choice the menu lists first. */
+  realmBrowser?: { open(url: string): void; linksOpenIn: LinksOpenIn };
   /** Present for a web page (a browser pane), where right-clicking empty page is how you go back. */
   navigation?: { canGoBack: boolean; canGoForward: boolean; back(): void; forward(): void; reload(): void };
 };
@@ -48,10 +53,13 @@ export function textMenuTemplate(p: TextMenuParams, act: TextMenuActions): MenuI
     groups.push([{ label: `Look Up “${shown}”`, click: () => act.lookUp() }]);
   }
   if (/^(https?|mailto):/i.test(p.linkURL)) {
-    groups.push([
-      { label: "Open Link in Default Browser", click: () => act.openLink(p.linkURL) },
-      { label: "Copy Link", click: () => act.copyLink(p.linkURL) },
-    ]);
+    const inDefault: MenuItemConstructorOptions = { label: "Open Link in Default Browser", click: () => act.openLink(p.linkURL) };
+    const realm = act.realmBrowser;
+    const opens = realm && isWebLink(p.linkURL)
+      ? [inDefault, { label: "Open Link in Realm Browser", click: () => realm.open(p.linkURL) }]
+      : [inDefault];
+    if (realm?.linksOpenIn === "realm") opens.reverse();
+    groups.push([...opens, { label: "Copy Link", click: () => act.copyLink(p.linkURL) }]);
   }
   if (p.mediaType === "image") groups.push([{ label: "Copy Image", click: () => act.copyImageAt(p.x, p.y) }]);
   if (p.isEditable) {
@@ -78,8 +86,11 @@ export function textMenuTemplate(p: TextMenuParams, act: TextMenuActions): MenuI
 }
 
 /** Give a webContents the text menu. `page` marks a browser pane, which adds Back/Forward/Reload
- *  for a right-click on nothing in particular, as every browser does. */
-export function attachTextContextMenu(wc: WebContents, { page = false }: { page?: boolean } = {}): void {
+ *  for a right-click on nothing in particular, as every browser does. `realmBrowser` is a Realm
+ *  window's, read at each right-click so the menu follows the setting as it changes. */
+export function attachTextContextMenu(wc: WebContents, { page = false, realmBrowser }: {
+  page?: boolean; realmBrowser?: () => NonNullable<TextMenuActions["realmBrowser"]>;
+} = {}): void {
   wc.on("context-menu", (_e, params) => {
     const template = textMenuTemplate(params, {
       replaceMisspelling: (w) => wc.replaceMisspelling(w),
@@ -88,6 +99,7 @@ export function attachTextContextMenu(wc: WebContents, { page = false }: { page?
       openLink: (url) => void shell.openExternal(url),
       copyLink: (url) => clipboard.writeText(url),
       copyImageAt: (x, y) => wc.copyImageAt(x, y),
+      ...(realmBrowser ? { realmBrowser: realmBrowser() } : {}),
       ...(page ? {
         navigation: {
           canGoBack: wc.navigationHistory.canGoBack(), canGoForward: wc.navigationHistory.canGoForward(),

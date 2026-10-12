@@ -1,4 +1,4 @@
-import { AGENT_CLI_COMMANDS, AGENT_META, SELECTABLE_AGENT_KINDS, pickSpaceColor, type AgentKind } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, SYSTEM_BROWSER_FRAME, AGENT_META, SELECTABLE_AGENT_KINDS, pickSpaceColor, type AgentKind } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FALLBACK_AGENT, folderName, useApp } from "../state/store";
@@ -266,7 +266,7 @@ function AgentCard({ kind, selected, onPick }: { kind: LeadAgent; selected: bool
         )}
         <span className="agent-card-actions">
           {live.url && (
-            <button type="button" className="btn-quiet" onClick={() => window.open(live.url!, "_blank")}>Open the page again</button>
+            <button type="button" className="btn-quiet" onClick={() => window.open(live.url!, SYSTEM_BROWSER_FRAME)}>Open the page again</button>
           )}
           <button type="button" className="btn-quiet" onClick={() => run(() => cancelAgentSignIn(kind))}>Cancel</button>
         </span>

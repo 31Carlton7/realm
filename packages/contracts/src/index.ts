@@ -63,6 +63,7 @@ export * from "./caret";
 export * from "./motion";
 export * from "./power";
 export * from "./editors";
+export * from "./link-open";
 export * from "./terminals";
 export * from "./terminal-programs";
 export * from "./schedules";

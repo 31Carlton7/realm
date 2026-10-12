@@ -1,4 +1,4 @@
-import { MCP_SECRET_STORAGE_NOTE, McpServerNameSchema, mcpSupportNote, type AgentKind, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { MCP_SECRET_STORAGE_NOTE, SYSTEM_BROWSER_FRAME, McpServerNameSchema, mcpSupportNote, type AgentKind, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { useEffect, useState, type FormEvent } from "react";
 import { Icon } from "@realm/ui";
 import { useApp, type McpTestResult } from "../../state/store";
@@ -522,9 +522,10 @@ function McpOauthControls({ server }: { server: McpServer }) {
 
   const connect = () => run(async () => {
     const { authUrl } = await startMcpOauth(server.id);
-    // The renderer opens it; main's window-open handler routes http(s) to the system browser
-    // (apps/desktop/src/main/index.ts's setWindowOpenHandler) rather than navigating the app itself.
-    window.open(authUrl, "_blank");
+    // The renderer opens it; main's window-open handler routes it to the system browser
+    // (apps/desktop/src/main/index.ts's setWindowOpenHandler), by name, whatever Settings says links
+    // open in: a sign-in wants the cookies the person's own browser keeps.
+    window.open(authUrl, SYSTEM_BROWSER_FRAME);
   });
 
   if (server.authKind !== "oauth") {
