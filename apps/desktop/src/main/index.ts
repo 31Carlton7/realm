@@ -52,6 +52,7 @@ import { PolicyPresses } from "./policy-presses";
 import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-owner";
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
+import { liveScratch } from "./live-scratch";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -452,7 +453,9 @@ async function createWindow(info: { port: number; home: string; token: string },
   const place = restoredBounds(savedWindow,
     [primary.workArea, ...screen.getAllDisplays().filter((d) => d.id !== primary.id).map((d) => d.workArea)],
     { width: 1400, height: 900, minWidth: 900, minHeight: 600 });
+  const scratch = liveScratch({ packaged: app.isPackaged, env: process.env });
   const win = new BrowserWindow({
+    ...scratch?.windowOptions,
     ...(place.center ? { width: place.width, height: place.height, center: true }
       : { x: place.x, y: place.y, width: place.width, height: place.height }),
     minWidth: 900, minHeight: 600,
@@ -481,7 +484,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   // The title is the profile's name — what the Window menu, Mission Control and the Dock list the
   // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
   win.on("page-title-updated", (e) => e.preventDefault());
-  if (profileId !== null) win.setTitle(profileDirectory.get(profileId)?.name ?? "Realm");
+  if (profileId !== null && !scratch) win.setTitle(profileDirectory.get(profileId)?.name ?? "Realm");
   // Every link in the app reaches main as a window request (they are all target="_blank"): denied as
   // a window, and opened where Settings ▸ General ▸ Links says — the default browser, or a Realm
   // Browser tab the renderer makes beside the session.
@@ -509,6 +512,12 @@ async function createWindow(info: { port: number; home: string; token: string },
   pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
+  if (scratch) {
+    win.setIgnoreMouseEvents(true);
+    win.webContents.on("did-finish-load", () => void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {}));
+    void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {});
+    win.showInactive();
+  }
   if (savedWindow?.fullScreen) win.setFullScreen(true);
   else if (savedWindow?.maximized) win.maximize();
   trackWindowState(win, windowStateFile);
