@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .composer-queue-item .queue-position, .composer-queue-item .queue-attach, .terminal-dock-title,
-.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code,
+.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
 .subagent-where[data-branch] {
   letter-spacing: normal;
@@ -2753,7 +2753,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    left-aligned column at a reading measure, set a little above the middle of the pane — the address
    that failed is already in the bar above it. Scrolls in a pane too short to hold it. Content, not
    chrome: the code and the reason can be selected and copied. */
-.browser-error { position: absolute; inset: 0; overflow-y: auto; display: flex; --fade-top-h: 24px; --fade-h: 28px; }
+.browser-error { position: absolute; inset: 0; overflow-y: auto; display: flex; --fade-top-h: 24px; --fade-h: 28px; container-type: inline-size; }
 .browser-error-body { margin: auto; width: min(480px, 100%); padding: 32px 24px 12%; display: flex; flex-direction: column; align-items: flex-start;
   animation: rl-error-in var(--dur-enter) var(--ease-fade); }
 @keyframes rl-error-in { from { opacity: 0; } to { opacity: 1; } }
@@ -2766,6 +2766,20 @@ button.panel-title:hover { background: var(--rl-hover); }
 /* Mono, because it is machine state; the quiet tier, because it is for whoever wants to look it up. */
 .browser-error-code { margin: 16px 0 0; font: 12px/16px var(--font-mono); color: var(--rl-text-faint); }
 .browser-error-reload { margin-top: 24px; }
+/* The runner under Reload (RunnerGame): the full column's width, its canvas on the pane's own ground
+   (the sky is left clear), a quiet line over it while it is not running, and one row under it — Play,
+   the score, and Sound. Reload keeps the only filled button. Wider than the text's measure when the
+   pane has room — a runner sees further on a wider pane — centred under it. */
+.browser-runner { margin-top: 32px; width: min(720px, 100cqw - 48px); align-self: center; }
+.browser-runner-stage { position: relative; }
+.browser-runner-canvas { display: block; width: 100%; height: 176px; border-radius: var(--r-ctl); touch-action: manipulation; }
+.browser-runner-canvas:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
+.browser-runner-note { position: absolute; top: 12px; left: 0; right: 0; margin: 0; text-align: center; font-size: 13px; line-height: 16px;
+  color: var(--rl-text-dim); pointer-events: none; }
+.browser-runner-bar { margin-top: 12px; display: flex; align-items: center; gap: 12px; }
+.browser-runner-score { flex: 1; margin: 0; display: flex; gap: 12px; font: 12px/16px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rl-text-dim); }
+.browser-runner-best { color: var(--rl-text-faint); }
+.browser-runner-sound[aria-pressed="false"] { color: var(--rl-text-dim); }
 /* The first page on its way (BrowserConnecting): the mark, small, in the middle of the ground — held
    back 600ms, a threshold rather than a rung (styles.test.ts names it), so that a page which answers
    at once never shows it and the wait has to be one a person would notice before it says anything. */

@@ -17,7 +17,7 @@ export const RUN = {
   accel: 6,
   /** Downward pull, px/s², and what is left of it while a held jump is still rising. */
   gravity: 1700,
-  holdGravity: 0.3,
+  holdGravity: 0.4,
   /** How long a held jump keeps the lighter pull. */
   holdMax: 0.32,
   /** Take-off speed, and the bounce off a popped critter. */

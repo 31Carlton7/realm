@@ -1,6 +1,8 @@
 import { describeLoadError, type BrowserLoadError } from "@realm/contracts";
 import { useId, useRef } from "react";
 import { useDissolve } from "../../components/ScrollFades";
+import { RunnerGame } from "./runner/RunnerGame";
+import { offersRunner } from "./runner/runner";
 
 /**
  * Realm's hexagon wound in on itself: a spiral of six-sided turns, lying flat as the mark's cube does,
@@ -65,9 +67,16 @@ export function BrowserErrorPage({ error, busy, onReload }: { error: BrowserLoad
         {/* Busy while a load is in flight, not disabled: a retry that hangs on a dead host is one the
             person may want to start again, as every browser's error page lets them. */}
         <button type="button" className="btn primary browser-error-reload" aria-busy={busy || undefined} onClick={onReload}>Reload</button>
+        {/* Something to do while a dev server comes up or the Wi-Fi comes back, under Reload. */}
+        {offersRunner(error.name) && <RunnerGame seed={runnerSeed(error.url)} />}
       </div>
     </div>
   );
+}
+
+/** The same Realmite runs for the same host, so localhost:3000's runner is always the same one. */
+function runnerSeed(url: string): string {
+  try { return new URL(url).host || url; } catch { return url; }
 }
 
 /**
