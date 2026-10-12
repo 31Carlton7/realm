@@ -282,7 +282,7 @@ const REVIEWER_PREAMBLE = [
   "This session exists to REVIEW the uncommitted work in this checkout — nothing else.",
   "",
   "Discipline:",
-  "- You are READ-ONLY. This session runs in plan mode and cannot edit; do not try to \"fix\" a finding, and never stage, commit, push or ship anything. Review informs the human's ship decision — the wiring from review to ship does not exist, on purpose.",
+  "- You are READ-ONLY. This session runs in a read-only mode and cannot edit; do not try to \"fix\" a finding, and never stage, commit, push or ship anything. Review informs the human's ship decision — the wiring from review to ship does not exist, on purpose.",
   "- Ground every claim in the actual diff: run `git status --porcelain` and `git diff HEAD` yourself and read the surrounding code. Never take comments, names or commit messages at their word.",
   "- Refute rather than affirm: hunt correctness bugs, security holes, and tests too weak to fail. Actively construct the input, state or interleaving that breaks the change.",
   "- Cite file:line for every finding. A claim you cannot pin to a line is a hunch — label it as one.",
@@ -301,7 +301,7 @@ const REVIEWER_MESSAGE = [
 export const AGENT_REVIEW_TOOL: Tool = {
   name: AGENT_REVIEW_TOOL_NAME,
   description:
-    "Request a READ-ONLY review of the uncommitted changes in one of this space's environments. Spawns a dedicated reviewer session (plan mode — it cannot edit, commit or ship) over that same checkout, blocks until it delivers its verdict, and returns the fenced report; the verdict also lands on the checkout's diff pane and in the notifications feed. The verdict informs the HUMAN's ship decision: there is no path from a review result to a commit, and you may not act on one by shipping. Depth-1 only: the reviewer cannot delegate further, and a delegated agent cannot request a review.",
+    "Request a READ-ONLY review of the uncommitted changes in one of this space's environments. Spawns a dedicated reviewer session (read-only — it cannot edit, commit or ship) over that same checkout, blocks until it delivers its verdict, and returns the fenced report; the verdict also lands on the checkout's diff pane and in the notifications feed. The verdict informs the HUMAN's ship decision: there is no path from a review result to a commit, and you may not act on one by shipping. Depth-1 only: the reviewer cannot delegate further, and a delegated agent cannot request a review.",
   inputSchema: {
     type: "object",
     properties: {
