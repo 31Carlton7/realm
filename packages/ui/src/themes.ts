@@ -276,6 +276,7 @@ export const THEME_VARS = [
   "--ink", "--ink-2", "--ink-3",
   "--accent", "--accent-ink", "--accent-tint", "--rl-accent-contrast",
   "--accent-fill", "--accent-fill-hover", "--accent-fill-press",
+  "--danger-fill", "--danger-fill-hover", "--danger-fill-press", "--rl-danger-contrast",
   "--green", "--green-tint", "--orange", "--orange-tint", "--red", "--red-tint",
   "--tooltip-bg", "--tooltip-fg", "--tooltip-muted", "--tooltip-border",
   "--chart-surface",
@@ -333,7 +334,10 @@ export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = 
    *  (`accentFill`), so a button's label can never cost the theme its own blue. */
   const seedAccent = hexToOklch(seed.accent);
   const accent = lift(seedAccent, surface, CONTRAST_FLOOR.chrome);
-  const filled = accentFill(seedAccent, { dark: luminance(ink) < luminance(bg) ? ink : bg });
+  const darkPole = luminance(ink) < luminance(bg) ? ink : bg;
+  const filled = accentFill(seedAccent, { dark: darkPole });
+  /** A destructive button is the same problem in red: white on Realm's dark red is 3.4 : 1. */
+  const danger = accentFill(hexToOklch(seed.red), { dark: darkPole });
 
   /** The eight `--series-*` are a dataviz palette with a documented ΔE and contrast guarantee against
    *  a ground of a specific lightness (tokens.css), so they are NOT themed — a hue swapped for taste
@@ -379,6 +383,10 @@ export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = 
     "--accent-fill": css(filled.fill),
     "--accent-fill-hover": css(filled.hover),
     "--accent-fill-press": css(filled.press),
+    "--danger-fill": css(danger.fill),
+    "--danger-fill-hover": css(danger.hover),
+    "--danger-fill-press": css(danger.press),
+    "--rl-danger-contrast": css(danger.label),
 
     "--green": css(green),
     "--green-tint": tint(green),
@@ -446,6 +454,9 @@ export function contrastMisses(seed: ThemeSeed, mode: Mode, contrastLevel: numbe
   check("Link text", "--accent-ink", ["--surface"], CONTRAST_FLOOR.accentInk);
   for (const fill of ["--accent-fill", "--accent-fill-hover", "--accent-fill-press"]) {
     check("Button label", "--rl-accent-contrast", [fill], CONTRAST_FLOOR.onAccent);
+  }
+  for (const fill of ["--danger-fill", "--danger-fill-hover", "--danger-fill-press"]) {
+    check("Destructive button label", "--rl-danger-contrast", [fill], CONTRAST_FLOOR.onAccent);
   }
   for (const token of THEME_VARS.filter((t) => t.startsWith("--syn-"))) {
     check(`Code (${token.slice(6)})`, token, ["--surface"], CONTRAST_FLOOR.syntax);

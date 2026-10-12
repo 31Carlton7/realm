@@ -176,6 +176,11 @@ const BOARD = `
     <button class="btn primary" data-k="primary-disabled" disabled>Disabled</button>
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+    <button class="btn destructive" data-k="destructive">Delete</button>
+    <button class="btn destructive" data-k="destructive-hover">Hover</button>
+    <button class="btn destructive" data-k="destructive-pressed" data-pressed>Pressed</button>
+  </div>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
     <button class="plan-approve" data-k="plan-approve" style="padding:6px 12px; border-radius:var(--r-ctl); font-size:13px">Approve plan</button>
     <button class="machine-primary" data-k="machine-primary">Connect</button>
     <button class="sim-primary" data-k="sim-primary">Download for Mac</button>
@@ -220,9 +225,11 @@ async function face(c, name) {
   // The board, over the session.
   await evalIn(c, `(() => { document.body.insertAdjacentHTML("beforeend", ${JSON.stringify(BOARD)}); return true; })()`);
   await forceHover(c, '.contrast-board [data-k="primary-hover"]');
+  await forceHover(c, '.contrast-board [data-k="destructive-hover"]');
   await sleep(500);
   const board = await shot(c, `${name}-board`);
-  for (const k of ["primary", "primary-hover", "primary-pressed", "plan-approve", "machine-primary", "sim-primary", "new-msgs-pill", "drive-frame-label"]) {
+  for (const k of ["primary", "primary-hover", "primary-pressed", "plan-approve", "machine-primary", "sim-primary", "new-msgs-pill", "drive-frame-label",
+    "destructive", "destructive-hover", "destructive-pressed"]) {
     const m = await measure(c, board, `.contrast-board [data-k="${k}"]`);
     if (m) rows.push({ face: name, control: k, ...m });
   }

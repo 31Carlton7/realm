@@ -82,6 +82,11 @@
      press: darker, the control pushed into the page. */
   --rl-accent-fill-hover: var(--accent-fill-hover);
   --rl-accent-press: var(--accent-fill-press);
+  /* The destructive fill, the same treatment in red: white on Realm's dark red read 3.4 : 1. */
+  --rl-danger-contrast: oklch(1 0 0);
+  --rl-danger-fill: var(--danger-fill);
+  --rl-danger-fill-hover: var(--danger-fill-hover);
+  --rl-danger-press: var(--danger-fill-press);
   --rl-space: #7c6cff;                           /* runtime: applyTheme() overwrites per space */
   /* type (Ara §1 revised): Inter is the UI face (BUI layout.tsx stacks); JetBrains Mono
      survives in terminals, diffs, code and kbd. */
@@ -980,7 +985,7 @@ kbd { font: 11px var(--font-mono); }
    of problems rather than a list of things. Armed is filled, because the second click is the one
    that spends, and an armed control that looked like the resting one would be a trap. */
 .item-delete:hover { background: var(--rl-hover); color: var(--rl-danger); }
-.item-delete[data-confirming] { background: var(--rl-danger); color: var(--rl-panel); }
+.item-delete[data-confirming] { background: var(--rl-danger-fill); color: var(--rl-danger-contrast); }
 .item[data-dragging] { opacity: .45; }
 .rename { width: 100%; height: 28px; padding: 0 8px; border-radius: var(--r-chip); border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; }
 
@@ -7057,8 +7062,9 @@ select { appearance: none; padding-right: 22px;
 .cp-stale, .cp-blocked { margin: 0; font-size: 12px; color: var(--rl-warning); }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 /* §3: destructive confirms are the ONE place a red-filled button is allowed. */
-.btn.destructive { --fill: var(--rl-danger); color: #ffffff; box-shadow: var(--fill-bevel); }
-.btn.destructive:hover:not(:disabled) { --fill: var(--rl-danger); filter: brightness(0.95); } /* BUI's filled-hover for tones with no -ink step */
+.btn.destructive { --fill: var(--rl-danger-fill); color: var(--rl-danger-contrast); box-shadow: var(--fill-bevel); }
+.btn.destructive:hover:not(:disabled) { --fill: var(--rl-danger-fill-hover); }
+.btn.destructive:is([data-pressed], :active:focus-visible):not(:disabled) { --fill: var(--rl-danger-press); }
 .btn:disabled { opacity: .45; }
 /* A disabled primary must not wear the accent — 45% opacity on a filled blue button still reads as
    THE action (caught in the W4 visual pass: "Commit, push & PR" looked live over "Nothing staged"). */

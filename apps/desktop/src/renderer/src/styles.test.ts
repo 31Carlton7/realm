@@ -3190,10 +3190,7 @@ describe("light mode", () => {
     // Matching the native WebContentsView's own opaque white, so the sliver it trails during a
     // resize cannot flash the panel tone through the gap.
     [".browser-view-host[data-page]:not([data-device]):not([data-yielded])", "the browser view's own ground"],
-    // White on a red fill, the same as white on the accent fill (--rl-accent-contrast), which is
-    // deliberately one value for both modes.
-    [".btn.destructive", "ink on a filled control"],
-    // The stop square on the rail's recording light: white on the same red fill, for the same reason.
+    // The stop square on the rail's recording light: white on the red fill, one value for both modes.
     [".rail-recording-stop", "ink on a filled control"],
     // The base half of a pair: the rule immediately below it flips the outline for light mode.
     [".md img", "paired with a light override"],
@@ -4198,6 +4195,34 @@ describe("custom themes", () => {
       for (const [token, o] of [["--accent-fill", want.fill], ["--accent-fill-hover", want.hover], ["--accent-fill-press", want.press]] as const) {
         expect(Math.abs(oklchIn(token, block).l - o.l), `${mode} ${token}`).toBeLessThan(0.0015);
       }
+    }
+  });
+
+  it("a word on Realm's destructive fill reads at AA in both modes, at rest, hover and press", () => {
+    // White on Realm's dark red measured 3.4 : 1. THE mutant: point --danger-fill back at --red (or
+    // .btn.destructive back at --rl-danger) and this falls under 4.5.
+    const white = { l: 1, c: 0, h: 0 };
+    expect(css).toMatch(/--rl-danger-contrast: oklch\(1 0 0\)/);
+    for (const mode of ["dark", "light"] as const) {
+      const block = modeBlock(mode);
+      const red = oklchIn("--red", block);
+      for (const token of ["--danger-fill", "--danger-fill-hover", "--danger-fill-press"]) {
+        expect(contrast(white, oklchIn(token, block)), `${mode} white on ${token}`).toBeGreaterThanOrEqual(4.5);
+      }
+      const want = accentFill(red, { dark: oklchIn("--ink", block) });
+      expect(want.label).toEqual(white);
+      for (const [token, o] of [["--danger-fill", want.fill], ["--danger-fill-hover", want.hover], ["--danger-fill-press", want.press]] as const) {
+        expect(Math.abs(oklchIn(token, block).l - o.l), `${mode} ${token}`).toBeLessThan(0.0015);
+      }
+    }
+    expect(bodiesFor(".btn.destructive").join(" ")).toContain("--fill: var(--rl-danger-fill)");
+    expect(bodiesFor(".btn.destructive").join(" ")).toContain("color: var(--rl-danger-contrast)");
+    expect(bodiesFor(".btn.destructive:hover:not(:disabled)").join(" ")).toContain("--fill: var(--rl-danger-fill-hover)");
+    expect(bodiesFor(".btn.destructive:is([data-pressed], :active:focus-visible):not(:disabled)").join(" ")).toContain("--fill: var(--rl-danger-press)");
+    expect(bodiesFor(".item-delete[data-confirming]").join(" ")).toContain("background: var(--rl-danger-fill)");
+    // No rule writes a word on the bare red: a filled red with a label is the destructive fill.
+    for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*color: var\(--rl-danger-contrast\)[^{}]*)\}/g)) {
+      expect(body, selector!.trim()).not.toMatch(/(background|--fill):\s*var\(--(rl-danger|red)\)/);
     }
   });
 

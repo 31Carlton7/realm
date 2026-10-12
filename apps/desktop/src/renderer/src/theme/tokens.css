@@ -63,6 +63,11 @@
   --accent-fill: oklch(0.544 0.173 253.301);
   --accent-fill-hover: oklch(0.504 0.173 253.301);
   --accent-fill-press: oklch(0.454 0.173 253.301);
+  /* A destructive button's ground, solved the same way: white on --red read 3.4 : 1, on this 5.0
+     (hover 6.0, press 7.4). */
+  --danger-fill: oklch(0.564 0.18 21.433);
+  --danger-fill-hover: oklch(0.524 0.18 21.433);
+  --danger-fill-press: oklch(0.474 0.18 21.433);
 
   /* semantic */
   --green: oklch(0.705 0.154 153.814);
@@ -162,6 +167,11 @@
   --accent-fill: oklch(0.546 0.2 256);
   --accent-fill-hover: oklch(0.506 0.2 256);
   --accent-fill-press: oklch(0.456 0.2 256);
+  /* The light red already carries white at 5.5 : 1, so the destructive fill is the red itself and
+     only its hover and press step deeper (6.5, 7.9). */
+  --danger-fill: oklch(0.545 0.19 25);
+  --danger-fill-hover: oklch(0.505 0.19 25);
+  --danger-fill-press: oklch(0.455 0.19 25);
 
   /* Tints are the hue at paper lightness with a tenth of its chroma — the rule packages/ui/src/themes.ts
      derives every light theme's tints by, now a step under the canvas rather than level with it. */

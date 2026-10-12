@@ -124,6 +124,8 @@ export function deriveCodex(seed: ThemeSeed, level: number): Record<string, stri
      under black that is lighter, since a darker press would take black on #3a83f7 under 4.5:1. */
   const label = onAccent(A);
   const filled = accentFill(hexToOklch(seed.accent), { dark: hexToOklch(hex(BLACK)), prefer: label === WHITE ? "light" : "dark" });
+  // Codex writes white on its danger button; the red is deepened only as far as white needs.
+  const danger = accentFill(hexToOklch(seed.red), { dark: hexToOklch(hex(BLACK)) });
 
   const ink2 = over(canvas, I, 0.65 + c * 0.1);
   const ink3 = over(canvas, I, 0.45 + c * 0.1);
@@ -154,6 +156,10 @@ export function deriveCodex(seed: ThemeSeed, level: number): Record<string, stri
     "--accent-fill": css(filled.fill),
     "--accent-fill-hover": css(filled.hover),
     "--accent-fill-press": css(filled.press),
+    "--danger-fill": css(danger.fill),
+    "--danger-fill-hover": css(danger.hover),
+    "--danger-fill-press": css(danger.press),
+    "--rl-danger-contrast": css(danger.label),
 
     "--green": out(rgb(seed.green)),
     "--green-tint": tint(seed.green),

@@ -19,6 +19,14 @@ describe("a word on a filled accent control reads at AA", () => {
     }
   });
 
+  it.each(faces())("%s %s: the label on a destructive button clears 4.5 : 1 at rest, hover and press", (name, mode) => {
+    const v = themeVars(name, mode);
+    const label = parse(v["--rl-danger-contrast"]!);
+    for (const token of ["--danger-fill", "--danger-fill-hover", "--danger-fill-press"]) {
+      expect(contrast(label, parse(v[token]!)), `${name}/${mode} ${token}`).toBeGreaterThanOrEqual(CONTRAST_FLOOR.onAccent);
+    }
+  });
+
   it("keeps Codex's own pairing: its exact blue, black on it, and a press that brightens instead of darkening", () => {
     // Codex writes black on #3a83f7 (5.8 : 1). Darkening that for a press, as a white-label button
     // does, takes it to 3.7. THE mutant: flip `away` in accentFill and this press goes dark.
