@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 const ROOT = dirname(new URL(import.meta.url).pathname);
 const EXTS = ["", ".ts", ".tsx", "/index.ts", "/index.tsx"];
 // `import x from`, `import { … } from`, `export … from` and bare `import "…"`; not `import type`, not `import()`.
-const STATIC = /^\s*(?:import(?!\s+type\b)(?:[^;"'()]*?from\s*)?|export\s+(?!type\b)[^;"'()]*?from\s*)["']([^"']+)["']/gm;
+const STATIC = /^\s*(?:import(?!\s+type\b)(?:[^;"'()]*?from)?|export\s+(?!type\b)[^;"'()]*?from)\s*["']([^"']+)["']/gm;
 
 function bootGraph(): { files: Set<string>; packages: Map<string, string> } {
   const files = new Set<string>();
