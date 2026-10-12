@@ -71,6 +71,13 @@ describe("a queued message", () => {
     expect(QueuedPromptSchema.parse({ id: "q1", text: "hi", attachments: [], ts: 1 }).held).toBe(false);
   });
 
+  it("moves to the end on a null anchor, and needs the anchor said either way", () => {
+    const move = Methods["sessions.moveQueued"].params;
+    expect(move.safeParse({ id: newId(), queuedId: "q1", before: null }).success).toBe(true);
+    expect(move.safeParse({ id: newId(), queuedId: "q1", before: "q2" }).success).toBe(true);
+    expect(move.safeParse({ id: newId(), queuedId: "q1" }).success).toBe(false);
+  });
+
   it("refuses an edit to nothing at all on the wire", () => {
     const edit = Methods["sessions.editQueued"].params;
     expect(edit.safeParse({ id: newId(), queuedId: "q1", text: "", attachments: [] }).success).toBe(false);

@@ -429,3 +429,66 @@ describe("editing a queued message", () => {
     expect((await c.call("sessions.holdQueued", { id: session.id, queuedId: "gone", held: true })).result).toEqual({ ok: true, held: false });
   });
 });
+
+describe("reordering the queue", () => {
+  const queued = async (c: Awaited<ReturnType<typeof client>>, id: string) => (await c.call("sessions.queued", { id })).result.queued as { id: string; text: string; held: boolean }[];
+  const texts = async (c: Awaited<ReturnType<typeof client>>, id: string) =>
+    (await c.call("sessions.queued", { id })).result.queued.map((q: { text: string }) => q.text);
+
+  it("moves a message in front of another, or to the end, and drains in the new order", async () => {
+    // THE MUTANT: a move that reorders the broadcast but not what the drain reads — the list says
+    // "second" is next and "first" goes anyway.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+    await c.call("sessions.send", { id: session.id, text: "look" });
+    const [a, b, l] = await queued(c, session.id);
+
+    await c.call("sessions.moveQueued", { id: session.id, queuedId: b!.id, before: a!.id });
+    expect(await texts(c, session.id)).toEqual(["second", "first", "look"]);
+    await c.call("sessions.moveQueued", { id: session.id, queuedId: b!.id, before: null });
+    expect(await texts(c, session.id)).toEqual(["first", "look", "second"]);
+    await c.call("sessions.moveQueued", { id: session.id, queuedId: l!.id, before: a!.id });
+    expect(c.queues(session.id).at(-1)!.map((q) => q.text)).toEqual(["look", "first", "second"]);
+
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.userMessages(session.id).includes("look"));
+    expect(c.userMessages(session.id)).toEqual(["go", "look"]);
+  });
+
+  it("treats a move of a message, or in front of one, the queue no longer holds as a no-op", async () => {
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+    const [a] = await queued(c, session.id);
+    const before = c.queues(session.id).length;
+
+    expect((await c.call("sessions.moveQueued", { id: session.id, queuedId: "gone", before: null })).result).toEqual({ ok: true });
+    await c.call("sessions.moveQueued", { id: session.id, queuedId: a!.id, before: "gone" });
+    await c.call("sessions.moveQueued", { id: session.id, queuedId: a!.id, before: a!.id });
+
+    expect(await texts(c, session.id)).toEqual(["first", "second"]);
+    expect(c.queues(session.id)).toHaveLength(before);
+  });
+
+  it("moving a message in front of a held head that stopped a drain sends it", async () => {
+    // THE MUTANT: a move that leaves the owed drain unpaid — the new head sits behind an edit that
+    // is no longer in its way.
+    const { c, session } = await boot();
+    await holdTurn(c, session.id);
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await c.call("sessions.send", { id: session.id, text: "second" });
+    const [a, b] = await queued(c, session.id);
+    await c.call("sessions.holdQueued", { id: session.id, queuedId: a!.id, held: true });
+    await releaseTurn(c, session.id);
+    await waitFor(() => c.events.some((e) => e.event === "session.status" && e.payload.sessionId === session.id && e.payload.status === "idle"));
+
+    await c.call("sessions.moveQueued", { id: session.id, queuedId: b!.id, before: a!.id });
+
+    await waitFor(() => c.userMessages(session.id).includes("second"));
+    expect(c.userMessages(session.id)).toEqual(["go", "second"]);
+    expect(c.queues(session.id).at(-1)!.map((q: Any) => [q.text, q.held])).toEqual([["first", true]]);
+  });
+});
