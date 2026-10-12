@@ -51,6 +51,7 @@ const NOT_A_CONTROL: Record<string, string> = {
   "hero-greeting": "the greeting's hidden nod, which nothing announces and nothing depends on",
   "selection-bar": "a toolbar whose press only keeps the text selection it acts on; its buttons point",
   "sim-screen": "a device's own screen, where the pointer stands in for a finger",
+  "browser-runner-canvas": "the runner game's field on the can't-be-reached page, where a press is a jump, not a click on a control; its Play button points",
   "media-el": "a video's picture, which its play control sits over",
   "media-viewer-stage": "the viewer's ground round a file: a press there puts the viewer away, as a scrim's does",
   "media-viewer-canvas": "a zoomed picture's canvas, which takes the grab cursor of its own while it pans",

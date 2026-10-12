@@ -57,6 +57,17 @@
   --accent: oklch(0.68 0.173 253.301);
   --accent-ink: oklch(0.788 0.113 248.33);
   --accent-tint: oklch(0.68 0.173 253.301 / 0.16);
+  /* A filled control's ground: the accent's hue and chroma, 0.136 deeper, so its white label reads
+     5.0 : 1 where white on the accent itself read 2.9. Hover and press step further from the label
+     (5.9 and 7.3). Solved by accentFill (packages/ui/src/accent-fill.ts); styles.test re-solves it. */
+  --accent-fill: oklch(0.544 0.173 253.301);
+  --accent-fill-hover: oklch(0.504 0.173 253.301);
+  --accent-fill-press: oklch(0.454 0.173 253.301);
+  /* A destructive button's ground, solved the same way: white on --red read 3.4 : 1, on this 5.0
+     (hover 6.0, press 7.4). */
+  --danger-fill: oklch(0.564 0.18 21.433);
+  --danger-fill-hover: oklch(0.524 0.18 21.433);
+  --danger-fill-press: oklch(0.474 0.18 21.433);
 
   /* semantic */
   --green: oklch(0.705 0.154 153.814);
@@ -147,11 +158,20 @@
   --stripe: oklch(0.405 0 0 / 0.075);
   --stripe-bg: oklch(0.983 0 0);
 
-  /* The fill is Apple's own blue's weight — a white label on it reads 4.0 : 1, where the brighter
-     blue it replaces read 3.6. The ink is the link and prose colour, at 4.8 : 1 on the frame. */
+  /* The accent is Apple's own blue's weight. A white label on it read only 4.0 : 1, so a filled
+     control takes --accent-fill instead: the same hue 0.054 deeper, 5.0 : 1 (hover 5.9, press 7.3).
+     The ink is the link and prose colour, at 4.8 : 1 on the frame. */
   --accent: oklch(0.6 0.2 256);
   --accent-ink: oklch(0.52 0.19 257);
   --accent-tint: oklch(0.959 0.021 256);
+  --accent-fill: oklch(0.546 0.2 256);
+  --accent-fill-hover: oklch(0.506 0.2 256);
+  --accent-fill-press: oklch(0.456 0.2 256);
+  /* The light red already carries white at 5.5 : 1, so the destructive fill is the red itself and
+     only its hover and press step deeper (6.5, 7.9). */
+  --danger-fill: oklch(0.545 0.19 25);
+  --danger-fill-hover: oklch(0.505 0.19 25);
+  --danger-fill-press: oklch(0.455 0.19 25);
 
   /* Tints are the hue at paper lightness with a tenth of its chroma — the rule packages/ui/src/themes.ts
      derives every light theme's tints by, now a step under the canvas rather than level with it. */
@@ -713,7 +733,7 @@ a {
    * The range is the reading's, not the sidebar's. 84 is measured, not chosen (`pane-ground.test.ts`
    * walks it against `PANE_ALPHA_RANGE` in packages/ui/src/theme.ts). Composite each face's
    * `--canvas` over a WHITE desktop and over a BLACK one — the two extremes every wallpaper sits
-   * between — and 84% opacity is the thinnest at which `--ink` still clears WCAG AA on all eighteen
+   * between — and 84% opacity is the thinnest at which `--ink` still clears WCAG AA on all nineteen
    * faces. Below that, body text on a light face over a dark desktop goes under 4.5:1, and body text
    * is the one thing here that may never be a judgement call.
    *
@@ -766,7 +786,7 @@ a {
  * A calm surface may carry a soft field of the theme's own accent and, where there is room for it,
  * a film of grain. Both are decoration, and the app holds text to a contrast floor per role
  * (CONTRAST_FLOOR, packages/ui/src/themes.ts), so the numbers below are not taste — they are the
- * band inside which every ink tier on all eighteen faces still clears its floor. grain.test.ts
+ * band inside which every ink tier on all nineteen faces still clears its floor. grain.test.ts
  * walks the faces and proves it.
  *
  * The derivation leaves NO headroom: it places --ink-3 at exactly 2.400 against a 2.4 floor on six

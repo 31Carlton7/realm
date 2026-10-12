@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { renderMarkdown } from "./Markdown";
+import { loadRichLibs } from "./rich/rich-libs";
+
+// KaTeX and highlight.js load after boot in the app; these cases are about what they draw.
+beforeAll(loadRichLibs);
 
 /** Plan 24 W1: what assistant prose renders as beyond paragraphs — highlighted code, TeX, GitHub
  *  admonitions, task lists. Every one of these is markup the model produced, so each case also has

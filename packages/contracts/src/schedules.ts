@@ -445,6 +445,9 @@ export const ScheduleSchema = z.object({
   /** Put a run's session away once the run SUCCEEDS. A failed or interrupted run stays where the
    *  sidebar shows it, because that is the one a person has to come back to. */
   archiveSucceeded: z.boolean(),
+  /** The team role whose clock this is, or null. Its page edits it; the Scheduled page lists it
+   *  under the role's name like any other task. */
+  roleId: z.string().nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
 });

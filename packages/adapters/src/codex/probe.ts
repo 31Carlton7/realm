@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { probeCrashed } from "../acp/probe";
 
 const run = promisify(execFile);
 
@@ -27,13 +28,13 @@ function looksLoggedOut(output: string): boolean {
 export async function probeCodex(
   bin = process.env.REALM_CODEX_BIN ?? "codex",
   versionArgs: string[] = ["--version"],
-): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null }> {
+): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; crashed?: boolean }> {
   let version: string;
   try {
     const { stdout } = await run(bin, versionArgs, { timeout: 5000 });
     version = stdout.trim();
   } catch (e) {
-    return { available: false, version: null, loggedIn: null, reason: (e as Error).message };
+    return { available: false, version: null, loggedIn: null, reason: (e as Error).message, ...(probeCrashed(e) ? { crashed: true } : {}) };
   }
   try {
     await run(bin, ["login", "status"], { timeout: 5000 });

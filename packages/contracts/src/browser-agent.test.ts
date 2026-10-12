@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BROWSER_READ_ONLY_TOOLS, BrowserGeneratedCredentialSchema, CREDENTIAL_PRESENCE_TTLS,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
-  normalizeOrigin, passkeyRpIdForPageUrl,
+  normalizeOrigin, parseUnlockPolicy, passkeyRpIdForPageUrl, unlockPolicyRank, unlockScopeKey,
 } from "./browser-agent";
 
 /**
@@ -141,5 +141,26 @@ describe("passkeyRpIdForPageUrl", () => {
     // A bare host with no dot is not a registrable domain — except the one everybody develops on.
     expect(passkeyRpIdForPageUrl(null, "https://intranet/login")).toBeNull();
     expect(passkeyRpIdForPageUrl(null, "http://localhost:3000/login")).toBe("localhost");
+  });
+});
+
+describe("unlock policies", () => {
+  it("reads anything it does not recognise as Touch ID, never as something weaker", () => {
+    for (const v of [null, undefined, "unattended", {}, { kind: "none" }, { kind: "session" }, { kind: "session", hours: 48 }, { kind: "session", hours: "8" }]) {
+      expect(parseUnlockPolicy(v), JSON.stringify(v)).toEqual({ kind: "touch-id" });
+    }
+    expect(parseUnlockPolicy({ kind: "session", hours: 8, extra: 1 })).toEqual({ kind: "session", hours: 8 });
+    expect(parseUnlockPolicy({ kind: "unattended", hours: 8 })).toEqual({ kind: "unattended" });
+  });
+
+  it("ranks each rung by how much it lets through, a longer session above a shorter one", () => {
+    const ladder = [{ kind: "touch-id" }, { kind: "device-password" }, { kind: "session", hours: 1 }, { kind: "session", hours: 8 }, { kind: "session", hours: 24 }, { kind: "unattended" }] as const;
+    const ranks = ladder.map((p) => unlockPolicyRank(p));
+    expect([...ranks].sort((a, b) => a - b)).toEqual(ranks);
+    expect(new Set(ranks).size).toBe(ranks.length);
+  });
+
+  it("keys a scope by its kind, so a team id can never collide with a profile's", () => {
+    expect(unlockScopeKey({ kind: "profile", id: "p1" })).toBe("profile:p1");
   });
 });

@@ -1,10 +1,11 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { HIDDEN_ANSWER, type SessionEvent, type SessionEventOf, type SessionEventType } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
-import type { AgentHandle, StartOptions } from "../types";
+import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, codexUserMcpServers, pickCodexDecision } from "./codex-adapter";
+import { GATEWAY_TOOL_TIMEOUT_MS, type AgentHandle, type StartOptions } from "../types";
 
 /**
  * Every assertion in this file is gated on a real child process: node cold start, module load and at least one
@@ -633,6 +634,88 @@ describe("CodexAdapter", () => {
     await stopped.handle.dispose();
   });
 
+  describe("an MCP tool approval", () => {
+    const reply = (evs: SessionEvent[]) => JSON.parse(texts(evs)[0]!.slice("elicited ".length)) as Record<string, unknown>;
+
+    it("is a tool permission card naming the tool, and Allow runs it", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      const req = of(evs, "permission_request")[0]!.payload;
+      expect(req).toMatchObject({ toolName: "mcp__realm__realm-agent__agent_peers", input: { scope: "space" },
+        title: 'Allow the realm MCP server to run tool "realm-agent__agent_peers"?', suggestions: [] });
+      expect(req.ask).toBeUndefined();
+      expect(statuses(evs).at(-1)).toBe("waiting_permission");
+      handle.respondPermission(req.requestId, "allow");
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      expect(reply(evs)).toEqual({ action: "accept", content: {}, _meta: null });
+      expect(of(evs, "permission_response")[0]!.payload).toEqual({ requestId: req.requestId, decision: "allow" });
+      await handle.dispose();
+    });
+
+    it("is answered with no card of Codex's own when a team's policy decides the gateway's tool", async () => {
+      const asked: string[] = [];
+      const { handle, evs } = await booted({ gatewayDecides: async (t) => { asked.push(t); return true; } });
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      // THE MUTANT: the card drawn anyway — the person would answer the engine's card and then the policy's.
+      expect(asked).toEqual(["mcp__realm__realm-agent__agent_peers"]);
+      expect(of(evs, "permission_request")).toEqual([]);
+      expect(reply(evs)).toEqual({ action: "accept", content: {}, _meta: null });
+      await handle.dispose();
+    });
+
+    it("still draws the card when the policy does not decide, or asking it fails", async () => {
+      for (const gatewayDecides of [async () => false, async () => { throw new Error("gone"); }]) {
+        const { handle, evs } = await booted({ gatewayDecides });
+        await handle.send({ text: "ELICITTOOL", attachments: [] });
+        await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+        expect(texts(evs)).toEqual([]);
+        await handle.dispose();
+      }
+    });
+
+    it("never asks Codex to remember the grant, even for Always allow", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "allow_always");
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      expect(reply(evs)).toEqual({ action: "accept", content: {}, _meta: null });
+      await handle.dispose();
+    });
+
+    it("declines on Deny", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      handle.respondPermission(of(evs, "permission_request")[0]!.payload.requestId, "deny");
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      expect(reply(evs)).toEqual({ action: "decline", content: null, _meta: null });
+      await handle.dispose();
+    });
+
+    it("cancels when the turn is stopped", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITTOOL", attachments: [] });
+      await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+      await handle.interrupt();
+      await waitFor(() => expect(texts(evs).join("")).toContain("elicited"));
+      expect(reply(evs)).toEqual({ action: "cancel", content: null, _meta: null });
+      await handle.dispose();
+    });
+
+    it("leaves a plain empty form refused, as before", async () => {
+      const { handle, evs } = await booted();
+      await handle.send({ text: "ELICITEMPTY", attachments: [] });
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      expect(reply(evs)).toMatchObject({ action: "decline" });
+      expect(of(evs, "permission_request")[0]!.payload.ask?.refused).toMatch(/nothing to fill in/);
+      expect(statuses(evs)).not.toContain("waiting_permission");
+      await handle.dispose();
+    });
+  });
+
   it("steers into a live turn rather than starting a second one", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "HANG", attachments: [] });
@@ -1092,6 +1175,12 @@ describe("codexMcpConfig", () => {
     expect((codexMcpConfig([http])!.mcp_servers as Record<string, Record<string, unknown>>).vercel!.tool_timeout_sec).toBe(GATEWAY_TOOL_TIMEOUT_SEC);
   });
 
+  it("waits as long as Claude does on the gateway — an agent_wait at its full hour is not cut off at sixteen minutes", () => {
+    // THE MUTANT: the old 16-minute literal. A Codex lead's 30-minute agent_wait was killed half-way.
+    expect(GATEWAY_TOOL_TIMEOUT_SEC * 1000).toBe(GATEWAY_TOOL_TIMEOUT_MS);
+    expect(GATEWAY_TOOL_TIMEOUT_SEC).toBeGreaterThan(60 * 60);
+  });
+
   it("omits empty args and env rather than sending empty collections", () => {
     const bare = { name: "bare", transport: "stdio" as const, command: "/bin/x", args: [], env: {} };
     expect(codexMcpConfig([bare])).toEqual({ mcp_servers: { bare: { command: "/bin/x" } } });
@@ -1146,6 +1235,35 @@ describe("CodexAdapter memory", () => {
   it("leaves instructionSources absent when the server does not report it (older build), not []", async () => {
     const { evs } = await booted({ env: { FAKE_CODEX_NO_INSTRUCTION_SOURCES: "1" } });
     expect("instructionSources" in of(evs, "init")[0]!.payload).toBe(false);
+  });
+});
+
+describe("a team role's run", () => {
+  const reflected = (evs: SessionEvent[]) => JSON.parse(of(evs, "init")[0]!.payload.model) as Record<string, unknown>;
+  const gateway = { name: "realm", transport: "http" as const, url: "http://127.0.0.1:1/mcp", headers: {} };
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("pins the sandbox's network off and turns off every server of the user's own config, for its thread only", async () => {
+    const home = tempDir("realm-codex-home-");
+    writeFileSync(join(home, "config.toml"), 'model = "x"\n[mcp_servers.userstub]\ncommand = "node"\n[mcp_servers.userstub.env]\nA = "1"\n[sandbox_workspace_write]\nnetwork_access = true\n');
+    vi.stubEnv("CODEX_HOME", home);
+    const { evs } = await booted({ model: "reflect", roleRun: true, mcpServers: [gateway] });
+    const config = reflected(evs).config as Record<string, Record<string, unknown>>;
+    // THE MUTANT: the pin dropped — a role's `curl` reaches the world past the gateway's policy.
+    expect(config.sandbox_workspace_write).toEqual({ network_access: false });
+    expect(config.mcp_servers).toEqual({ userstub: { enabled: false }, realm: expect.objectContaining({ url: gateway.url }) });
+  });
+
+  it("leaves the person's own session as it was", async () => {
+    const { evs } = await booted({ model: "reflect", mcpServers: [gateway] });
+    const config = reflected(evs).config as Record<string, unknown>;
+    expect(config.sandbox_workspace_write).toBeUndefined();
+    expect(Object.keys(config.mcp_servers as object)).toEqual(["realm"]);
+  });
+
+  it("reads the user's server names from the config's table headers", () => {
+    expect(codexUserMcpServers('[mcp_servers.a]\n[mcp_servers.a.env]\n[mcp_servers."b c"]\n  [ mcp_servers.d-e ]\n[other]\nmcp_servers = 1\n')).toEqual(["a", "b c", "d-e"]);
+    expect(codexUserMcpServers("")).toEqual([]);
   });
 });
 

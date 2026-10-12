@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { extname, basename } from "node:path";
 import { app, BrowserWindow, ipcMain, ShareMenu, type NativeImage } from "electron";
 
@@ -11,7 +12,11 @@ import { app, BrowserWindow, ipcMain, ShareMenu, type NativeImage } from "electr
  * Finder uses), because it comes from the renderer. None of the three executes anything: Quick Look
  * renders, a drag hands the Finder a path, Share hands the system a path.
  */
-export function registerFileActions({ gate }: { gate: (path: unknown, base?: unknown) => Promise<string | null> }): void {
+export function registerFileActions({ gate, openWith = openWithApp }: {
+  gate: (path: unknown, base?: unknown) => Promise<string | null>;
+  /** Test seam: production runs `open -a <app> <file>`. */
+  openWith?: (app: string, file: string) => void;
+}): void {
   /** macOS's own Quick Look panel, the one the Finder opens on Space. */
   // `base` is the directory a relative path is relative to — a session's, for a path its agent wrote
   // (`~/…` and `./out` resolve the way Reveal in Finder resolves them).
@@ -35,6 +40,17 @@ export function registerFileActions({ gate }: { gate: (path: unknown, base?: unk
   });
 
   /**
+   * A PDF handed to Preview. Realm draws PDFs itself now, and Chromium's viewer it replaced could print;
+   * Preview prints, fills a form and signs, so the pane's menu sends the file there. Only a PDF, and
+   * only to Preview by name — `open` with the default app would run whatever a renderer pointed it at,
+   * which is why `attachment:open` keeps a mime table of its own.
+   */
+  ipcMain.handle("files:open-in-preview", async (_e, path: unknown): Promise<void> => {
+    const found = await gate(path);
+    if (found && extname(found).toLowerCase() === ".pdf") openWith("Preview", found);
+  });
+
+  /**
    * Drag a file out of the window. The renderer cancels its own `dragstart` and asks for this, because
    * only main can start an OS drag that carries a real file. The drag image is the file's own Finder
    * icon, cached per extension so the second drag of a type starts without waiting on the lookup —
@@ -52,4 +68,9 @@ export function registerFileActions({ gate }: { gate: (path: unknown, base?: unk
     }
     if (!icon.isEmpty() && !e.sender.isDestroyed()) e.sender.startDrag({ file: found, icon });
   });
+}
+
+function openWithApp(appName: string, file: string): void {
+  // `--` so a file named like a flag is a file.
+  execFile("open", ["-a", appName, "--", file], () => {});
 }

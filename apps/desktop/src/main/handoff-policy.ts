@@ -29,7 +29,10 @@ export type HandoffDecision =
   /** Refuse to work against it: the wire is incompatible, so there is nothing to keep. */
   | { kind: "blocked" };
 
-export function decideHandoff(d: { why: "bundle" | "protocol"; work: DaemonWork }): HandoffDecision {
+export function decideHandoff(d: { why: "bundle" | "protocol"; work: DaemonWork; preapproved?: boolean }): HandoffDecision {
+  // The lab's update window drained this daemon and asked for the install: the person said yes when
+  // they made this Mac a lab, and a dialog here would wait for someone who is not there.
+  if (d.preapproved) return { kind: "restart" };
   // A daemon that will not answer `daemon.info` is a daemon we know nothing about. Treat it as busy:
   // a dialog somebody dismisses costs a click, and a silent stop costs a turn.
   const busy = d.work === null || d.work.working > 0 || d.work.activeRuns > 0;

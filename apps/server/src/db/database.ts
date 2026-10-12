@@ -1,11 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { migrations } from "./migrations";
+import { registerPayloadFunction } from "../store/event-payload";
 
 export type Db = DatabaseSync;
 
 export function openDatabase(path: string): Db {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+  registerPayloadFunction(db);
   db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
   const row = db.prepare("SELECT COALESCE(MAX(version), 0) AS v FROM schema_version").get() as { v: number };
   for (let v = row.v; v < migrations.length; v++) {

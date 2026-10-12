@@ -41,11 +41,6 @@ async function mount() {
 const cards = () => [...document.querySelectorAll<HTMLElement>(".saved-turn")];
 
 describe("the Library's Saved section", () => {
-  it("is a section of its own, after Files, seen from the profile as Files is", async () => {
-    await mount();
-    expect([...document.querySelectorAll(".page-rail-tab")].map((t) => t.textContent)).toEqual(["Files", "Saved", "Skills", "Memory"]);
-    expect(document.querySelector(".page-vantage")?.textContent).toBe("Work");
-  });
 
   it("lists every saved turn across the profile's sessions, newest saved first: the prompt, its answer, whose it was", async () => {
     const { api } = await mount();

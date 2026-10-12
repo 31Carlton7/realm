@@ -13,6 +13,7 @@ export const ORIGIN_META: Record<DispatchKind, { icon: string; label: string }> 
   fork: { icon: "branch", label: "Forked from a checkpoint" },
   import: { icon: "download", label: "Imported from an agent CLI" },
   run: { icon: "bot", label: "Durable run" },
+  session_open: { icon: "bot", label: "Opened by an agent" },
 };
 
 /** The dispatch origins that make a session a delegated CHILD: listed under its lead's running-agents

@@ -1,7 +1,7 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, steerInterrupts, steerNote, tightestWindow, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, currentAlert, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useFileDrop } from "../../components/use-file-drop";
 import { useItemDrop } from "../../components/use-item-drop";
@@ -13,25 +13,16 @@ import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
 import { effortOptions, fastModeAvailability, fastModeTip, modelRows, type EffortControl, type FastMode } from "./model-catalog";
 import { SkillPicker } from "./SkillPicker";
-import { ModelPicker, type OverflowGroup } from "./ModelPicker";
+import { ModelPicker } from "./ModelPicker";
 import { heroGreeting } from "./greeting";
 import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
+import { ComposerQueue, type QueueActions } from "./ComposerQueue";
 import { whenLabel } from "../schedules/SchedulesPage";
 import { TodoStrip } from "./TodoStrip";
 import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
 import type { Todo } from "./rich/tool-view";
-
-// ~7 lines of 15px/1.55 plus the vertical padding. Matches .composer-input's max-height in
-// styles.css — the textarea autogrows to this and scrolls past it, and the two numbers disagreeing
-// is a prompter that grows past its own cap and then jumps back.
-export const MAX_ROWS_PX = 186;
-/** What decides a field's wrapped height, copied onto the sizer (see `measure`). */
-const SIZER_PROPS = ["font-family", "font-size", "font-weight", "font-style", "font-variant", "font-feature-settings",
-  "line-height", "letter-spacing", "word-spacing", "text-transform", "text-indent", "tab-size", "white-space", "word-break",
-  "overflow-wrap", "padding-top", "padding-bottom", "padding-left", "padding-right", "border-top-width", "border-bottom-width",
-  "border-left-width", "border-right-width", "border-style", "box-sizing"] as const;
 
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
@@ -128,7 +119,8 @@ function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, w
  * what will happen to the NEXT message, not about anything that was said.
  */
 function LimitRow({ limits }: { limits: PlanLimits | null }) {
-  if (!limits || limits.alert === "none") return null;
+  // The reading is kept across launches, so a warning about a window that has since reset is over.
+  if (!limits || currentAlert(limits, Date.now()) === "none") return null;
   const named = limits.windows.find((w) => w.id === limits.alertWindow);
   // The window the provider named, or the fullest one it reported. A warning with neither is still
   // worth showing — the account is near a limit and the useful half of that sentence is not the name.
@@ -148,41 +140,6 @@ function LimitRow({ limits }: { limits: PlanLimits | null }) {
 }
 
 /**
- * The messages waiting for this turn to end, oldest first.
- *
- * Above the input rather than in the transcript, because they are not transcript: nothing has been
- * asked yet, and a bubble for a message no agent has seen would make the log claim otherwise.
- *
- * The send-now sits on the row rather than in the button corner, which is Stop's while a turn runs.
- * What it costs is `steerNote`'s answer and differs by agent.
- */
-function QueueRow({ kind, queued, onRelease, onDrop }: { kind: AgentKind; queued: QueuedPrompt[]; onRelease: (queuedId: string) => void; onDrop: (queuedId: string) => void }) {
-  if (queued.length === 0) return null;
-  const note = steerNote(kind);
-  return (
-    <ul className="composer-queue" aria-label="Queued messages">
-      {queued.map((q, i) => (
-        <li key={q.id} className="composer-queue-item">
-          <span className="queue-position" aria-hidden="true">{i + 1}</span>
-          {/* One line, with the whole of it in the title: the row is a reminder of what is coming, and
-              the message becomes a real bubble the moment it goes out. */}
-          <span className="queue-text" title={q.text}>{q.text || "(attachments only)"}</span>
-          {q.attachments.length > 0 && (
-            <span className="queue-attach" title={q.attachments.map((a) => basenameOf(a.path)).join(", ")}>
-              <Icon name="attach" size={12} />{q.attachments.length}
-            </span>
-          )}
-          <button type="button" className="queue-send" title={note} onClick={() => onRelease(q.id)}>Send now</button>
-          <button type="button" className="queue-drop" aria-label={`Remove queued message: ${q.text}`} title="Remove" onClick={() => onDrop(q.id)}>
-            <Icon name="close" size={12} />
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/**
  * The other sessions this draft points at.
  *
  * A row of pills rather than tokens in the text, and that is forced: `draft-format.ts` allows a
@@ -196,6 +153,7 @@ function QueueRow({ kind, queued, onRelease, onDrop }: { kind: AgentKind; queued
 /** Stable, so a Composer with no references does not get a new array on every render. */
 const NO_SESSION_REFS: readonly SessionRef[] = [];
 const NO_REFS: readonly MentionRef[] = [];
+const NO_QUEUE_ACTIONS: QueueActions = { onRelease: () => {}, onDrop: () => {}, onBeginEdit: async () => false, onSaveEdit: () => {}, onCancelEdit: () => {}, onMove: () => {} };
 const NO_SPACES: readonly { id: string; name: string }[] = [];
 
 function SessionRefRow({ refs, onRemove }: { refs: readonly SessionRef[]; onRemove: (sessionId: string) => void }) {
@@ -222,7 +180,7 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
         {attachments.map((a) => (
           <li key={a.path} className="composer-attach-item">
             <AttachmentTile path={a.path} mime={a.mime} name={a.name} disposition={attachmentDisposition(kind, a.mime)}
-              detail={`${formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
+              detail={`${isDirectoryMime(a.mime) ? "Folder" : formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
               onRemove={() => onRemove(a.path)} siblings={attachments} />
           </li>
         ))}
@@ -242,6 +200,17 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
 }
 
 const permissionLabel = (id: string) => PERMISSION_MODES.find((m) => m.id === id)?.label ?? id;
+/** The word a narrow prompter keeps for each rung. Full access keeps its whole name: it is the rung
+ *  that takes a gate away, and the one a reader must not have to decode. */
+const PERMISSION_SHORT: Record<string, string> = { default: "Ask", acceptEdits: "Edits" };
+/** The permission chip's words, long and short, both in the DOM: the pane's own width picks one in
+ *  styles.css, so a narrow row says less and never goes without the mode. */
+function PermissionWords({ id }: { id: string }) {
+  const long = permissionLabel(id);
+  const short = PERMISSION_SHORT[id];
+  if (!short) return <>{long}</>;
+  return <><span className="perm-long">{long}</span><span className="perm-short" aria-hidden="true">{short}</span></>;
+}
 /** Each rung's mark, worn by the control and by the rung's own row in its menu, so the row you pick is
  *  the glyph the control then shows. A stored id this table does not know is drawn as `default`'s
  *  asking shield — the label beside it still prints whatever the id was. */
@@ -253,6 +222,13 @@ const MODE_LABEL: Record<SessionMode, string> = { build: "Build", plan: "Plan", 
 /** `search` for Ask, not the session bubble: the mode is reading and searching, and the bubble is
  *  already what a session row is. */
 const MODE_ICON: Record<SessionMode, IconName> = { build: "tool", plan: "plan", ask: "search" };
+/** A session's mode as the prompter's control draws it: the mode's name and mark for Plan and Ask,
+ *  the permission's for Build — so a Full access sub-agent reads the same in its lead's Agents tab
+ *  as in its own prompter. */
+export function permissionMark(permissionMode: string): { icon: IconName; label: string } {
+  const mode = sessionModeOf(permissionMode);
+  return mode === "build" ? { icon: permissionIcon(permissionMode), label: permissionLabel(permissionMode) } : { icon: MODE_ICON[mode], label: MODE_LABEL[mode] };
+}
 /** A mode's glyph in the "+" menu, in the tone the card wears for it — Plan's and Ask's tints are the
  *  mode's ambient signal, and the row naming the mode is the one place it should match them. */
 const ModeMark = ({ mode }: { mode: SessionMode }) => <span className="mode-mark" data-mode={mode}><Icon name={MODE_ICON[mode]} size={16} /></span>;
@@ -293,13 +269,13 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * saying what it does.
  *
  * In-app rather than the OS's (`Menu`'s `inApp`): an OS menu row has no second voice, and the rows
- * here are the ones that need one — "Folder…" means linking a folder to the space, not attaching it,
- * and Plan and Ask are only worth choosing between when the row says what each withholds. What the
+ * here are the ones that need one — Plan and Ask are only worth choosing between when the row says
+ * what each withholds. What the
  * OS menu gave is kept by the drawn one: arrows, Home/End, Return, Escape, focus going back to the
  * "+", and placement clear of a browser pane's native view, which composites over anything drawn.
  *
  * Three sections. **Add** is what goes with the message or into the space: files (⌘U, bound in
- * hotkeys.ts — the hint here is visual), a folder, a part of Realm itself (Select in Realm, the
+ * the keymap in keys/ — the hint here is visual), a folder, a part of Realm itself (Select in Realm, the
  * in-app element picker — app-pick/), skills, and a goal, which arms the box with `/goal` rather
  * than opening anything. Skills opens the `SkillPicker`, which lists every skill on
  * the machine; priming the `@` popover could only ever offer the ones already on.
@@ -320,9 +296,10 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   /** Point at a part of Realm and add it to this message, and the chord that does it too — the
    *  person's own, so a rebinding in Settings ▸ Keys is the hint here. Absent, there is no row. */
   selectInRealm?: { onSelect: () => void; kbd?: string };
-  /** The compact prompter's: what goes with this message, and nothing about where or how the session
-   *  runs — a folder linked to the space, a mode, the space's connectors are all chips this prompter
-   *  does not carry, and their rows here would be controls that do nothing. */
+  /** The compact prompter's: files for this message, and nothing about where or how the session
+   *  runs — a mode and the space's connectors are chips this prompter does not carry, and their rows
+   *  here would be controls that do nothing. Folder… stays with the full prompter: no compact one
+   *  wires a folder picker. */
   compact?: boolean;
   /** Open the skill picker. Offered only when `canSkills` — an item that would silently do nothing
    *  (a Cursor session, a machine with no skills anywhere) is never grown. */
@@ -350,7 +327,7 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   const items: MenuItem[] = [
     { kind: "header", label: "Add" },
     { label: "Files…", icon: <Icon name="attach" size={16} />, detail: "Attach to this message", kbd: "⌘U", onSelect: onAttachPick },
-    ...(compact ? [] : [{ label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Link a folder to this space", onSelect: onAddFolder } as MenuItem]),
+    ...(compact ? [] : [{ label: "Folder…", icon: <Icon name="folder" size={16} />, detail: "Attach to this message", onSelect: onAddFolder } as MenuItem]),
     /* Not an agent's to press: a pick is the person pointing (`startAppPick`, which refuses its keys). */
     ...(selectInRealm ? [{ label: "Select in Realm", icon: <Icon name="select" size={16} />, detail: "Point at a part of the app", kbd: selectInRealm.kbd, noAgent: "element picker", onSelect: selectInRealm.onSelect } as MenuItem] : []),
     ...(canSkills ? [{ label: "Skills", icon: <Icon name="sparkles" size={16} />, detail: "Turn one on, or mention it", onSelect: onSkills } as MenuItem] : []),
@@ -424,7 +401,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], onReleaseQueued, onDropQueued, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -466,7 +443,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   sessionRefs?: readonly SessionRef[]; onRemoveSessionRef?: (sessionId: string) => void;
   /** One of Realm's own sidebar items was dropped on the prompter. The pane decides what it means. */
   onDropItem?: (itemId: string) => void;
-  queued?: QueuedPrompt[]; onReleaseQueued?: (queuedId: string) => void; onDropQueued?: (queuedId: string) => void; midTurnMode?: MidTurnMode; planLimits?: PlanLimits | null;
+  queued?: QueuedPrompt[]; queueActions?: QueueActions; midTurnMode?: MidTurnMode; planLimits?: PlanLimits | null;
   /** Set the permission Build will return to, while a read-only mode is in force. Absent leaves the
    *  chip a label, which is what the read-only mounts want. */
   onParkPermission?: (permissionMode: string) => void;
@@ -538,7 +515,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   connectors?: McpServer[] | null;
   /** The "+" menu opened — refresh the connectors cache (a row read, never a probe). */
   onConnectorsOpened?: () => void;
-  /** The "+" menu's Add folder — the existing project-link flow. */
+  /** The "+" menu's Folder… — attaches the chosen folders to this message. */
   onAddFolder?: () => void;
   /** The "+" menu's Manage connections — the space settings' Connections tab. */
   onManageConnections?: () => void;
@@ -759,85 +736,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     setHotChip(null);
   };
 
-  /**
-   * Size the box to its content.
-   *
-   * Measured on a SIZER — an unseen copy of the field, same width and type, standing outside the
-   * layout — rather than by collapsing the field itself to 0 and reading it back. Collapsing the real
-   * box changed the height of everything beside it in the pane's column, so each keystroke laid out
-   * the whole transcript twice; on a session a few thousand turns long that was most of a frame per
-   * character. The sizer is fixed-position and contained, so measuring it lays out nothing else, and
-   * the field's own height is written only when it changes — which most keystrokes do not.
-   */
-  const sizer = useRef<HTMLTextAreaElement | null>(null);
-  /** Whether the sizer still wears the field's type and width. Copying it reads the field's computed
-   *  style, which is a style pass over whatever is dirty — so it is done when the field's width or
-   *  font can have changed (mount, a resize, the webfont landing), never per keystroke. */
-  const sizerFresh = useRef(false);
-  useEffect(() => {
-    // The type preferences are written on :root (applyTheme), and a font-size change moves the
-    // field's line height without moving its width — so any write there re-copies.
-    const stale = new MutationObserver(() => { sizerFresh.current = false; });
-    stale.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-mode", "data-theme"] });
-    return () => { stale.disconnect(); sizer.current?.remove(); sizer.current = null; };
-  }, []);
-  const measure = useCallback((restyle = false) => {
-    const el = ta.current; if (!el) return;
-    let probe = sizer.current;
-    if (!probe) {
-      probe = document.createElement("textarea");
-      probe.setAttribute("aria-hidden", "true");
-      probe.tabIndex = -1;
-      probe.className = "composer-sizer";
-      document.body.append(probe);
-      sizer.current = probe;
-    }
-    if (restyle || !sizerFresh.current) {
-      const cs = getComputedStyle(el);
-      for (const prop of SIZER_PROPS) probe.style.setProperty(prop, cs.getPropertyValue(prop));
-      probe.style.width = `${el.getBoundingClientRect().width}px`;
-      sizerFresh.current = true;
-    }
-    probe.value = el.value;
-    const next = `${Math.min(MAX_ROWS_PX, probe.scrollHeight)}px`;
-    if (el.style.height === next) return;
-    el.style.height = next;
-    syncScroll(); // growing past max-height starts scrolling; the mirror follows in the same frame
-  }, [syncScroll]);
-
-  useLayoutEffect(() => { measure(); }, [draft, measure]);
-
-  /**
-   * Re-measure when the WIDTH changes, and once the webfont has landed.
-   *
-   * Keying the measurement on the draft alone left the height stale in two ways that both look like
-   * "the prompter is a different height for no reason":
-   *
-   *  - **A pane resize re-wraps the text and nothing re-measured it.** A three-line draft dragged
-   *    narrower needs four lines and kept a three-line box, scrolling instead of growing.
-   *  - **The first measurement can happen before Inter has loaded**, and an EMPTY box is the case
-   *    that shows it: its height is one line of whatever font was resolved at that instant, so a
-   *    pane that mounted during the font swap kept a box a pixel or two off every other pane's, for
-   *    the life of the session. That is the one the user notices, because two prompters sitting side
-   *    by side in a split disagree.
-   *
-   * Only width is acted on: the observed box's HEIGHT is the thing this effect writes, and reacting
-   * to it would be a loop even with the idempotence guard above holding it to two passes.
-   */
-  const lastWidth = useRef(0);
-  useEffect(() => {
-    const el = ta.current; if (!el) return;
-    void (document as Document & { fonts?: FontFaceSet }).fonts?.ready.then(() => measure(true)).catch(() => {});
-    if (typeof ResizeObserver === "undefined") return; // jsdom
-    const ro = new ResizeObserver(([entry]) => {
-      const w = entry?.contentRect.width ?? 0;
-      if (w === lastWidth.current) return;
-      lastWidth.current = w;
-      measure(true);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [measure]);
+  /* The box sizes itself to its content in the stylesheet (`field-sizing: content` on .composer-input),
+     between its min- and max-height. It was measured here, on every keystroke, by reading the height
+     of a hidden copy — a forced style and layout pass in the middle of the input event, over
+     everything the keystroke had dirtied (about 5 ms a key). Layout now does it once, in the frame,
+     and follows a pane resize and the webfont landing without being told. */
 
   // ── @-mention picker (W4) ──────────────────────────────────────────────
   // The caret is tracked as state (onSelect fires for typing, clicks and arrow moves alike) because
@@ -870,7 +773,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const mentionMatches = useMemo((): MentionRow[] => {
     if (!mentionToken) return [];
     const options = mentionOptions({ mac: macSkill, skills: mentionSkills, files: answers.files, cwd: mentions?.cwd ?? session.cwd,
-      library: answers.library, apps: mentions?.apps ?? [] });
+      library: answers.library, apps: mentions?.apps ?? [], roles: mentions?.roles ?? [] });
     return mentionRows(options, mentionToken.query, { accessibility: mentions?.accessibility ?? null });
   }, [mentionToken, macSkill, mentionSkills, answers, mentions, session.cwd]);
   /* The icons the list and the draft's chips are about to draw, fetched once each. Keyed on the
@@ -1084,7 +987,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘/Ctrl+Enter sends even while the picker is open — the send gesture never changes meaning.
     // Shift is deliberately excluded AND untouched: ⌘⇧↩ is dispatch (Plan 13 W2), bound at the
-    // window level in hotkeys.ts — consuming it here would turn dispatch into a plain send.
+    // window level in the keymap (keys/) — consuming it here would turn dispatch into a plain send.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); send(); return; }
     // ⌫ behind and ⌦ in front of an element chip take the whole token (see `deleteChipAt` for why
     // only that kind). A collapsed selection and no modifiers: ⌥⌫ and a live selection are the user
@@ -1223,33 +1126,6 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const parked = planReturn ?? "default";
   const parkedItems = buildPermissionItems(parked, (id) => onParkPermission?.(id));
 
-  // Overflow collapse (§3): the control row never wraps. When the left group cannot fit at the
-  // card's width, the permission chip folds into the model menu instead (effort already lives
-  // there permanently, so it is the only chip left with somewhere to go). Measured, not
-  // hoped: the row is nowrap/overflow-hidden with non-shrinking chips, so overflow is exactly
-  // `scrollWidth > clientWidth`. The width the un-collapsed row NEEDED is remembered so growing the
-  // pane back past it un-collapses without flip-flopping (chips removed = no overflow to observe).
-  const optsRef = useRef<HTMLDivElement>(null);
-  const [collapsed, setCollapsed] = useState(false);
-  const neededW = useRef(0);
-  useLayoutEffect(() => {
-    const el = optsRef.current; if (!el) return;
-    const measure = () => {
-      if (!collapsed && el.scrollWidth > el.clientWidth) { neededW.current = el.scrollWidth; setCollapsed(true); }
-      else if (collapsed && el.clientWidth >= neededW.current) setCollapsed(false);
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return; // jsdom
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
-  // In Plan the permission control is a read-only label (see below) and stays on the row — only
-  // the MENU collapses.
-  const overflow: OverflowGroup[] | undefined = collapsed && canSetPermissionMode && !inReadOnly
-    ? [{ label: "Permissions", items: permissionItems }]
-    : undefined;
-
   return (
     <div className="composer-dock">
       {hero && (
@@ -1317,7 +1193,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           neutral: a colour that is always on is a colour that says nothing. */}
       <div className="composer" data-mode={mode} data-dropping={drop.dropping || itemDrop.dropping || undefined} {...bothDrops}>
         <LimitRow limits={planLimits} />
-        <QueueRow kind={kind} queued={queued} onRelease={onReleaseQueued ?? (() => {})} onDrop={onDropQueued ?? (() => {})} />
+        <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
         <SessionRefRow refs={sessionRefs} onRemove={onRemoveSessionRef ?? (() => {})} />
         {/* A mention whose skill vanished after typing (W4): warning tone, same row language as the
@@ -1362,7 +1238,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               const ref = s.kind === "element" && !link ? refOf(s.text) : null;
               const appIcon = ref?.kind === "app" ? mentions?.appIcons[ref.path] : null;
               const icon = link ? LINK_SERVICE_META[link.service].icon
-                : ref ? (ref.kind === "app" ? "pointer" : fileMark(ref.path))
+                : ref ? (ref.kind === "app" ? "pointer" : ref.kind === "role" ? "team" : fileMark(ref.path))
                 : s.kind === "element" ? "target"
                 : s.kind === "mention" || s.kind === "mention-stale" ? (s.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles") : null;
               const bracketed = s.kind === "element"; // `@[…]`, where a mention is a bare `@`
@@ -1445,7 +1321,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
         {drop.dropping && <div className="composer-drop-hint" aria-hidden="true">Drop to attach</div>}
         {itemDrop.dropping && <div className="composer-drop-hint" aria-hidden="true">Drop to point this message at that session</div>}
         <div className="composer-bar">
-          <div className="composer-opts" ref={optsRef} data-collapsed={collapsed || undefined}>
+          <div className="composer-opts">
             {/* The "+" opens the add menu now (Plan 12 W1) — its Add files… reaches the SAME picker
                 through the same handler the bare attach button used to call directly. */}
             <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
@@ -1474,10 +1350,11 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               inReadOnly
                 ? <ChipMenu ariaLabel="Permission mode" warning={parked === "bypassPermissions"} icon={permissionIcon(parked)} iconSize={14} caret={false}
                     title={`${MODE_LABEL[mode]} is read-only — this is what returning to Build will restore`}
-                    label={permissionLabel(parked)} items={parkedItems} />
-                : !collapsed && <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
+                    label={<PermissionWords id={parked} />} items={parkedItems} />
+                : <ChipMenu ariaLabel="Permission mode" warning={session.permissionMode === "bypassPermissions"}
                     icon={permissionIcon(session.permissionMode)} iconSize={14} caret={false}
-                    label={permissionLabel(session.permissionMode)} items={permissionItems} />
+                    title={`Permission mode: ${permissionLabel(session.permissionMode)}`}
+                    label={<PermissionWords id={session.permissionMode} />} items={permissionItems} />
             )}
             {confirmBypass && (
               /* data-no-agent for PermissionCard's reason: this is the other live self-grant route.
@@ -1496,7 +1373,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
                 harness's mark, so nothing a harness chip said is lost. */}
             <ModelPicker kind={kind} model={session.model} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
-              onPick={onPickModel} overflow={overflow} fast={fast} eggs={eggs} />
+              onPick={onPickModel} fast={fast} eggs={eggs} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's

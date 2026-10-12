@@ -157,4 +157,26 @@ describe("ProbeCache", () => {
     expect(c.peek()?.at).toBe(1000);
     expect(p.passes).toBe(1);
   });
+
+  it("background: past the TTL, a read answers with the old value at once and refreshes behind it", async () => {
+    let now = 1000;
+    let version = "v1";
+    const p = prober(() => version);
+    const c = new ProbeCache(p.run, { ttlMs: 30_000, now: () => now, background: true });
+    expect((await c.get())[0]!.version).toBe("v1"); // the first read has nothing to show, so it waits
+    version = "v2";
+    now += 30_000;
+    p.gate.hold = true;
+    expect((await c.get())[0]!.version).toBe("v1"); // answered while the refresh is still out
+    expect((await c.get())[0]!.version).toBe("v1"); // and a second read does not start another
+    expect(p.passes).toBe(2);
+    p.let();
+    await new Promise((r) => setTimeout(r, 0));
+    expect((await c.get())[0]!.version).toBe("v2");
+    expect(p.passes).toBe(2);
+    // A forced read still waits for the machine: it is asking to get past exactly this.
+    p.gate.hold = false;
+    version = "v3";
+    expect((await c.get({ force: true }))[0]!.version).toBe("v3");
+  });
 });

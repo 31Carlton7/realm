@@ -1,5 +1,5 @@
 import { DEFAULT_FONTS, fontVars, type FontPref } from "./fonts";
-import { CONTRAST_RANGE, THEME_VARS, themeVars, type ThemeName, type ThemeOverride } from "./themes";
+import { CONTRAST_RANGE, THEME_EXTRA_VARS, THEME_VARS, themeVars, type ThemeName, type ThemeOverride } from "./themes";
 
 export type Mode = "light" | "dark";
 export type Hsl = { h: number; s: number; l: number };
@@ -140,7 +140,7 @@ export function applyTheme(
   root.dataset.mode = mode;
   root.dataset.theme = theme;
   const vars = themeVars(theme, mode, { override, contrast });
-  for (const name of THEME_VARS) {
+  for (const name of [...THEME_VARS, ...THEME_EXTRA_VARS]) {
     const value = vars[name];
     if (value === undefined) root.style.removeProperty(name);
     else root.style.setProperty(name, value);

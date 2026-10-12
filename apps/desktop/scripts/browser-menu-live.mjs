@@ -323,8 +323,8 @@ async function main() {
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   const [space] = await api.call("spaces.list", {});
-  // A project, so a saved download has somewhere to go: `<project root>/downloads`, as the agent's do.
-  await api.call("projects.create", { spaceId: space.id, name: "Live", rootPath: space.folderPath });
+  // No project on purpose: most spaces have none, and a saved download must still land, in
+  // `<space folder>/downloads`, as the agent's do.
   const { session: fakeSession } = await api.call("sessions.create", { spaceId: space.id, agentKind: "fake", title: TITLE });
   await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes(${JSON.stringify(TITLE)}))`), 20_000, "session row");
   await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes(${JSON.stringify(TITLE)})).click(); return true; })()`);
@@ -517,11 +517,13 @@ async function main() {
   check("the menu's Downloads offers to save what was blocked", JSON.stringify(dlRows) === JSON.stringify(["Save notes.txt"]), dlRows);
   await clickRow(["Downloads", "Save notes.txt"]);
   const savedPath = path.join(space.folderPath, "downloads", "notes.txt");
-  // The bar's own receipt is what says the download FINISHED: the file can be on disk a moment before
-  // Chromium reports it done, and the pane learns it was saved from that report.
-  const savedNote = await until(() => evalIn(c, `[...document.querySelectorAll('.browser-notice')].map((n) => n.textContent).find((t) => t.includes("Saved notes.txt")) ?? null`), 15_000, "saved receipt").catch(() => null);
+  // The receipt is what says the download FINISHED: the file can be on disk a moment before Chromium
+  // reports it done, and the pane learns it was saved from that report. It is a toast, and the strip
+  // that held the blocked file is gone.
+  const savedNote = await until(() => evalIn(c, `[...document.querySelectorAll('.toast-text')].map((n) => n.textContent).find((t) => t.includes("Saved notes.txt")) ?? null`), 15_000, "saved receipt").catch(() => null);
+  check("…the receipt is a toast, and no strip is left over the page", !(await evalIn(c, `[...document.querySelectorAll('.browser-notice')].some((n) => n.textContent.includes("notes.txt"))`)));
   const saved = fs.existsSync(savedPath);
-  check("…and saving it from the menu puts the file in the project's downloads/", !!savedNote && saved && fs.readFileSync(savedPath, "utf8").startsWith("Notes"), { savedNote, savedPath });
+  check("…and saving it from the menu puts the file in the space's downloads/", !!savedNote && saved && fs.readFileSync(savedPath, "utf8").startsWith("Notes"), { savedNote, savedPath });
   const showMenu = await openMenu();
   const showRows = showMenu.rows.find((r) => r.label === "Downloads")?.sub?.map((r) => r.label);
   check("then Downloads lists it as saved", JSON.stringify(showRows) === JSON.stringify(["Show notes.txt in Finder"]), showRows);

@@ -13,6 +13,8 @@ export const LAST_PROBE_KEY = "notifications.lastProbe";
  *  only for the crash path (an adapter dying under an unanswered card) — an answered permission goes
  *  back through `running` first, so it can never settle out of the from-set spuriously. */
 const SETTLED_FROM = new Set(["running", "waiting_permission"]);
+/** The origins that make a session somebody's sub-agent (`delegation/children.ts`). */
+const CHILD_ORIGINS: ReadonlySet<string> = new Set(["agent_run", "browser_agent_run", "review"]);
 const SETTLED_TO = new Set(["idle", "ended", "error"]);
 const SETTLE_WORD: Record<string, string> = { idle: "Finished a turn", ended: "Ended", error: "Failed" };
 
@@ -50,7 +52,10 @@ export class NotificationsService {
   constructor(private d: { store: NotificationsStore; settings: SettingsStore; rpc: RpcServer; relay?: NotificationRelay;
     /** Space names, for the relay line. Optional: a server built without it relays exactly as it did
      *  before, naming the session and not where it lives. */
-    spaces?: { get(id: string): { name: string } | null } }) {}
+    spaces?: { get(id: string): { name: string } | null };
+    /** Session rows, for a sub-agent's lead: its request is titled "<lead> › <sub-agent>", because the
+     *  person started the lead and may never have heard the child's name. Optional, as `spaces` is. */
+    sessions?: { get(id: string): Session | null } }) {}
 
   list(p: { cursor: string | null; limit: number }): { notifications: Notification[]; nextCursor: string | null; unread: number } {
     const { notifications, nextCursor } = this.d.store.list(p);
@@ -113,7 +118,7 @@ export class NotificationsService {
       if (ev.payload.ask?.refused) return;
       if (ev.payload.ask) { this.questions.add(ev.payload.requestId); if (this.questions.size > 512) this.questions.delete(this.questions.values().next().value!); }
       this.notify({ category: "permission", spaceId: session.spaceId, sessionId: session.id, refId: ev.payload.requestId,
-        title: session.title, body: ev.payload.title || ev.payload.toolName, acted: false });
+        title: this.askerTitle(session), body: ev.payload.title || ev.payload.toolName, acted: false });
       return;
     }
     if (ev.type === "permission_response") {
@@ -157,6 +162,15 @@ export class NotificationsService {
       this.notify({ category: "session_done", spaceId: session.spaceId, sessionId: session.id, refId: session.id,
         title: session.title, body: SETTLE_WORD[ev.payload.status] ?? "Settled", acted: true });
     }
+  }
+
+  /** Who a request is from, as its row says it: the session, or — for a sub-agent — its lead and then
+   *  it. */
+  private askerTitle(session: Session): string {
+    const by = session.dispatchedBy;
+    if (!by?.sessionId || !CHILD_ORIGINS.has(by.kind)) return session.title;
+    const lead = this.d.sessions?.get(by.sessionId);
+    return lead ? `${lead.title} › ${session.title}` : session.title;
   }
 
   /** The hub's `onStatus` hook (app.ts): a row entering error/circuit_open opens (or refreshes) the

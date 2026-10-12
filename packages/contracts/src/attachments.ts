@@ -175,10 +175,11 @@ export function attachmentDisposition(kind: AgentKind, mime: string): Attachment
  *  Always names the agent, so a note rendered for the wrong session is visibly wrong. */
 export function attachmentNote(kind: AgentKind, mime: string): string {
   const label = AGENT_META[kind].label;
+  const thing = isDirectoryMime(mime) ? "folder" : "file";
   switch (attachmentDisposition(kind, mime)) {
     case "inline": return `${label} reads image attachments inline.`;
-    case "path": return `${label} gets the file path in your message and opens it itself.`;
-    case "link": return `${label} gets a link to the file and opens it itself.`;
+    case "path": return `${label} gets the ${thing} path in your message and opens it itself.`;
+    case "link": return `${label} gets a link to the ${thing} and opens it itself.`;
     case "ignored": return isImageMime(mime)
       ? `${label} ignores attachments and will never see them.`
       : `${label} ignores non-image attachments and will never see them.`;

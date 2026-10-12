@@ -1,7 +1,7 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
-import { AGENT_META, DEFAULT_MODEL_LABEL, PERMISSION_MODES, SESSION_MODES, documentKindFor, planLabel, sessionModeOf, tightestWindow, type AgentKind, type Environment, type GitInfo, type Item, type McpServer, type MemorySources, type PlanLimits, type Session } from "@realm/contracts";
+import { AGENT_META, DEFAULT_MODEL_LABEL, PERMISSION_MODES, SESSION_MODES, documentKindFor, planLabel, sessionModeOf, tightestWindow, currentAlert, windowHasReset, type AgentKind, type Environment, type GitInfo, type Item, type McpServer, type MemorySources, type PlanLimits, type Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { ScrollFades } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
@@ -161,6 +161,11 @@ function SummaryPanel({ summary, sessionId, environmentId, anchorRef, barRef, on
   const ref = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const rect = usePaneRect(anchorRef);
+  /* The summary is of the whole session, and a long one opens holding only its newest turns: opening
+     the panel reads the rest, and the lists fill in as it lands. */
+  const loadEventsThrough = useApp((s) => s.loadEventsThrough);
+  const readAll = useApp((s) => s.run);
+  useEffect(() => { readAll(() => loadEventsThrough(sessionId, 0)); }, [sessionId, loadEventsThrough, readAll]);
   /* Pinned or floating, decided by how much room the pane has.
    *
    * The panel is a fixed 320 plus its inset. A pane wide enough to give that up and still leave a
@@ -365,11 +370,15 @@ export function planRows(limits: PlanLimits | null, kind: AgentKind | null): Con
   if (plan) out.push({ icon: AGENT_META[kind].icon, label: "plan", value: plan, title: limits.organization ?? plan });
   // The fullest window only. The panel answers "what stops me next", and the rest of the windows are
   // a table — which Settings ▸ Usage already draws.
-  const w = tightestWindow(limits.windows);
+  // Only windows still open: the last reading is kept across launches, and one about a window that
+  // has since reset describes a period that is over.
+  const now = Date.now();
+  const w = tightestWindow(limits.windows.filter((x) => !windowHasReset(x, now)));
+  const alert = currentAlert(limits, now);
   if (w) {
     out.push({ icon: "activity", label: w.label, value: `${Math.round(w.utilization!)}%`,
       title: `${w.label} window · ${Math.round(w.utilization!)}% used`,
-      tone: limits.alert === "exceeded" ? "danger" : limits.alert === "approaching" ? "warning" : undefined });
+      tone: alert === "exceeded" ? "danger" : alert === "approaching" ? "warning" : undefined });
   }
   return out;
 }

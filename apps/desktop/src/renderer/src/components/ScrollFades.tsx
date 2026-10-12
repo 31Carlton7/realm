@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * The two ends of a scroller, dissolved when there is something under them.
@@ -129,17 +130,34 @@ export function useFadedScroller() {
  * sticky at all"). Inside the column it already starts where the content does, past the rail, so it
  * needs no indent of its own to line up with it.
  */
-export function PageScroll({ children, wide = false, className }: { children: ReactNode;
+/** The bar under a page's column, where a page that ends in a DECISION puts it (`PageFoot`). */
+const PageFootSlot = createContext<HTMLElement | null>(null);
+
+export function PageScroll({ children, wide = false, className, foot = false }: { children: ReactNode;
   /** Opt out of the reading measure, for a column of work that wants the width — the Library's grid
    *  of files, the Tasks lens — rather than one of prose. */
   wide?: boolean;
   /** The page's own name for its column, beside the shared one — the notifications feed's. */
-  className?: string }) {
+  className?: string;
+  /** A bar under the column, outside the scroller, for a page whose last word is a decision: what
+   *  `PageFoot` puts there stays put and legible while the column scrolls, never in its dissolve. */
+  foot?: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
   return (
-    <div className="page-scroll">
+    <div className="page-scroll" data-foot={foot || undefined}>
       <ScrollFades scroller={scroller} />
-      <div className={className ? `page-content ${className}` : "page-content"} ref={scroller} data-wide={wide || undefined}>{children}</div>
+      <PageFootSlot.Provider value={foot ? slot : null}>
+        <div className={className ? `page-content ${className}` : "page-content"} ref={scroller} data-wide={wide || undefined}>{children}</div>
+      </PageFootSlot.Provider>
+      {foot && <div className={className ? `page-foot ${className}` : "page-foot"} ref={setSlot} />}
     </div>
   );
+}
+
+/** A page's decision, in the bar under its column when the page has one, and in the column where it
+ *  does not (a test, a page opened elsewhere) — so the decision is always somewhere. */
+export function PageFoot({ children }: { children: ReactNode }) {
+  const slot = useContext(PageFootSlot);
+  return slot ? createPortal(children, slot) : <>{children}</>;
 }

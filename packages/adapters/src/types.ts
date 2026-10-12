@@ -16,6 +16,14 @@ export type McpServerConfig =
   | { name: string; transport: "http" | "sse"; url: string; headers: Record<string, string> };
 
 /**
+ * How long an agent's MCP client waits on one call to Realm's gateway before giving up on it. The
+ * longest call Realm makes legitimately is `agent_wait` at its one-hour maximum, so a minute past
+ * that: Realm's own answer, even a timeout, is always the one that lands. Claude takes it in
+ * milliseconds (`timeout` on the server entry), Codex in seconds (`tool_timeout_sec`).
+ */
+export const GATEWAY_TOOL_TIMEOUT_MS = 61 * 60_000;
+
+/**
  * Realm's skills library, handed to an agent **per invocation**. Nothing is ever written into
  * `~/.claude`, `~/.codex`, `~/.cursor` or `~/.agents` — the two routes below are the whole mechanism.
  *
@@ -77,6 +85,19 @@ export type StartOptions = {
    * rather than merely equivalent to what it was.
    */
   wrap?: (command: string, args: string[]) => { command: string; args: string[] };
+  /**
+   * Asked before the engine raises its own approval for an MCP tool, with the name the engine gives it
+   * (`mcp__<server>__<tool>`). True means Realm's gateway answers for this call itself — a team's
+   * policy, which draws its own card where one is owed — so the engine approves without a card of its
+   * own and the person sees one card, not two. False, or absent, and the engine asks as it always has.
+   * Only an MCP tool's approval reaches it; a command or an edit never does.
+   */
+  gatewayDecides?: (toolName: string) => Promise<boolean>;
+  /**
+   * A team role's run (team/policies). Codex pins its sandbox's network off for it, so a command cannot
+   * reach the world past the gateway's policy; an engine with no such knob ignores it.
+   */
+  roleRun?: boolean;
   /** Diagnostic sink for provider stderr / log lines. */
   onLog?: (line: string) => void;
 };
@@ -123,6 +144,8 @@ export interface AgentHandle {
  * provider itself handed over, verbatim.
  */
 export type ProbeResult = { kind: AgentKind; available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; models?: AgentModel[] | null;
+  /** The CLI was there but died or hung on the probe (`probeCrashed`), so whether it works is unknown. */
+  crashed?: boolean;
   /** An agent's reasoning levels where they are a session setting (an ACP `thought_level` option), with
    *  the one it starts on. Absent where the agent offers none, or was not asked. */
   efforts?: { id: string; label: string }[]; defaultEffort?: string | null };

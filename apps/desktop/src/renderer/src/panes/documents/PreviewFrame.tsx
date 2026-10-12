@@ -4,8 +4,8 @@ import { useApp } from "../../state/store";
 import { recallScroll, rememberScroll } from "../scroll-memory";
 
 /**
- * The preview surface for `html` guides and `pdf` files (Plan 22 W1): an iframe onto the server's
- * loopback preview listener.
+ * The preview surface for `html` guides (Plan 22 W1): an iframe onto the server's loopback preview
+ * listener. (A PDF used to be framed here too, in Chromium's own viewer; Realm draws it now — PdfView.tsx.)
  *
  * Why a frame onto a real origin, and not `srcdoc`: a `srcdoc`/`blob:`/`data:` document INHERITS the
  * renderer's CSP (`script-src 'self'`), which forbids the inline script every self-contained guide
@@ -21,8 +21,8 @@ import { recallScroll, rememberScroll } from "../scroll-memory";
  * `version` changes force a reload: the parent passes the buffer's disk hash, so an agent's rewrite
  * (delivered through `documents.fileChanged`) re-renders the guide without any polling.
  */
-export function PreviewFrame({ documentsId, path, kind, version, scrollKey }: {
-  documentsId: string; path: string; kind: "html" | "pdf"; version: string | null;
+export function PreviewFrame({ documentsId, path, version, scrollKey }: {
+  documentsId: string; path: string; version: string | null;
   /** Only a guide can honour this — see the scroll branch below, and `guide-runtime.ts`. */
   scrollKey?: string | null;
 }) {
@@ -46,7 +46,6 @@ export function PreviewFrame({ documentsId, path, kind, version, scrollKey }: {
   }, [info, documentsId, path, version]);
 
   useEffect(() => {
-    if (kind !== "html") return;
     const send = (progress: GuideProgress) => frame.current?.contentWindow?.postMessage({ type: "realm-guide:progress", progress }, "*");
     const onMessage = (e: MessageEvent) => {
       if (!frame.current || e.source !== frame.current.contentWindow) return;
@@ -72,7 +71,7 @@ export function PreviewFrame({ documentsId, path, kind, version, scrollKey }: {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [kind, documentsId, path, scrollKey, readGuideProgress, recordGuideAttempt]);
+  }, [documentsId, path, scrollKey, readGuideProgress, recordGuideAttempt]);
 
   if (error) return <div className="documents-error">Preview unavailable: {error}</div>;
   if (!src) return <div className="pane-placeholder muted">Loading preview…</div>;
@@ -80,12 +79,9 @@ export function PreviewFrame({ documentsId, path, kind, version, scrollKey }: {
     <iframe
       ref={frame}
       className="documents-frame"
-      data-kind={kind}
-      title={`${kind === "pdf" ? "PDF" : "Guide"} preview of ${path}`}
+      title={`Guide preview of ${path}`}
       src={src}
-      // A PDF is rendered by Chromium's own viewer, which does not run inside a sandboxed frame;
-      // the file is Realm's own bytes served with a fixed MIME type, so the frame runs unsandboxed.
-      {...(kind === "html" ? { sandbox: "allow-scripts allow-forms allow-popups allow-modals" } : {})}
+      sandbox="allow-scripts allow-forms allow-popups allow-modals"
     />
   );
 }

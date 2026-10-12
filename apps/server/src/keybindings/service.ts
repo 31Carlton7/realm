@@ -80,12 +80,12 @@ export class KeybindingsService {
     const merged = mergeDefaults(existing, this.defaults);
     const error = problems.length === 0 ? null : `${KEYBINDINGS_FILE}: ${problems.join("; ")}`;
     if (error !== null) this.d.onLog?.(`[keybindings] ${error}`);
-    /* Written back only when the merge added something AND the file was wholly understood. The first
+    /* Written back only when the merge added or revised something AND the file was wholly understood. The first
        half is because a read that rewrites an unchanged file touches its mtime every boot, which is
        noise in a dotfiles repo and a lie to anything watching. The second is rule 1 again, in its
        quieter form: writing a merged file here would drop the very entry we just complained about,
        so the user's typo would be silently deleted by the release that happened to add a default. */
-    const changed = merged.length !== existing.length;
+    const changed = merged.length !== existing.length || merged.some((rule, i) => rule !== existing[i]);
     return changed && error === null ? this.persist(merged, null) : { path: this.path, rules: merged, error };
   }
 

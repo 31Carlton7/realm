@@ -143,7 +143,7 @@ window.__live = window.__live ?? {
     return {
       pane: __live.box(document.querySelector(".session-pane")).w,
       bar: __live.box(bar).w,
-      opts: { ...optsBox, need: Math.round(opts.scrollWidth), have: Math.round(opts.clientWidth), collapsed: opts.hasAttribute("data-collapsed") },
+      opts: { ...optsBox, need: Math.round(opts.scrollWidth), have: Math.round(opts.clientWidth) },
       strip: strip ? { ...stripBox, h: Math.round(strip.getBoundingClientRect().height) } : null,
       over: over ? { ...overBox, h: Math.round(over.getBoundingClientRect().height) } : null,
       acts: acts ? __live.box(acts) : null,
@@ -156,6 +156,11 @@ window.__live = window.__live ?? {
       // see which model you are sending to.
       send: !!document.querySelector(".composer-send") && __live.box(document.querySelector(".composer-send")).r <= __live.box(bar).r + 1,
       model: document.querySelector(".model-chip") ? __live.box(document.querySelector(".model-chip")) : null,
+      // The permission mode is the one chip that says how much the session may do unasked, so it is
+      // on the row at every width, inside the bar, its word shown whole (long or short) — never folded.
+      perm: (() => { const p = document.querySelector('.composer-opts [aria-label="Permission mode"]'); if (!p) return null;
+        const words = [...p.querySelectorAll(".perm-long, .perm-short, .chip-label")].filter((n) => n.getClientRects().length > 0 && !n.querySelector(".perm-long"));
+        return { ...__live.box(p), inBar: __live.box(p).r <= __live.box(bar).r, shown: words.map((n) => n.textContent).join(""), whole: words.every((n) => n.scrollWidth <= n.clientWidth + 1 || n.clientWidth === 0) }; })(),
       git: git ? { ...__live.box(git), text: git.textContent.trim(), inStrip: !!git.closest(".composer-overstrip") } : null,
       gitTitle: git?.title ?? null,
       // The context meter pins to the strip's far end; measured so a branch name growing into it is
@@ -275,7 +280,7 @@ async function main() {
     const row = await evalIn(c, `__live.row()`);
     sweep.push({ width, ...row });
     const cutItems = row.items.filter((i) => i.cut).map((i) => i.cls);
-    console.log(`WIDTH ${String(width).padStart(4)} pane=${String(row.pane).padStart(4)} opts need=${String(row.opts.need).padStart(4)} have=${String(row.opts.have).padStart(4)} collapsed=${row.opts.collapsed ? "y" : "n"} cut=[${cutItems.join(" ")}] git=${row.git ? row.git.w : "-"} model=${row.model ? row.model.w : "-"}`);
+    console.log(`WIDTH ${String(width).padStart(4)} pane=${String(row.pane).padStart(4)} opts need=${String(row.opts.need).padStart(4)} have=${String(row.opts.have).padStart(4)} perm=${row.perm ? JSON.stringify(row.perm.shown) : "-"} cut=[${cutItems.join(" ")}] git=${row.git ? row.git.w : "-"} model=${row.model ? row.model.w : "-"}`);
   }
   fs.writeFileSync(path.join(os.tmpdir(), "realm-composer-bar.json"), JSON.stringify(sweep, null, 2));
 
@@ -287,6 +292,10 @@ async function main() {
   const amputated = room.filter((s) => s.items.some((i) => i.cut));
   check("no control is ever sliced by the group's overflow — a chip either fits or is not on the row",
     amputated.length === 0, amputated.map((s) => ({ width: s.width, cut: s.items.filter((i) => i.cut).map((i) => i.cls) })));
+
+  const modeless = sweep.filter((s) => !s.perm || !s.perm.inBar || !s.perm.shown);
+  check("the permission chip is on the row, inside the bar, with its word at every width", modeless.length === 0,
+    modeless.map((s) => ({ width: s.width, perm: s.perm })));
 
   const branchless = room.filter((s) => !s.git);
   check("the branch chip is present at every width it is offered at", branchless.length === 0, branchless.map((s) => s.width));

@@ -1,19 +1,19 @@
 // Realm's mark: a cube lying on its side — the flat-topped hexagon Realm has worn since its first icon —
-// with a lit doorway in its dark wall. A space, and the way into it.
+// with a doorway cut through its right wall. A space, and the way into it.
 //
 // The source of every drawing of the mark: mark.svg and mark-flat.svg beside this file, the renderer's
-// realm-mark.svg, the boot mark inline in the renderer's index.html, and the mark on every app icon
-// (icons.mjs). render.mjs writes all of them from here.
+// realm-mark.svg, the boot mark inline in the renderer's index.html, the menu-bar template, and the mark
+// on every app icon (icons.mjs). render.mjs writes all of them from here.
 //
 // Every line is on the cube's own lattice — its edges, and fractions along them — which is what keeps
-// the facets crisp. The cube is three faces: a light top, a mid left wall and a dark right wall. The
-// doorway is cut into the dark wall, and through it you see what an opening in a solid shows: its lit
-// back, its floor and one jamb, each in the tone of the face it is parallel to. The lit back is the
-// mark's one negative-space facet. Cursor's mark is a cube too, stood on a corner with an arrow cut
-// from its top; this one lies on an edge and is cut with a door, so the two read apart at any size.
-//
-// The flat mark is the silhouette with the doorway knocked out, for sizes where three tones would
-// blur into one.
+// the facets crisp. The mark is drawn two ways, both flat:
+//   - in three planes: the cube's top, left and right faces each one flat blue, light to dark, with the
+//     doorway knocked out of the right wall so whatever is behind the mark shows through it. This is
+//     the mark wherever the brand is the subject: the app icon, the boot mark, onboarding.
+//   - in one ink: the silhouette with the doorway knocked out, `currentColor`, for every small glyph,
+//     for loading and for the menu bar, where three tones would blur into one.
+// The shaded mark (gradient faces, a lit doorway with its jamb and floor) is kept only for the Dock
+// alternates Settings still offers; nothing else draws it.
 
 /** The old mark's box, so everything that sizes the mark at 40 × 48 keeps its layout. */
 export const MARK_BOX = { width: 40, height: 48 };
@@ -87,13 +87,8 @@ const VECTORS = {
   lit: [P(a0, d, c0), P(a0, d, c1)], jamb: [P(a1, 0, c0), P(a1, 0, c1)], floor: [P(a0, d, c1), P(a1, 0, c1)],
 };
 
-/** The mark's own tones, for every drawing of it that is not an app icon. */
-export const MARK_TONES = {
-  top: ["#f4f5f7", "#e3e5e8"],
-  left: ["#b4b8be", "#9ea2a9"],
-  right: ["#6c7078", "#575b63"],
-  lit: ["#ffffff", "#f1f2f4"],
-};
+/** The three planes' blues: the top lightest, the right wall — the one with the door — darkest. */
+export const PLANES = { top: "#9cc1ff", left: "#4f8cf5", right: "#2457c4" };
 
 /** What each part is drawn in: a face its own tones, a doorway part the tones of the face it is
  *  parallel to, at their darker end because it is in the opening's shade. */
@@ -132,9 +127,28 @@ export function markLayer(tones, prefix) {
   return { defs, body };
 }
 
-/** The shaded mark as a document of its own. */
-export function markSvg(tones = MARK_TONES, prefix = "realm-") {
-  const { defs, body } = markLayer(tones, prefix);
+/** The silhouette with the doorway cut out of it, as one even-odd path. */
+export const FLAT_PATH = `${MARK.silhouette}${polygon(MARK.front)}`;
+
+/**
+ * The mark in three flat planes as SVG elements in the box's units: `defs` for the document's <defs>,
+ * `body` to draw. The faces are clipped to the silhouette less the doorway (even-odd), so the doorway
+ * is a hole, not a fill: on an icon it is the icon's body, in a window it is the window. Ids carry
+ * `prefix`.
+ */
+export function planesLayer(colors = PLANES, prefix = "realm-") {
+  const defs = [`<clipPath id="${prefix}shape"><path clip-rule="evenodd" d="${FLAT_PATH}"/></clipPath>`];
+  const body = [
+    `<g clip-path="url(#${prefix}shape)">`,
+    ...["top", "left", "right"].map((k) => `  <path fill="${colors[k]}" d="${polygon(MARK[k])}"/>`),
+    "</g>",
+  ];
+  return { defs, body };
+}
+
+/** The three-plane mark as a document of its own. */
+export function markSvg(colors = PLANES, prefix = "realm-") {
+  const { defs, body } = planesLayer(colors, prefix);
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${MARK_BOX.width}" height="${MARK_BOX.height}" viewBox="0 0 ${MARK_BOX.width} ${MARK_BOX.height}" fill="none">`,
     "  <defs>", ...defs.map((l) => `    ${l}`), "  </defs>",
@@ -148,7 +162,7 @@ export function markSvg(tones = MARK_TONES, prefix = "realm-") {
  *  sits beside. */
 export function flatMarkSvg(ink = "currentColor") {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${MARK_BOX.width}" height="${MARK_BOX.height}" viewBox="0 0 ${MARK_BOX.width} ${MARK_BOX.height}" fill="none">
-<path fill="${ink}" fill-rule="evenodd" d="${MARK.silhouette}${polygon(MARK.front)}"/>
+<path fill="${ink}" fill-rule="evenodd" d="${FLAT_PATH}"/>
 </svg>
 `;
 }

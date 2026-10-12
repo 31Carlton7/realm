@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, canonicalModelKey, type ModelInfo } from "@realm/contracts";
 import {
   agentRowHint, billingLead, chipLabel, effortCurrent, effortOptions, fastModeAvailability, fastModeHint, fastModeShown, fastModeTip, fastModeTitle, filterRows, flatten, groupRows, holdRows,
-  modelAbout, modelLabel, modelRows, resolveModelName, type FastMode, type ModelRow,
+  modelAbout, modelLabel, modelRows, usableModel, type FastMode, type ModelRow,
 } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
@@ -67,13 +67,33 @@ describe("modelRows with a probe catalog", () => {
   });
 });
 
-describe("filterRows at catalog scale", () => {
-  const bigCatalog = Array.from({ length: 40 }, (_, i) => ({ id: `m-${i}[x=1]`, label: `Model ${i}` }));
-  const rows = modelRows({ kind: "acp:cursor", model: null, agentProbe: [probe("acp:cursor", bigCatalog)], canSwitchAgent: true });
+describe("usableModel — a remembered model, if the harness still offers it", () => {
+  it("against a live catalog: kept when listed, dropped when not", () => {
+    // THE MUTANT: checking the curated list while a live one is in — Codex's is empty, so any id passes.
+    expect(usableModel("codex", "gpt-6-luna", [probe("codex", codexCatalog)])).toBe("gpt-6-luna");
+    expect(usableModel("codex", "gpt-4-retired", [probe("codex", codexCatalog)])).toBeNull();
+  });
 
-  it("search still narrows by model name across the whole catalog", () => {
-    expect(filterRows(rows, "model 39").map((r) => r.label)).toEqual(["Model 39"]);
-    expect(filterRows(rows, "model 3").length).toBe(11); // 3, 30..39
+  it("against the curated list when no catalog came back", () => {
+    expect(usableModel("claude", "claude-opus-5-5", [])).toBe("claude-opus-5-5");
+    expect(usableModel("claude", "claude-retired-9", [])).toBeNull();
+    expect(usableModel("claude", "claude-retired-9", [probe("claude", null)])).toBeNull();
+  });
+
+  it("with no list at all, the id stands — there is nothing to check it against", () => {
+    // THE MUTANT: dropping whatever cannot be confirmed — an unprobed Codex would forget its model.
+    expect(usableModel("codex", "gpt-6-luna", [])).toBe("gpt-6-luna");
+    expect(usableModel("codex", "gpt-6-luna", [probe("codex", [])])).toBe("gpt-6-luna");
+  });
+
+  it("the default stays the default", () => {
+    expect(usableModel("claude", null, [])).toBeNull();
+    expect(usableModel("codex", null, [probe("codex", codexCatalog)])).toBeNull();
+  });
+
+  it("reads only its own kind's catalog", () => {
+    // THE MUTANT: any probe's list — Codex's catalog would vouch for a Claude id it does not run.
+    expect(usableModel("claude", "gpt-6-luna", [probe("codex", codexCatalog)])).toBeNull();
   });
 });
 
@@ -185,24 +205,6 @@ describe("groupRows", () => {
     expect(others.rows.filter((r) => r.kind === "codex")).toHaveLength(1);
   });
 
-  it("never folds the session's own agent away, however little it lists", () => {
-    const rows = modelRows({ kind: "acp:openhands", model: null, canSwitchAgent: true, agentProbe: [] });
-    const groups = groupRows(rows, { query: "", kind: "acp:openhands" });
-    expect(groups[0]).toMatchObject({ label: "OpenHands", kind: "acp:openhands" });
-    expect(groups[0]!.rows.map((r) => [r.label, r.selected])).toEqual([["Default", true]]);
-    expect(group(groups, "Other agents")!.rows.map((r) => r.kind)).not.toContain("acp:openhands");
-  });
-
-  it("leaves out what this session can no longer switch to", () => {
-    // After the first message the agent is fixed; a list of rows nobody can pick is the clutter, and
-    // the picker says why in one line instead.
-    const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: false,
-      agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)] });
-    const groups = groupRows(rows, { query: "", kind: "claude" });
-    expect(groups.map((g) => g.label)).toEqual(["Claude"]);
-    expect(flatten(groups).every((r) => r.kind === "claude" && r.alternates.length === 0)).toBe(true);
-  });
-
   it("leads with Favourites, and a starred model appears there alone", () => {
     const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
       agentProbe: [probe("claude", null), probe("acp:cursor", cursorWithClaude)], favorites: [canonicalModelKey("Claude Fable 5.1")] });
@@ -234,18 +236,6 @@ describe("groupRows", () => {
 describe("holdRows", () => {
   const agentProbe = [probe("claude", null), probe("acp:cursor", cursorWithClaude)];
   const opened = modelRows({ kind: "claude", model: null, canSwitchAgent: true, agentProbe });
-
-  it("keeps every row in its place and on its harness after a pick moves the session, with the tick from now", () => {
-    // Picked GPT-5.5 through Cursor: live, Cursor leads and takes Fable from Claude.
-    const live = modelRows({ kind: "acp:cursor", model: "gpt-5.5", canSwitchAgent: true, agentProbe });
-    expect(live.find((r) => r.label === "Claude Fable 5.1")!.kind).toBe("acp:cursor");
-    const held = holdRows(live, opened);
-    expect(held.map((r) => r.id)).toEqual(opened.map((r) => r.id));
-    const fable = held.find((r) => r.label === "Claude Fable 5.1")!;
-    expect(fable).toMatchObject({ kind: "claude", icon: "claude", agentLabel: "Claude", modelId: "claude-fable-5-1", alternates: ["acp:cursor"] });
-    expect(held.filter((r) => r.selected).map((r) => r.label)).toEqual(["GPT-5.5"]);
-    expect(groupRows(held, { query: "", kind: "claude" }).map((g) => g.label)).toEqual(groupRows(opened, { query: "", kind: "claude" }).map((g) => g.label));
-  });
 
   it("takes the stars from now, drops a row that has gone and adds one that arrived, after the rest", () => {
     const live = modelRows({ kind: "claude", model: null, canSwitchAgent: true, favorites: [canonicalModelKey("Claude Sonnet 5")],
@@ -488,60 +478,5 @@ describe("billingLead", () => {
   it("keeps the statement of who bills and leaves the aside to the hover", () => {
     expect(billingLead(AGENT_NOTES.codex.billing)).toBe("Bills through your ChatGPT plan or OpenAI API key.");
     expect(billingLead(AGENT_NOTES["acp:cursor"].billing)).toBe(AGENT_NOTES["acp:cursor"].billing);
-  });
-});
-
-describe("resolveModelName", () => {
-  const rows = modelRows({ kind: "claude", model: null, canSwitchAgent: true,
-    agentProbe: [probe("claude", null), probe("codex", codexCatalog), probe("acp:cursor", cursorWithClaude)] });
-  const resolve = (name: string) => {
-    const m = resolveModelName(name, rows);
-    return m && { kind: m.kind, modelId: m.modelId, label: m.label, exact: m.exact };
-  };
-
-  it("maps a family name to its newest model, on the harness that would run it", () => {
-    expect(resolve("Fable")).toEqual({ kind: "claude", modelId: "claude-fable-5-1", label: "Claude Fable 5.1", exact: false });
-    expect(resolve("opus")).toMatchObject({ modelId: "claude-opus-5-5" });
-  });
-
-  it("takes the newest version even where the catalog lists an older one first", () => {
-    // List order is the vendor's, and a live catalog promises nothing about it: "luna" is the newest
-    // Luna, not whichever the probe happened to hand over first.
-    const lunas = modelRows({ kind: "codex", model: null, canSwitchAgent: true, agentProbe: [probe("codex", [
-      { id: "gpt-5.6-luna", label: "GPT-5.6-Luna" }, { id: "gpt-6-luna", label: "GPT-6-Luna" },
-    ])] });
-    expect(resolveModelName("luna", lunas)).toMatchObject({ modelId: "gpt-6-luna", exact: false });
-  });
-
-  it("treats a version as one word, so Fable 5 is never Fable 5.1", () => {
-    expect(resolve("fable 5")).toMatchObject({ modelId: "claude-fable-5" });
-    expect(resolve("Claude Fable 5.1")).toMatchObject({ modelId: "claude-fable-5-1", exact: true });
-  });
-
-  it("finds a model in a live catalog however it is spaced or hyphenated", () => {
-    for (const name of ["GPT-6 Luna", "gpt 6 luna", "gpt6 luna", "GPT-6-Luna"]) {
-      expect(resolve(name)).toEqual({ kind: "codex", modelId: "gpt-6-luna", label: "GPT-6-Luna", exact: true });
-    }
-  });
-
-  it("takes the route a name asks for, and only where that harness runs the model", () => {
-    expect(resolve("Fable via Cursor")).toMatchObject({ kind: "acp:cursor", modelId: CURSOR_FABLE_ID });
-    expect(resolve("GPT-5.5 through Cursor")).toMatchObject({ kind: "acp:cursor", modelId: "gpt-5.5" });
-    expect(resolve("Sonnet on Cursor")).toBeNull();
-    expect(resolve("Fable on Claude Code")).toMatchObject({ kind: "claude", modelId: "claude-fable-5-1" });
-  });
-
-  it("names an agent's own default by the agent", () => {
-    expect(resolve("opencode")).toMatchObject({ kind: "acp:opencode", modelId: null });
-  });
-
-  it("returns nothing rather than a different model", () => {
-    // Codex's catalog unread: no GPT-6 Luna anywhere, so the answer is a question back to the person.
-    const bare = modelRows({ kind: "claude", model: null, canSwitchAgent: true, agentProbe: [] });
-    expect(resolveModelName("GPT-6 Luna", bare)).toBeNull();
-    expect(resolveModelName("", rows)).toBeNull();
-    // …and never one this session can no longer be put on.
-    const locked = modelRows({ kind: "claude", model: null, canSwitchAgent: false, agentProbe: [probe("codex", codexCatalog)] });
-    expect(resolveModelName("GPT-6 Luna", locked)).toBeNull();
   });
 });

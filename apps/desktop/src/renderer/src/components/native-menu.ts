@@ -9,7 +9,7 @@ const NAMED_KEYS: Record<string, string> = {
 /**
  * A row's shortcut HINT ("⌘⇧F") as an Electron accelerator ("Command+Shift+F"), so the OS menu
  * right-aligns it in the system's own glyphs. Display only — main passes `registerAccelerator: false`
- * and the binding stays in hotkeys.ts. A hint this cannot read is dropped rather than guessed: a
+ * and the binding stays in the keymap (keys/). A hint this cannot read is dropped rather than guessed: a
  * wrong shortcut printed on a menu is worse than none.
  */
 export function acceleratorFor(hint: string): string | undefined {

@@ -1,7 +1,6 @@
 import { itemIdOfLeaf, type Item } from "@realm/contracts";
 import type { KeyContext } from "@realm/contracts";
 import type { StoreApi } from "zustand";
-import { isEditableTarget } from "../hotkeys";
 import { startAppPick } from "../app-pick/start";
 import type { AppState } from "../state/store";
 
@@ -17,6 +16,17 @@ import type { AppState } from "../state/store";
  * rule applied to a list of choices. The converse is deliberately not true: the resolver takes any
  * command id, so a `script.<id>.run` with no runner yet is simply a chord Realm does not consume.
  */
+
+/** A text field, textarea or rich-text editor — where a bare chord is typing, not a command. */
+export function isEditableTarget(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false;
+  // xterm focuses a hidden helper <textarea> inside its .xterm root whenever a terminal pane is
+  // visible — without this exemption a focused terminal dead-keys every global binding (⌘W was even
+  // consumed with no action). None of the meta/ctrl chords bound here conflict with terminal text
+  // entry, so terminals are never "editable" for guard purposes.
+  if (t.closest(".xterm")) return false;
+  return t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable;
+}
 
 /** Where the user's attention is, as the `when` language sees it. */
 export function keyContext(s: AppState, target: EventTarget | null): KeyContext {
@@ -50,8 +60,8 @@ export function keyContext(s: AppState, target: EventTarget | null): KeyContext 
  * Each entry reads `store.getState()` at the moment it fires rather than closing over a snapshot: a
  * keystroke acts on the app as it is when the key goes down, not as it was when the hook mounted.
  *
- * `run()` wraps exactly the actions that are async and can fail, matching what `hotkeys.ts` and the
- * palette already do for the same calls — it is the store's own error surface, and an unwrapped
+ * `run()` wraps exactly the actions that are async and can fail, matching what the palette already
+ * does for the same calls — it is the store's own error surface, and an unwrapped
  * rejection here would be an unhandled promise instead of a toast.
  */
 export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, () => void>> {
@@ -76,8 +86,8 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
   };
 
   return {
-    "pane.splitRight": () => { const s = get(); s.run(() => s.splitFocused("row")); },
-    "pane.splitDown": () => { const s = get(); s.run(() => s.splitFocused("col")); },
+    "pane.splitRight": () => { const s = get(); s.run(() => s.splitNewSession("row")); },
+    "pane.splitDown": () => { const s = get(); s.run(() => s.splitNewSession("col")); },
     // Layout-only, and never the window: a tab leaves its strip, a pane its split, and a session
     // alone closes nothing — the keyboard goes to its prompter (`closeIntent`). Where there is
     // nothing to close the ⌘W swallow in the hook keeps the key from reaching Electron.

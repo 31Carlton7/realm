@@ -86,6 +86,59 @@ describe("a long transcript draws its newest part", () => {
   });
 });
 
+describe("a session read from its end", () => {
+  /** The newest ten turns of a 200-turn session, as a first open holds them: blocks 1900.. of the whole. */
+  const all = session(200, 10);
+  const tail: TranscriptModel = { ...model(all.slice(1900)), earlier: { from: 190, settledAt: null } };
+  const whole: TranscriptModel = { ...model(all), base: -1900 };
+  const rowFor = (text: string) => [...document.querySelectorAll(".msg-user-row")].find((r) => r.textContent?.trim().startsWith(text)) ?? null;
+
+  it("offers Show earlier while the log's start is still on the server, and reads it when asked", async () => {
+    let land!: () => void;
+    const onEarlier = vi.fn(() => new Promise<void>((r) => { land = r; }));
+    const { rerender } = render(<Transcript transcript={tail} sessionStatus="idle" onDecide={() => {}} onEarlier={onEarlier} />);
+    const newest = rowFor("prompt 199");
+    expect(rowFor("prompt 189")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show earlier messages" }));
+    expect(onEarlier).toHaveBeenCalledTimes(1);
+    expect(onEarlier).toHaveBeenCalledWith();
+    // The read lands: the earlier stretch is in front, numbered so nothing on screen moves.
+    await act(async () => { rerender(<Transcript transcript={whole} sessionStatus="idle" onDecide={() => {}} onEarlier={onEarlier} />); land(); });
+    expect(rowFor("prompt 199")).toBe(newest);
+    // …and is drawn as history, not as news.
+    expect(rowFor("prompt 189")).not.toBeNull();
+    expect(rowFor("prompt 189")!.hasAttribute("data-enter")).toBe(false);
+    // The window was short of its size, so it grows to it and no further: the newest 400 blocks.
+    expect(document.querySelectorAll(".msg-user-row").length).toBe(WINDOW_BLOCKS / 10);
+  });
+
+  it("draws a full window further back once the read lands, as it would from memory", async () => {
+    const long: TranscriptModel = { ...model(all.slice(1500)), earlier: { from: 150, settledAt: null } };
+    const onEarlier = vi.fn(async () => {});
+    const { rerender } = render(<Transcript transcript={long} sessionStatus="idle" onDecide={() => {}} onEarlier={onEarlier} />);
+    // The first press draws what is already held; the second reaches the server.
+    fireEvent.click(screen.getByRole("button", { name: "Show earlier messages" }));
+    expect(onEarlier).not.toHaveBeenCalled();
+    expect(rowFor("prompt 150")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show earlier messages" }));
+    expect(onEarlier).toHaveBeenCalledTimes(1);
+    await act(async () => { rerender(<Transcript transcript={{ ...model(all), base: -1500 }} sessionStatus="idle" onDecide={() => {}} onEarlier={onEarlier} />); });
+    expect(rowFor("prompt 110")).not.toBeNull();
+    expect(rowFor("prompt 109")).toBeNull();
+  });
+
+  it("offers nothing to read without a way to read it", () => {
+    render(<Transcript transcript={tail} sessionStatus="idle" onDecide={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Show earlier messages" })).toBeNull();
+  });
+
+  it("reads back to a prompt the Library asks for that it does not hold yet", () => {
+    const onEarlier = vi.fn(async () => {});
+    render(<Transcript transcript={tail} sessionStatus="idle" onDecide={() => {}} onEarlier={onEarlier} track reveal={{ seq: 3, n: 1 }} />);
+    expect(onEarlier).toHaveBeenCalledWith(3);
+  });
+});
+
 describe("history drawn further back is not news", () => {
   it("is seen without entering", () => {
     const t = createEnterTracker();

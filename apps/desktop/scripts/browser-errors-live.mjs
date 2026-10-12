@@ -185,7 +185,7 @@ function listen(server, port) {
   });
 }
 /** `/hang` takes the connection and then drops it without a word: a slow first page that ends as
- *  ERR_EMPTY_RESPONSE, which is long enough to see the spiral waiting and the pulse on a retry. */
+ *  ERR_EMPTY_RESPONSE, which is long enough to see the mark waiting and its glint on a retry. */
 const HANG_MS = 2500;
 const startSite = () => listen(http.createServer((req, res) => {
   if (req.url === "/hang") { setTimeout(() => req.socket.destroy(), HANG_MS); return; }
@@ -245,7 +245,7 @@ async function launch(agent) {
 
 /** The window as a person at the Mac sees it when it is the key window: not greyed, not quiet. The
  *  script's window is neither — it opens behind whatever is in front — and both would change what is
- *  being looked at (the accent goes grey, the busy pulse holds still). */
+ *  being looked at (the accent goes grey, the busy glint holds still). */
 const holdKey = (c) => evalIn(c, `(() => {
   const root = document.documentElement;
   const clear = () => { root.removeAttribute("data-window-inactive"); root.removeAttribute("data-quiet"); };
@@ -591,19 +591,19 @@ async function main() {
   check("…and nothing of the picker is left on the page after it", (await pickerHosts()) === 0);
   check("…nor the stamp it hands the element back by", (await inView(m, `${SITE}/`, "document.querySelectorAll('[data-realm-picked]').length")) === 0);
 
-  // ── A slow page: the spiral while the first page is on its way, and the pulse on a retry ──
+  // ── A slow page: the mark while the first page is on its way, and its glint on a retry ──
   await newTab(c);
   await go(c, `${SITE}/hang`);
   await sleep(1300);
   const waiting = await paneState(c);
-  check("a first page that keeps the pane waiting shows the spiral on the pane's ground, and no view", waiting.connecting && !waiting.error && !(await viewOn(m, `${SITE}/hang`))?.shown, waiting);
+  check("a first page that keeps the pane waiting shows the mark on the pane's ground, and no view", waiting.connecting && !waiting.error && !(await viewOn(m, `${SITE}/hang`))?.shown, waiting);
   await shot(c, "11-connecting-dark", await sidePaneClip(c));
   const empty = await until(async () => { const s = await paneState(c); return s?.error ? s : null; }, 10_000, "the empty response's page");
   check("…and when it ends without an answer, its own page", empty.error.code === "ERR_EMPTY_RESPONSE" && empty.error.reason === "127.0.0.1 didn't send any data.", empty.error);
   await evalIn(c, `(() => { [...${PANE}.querySelectorAll('.browser-error button')].find((b) => b.textContent === 'Reload').click(); return true; })()`);
   await sleep(900);
   const retrying = await paneState(c);
-  check("Reload keeps the page up while it tries again, its spiral busy", retrying.error?.code === "ERR_EMPTY_RESPONSE" && retrying.error.busy, retrying.error);
+  check("Reload keeps the page up while it tries again, its mark busy", retrying.error?.code === "ERR_EMPTY_RESPONSE" && retrying.error.busy, retrying.error);
   await shot(c, "12-retrying-dark", await sidePaneClip(c));
   await until(async () => { const s = await paneState(c); return s?.error && !s.error.busy ? s : null; }, 10_000, "the retry settled");
 
