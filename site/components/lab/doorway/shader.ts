@@ -176,22 +176,28 @@ fn beamAt(x: vec3f, g: f32) -> f32 {
   return throughWindow(x) * phase(cosT, g) * k * k / r2;
 }
 
+// Two octaves of value noise, normalised to 0..1 like fbm: enough for the broad, low-contrast layers.
+fn fbm2(p: vec2f) -> f32 {
+  return (noise(p) * 0.5 + noise(p * 2.03 + vec2f(1.7, 9.2)) * 0.25) / 0.75;
+}
+
 // Light through haze is never even: a faint variation by direction from the light, constant along every
 // ray of it, which is what reads as shafts. Sampled on a circle, so it has no seam; slow, as haze drifts.
 fn streak(w: vec2f, t: f32) -> f32 {
   let v = w - lightOnWall;
   let dir = normalize(v + vec2f(1e-5, 0.0));
-  let broad = fbm(dir * 2.7 + vec2f(t * 0.016, -t * 0.011));
-  let fine = noise(dir * 13.0 + vec2f(-t * 0.03, t * 0.022));
-  // Every ray meets at the light's projection, which sits on the window's top edge: fade the variation
-  // out there, or the meeting point would show as a little star on the frame.
+  let broad = fbm2(dir * 2.7 + vec2f(t * 0.016, -t * 0.011));
+  let mid = noise(dir * 13.0 + vec2f(-t * 0.03, t * 0.022));
+  let fine = noise(dir * 37.0 + vec2f(t * 0.05, t * 0.031));
+  // Every ray meets at the light's projection, which sits just inside the window's top edge: fade the
+  // variation out there, or the meeting point would show as a little star on the frame.
   let away = smoothstep(0.02, 0.16, length(v));
-  return max(1.0 + away * (0.95 * (broad - 0.5) + 0.42 * (fine - 0.5)), 0.0);
+  return max(1.0 + away * (1.0 * (broad - 0.5) + 0.5 * (mid - 0.5) + 0.36 * (fine - 0.5)), 0.0);
 }
 
 // The haze is not even either: a faint, slow unevenness, fixed to the room so it scrolls with it.
 fn hazeDensity(q: vec2f, t: f32) -> f32 {
-  let n = fbm(q / 230.0 + vec2f(t * 0.011, -t * 0.006));
+  let n = fbm2(q / 230.0 + vec2f(t * 0.011, -t * 0.006));
   return 0.72 + 0.56 * n;
 }
 
@@ -211,7 +217,7 @@ fn dust(p: vec2f, t: f32, dpr: f32) -> f32 {
     for (var j = 0; j < 4; j++) {
       let id = base + o + vec2f(f32(j & 1), f32(j >> 1));
       let h = hash22(id + fl * 19.31);
-      if (h.x > 0.13) { continue; }
+      if (h.x > 0.2) { continue; }
       let jit = hash22(id * 1.37 + 5.17);
       let wob = vec2f(sin(t * (0.13 + jit.x * 0.17) + h.y * 40.0), cos(t * (0.11 + jit.y * 0.13) + h.y * 23.0)) * 0.09;
       var m = (id + 0.25 + 0.5 * jit + wob) * cell - drift + axis;
@@ -251,7 +257,7 @@ fn scene(p: vec2f, t: f32, sdWin: f32, dpr: f32) -> vec3f {
   let sEnd = select(1.0, floorY / max(w.y, 1e-5), onFloor);
   let shafts = streak(w, t);
 
-  let haze = volume(w, d, sEnd) * shafts * hazeDensity(p - axis, t) * 0.3;
+  let haze = volume(w, d, sEnd) * shafts * hazeDensity(p - axis, t) * 0.36;
   var light = mix(HAZE_THIN, HAZE, smoothstep(0.0, 0.2, haze)) * haze;
 
   if (onFloor) {
@@ -265,7 +271,7 @@ fn scene(p: vec2f, t: f32, sdWin: f32, dpr: f32) -> vec3f {
     let r2 = dot(toLight, toLight);
     let cosI = max(-toLight.y, 0.0) * inverseSqrt(r2);
     let k = kappa - 1.0;
-    light += CORE * throughWindow(x) * cosI * k * k / r2 * mix(1.0, shafts, 0.55) * albedo * 0.14;
+    light += CORE * throughWindow(x) * cosI * k * k / r2 * mix(1.0, shafts, 0.55) * albedo * 0.1;
 
     // The window's reflection: the pixel's wall point mirrored in the floor, blurred more the further the
     // reflected ray runs and far more along the floor than across it, as a polished floor stretches it.
@@ -273,21 +279,23 @@ fn scene(p: vec2f, t: f32, sdWin: f32, dpr: f32) -> vec3f {
     // the frame's: two long edges falling away under the window's sides, and its foot along the sill.
     let mirrored = (vec2f(w.x, 2.0 * floorY - w.y) - apC) * F;
     let travel = 1.0 - sEnd;
-    let blur = vec2f(2.0 + travel * 0.05 * F, 4.0 + travel * 0.3 * F);
+    let blur = vec2f(1.5 + travel * 0.035 * F, 3.0 + travel * 0.32 * F);
     let edge = abs(mirrored) - apH * F;
-    let inside = (1.0 - smoothstep(-blur.x, blur.x, edge.x)) * (1.0 - smoothstep(-blur.y, blur.y, edge.y));
-    let rim = exp(-abs(edge.x) / (blur.x * 1.6)) * (1.0 - smoothstep(-blur.y, blur.y, edge.y))
-      + exp(-abs(edge.y) / (blur.y * 0.8)) * (1.0 - smoothstep(-blur.x, blur.x, edge.x));
+    let across = 1.0 - smoothstep(-blur.x, blur.x, edge.x);
+    let along = 1.0 - smoothstep(-blur.y, blur.y, edge.y);
+    let rim = exp(-abs(edge.x) / blur.x) * along + exp(-abs(edge.y) / (blur.y * 0.6)) * across;
     let cosV = w.y * inverseSqrt(dot(d, d));
     let fresnel = 0.04 + 0.96 * pow(1.0 - cosV, 5.0);
-    light += CORE * (inside * 0.05 + rim * 0.12) * fresnel * exp(-travel * 2.5) * mix(1.0, albedo, 0.5);
+    light += CORE * (across * along * 0.035 + rim * 0.3) * fresnel * exp(-travel * 2.2) * mix(1.0, albedo, 0.5);
   }
 
   // The eye's own glare round a lit opening: tight, and quick to fall away.
   let sd = max(sdWin, 0.0);
-  light += CORE * (0.06 * exp(-sd / 2.0) + 0.016 * exp(-sd / 22.0)) * mix(1.0, shafts, 0.6);
+  light += CORE * (0.14 * exp(-sd / 3.0) + 0.045 * exp(-sd / 16.0) + 0.012 * exp(-sd / 70.0)) * mix(1.0, shafts, 0.6);
 
-  light += CORE * dust(p, t, dpr) * 0.35 * smoothstep(0.004, 0.05, haze);
+  if (haze > 0.004) {
+    light += CORE * dust(p, t, dpr) * 0.5 * smoothstep(0.004, 0.05, haze);
+  }
   return light;
 }
 

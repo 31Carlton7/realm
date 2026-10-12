@@ -35,7 +35,7 @@ const ROOM = {
   spreadX: 0.07,
   spreadY: 0.1,
   /** How far the haze reaches out from the wall before thinning, in focal lengths. */
-  hazeDepth: 0.065,
+  hazeDepth: 0.1,
   /** The haze's forward scattering: how tightly it glows round the light's direction. */
   hazeG: 0.6,
   /** How far the pointer moves the light, as a share of the window: a few degrees either way. */
