@@ -237,6 +237,20 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".delegation-line .tool-row > .tool-name:last-child").join(" ")).toMatch(/max-width:\s*none/);
   });
 
+  it("keeps the transcript's sub-agent strip quiet: the accent on its mark alone, and titles that give way", () => {
+    // Mutant: the accent on the strip's ground or rim — a loud card under every fan-out.
+    const strip = bodiesFor(".subagent-strip").join(" ");
+    expect(strip).toMatch(/background:\s*var\(--rl-card\)/);
+    expect(strip).not.toMatch(/--rl-accent/);
+    expect(bodiesFor(".subagent-strip-head > svg:first-child").join(" ")).toMatch(/color:\s*var\(--rl-accent\)/);
+    // Settled, the mark goes quiet with the line.
+    expect(bodiesFor(".subagent-strip[data-settled] .subagent-strip-head > svg:first-child").join(" ")).toMatch(/color:\s*var\(--ink-3\)/);
+    // A long task ellipsizes rather than pushing the state and clock out of the row.
+    const title = bodiesFor(".subagent-strip-title").join(" ");
+    expect(title).toMatch(/min-width:\s*0/);
+    expect(title).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
   it("hangs the team note's New role pill outside the note's text edge", () => {
     // Mutant: the old `padding-left: 0` that `.page .btn-quiet` outranked — the words sat 10px in.
     expect(bodiesFor(".tp-card-note .tp-card-new").join(" ")).toMatch(/margin-left:\s*-10px/);
