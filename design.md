@@ -747,6 +747,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 
 - Use transitions for hover, press, selection, resize, open, and close states so they can reverse.
 - Use keyframes only for one-shot entrances or ambient states that genuinely need a loop.
+- A loop that says a state began — the working dot's ping, a working label's shimmer, the caret's
+  blink — plays a few cycles and then holds its still form: the halo, the words in quiet ink, a solid
+  caret. The motion is what catches the eye; once seen, the still form says the same thing, and a loop
+  left running keeps the window producing a frame every vsync for as long as an agent works
+  (the 2026-10-12 power audit: 43% CPU focused, against 8% at rest). It plays again when the state is drawn anew.
+  Loops that cannot rest — the orb beside a tool in flight — pause with the rest of `data-quiet`,
+  which a window also takes after half a minute with no input (`idle`).
 - Interactive fills answer quickly; popovers and swaps are short; drawers and spatial moves may take
   longer. Use the duration and easing ladder in `tokens.css`.
 - Stagger a composed entrance by semantic parts, not every child.

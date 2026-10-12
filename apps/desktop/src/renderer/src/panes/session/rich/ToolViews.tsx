@@ -108,8 +108,9 @@ export function TodoHeadline({ todos }: { todos: readonly Todo[] }) {
     <>
       <span className="todo-count">{done} of {todos.length}</span>
       {/* The in-flight item's own words for what it is doing ("Running the suite"), which is what
-          `activeForm` is for; without one the item's title stands in. */}
-      {active && <span className="todo-active shimmer-text">{active.activeForm ?? active.content}</span>}
+          `activeForm` is for; without one the item's title stands in. Keyed by those words, so the
+          next item is a new label and sweeps its own three times (the shimmer rests after three). */}
+      {active && <span key={active.activeForm ?? active.content} className="todo-active shimmer-text">{active.activeForm ?? active.content}</span>}
     </>
   );
 }

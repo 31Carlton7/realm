@@ -6,7 +6,6 @@ import { TOOLBAR_BUTTON, TOOLBAR_CHROME } from "./panes/simulator/toolbar-fit";
 import { REALM_SEED, accentFill, deriveVars } from "@realm/ui";
 import { AGENT_FRAME, contrast, oklchToHex } from "@realm/contracts";
 import { PICTURE_RADIUS, SCREEN_INSET, SCREEN_PAD, SCREEN_RADIUS } from "./panes/machine/fit";
-import { MAX_ROWS_PX } from "./panes/session/Composer";
 import { PRESSABLE } from "./press-tracking";
 
 /** §6's motion table and its "do NOT animate" list are enforceable only against the stylesheet
@@ -493,6 +492,18 @@ describe("§6 motion table", () => {
     // Only the ring moves; the core is untouched, so the row's dot column cannot jitter.
     const ring = bodiesFor('.status-dot[data-status="running"]::after').join(" ");
     expect(ring).toContain("animation: rl-ping var(--ring-rate)");
+    // A few pings, then the steady halo, faded in from the last ping's end: a ring that pings for the
+    // whole turn keeps the window producing a frame every vsync for minutes (the 2026-10-12 power audit).
+    expect(ring).not.toContain("infinite");
+    expect(ring).toContain("var(--ring-pings)");
+    expect(ring).toContain("rl-halo-in var(--dur-slow) var(--ease-fade) calc(var(--ring-rate) * var(--ring-pings)) forwards");
+    expect(bodiesFor(".status-dot::after").join(" ")).toContain("--ring-pings: 3");
+    expect(blockAfter("@keyframes rl-halo-in")).toContain("opacity: 0");
+    // Quiet takes the ring away — but not merely idle quiet, where it already stands as the halo and
+    // taking it away would be the one thing to change on screen while someone sat reading.
+    const gone = RULES.filter((r) => /display:\s*none/.test(r.body)).flatMap(partsOf).filter((p) => p.includes(".status-dot[data-status="));
+    expect(gone.length).toBeGreaterThanOrEqual(5);
+    for (const p of gone) expect(p).toMatch(/^:root\[data-quiet\]:not\(\[data-quiet="idle"\]\) /);
     // Authored at full strength with NO transform: the un-animated form has to be a steady halo, not
     // a half-scaled ghost. This one line is the whole reason the state is still legible when the
     // preference takes the motion away — a `transform: scale(...)` here silently breaks that.
@@ -821,16 +832,20 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(bodiesFor("@property --zoom").join(" ")).toContain("initial-value: 1");
   });
 
-  it("the prompter's cap is one number, and both ends of the draft dissolve at it", () => {
-    /* The textarea autogrows in JS and stops at a max-height in CSS. Two numbers for one cap is a
-       prompter that grows a line past its own ceiling and snaps back, so the stylesheet is asserted
-       against the constant the component measures with rather than against a literal.
+  it("the prompter sizes itself to its draft up to one cap, and both ends of the draft dissolve at it", () => {
+    /* The textarea grows by `field-sizing: content` and stops at its max-height: one number, in the
+       stylesheet. It used to be measured in JS on every keystroke — a forced style and layout pass in
+       the input event (about 5 ms a key) — against a constant that had to agree with this one. THE
+       mutant: the sizing gone, which leaves a one-row box that scrolls from the first wrapped line.
+       Not for the placeholder: sized to it, a long one would wrap the empty box onto a second row.
 
        The mask is what makes the cap survivable: past it the draft scrolls, and a hard edge put half
        a line against the attachment chips above and the model row below. Its stops are the text
        box's own padding, so a draft that fits is never touched. */
     const input = bodiesFor(".composer-input").join(" ");
-    expect(input).toContain(`max-height: ${MAX_ROWS_PX}px`);
+    expect(input).toContain("field-sizing: content");
+    expect(input).toContain("max-height: 186px");
+    expect(bodiesFor(".composer-input:placeholder-shown").join(" ")).toContain("field-sizing: fixed");
     const editor = bodiesFor(".composer-editor").join(" ");
     expect(editor).toContain("mask-image: linear-gradient(to bottom, transparent 0, #000 14px");
     // The top stop equals the text box's top padding, or the fade eats the first line while it fits.
@@ -1658,7 +1673,8 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
 
   it("the tool ledger wears ThinkingState: shimmer on the working header (data-working, never a clock), a solid 1px trace rail, a quiet lead glyph", () => {
     const shimmer = bodiesFor('.tool-group[data-working] .tool-group-summary').join(" ");
-    expect(shimmer).toContain("animation: shimmer-text 1.4s linear infinite");
+    // Three sweeps, then still on the last frame: a sweep repaints every vsync (the 2026-10-12 power audit).
+    expect(shimmer).toContain("animation: shimmer-text 1.4s linear 3 forwards");
     expect(shimmer).toContain("background-clip: text");
     // BUI's trace rail is a solid hairline; the old dashed connector is gone.
     expect(bodiesFor(".tool-group-steps").join(" ")).toContain("border-left: var(--hairline-w) solid var(--line)");
@@ -1912,7 +1928,10 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     /* THE mutant, and the bug this replaced: pausing `*`. An entrance animation — `rl-msg-in`,
        `rl-fade-in` — starts at `opacity: 0`, so freezing one at its first frame leaves the thing
        invisible for as long as the window stays unfocused; a transcript an agent was talking into
-       went blank. So every selector the quiet rules pause must name an animation that never ends. */
+       went blank. So every selector the quiet rules pause must name an animation that never ends —
+       or the shimmer, which ends on purpose (three sweeps, the 2026-10-12 power audit) and has no invisible frame:
+       paused mid-sweep it is the words with the band standing on them. */
+    const shimmer = new Set(RULES.find((r) => r.selectors.includes(".shimmer-text"))!.selectors);
     for (const part of paused.flatMap(partsOf)) {
       if (!part.startsWith(":root[data-quiet] ")) continue;
       const target = part.slice(":root[data-quiet] ".length);
@@ -1921,6 +1940,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
       const declaring = decls.filter((b) => /(^|;|\s)animation: /.test(b) && !b.includes("animation: none"));
       expect(declaring.length, `${target} is paused when quiet but declares no animation`).toBeGreaterThan(0);
       for (const b of declaring) {
+        if (shimmer.has(target)) { expect(b, target).toContain("animation: shimmer-text"); continue; }
         expect(b, `${target} is paused when quiet but its animation ends`).toContain("infinite");
       }
     }
@@ -3530,11 +3550,18 @@ describe("row and control layout", () => {
     expect(actions).toContain("position: absolute");
     expect(actions).toContain("opacity: 0");
     expect(actions).toContain("pointer-events: none");
-    for (const when of [":hover", ":has(:focus-visible)", ":has([data-confirming])"]) {
-      expect(bodiesFor(`.item${when} .item-actions`).join(" "), when).toContain("opacity: 1");
-      expect(bodiesFor(`.item${when} .item-trail`).join(" "), when).toContain("display: none");
-      expect(bodiesFor(`.item${when} .item-row`).join(" "), when).toContain("padding-right:");
-    }
+    expect(bodiesFor(".item:hover .item-actions").join(" ")).toContain("opacity: 1");
+    expect(bodiesFor(".item:hover .item-trail").join(" ")).toContain("display: none");
+    expect(bodiesFor(".item:hover .item-row").join(" ")).toContain("padding-right:");
+    // Keyboard focus, an armed delete and an open menu are flagged on the row, and its parts answer.
+    expect(bodiesFor(".item:has(:focus-visible)").join(" ")).toContain("--item-focus: 1");
+    expect(bodiesFor(".item:has([data-confirming])").join(" ")).toContain("--item-confirm: 1");
+    expect(bodiesFor('.item:has(.item-act[aria-expanded="true"])').join(" ")).toContain("--item-menu: 1");
+    expect(bodiesFor(".item").join(" ")).toContain("--item-focus: 0; --item-confirm: 0; --item-menu: 0");
+    const held = blockAfter("@container style(--item-focus: 1) or style(--item-confirm: 1) or style(--item-menu: 1)");
+    expect(held).toMatch(/\.item \.item-actions \{[^}]*opacity: 1/);
+    expect(held).toMatch(/\.item \.item-trail \{[^}]*display: none/);
+    expect(held).toMatch(/\.item \.item-row \{[^}]*padding-right: 34px/);
     expect(css).not.toMatch(/\.item:focus-within \.item-actions/);
     // The title gives way by the actions' width, so a row with two takes more than a row with one.
     const one = parseFloat(/padding-right: ([\d.]+)px/.exec(bodiesFor(".item:hover .item-row").join(" "))![1]!);
@@ -3544,14 +3571,27 @@ describe("row and control layout", () => {
     expect(bodiesFor(".item-close, .item-shelf, .item-delete".split(", ")[0]!).join(" ")).not.toContain("opacity: 0");
   });
 
+  it("never styles a sidebar row's parts through a `:has()` that is not its selector's subject", () => {
+    /* `.item:has(:focus-visible) .item-row` cannot be traced back from what changed, so Blink restyled
+       every row's parts in the sidebar on ANY insertion or removal anywhere in the window — each key
+       typed in the prompter, each word an agent streamed: 700 elements, about 4 ms a time on a
+       175-row sidebar (the 2026-10-12 power audit). The states are flagged on the row by a `:has()`
+       that IS the subject, and its parts answer through style queries. THE mutant: any of the old
+       descendant forms back. */
+    const nonSubjectHas = /:has\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)[^\s>+~,]*\s*[>+~]?\s*[.#[:\w]/;
+    const offenders = RULES.flatMap(partsOf).filter((p) => /^(\.sb-card)?\.item\b/.test(p) && p.includes(":has(") && nonSubjectHas.test(p));
+    expect(offenders).toEqual([]);
+  });
+
   it("a row with no actions keeps its state under the pointer, and gives its title nothing", () => {
     /* The cross-room rows — a session drawn outside its room, a room with nothing to unfold — have no
        action to show, and W1's rule would still hide their state and pad their title for one. THE
        MUTANT is dropping this pair: the dot vanishes under the pointer for a slot with nothing in it. */
-    for (const when of [":hover", ":has(:focus-visible)"]) {
-      expect(bodiesFor(`.item[data-actions="0"]${when} .item-trail:not(:empty)`).join(" "), when).toContain("display: flex");
-      expect(bodiesFor(`.item[data-actions="0"]${when} .item-row`).join(" "), when).toContain("padding-right: 8px");
-    }
+    expect(bodiesFor('.item[data-actions="0"]:hover .item-trail:not(:empty)').join(" ")).toContain("display: flex");
+    expect(bodiesFor('.item[data-actions="0"]:hover .item-row').join(" ")).toContain("padding-right: 8px");
+    const focused = blockAfter("@container style(--item-focus: 1) {");
+    expect(focused).toMatch(/\.item\[data-actions="0"\] \.item-trail:not\(:empty\) \{[^}]*display: flex/);
+    expect(focused).toMatch(/\.item\[data-actions="0"\] \.item-row \{[^}]*padding-right: 8px/);
     // The resting inset is the same 8px, so a row with nothing to offer does not move at all.
     expect(bodiesFor(".item-row").join(" ")).toContain("padding: 5px 8px");
     // The disclosure is one of the row's own controls: the same box, the same hit area, the same hover.
@@ -3566,17 +3606,19 @@ describe("row and control layout", () => {
        so Archive lands on the time; tabular figures off, so "11m" and "4m" wobble down the column. */
     const row = bodiesFor(".sb-card > .item-row").join(" ");
     expect(row).toContain("flex-direction: column");
-    expect(row).toContain("padding: 7px 8px");
+    expect(row).toContain("padding-block: 7px; padding-left: 8px");
     // 7 + 16 + 2 + 20 + 7: two lines in 52px.
     expect(bodiesFor(".sb-card-head").join(" ")).toContain("line-height: 16px");
     expect(bodiesFor(".sb-card .item-title").join(" ")).toContain("line-height: 20px");
     expect(row).toContain("gap: 2px");
     expect(bodiesFor(".sb-card-when").join(" ")).toContain("font-variant-numeric: tabular-nums");
-    for (const when of [":hover", ":has(:focus-visible)"]) {
-      expect(bodiesFor(`.sb-card.item${when} .item-trail`).join(" "), when).toContain("display: flex");
-      expect(bodiesFor(`.sb-card.item${when} > .item-row`).join(" "), when).toContain("padding-right: 8px");
-      expect(bodiesFor(`.sb-card[data-actions="1"]${when} .sb-card-head`).join(" "), when).toContain("padding-right: 24px");
-    }
+    expect(bodiesFor(".sb-card.item:hover .item-trail").join(" ")).toContain("display: flex");
+    expect(bodiesFor(".sb-card.item:hover > .item-row").join(" ")).toContain("padding-right: 8px");
+    expect(bodiesFor('.sb-card[data-actions="1"]:hover .sb-card-head').join(" ")).toContain("padding-right: 24px");
+    const held = blockAfter("@container style(--item-focus: 1) or style(--item-menu: 1)");
+    expect(held).toMatch(/\.sb-card\.item \.item-trail \{[^}]*display: flex/);
+    expect(held).toMatch(/\.sb-card\.item > \.item-row \{[^}]*padding-right: 8px/);
+    expect(blockAfter("@container style(--item-focus: 1) {")).toMatch(/\.sb-card\[data-actions="1"\] \.sb-card-head \{[^}]*padding-right: 24px/);
     // The action sits on the first line, not centred across both.
     expect(bodiesFor(".sb-card > .item-actions").join(" ")).toContain("translate: none");
   });
@@ -4498,7 +4540,7 @@ describe("the machine pane's screen", () => {
     const reduced = RULES.filter((r) => /animation:\s*none/.test(r.body)).flatMap(partsOf);
     expect(reduced).toContain('.status-dot[data-status="recording"]::after');
     const quiet = RULES.filter((r) => /display:\s*none/.test(r.body)).flatMap(partsOf);
-    expect(quiet).toContain(':root[data-quiet] .status-dot[data-status="recording"]::after');
+    expect(quiet).toContain(':root[data-quiet]:not([data-quiet="idle"]) .status-dot[data-status="recording"]::after');
   });
 
   it("puts `booting` in the in-flight ping family rather than giving it a second animation", () => {
@@ -4889,8 +4931,41 @@ describe("the drawn caret (caret.ts)", () => {
     expect(rule, "the Low power caret rule").toBeDefined();
     for (const a of ["smooth", "phase", "expand", "pulse"]) expect(rule!.selectors.join(" ")).toContain(`[data-caret-animation="${a}"]`);
     expect(rule!.selectors.join(" ")).not.toContain('[data-caret-animation="blink"]');
-    expect(rule!.body).toContain("--caret-motion: rl-caret-blink var(--caret-tempo) step-end infinite");
-    expect(rule!.body).toContain("--caret-block: rl-caret-block-blink var(--caret-tempo) step-end infinite");
+    expect(rule!.body).toContain("--caret-motion: rl-caret-blink var(--caret-tempo) step-end var(--caret-blinks)");
+    expect(rule!.body).toContain("--caret-block: rl-caret-block-blink var(--caret-tempo) step-end var(--caret-blinks)");
+  });
+});
+
+describe("the drawn caret rests (the 2026-10-12 power audit)", () => {
+  // The root rules that SET the motions; a terminal program that asks for its own blink keeps it.
+  const motions = RULES.filter((r) => partsOf(r).some((p) => (p.startsWith(":root[data-caret-animation=") && !p.includes(" "))
+    || (p.startsWith(':root[data-quiet="always"]:is(') && p.endsWith(")"))))
+    .map((r) => r.body).join(" ");
+
+  it("runs every motion about ten seconds after the caret last moved, then stands solid", () => {
+    /* Expand cost 23.5% of the CPU, Blink 4.5%, with the window doing nothing but holding a caret in an
+       empty prompter. THE mutant: any one of them back on `infinite`. */
+    expect(motions).toContain("--caret-motion:");
+    expect(motions).not.toContain("infinite");
+    expect(bodiesFor(":root").join(" ")).toContain("--caret-blinks: 10");
+    for (const a of ["blink", "smooth", "phase", "expand", "rest"]) {
+      expect(bodiesFor(`:root[data-caret-animation="${a}"]`).join(" "), a).toMatch(/--caret-motion: rl-caret-\S+ var\(--caret-tempo\) \S+ var\(--caret-blinks\)/);
+    }
+    expect(bodiesFor(':root[data-caret-animation="pulse"]').join(" ")).toContain("ease-in-out 4;");
+  });
+
+  it("expands by `scale`, which the compositor runs, never by a clip that repaints every frame", () => {
+    for (const k of ["rl-caret-expand", "rl-caret-expand-x"]) {
+      const frames = blockAfter(`@keyframes ${k}`);
+      expect(frames, k).toContain("scale:");
+      expect(frames, k).not.toMatch(/clip-path|transform/);
+    }
+    // The caret is placed by `translate` (caret.ts), so that is what a glide moves.
+    expect(bodiesFor(".caret-layer .caret[data-glide]").join(" ")).toMatch(/transition: translate /);
+    // A block's character fades while its fill is narrow, and holds still with everything else.
+    expect(bodiesFor(':root[data-caret="block"][data-caret-animation="expand"]:not([data-quiet="always"]) .caret-glyph').join(" "))
+      .toContain("animation: rl-caret-glyph-expand var(--caret-tempo) ease-in-out var(--caret-blinks)");
+    expect(bodiesFor(":root[data-caret-still] .caret-layer .caret-glyph").join(" ")).toContain("animation: none");
   });
 });
 
