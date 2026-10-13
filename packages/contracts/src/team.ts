@@ -323,6 +323,13 @@ export const REVIEW_STATES = ["waiting", "changes", "approved", "done", "dismiss
 export const ReviewStateSchema = z.enum(REVIEW_STATES);
 export type ReviewState = z.infer<typeof ReviewStateSchema>;
 
+/** Why a role closes its own review before anyone decides it (`review_close`). `done`: the work is
+ *  finished another way, and the review is done. `superseded` (a newer review replaces it) and
+ *  `withdrawn` (no longer wanted) put it away. */
+export const REVIEW_CLOSE_OUTCOMES = ["done", "superseded", "withdrawn"] as const;
+export const ReviewCloseOutcomeSchema = z.enum(REVIEW_CLOSE_OUTCOMES);
+export type ReviewCloseOutcome = z.infer<typeof ReviewCloseOutcomeSchema>;
+
 export const ReviewTargetSchema = z.object({
   /** "tiktok", "instagram", "email"… — free text, shown as written. */
   channel: z.string().min(1).max(40).optional(),

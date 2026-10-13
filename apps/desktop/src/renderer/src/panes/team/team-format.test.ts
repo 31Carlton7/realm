@@ -128,4 +128,12 @@ describe("approve → act, in words", () => {
     expect(activitySentence(line("held_acts", {}, "user"), "You").text).toBe("You held every post and send of the team");
     expect(activitySentence(line("issued_tickets", { tickets: 6 }), "Realm").text).toBe("6 acts from @versed.nathan wait for your press");
   });
+
+  it("says who closed a review and why — the role, never the person", () => {
+    const line = (detail: Record<string, unknown>): TeamActivity => ({ id: "a", spaceId: "s", ts: NOW, actor: "role:r1", runId: null, sessionId: null, verb: "closed", object: "Reply to Dana", detail });
+    // THE MUTANT: the role's close read out as the person's "You put away".
+    expect(activitySentence(line({ outcome: "withdrawn", reason: "Dana already replied" }), "Writer")).toEqual({ text: "Writer withdrew Reply to Dana", detail: "“Dana already replied”" });
+    expect(activitySentence(line({ outcome: "superseded" }), "Writer")).toEqual({ text: "Writer replaced Reply to Dana", detail: null });
+    expect(activitySentence(line({ outcome: "done" }), "Writer").text).toBe("Writer marked Reply to Dana done");
+  });
 });

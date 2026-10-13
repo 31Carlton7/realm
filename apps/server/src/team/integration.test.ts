@@ -340,6 +340,7 @@ describe("teams over the wire", () => {
     const pre = app.runs.extraSystemContext(sid)!;
     expect(pre).toContain("You are Content Producer");
     expect(pre).toContain("review_submit");
+    expect(pre).toContain("review_close");
     expect(pre).toContain("stops at $3 or 20 minutes");
     void run;
     c.close();

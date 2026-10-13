@@ -183,6 +183,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-team__record_read": readAsking("it logs the read on the team's activity"),
   "realm-team__record_update": internal,
   "realm-team__review_submit": internal,
+  "realm-team__review_close": internal,
   "realm-team__team_handoff": internal,
   "realm-team__team_mention": internal,
 
