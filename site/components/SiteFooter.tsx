@@ -1,8 +1,7 @@
-import Link from "next/link"
 import type { ReactNode } from "react"
 
 import { GitHubIcon, GlobeIcon, LinkedInIcon, XIcon } from "@/components/icons"
-import { ChangelogLink } from "@/components/passage/ChangelogLink"
+import { ChangelogLink, HomeLink } from "@/components/passage/ChangelogLink"
 import { Wordmark } from "@/components/Wordmark"
 import { macDownload } from "@/lib/release"
 import { site } from "@/lib/site"
@@ -33,9 +32,9 @@ export async function SiteFooter({ world }: { world?: ReactNode }) {
       <div className="relative z-[2] mx-auto w-full max-w-[92rem] px-6 pt-20 sm:px-10">
         <div data-field-anchor="c:footer" className="grid gap-x-10 gap-y-12 sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="max-w-[26rem]">
-            <Link href="/" className="inline-block text-ink transition-opacity duration-150 hover:opacity-75">
+            <HomeLink className="inline-block text-ink transition-opacity duration-150 ease-out hover:opacity-75 hover:duration-220 hover:ease-spring">
               <Wordmark />
-            </Link>
+            </HomeLink>
             <p className="mt-4 text-[16px] leading-[1.55] text-ink-2">{site.tagline}</p>
             <p className="mt-6 font-mono text-[12px] leading-[1.7] text-ink-2">
               © {new Date().getFullYear()} {author.name} · in active development

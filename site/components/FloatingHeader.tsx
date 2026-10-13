@@ -1,12 +1,11 @@
 "use client"
 
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useLayoutEffect, useRef, type FocusEvent, type PointerEvent } from "react"
 
 import { DownloadButton } from "@/components/Buttons"
 import { GitHubIcon } from "@/components/icons"
-import { ChangelogLink } from "@/components/passage/ChangelogLink"
+import { ChangelogLink, HomeLink } from "@/components/passage/ChangelogLink"
 import { Wordmark } from "@/components/Wordmark"
 import { site } from "@/lib/site"
 
@@ -134,13 +133,12 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
               <div className="h-full w-full origin-left scale-x-[var(--flight)] bg-[linear-gradient(to_right,oklch(0.788_0.113_248.33/0.2),oklch(0.788_0.113_248.33/0.95))]" />
             </div>
           ) : null}
-          <Link
+          <HomeLink
             ref={brandRef}
-            href="/"
             className="relative flex shrink-0 items-center rounded-[8px] text-ink transition-opacity duration-150 ease-out hover:opacity-75 hover:duration-220 hover:ease-spring"
           >
             <Wordmark />
-          </Link>
+          </HomeLink>
           <div className="min-w-0 flex-1" />
           <div ref={actionsRef} className="relative flex shrink-0 items-center gap-1">
             <nav

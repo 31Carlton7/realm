@@ -837,14 +837,20 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
 }
 
 /* ---- Passages between pages (components/passage) ------------------------------------------------
-   Every navigation is a view transition in which the page leaving and the page arriving are each one
-   picture (PageTransition), animated by the kind of passage the link set off. The header is held apart
-   and only crossfades, the one thing that stays where it was while the world moves under it; the veil
-   over both is a live canvas the flight is drawn on; under them all is the deep sky's black, so no
-   grey shows where a picture has not yet covered the view. Clicks go through to the new page while it
-   runs. A navigation no link typed (back, forward, any other link) is a short crossfade, and so is
-   every one under reduced motion. Where there are no view transitions the browser navigates as it
-   always has. A page's transform-origin is a point of the view in the page's own box (state.ts). */
+   Every navigation is a view transition in which the page leaving (`page-out`) and the page arriving
+   (`page-in`) are each one picture (PageTransition), animated by the passage marked on the root
+   (`data-passage`): by the link followed, and for the browser's own back and forward by whether the
+   page it goes to is deeper or shallower. The header is held apart and only crossfades, the one thing
+   that stays where it was while the world moves under it; the veil over both is a live canvas the
+   flight is drawn on; under them all is the deep sky's black, so no grey shows where a picture has not
+   yet covered the view. Clicks go through to the new page while it runs. A navigation with no passage
+   is a short crossfade, and so is every one under reduced motion. Where there are no view transitions
+   the browser navigates as it always has. A page's transform-origin is a point of the view in the
+   page's own box (state.ts).
+
+   The forward passages open a way at their light (`--tunnel`, the radius both pictures' masks share,
+   its soft edge `--tunnel-edge` wide) and the page beyond comes through it; the ones back close it, the
+   page being left drawn into the point it came out of as the one before fills the view again round it. */
 ::view-transition {
   pointer-events: none;
 }
@@ -887,11 +893,11 @@ html:active-view-transition body {
   animation-duration: 280ms;
 }
 
-::view-transition-old(.fade-out) {
+::view-transition-old(.page-out) {
   animation: passage-out 200ms ease-out both;
 }
 
-::view-transition-new(.fade-in) {
+::view-transition-new(.page-in) {
   animation: passage-in 260ms ease-out 40ms both;
 }
 
@@ -907,10 +913,6 @@ html:active-view-transition body {
   }
 }
 
-/* The warp: a tunnel opens at the vanishing point. The landing page rushes past on every side of it
-   while the changelog is already there through it, coming up to meet the reader as the opening widens
-   to the edges of the view (`--tunnel`, the radius both pictures' masks share, its soft edge
-   `--tunnel-edge` wide), and the veil's stars stream out of it. */
 @property --tunnel {
   syntax: "<length>";
   inherits: false;
@@ -921,24 +923,6 @@ html:active-view-transition body {
   --tunnel-edge: 220px;
 }
 
-::view-transition-old(.warp-out) {
-  transform-origin: var(--passage-x, 50%) var(--passage-y, 50%);
-  -webkit-mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
-  mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
-  animation:
-    tunnel 640ms cubic-bezier(0.55, 0, 0.3, 1) both,
-    warp-out 640ms cubic-bezier(0.5, 0, 0.75, 0.25) both;
-}
-
-::view-transition-new(.warp-in) {
-  transform-origin: var(--arrive-x, 50%) var(--arrive-y, 50%);
-  -webkit-mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
-  mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
-  animation:
-    tunnel 640ms cubic-bezier(0.55, 0, 0.3, 1) both,
-    warp-in 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
 @keyframes tunnel {
   from {
     --tunnel: -220px;
@@ -946,6 +930,61 @@ html:active-view-transition body {
   to {
     --tunnel: 150vmax;
   }
+}
+
+@keyframes tunnel-close {
+  from {
+    --tunnel: 150vmax;
+  }
+  to {
+    --tunnel: -220px;
+  }
+}
+
+/* A page with a way open at a point (`--at-x`, `--at-y`): the page leaving a forward passage, and the
+   page arriving on one back, are seen everywhere but there. */
+html[data-passage="warp"]::view-transition-old(.page-out),
+html[data-passage="dive"]::view-transition-old(.page-out),
+html[data-passage="unwarp"]::view-transition-new(.page-in),
+html[data-passage="surface"]::view-transition-new(.page-in) {
+  -webkit-mask-image: radial-gradient(circle at var(--at-x, 50%) var(--at-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--at-x, 50%) var(--at-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+}
+
+/* And the page seen through that way: arriving on a forward passage, leaving on one back. */
+html[data-passage="warp"]::view-transition-new(.page-in),
+html[data-passage="dive"]::view-transition-new(.page-in),
+html[data-passage="unwarp"]::view-transition-old(.page-out),
+html[data-passage="surface"]::view-transition-old(.page-out) {
+  -webkit-mask-image: radial-gradient(circle at var(--at-x, 50%) var(--at-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--at-x, 50%) var(--at-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+}
+
+html[data-passage]::view-transition-old(.page-out) {
+  --at-x: var(--passage-x);
+  --at-y: var(--passage-y);
+  transform-origin: var(--passage-x, 50%) var(--passage-y, 50%);
+}
+
+html[data-passage]::view-transition-new(.page-in) {
+  --at-x: var(--arrive-x);
+  --at-y: var(--arrive-y);
+  transform-origin: var(--arrive-x, 50%) var(--arrive-y, 50%);
+}
+
+/* The warp: a tunnel opens at the vanishing point. The landing page rushes past on every side of it
+   while the changelog is already there through it, coming up to meet the reader as the opening widens
+   to the edges of the view, and the veil's stars stream out of it. */
+html[data-passage="warp"]::view-transition-old(.page-out) {
+  animation:
+    tunnel 640ms cubic-bezier(0.55, 0, 0.3, 1) both,
+    warp-out 640ms cubic-bezier(0.5, 0, 0.75, 0.25) both;
+}
+
+html[data-passage="warp"]::view-transition-new(.page-in) {
+  animation:
+    tunnel 640ms cubic-bezier(0.55, 0, 0.3, 1) both,
+    warp-in 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes warp-out {
@@ -963,22 +1002,45 @@ html:active-view-transition body {
   }
 }
 
+/* The unwarp: the warp run backwards. The changelog is drawn away into the distance at its own realm,
+   the way closing round it, while the landing page comes back from behind the reader on every side and
+   settles, and the veil's stars stream back into the point it went. */
+html[data-passage="unwarp"]::view-transition-old(.page-out) {
+  animation:
+    tunnel-close 600ms cubic-bezier(0.45, 0, 0.25, 1) both,
+    unwarp-out 600ms cubic-bezier(0.3, 0, 0.6, 1) both;
+}
+
+html[data-passage="unwarp"]::view-transition-new(.page-in) {
+  animation:
+    tunnel-close 600ms cubic-bezier(0.45, 0, 0.25, 1) both,
+    unwarp-in 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes unwarp-out {
+  to {
+    transform: scale(0.72);
+    filter: blur(3px);
+  }
+}
+
+@keyframes unwarp-in {
+  from {
+    transform: scale(1.32);
+    filter: blur(3px);
+  }
+}
+
 /* The dive: the doorway the veil's light pours from opens over the whole view, the changelog falling
    away past its edges, and the entry is there through it, still bright with the doorway's light, round
-   the same doorway in its band (the opening is the warp's `--tunnel`, centred on the doorway). */
-::view-transition-old(.dive-out) {
-  transform-origin: var(--passage-x, 50%) var(--passage-y, 50%);
-  -webkit-mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
-  mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+   the same doorway in its band. */
+html[data-passage="dive"]::view-transition-old(.page-out) {
   animation:
     tunnel 580ms cubic-bezier(0.6, 0, 0.35, 1) 40ms both,
     dive-out 620ms cubic-bezier(0.6, 0, 0.8, 0.3) both;
 }
 
-::view-transition-new(.dive-in) {
-  transform-origin: var(--arrive-x, 50%) var(--arrive-y, 50%);
-  -webkit-mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
-  mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+html[data-passage="dive"]::view-transition-new(.page-in) {
   animation:
     tunnel 580ms cubic-bezier(0.6, 0, 0.35, 1) 40ms both,
     dive-in 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -998,33 +1060,18 @@ html:active-view-transition body {
   }
 }
 
-/* The surface: the dive run backwards. The entry closes back into its doorway, drawing away as it
-   goes, and the changelog fills in round it from the edges of the view. */
-::view-transition-old(.surface-out) {
-  transform-origin: var(--passage-x, 50%) var(--passage-y, 50%);
-  -webkit-mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
-  mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+/* The surface: the dive run backwards. The entry closes back into its doorway, drawing away as it goes,
+   and the changelog fills in round it from the edges of the view, at the release it came out of. */
+html[data-passage="surface"]::view-transition-old(.page-out) {
   animation:
     tunnel-close 520ms cubic-bezier(0.3, 0, 0.2, 1) both,
     surface-out 520ms cubic-bezier(0.6, 0, 0.9, 0.45) both;
 }
 
-::view-transition-new(.surface-in) {
-  transform-origin: var(--arrive-x, 50%) var(--arrive-y, 50%);
-  -webkit-mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
-  mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+html[data-passage="surface"]::view-transition-new(.page-in) {
   animation:
     tunnel-close 520ms cubic-bezier(0.3, 0, 0.2, 1) both,
     surface-in 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes tunnel-close {
-  from {
-    --tunnel: 150vmax;
-  }
-  to {
-    --tunnel: -220px;
-  }
 }
 
 /* Late, so the changelog has filled the view's edges before the entry's own are drawn in from them. */
@@ -1037,22 +1084,19 @@ html:active-view-transition body {
 @keyframes surface-in {
   from {
     transform: scale(1.06);
+    filter: brightness(1.35);
   }
 }
 
 /* Under reduced motion every passage is the plain crossfade: no opening, no zoom, nothing travelling. */
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(.warp-out),
-  ::view-transition-old(.dive-out),
-  ::view-transition-old(.surface-out) {
+  html[data-passage]::view-transition-old(.page-out) {
     -webkit-mask-image: none;
     mask-image: none;
     animation: passage-out 160ms ease-out both;
   }
 
-  ::view-transition-new(.warp-in),
-  ::view-transition-new(.dive-in),
-  ::view-transition-new(.surface-in) {
+  html[data-passage]::view-transition-new(.page-in) {
     -webkit-mask-image: none;
     mask-image: none;
     animation: passage-in 200ms ease-out both;

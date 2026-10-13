@@ -70,6 +70,12 @@ const LIT_AHEAD = 0.45
  */
 const WARP_DEPTH = 36
 const WARP_SETTLE = 1.1
+/**
+ * Arriving back out of an entry (a surface), the walk's camera starts at that release's doorway, the
+ * realm standing where the entry's own doorway stood as it closed, the door thrown open; and draws back
+ * to where the walk stands over this many seconds of its field's clock, the door swinging to as it goes.
+ */
+const SURFACE_SETTLE = 1.25
 /** A doorway being dived through opens over this long from the click, in ms, on the page being left. */
 const DIVE_OPEN = 260
 /** Arriving by a dive, the entry's doorway is still thrown open for this many seconds of its field's
@@ -349,18 +355,20 @@ export function openingPoint(columnRight: number, width: number, height: number,
 }
 
 /**
- * The index: a walk up the route, one stop per release card. `warp` is the landing page's warp the
- * page arrived by, if it did.
+ * The index: a walk up the route, one stop per release card. `arrived` is the passage the page arrived
+ * by, if it did: from the landing page's warp the flight carries on up the route into the walk; back
+ * out of an entry the camera surfaces from its release's doorway.
  */
-export function walkStage(releases: AvenueRelease[], warp: Passage | null = null): StageFactory {
+export function walkStage(releases: AvenueRelease[], arrived: Passage | null = null): StageFactory {
   return async (gpu, output) => {
     const s = await sky(gpu, output, [Math.max(1, window.innerWidth), Math.max(1, window.innerHeight)])
     const follow = new Follow(9)
     const sway = swayer()
     let lastSeconds = -1
     let mode = ""
-    // Come by the landing page's warp, the flight carries on into the walk (WARP_DEPTH), counted from
-    // the walk's first frame.
+    const warp = arrived?.kind === "warp" ? arrived : null
+    const surfacing = arrived?.kind === "surface" ? arrived : null
+    // Either is counted from the walk's first frame.
     let firstSeconds = -1
 
     return {
@@ -420,6 +428,18 @@ export function walkStage(releases: AvenueRelease[], warp: Passage | null = null
           stop.key.hold[1] = clamp((stop.through - stop.key.y) / Math.max(after.key.y - stop.key.y, 1), 0.12, 0.72)
         })
         const keys = stops.map((stop) => stop.key)
+        const at = place(keys, scrollY)
+        const nearest = at.u < 0.5 ? at.from : at.to
+        // How far along the releases the reader is: the doorway being read is lit fully.
+        const from = stops[at.from]!
+        const to = stops[at.to]!
+        const reading = mode === "still" ? stops[nearest]!.release : lerp(from.release, to.release, smooth(at.u))
+
+        // Surfacing: the release came out of, and the view at its doorway the camera starts from.
+        if (firstSeconds < 0) firstSeconds = t
+        const outOf = surfacing && mode !== "still" ? (surfacing.release ?? Math.round(reading)) : -1
+        const surfaced = outOf >= 0 ? clamp((t - firstSeconds) / SURFACE_SETTLE, 0, 1) : 1
+        const atDoor = outOf >= 0 ? viewAt(outOf, surfacing!.x - canvas[0], surfacing!.y - canvas[1], edge * 1.9, 1.6, 0.45) : null
 
         // The sky cleared out of the way: of the walk, of each release, of the list's side of the page,
         // and, where the last release is read, of the footer coming up under it.
@@ -433,10 +453,9 @@ export function walkStage(releases: AvenueRelease[], warp: Passage | null = null
         for (let k = 0; k + 1 < keys.length; k++) for (let i = 0; i <= 16; i++) path.push(blend(keys[k]!.view, keys[k + 1]!.view, i / 16, keys[k]!.lift).eye)
         if (banded) for (let i = 0; i <= 12; i++) path.push([opening.eye[0], opening.eye[1] + i * 2, opening.eye[2]])
         if (warp) for (let i = 1; i <= 12; i++) path.push([opening.eye[0], opening.eye[1] - (WARP_DEPTH * i) / 12, opening.eye[2]])
+        if (atDoor) for (let i = 0; i <= 12; i++) path.push(blend(atDoor, keys[nearest]!.view, i / 12, 0).eye)
         s.clearFor(keys.map((key, k) => ({ view: key.view, keep: 9, words: k === keys.length - 1 ? [...side, ...foot] : side })), path, W, H)
 
-        const at = place(keys, scrollY)
-        const nearest = at.u < 0.5 ? at.from : at.to
         let view = at.view
         if (mode === "band") view = { ...opening, eye: [opening.eye[0], opening.eye[1] + scrollY * 0.006, opening.eye[2]] }
         else if (mode === "still") view = keys[nearest]!.view
@@ -445,16 +464,12 @@ export function walkStage(releases: AvenueRelease[], warp: Passage | null = null
           view = follow.step(view, dt)
           view = orbit(view, keys[nearest]!.pivot, -swayNow * 0.8 * DEG)
         }
-        if (firstSeconds < 0) firstSeconds = t
         if (warp && mode !== "still") {
           const back = WARP_DEPTH * (1 - easeOut((t - firstSeconds) / WARP_SETTLE))
           if (back > 0.001) view = { ...view, eye: [view.eye[0], view.eye[1] - back, view.eye[2]] }
         }
+        if (atDoor && surfaced < 1) view = blend(atDoor, view, easeOut(surfaced), 0)
 
-        // How far along the releases the reader is: the doorway being read is lit fully.
-        const from = stops[at.from]!
-        const to = stops[at.to]!
-        const reading = mode === "still" ? stops[nearest]!.release : lerp(from.release, to.release, smooth(at.u))
         const near = Math.max(0, Math.round(view.eye[1] / SPACING))
         // A release being dived into (components/passage) has its doorway thrown open as the link is
         // followed, while this page is still the one shown.
@@ -468,8 +483,8 @@ export function walkStage(releases: AvenueRelease[], warp: Passage | null = null
           .map(({ release, r }) => ({
             r,
             pose: poseOf(r, viewAt(r, sx, sy, edge).eye, t, input.still),
-            glow: release.dark ? 0 : r === diving ? 1 : lerp(LIT_AHEAD, 1, clamp(1 - Math.abs(r - reading), 0, 1)),
-            open: r === diving && !release.dark ? opened : 0,
+            glow: release.dark ? 0 : r === diving || r === outOf ? 1 : lerp(LIT_AHEAD, 1, clamp(1 - Math.abs(r - reading), 0, 1)),
+            open: release.dark ? 0 : r === diving ? opened : r === outOf ? 0.62 * (1 - smooth(surfaced / 0.7)) : 0,
           }))
         s.page(shown)
         // Where each doorway is on the page, for a link that dives through it.

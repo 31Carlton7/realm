@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react"
 
 import { FieldCanvas } from "@/components/field/FieldCanvas"
-import { arriveAt, underway } from "@/components/passage/state"
+import { arriveAt, underway, viewWidth } from "@/components/passage/state"
 
 import { arrivalStage, openingPoint, walkStage, type AvenueRelease } from "./stage"
 
@@ -57,16 +57,17 @@ function Ground({ className, photo, children }: { className: string; photo: stri
 /** The index's walk: behind the whole page on a wide screen, in the opening band on a narrow one,
  *  where its foot fades into the page's black. */
 export function Walk({ releases }: { releases: AvenueRelease[] }) {
-  // The warp the page arrived by, read as it mounts.
-  const [warp] = useState(() => underway("warp"))
-  const create = useMemo(() => walkStage(releases, warp), [releases, warp])
+  // The passage the page arrived by, read as it mounts: the warp from the landing page, or a surface
+  // back out of an entry.
+  const [arrived] = useState(() => underway("warp") ?? underway("surface"))
+  const create = useMemo(() => walkStage(releases, arrived), [releases, arrived])
   // A passage onto the index arrives at the realm the walk opens on (components/passage).
   useLayoutEffect(
     () =>
       arriveAt(() => {
         const list = document.querySelector('[data-field-anchor="c:list"]')?.getBoundingClientRect()
         const slot = document.querySelector('[data-field-anchor="s:avenue"]')?.getBoundingClientRect()
-        const width = window.innerWidth
+        const width = viewWidth()
         const [x, y] = openingPoint(list ? list.right : width / 2, width, window.innerHeight, slot ? [slot.left, slot.top, slot.width, slot.height] : null, width < 1024)
         return { x, y }
       }),
