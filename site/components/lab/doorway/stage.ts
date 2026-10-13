@@ -29,9 +29,9 @@ const ROOM = {
   lightDepth: 1.8,
   /** The light's radius, in focal lengths — what softens the floor's pool toward the eye. */
   lightRadius: 0.22,
-  /** The light's disc as the eye sees it on the wall, in window widths and heights. Tall enough to
-   *  straddle the window's top edge, so the light at the window's sides fades in below its top corners
-   *  instead of starting at a level line, and leaves only a thin rim above the window. */
+  /** The light's disc as the eye sees it on the wall, in window widths and heights. Tall enough that
+   *  the light at the window's sides fades in round its top corners instead of starting at a level
+   *  line, and short enough to leave only a thin rim above the window. */
   spreadX: 0.07,
   spreadY: 0.1,
   /** How far the haze reaches out from the wall before thinning, in focal lengths. */

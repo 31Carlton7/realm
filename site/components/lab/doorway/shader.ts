@@ -5,17 +5,19 @@ import { ACCENT, labWgsl, PAGE } from "../stage"
  * lit. Its light comes out through the opening into a faint haze, lands on the floor in front of it,
  * and catches the dust in the air on the way.
  *
- * It is drawn as a small physical scene rather than as a glow. The eye looks straight at the wall, so
- * the wall is the screen scaled — the window on it IS the DOM rect, unskewed — and the light sits
- * behind the wall, above the window's middle. Three things are lit by it:
+ * It is drawn as a small physical scene rather than as a glow. The wall faces the eye squarely, so the
+ * wall is the screen scaled — the window on it IS the DOM rect, unskewed — and the eye stands a little
+ * above the window, looking down at the floor in front of it. The light sits behind the wall at the
+ * height of the window's upper part. Three things are lit by it:
  *
- *   haze   single scattering along each view ray, integrated over exactly the stretch of the ray the
- *          light can reach through the opening. That stretch is found analytically (the ray's points
- *          project from the light onto the wall along a straight segment, clipped by the window), so
- *          there is no stepping to band or crawl, and a few Gauss–Legendre nodes do the rest.
+ *   haze   single scattering along each view ray, over exactly the stretch of the ray the light can
+ *          reach through the opening. That stretch is found analytically — the ray's points, projected
+ *          from the light onto the wall, run along a straight segment that the window clips — and the
+ *          haze thins exponentially away from the wall, which integrates exactly. No marching, so there
+ *          is no stepping to band or crawl. The light is a disc, averaged over five places on it.
  *   floor  a plane at the window's sill: the light that lands on it, with a penumbra that widens away
  *          from the wall, and the window's reflection, Fresnel-weighted and stretched along the floor.
- *   dust   a few sparse motes in three depths of the room, lit only where they are inside the beam.
+ *   dust   sparse motes at three depths near the wall, lit only where they are inside the beam.
  */
 
 const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
@@ -62,7 +64,7 @@ var<private> kappa: f32;        // the light's depth: the wall is at 1
 var<private> lightPos: vec3f;
 var<private> lightOnWall: vec2f; // the light's projection on the wall: where every ray of it appears to start
 var<private> srcRadius: f32;
-var<private> srcSpread: vec2f;  // the light's disc as the eye sees it on the wall: wide, and shallow
+var<private> srcSpread: vec2f;  // the light's disc as the eye sees it on the wall, across and up
 var<private> apC: vec2f;        // the opening's centre and half size on the wall
 var<private> apH: vec2f;
 var<private> floorY: f32;       // the floor's depth below the eye
@@ -140,7 +142,7 @@ fn hazeBetween(d: vec3f, s0: f32, s1: f32) -> f32 {
 }
 
 // The light is a disc, not a point: its rays through the opening are averaged over five places on it,
-// wide across and shallow up and down, which softens where the beam's upper faces cut the haze.
+// which softens where the beam's upper faces cut the haze.
 fn volume(w: vec2f, d: vec3f, sEnd: f32) -> f32 {
   var sum = 0.0;
   for (var i = 0; i < 5; i++) {
@@ -193,7 +195,7 @@ fn streak(w: vec2f, t: f32) -> f32 {
   // variation out around it, or the rim over the top edge would fan like a sunrise from one point. The
   // window's corners and the floor are far enough away to keep all of it.
   let away = smoothstep(0.08, 0.3, length(v));
-  return max(1.0 + away * (1.0 * (broad - 0.5) + 0.5 * (mid - 0.5) + 0.36 * (fine - 0.5)), 0.0);
+  return max(1.0 + away * ((broad - 0.5) + 0.5 * (mid - 0.5) + 0.36 * (fine - 0.5)), 0.0);
 }
 
 // The haze is not even either: a faint, slow unevenness, fixed to the room so it scrolls with it.
