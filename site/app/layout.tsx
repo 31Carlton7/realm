@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 
+import { Passage } from "@/components/passage/Passage"
 import { PointerLight } from "@/components/PointerLight"
 import { site } from "@/lib/site"
 
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
       <body className="font-sans antialiased">
         {children}
+        <Passage />
         <PointerLight />
       </body>
     </html>

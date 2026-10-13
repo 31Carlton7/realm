@@ -7,6 +7,7 @@ import { Onward } from "@/components/changelog/Onward"
 import { Prose } from "@/components/changelog/Prose"
 import { Rail } from "@/components/changelog/Rail"
 import { ArrowIcon } from "@/components/icons"
+import { PassageLink } from "@/components/passage/PassageLink"
 import { FieldPanel } from "@/components/realms/FieldPanel"
 import { SiteFooter } from "@/components/SiteFooter"
 import { SiteHeader } from "@/components/SiteHeader"
@@ -72,13 +73,15 @@ export default async function ChangelogEntryPage({ params }: Params) {
                 className="mx-auto h-44 w-40 sm:h-52 lg:order-2 lg:mx-0 lg:mb-4 lg:h-[clamp(11rem,26vh,15rem)] lg:w-[min(100%,16rem)] lg:justify-self-center"
               />
               <FieldPanel anchor="c:title" wrapClassName="mt-8 min-w-0 lg:order-1 lg:mt-0 xl:col-start-2" className="px-6 py-6 sm:px-8 sm:py-7">
-                <Link
+                <PassageLink
                   href="/changelog"
+                  passage="surface"
+                  release={index}
                   className="-ml-1 inline-flex min-h-10 items-center gap-2 rounded-[8px] px-1 text-[14px] text-ink-2 transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring"
                 >
                   <ArrowIcon className="nudge h-3.5 w-3.5 rotate-180 [--nudge:-3px]" />
                   <span className="link-line">Changelog</span>
-                </Link>
+                </PassageLink>
                 <p className="mt-4 font-mono text-[13px] text-ink-2">
                   <time dateTime={entry.date}>{formatDate(entry.date)}</time>
                   {entry.version ? null : ` · ${entry.area}`}

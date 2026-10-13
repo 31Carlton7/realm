@@ -2,10 +2,11 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useEffect, useRef, type FocusEvent, type PointerEvent } from "react"
+import { useLayoutEffect, useRef, type FocusEvent, type PointerEvent } from "react"
 
 import { DownloadButton } from "@/components/Buttons"
 import { GitHubIcon } from "@/components/icons"
+import { ChangelogLink } from "@/components/passage/ChangelogLink"
 import { Wordmark } from "@/components/Wordmark"
 import { site } from "@/lib/site"
 
@@ -37,7 +38,9 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
   const path = usePathname()
   const onChangelog = path?.startsWith("/changelog") ?? false
 
-  useEffect(() => {
+  // Measured before the bar is first painted: on a page a passage arrives at, the view transition holds
+  // passive effects until it ends, and the bar would cross the view at its unmeasured width.
+  useLayoutEffect(() => {
     const root = rootRef.current
     const frame = frameRef.current
     const bar = barRef.current
@@ -115,7 +118,7 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
   }
 
   return (
-    <header ref={rootRef} className="sticky top-0 z-50 h-[72px] [--flight:0] [--p:0]">
+    <header ref={rootRef} className="sticky top-0 z-50 h-[72px] [--flight:0] [--p:0] [view-transition-name:site-header]">
       <div ref={frameRef} className={`mx-auto h-full w-full px-6 sm:px-10 ${width}`}>
         <div
           ref={barRef}
@@ -149,13 +152,12 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
               className="relative flex items-center gap-1"
             >
               <span ref={pillRef} aria-hidden className="nav-pill" />
-              <Link
-                href="/changelog"
+              <ChangelogLink
                 aria-current={onChangelog ? "page" : undefined}
                 className={`nav-link app-corner relative inline-flex min-h-11 items-center rounded-[14px] px-3.5 text-[14px] ${onChangelog ? "bg-white/[0.06] text-ink" : "text-ink-2"}`}
               >
                 Changelog
-              </Link>
+              </ChangelogLink>
               <a
                 href={site.repo}
                 target="_blank"

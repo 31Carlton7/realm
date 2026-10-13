@@ -835,3 +835,221 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
     inset: -16px;
   }
 }
+
+/* ---- Passages between pages (components/passage) ------------------------------------------------
+   Every navigation is a view transition in which the page leaving and the page arriving are each one
+   picture (PageTransition), animated by the kind of passage the link set off. The header is held apart
+   and only crossfades, the one thing that stays where it was while the world moves under it; the veil
+   over both is a live canvas the flight is drawn on; under them all is the deep sky's black, so no
+   grey shows where a picture has not yet covered the view. Clicks go through to the new page while it
+   runs. A navigation no link typed (back, forward, any other link) is a short crossfade, and so is
+   every one under reduced motion. Where there are no view transitions the browser navigates as it
+   always has. A page's transform-origin is a point of the view in the page's own box (state.ts). */
+::view-transition {
+  pointer-events: none;
+}
+
+html:active-view-transition,
+html:active-view-transition body {
+  background: #03050b;
+}
+
+.passage-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  width: 100%;
+  height: 100%;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+::view-transition-group(passage-veil) {
+  z-index: 3;
+  animation: none;
+}
+
+::view-transition-old(passage-veil) {
+  display: none;
+}
+
+::view-transition-new(passage-veil) {
+  animation: none;
+}
+
+::view-transition-group(site-header) {
+  z-index: 2;
+  animation-duration: 280ms;
+}
+
+::view-transition-old(site-header),
+::view-transition-new(site-header) {
+  animation-duration: 280ms;
+}
+
+::view-transition-old(.fade-out) {
+  animation: passage-out 200ms ease-out both;
+}
+
+::view-transition-new(.fade-in) {
+  animation: passage-in 260ms ease-out 40ms both;
+}
+
+@keyframes passage-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes passage-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The warp: a tunnel opens at the vanishing point. The landing page rushes past on every side of it
+   while the changelog is already there through it, coming up to meet the reader as the opening widens
+   to the edges of the view (`--tunnel`, the radius both pictures' masks share, its soft edge
+   `--tunnel-edge` wide), and the veil's stars stream out of it. */
+@property --tunnel {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+:root {
+  --tunnel-edge: 220px;
+}
+
+::view-transition-old(.warp-out) {
+  transform-origin: var(--passage-x, 50%) var(--passage-y, 50%);
+  -webkit-mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+  animation:
+    tunnel 640ms cubic-bezier(0.55, 0, 0.3, 1) both,
+    warp-out 640ms cubic-bezier(0.5, 0, 0.75, 0.25) both;
+}
+
+::view-transition-new(.warp-in) {
+  transform-origin: var(--arrive-x, 50%) var(--arrive-y, 50%);
+  -webkit-mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+  animation:
+    tunnel 640ms cubic-bezier(0.55, 0, 0.3, 1) both,
+    warp-in 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes tunnel {
+  from {
+    --tunnel: -220px;
+  }
+  to {
+    --tunnel: 150vmax;
+  }
+}
+
+@keyframes warp-out {
+  to {
+    transform: scale(1.4);
+    filter: blur(2px);
+  }
+}
+
+/* Little enough that the picture's own edges are back at the view's before the opening reaches them. */
+@keyframes warp-in {
+  from {
+    transform: scale(0.96);
+    filter: blur(4px);
+  }
+}
+
+/* The dive: the doorway the veil's light pours from opens over the whole view, the changelog falling
+   away past its edges, and the entry is there through it, still bright with the doorway's light, round
+   the same doorway in its band (the opening is the warp's `--tunnel`, centred on the doorway). */
+::view-transition-old(.dive-out) {
+  transform-origin: var(--passage-x, 50%) var(--passage-y, 50%);
+  -webkit-mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+  animation:
+    tunnel 580ms cubic-bezier(0.6, 0, 0.35, 1) 40ms both,
+    dive-out 620ms cubic-bezier(0.6, 0, 0.8, 0.3) both;
+}
+
+::view-transition-new(.dive-in) {
+  transform-origin: var(--arrive-x, 50%) var(--arrive-y, 50%);
+  -webkit-mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+  animation:
+    tunnel 580ms cubic-bezier(0.6, 0, 0.35, 1) 40ms both,
+    dive-in 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes dive-out {
+  to {
+    transform: scale(2.4);
+    filter: blur(2px);
+  }
+}
+
+@keyframes dive-in {
+  from {
+    transform: scale(0.97);
+    filter: brightness(1.5);
+  }
+}
+
+/* The surface: the dive run backwards. The entry closes back into its doorway, drawing away as it
+   goes, and the changelog fills in round it from the edges of the view. */
+::view-transition-old(.surface-out) {
+  transform-origin: var(--passage-x, 50%) var(--passage-y, 50%);
+  -webkit-mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--passage-x, 50%) var(--passage-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+  animation:
+    tunnel-close 520ms cubic-bezier(0.3, 0, 0.2, 1) both,
+    surface-out 520ms cubic-bezier(0.6, 0, 0.9, 0.45) both;
+}
+
+::view-transition-new(.surface-in) {
+  transform-origin: var(--arrive-x, 50%) var(--arrive-y, 50%);
+  -webkit-mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--arrive-x, 50%) var(--arrive-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+  animation:
+    tunnel-close 520ms cubic-bezier(0.3, 0, 0.2, 1) both,
+    surface-in 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes tunnel-close {
+  from {
+    --tunnel: 150vmax;
+  }
+  to {
+    --tunnel: -220px;
+  }
+}
+
+/* Late, so the changelog has filled the view's edges before the entry's own are drawn in from them. */
+@keyframes surface-out {
+  to {
+    transform: scale(0.86);
+  }
+}
+
+@keyframes surface-in {
+  from {
+    transform: scale(1.06);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(.warp-out),
+  ::view-transition-old(.dive-out),
+  ::view-transition-old(.surface-out) {
+    animation: passage-out 160ms ease-out both;
+  }
+
+  ::view-transition-new(.warp-in),
+  ::view-transition-new(.dive-in),
+  ::view-transition-new(.surface-in) {
+    animation: passage-in 200ms ease-out both;
+  }
+}

@@ -2,6 +2,7 @@ import Link from "next/link"
 import type { ReactNode } from "react"
 
 import { GitHubIcon, GlobeIcon, LinkedInIcon, XIcon } from "@/components/icons"
+import { ChangelogLink } from "@/components/passage/ChangelogLink"
 import { Wordmark } from "@/components/Wordmark"
 import { macDownload } from "@/lib/release"
 import { site } from "@/lib/site"
@@ -50,9 +51,9 @@ export async function SiteFooter({ world }: { world?: ReactNode }) {
                   </a>
                 </li>
                 <li>
-                  <Link href="/changelog" className={linkClass}>
+                  <ChangelogLink className={linkClass}>
                     <span className="link-line">Changelog</span>
-                  </Link>
+                  </ChangelogLink>
                 </li>
                 <li>
                   <a href={site.repo} target="_blank" rel="noreferrer noopener" className={linkClass}>
