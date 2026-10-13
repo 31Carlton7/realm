@@ -25,6 +25,11 @@ export type ScreenProps = {
    *  from the middle of the plate's foot. */
   caption?: ReactNode
   /**
+   * A narrower capture of the same subject for a phone, where the wide one would be drawn at less
+   * than half its size; with its own caption where it shows less than the wide one does.
+   */
+  phone?: { image: ScreenImage; caption?: ReactNode }
+  /**
    * `window`: the app's whole window (or a scene of it). `part`: a surface lifted off the window — a
    * picker, a column, a card and its ground. Each sits on the plate under its own shadow. Default
    * `part`.
@@ -71,6 +76,7 @@ export function Screen({
   image,
   alt,
   caption,
+  phone,
   kind = "part",
   zoom = 1.15,
   maxHeight = "min(76vh, 760px)",
@@ -80,38 +86,59 @@ export function Screen({
   className = "",
 }: ScreenProps) {
   const { width, height, radius } = image
-  const share = radius / width
-  const aspect = +(width / height).toFixed(5)
   // The plate is the picture's width and the margin either side, and never so wide that it is
   // taller than `maxHeight`: the picture's aspect sets its height, and the margin adds to both.
-  const maxWidth = `min(${Math.round(width * zoom) + 2 * PLATE}px, calc((${maxHeight} - 2 * var(--pad)) * ${aspect} + 2 * var(--pad)))`
+  const limit = (picture: ScreenImage) =>
+    `min(${Math.round(picture.width * zoom) + 2 * PLATE}px, calc((${maxHeight} - 2 * var(--pad)) * ${+(picture.width / picture.height).toFixed(5)} + 2 * var(--pad)))`
   // The plate's corner as a share of its width, at the width it is drawn at on a wide screen: what
   // the field rounds the screen's light to.
   const plateWidth = Math.round(width * zoom) + 2 * PLATE
-  const plateRadius = (share * (plateWidth - 2 * PLATE) + PLATE) / plateWidth
+  const plateRadius = ((radius / width) * (plateWidth - 2 * PLATE) + PLATE) / plateWidth
+  const shape = {
+    "--share-wide": radius / width,
+    "--aspect-wide": `${width} / ${height}`,
+    "--max-wide": limit(image),
+    ...(phone
+      ? { "--share-phone": phone.image.radius / phone.image.width, "--aspect-phone": `${phone.image.width} / ${phone.image.height}`, "--max-phone": limit(phone.image) }
+      : {}),
+  } as CSSProperties
   return (
-    <div className={`screen ${className}`} data-kind={kind} style={{ maxWidth, "--share": share } as CSSProperties}>
+    <div className={`screen ${className}`} data-kind={kind} style={shape}>
       <div data-field-anchor={fieldId ? `s:${fieldId}` : undefined} className="screen-slot">
-        <span aria-hidden className="screen-room" style={{ aspectRatio: `${width} / ${height}` }} />
+        <span aria-hidden className="screen-room" />
         <figure data-screen={fieldId} data-radius={fieldId ? plateRadius.toFixed(5) : undefined} className="screen-figure @container">
           <div className="plate screen-plate">
             <div className="screen-frame">
-              <img
-                src={image.src}
-                srcSet={image.srcSet}
-                sizes={image.srcSet ? sizes : undefined}
-                alt={alt}
-                width={width}
-                height={height}
-                loading={priority ? "eager" : "lazy"}
-                fetchPriority={priority ? "high" : undefined}
-                decoding="async"
-                className="screen-image"
-              />
+              <picture>
+                {phone ? <source media="(max-width: 639px)" srcSet={phone.image.src} width={phone.image.width} height={phone.image.height} /> : null}
+                <img
+                  src={image.src}
+                  srcSet={image.srcSet}
+                  sizes={image.srcSet ? sizes : undefined}
+                  alt={alt}
+                  width={width}
+                  height={height}
+                  loading={priority ? "eager" : "lazy"}
+                  fetchPriority={priority ? "high" : undefined}
+                  decoding="async"
+                  className="screen-image"
+                />
+              </picture>
               <span aria-hidden className="screen-light" />
             </div>
           </div>
-          {caption ? <figcaption className="screen-tab">{caption}</figcaption> : null}
+          {caption ? (
+            <figcaption className="screen-tab">
+              {phone?.caption ? (
+                <>
+                  <span className="max-sm:hidden">{caption}</span>
+                  <span className="sm:hidden">{phone.caption}</span>
+                </>
+              ) : (
+                caption
+              )}
+            </figcaption>
+          ) : null}
         </figure>
       </div>
     </div>

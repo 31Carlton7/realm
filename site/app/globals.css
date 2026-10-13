@@ -356,13 +356,18 @@ pre {
    its width (`--share`) and drawn in the figure's container units, so both scale with the picture. */
 .screen {
   --pad: 16px;
+  --share: var(--share-wide);
   position: relative;
   width: 100%;
+  max-width: var(--max-wide);
 }
 
+/* A phone draws the narrower capture where there is one (Screen's `phone`), at its own shape. */
 @media (max-width: 639px) {
   .screen {
     --pad: 10px;
+    --share: var(--share-phone, var(--share-wide));
+    max-width: var(--max-phone, var(--max-wide));
   }
 }
 
@@ -422,6 +427,13 @@ pre {
 .screen-room {
   display: block;
   width: 100%;
+  aspect-ratio: var(--aspect-wide);
+}
+
+@media (max-width: 639px) {
+  .screen-room {
+    aspect-ratio: var(--aspect-phone, var(--aspect-wide));
+  }
 }
 
 .screen-figure {
