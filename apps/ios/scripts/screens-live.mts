@@ -18,7 +18,8 @@
  *
  * With --ui it drives the app itself instead: it builds the RealmLive scheme's UI tests once, then
  * runs one test per phase on the iPhone 17 Simulator — pair (the Mac holds its answer a few seconds),
- * awake, asleep, awake again, the relay down — moving the Mac between them, and leaves each test's
+ * awake, asleep, awake again, the relay down, then the largest text size and Reduce Transparency with
+ * everything back up — moving the Mac between them, and leaves each test's
  * screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any
  * phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id> picks the
  * Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
@@ -152,6 +153,11 @@ let pairing = gw.openPairing();
 console.log(JSON.stringify({ pairLink: pairing.url, relay: relay.url, home: server.home, sessions }));
 say(`staged on ${server.home}; relay ${relay.url}. Commands: sleep · wake · relay-down · relay-up · pair · send <key> <text> · quit`);
 
+/** One `xcrun simctl` call; resolves to its exit code. */
+const simctl = (args: string[]): Promise<number> => new Promise((done) => {
+  spawn("xcrun", ["simctl", ...args], { stdio: "ignore" }).on("exit", (code) => done(code ?? 1));
+});
+
 /** One xcodebuild, its output passed through; resolves to its exit code. Never spawnSync: the
  *  gateway in this process answers the phone while the test runs. */
 const xcodebuild = (args: string[], env: Record<string, string> = {}): Promise<number> => new Promise((done) => {
@@ -188,6 +194,14 @@ async function runUiTests(): Promise<boolean> {
   await phase("test4_relayDown");
   relay = relayOn(port);
   await relay.ready;
+  await waitFor("the relay link", async () => gw.state === "connected", 90_000);
+  await phase("test5_largestText");
+  // Reduce Transparency has no simctl switch; the app reads it from the accessibility domain at launch.
+  const reduceTransparency = (on: boolean) =>
+    simctl(["spawn", udid, "defaults", "write", "com.apple.Accessibility", "EnhancedBackgroundContrastEnabled", "-bool", String(on)]);
+  await reduceTransparency(true);
+  await phase("test6_reduceTransparency");
+  await reduceTransparency(false);
   for (const [test, passed] of results) say(`${passed ? "passed" : "FAILED"}  ${test}`);
   say(`screenshots in ${shots}`);
   return results.every(([, passed]) => passed);
