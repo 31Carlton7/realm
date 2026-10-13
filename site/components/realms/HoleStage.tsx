@@ -6,7 +6,8 @@ import { dropRealm, HOLE } from "./blackhole"
 
 /**
  * Where the flight ends: the black hole's place at the foot of the page, under the footer. It is a
- * viewport tall with the cube at its middle, so the page ends with the hole in the middle of the view;
+ * viewport tall with the cube at its middle, so the page ends with the hole in the middle of the view
+ * (the large viewport: a phone's browser has put its bars away by the time the reader reaches the end);
  * the field hangs the hole in its own sky there and lowers the camera's eyes to it as the reader comes
  * down (stage.ts), so the hole and its sky come up the page together.
  *
@@ -23,7 +24,7 @@ export function HoleStage() {
   return (
     <div
       data-field-anchor="hole"
-      className="relative h-svh w-full [--hex:clamp(34px,min(11vw,11vh),104px)] sm:[--hex:clamp(34px,min(7vw,11vh),104px)]"
+      className="relative h-lvh w-full [--hex:clamp(34px,min(11vw,11vh),104px)] sm:[--hex:clamp(34px,min(7vw,11vh),104px)]"
     >
       <FallbackHole />
       <button
