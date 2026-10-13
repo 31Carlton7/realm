@@ -19,6 +19,10 @@ export type FakeStep =
    *  reproduce. */
   | { kind: "plan"; planId: string; text?: string; steps?: { text: string; status: "pending" | "in_progress" | "completed" }[] }
   | { kind: "throw"; message: string }
+  /** The turn fails as a real agent's does: the error, then the session settles in `error`, with
+   *  nothing after it. A `throw` settles idle, so without this no scripted session could stand in
+   *  Needs you as a failure. */
+  | { kind: "fail"; message: string }
   /** One of Realm's own tools, called for REAL through the gateway this session was handed — the way
    *  an agent's CLI calls it — and recorded as the call and its result. `tool` is the gateway's name
    *  for it (`realm-agent__agent_start`); the transcript shows it under Claude's prefix. The one step
@@ -117,6 +121,11 @@ export class FakeAdapter implements AgentAdapter {
         if (interrupted) break; // like the real adapter: interrupt stops the turn; the turn's natural end still emits usage + idle
         await sleep();
         if (st.kind === "throw") throw new Error(st.message);
+        if (st.kind === "fail") {
+          q.push(sessionEvent("error", { message: st.message }));
+          q.push(sessionEvent("status", { status: "error" }));
+          return;
+        }
         if (st.kind === "rateLimit") { q.push(sessionEvent("rate_limit", st.payload)); continue; }
         if (st.kind === "usage") { reported = true; q.push(sessionEvent("usage", { costUsd: st.costUsd, inputTokens: 10, outputTokens: 10, numTurns: 1 })); continue; }
         if (st.kind === "idle") { sayAll(st.text ?? "Nothing has changed since the last turn."); continue; }
