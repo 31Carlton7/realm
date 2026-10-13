@@ -21,6 +21,24 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-2-0",
+    title: "Realm v2.2.0",
+    date: "2026-10-13",
+    version: "v2.2.0",
+    area: "Release",
+    summary:
+      "What's new after every update, scheduled tasks and team roles in Full access, agents that close their own reviews, Mac permissions in one click, and long pages that no longer hide their controls from agents.",
+    body: [
+      { kind: "ul", items: [
+        "**What's new, after every update.** The first window after an update shows that version's notes, and the gift button above your profile shows them again any time.",
+        "**Scheduled tasks and team roles run in Full access.** Nobody is there to answer a permission prompt when they fire, so they no longer stop at one. A team's own rules still ask and refuse for its roles, and Cursor's prompts are answered for them too.",
+        "**Agents can close their own reviews.** A draft that was replaced, done another way or withdrawn leaves Needs you without you clearing it by hand.",
+        "**Mac permissions in one click, and they stay.** Settings ▸ Computer use asks for each grant and opens the right pane, turns the row Granted when you switch it on, and repairs a grant an earlier build held that macOS stopped honouring.",
+        "**Long pages no longer hide their controls from agents.** Reading Realm's window, a web page or a Mac app now lists what's on screen and any form first, and an agent can page through the rest, search it, or read one region.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-1-0",
     title: "Realm v2.1.0",
     date: "2026-10-12",
