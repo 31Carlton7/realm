@@ -184,6 +184,14 @@ bring the agent you already use cannot show that word. A crop is only a crop if 
 NARROWER than the source — a box set to the source's own aspect ratio crops nothing, and looks
 exactly like a crop in the markup.
 
+A picture ends where its subject does. A grid cut after one card alone on its last row, a heading
+against the frame's top edge, or the top of the next row at its foot reads as a picture cut short,
+however true it is (the owner, 10-13, on Connections' seven cards: "it looks cropped"). Compose the
+crop on a full row, keep the margin round it the same on every side, and hide what would only show
+as a sliver at its edge. The caption belongs to the picture: it hangs from the middle of the frame's
+foot, not under it as a card of its own. A phone gets a capture laid out at a phone's width, never
+the wide one drawn at a third of its size.
+
 ## Surfaces and depth
 
 Realm is dark-first. The base palette is a cool neutral ladder:
