@@ -1968,7 +1968,7 @@ app.whenReady().then(async () => {
         // Realm's own window, which is a different target from any browser view — so these are
         // answered before the executor below, whose `host` is about panes and would refuse first
         // with a message about a pane.
-        if (op === "appSnapshot") return appDriveHost.snapshot();
+        if (op === "appSnapshot") return appDriveHost.snapshot((params as { scope?: Parameters<typeof appDriveHost.snapshot>[0] }).scope);
         if (op === "appAct") return appDriveHost.act((params as { action: BrowserAction }).action);
         // Level B: Electron is here, the window is not. The refusal names the actual fix, because
         // "Realm is not connected" would be false — it is connected, that is how this message got
