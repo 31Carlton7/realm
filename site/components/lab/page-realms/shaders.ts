@@ -261,7 +261,7 @@ fn screenLight(p: vec3f, n: vec3f) -> vec3f {
 fn lamp(p: vec3f, n: vec3f) -> f32 {
   let l = vec3f(scene.lamp.xy, scene.lamp.z) - p;
   let r2 = dot(l, l);
-  return scene.lamp.w * max(dot(n, l), 0.0) * inverseSqrt(r2) / (1.0 + r2 / (scene.lamp.z * scene.lamp.z * 1.4));
+  return scene.lamp.w * max(dot(n, l), 0.0) * inverseSqrt(r2) / (1.0 + r2 * r2 / pow(scene.lamp.z, 4.0) * 0.55);
 }
 
 // Haze from where it starts, thickening with distance into the page's own colour. From orbit the air
@@ -441,7 +441,7 @@ fn fieldAverage() -> vec3f {
       }
     }
   }
-  let radiance = tone * (ambient + spill * 0.16 + POINTER_LIGHT * lamp(p, n) * 0.4) + tone * screenLight(p, n) * 2.5 + emit;
+  let radiance = tone * (ambient + spill * 0.16 + POINTER_LIGHT * lamp(p, n) * 0.62) + tone * screenLight(p, n) * 2.5 + emit;
   let d = distance(in.bent, scene.eye.xyz);
   let rd = (in.bent - scene.eye.xyz) / d;
   var color = finish(radiance, d, rd);
@@ -514,7 +514,7 @@ fn ground(p: vec3f, detail: f32, here: vec2f, spot: f32) -> vec3f {
     }
   }
   let up = vec3f(0.0, 0.0, 1.0);
-  let near = PAGE_LINEAR * ao + spill * 0.13 + screenLight(p, up) + POINTER_LIGHT * lamp(p, up) * 0.03 + boundary(p, spot);
+  let near = PAGE_LINEAR * ao + spill * 0.13 + screenLight(p, up) + POINTER_LIGHT * lamp(p, up) * 0.07 + boundary(p, spot);
   let far = fieldAverage();
   return mix(far, near, detail) + points * 0.4 * scene.field.y;
 }
@@ -759,7 +759,8 @@ fn clearance(p: vec2f) -> f32 {
     let inside = saturate(0.5 - d * dpr);
     // The doorway's light opening out into the screen: the rect goes dark as it grows, with the light
     // gathered at its edges like a frame being drawn open, and the picture fades in over the dark.
-    let rim = exp(max(d, -400.0) / 10.0) * 0.55 + exp(max(d, -400.0) / 46.0) * 0.12 + 0.03;
+    let depth = clamp(d, -400.0, 0.0);
+    let rim = exp(depth / 10.0) * 0.55 + exp(depth / 46.0) * 0.12 + 0.03;
     let panel = page + vec3f(0.74, 0.84, 1.0) * s.w * rim;
     color = mix(color, panel, inside * s.x);
     let out = max(d, 0.0);

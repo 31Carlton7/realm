@@ -21,14 +21,14 @@ export const OPENING = {
 
 export const CHAPTERS: Record<string, Stop> = {
   space: { at: [6, 30], yaw: 82, height: 3.0, distance: 9.2, focal: 1700, orbit: 7 },
-  spaces: { at: [-2, 47], yaw: 99, height: 3.3, distance: 9.6, focal: 1700, orbit: -7 },
+  spaces: { at: [-2, 47], yaw: 99, height: 5.4, distance: 11.5, focal: 1700, orbit: -8 },
   transcript: { at: [8, 64], yaw: 81, height: 2.9, distance: 9.0, focal: 1700, orbit: 7 },
   agents: { at: [0, 81], yaw: 100, height: 3.4, distance: 9.4, focal: 1700, orbit: -7 },
   delegation: { at: [10, 98], yaw: 82, height: 3.0, distance: 9.2, focal: 1700, orbit: 7 },
   gateway: { at: [2, 115], yaw: 98, height: 3.2, distance: 9.2, focal: 1700, orbit: -7 },
   review: { at: [12, 132], yaw: 81, height: 3.0, distance: 9.0, focal: 1700, orbit: 7 },
   sandbox: { at: [4, 149], yaw: 99, height: 3.6, distance: 9.8, focal: 1700, orbit: -6 },
-  durable: { at: [14, 166], yaw: 83, height: 3.1, distance: 9.6, focal: 1700, orbit: 6 },
+  durable: { at: [14, 166], yaw: 83, height: 4.2, distance: 11, focal: 1700, orbit: 7 },
 }
 
 /** The team's four realms, as lattice steps from the cell nearest `at`: two in front, two behind
@@ -44,7 +44,7 @@ export const TEAM = {
   yaw: 92,
   height: 3.6,
   /** How much wider than the four realms the camera frames the slot. */
-  frame: 1.0,
+  frame: 1.04,
   focal: 1500,
   orbit: 6,
 }

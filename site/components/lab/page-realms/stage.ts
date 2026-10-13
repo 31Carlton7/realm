@@ -384,7 +384,11 @@ export const createRealms: StageFactory = async (gpu, output) => {
 
       const list = stands(input, scrollY, mode!)
       if (list.length === 0) return
-      if (process.env.NODE_ENV !== "production") (window as unknown as { __realmsKeys?: [string, number][] }).__realmsKeys = list.map((s) => [s.key.id, Math.round(s.key.y)])
+      if (process.env.NODE_ENV !== "production") {
+        const debug = window as unknown as { __realmsKeys?: [string, number][]; __realmsLamp?: number[] }
+        debug.__realmsKeys = list.map((s) => [s.key.id, Math.round(s.key.y)])
+        debug.__realmsLamp = scene.lamp
+      }
 
       // ---- the camera ------------------------------------------------------------------------
       const now = moment(list, scrollY, mode!)
@@ -485,8 +489,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
           write(
             node,
             shown
-              ? `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;transform:translate3d(${left.toFixed(2)}px,${top.toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${pictureOn.toFixed(3)};visibility:visible`
-              : `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;opacity:0;visibility:hidden`,
+              ? `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;transform:translate3d(${left.toFixed(2)}px,${top.toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${pictureOn.toFixed(3)}`
+              : `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;opacity:0;pointer-events:none`,
           )
           if (z > 0.6 && (opening > 0.001 || pictureOn > 0.001) && panels.length < PANELS * 2 && stand.realm) {
             // The doorway's own rect on the page, opening out into the screen's.
@@ -642,6 +646,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
       while (plazas.length < PLAZAS) plazas.push([0, 0, 0, 0, 0, 0])
       const plazaPairs = plazas.flatMap((q) => [[q[0]!, q[1]!, q[2]!, q[3]!], [q[4] ?? q[0]!, q[5] ?? q[1]!, 0, 0]])
       while (lit.length < LIT) lit.push([0, 0, -1, 0])
+      if (process.env.NODE_ENV !== "production" && location.search.includes("nopanel")) panels.length = 0
       while (panels.length < PANELS * 2) panels.push([...zero])
       const clearList = clears.slice(0, CLEAR)
 

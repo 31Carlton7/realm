@@ -67,7 +67,7 @@ export function Screen({ id, picture, caption }: { id: string; picture: Picture;
     <div className="relative aspect-[3/2] w-full">
       <figure
         data-screen={id}
-        className="absolute inset-0 z-[1] origin-top-left [html[data-realms-flight=on]_&]:fixed [html[data-realms-flight=on]_&]:inset-auto [html[data-realms-flight=on]_&]:top-0 [html[data-realms-flight=on]_&]:left-0 [html[data-realms-flight=on]_&]:invisible [html[data-realms-flight=on]_&]:opacity-0"
+        className="absolute inset-0 z-[1] origin-top-left [html[data-realms-flight=on]_&]:fixed [html[data-realms-flight=on]_&]:inset-auto [html[data-realms-flight=on]_&]:top-0 [html[data-realms-flight=on]_&]:left-0 [html[data-realms-flight=on]_&]:opacity-0"
       >
         <div className="relative h-full w-full overflow-hidden rounded-[12px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.1),0_30px_80px_-30px_oklch(0_0_0/0.8)] [html[data-lab-field=off]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.12),0_0_70px_-20px_oklch(0.68_0.173_253.301/0.4)]">
           <Capture picture={picture} />

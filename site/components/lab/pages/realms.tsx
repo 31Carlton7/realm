@@ -67,7 +67,7 @@ export default async function Realms({ download, claims }: PageDesignProps) {
   )
 
   return (
-    <div className="relative min-h-[100dvh] overflow-x-clip">
+    <div className="relative min-h-[100dvh]">
       <Flight />
       <SiteHeader width="max-w-[92rem]" floating />
 
