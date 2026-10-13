@@ -19,11 +19,9 @@ export const MODELS: { id: string; label: string }[] = [
 ];
 export const modelLabel = (m: string | null) => MODELS.find((x) => x.id === m)?.label ?? m ?? "The agent's default";
 
-/** How far a role may go without asking, in the words its page uses. Never bypass: a role's run is
- *  unattended, and RunConstraints refuses it. */
-export const MODES: { id: TeamRole["permissionMode"]; label: string }[] = [
-  { id: "default", label: "Asks before it acts" }, { id: "acceptEdits", label: "May edit files" }, { id: "plan", label: "Only plans" },
-];
+/** How far a role may go without asking: always Full access, since nobody is there to answer its
+ *  engine's prompts (`runPermissionMode`). The team's own rules still ask and refuse for it. */
+export const ROLE_MODE_LABEL = "Full access";
 
 // Each named as the role's card names it, so the option picked reads the same once it is the setting.
 const CADENCES: { cron: string | null; label: string }[] = ["0 9 * * 1-5", "0 9 * * 1,4", "0 9 * * *", "0 8 * * 1", null]
@@ -70,7 +68,7 @@ export function RoleSheet({ spaceId, team, role, copyOf, draft, onDraft, otherSh
   const [spec, setSpec] = useState<RealmiteSpec>(() =>
     draft ? parseRealmiteSpec(draft.realmite, draft.name) : role ? parseRealmiteSpec(role.realmite, role.id) : realmiteFromSeed(randomSeed()));
   const [model, setModel] = useState(draft?.model ?? from?.model ?? "sonnet");
-  const [mode, setMode] = useState<TeamRole["permissionMode"]>(draft?.permissionMode ?? from?.permissionMode ?? "default");
+  const mode: TeamRole["permissionMode"] = draft?.permissionMode ?? from?.permissionMode ?? "default";
   const [cron, setCron] = useState<string | null>(draft ? draft.cron ?? null : from ? from.cron : null);
   const [budget, setBudget] = useState(() => {
     const v = draft ? draft.weekBudgetUsd : from?.weekBudgetUsd;
@@ -147,8 +145,8 @@ export function RoleSheet({ spaceId, team, role, copyOf, draft, onDraft, otherSh
             {said("model")}
           </label>
           <label className="field"><span>Mode</span>
-            <select value={mode} onChange={(e) => setMode(e.target.value as TeamRole["permissionMode"])} title="A teammate's runs are unattended, so it never has full access">
-              {MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            <select value="full" disabled title="A teammate's runs are unattended, so they always run in Full access. The team's rules still ask before it acts.">
+              <option value="full">{ROLE_MODE_LABEL}</option>
             </select>
             {said("permissionMode")}
           </label>

@@ -66,7 +66,7 @@ export type CreateRunInput = {
  * **The human gate.** A run stops at `blocked` when its worker asks for a person, and only
  * `approve` moves it on. Unattended automation that can never stop and ask is the failure mode this
  * state exists to make impossible. `bypassPermissions` is not in a run's vocabulary (contracts/runs.ts),
- * and the one run that gets it is a scheduled task's, which Realm puts there itself
+ * and the runs that get it are a scheduled task's and a team role's, which Realm puts there itself
  * (`runPermissionMode`).
  */
 export class RunService {
@@ -630,13 +630,14 @@ const OUTCOME_WORD: Record<string, string> = {
 };
 
 /**
- * The permission a run's session works in. A scheduled task's run is always Full access, whatever
- * its constraints say. It fires while nobody is at the Mac, and a permission prompt it stopped on
- * would wait for someone to come back — the task not done on the day it was set for. Every other run — started by hand, or a team role's, which has its own
- * permission setting — gets what it asked for, and Full access is not among what it can ask.
+ * The permission a run's session works in. A scheduled task's run and a team role's run are always
+ * Full access, whatever their constraints say: both go while nobody is at the Mac, and a permission
+ * prompt they stopped on would wait for someone to come back. A role's team policies still bind it —
+ * they gate by role, not by mode (team/policies/gate.ts). A run started by hand gets what it asked
+ * for, and Full access is not among what it can ask.
  */
 export function runPermissionMode(run: Pick<Run, "scheduleId" | "roleId" | "constraints">): string {
-  if (run.scheduleId !== null && run.roleId === null) return "bypassPermissions";
+  if (run.scheduleId !== null || run.roleId !== null) return "bypassPermissions";
   return run.constraints?.permissionMode ?? "default";
 }
 

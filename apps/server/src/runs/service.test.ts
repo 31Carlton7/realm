@@ -66,15 +66,16 @@ const create = (spaceId: string, over: Partial<Parameters<App["runs"]["create"]>
   app.runs.create({ spaceId, goal: "Draft the week 3 essay", constraints: null, dedupeKey: null, maxAttempts: 1, deadlineAt: null, ...over });
 
 describe("durable runs — the permission a run works in", () => {
-  /* THE MUTANTS: a scheduled task's run left on its stored permission, and Full access leaking to a
-     run nobody scheduled or to a team role's clock, which has a permission setting of its own. */
-  it("is Full access for a scheduled task, and what was asked for otherwise", () => {
+  /* THE MUTANTS: a scheduled task's or a team role's run left on its stored permission, and Full
+     access leaking to a run started by hand. */
+  it("is Full access for a scheduled task and a team role, and what was asked for otherwise", () => {
     const acceptEdits = { permissionMode: "acceptEdits" as const };
     expect(runPermissionMode({ scheduleId: "sch", roleId: null, constraints: acceptEdits })).toBe("bypassPermissions");
     expect(runPermissionMode({ scheduleId: "sch", roleId: null, constraints: null })).toBe("bypassPermissions");
     expect(runPermissionMode({ scheduleId: null, roleId: null, constraints: acceptEdits })).toBe("acceptEdits");
     expect(runPermissionMode({ scheduleId: null, roleId: null, constraints: null })).toBe("default");
-    expect(runPermissionMode({ scheduleId: "sch", roleId: "role", constraints: acceptEdits })).toBe("acceptEdits");
+    expect(runPermissionMode({ scheduleId: "sch", roleId: "role", constraints: acceptEdits })).toBe("bypassPermissions");
+    expect(runPermissionMode({ scheduleId: null, roleId: "role", constraints: { permissionMode: "plan" } })).toBe("bypassPermissions");
   });
 });
 

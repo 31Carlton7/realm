@@ -272,7 +272,7 @@ export class AcpAdapter implements AgentAdapter {
     /** Full access, answered on Realm's side. ACP has no mode for it — mode ids are the agent's own —
      *  so the lever Realm has is the permission request itself: under `bypassPermissions` each one is
      *  allowed as it arrives and never becomes a card. Nothing in Realm offers an ACP session this
-     *  mode (`AGENT_SUPPORTS_PERMISSION_MODES`); a scheduled task's run is the one that gets it. */
+     *  mode (`AGENT_SUPPORTS_PERMISSION_MODES`); a scheduled task's or a team role's run is what gets it. */
     let fullAccess = opts.permissionMode === "bypassPermissions";
     /** True only for the duration of `session/load`, whose replay Realm has already persisted. */
     let replaying = false;
