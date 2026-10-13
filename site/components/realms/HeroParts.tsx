@@ -65,10 +65,12 @@ export function Actions({ download, className = "", center = false }: ConceptPro
 }
 
 /**
- * The working sample of Realm, framed as the pictures further down are (Screen): Realm's own window
- * corner, a window's shadow, and on its edge the one-device-pixel outline with the light from above
- * catching its top. `anchor` names its rect for the shader (default "portal"), and `frameClassName`
- * sizes it — the concept decides how much of the first viewport the product takes.
+ * The working sample of Realm, on the plate the pictures further down stand on (Screen): Realm's own
+ * window corner inside a concentric one, the plate's rim and lattice round it, and on the window's
+ * edge the one-device-pixel outline with the light from above catching its top. What it is stands on
+ * a tab cut from the plate's top edge, as each picture's caption hangs from its foot. `anchor` names
+ * the window's rect for the shader (default "portal"), and `frameClassName` sizes it — the concept
+ * decides how much of the first viewport the product takes.
  */
 export function ProductWindow({
   className = "",
@@ -83,18 +85,17 @@ export function ProductWindow({
 }) {
   return (
     <div className={className}>
-      {tab ? (
-        <p className="hero-tab relative z-10 ml-5 inline-flex h-8 items-center gap-2 bg-surface pr-7 pl-4 text-[12.5px] text-ink-2">
-          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-green" />
-          A working sample of Realm. Click anything.
-        </p>
-      ) : null}
-      <div
-        data-field-anchor={anchor}
-        className={`relative w-full overflow-hidden rounded-[16px] bg-page shadow-[0_0_0_1px_oklch(0_0_0/0.5),0_30px_70px_-20px_oklch(0_0_0/0.65),0_80px_140px_-60px_oklch(0_0_0/0.5)] ${frameClassName}`}
-      >
-        <MiniRealm />
-        <span aria-hidden className="screen-light z-10" style={{ "--screen-radius": "16px" } as CSSProperties} />
+      <div className="plate hero-plate">
+        {tab ? (
+          <p data-edge="top" className="screen-tab flex items-center justify-center gap-2">
+            <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green" />
+            A working sample of Realm. Click anything.
+          </p>
+        ) : null}
+        <div data-field-anchor={anchor} className={`hero-window relative w-full overflow-hidden rounded-[16px] bg-page ${frameClassName}`}>
+          <MiniRealm />
+          <span aria-hidden className="screen-light z-10" style={{ "--screen-radius": "16px" } as CSSProperties} />
+        </div>
       </div>
     </div>
   )
