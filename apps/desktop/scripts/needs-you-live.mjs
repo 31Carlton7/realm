@@ -329,10 +329,12 @@ async function main() {
     waiting: [question, permission, plan, listedChild, putAwayChild].length, failed: 4, running: running.title, idle: idle.title, quickChat: quickId });
 
   // ── What the rule must make of those states ──
+  // Titles as they stand now: a session with no title of its own takes one from its first message.
   const titleOf = async (id) => (await api.call("items.listAll", {})).find((i) => i.refId === id)?.title ?? (await api.call("sessions.get", { id })).title;
   const expected = [question.title, permission.title, plan.title, await titleOf(putAwayChild.id), neverOpened.title, readBefore.title];
-  const left = [await titleOf(listedChild.id), quick.title, read.title, archived.title, running.title, idle.title, listedLead.title, putAwayLead.title];
-  const leftSaid = left.map((t) => (t === quick.title ? `the quick chat ("${t}")` : t));
+  const leftIds = [listedChild.id, quickId, read.id, archived.id, running.id, idle.id, listedLead.id, putAwayLead.id];
+  const left = await Promise.all(leftIds.map(titleOf));
+  const leftSaid = left.map((t, i) => (leftIds[i] === quickId ? `the quick chat ("${t}")` : t));
 
   // ── The desktop's list, read off the window once it has stopped moving ──
   let stable = 0, last = "";
@@ -349,7 +351,7 @@ async function main() {
   // ── The phone's list ──
   rig.send("home");
   const phoneHome = JSON.parse((await rig.next(/^home /, 30_000, "home.get")).slice("home ".length));
-  const phone = phoneHome.needsYou.map((r) => ({ title: r.title, space: r.spaceName, status: r.status, needsYou: r.needsYou }));
+  const phone = phoneHome.needsYou.map((r) => ({ id: r.id, title: r.title, space: r.spaceName, status: r.status, needsYou: r.needsYou }));
 
   const lefts = desktop.map((r, i) => `${i + 1}. ${r.title} (${r.where}) — ${r.status}`);
   const width = Math.max(...lefts.map((l) => l.length), "desktop: Needs you in the window".length) + 3;
@@ -367,7 +369,7 @@ async function main() {
   check("and that is what the rule makes of the states driven: the waiting by how long each has waited, then the failures nobody has read",
     js(desktop.map((r) => r.title)) === js(expected), { expected });
   check("left out on both: the quick chat, a sub-agent under a listed lead, a read failure, a failure put away, the running and the idle",
-    left.every((t) => !desktop.some((r) => r.title === t) && !phone.some((r) => r.title === t)));
+    left.every((t) => !desktop.some((r) => r.title === t)) && leftIds.every((id) => !phone.some((r) => r.id === id)));
   check("every row the phone lists says it needs you", phone.every((r) => r.needsYou === true));
 
   console.log(`${results.filter((r) => r.ok).length}/${results.length} checks passed`);
