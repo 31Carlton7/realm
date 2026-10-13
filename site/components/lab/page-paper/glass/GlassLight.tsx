@@ -21,7 +21,7 @@ const GRID = 150
 /** The caustic map's texels per side. */
 const MAP = 640
 /** The mark's width as a share of the canvas's width. GlassStill draws to the same share. */
-export const MARK_SHARE = 0.46
+export const MARK_SHARE = 0.44
 /** The lamp's height over the paper, and the nearest and farthest it may stand off from the mark,
  *  in mark units: overhead enough that the shadow stays inside the canvas, low enough to have one. */
 const LAMP_HEIGHT = 52

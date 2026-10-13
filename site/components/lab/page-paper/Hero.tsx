@@ -18,7 +18,7 @@ export function Hero({ download }: { download: MacDownload }) {
   return (
     <section aria-labelledby="paper-title" className="relative pt-8 sm:pt-10 lg:pt-2">
       <div className={`${s.measure} ${s.grid} relative`}>
-        <div className="order-1 col-span-12 lg:order-none lg:col-span-7 lg:row-start-1 lg:pt-5">
+        <div className="order-1 col-span-12 lg:order-none lg:col-span-6 lg:row-start-1 lg:pt-5">
           <Link
             href="/changelog/v2-1-0"
             className={`${s.note} group inline-flex items-baseline gap-3 text-ink-2 transition-colors duration-150 hover:text-ink`}
@@ -58,8 +58,8 @@ export function Hero({ download }: { download: MacDownload }) {
 
         {/* The glass. The canvas sits in the page under it, so the light scrolls with the paper; it holds
             no words, and the shadow and the caustic are kept inside it by the lamp's reach. */}
-        <figure className="order-3 col-span-12 mt-10 w-full max-w-[36rem] justify-self-center lg:order-none lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:mt-0 lg:mr-[calc(-1*var(--margin))] lg:w-auto lg:max-w-none lg:self-start lg:justify-self-stretch">
-          <div aria-hidden data-paper-glass className="relative aspect-[6/5] w-full">
+        <figure className="order-3 col-span-12 mt-10 w-full max-w-[36rem] justify-self-center lg:order-none lg:col-span-6 lg:col-start-7 lg:row-start-1 lg:mt-0 lg:mr-[calc(-1*var(--margin))] lg:w-auto lg:max-w-none lg:self-start lg:justify-self-stretch">
+          <div aria-hidden data-paper-glass className="relative aspect-[3/2] w-full">
             <GlassStill />
             <GlassLight />
           </div>
@@ -67,7 +67,7 @@ export function Hero({ download }: { download: MacDownload }) {
           <figcaption className={`${s.note} mt-1 lg:pr-[var(--margin)] lg:text-right`}>
             The mark, cut in glass, on a registration mark.
             {/* What moves the lamp, where it moves at all. */}
-            <span className="block motion-reduce:hidden">
+            <span className="block motion-reduce:hidden [html[data-lab-field=off]_&]:hidden">
               <span className="[@media(pointer:coarse)]:hidden">Your pointer is the lamp.</span>
               <span className="hidden [@media(pointer:coarse)]:inline">The lamp moves as you scroll.</span>
             </span>
