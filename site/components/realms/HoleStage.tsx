@@ -13,7 +13,7 @@ import { dropRealm } from "./blackhole"
  */
 export function HoleStage() {
   return (
-    <div data-field-anchor="hole" className="relative h-[clamp(340px,50vh,480px)] w-full sm:h-[clamp(400px,56vh,540px)]">
+    <div data-field-anchor="hole" className="relative h-[clamp(300px,40vh,380px)] w-full sm:h-[clamp(400px,56vh,540px)]">
       <FallbackHole />
       <button
         type="button"
@@ -32,9 +32,11 @@ export function HoleStage() {
 }
 
 /** The still's strands, as radius across, radius up, opacity and width (the shadow's radius is 100):
- *  close together and fading outward, the way the shader's plasma reads at that size. */
-const HAT = Array.from({ length: 15 }, (_, i) => [112 + i * 6.2, 108 + i * 5.4, 0.8 * Math.exp(-i / 7), 3.4] as const)
-const UNDER = Array.from({ length: 8 }, (_, i) => [106 + i * 5.2, 103 + i * 4.6, 0.5 * Math.exp(-i / 4), 3] as const)
+ *  close together and fading outward, the way the shader's plasma reads at that size. Every computed
+ *  number is rounded, so the server and the browser write the same attribute. */
+const round = (n: number) => Math.round(n * 1000) / 1000
+const HAT = Array.from({ length: 15 }, (_, i) => [112 + i * 6.2, 108 + i * 5.4, round(0.8 * Math.exp(-i / 7)), 3.4] as const)
+const UNDER = Array.from({ length: 8 }, (_, i) => [106 + i * 5.2, 103 + i * 4.6, round(0.5 * Math.exp(-i / 4)), 3] as const)
 const DISK = [140, 175, 215, 260, 310, 365, 425, 490] as const
 
 /**
@@ -73,7 +75,7 @@ function FallbackHole() {
       <g fill="none" stroke="url(#hole-beam)" strokeLinecap="round" filter="url(#hole-soft)">
         {/* The disk's far side beyond the arc, and the arc itself: the far side lensed over the top. */}
         {DISK.filter((rx) => rx > 230).map((rx) => (
-          <path key={`back-${rx}`} d={`M ${-rx} 0 A ${rx} ${rx * tilt} 0 0 1 ${rx} 0`} strokeWidth={2.5} strokeOpacity={0.5 - rx / 1400} />
+          <path key={`back-${rx}`} d={`M ${-rx} 0 A ${rx} ${rx * tilt} 0 0 1 ${rx} 0`} strokeWidth={2.5} strokeOpacity={round(0.5 - rx / 1400)} />
         ))}
         {HAT.map(([rx, ry, o, w]) => (
           <path key={`hat-${rx}`} d={`M ${-rx - 6} 4 A ${rx} ${ry} 0 0 1 ${rx + 6} 4`} strokeWidth={w} strokeOpacity={o} />
@@ -87,7 +89,7 @@ function FallbackHole() {
       {/* The near side, crossing in front of the shadow. */}
       <g fill="none" stroke="url(#hole-beam)" strokeLinecap="round">
         {DISK.map((rx, i) => (
-          <path key={`front-${rx}`} d={`M ${-rx} 0 A ${rx} ${rx * tilt} 0 0 0 ${rx} 0`} strokeWidth={i < 2 ? 3.2 : 2.2} strokeOpacity={Math.max(0.12, 0.95 - i * 0.12)} filter="url(#hole-soft)" />
+          <path key={`front-${rx}`} d={`M ${-rx} 0 A ${rx} ${rx * tilt} 0 0 0 ${rx} 0`} strokeWidth={i < 2 ? 3.2 : 2.2} strokeOpacity={round(Math.max(0.12, 0.95 - i * 0.12))} filter="url(#hole-soft)" />
         ))}
         <path d={`M ${-DISK[1]} 0 A ${DISK[1]} ${DISK[1] * tilt} 0 0 0 ${DISK[1]} 0`} strokeWidth={1.2} strokeOpacity={0.9} />
       </g>
@@ -96,7 +98,7 @@ function FallbackHole() {
         {[-430, -372, -318, -262, -205, 228, 286, 344, 398, 452].map((x, i) => {
           const rx = Math.abs(x) + 12
           const y = (i % 2 ? 1 : -1) * Math.sqrt(Math.max(0, 1 - (x / rx) ** 2)) * rx * tilt + (i % 3) * 3
-          return <rect key={x} x={x - 1} y={y - 3.5} width={2} height={7} rx={1} opacity={0.55 + (i % 3) * 0.12} />
+          return <rect key={x} x={x - 1} y={round(y - 3.5)} width={2} height={7} rx={1} opacity={round(0.55 + (i % 3) * 0.12)} />
         })}
       </g>
     </svg>

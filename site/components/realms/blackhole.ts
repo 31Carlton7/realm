@@ -194,8 +194,9 @@ fn holeTint(heat: f32) -> vec3f {
 }
 
 // What the disk gives off where a ray crosses it, at p (hole space, on the disk) travelling along dir.
-// rgb is light, a how much of what is behind it the disk hides.
-fn holeDisk(p: vec3f, dir: vec3f) -> vec4f {
+// rgb is light, a how much of what is behind it the disk hides; realmsOn how much of the realms'
+// doorways to draw there.
+fn holeDisk(p: vec3f, dir: vec3f, realmsOn: f32) -> vec4f {
   let r = length(p.xy);
   if (r < HOLE_IN - 1.5 || r > HOLE_OUT) { return vec4f(0.0); }
   let phi = atan2(p.y, p.x);
@@ -217,9 +218,11 @@ fn holeDisk(p: vec3f, dir: vec3f) -> vec4f {
   let heat = density * g * 1.35;
   var light = holeTint(heat) * density * beam * 2.6;
   var cover = saturate(density * 2.6);
-  let realms = holeRealms(p.xy, r, phi, t, cosI);
-  light += realms.rgb * beam;
-  cover = max(cover, realms.a);
+  if (realmsOn > 0.001) {
+    let realms = holeRealms(p.xy, r, phi, t, cosI) * realmsOn;
+    light += realms.rgb * beam;
+    cover = max(cover, realms.a);
+  }
   light += holeDrops(p.xy, r, phi, cosI) * beam;
   return vec4f(light, cover);
 }
@@ -283,6 +286,7 @@ fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
   var light = vec3f(0.0);
   var through = 1.0;
   var leave = -1.0;
+  let ring = smoothstep(36.0, 64.0, hole.at.z);
   for (var i = 0; i < 64; i++) {
     let h = mix(0.26, 0.1, smoothstep(0.015, 0.2, u));
     let k1u = w;
@@ -310,7 +314,12 @@ fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
         let across = -sin(node) * e1 + cos(node) * e2;
         let p = radial / uc;
         let dir = normalize(-wc * radial + uc * across);
-        let disk = holeDisk(p, dir);
+        // A crossing after the ray has wound most of the way round again belongs to an image crowded
+        // into the photon ring, which on a small hole is thinner than a pixel and would only salt the
+        // shadow's edge: there it fades out. The realms' doorways are drawn in the direct images
+        // alone, where they can still be told apart.
+        let direct = node < 1.5 * HOLE_PI;
+        let disk = holeDisk(p, dir, select(0.0, 1.0, direct)) * select(ring, 1.0, direct);
         light += through * disk.rgb;
         through *= 1.0 - disk.a;
       }
@@ -362,7 +371,7 @@ const norm = (a: Vec3): Vec3 => {
 const mix3 = (a: Vec3, b: Vec3, ka: number, kb: number): Vec3 => [a[0] * ka + b[0] * kb, a[1] * ka + b[1] * kb, a[2] * ka + b[2] * kb]
 
 /** The shadow's radius on the page for a viewport: a tenth of its height, held to its width on a phone. */
-export const shadowRadius = (width: number, height: number) => clamp(Math.min(width * 0.064, height * 0.1), 32, 96)
+export const shadowRadius = (width: number, height: number) => clamp(Math.min(width * (width < 640 ? 0.098 : 0.064), height * 0.1), 32, 96)
 
 export type HoleFrame = {
   view: View
