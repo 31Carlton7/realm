@@ -65,6 +65,13 @@ describe("the menu bar", () => {
     expect(template.some((m) => m.role === "help")).toBe(true);
     expect(template.some((m) => m.role === "window")).toBe(true);
   });
+
+  it("opens the What's new sheet from Help, a catalog command the renderer runs", () => {
+    const { template, send } = build();
+    (find(template, "What's New")!.click as () => void)();
+    expect(send).toHaveBeenCalledWith("app.whatsNew");
+    expect(KEY_COMMANDS.map((c) => c.id)).toContain("app.whatsNew");
+  });
 });
 
 describe("whose keystroke is it", () => {

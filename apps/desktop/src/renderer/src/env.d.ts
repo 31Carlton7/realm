@@ -114,6 +114,13 @@ interface Window {
      *  (main/appearance.ts). Optional: a renderer with no bridge has no native appearance to set. */
     setAppearance?(pref: "system" | "light" | "dark"): void;
     /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
+    /** What's new (main/whats-new.ts). Optional like every late bridge: jsdom has none. */
+    whatsNew?: {
+      notes(): Promise<WhatsNew>;
+      /** True once per run, after an update, for the first window that asks. */
+      claim(): Promise<boolean>;
+      seen(): Promise<void>;
+    };
     appIcon?: {
       get(): Promise<string>;
       set(id: string, png: Uint8Array): Promise<boolean>;
@@ -306,6 +313,13 @@ type UpdateState =
   | { kind: "downloaded"; version: string }
   | { kind: "error"; message: string };
 interface UpdateStatus { version: string; state: UpdateState }
+/** Mirrors WhatsNew in main/whats-new.ts and ReleaseNotes in main/whats-new-notes.ts. */
+interface WhatsNewSpan { text: string; strong?: true; code?: true }
+interface WhatsNew {
+  version: string;
+  notes: { version: string; date: string | null; groups: { title: string | null; items: WhatsNewSpan[][] }[] } | null;
+  url: string;
+}
 /** Mirrors TccRow in main/tcc.ts — the Permissions tab's row payload. */
 interface TccRow { id: string; label: string; state: "granted" | "denied" | "unknown"; detail: string }
 /** Mirrors MacAccessRow/MacAccessStatus in main/mac-access.ts. The five states are mac doctor's own,

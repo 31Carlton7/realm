@@ -12,7 +12,8 @@ import { useChord } from "./use-sidebar-model";
  *
  * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Library,
  * Connections, Scheduled tasks and Code review, with Home above them as the way back — and at its
- * foot to the Stop of a recording for Laya, a newer Realm, and the person (their page, Settings). It
+ * foot to the Stop of a recording for Laya, a newer Realm, what this one brought, and the person (their
+ * page, Settings). It
  * is never collapsed: ⌘B folds the sidebar away and leaves this.
  *
  * As narrow as its icons and an even margin round them, Codex's: the traffic lights are wider than it
@@ -34,6 +35,7 @@ export function Rail() {
         {/* The two that wear a state, then the person, at the very foot as Codex keeps them. */}
         <RailRecording />
         <RailUpdate />
+        <RailWhatsNew />
         <RailYou />
       </div>
     </nav>
@@ -77,6 +79,22 @@ function RailPage({ kind, label, count = 0, countLabel }: {
             the exact number is on the page it opens. */}
         {count > 0 && <span className="sb-badge" aria-hidden="true">{count > 99 ? "99+" : count}</span>}
       </span>
+    </button>
+  );
+}
+
+/**
+ * What's new in this version, just above the person: the sheet that opened after the update, opened
+ * again (WhatsNewSheet). Not a toggle — the sheet is modal and carries its own close — so never lit.
+ * Absent where there is no bridge to read the notes from, rather than a button that opens nothing.
+ */
+function RailWhatsNew() {
+  const openSheet = useApp((s) => s.openSheet);
+  if (!window.realm?.whatsNew) return null;
+  return (
+    <button type="button" className="rail-btn" aria-label="What's new" title="What's new in this version of Realm"
+      onClick={() => openSheet({ kind: "whats-new" })}>
+      <span className="rail-glyph"><Icon name="gift" size={18} /></span>
     </button>
   );
 }

@@ -63,12 +63,13 @@ import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { registerNativeMenus } from "./native-menu";
 import { attachTextContextMenu } from "./text-context-menu";
 import { windowOpenTarget } from "./link-open";
-import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
+import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom } from "./window-registry";
 import { registerFileActions } from "./file-actions";
 import { AppIconStore, registerAppIcon } from "./app-icon";
 import { registerAppearance, savedAppearance } from "./appearance";
+import { registerWhatsNew, WhatsNewState } from "./whats-new";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
@@ -1667,6 +1668,17 @@ registerAppIcon({ handle: (channel, fn) => ipcMain.handle(channel, fn), store: a
  *  last run before any window exists, then kept current by the renderer. */
 nativeTheme.themeSource = savedAppearance(app.getPath("userData"));
 registerAppearance({ on: (channel, fn) => ipcMain.on(channel, fn), theme: nativeTheme, dir: app.getPath("userData") });
+/** What's new (whats-new.ts). Decided here, at load, before the server exists to make a new install's
+ *  database — which is half of how an install that predates the record is told from a new one. */
+registerWhatsNew({
+  handle: (channel, fn) => ipcMain.handle(channel, fn),
+  notes: { ...__REALM_WHATS_NEW__, url: CHANGELOG_URL },
+  state: new WhatsNewState({
+    dir: app.getPath("userData"),
+    version: __REALM_WHATS_NEW__.version,
+    ranBefore: existsSync(join(app.getPath("userData"), windowStateFileName(null))) || existsSync(join(realmHomePath(), "realm.db")),
+  }),
+});
 /**
  * Save a copy of a file somewhere the user names.
  *

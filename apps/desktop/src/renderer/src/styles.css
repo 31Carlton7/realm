@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .terminal-dock-title,
-.sim-detail, .upl-path, .laya-facts code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
+.sim-detail, .upl-path, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
 .subagent-where[data-branch] {
   letter-spacing: normal;
@@ -9268,6 +9268,21 @@ span.documents-name:hover { background: none; }
   color: var(--rl-text-faint); }
 .sheet-lede { margin: 0; font-size: 13px; color: var(--rl-text-dim); line-height: 1.5; }
 .sheet-lede code { font-size: 12px; }
+/* What's new (WhatsNewSheet): the app's icon and the version over the notes, then the notes as a
+   list, read at the body size in the secondary ink with each bold lead in the primary. */
+.whats-new-hero { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 6px; text-align: center; }
+.whats-new-icon { width: 64px; height: 64px; margin-bottom: 8px; }
+.whats-new-version { margin: 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.whats-new-date { margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.whats-new-group { margin-top: 16px; }
+.whats-new-group h4 { margin: 0 0 6px; font-size: 13px; line-height: 16px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.whats-new-group ul { margin: 0; padding-left: 18px; list-style: disc; }
+.whats-new-group li { font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
+.whats-new-group li + li { margin-top: 6px; }
+.whats-new-group li::marker { color: var(--rl-text-faint); }
+.whats-new-group strong { font-weight: var(--fw-strong); color: var(--rl-text-bright); }
+.whats-new-group code { font-family: var(--font-mono); font-size: 13px; }
+.whats-new-none { margin: 16px 0 0; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-align: center; text-wrap: balance; }
 .lecture-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; --fade-h: 24px; --fade-top-h: 24px; }
 .lecture-row {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--r-ctl); corner-shape: squircle;
