@@ -2,10 +2,11 @@
 
 > Numbered 28: 27 (the sidebar) is the highest on any branch. Renumber on landing if it collides.
 
-> **Status (2026-10-08): Phase 1 is done; Phase 2 is under way on `feat/mobile`.** The four decisions
-> below were answered by the owner on 2026-10-04. The pipe is built and measured end to end, through a
-> deployed relay and on the owner's iPhone. Pushes decrypt on the device. "Phase 1 results" under
-> Phases has the numbers and what Phase 2 inherits; "Phase 2 so far" has what has landed since.
+> **Status (2026-10-12): Phases 1 and 2 are done on `feat/mobile`, apart from one Phase 2 check.**
+> The Needs-you parity live check has not been run. The four decisions below were answered by the
+> owner on 2026-10-04. Build 1 is on TestFlight from Xcode Cloud, and a push decrypted on the owner's
+> iPhone. "Phase 1 results" and "Phase 2 so far" under Phases have the numbers; "Phase 2 results"
+> scores the pass marks.
 
 ## What it is for
 
@@ -672,6 +673,16 @@ what the relay sees of a sleeping Mac or a pulled network.
   - The cache and outbox, the connection words, Markdown prose, Realm's palette and fonts, and the
     icon drawn from the Mac's vector.
   - Release signing, which claims `applinks:realm.computer`.
+- **TestFlight now comes from Xcode Cloud, as Versed's builds do (2026-10-12).**
+  - **Setup:** the owner made the product in Xcode. Its workflow is "TestFlight": it archives the Realm
+    scheme with the latest released Xcode, for internal testers only, and only starts when asked.
+    `apps/ios/ci_scripts/ci_post_clone.sh` generates the project with XcodeGen 2.44.1, checked by hash.
+  - **Starting a build:** `pnpm ios:release --cloud` starts the workflow on the pushed branch, waits
+    for App Store Connect, and gives the build to Internal Testers.
+  - **Build 1:** run 1 built `2489c668` in 3 min 41 s, and the build came back VALID with its
+    encryption exempt.
+  - **What `--cloud` now does itself:** the group did not receive build 1 by itself, although it
+    should get every build, and the owner's invitation had to be sent separately.
 - **The first upload, build 0.1.0 (1), was refused for its toolchain (ITMS-90534),** as warned.
   Archive, export, signing and the upload itself all worked; App Store Connect refuses builds made
   with Xcode 27.0 beta 6. Nothing was recorded, so build 1 is still free. `pnpm ios:release --xcode
@@ -720,6 +731,15 @@ what the relay sees of a sleeping Mac or a pulled network.
 - every event kind renders, or says "Open this on your Mac";
 - Remove cuts a phone off within a second;
 - a push decrypts on the TestFlight build.
+
+### Phase 2 results (2026-10-12)
+
+| Pass mark | Result |
+|---|---|
+| The phone's Needs you matches the desktop's for the same scratch data | **Not yet checked.** No live check compares the two lists. |
+| Every event kind renders, or says "Open this on your Mac" | **Met** in the iPhone branch's hosted tests: each row is drawn and read back with Vision. An unknown kind says "Open this on your Mac". |
+| Remove cuts a phone off within a second | **Met** in `mobile-server-live`: the removed phone is refused at once (4403). The Mac also drops it itself through a relay that never hears of the removal. Not separately timed. |
+| A push decrypts on the TestFlight build | **Met.** Build 1 came from Xcode Cloud, and APNs production answered 200. The owner's locked iPhone showed "Fix the flaky test", decrypted on the device. |
 
 ### Phase 3 — Answer
 
