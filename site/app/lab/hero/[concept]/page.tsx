@@ -44,7 +44,7 @@ export default async function HeroLabPage({ params }: { params: Promise<{ concep
         <View download={download} />
         <div aria-hidden className="h-[70vh]" />
       </main>
-      <LabSwitcher current={concept} />
+      <LabSwitcher items={concepts} base="/lab/hero" current={concept} label="Hero concepts" />
     </div>
   )
 }

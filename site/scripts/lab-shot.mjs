@@ -4,11 +4,13 @@
  *
  *   node scripts/lab-shot.mjs --url http://localhost:3611/lab/hero/doorway --out ~/.cache/hero-lab/doorway \
  *     [--name desk] [--port 9411] [--size 1440x900] [--dpr 1] [--mobile] [--reduced] \
- *     [--pointer 980,520] [--frames 3] [--gap 400] [--wait 3500] [--scroll 0] [--nogpu] [--switcher]
+ *     [--pointer 980,520] [--frames 3] [--gap 400] [--wait 3500] [--scroll 0] [--nogpu] [--switcher] [--tour 12]
  *
  * Writes <out>/<name>-<i>.png (one per frame) and prints a JSON summary: the canvas state
  * (`data-lab-field`: on | off | pending), an estimated frame rate over two seconds, and any page
- * errors. Headless frame rates run lower than a real window's; compare concepts with each other.
+ * errors. `--tour N` instead takes N pictures at evenly spaced stops down the whole page (named
+ * <name>-tNN.png), scrolling there in small steps, and reports the page's own frame rate while it
+ * scrolled (`tourFps`) beside the canvas's (`fps`) and the page's at rest (`pageFps`). Headless frame rates run lower than a real window's; compare concepts with each other.
  *
  * Each concurrent user needs its own --port. A port that already answers is refused rather than
  * reused: a leftover browser there would be photographed instead of this one.
@@ -83,9 +85,9 @@ const finish = (code) => {
   process.exit(code)
 }
 const deadline = setTimeout(() => {
-  console.error("Timed out after 120 s.")
+  console.error("Timed out.")
   finish(1)
-}, 120_000)
+}, 120_000 + Number(args.tour ?? 0) * 6000)
 
 try {
   let list
@@ -154,29 +156,66 @@ try {
     await sleep(900)
   }
 
-  // The lab's own switcher is review chrome, not part of any concept: out of every picture unless asked for.
-  if (!args.switcher) await evaluate(`document.querySelector('nav[aria-label="Hero concepts"]')?.remove()`)
+  // The lab's own switcher is review chrome, not part of any design: out of every picture unless asked for.
+  if (!args.switcher) await evaluate(`document.querySelectorAll('[data-lab-switcher], nav[aria-label="Hero concepts"]').forEach((n) => n.remove())`)
   // So is the dev server's badge in the corner.
   await evaluate(`document.querySelectorAll("nextjs-portal").forEach((n) => n.remove())`)
+  // A frame counter on the main thread: how smoothly the page itself runs, canvas or not.
+  await evaluate(`(() => { window.__shotRaf = 0; const tick = () => { window.__shotRaf++; requestAnimationFrame(tick) }; requestAnimationFrame(tick) })()`)
 
   const field = await evaluate("document.documentElement.dataset.labField ?? document.documentElement.dataset.dimField ?? null")
-  const before = await evaluate("window.__labFrames ?? -1")
-  const t0 = Date.now()
   const files = []
-  for (let i = 0; i < frames; i++) {
-    const shot = await send("Page.captureScreenshot", { format: "png" })
-    const file = join(out, `${name}-${i}.png`)
-    writeFileSync(file, Buffer.from(shot.data, "base64"))
-    files.push(file)
-    if (i < frames - 1) await sleep(gap)
+
+  // --tour N: N pictures at evenly spaced stops from the top of the page to its foot, reached the way
+  // a reader would get there — in small steps — so every scroll-linked thing updates on the way.
+  let tourFps = null
+  if (args.tour) {
+    const stops = Math.max(2, Number(args.tour))
+    const total = await evaluate("Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) - window.innerHeight")
+    const rafStart = await evaluate("window.__shotRaf")
+    const tStart = Date.now()
+    for (let i = 0; i < stops; i++) {
+      const target = Math.round((total * i) / (stops - 1))
+      let y = await evaluate("window.scrollY")
+      while (Math.abs(target - y) > 1) {
+        const step = Math.sign(target - y) * Math.min(Math.abs(target - y), 140)
+        await evaluate(`window.scrollBy(0, ${step})`)
+        await sleep(16)
+        const now = await evaluate("window.scrollY")
+        if (now === y) break
+        y = now
+      }
+      await sleep(gap)
+      const shot = await send("Page.captureScreenshot", { format: "png" })
+      const file = join(out, `${name}-t${String(i).padStart(2, "0")}.png`)
+      writeFileSync(file, Buffer.from(shot.data, "base64"))
+      files.push(`${file} @${Math.round(y)}`)
+    }
+    const rafEnd = await evaluate("window.__shotRaf")
+    tourFps = Math.round(((rafEnd - rafStart) / ((Date.now() - tStart) / 1000)) * 10) / 10
+  }
+
+  const before = await evaluate("window.__labFrames ?? -1")
+  const rafBefore = await evaluate("window.__shotRaf")
+  const t0 = Date.now()
+  if (!args.tour) {
+    for (let i = 0; i < frames; i++) {
+      const shot = await send("Page.captureScreenshot", { format: "png" })
+      const file = join(out, `${name}-${i}.png`)
+      writeFileSync(file, Buffer.from(shot.data, "base64"))
+      files.push(file)
+      if (i < frames - 1) await sleep(gap)
+    }
   }
   const elapsed = Date.now() - t0
   if (elapsed < 2000) await sleep(2000 - elapsed)
   const after = await evaluate("window.__labFrames ?? -1")
+  const rafAfter = await evaluate("window.__shotRaf")
   const seconds = (Date.now() - t0) / 1000
   const fps = before >= 0 && after >= 0 ? Math.round(((after - before) / seconds) * 10) / 10 : null
+  const pageFps = Math.round(((rafAfter - rafBefore) / seconds) * 10) / 10
 
-  console.log(JSON.stringify({ url: args.url, size: `${width}x${height}@${dpr}`, reduced: Boolean(args.reduced), field, fps, files, errors }, null, 2))
+  console.log(JSON.stringify({ url: args.url, size: `${width}x${height}@${dpr}`, reduced: Boolean(args.reduced), field, fps, pageFps, tourFps, files, errors }, null, 2))
   clearTimeout(deadline)
   ws.close()
   finish(0)
