@@ -1,0 +1,50 @@
+{
+  "connections": {
+    "width": 764,
+    "height": 751,
+    "radius": 12,
+    "cutout": false
+  },
+  "delegation": {
+    "width": 553,
+    "height": 660,
+    "radius": 16,
+    "cutout": false
+  },
+  "models": {
+    "width": 373,
+    "height": 503,
+    "radius": 12,
+    "cutout": true
+  },
+  "review": {
+    "width": 765,
+    "height": 568,
+    "radius": 12,
+    "cutout": false
+  },
+  "sandbox": {
+    "width": 765,
+    "height": 449,
+    "radius": 12,
+    "cutout": false
+  },
+  "schedules": {
+    "width": 280,
+    "height": 355,
+    "radius": 12,
+    "cutout": false
+  },
+  "sidebar": {
+    "width": 280,
+    "height": 700,
+    "radius": 12,
+    "cutout": false
+  },
+  "turn": {
+    "width": 764,
+    "height": 715,
+    "radius": 12,
+    "cutout": false
+  }
+}
