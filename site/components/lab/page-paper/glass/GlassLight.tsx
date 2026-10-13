@@ -5,7 +5,7 @@ import { draw, effect, frame, init, sampler, surface, target } from "vgpu"
 
 import { PAPER_LINEAR, PAPER_SRGB } from "../palette"
 import { SHAPE } from "./geometry"
-import { causticWgsl, compositeWgsl, DOMAIN, WALL_AROUND, WALL_ROWS } from "./shader"
+import { blurWgsl, causticWgsl, compositeWgsl, DOMAIN, WALL_AROUND, WALL_ROWS } from "./shader"
 
 declare global {
   interface Window {
@@ -93,6 +93,11 @@ export function GlassLight({ className = "" }: { className?: string }) {
         }
         const output = surface(gpu, canvas, { dpr: [1, 2], clearColor: [...PAPER_SRGB, 1] })
         const map = target(gpu, { size: [MAP, MAP], format: "rgba16float", clearColor: [0, 0, 0, 0] })
+        const across = target(gpu, { size: [MAP, MAP], format: "rgba16float" })
+        const soft = target(gpu, { size: [MAP, MAP], format: "rgba16float" })
+        const linear = sampler(gpu, { minFilter: "linear", magFilter: "linear" })
+        const blurAcross = effect(gpu, blurWgsl, { label: "paper-caustic-blur-x", set: { blur: { step: [1, 0, 1 / MAP, 1 / MAP] }, source: map, sourceSampler: linear } })
+        const blurDown = effect(gpu, blurWgsl, { label: "paper-caustic-blur-y", set: { blur: { step: [0, 1, 1 / MAP, 1 / MAP] }, source: across, sourceSampler: linear } })
         const half = DOMAIN
         const texel = ((2 * half) / MAP) ** 2
 
@@ -146,8 +151,8 @@ export function GlassLight({ className = "" }: { className?: string }) {
               paper: [...PAPER_LINEAR, new URLSearchParams(window.location.search).get("paper-debug") === "caustic" ? 2 : 1],
               print: [tune.px ?? PRINT.x, tune.py ?? PRINT.y, tune.pr ?? PRINT.radius, tune.pink ?? PRINT.ink],
             },
-            causticMap: map,
-            causticSampler: sampler(gpu, { minFilter: "linear", magFilter: "linear" }),
+            causticMap: soft,
+            causticSampler: linear,
           },
         })
 
@@ -211,6 +216,8 @@ export function GlassLight({ className = "" }: { className?: string }) {
               pass.draw(top)
               pass.draw(walls)
             })
+            f.pass(across, blurAcross)
+            f.pass(soft, blurDown)
             f.pass(output, composite)
           })
           window.__labFrames = (window.__labFrames ?? 0) + 1

@@ -19,22 +19,26 @@ export function Plate({ claim, from = "left", priority = false }: { claim: Claim
   const crop = cropPixels(focus)
   return (
     <figure className="min-w-0">
-      <div data-from={from} className={`${s.dark} ${s.plate} ${s.wipe} aspect-[4/3] sm:aspect-[15/8]`}>
-        <img
-          src={claimFile(claim.id)}
-          alt={claim.caption ?? claim.title}
-          width={crop.width}
-          height={crop.height}
-          loading={priority ? undefined : "lazy"}
-          decoding="async"
-          style={
-            {
-              "--y": `${-liftOf(focus, FRAME.narrow) * 100}%`,
-              "--y-wide": `${-liftOf(focus, FRAME.wide) * 100}%`,
-            } as CSSProperties
-          }
-          className="absolute top-1/2 left-0 h-auto w-full max-w-none translate-y-[var(--y)] sm:translate-y-[var(--y-wide)]"
-        />
+      <div className="relative">
+        <div data-from={from} className={`${s.dark} ${s.plate} ${s.wipe} aspect-[4/3] sm:aspect-[15/8]`}>
+          <img
+            src={claimFile(claim.id)}
+            alt={claim.caption ?? claim.title}
+            width={crop.width}
+            height={crop.height}
+            loading={priority ? undefined : "lazy"}
+            decoding="async"
+            style={
+              {
+                "--y": `${-liftOf(focus, FRAME.narrow) * 100}%`,
+                "--y-wide": `${-liftOf(focus, FRAME.wide) * 100}%`,
+              } as CSSProperties
+            }
+            className="absolute top-1/2 left-0 h-auto w-full max-w-none translate-y-[var(--y)] sm:translate-y-[var(--y-wide)]"
+          />
+        </div>
+        {/* The edge of the sheet being drawn across: a hairline riding the wipe, gone once it is done. */}
+        <span aria-hidden data-from={from} className={s.pull} />
       </div>
       <figcaption className="mt-4 grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-8">
         <span className={`${s.caption} max-w-[62ch]`}>{claim.caption}</span>

@@ -58,14 +58,21 @@ export function Hero({ download }: { download: MacDownload }) {
 
         {/* The glass. The canvas sits in the page under it, so the light scrolls with the paper; it holds
             no words, and the shadow and the caustic are kept inside it by the lamp's reach. */}
-        <div
-          aria-hidden
-          data-paper-glass
-          className="relative order-3 col-span-12 mt-10 aspect-[6/5] w-full max-w-[36rem] justify-self-center lg:order-none lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:mt-0 lg:mr-[calc(-1*var(--margin))] lg:w-auto lg:max-w-none lg:self-start lg:justify-self-stretch"
-        >
-          <GlassStill />
-          <GlassLight />
-        </div>
+        <figure className="order-3 col-span-12 mt-10 w-full max-w-[36rem] justify-self-center lg:order-none lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:mt-0 lg:mr-[calc(-1*var(--margin))] lg:w-auto lg:max-w-none lg:self-start lg:justify-self-stretch">
+          <div aria-hidden data-paper-glass className="relative aspect-[6/5] w-full">
+            <GlassStill />
+            <GlassLight />
+          </div>
+          {/* Under the light, never in it: the shadow travels over everything inside the region. */}
+          <figcaption className={`${s.note} mt-1 lg:pr-[var(--margin)] lg:text-right`}>
+            The mark, cut in glass, on a registration mark.
+            {/* What moves the lamp, where it moves at all. */}
+            <span className="block motion-reduce:hidden">
+              <span className="[@media(pointer:coarse)]:hidden">Your pointer is the lamp.</span>
+              <span className="hidden [@media(pointer:coarse)]:inline">The lamp moves as you scroll.</span>
+            </span>
+          </figcaption>
+        </figure>
 
         <figure className="order-2 col-span-12 mt-10 lg:order-none lg:row-start-2 lg:mt-9">
           <div className={`${s.dark} ${s.plate} h-[620px] sm:h-[640px] lg:h-[min(700px,calc(100dvh-6rem))] lg:min-h-[560px]`}>

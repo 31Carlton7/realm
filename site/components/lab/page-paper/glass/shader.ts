@@ -147,9 +147,20 @@ fn emit(src: vec3f, landed: vec4f, channel: u32) -> VOut {
   let n = u32(caustic.domain.z);
   let g = vec2f(f32(vi % (n + 1u)), f32(vi / (n + 1u)));
   let p = (g / f32(n) * 2.0 - 1.0) * (BOX + vec2f(0.3));
-  let s = vec3f(p, heightAt(p) + LIFT);
-  if (sdMark(p) > -0.03) { return emit(s, vec4f(p, 0.0, -1.0), ii); }
-  return emit(s, traceLight(s, normalAt(p), caustic.ior[ii]), ii);
+  // A corner off the block is traced from the nearest point just inside it and carries no light, so a
+  // cell the silhouette crosses fades its light out across itself instead of being dropped whole, which
+  // would leave the edge of the light stepped at the grid's pitch.
+  let sd = sdMark(p);
+  var q = p;
+  var fade = 1.0;
+  if (sd > -0.05) {
+    q = p - markNormal(p) * (sd + 0.05);
+    fade = 0.0;
+  }
+  let s = vec3f(q, heightAt(q) + LIFT);
+  var landed = traceLight(s, normalAt(q), caustic.ior[ii]);
+  landed.z *= fade;
+  return emit(vec3f(p, s.z), landed, ii);
 }
 
 // Where the silhouette crosses the ray from the centre at angle a.
@@ -351,11 +362,29 @@ fn hash21(p: vec2f) -> f32 {
     let edge = select(0.0, 0.35, abs(sdMark(p)) < 0.08);
     return vec4f(k + vec3f(edge, 0.0, 0.0), 1.0);
   }
+  // One device pixel, in mark units.
+  let dot1 = 1.0 / (scene.view.z * scene.view.w);
+  let sd = sdMark(p);
   var light: vec3f;
-  if (sdMark(p) > 0.0) {
+  if (sd > dot1) {
     light = paperLight(p) * scene.paper.rgb;
   } else {
-    light = glassColour(p);
+    // The rim band is where the view's way through the glass changes abruptly (out of the base, out of
+    // a wall), so it is sampled four times on a rotated grid; the faces inside are smooth enough once.
+    var glass: vec3f;
+    if (-sd > RIM + 1.2) {
+      glass = glassColour(p);
+    } else {
+      glass = 0.25 * (glassColour(p + vec2f(-0.125, -0.375) * dot1) + glassColour(p + vec2f(0.375, -0.125) * dot1)
+        + glassColour(p + vec2f(0.125, 0.375) * dot1) + glassColour(p + vec2f(-0.375, 0.125) * dot1));
+    }
+    // The silhouette itself, blended by how much of the pixel the glass covers.
+    let cover = clamp(0.5 - sd / dot1, 0.0, 1.0);
+    if (cover < 1.0) {
+      light = mix(paperLight(p) * scene.paper.rgb, glass, cover);
+    } else {
+      light = glass;
+    }
   }
   // Dispersion is held to a whisper of the accent's blue: warm fringes are folded back to neutral.
   let lum = vec3f(0.2126, 0.7152, 0.0722);
@@ -371,5 +400,29 @@ fn hash21(p: vec2f) -> f32 {
   let n = hash21(d + scene.light.w) + hash21(d.yx + scene.light.w * 1.37) - 1.0;
   c += vec3f(n / 255.0);
   return vec4f(c, 1.0);
+}
+`
+
+/**
+ * The lamp is not a point: seen from the paper under the block it has an angular size, so every
+ * caustic is softened by that size times the way its light travelled through the glass — about two
+ * texels of the map here. One direction per pass, nine taps on linear filtering.
+ */
+export const blurWgsl = /* wgsl */ `
+struct Blur {
+  // The direction to blur in, in texels of the map (x, y), and the map's texel size (z, w).
+  step: vec4f,
+}
+@group(0) @binding(0) var<uniform> blur: Blur;
+@group(0) @binding(1) var source: texture_2d<f32>;
+@group(0) @binding(2) var sourceSampler: sampler;
+
+@fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
+  let d = blur.step.xy * blur.step.zw;
+  // A Gaussian of sigma 2 texels in five bilinear taps (offsets and weights merged in pairs).
+  var c = textureSampleLevel(source, sourceSampler, uv, 0.0) * 0.2270;
+  c += (textureSampleLevel(source, sourceSampler, uv + d * 1.3846, 0.0) + textureSampleLevel(source, sourceSampler, uv - d * 1.3846, 0.0)) * 0.3162;
+  c += (textureSampleLevel(source, sourceSampler, uv + d * 3.2308, 0.0) + textureSampleLevel(source, sourceSampler, uv - d * 3.2308, 0.0)) * 0.0703;
+  return c;
 }
 `

@@ -578,8 +578,9 @@
 }
 
 /* With scroll timelines the sheet is pinned and the reader's scroll carries it past, two strips of
-   film side by side; on a short screen, one. */
-@media (prefers-reduced-motion: no-preference) {
+   film side by side; on a short screen, one. Shorter still (a phone on its side, a page zoomed to
+   200%) a pinned sheet would cut its own captions off, so it stays a sheet. */
+@media (prefers-reduced-motion: no-preference) and (min-height: 600px) {
   @supports (animation-timeline: view()) {
     .sheet {
       height: 340vh;
@@ -701,6 +702,66 @@
       animation: span linear both;
       animation-timeline: view();
       animation-range: entry 100% cover 55%;
+    }
+  }
+}
+
+/* The plate's pulling edge: off unless scroll timelines run it. */
+.pull {
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  left: 0;
+  width: 1px;
+  background: var(--color-ink);
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes pull {
+  0% {
+    left: 0%;
+    opacity: 0;
+  }
+  6% {
+    opacity: 0.55;
+  }
+  94% {
+    opacity: 0.55;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes pull-reverse {
+  0% {
+    left: 100%;
+    opacity: 0;
+  }
+  6% {
+    opacity: 0.55;
+  }
+  94% {
+    opacity: 0.55;
+  }
+  100% {
+    left: 0%;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .pull {
+      animation: pull linear both;
+      animation-timeline: view();
+      animation-range: entry 8% cover 38%;
+    }
+
+    .pull[data-from="right"] {
+      animation-name: pull-reverse;
     }
   }
 }

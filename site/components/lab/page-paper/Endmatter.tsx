@@ -15,7 +15,7 @@ import s from "./paper.module.css"
  */
 export function Close({ download }: { download: MacDownload }) {
   return (
-    <section data-running-head="Download" aria-labelledby="close-title" className={`${s.section} pb-[clamp(96px,12vw,180px)]`}>
+    <section data-running-head="Download" aria-labelledby="close-title" className={`${s.section} !pb-[clamp(96px,12vw,180px)]`}>
       <Seam />
       <div className={`${s.measure} ${s.grid} items-end gap-y-10`}>
         <div className="col-span-12 lg:col-span-8">
@@ -61,7 +61,8 @@ export function Colophon({ download }: { download: MacDownload }) {
     { label: "Website", ...author.site, Icon: GlobeIcon },
   ]
   return (
-    <footer data-running-head="Colophon" className="bg-inset pt-16 pb-24 sm:pt-20">
+    <footer data-running-head="Colophon" className="pb-24">
+      <Seam />
       <div className={`${s.measure} ${s.grid} gap-y-12`}>
         <div className="col-span-12 lg:col-span-4">
           <Link href="/" className="inline-block text-ink transition-opacity duration-150 hover:opacity-70">
@@ -70,12 +71,23 @@ export function Colophon({ download }: { download: MacDownload }) {
           <p className="mt-4 max-w-[30ch] text-[15px] leading-[1.55] text-ink-2">{site.tagline}</p>
         </div>
 
-        <div className="col-span-12 sm:col-span-6 lg:col-span-4">
+        <div className="col-span-12 grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-5 sm:col-span-6 lg:col-span-4">
+          {/* The printer's device: the glass mark from the first page, as a still. */}
+          <img
+            src="/lab/paper/glass-device.webp"
+            alt=""
+            aria-hidden
+            width={180}
+            height={180}
+            loading="lazy"
+            decoding="async"
+            className="row-span-2 -mt-3 h-[5.5rem] w-[5.5rem] [mask-image:radial-gradient(closest-side,#000_62%,transparent)]"
+          />
           <h2 className="text-[13px] font-[560] text-ink">Colophon</h2>
           <p className="mt-3 max-w-[42ch] text-[14px] leading-[1.6] text-ink-2">
             Set in Inter and JetBrains Mono, the two faces the app itself uses. Every plate is a capture of the shipped
-            app, taken on a scratch home by the same script each release. The glass mark is drawn as you look at it, from
-            the mark&rsquo;s own vector, and your pointer is its lamp.
+            app, taken on a scratch home by the same script each release. The glass mark on the first page is drawn as you
+            look at it, from the mark&rsquo;s own vector.
           </p>
         </div>
 

@@ -94,15 +94,20 @@ export function Masthead() {
 
           <ul aria-label="Roles">
             {ROLES.map((r) => (
-              <li key={r.id} className="grid grid-cols-[48px_minmax(0,1fr)] gap-x-4 border-b border-line py-4 sm:grid-cols-[56px_minmax(0,11rem)_minmax(0,1fr)_auto] sm:items-center sm:gap-x-6">
-                <span className="row-span-3 sm:row-span-1">
+              <li
+                key={r.id}
+                className="grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-4 border-b border-line py-4 xl:grid-cols-[56px_minmax(0,10rem)_minmax(0,1fr)_7.5rem] xl:items-center xl:gap-x-6"
+              >
+                <span className="row-span-2 xl:row-span-1">
                   <Realmite spec={specs[r.id]!} size={48} state={states[r.id]} />
                 </span>
-                <span className="text-[17px] leading-[1.3] font-[580] tracking-[-0.014em] text-ink">{r.name}</span>
-                <span className="text-[15px] leading-[1.45] text-ink-2">
+                <span className="flex items-baseline justify-between gap-4 xl:contents">
+                  <span className="text-[17px] leading-[1.3] font-[580] tracking-[-0.014em] text-ink">{r.name}</span>
+                  <span className={`${s.note} xl:order-last xl:text-right ${stateTone(states[r.id]!)}`}>{stateLabel(states[r.id]!)}</span>
+                </span>
+                <span className="mt-1 text-[15px] leading-[1.45] text-ink-2 xl:mt-0">
                   {r.goal} <span className="text-ink-3">Hands work to {r.handsTo}.</span>
                 </span>
-                <span className={`${s.note} sm:text-right ${stateTone(states[r.id]!)}`}>{stateLabel(states[r.id]!)}</span>
               </li>
             ))}
           </ul>
