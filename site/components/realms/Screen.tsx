@@ -16,8 +16,6 @@ export type ScreenImage = {
   width: number
   height: number
   radius: number
-  /** The file carries its own transparent corners: a floating surface lifted off the window. */
-  cutout?: boolean
 }
 
 export type ScreenProps = {

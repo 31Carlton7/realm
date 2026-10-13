@@ -2,7 +2,7 @@ import type { ScreenImage } from "@/components/realms/Screen"
 import { CAPTURE_DENSITY, sceneFile, sceneSrcSet, WINDOW } from "@/lib/frames"
 import parts from "@/public/product/parts.json"
 
-type Part = { width: number; height: number; radius: number; cutout: boolean }
+type Part = { width: number; height: number; radius: number }
 
 /** The corner of Realm's window, drawn by the app itself round the rail and the panes. */
 const WINDOW_RADIUS = 16
@@ -11,7 +11,7 @@ const WINDOW_RADIUS = 16
 export function partImage(name: string): ScreenImage | null {
   const part = (parts as Record<string, Part>)[name]
   if (!part) return null
-  return { src: `/product/parts/${name}.webp`, width: part.width, height: part.height, radius: part.radius, cutout: part.cutout }
+  return { src: `/product/parts/${name}.webp`, width: part.width, height: part.height, radius: part.radius }
 }
 
 /** A whole-window scene. The caller checks it is in the manifest. */
