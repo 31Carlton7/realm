@@ -352,8 +352,8 @@ fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
 /** A click (or a key) on the hole: where on the page, to be dropped in on the next frame. */
 const clicks: { x: number; y: number }[] = []
 
-/** Called by the page when the reader drops a realm in; `x, y` in viewport CSS px, or the middle of
- *  the hole's rect when it came from the keyboard. */
+/** Called by the page when the reader drops a realm in: `x, y` in viewport CSS px, or nothing when it
+ *  came from the keyboard. */
 export function dropRealm(x?: number, y?: number) {
   clicks.push({ x: x ?? Number.NaN, y: y ?? Number.NaN })
   if (clicks.length > HOLE.drops) clicks.shift()
@@ -441,24 +441,27 @@ export class BlackHole {
     const eye: Vec3 = [dot(toward, x) * distance, dot(toward, y) * distance, dot(toward, z) * distance]
 
     // Realms the reader dropped in since the last frame: onto the disk where the click's ray meets it,
-    // or at its outer edge on that side.
+    // or at its outer edge on that side. A key carries no point, so its realm goes in where it is
+    // easiest to follow: part way out on the side coming toward the camera, about to cross in front.
     while (clicks.length > 0) {
       const click = clicks.shift()!
       if (still) continue
-      const sx = Number.isNaN(click.x) ? cx + (Math.random() - 0.5) * rect[2] * 0.5 : click.x
-      const sy = Number.isNaN(click.y) ? cy : click.y
-      const ray = rayThrough(view, b, sx, sy)
-      const d: Vec3 = [dot(ray, x), dot(ray, y), dot(ray, z)]
-      const t = d[2] < -1e-4 ? -eye[2] / d[2] : -1
-      // Missing the disk (above it on the page): in at its outer edge on the far side, under the click.
-      let r = HOLE.outer
-      let phi = Math.PI - Math.asin(clamp((d[1] * distance) / HOLE.outer, -1, 1))
-      if (t > 0) {
-        const hit: Vec3 = [eye[0] + d[0] * t, eye[1] + d[1] * t, 0]
-        r = clamp(Math.hypot(hit[0], hit[1]), HOLE.inner + 3, HOLE.outer)
-        phi = Math.atan2(hit[1], hit[0])
+      if (Number.isNaN(click.x)) {
+        this.drops.push({ r: 15 + 4 * Math.random(), phi: -Math.PI / 2 + (Math.random() - 0.5) * 0.6, age: 0, travelled: 0 })
+      } else {
+        const ray = rayThrough(view, b, click.x, click.y)
+        const d: Vec3 = [dot(ray, x), dot(ray, y), dot(ray, z)]
+        const t = d[2] < -1e-4 ? -eye[2] / d[2] : -1
+        // Missing the disk (above it on the page): in at its outer edge on the far side, under the click.
+        let r = HOLE.outer
+        let phi = Math.PI - Math.asin(clamp((d[1] * distance) / HOLE.outer, -1, 1))
+        if (t > 0) {
+          const hit: Vec3 = [eye[0] + d[0] * t, eye[1] + d[1] * t, 0]
+          r = clamp(Math.hypot(hit[0], hit[1]), HOLE.inner + 3, HOLE.outer)
+          phi = Math.atan2(hit[1], hit[0])
+        }
+        this.drops.push({ r, phi, age: 0, travelled: 0 })
       }
-      this.drops.push({ r, phi, age: 0, travelled: 0 })
       if (this.drops.length > HOLE.drops) this.drops.shift()
     }
 
