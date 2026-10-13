@@ -7,9 +7,6 @@ import os
 
 enum Route: Hashable {
     case session(String)
-    case settings
-    case diagnostics
-    case licences
 }
 
 enum PairingStatus: Equatable {
@@ -40,7 +37,11 @@ final class AppModel {
     let store: RealmStore
     let diagnostics = Diagnostics()
     var path: [Route] = []
+    /// Settings, in its sheet over Home.
+    var settingsShown = false
     var pairing: PairingStatus = .idle
+    /// Goes up with every Mac paired, for the one moment worth a haptic.
+    private(set) var pairings = 0
     var toast: Toast?
     /// A pairing link for a different Mac, waiting for the person to say it replaces this one.
     var replacingPairLink: String?
@@ -144,6 +145,8 @@ final class AppModel {
         }
         if let paired = store.pairedMac {
             if paired.macId == link.macId && paired.windowId == link.windowId { return }
+            // Settings makes way: what comes next is asked over Home.
+            settingsShown = false
             if paired.macId != link.macId {
                 replacingPairLink = text
                 return
@@ -180,8 +183,10 @@ final class AppModel {
             store.forgetEverything()
             adopt(mac)
             path = []
+            settingsShown = false
             pairing = .idle
             pairingRequested = false
+            pairings += 1
             connect()
             registerForPushes()
         } catch {
@@ -210,6 +215,7 @@ final class AppModel {
         store.pairedMac = nil
         store.connection = .idle
         path = []
+        settingsShown = false
         pairing = .idle
         Task { try? await UNUserNotificationCenter.current().setBadgeCount(0) }
     }
@@ -560,6 +566,7 @@ final class AppModel {
             pendingSession = session
             return
         }
+        settingsShown = false
         path = [.session(session)]
     }
 

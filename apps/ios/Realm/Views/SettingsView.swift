@@ -2,7 +2,35 @@ import RealmKit
 import SwiftUI
 import UserNotifications
 
-/// The paired Mac, notifications, and the app itself.
+/// Where Settings goes from inside its own sheet.
+enum SettingsRoute: Hashable {
+    case diagnostics
+    case licences
+}
+
+/// Settings, in a sheet over Home: the paired Mac, notifications, and the app itself. Done puts it
+/// away; nothing here needs saving.
+struct SettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            SettingsView()
+                .navigationDestination(for: SettingsRoute.self) { route in
+                    switch route {
+                    case .diagnostics: DiagnosticsView()
+                    case .licences: LicencesView()
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+        }
+    }
+}
+
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingForget = false
@@ -11,19 +39,8 @@ struct SettingsView: View {
         Form {
             if let mac = model.store.pairedMac {
                 Section {
-                    value("Name", mac.macName)
-                    LabeledContent("State") {
-                        HStack(spacing: 6) {
-                            Image(systemName: model.linkStatus.symbol)
-                                .imageScale(.small)
-                            Text(model.linkStatus.words)
-                        }
-                        .inter(.body)
-                        .foregroundStyle(Palette.ink2)
-                        .accessibilityElement(children: .combine)
-                    }
-                    .inter(.body)
-                    .listRowBackground(Palette.surface)
+                    MacHeader(name: mac.macName, status: model.linkStatus)
+                        .listRowBackground(Fill.card)
                     LabeledContent("Relay") {
                         Text(mac.relay.host() ?? mac.relay.absoluteString)
                             .mono(.subheadline)
@@ -31,72 +48,64 @@ struct SettingsView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
-                    .inter(.body)
-                    .listRowBackground(Palette.surface)
-                    value("Paired", mac.pairedAt.formatted(date: .abbreviated, time: .shortened))
-                } header: {
-                    SectionHead(title: "Mac", symbol: "laptopcomputer")
+                    .listRowBackground(Fill.card)
+                    LabeledContent("Paired") {
+                        Text(mac.pairedAt.formatted(date: .abbreviated, time: .shortened))
+                            .foregroundStyle(Palette.ink2)
+                    }
+                    .listRowBackground(Fill.card)
                 }
                 Section {
-                    Button("Forget \(mac.macName)", role: .destructive) { confirmingForget = true }
-                        .inter(.body, .medium)
-                        .listRowBackground(Palette.surface)
+                    Button("Forget \(mac.macName)…", role: .destructive) { confirmingForget = true }
+                        .listRowBackground(Fill.card)
                 } footer: {
                     Text("Forgets it on this iPhone only. Your Mac lists this iPhone until you remove it in Settings ▸ Devices there.")
-                        .inter(.footnote)
-                        .foregroundStyle(Palette.ink2)
                 }
             }
 
             Section {
                 LabeledContent("Notifications") {
                     Text(notificationWords)
-                        .inter(.body)
                         .foregroundStyle(Palette.ink2)
                 }
-                .inter(.body)
-                .listRowBackground(Palette.surface)
+                .listRowBackground(Fill.card)
                 switch model.notificationStatus {
                 case .notDetermined:
                     Button("Allow notifications") { model.registerForPushes() }
-                        .inter(.body, .medium)
-                        .listRowBackground(Palette.surface)
+                        .listRowBackground(Fill.card)
                 case .denied:
                     Button("Turn them on in Settings") {
                         if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
                     }
-                    .inter(.body, .medium)
-                    .listRowBackground(Palette.surface)
+                    .listRowBackground(Fill.card)
                 default:
                     EmptyView()
                 }
             } header: {
-                SectionHead(title: "Notifications", symbol: "bell")
+                Text("Notifications")
             } footer: {
                 Text("Your Mac sends one when a session waits on you, finishes or fails, and holds it back while you are at the Mac.")
-                    .inter(.footnote)
-                    .foregroundStyle(Palette.ink2)
             }
 
             Section {
-                value("Version", DeviceInfo.appVersion)
-                NavigationLink(value: Route.licences) {
-                    Text("Fonts")
-                        .inter(.body)
+                LabeledContent("Version") {
+                    Text(DeviceInfo.appVersion)
+                        .monospacedDigit()
+                        .foregroundStyle(Palette.ink2)
                 }
-                .listRowBackground(Palette.surface)
-                NavigationLink(value: Route.diagnostics) {
-                    Text("Diagnostics")
-                        .inter(.body)
-                }
-                .listRowBackground(Palette.surface)
+                .listRowBackground(Fill.card)
+                NavigationLink("Fonts", value: SettingsRoute.licences)
+                    .listRowBackground(Fill.card)
+                NavigationLink("Diagnostics", value: SettingsRoute.diagnostics)
+                    .listRowBackground(Fill.card)
             } header: {
-                SectionHead(title: "About", symbol: "info.circle")
+                Text("About")
             }
         }
         .scrollContentBackground(.hidden)
-        .background(Palette.page)
+        .background(Ground.grouped)
         .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
         .task { await model.refreshNotificationStatus() }
         .confirmationDialog("Forget \(model.store.pairedMac?.macName ?? "this Mac")?", isPresented: $confirmingForget,
                             titleVisibility: .visible) {
@@ -117,44 +126,62 @@ struct SettingsView: View {
         @unknown default: "Unknown"
         }
     }
+}
 
-    private func value(_ label: String, _ value: String) -> some View {
-        LabeledContent(label) {
-            Text(value)
-                .inter(.body)
-                .foregroundStyle(Palette.ink2)
+/// The Mac this iPhone shows, as the head of its own group: its name, and its state in words with the
+/// glyph that says it.
+private struct MacHeader: View {
+    let name: String
+    let status: LinkStatus
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "laptopcomputer")
+                .font(.system(size: 30, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Palette.accent)
+                .frame(width: 48)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+                Label {
+                    Text(status.words)
+                } icon: {
+                    Image(systemName: status.symbol)
+                }
+                .font(.subheadline)
+                .foregroundStyle(status.isConnected ? Palette.green : Palette.ink2)
+            }
         }
-        .inter(.body)
-        .listRowBackground(Palette.surface)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
     }
 }
 
-/// The two families the app is set in, and the licence each comes under.
+/// The family the app bundles, and the licence it comes under.
 struct LicencesView: View {
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                licence("Inter", file: "Inter-OFL")
-                licence("JetBrains Mono", file: "JetBrainsMono-OFL")
+            VStack(alignment: .leading, spacing: 12) {
+                Text("JetBrains Mono")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Text("Code, paths and models are set in it.")
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.ink2)
+                Text(Self.text("JetBrainsMono-OFL"))
+                    .mono(.caption)
+                    .foregroundStyle(Palette.ink2)
+                    .textSelection(.enabled)
             }
-            .padding(16)
+            .padding(20)
         }
-        .background(Palette.page)
+        .background(Ground.grouped)
         .navigationTitle("Fonts")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func licence(_ name: String, file: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(name)
-                .inter(.title3, .title)
-                .foregroundStyle(Palette.ink)
-                .accessibilityAddTraits(.isHeader)
-            Text(Self.text(file))
-                .mono(.caption1)
-                .foregroundStyle(Palette.ink2)
-                .textSelection(.enabled)
-        }
     }
 
     static func text(_ file: String) -> String {

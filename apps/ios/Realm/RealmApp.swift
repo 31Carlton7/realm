@@ -34,8 +34,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         // Unattended runs read `print` from a file (`simctl launch --stdout`); line-buffer it.
         setvbuf(stdout, nil, _IOLBF, 0)
-        if !RealmType.isInstalled { model.log.error("The bundled fonts did not register; the system's stand in.") }
-        Chrome.apply()
+        if !RealmType.isInstalled { model.log.error("JetBrains Mono did not register; the system's mono stands in.") }
         return true
     }
 
