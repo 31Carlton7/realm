@@ -50,7 +50,7 @@ export const claims: Claim[] = [
     id: "transcript",
     title: "A transcript you can read.",
     body:
-      "Tool calls fold into rows you can open, and a reply can carry a chart, a diagram or a comparison. A turn that changes files ends with a card of each file it edited, its diff a click away.",
+      "Tool calls fold into rows you can open, and a reply can carry a chart, a diagram or a comparison. A turn that changes files ends with a card listing each one, its diff a click away.",
     capture: "session",
     part: "turn",
     phone: { part: "turn-phone" },
@@ -60,7 +60,7 @@ export const claims: Claim[] = [
     id: "agents",
     title: "Bring the agent you already use.",
     body:
-      "Each one keeps its own login, models and permission modes, and Realm never asks for an API key.",
+      "Each agent below runs with its own login, models and permission modes. Realm never asks for an API key.",
     capture: "models",
     part: "models",
     caption: "Claude's and Codex's models in one picker, with Opus\u00a05.5 at Max and fast mode on.",
@@ -89,7 +89,7 @@ export const claims: Claim[] = [
     id: "review",
     title: "Review pull requests without handing over GitHub.",
     body:
-      "Code review reads your pull requests through your own gh, so Realm never holds a GitHub token. A reviewer on the model you pick leaves its findings on the page, and nothing reaches GitHub until you press Submit review.",
+      "Code review reads your pull requests through your own gh, so Realm never holds a GitHub token. A reviewer on the model you pick leaves findings on the page, and nothing reaches GitHub until you press Submit review.",
     capture: "review",
     part: "review",
     phone: { part: "review-phone" },
@@ -99,7 +99,7 @@ export const claims: Claim[] = [
     id: "sandbox",
     title: "Confine what an agent can touch.",
     body:
-      "A space can run its agents and terminals in a macOS sandbox, where the checkout stays writable and credential folders can't be read. The network stays open, and it's off by default, because a sandbox that hasn't met your toolchain yet can break a build.",
+      "A space can run its agents and terminals in a macOS sandbox that keeps the checkout writable and credential folders unreadable. It's off by default, and the network stays open.",
     capture: "sandbox",
     part: "sandbox",
     phone: { part: "sandbox-phone" },
