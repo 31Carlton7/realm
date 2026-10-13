@@ -44,13 +44,6 @@ export function entryBySlug(slug: string): Entry | undefined {
   return changelog.find((entry) => entry.slug === slug)
 }
 
-/** The entries either side of `slug` in reading order — newer first, so `newer` is the one above. */
-export function neighbours(slug: string): { newer?: Entry; older?: Entry } {
-  const index = changelog.findIndex((entry) => entry.slug === slug)
-  if (index < 0) return {}
-  return { newer: changelog[index - 1], older: changelog[index + 1] }
-}
-
 const formatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
@@ -103,7 +96,7 @@ export function releaseOf(slug: string): Release | undefined {
   return releases.find((release) => release.slug === slug || release.changes.some((change) => change.slug === slug))
 }
 
-/** The releases either side of one, newer first, as `neighbours` gives the entries either side. */
+/** The releases either side of one in reading order: newer first, so `newer` is the one above. */
 export function releaseNeighbours(slug: string): { newer?: Release; older?: Release } {
   const index = releases.findIndex((release) => release.slug === slug)
   if (index < 0) return {}
