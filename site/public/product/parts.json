@@ -1,13 +1,13 @@
 {
   "connections": {
-    "width": 764,
-    "height": 751,
+    "width": 754,
+    "height": 730,
     "radius": 12,
     "cutout": false
   },
   "delegation": {
     "width": 553,
-    "height": 660,
+    "height": 663,
     "radius": 16,
     "cutout": false
   },
@@ -19,31 +19,31 @@
   },
   "review": {
     "width": 765,
-    "height": 568,
+    "height": 556,
     "radius": 12,
     "cutout": false
   },
   "sandbox": {
     "width": 765,
-    "height": 449,
+    "height": 450,
     "radius": 12,
     "cutout": false
   },
   "schedules": {
-    "width": 280,
-    "height": 355,
+    "width": 948,
+    "height": 680,
     "radius": 12,
     "cutout": false
   },
   "sidebar": {
     "width": 280,
-    "height": 700,
+    "height": 678,
     "radius": 12,
     "cutout": false
   },
   "turn": {
     "width": 764,
-    "height": 715,
+    "height": 738,
     "radius": 12,
     "cutout": false
   }
