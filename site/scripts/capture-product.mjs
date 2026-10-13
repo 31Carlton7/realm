@@ -1130,7 +1130,7 @@ const scenes = [
     // A terminal's tab says what is running in it: vim, in the session's own terminal, on the file the
     // turn edited. The shell is a clean one (the run's own ZDOTDIR), so nobody's dotfiles are in it.
     name: "terminal",
-    async run({ evaluate, openSession, sidePanel, press, park, shot, rpc, until, sleep }) {
+    async run({ evaluate, openSession, sidePanel, press, park, shot, part, viewport, reveal, rpc, until, sleep }) {
       await openSession(TITLES.fix)
       await sidePanel(true)
       await evaluate(`(() => { document.querySelector('.panehost .panel[data-focused]')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); return true; })()`)
@@ -1151,7 +1151,26 @@ const scenes = [
       await until(async () => (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live.includes("withInviteDefaults"), 30_000, "vim's screen drawn")
       await sleep(1200)
       await park()
-      await shot("terminal", `!!document.querySelector('.view-panel:not([hidden]) .xterm') && [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.includes('vim'))`)
+      const expect = `!!document.querySelector('.view-panel:not([hidden]) .xterm') && [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.includes('vim'))`
+      await shot("terminal", expect)
+      // The same realm at work as one picture the landing page can draw near its own size: a window of
+      // 1200 by 760 with the sidebar folded (the session's bar still names its space), so the session's
+      // turn and the terminal beside it take the room. vim redraws for the new size before it is taken.
+      try {
+        await evaluate(`document.activeElement?.blur?.(); true`)
+        await press("b", { code: "KeyB", vk: 66, meta: true })
+        await until(() => evaluate(`!!document.querySelector('.sidebar[data-collapsed]')`), 5_000, "the sidebar folded")
+        await viewport(1200, 760)
+        await reveal(".session-pane .edit-summary", "end", 40)
+        await sleep(1200)
+        await until(async () => (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live.includes("withInviteDefaults"), 15_000, "vim redrawn")
+        await park()
+        await part("realm", `${expect} && !!document.querySelector('.sidebar[data-collapsed]') && !!document.querySelector('.session-pane .edit-summary')`, { box: { x: 0, y: 0, width: 1200, height: 760 }, radius: 16 })
+      } finally {
+        await viewport()
+        await press("b", { code: "KeyB", vk: 66, meta: true })
+        await until(() => evaluate(`!document.querySelector('.sidebar[data-collapsed]')`), 5_000, "the sidebar back").catch(() => null)
+      }
       await rpc.call("terminals.write", { terminalId: terminal.refId, data: "\x1b:qa!\r" }).catch(() => null)
     },
   },

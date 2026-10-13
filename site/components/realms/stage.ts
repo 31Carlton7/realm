@@ -86,8 +86,8 @@ function levelView(foot: Vec3, yaw: number, height: number, distance: number, fo
 }
 
 /**
- * Every stop, read from the page as it is laid out right now: each is composed around the block of
- * words marked `k:<id>`, at the scroll position that centres it, and a chapter's camera is solved so
+ * Every stop, read from the page as it is laid out right now: each is composed around the block
+ * marked `k:<id>` (its words) or `p:<id>` (its picture), at the scroll position that centres it, and a chapter's camera is solved so
  * that the foot of its realm's doorway lands on the bottom middle of the screen's slot at exactly that
  * position. The layout is the DOM's; the world is built round it.
  */
@@ -125,7 +125,9 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
   }
 
   for (const [name, rect] of Object.entries(anchors)) {
-    if (!name.startsWith("k:")) continue
+    // A stop is composed around its words (`k:`), or, where the words come first and the picture is
+    // the whole width under them, around its picture (`p:`).
+    if (!name.startsWith("k:") && !name.startsWith("p:")) continue
     const id = name.slice(2)
     const y = Math.max(1, centred(rect, scrollY, height))
     const stop = CHAPTERS[id]

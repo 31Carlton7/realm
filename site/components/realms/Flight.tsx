@@ -10,6 +10,7 @@ import { createRealms } from "./stage"
  *
  *   copy, portal     the opening's words and the product window
  *   k:<id>           the block of text a stop is composed around (its scroll position is the stop's)
+ *   p:<id>           or the picture it is composed around, where the words stand above it
  *   s:<id>           the slot a chapter's screen comes to rest in, or where the team's realms stand
  *   c:<name>         any other block of words the field keeps its light off
  */

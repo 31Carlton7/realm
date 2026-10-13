@@ -36,7 +36,7 @@ export type ScreenProps = {
    *  the size it is used at, so its text stays at the size it was set. */
   zoom?: number
   /** The tallest it may be drawn, as a CSS length: a tall part shrinks to stay in one view with its
-   *  caption under it. Default `min(68vh, 720px)`. */
+   *  caption under it, below the page's header. Default `min(76vh, 760px)`. */
   maxHeight?: string
   /** `sizes` for `srcSet`. Default: the chapter column on a wide screen, the viewport below it. */
   sizes?: string
@@ -67,7 +67,7 @@ export function Screen({
   caption,
   kind = "part",
   zoom = 1.15,
-  maxHeight = "min(68vh, 720px)",
+  maxHeight = "min(76vh, 760px)",
   sizes = "(min-width: 1024px) 760px, 100vw",
   priority = false,
   fieldId,

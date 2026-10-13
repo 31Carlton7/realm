@@ -121,17 +121,17 @@ export async function RealmsHome({ download, claims }: HomeProps) {
         <Chapter
           id="space"
           side="right"
-          tall
+          stacked
           title="What a realm holds."
           picture={{
-            image: sceneImage("terminal"),
+            image: partImage("realm") ?? sceneImage("terminal"),
             kind: "window",
             caption: "A session in the Dashboard space, and the file its turn edited open in vim in a terminal beside it.",
-            alt: "Realm's window: the sidebar with every space, a session in the Dashboard space that edited two files, and a terminal beside it with vim open on web/lib/orgs.ts.",
+            alt: "Realm's window with the sidebar folded: a session in the Dashboard space whose turn edited two files, and beside it a terminal with vim open on web/lib/orgs.ts at the function the turn rewrote.",
           }}
         >
-          <p>A realm is one space in Realm: a project, with everything its work needs kept beside it.</p>
-          <dl className="space-y-3.5 pt-1">
+          <p className="max-w-[60ch]">A realm is one space in Realm: a project, with everything its work needs kept beside it.</p>
+          <dl className="grid gap-x-10 gap-y-5 pt-2 sm:grid-cols-2 lg:grid-cols-3">
             {facets.map((facet) => (
               <div key={facet.title}>
                 <dt className="text-[16px] font-[560] text-ink">{facet.title}</dt>

@@ -17,6 +17,12 @@
     "radius": 12,
     "cutout": true
   },
+  "realm": {
+    "width": 1200,
+    "height": 760,
+    "radius": 16,
+    "cutout": false
+  },
   "review": {
     "width": 765,
     "height": 556,

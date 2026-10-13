@@ -30,6 +30,7 @@ export function Chapter({
   children,
   picture,
   tall = false,
+  stacked = false,
 }: {
   id: string
   side: "left" | "right"
@@ -37,7 +38,39 @@ export function Chapter({
   children: ReactNode
   picture: ChapterPicture | null
   tall?: boolean
+  /** The words across the page and the picture the whole width under them, for a picture of the whole
+   *  window: beside the words it is drawn at half its size, and its type is too small to read. The
+   *  stop is then composed around the picture. */
+  stacked?: boolean
 }) {
+  if (stacked) {
+    return (
+      <section aria-labelledby={`${id}-title`} className="relative">
+        <div className="mx-auto w-full max-w-[92rem] px-6 pt-24 pb-28 sm:px-10 lg:pt-40 lg:pb-44">
+          <FieldPanel anchor={`c:${id}`} wrapClassName="z-[2] mx-auto max-w-[76rem]" className="px-5 py-6 sm:px-9 sm:py-9">
+            <h2 id={`${id}-title`} className="text-[clamp(1.9rem,2.9vw,2.6rem)] leading-[1.06] font-[580] tracking-[-0.04em] text-balance text-ink">
+              {title}
+            </h2>
+            <div className="mt-5 space-y-4 text-[17px] leading-[1.6] text-ink-2">{children}</div>
+          </FieldPanel>
+          {picture ? (
+            <div data-field-anchor={`p:${id}`} className="relative mt-20 lg:mt-32">
+              <Screen
+                image={picture.image}
+                alt={picture.alt}
+                caption={picture.caption}
+                kind={picture.kind}
+                zoom={picture.zoom ?? 1}
+                maxHeight="min(calc(100vh - 13rem), 820px)"
+                fieldId={id}
+                className="mx-auto"
+              />
+            </div>
+          ) : null}
+        </div>
+      </section>
+    )
+  }
   const textCols = !picture ? "lg:col-start-3 lg:col-end-11" : side === "right" ? "lg:col-start-1 lg:col-end-6" : "lg:col-start-8 lg:col-end-13"
   const slotCols = side === "right" ? "lg:col-start-6 lg:col-end-13 lg:pl-6 xl:pl-10" : "lg:col-start-1 lg:col-end-8 lg:pr-6 xl:pr-10"
   return (
