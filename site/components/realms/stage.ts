@@ -7,6 +7,7 @@ import { basis, blend, clamp, dot, Follow, lerp, orbit, place, project, ramp, sm
 import { CHAPTERS, CLIMB, FINALE, OPENING, TEAM } from "./route"
 import {
   BEAMS,
+  BURSTS,
   CLEAR,
   compositeShader,
   PAGE_REALMS,
@@ -279,9 +280,9 @@ function chapterRealm(stand: Stand, slot: Rect, height: number, t: number, index
   // it, and pitched down toward the screen under it, so its top is what faces the reader. A slow turn
   // either way about that, so it is never quite still.
   const toEye = normalize(sub3(view.eye, at))
-  // A hand near it turns it to the reader: its doorway square to them, its top still showing.
-  const heading = Math.atan2(toEye[1], toEye[0]) - side * 0.5 * (1 - turned) + Math.sin(t * 0.17 + index * 1.7) * 0.08 * (1 - turned)
-  const pitch = lerp(-0.62, -0.32, turned) + Math.sin(t * 0.13 + index) * 0.04
+  // A hand near it turns it toward the reader, its top still showing as the mark's does.
+  const heading = Math.atan2(toEye[1], toEye[0]) - side * lerp(0.5, 0.22, turned) + Math.sin(t * 0.17 + index * 1.7) * 0.08 * (1 - turned)
+  const pitch = -0.62 + Math.sin(t * 0.13 + index) * 0.04
   return facing(at, [Math.cos(pitch) * Math.cos(heading), Math.cos(pitch) * Math.sin(heading), Math.sin(pitch)], size)
 }
 
@@ -342,6 +343,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     panels: Array.from({ length: PANELS * 2 }, () => [...zero]),
     beams: Array.from({ length: BEAMS * 7 }, () => [...zero]),
     pulses: Array.from({ length: PULSES * 5 }, () => [...zero]),
+    bursts: Array.from({ length: BURSTS * 2 }, () => [...zero]),
     fence: Array.from({ length: 10 }, () => [...zero]),
   }
 
@@ -426,25 +428,31 @@ export const createRealms: StageFactory = async (gpu, output) => {
   /** Realms the reader is touching, by index: the sky's from 0, the page's from MAX_REALMS. */
   const touches = new Map<number, Touch>()
   const hand = { x: -1, y: -1, over: false, inside: false, clicked: false, clickX: 0, clickY: 0, key: "" }
-  /** Content under the pointer takes the pointer: words, pictures, controls. */
-  const CONTENT = "a,button,input,select,textarea,summary,label,[data-field-panel],[data-screen],[data-field-anchor='portal'],header,footer,[role='button']"
+  /** Content under the pointer takes the pointer: words, pictures, controls. The header's band is
+   *  empty but for its bar, so only the bar counts; a realm's own key is the realm. */
+  const CONTENT = "a,button,input,select,textarea,summary,label,[data-field-panel],[data-screen],[data-field-anchor='portal'],footer,[role='button']"
+  const isContent = (target: Element | null) => {
+    if (!target || target.closest("[data-realm-key]")) return false
+    if (target.closest(CONTENT)) return true
+    const header = target.closest("header")
+    return header !== null && target !== header && target !== header.firstElementChild
+  }
   const onMove = (event: PointerEvent) => {
     if (event.pointerType !== "mouse") return
     hand.x = event.clientX
     hand.y = event.clientY
     hand.inside = true
     const target = event.target instanceof Element ? event.target : null
-    // A realm's own key is the realm, not content over it.
-    const key = target?.closest<HTMLElement>("[data-realm-key]")
-    hand.key = key?.dataset.realmKey ?? ""
-    hand.over = !key && target?.closest(CONTENT) != null
+    hand.key = target?.closest<HTMLElement>("[data-realm-key]")?.dataset.realmKey ?? ""
+    hand.over = isContent(target)
   }
   const onLeave = () => {
     hand.inside = false
   }
   const onClick = (event: MouseEvent) => {
-    if (event.target instanceof Element && event.target.closest(CONTENT)) return
-    if (event.target instanceof Element && event.target.closest("[data-realm-key]")) return
+    const target = event.target instanceof Element ? event.target : null
+    // A realm's key opens its realm itself; content keeps its clicks.
+    if (target?.closest("[data-realm-key]") || isContent(target)) return
     hand.clicked = true
     hand.clickX = event.clientX
     hand.clickY = event.clientY
@@ -559,7 +567,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     list[k * 5 + 4] = [index, hover, 0, 0]
   }
 
-  /** A beam from a doorway: to a far rect (a screen), or thrown out ahead of it. */
+  /** A beam from a doorway to a far rect: the screen that came out of it. */
   const writeBeam = (
     k: number,
     view: View,
@@ -570,7 +578,6 @@ export const createRealms: StageFactory = async (gpu, output) => {
     farMid: Vec3,
     farHalf: [number, number],
     light: number,
-    kind: number,
     moment: number,
     hidden: Rect | null,
   ) => {
@@ -623,7 +630,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     comp.beams[k * 7 + 1] = [...axis, light]
     comp.beams[k * 7 + 2] = [...u, hu0]
     comp.beams[k * 7 + 3] = [...vUp, hv0]
-    comp.beams[k * 7 + 4] = [farHalf[0], farHalf[1], kind, moment]
+    comp.beams[k * 7 + 4] = [farHalf[0], farHalf[1], 0, moment]
     comp.beams[k * 7 + 5] = [Math.max(x0 - 6, 0), Math.max(y0 - 6, 0), Math.min(x1 + 6, width), Math.min(y1 + 6, height)]
     // Inside the screen it lands on, the picture hides it: a hair inside the edge, so its rim still shows.
     comp.beams[k * 7 + 6] = hidden ? [hidden[0] + 2, hidden[1] + 2, hidden[0] + hidden[2] - 2, hidden[1] + hidden[3] - 2] : [0, 0, 0, 0]
@@ -696,7 +703,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const visible = (r: Rect) => r[2] > 0 && r[1] < height + 160 && r[1] + r[3] > -160 && r[0] < width + 160 && r[0] + r[2] > -160
       const progress = now.at.from + now.at.u
       const teams = list.findIndex((s) => s.team)
-      const beamsNow: { door: [Vec3, Vec3, Vec3, Vec3]; mid: Vec3; half: [number, number]; light: number; kind: number; moment: number; reach: number; hidden: Rect | null }[] = []
+      const beamsNow: { door: [Vec3, Vec3, Vec3, Vec3]; mid: Vec3; half: [number, number]; light: number; moment: number; reach: number; hidden: Rect | null }[] = []
       let fence: { pose: Pose; amount: number } | null = null
       let pageCount = 0
       const pageIndex = new Map<string, number>()
@@ -793,7 +800,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
             const e = smoother(opening / 0.6)
             const mid = mix3(mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25), screenMid, Math.max(e, 0.04))
             const half: [number, number] = [lerp(0.2, W * 0.48, e), lerp(0.4, H * 0.48, e)]
-            beamsNow.push({ door, mid, half, light: 0.42 + 0.7 * (1 - pictureOn) * smooth(opening), kind: 0, moment: index * 0.37, reach, hidden: pictureOn > 0.995 ? [left, top, w, h] : null })
+            beamsNow.push({ door, mid, half, light: 0.42 + 0.7 * (1 - pictureOn) * smooth(opening), moment: index * 0.37, reach, hidden: pictureOn > 0.995 ? [left, top, w, h] : null })
           }
         } else {
           // In the slot: the screen is where the layout put it, and its light is read from there.
@@ -1000,17 +1007,28 @@ export const createRealms: StageFactory = async (gpu, output) => {
         writeSpecial(scene.touched, j, turned, touch.glow, 0, touch.open, index, touch.hover)
       }
 
-      // The doorways thrown open: light pouring out of them toward the reader.
+      // The doorways thrown open: light pouring out of them, as rays fanning out round the doorway.
+      const bursts: { at: [number, number]; distance: number; light: number; px: number; seed: number }[] = []
       for (const [index, touch] of touches) {
-        if (touch.open <= 0.01 || beamsNow.length >= BEAMS) continue
+        if (touch.open <= 0.01) continue
         const natural = naturalPose(index, t)
         if (!natural) continue
         const pose = index < MAX_REALMS ? between(natural, presented(natural.at, view.eye, Math.hypot(...natural.z)), smooth(touch.turn)) : natural
         const door = doorCorners(pose)
-        const out = normalize(mul(pose.y, -1))
-        const s = Math.hypot(...pose.z)
-        const mid = add(mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25), mul(out, 5 * s))
-        beamsNow.unshift({ door, mid, half: [1.1 * s, 1.5 * s], light: 1.1 * touch.open, kind: 1, moment: index * 0.13, reach: touch.open, hidden: null })
+        const mid = mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25)
+        const [x, y, z] = project(view, b, mid)
+        if (z < 1) continue
+        // Only from in front of it: a doorway turned away pours its light the other way.
+        const facingEye = dot(normalize(mul(pose.y, -1)), normalize(sub3(view.eye, mid)))
+        if (facingEye <= 0) continue
+        const px = (view.focal * Math.hypot(...pose.z)) / z
+        bursts.push({ at: [x, y], distance: length3(sub3(mid, view.eye)), light: touch.open * (0.4 + 0.6 * facingEye), px, seed: index * 0.61 })
+      }
+      bursts.sort((a, z) => z.light - a.light)
+      for (let k = 0; k < BURSTS; k++) {
+        const burst = bursts[k]
+        comp.bursts[k * 2] = burst ? [...burst.at, burst.distance, burst.light] : [0, 0, 0, 0]
+        comp.bursts[k * 2 + 1] = burst ? [burst.px, burst.seed, 0, 0] : [0, 0, 0, 0]
       }
 
       // The hand-offs in flight: a point of light from one doorway to the other.
@@ -1099,7 +1117,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
           comp.beams[k * 7 + 1] = [0, 0, 1, 0]
           continue
         }
-        writeBeam(k, view, b, width, height, beam.door, beam.mid, beam.half, beam.light * (beam.kind === 0 ? smooth(beam.reach) : 1), beam.kind, beam.moment, beam.hidden)
+        writeBeam(k, view, b, width, height, beam.door, beam.mid, beam.half, beam.light * smooth(beam.reach), beam.moment, beam.hidden)
       }
 
       // The confined realm's boundary.

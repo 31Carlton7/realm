@@ -16,6 +16,7 @@ export const CLEAR = 12
 export const PANELS = 2
 export const BEAMS = 3
 export const PULSES = 2
+export const BURSTS = 2
 /** Near stars: cells per side of the block round the camera, and a cell's edge in world units. */
 export const STAR_BLOCK = 22
 export const STAR_CELL = 5.5
@@ -747,7 +748,8 @@ struct GlowOut {
 @fragment fn fs_glow(in: GlowOut) -> @location(0) vec4f {
   let r2 = dot(in.offset, in.offset);
   let core = exp(-r2 * 2.2);
-  let halo = exp(-r2 * 0.6) * 0.35;
+  // The halo is windowed to nothing before the quad's edge, so no square of it ever shows on the dark.
+  let halo = exp(-r2 * 0.6) * 0.35 * smoothstep(2.2, 1.1, sqrt(r2));
   return vec4f(in.color.rgb * (core + halo), 0.0);
 }
 
@@ -887,6 +889,7 @@ export type CompositeUniforms = {
   beams: number[][]
   pulses: number[][]
   fence: number[][]
+  bursts: number[][]
 }
 
 /**
@@ -911,6 +914,7 @@ struct Comp {
   beams: array<vec4f, ${BEAMS * 7}>,     // per beam (see beam())
   pulses: array<vec4f, ${PULSES * 5}>,   // per hand-off: five points along its trail, head first: page x, y, depth, light
   fence: array<vec4f, 10>,               // a confined realm's boundary: its eight corners on the page (x, y, depth), how drawn, its rect
+  bursts: array<vec4f, ${BURSTS * 2}>,   // per doorway thrown open: its middle on the page, its distance, light; its size (px), a seed
 }
 @group(0) @binding(0) var<uniform> comp: Comp;
 @group(0) @binding(1) var sceneTex: texture_2d<f32>;
@@ -965,8 +969,8 @@ fn rayAt(p: vec2f) -> vec3f {
 // screen, or the doorway's own light thrown out ahead of it), marched where the ray passes through it
 // and stopped at whatever the scene shows nearer. Six vec4s:
 //   origin xyz, length; axis xyz, light; across xyz, half width at the door; up xyz, half height at the door;
-//   half width and height at the far end, kind (0 to a screen, 1 a doorway thrown open), its moment; its
-//   rect on the page; and the rect of the screen it lands on, where the picture hides it (left, top, right, bottom).
+//   half width and height at the far end, unused, its moment; its rect on the page; and the rect of the
+//   screen it lands on, where the picture hides it (left, top, right, bottom).
 fn beam(k: i32, p: vec2f, rd: vec3f, far: f32, t: f32) -> vec3f {
   let o = comp.beams[k * 7];
   let a = comp.beams[k * 7 + 1];
@@ -1016,8 +1020,8 @@ fn beam(k: i32, p: vec2f, rd: vec3f, far: f32, t: f32) -> vec3f {
     // Soft across, with its four edges a little brighter, as a projector's beam shows them in dust.
     let walls = (1.0 - pow(cu, 6.0)) * (1.0 - pow(cv, 6.0)) + 1.4 * pow(max(cu, cv), 14.0) * step(max(cu, cv), 1.0);
     let spread = (u.w * v.w) / max(hu * hv, 1e-4);
-    let motes = 0.8 + 0.45 * smoothstep(0.5, 1.0, noise(vec2f(q.z * 1.1 - t * 1.2 * (1.0 + e.z), atan2(q.y / hv, q.x / hu) * 1.6 + e.w * 13.0)));
-    let near = select(1.0 - smoothstep(0.75, 1.0, along), 1.0 - along, e.z > 0.5);
+    let motes = 0.8 + 0.45 * smoothstep(0.5, 1.0, noise(vec2f(q.z * 1.1 - t * 1.2, atan2(q.y / hv, q.x / hu) * 1.6 + e.w * 13.0)));
+    let near = 1.0 - smoothstep(0.75, 1.0, along);
     sum += max(walls, 0.0) * pow(spread, 0.75) * motes * near * dt;
   }
   return mix(DOOR_LIGHT_C, vec3f(0.62, 0.8, 1.0), 0.35) * sum * a.w;
@@ -1052,6 +1056,24 @@ fn pulse(k: i32, p: vec2f, depthHere: f32) -> vec3f {
     light += vec3f(0.85, 0.93, 1.0) * head.w * (exp(-dh * dh / 3.0) * 1.2 + exp(-dh / 9.0) * 0.18);
   }
   return light;
+}
+
+// A doorway thrown open: light pouring out of it, a bright bloom at the doorway and rays fanning out
+// from it, turning slowly, behind anything that stands nearer than the doorway.
+fn burst(k: i32, p: vec2f, depthHere: f32, t: f32) -> vec3f {
+  let a = comp.bursts[k * 2];
+  let b = comp.bursts[k * 2 + 1];
+  if (a.w <= 0.0) { return vec3f(0.0); }
+  // Something nearer than the doorway's own realm stands in front of the light.
+  if (depthHere > 1.0 / max(a.z - 0.8, 0.5)) { return vec3f(0.0); }
+  let d = p - a.xy;
+  let r = length(d) / max(b.x, 8.0);
+  if (r > 9.0) { return vec3f(0.0); }
+  let angle = atan2(d.y, d.x);
+  let spokes = noise(vec2f(angle * 5.0 + b.y * 7.0, t * 0.35 + b.y)) * 0.6 + noise(vec2f(angle * 13.0 - b.y, t * 0.6)) * 0.4;
+  let rays = pow(smoothstep(0.35, 0.9, spokes), 2.0) * exp(-r * 0.42) * smoothstep(0.15, 0.6, r);
+  let bloom = exp(-r * r * 2.4) * 0.9 + exp(-r * 1.3) * 0.22;
+  return vec3f(0.82, 0.9, 1.0) * a.w * (bloom + rays * 0.55);
 }
 
 // The boundary round a confined realm: the twelve edges of a box of light, a hairline wide.
@@ -1102,6 +1124,9 @@ fn fence(p: vec2f, depthHere: f32, dpr: f32) -> vec3f {
   }
   for (var k = 0; k < ${PULSES}; k++) {
     light += pulse(k, p, depthHere);
+  }
+  for (var k = 0; k < ${BURSTS}; k++) {
+    light += burst(k, p, depthHere, t);
   }
   light += fence(p, depthHere, dpr);
   color += light * clear * (vec3f(1.0) - color);
