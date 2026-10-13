@@ -42,6 +42,8 @@ export class TerminalService {
    *  arrived while the socket was down. The setting gates only whether it reaches disk. */
   private readonly scrollback = new Scrollback();
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  /** Each terminal's `Scrollback.version` as of its last write to disk. */
+  private flushed = new Map<string, string>();
   /** What each terminal is running — the program its tab names (foreground.ts). */
   private readonly foreground: ForegroundWatcher;
   private closed = false;
@@ -97,26 +99,42 @@ export class TerminalService {
     return raw === undefined || raw === null ? TERMINALS_HISTORY_DEFAULT : raw === true;
   }
 
-  /** Write every live terminal's buffer to disk. A no-op — and a purge is NOT done here — when the
-   *  setting is off; `settings.set` owns the purge, because turning it off should not wait for a tick. */
+  /** Write every terminal whose buffer changed since its last write to disk, in one transaction. An
+   *  idle Realm writes nothing: rewriting every buffer each tick was ~92 KB/s of SSD writes with
+   *  nothing happening. A no-op — and a purge is NOT done here — when the setting is off;
+   *  `settings.set` owns the purge, because turning it off should not wait for a tick. */
   flushHistory(): void {
     if (this.closed || !this.d.history || !this.historyEnabled) return;
-    for (const id of this.scrollback.ids()) {
-      const snap = this.scrollback.snapshot(id);
-      if (!snap || snap.data === "") continue;
-      // A terminal whose row is gone has no history row to own: the foreign key would refuse it, and
-      // the pane it belonged to is already showing as not running.
-      if (!this.d.terminals.get(id)) continue;
-      try { this.d.history.put({ terminalId: id, ...snap }); } catch (e) {
-        console.error(`[terminals] could not write scrollback for ${id}: ${e instanceof Error ? e.message : String(e)}`);
+    const ids = this.scrollback.ids();
+    for (const id of this.flushed.keys()) if (!ids.includes(id)) this.flushed.delete(id);
+    const dirty = ids.filter((id) => this.scrollback.version(id) !== this.flushed.get(id));
+    if (dirty.length === 0) return;
+    // One commit for the lot. A BEGIN that cannot start (a closed database, another transaction
+    // open) must not take the timer down with it: the rows are written one by one, as they were.
+    let began = false;
+    try { this.d.db.exec("BEGIN"); began = true; } catch { /* written without one */ }
+    try {
+      for (const id of dirty) {
+        const version = this.scrollback.version(id)!;
+        const snap = this.scrollback.snapshot(id);
+        if (!snap || snap.data === "") { this.flushed.set(id, version); continue; }
+        // A terminal whose row is gone has no history row to own: the foreign key would refuse it, and
+        // the pane it belonged to is already showing as not running.
+        if (!this.d.terminals.get(id)) continue;
+        try { this.d.history.put({ terminalId: id, ...snap }); this.flushed.set(id, version); } catch (e) {
+          console.error(`[terminals] could not write scrollback for ${id}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
+    } finally {
+      if (began) this.d.db.exec("COMMIT");
     }
   }
 
   /** Turning the setting off. The in-memory buffers stay — they are not what the switch gates — and
-   *  everything on disk goes. */
+   *  everything on disk goes, so the next flush after it is turned back on writes every buffer. */
   purgeHistory(): void {
     this.d.history?.deleteAll();
+    this.flushed.clear();
   }
 
   /** What this client is missing, plus the screen that came before it. See `Scrollback.read`. */

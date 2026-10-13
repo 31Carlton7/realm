@@ -31,13 +31,13 @@ describe("AppIconPicker", () => {
     render(<AppIconPicker />);
     expect(screen.getAllByRole("radio")).toHaveLength(APP_ICONS.length);
     await waitFor(() => expect(radio("Ocean").checked).toBe(true));
-    expect(radio("Graphite").checked).toBe(false);
+    expect(radio("Realm").checked).toBe(false);
   });
 
   it("hands main the picture the tile draws, under the tile's id", async () => {
     const appIcon = bridge("default");
     render(<AppIconPicker />);
-    await waitFor(() => expect(radio("Graphite").checked).toBe(true));
+    await waitFor(() => expect(radio("Realm").checked).toBe(true));
     fireEvent.click(radio("Ember"));
     await waitFor(() => expect(appIcon.set).toHaveBeenCalledTimes(1));
     const [id, png] = appIcon.set.mock.calls[0]!;

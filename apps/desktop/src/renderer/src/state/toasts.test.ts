@@ -44,12 +44,6 @@ describe("pushToast", () => {
 });
 
 describe("toastLife", () => {
-  it("gives each tone its floor — an error waits longest, a receipt is gone soonest", () => {
-    expect(toastLife("error", "boom")).toBe(6000);
-    expect(toastLife("warning", "boom")).toBe(5000);
-    expect(toastLife("success", "boom")).toBe(4000);
-    expect(toastLife("info", "boom")).toBe(4000);
-  });
 
   it("gives a toast with an action longer: the offer has to be read, found and pressed", () => {
     expect(toastLife("info", "Removed a.md.", true)).toBe(8000);

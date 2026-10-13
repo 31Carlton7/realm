@@ -616,7 +616,7 @@ function Screen({ machineId, state }: { machineId: string; state: MachineState }
   /**
    * Grab keyboard: stop Realm's own bindings before they see the key.
    *
-   * On `window` and in the CAPTURE phase. `hotkeys.ts` listens on `window` too, but in the BUBBLE
+   * On `window` and in the CAPTURE phase. `useKeybindings` listens on `window` too, but in the BUBBLE
    * phase — and capture on the same target always runs first, so `stopPropagation` here means the
    * global handler never runs at all. A bubble-phase listener, on the pane or on `window`, would be
    * a coin toss decided by registration order: the toggle would light up and ⌘T would still open a
@@ -627,7 +627,7 @@ function Screen({ machineId, state }: { machineId: string; state: MachineState }
    *
    * What this CANNOT take is what the platform ate first. ⌘Q, ⌘Tab and ⌘Space are menu accelerators
    * and window-server chords, and a menu accelerator fires in the main process before the renderer
-   * sees a keydown at all — `hotkeys.ts` writes that down for ⌘W. So the grab is honest about being
+   * sees a keydown at all — `ALWAYS_SWALLOWED_CHORDS` writes that down for ⌘W. So the grab is honest about being
    * a grab of REALM's shortcuts, not of the Mac's, and the chords the platform keeps belong to a
    * Send key ▸ menu instead.
    */

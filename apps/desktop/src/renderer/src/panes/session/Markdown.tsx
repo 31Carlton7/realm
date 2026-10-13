@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent 
 import { createPortal } from "react-dom";
 import { grammarFor, highlightToHtml } from "./rich/highlight";
 import { mathExtension } from "./rich/math";
+import { useRichLibs } from "./rich/rich-libs";
 import { mediaExtension, mediaRefsIn } from "./media/md-media";
 import { MediaFrame } from "./media/MediaView";
 import { useOpenViewer } from "../../components/viewer/open";
@@ -215,7 +216,9 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
      message in the transcript re-parsed and re-sanitised its Markdown whenever the pane re-rendered —
      each keystroke, each streamed event. The handler itself is read at click time, below. */
   const withPaths = onPath !== undefined;
-  const html = useMemo(() => (withPaths ? renderMarkdownWithPaths(text, cite) : renderMarkdown(text, cite)), [text, cite, withPaths]);
+  // KaTeX and highlight.js load after boot; when they land, prose rendered without them renders again.
+  const libs = useRichLibs();
+  const html = useMemo(() => (withPaths ? renderMarkdownWithPaths(text, cite) : renderMarkdown(text, cite)), [text, cite, withPaths, libs]);
   const body = useRef<HTMLDivElement>(null);
   const media = useMediaPortals(body, html);
   const blocks = useUiBlockPortals(body, html);

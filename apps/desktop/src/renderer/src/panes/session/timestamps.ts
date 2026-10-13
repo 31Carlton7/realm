@@ -12,19 +12,33 @@ import { useEffect, useState } from "react";
  */
 export function stampLabel(ts: number, now: number): string {
   const at = new Date(ts);
-  const clock = at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const clock = dateFormat({ hour: "numeric", minute: "2-digit" }).format(at);
   const days = daysBetween(at, new Date(now));
   if (days === 0) return clock;
   if (days === 1) return `Yesterday ${clock}`;
   const sameYear = at.getFullYear() === new Date(now).getFullYear();
-  const date = at.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+  const date = dateFormat({ month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(at);
   return `${date}, ${clock}`;
 }
 
 /** The same moment in full, for the tooltip: weekday, date, year and the clock to the second. The
  *  short label drops all of that by design, and this is where a reader who needs it finds it. */
 export function stampTitle(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" });
+  return dateFormat({ dateStyle: "full", timeStyle: "medium" }).format(ts);
+}
+
+const formats = new Map<string, Intl.DateTimeFormat>();
+/**
+ * One formatter per set of options, made once. `toLocaleString` with options builds a new formatter
+ * on every call — locale data, pattern and all — and the sidebar's cards ask for a tooltip and a day
+ * heading per row on every redraw, which made formatting dates the most expensive thing the Activity
+ * view did while agents were working. Same output: the default locale, the same options.
+ */
+export function dateFormat(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = JSON.stringify(options);
+  let f = formats.get(key);
+  if (!f) { f = new Intl.DateTimeFormat(undefined, options); formats.set(key, f); }
+  return f;
 }
 
 /** Calendar days from `a` to `b`, by the local calendar rather than by 24-hour spans: 11:50 PM and

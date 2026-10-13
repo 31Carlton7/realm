@@ -41,6 +41,6 @@ export function draftSession(d: DraftRun, at: { id: string; spaceId: string; pro
   return {
     id: at.id, spaceId: at.spaceId, projectId: at.projectId, agentKind: d.agentKind, model: d.model, effort: d.effort,
     permissionMode: d.permissionMode ?? "default", fastMode: d.fastMode, environmentId: "", cwd: at.cwd, status: "idle",
-    providerSessionId: null, title: "", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, createdAt: 0, updatedAt: 0,
+    providerSessionId: null, title: "", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0,
   };
 }

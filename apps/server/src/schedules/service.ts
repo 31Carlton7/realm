@@ -50,6 +50,10 @@ export class ScheduleService {
     archiveSession?: (sessionId: string, archived: boolean) => void;
     /** Whether a space exists, for an edit that moves a schedule into one. */
     spaceExists?: (spaceId: string) => boolean;
+    /** Why a team role's clock may not fire now (its week's budget is spent), or null. A refused
+     *  firing is recorded as a skip, like a missed one — unattended work that did not happen is
+     *  written down. */
+    refuse?: (schedule: Schedule) => string | null;
     /** Test seam only — production leaves this alone and uses the real clock. */
     clock?: () => number;
   }) {}
@@ -128,6 +132,11 @@ export class ScheduleService {
    * missed one, rather than forking the conversation the schedule was asked to keep.
    */
   private fire(schedule: Schedule, dueAt: number, at: number): void {
+    if (schedule.roleId && this.d.refuse?.(schedule)) {
+      this.d.store.recordFiring(schedule.id, { at, runId: null, skipped: true });
+      this.announce(schedule.spaceId);
+      return;
+    }
     let sessionId: string | null = null;
     if (!schedule.newSessionPerRun) {
       const last = this.d.runs.latestForSchedule(schedule.id);
@@ -154,6 +163,7 @@ export class ScheduleService {
       deadlineAt: null,
       scheduleId: schedule.id,
       sessionId,
+      ...(schedule.roleId ? { roleId: schedule.roleId, wokeOn: "schedule" } : {}),
     });
     this.d.store.recordFiring(schedule.id, { at, runId: run.id, skipped: false });
     this.announce(schedule.spaceId);
@@ -185,6 +195,17 @@ export class ScheduleService {
     this.announce(made.spaceId);
     return made;
   }
+
+  /** A team role's clock: an ordinary schedule, tagged with the role so its firings run as the role. */
+  createForRole(input: CreateScheduleInput, roleId: string): Schedule {
+    const parsed = CreateScheduleSchema.parse(input);
+    if (nextFireOf(parsed.cron, this.now()) === null) throw this.unfireable(parsed.cron);
+    const made = this.d.store.create({ ...parsed, roleId });
+    this.announce(made.spaceId);
+    return made;
+  }
+
+  forRole(roleId: string): Schedule | null { return this.d.store.forRole(roleId); }
 
   update(input: UpdateScheduleInput): Schedule {
     const before = this.d.store.get(input.id);

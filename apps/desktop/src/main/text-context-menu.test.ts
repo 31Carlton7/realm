@@ -46,6 +46,25 @@ describe("the text context menu", () => {
     expect(textMenuTemplate({ ...base, linkURL: "javascript:alert(1)" }, act())).toBeNull();
   });
 
+  it("offers a Realm window's web link a Realm Browser tab too, the chosen browser first", () => {
+    const open = vi.fn();
+    const a = act();
+    const asDefault = textMenuTemplate({ ...base, linkURL: "https://realm.computer" }, { ...a, realmBrowser: { open, linksOpenIn: "default" } });
+    expect(shape(asDefault)).toEqual(["Open Link in Default Browser", "Open Link in Realm Browser", "Copy Link"]);
+    (asDefault![1]!.click as () => void)();
+    expect(open).toHaveBeenCalledWith("https://realm.computer");
+    (asDefault![0]!.click as () => void)();
+    expect(a.openLink).toHaveBeenCalledWith("https://realm.computer");
+
+    const asRealm = textMenuTemplate({ ...base, linkURL: "http://localhost:3000/" }, { ...act(), realmBrowser: { open, linksOpenIn: "realm" } });
+    expect(shape(asRealm)).toEqual(["Open Link in Realm Browser", "Open Link in Default Browser", "Copy Link"]);
+  });
+
+  it("keeps a mail link to the OS alone, since a browser tab cannot open one", () => {
+    const t = textMenuTemplate({ ...base, linkURL: "mailto:a@b.co" }, { ...act(), realmBrowser: { open: vi.fn(), linksOpenIn: "realm" } });
+    expect(shape(t)).toEqual(["Open Link in Default Browser", "Copy Link"]);
+  });
+
   it("gives a web page Back, Forward and Reload where nothing more specific is under the pointer", () => {
     const nav = { canGoBack: true, canGoForward: false, back: vi.fn(), forward: vi.fn(), reload: vi.fn() };
     const t = textMenuTemplate(base, { ...act(), navigation: nav });

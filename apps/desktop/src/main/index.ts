@@ -1,5 +1,5 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents } from "electron";
-import { BrowserCredentialInputSchema, newId, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
+import { BrowserCredentialInputSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
@@ -15,8 +15,9 @@ import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, resol
 import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
+import { trayIconPath } from "./tray-icon";
 import { confirmQuitCopy, decideQuit } from "./quit-policy";
-import { NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY } from "@realm/contracts";
+import { isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
@@ -40,8 +41,18 @@ import {
   MAC_CAPABILITIES, MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
-import { RealmUpdater, UPDATE_FEED_LIVE, scheduleUpdateChecks, updaterDecision } from "./updater";
+import { RealmUpdater, UPDATE_FEED_LIVE, UPDATER_CACHE_DIR_NAME, pruneInstalledDownload, scheduleUpdateChecks, updaterDecision } from "./updater";
+import { labInstall, labOnConnected, labPreapprovesRestart, labSettingsUrl, labTakesUpdate, loginItemStatus, setLoginItem, type LabUpdateDeps, type LoginItemDeps } from "./lab-host";
+import { asarReplaced, readAsarStamp } from "./bundle-swap";
 import { SecretStore, SecretStoreError } from "./secret-store";
+import { VaultHost } from "./vault-host";
+import { registerVaultIpc } from "./vault-ipc";
+import { TicketPresses } from "./ticket-presses";
+import { PolicyPresses } from "./policy-presses";
+import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-owner";
+import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
+import { livePresenceStandIn } from "./live-presence";
+import { liveScratch } from "./live-scratch";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -51,6 +62,7 @@ import { InstalledApps, applicationDirs } from "./installed-apps";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { registerNativeMenus } from "./native-menu";
 import { attachTextContextMenu } from "./text-context-menu";
+import { windowOpenTarget } from "./link-open";
 import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom } from "./window-registry";
@@ -161,11 +173,18 @@ function forgetProfile(profile: ProfileFacts): void {
  *
  * It is the only visible thing left after ⌘Q, which is why it exists at all: a person is entitled to
  * know that something is still running and to be able to stop it, and with the window gone there is
- * nowhere else to say either.
+ * nowhere else to say either. It wears Realm's flat mark as a template image (tray-icon.ts), so it is
+ * there to click even when its title has nothing to report.
  */
+function trayImage() {
+  const image = nativeImage.createFromPath(trayIconPath({ packaged: app.isPackaged, appPath: app.getAppPath(), resourcesPath: process.resourcesPath }));
+  // The file's name already says Template; this says it again for a picture loaded some other way.
+  image.setTemplateImage(true);
+  return image;
+}
 const sessionTray = new SessionTray({
   createTray: () => {
-    const tray = new Tray(nativeImage.createEmpty());
+    const tray = new Tray(trayImage());
     return {
       setTitle: (t) => tray.setTitle(t),
       setToolTip: (t) => tray.setToolTip(t),
@@ -418,12 +437,18 @@ if (process.env.REALM_DEVTOOLS_PORT) app.commandLine.appendSwitch("remote-debugg
 // stacked over Realm. Cost: some battery while occluded — a workstation-app tradeoff made knowingly.
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
+// A ceiling on every session's HTTP cache, each browser profile's partition included: Chromium's
+// default grows with free disk, and one profile's partition had reached 1.1 GB of cached pages.
+// Evicted entries are refetched; cookies, logins and site storage are not cache and are untouched.
+app.commandLine.appendSwitch("disk-cache-size", String(256 * 1024 * 1024));
+
 /**
  * Open a Realm window. With no `profileId` it is the first window, which shows whichever profile its
  * saved space is in; with one it is that profile's window (Plan 27 Phase 2), told so on its command
  * line (`window.realm.profileId`) so its first paint is already that profile's.
  */
 async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null) {
+  if (relaunchIfBundleReplaced()) return;
   // Where it was left (window-state.ts) — each profile window its own place. The primary display
   // first: a place that can no longer be reached is replaced by the saved size, centred there. A
   // profile window with no place yet opens just off the window it was opened from.
@@ -433,7 +458,9 @@ async function createWindow(info: { port: number; home: string; token: string },
   const place = restoredBounds(savedWindow,
     [primary.workArea, ...screen.getAllDisplays().filter((d) => d.id !== primary.id).map((d) => d.workArea)],
     { width: 1400, height: 900, minWidth: 900, minHeight: 600 });
+  const scratch = liveScratch({ packaged: app.isPackaged, env: process.env });
   const win = new BrowserWindow({
+    ...scratch?.windowOptions,
     ...(place.center ? { width: place.width, height: place.height, center: true }
       : { x: place.x, y: place.y, width: place.width, height: place.height }),
     minWidth: 900, minHeight: 600,
@@ -462,9 +489,15 @@ async function createWindow(info: { port: number; home: string; token: string },
   // The title is the profile's name — what the Window menu, Mission Control and the Dock list the
   // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
   win.on("page-title-updated", (e) => e.preventDefault());
-  if (profileId !== null) win.setTitle(profileDirectory.get(profileId)?.name ?? "Realm");
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url)) void shell.openExternal(url);
+  if (profileId !== null && !scratch) win.setTitle(profileDirectory.get(profileId)?.name ?? "Realm");
+  // Every link in the app reaches main as a window request (they are all target="_blank"): denied as
+  // a window, and opened where Settings ▸ General ▸ Links says — the default browser, or a Realm
+  // Browser tab the renderer makes beside the session.
+  const openInRealm = (url: string) => win.webContents.send("links:open-in-realm", url);
+  win.webContents.setWindowOpenHandler((details) => {
+    const to = windowOpenTarget(details, linksOpenIn);
+    if (to === "realm") openInRealm(details.url);
+    else if (to === "default") void shell.openExternal(details.url);
     return { action: "deny" };
   });
   // Keep the top frame inside the app: dev server origin in dev, file:// in production.
@@ -484,11 +517,17 @@ async function createWindow(info: { port: number; home: string; token: string },
   pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
+  if (scratch) {
+    win.setIgnoreMouseEvents(true);
+    win.webContents.on("did-finish-load", () => void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {}));
+    void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {});
+    win.showInactive();
+  }
   if (savedWindow?.fullScreen) win.setFullScreen(true);
   else if (savedWindow?.maximized) win.maximize();
   trackWindowState(win, windowStateFile);
   wireKeyWindow(win);
-  attachTextContextMenu(win.webContents);
+  attachTextContextMenu(win.webContents, { realmBrowser: () => ({ open: openInRealm, linksOpenIn }) });
   // Replay whatever the server's health last was. A window created after the event — reopened from
   // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
   if (lastDaemonState) win.webContents.send("daemon:state", lastDaemonState);
@@ -537,9 +576,13 @@ const passkeys = new PasskeyBroker({
     const profileId = profileOfPane(paneId);
     if (profileId) secrets()?.notePasskeyUse(profileId, credentialId, signCount);
   },
-  // Biometrics only, like every other presence check here: `promptTouchID` has no password
-  // fallback, so a Mac without a sensor is told so rather than shown a prompt that cannot pass.
-  canPromptPresence: () => process.platform === "darwin" && systemPreferences.canPromptTouchID(),
+  // Whether this pane's PROFILE can be unlocked here, by its policy: Touch ID needs a sensor, a
+  // password policy needs the device-owner check, and an unattended profile needs neither. A Mac that
+  // cannot is told so rather than shown a prompt that cannot pass.
+  canPromptPresence: (paneId) => {
+    const profileId = profileOfPane(paneId);
+    return profileId ? secrets()?.canUnlock(profileId) ?? false : false;
+  },
   // To the window holding the pane, which is the one whose bar can say why.
   notify: (notice) => {
     const win = holderOf(notice.browserId)?.win;
@@ -564,9 +607,9 @@ const agentHost = new BrowserAgentHost({
   // The fill op's only reach into the store. Passed as an object of bound methods rather than the
   // store itself, so the executor host cannot reach `exportOauthKey` or anything added later.
   secrets: {
-    listCredentials: (profileId) => secrets()?.listCredentials(profileId) ?? [],
+    listCredentials: (profileId, spaceId) => secrets()?.credentialsForSpace(profileId, spaceId) ?? [],
     getCredential: (profileId, id) => secrets()?.getCredential(profileId, id) ?? null,
-    withCredentialValue: async (profileId, id, use) => secrets()?.withCredentialValue(profileId, id, use) ?? { ok: false, refused: "no_credential" },
+    withCredentialValue: async (profileId, id, use, scope) => secrets()?.withCredentialValue(profileId, id, use, scope) ?? { ok: false, refused: "no_credential" },
     // No store means no place to keep a password, which is a different answer from "nothing is
     // enrolled" — and the only safe one, since Realm must not type a secret it cannot save.
     withGeneratedCredentialValue: async (profileId, input, use) =>
@@ -860,6 +903,7 @@ function secrets(): SecretStore | null {
   const home = realmHome;
   const file = join(home, "secrets.json");
   const auditFile = join(home, "logs", "credential-audit.log");
+  const standIn = livePresenceStandIn({ packaged: app.isPackaged, env: process.env });
   secretStore = new SecretStore({
     safeStorage,
     readFile: () => (existsSync(file) ? readFileSync(file, "utf8") : null),
@@ -874,9 +918,19 @@ function secrets(): SecretStore | null {
     // sensor, too many failed attempts) is `false`, never a throw: the caller treats every one of
     // those as "no presence", which is the same refusal for the same reason.
     promptPresence: (reason) =>
-      process.platform === "darwin"
+      standIn ? standIn(reason)
+      : process.platform === "darwin"
         ? systemPreferences.promptTouchID(reason).then(() => true, () => false)
         : Promise.resolve(false),
+    // Touch ID or the login password, for profiles whose unlock policy allows the password, and to
+    // confirm the user before a policy is weakened.
+    promptDeviceOwner,
+    canPromptDeviceOwner,
+    canPromptTouchID: () => standIn !== null || (process.platform === "darwin" && systemPreferences.canPromptTouchID()),
+    machineId,
+    // The Keychain stamp a looser unlock policy must match, so a copy of secrets.json put back after
+    // the user tightened a policy reads as Touch ID (policy-stamp.ts).
+    policyStamp: keychainPolicyStamp(policyStampHelper(app.getAppPath(), process.resourcesPath)),
     now: () => Date.now(),
     newId,
     // Sign-ins saved before they were a profile's own belong to the profile that kept the shared
@@ -912,7 +966,7 @@ ipcMain.handle("browser:save-download", async (e, browserId: string, id: string,
   if (!pane) return { ok: false, error: "the browser pane is not open" };
   // Same absolute-path requirement the agent op has: this writes to disk, and a relative path would
   // resolve against whatever cwd Electron happens to have.
-  if (!String(dir).startsWith("/")) return { ok: false, error: "this space has no project folder, so there is nowhere to save downloads" };
+  if (!String(dir).startsWith("/")) return { ok: false, error: "there is no folder to save downloads into" };
   return retryBlockedDownload(downloadGovernor, blockedDownloads, {
     browserId: String(browserId), id: String(id), dir: String(dir),
     downloadURL: (url) => pane.downloadURL(String(browserId), url),
@@ -929,6 +983,7 @@ ipcMain.handle("credentials:status", () => ({
   // Surfaced so Settings can say plainly that this Mac cannot fill, rather than letting the user
   // enroll a password and discover it at a sign-in prompt.
   canPromptTouchID: process.platform === "darwin" && systemPreferences.canPromptTouchID(),
+  canPromptDeviceOwner: canPromptDeviceOwner(),
   presenceTtlMs: secrets()?.presenceTtlMs ?? 0,
 }));
 ipcMain.handle("credentials:add", async (_e, profileId: unknown, input: unknown): Promise<BrowserCredential> => {
@@ -984,6 +1039,55 @@ ipcMain.handle("passkeys:share", async (_e, profileId: unknown, id: unknown, toP
 });
 ipcMain.handle("credentials:set-presence-ttl", (_e, ms: number): number => secrets()?.setPresenceTtlMs(Number(ms)) ?? 0);
 
+/**
+ * Settings ▸ Sign-ins ▸ Unlock: how a profile's sign-ins and passkeys are unlocked for a fill.
+ *
+ * This pair is the ONLY way a policy is read or changed, and it is renderer IPC on purpose: there is
+ * no RPC method, MCP tool, bridge op or setting key for it, so nothing an agent can call reaches it,
+ * and the control that sends it carries `data-no-agent`. The store itself asks macOS to confirm the
+ * user before any change that lets more through without a person.
+ */
+ipcMain.handle("credentials:unlock-policy", async (_e, profileId: unknown): Promise<UnlockPolicyStatus | null> => {
+  const owner = await profileDirectory.resolve(profileArg(profileId));
+  return owner ? secrets()?.unlockStatus({ kind: "profile", id: owner.id }) ?? null : null;
+});
+ipcMain.handle("credentials:set-unlock-policy", async (_e, profileId: unknown, policy: unknown) => {
+  const store = secrets();
+  if (!store) return { ok: false as const, error: "Realm is still starting up; try again in a moment." };
+  const owner = await profileDirectory.resolve(profileArg(profileId));
+  if (!owner) return { ok: false as const, error: "That profile no longer exists." };
+  return store.setUnlockPolicy({ kind: "profile", id: owner.id }, parseUnlockPolicy(policy));
+});
+
+/** A team's Vault page: its secrets, and each grant's "use without asking" (`vault-ipc.ts`). Renderer
+ *  IPC only, like the unlock policy above — and main's `VaultHost` answers the server's side. */
+registerVaultIpc({
+  handle: (channel, fn) => ipcMain.handle(channel, (_e, ...args: unknown[]) => fn(...args)),
+  secrets,
+  resolveProfile: (id) => profileDirectory.resolve(profileArg(id)),
+});
+const vaultHost = new VaultHost({ store: secrets, fetch: (input, init) => fetch(input, init), now: () => Date.now() });
+
+/** A team's post sheet: the one click that lets an act ticket go out (`ticket-presses.ts`). Taken only
+ *  from the top frame of one of Realm's own windows — not a browser pane, not a frame inside the app —
+ *  and realm-server asks for it over the bridge (`teamTicketPress`). There is no other way to make one. */
+const ticketPresses = new TicketPresses();
+ipcMain.handle("team:press-ticket", (e, input: unknown): boolean => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.webContents !== e.sender || e.senderFrame !== e.sender.mainFrame) return false;
+  return ticketPresses.press(input);
+});
+
+/** A team's Policies page: the person's press on a loosening (`policy-presses.ts`), confirmed by macOS
+ *  and sealed here. Taken only from the top frame of one of Realm's own windows, and realm-server asks
+ *  for the seal over the bridge (`teamPolicySeal`). There is no other way to make one. */
+const policyPresses = new PolicyPresses(() => secrets());
+ipcMain.handle("team:press-policy", async (e, input: unknown) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.webContents !== e.sender || e.senderFrame !== e.sender.mainFrame) return { ok: false, error: "Only Realm's own window can change a team's policies." };
+  return policyPresses.press(input);
+});
+
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0] ?? null;
@@ -1018,6 +1122,13 @@ ipcMain.handle("describe-paths", async (_e, paths: unknown): Promise<PickedFile[
 
 ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
   const r = await dialog.showOpenDialog({ properties: ["openFile", "multiSelections"] });
+  return r.canceled ? [] : describeFiles(r.filePaths);
+});
+
+/** The "+" menu's Folder…: `pick-files` for folders. Described the same way, so each comes back as a
+ *  `DIRECTORY_MIME` attachment — the chip a folder dragged in from Finder already makes. */
+ipcMain.handle("pick-folders", async (): Promise<PickedFile[]> => {
+  const r = await dialog.showOpenDialog({ properties: ["openDirectory", "multiSelections"] });
   return r.canceled ? [] : describeFiles(r.filePaths);
 });
 
@@ -1278,7 +1389,9 @@ updater = new RealmUpdater({
   version: app.getVersion(),
   decision: updaterDecision({ packaged: app.isPackaged, signed: __REALM_SIGNED_BUILD__, feedLive: UPDATE_FEED_LIVE }),
   load: async () => (await import("electron-updater")).autoUpdater,
-  onDownloaded: (version) => {
+  onDownloaded: (version) => void labTakesUpdate(labUpdate(), version).then((taken) => {
+    // On a lab the update window installs it between team runs; nobody is there for a dialog.
+    if (taken) return;
     void dialog.showMessageBox({
       type: "info",
       title: "Realm update ready",
@@ -1288,11 +1401,63 @@ updater = new RealmUpdater({
       defaultId: 0,
       cancelId: 1,
     }).then(({ response }) => { if (response === 0) updater.install(); });
-  },
+  }),
   // Pushed, not polled: a download's progress has to reach the rail's button while the window sits
   // at the front, which is exactly when nothing else would make the renderer ask.
   onChange: (status) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send("updates:changed", status); },
 });
+// The zip of the update this Realm now is: installed, so never read again (updater.ts). The cache is
+// where electron-updater's `getAppCacheDir` puts it on macOS.
+if (app.isPackaged && process.platform === "darwin") {
+  try { pruneInstalledDownload({ cacheDir: join(app.getPath("home"), "Library", "Caches", UPDATER_CACHE_DIR_NAME), version: app.getVersion(), fs: { readFileSync, rmSync } }); }
+  catch (e) { console.error(`[updater] could not clear the installed download: ${e instanceof Error ? e.message : String(e)}`); }
+}
+/** The archive this process loaded, stamped at launch; null under dev, which has none to swap. */
+const appAsar = join(process.resourcesPath, "app.asar");
+const launchedAsar = app.isPackaged ? readAsarStamp(appAsar) : null;
+
+/**
+ * Hand over to the Realm.app that replaced ours, if one has. Asked before anything loads a window:
+ * this process would build it from the new archive at the old one's offsets (bundle-swap.ts). The
+ * daemon is detached, not stopped — the relaunch adopts or hands it off like any other launch.
+ */
+function relaunchIfBundleReplaced(): boolean {
+  if (!launchedAsar || !asarReplaced(launchedAsar, readAsarStamp(appAsar))) return false;
+  console.warn("[update] Realm.app was replaced under this process; relaunching into the new one");
+  detachFromDaemon();
+  serverChild?.kill("SIGTERM"); // a non-daemon server dies with us, so the relaunch can have its port
+  app.relaunch();
+  app.exit(0);
+  return true;
+}
+
+/** What the lab's update window needs from main: the version running, the server, and the updater. */
+function labUpdate(): LabUpdateDeps {
+  return {
+    version: app.getVersion(),
+    call: (method, params) => {
+      if (!bridgeClient) return Promise.reject(new Error("Realm's server is not connected"));
+      return bridgeClient.call(method, params);
+    },
+    updater,
+    log: (line) => console.error(line),
+  };
+}
+
+/* Settings ▸ Lab: Realm's own login item — from the installed app only — and the System Settings
+   panes the checklist links to, named by a closed list (lab-host.ts). */
+const loginItem: LoginItemDeps = {
+  packaged: app.isPackaged,
+  get: () => app.getLoginItemSettings(),
+  set: (s) => app.setLoginItemSettings(s),
+};
+ipcMain.handle("lab:login-item", () => loginItemStatus(loginItem));
+ipcMain.handle("lab:set-login-item", (_e, on: unknown) => setLoginItem(loginItem, on));
+ipcMain.handle("lab:open-settings", (_e, pane: unknown) => {
+  const url = labSettingsUrl(pane);
+  if (url) void shell.openExternal(url);
+});
+
 ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
 ipcMain.handle("updates:download", () => updater.download());
@@ -1321,6 +1486,7 @@ const desktopNotifier = new DesktopNotifier({
   // The window used last — which is where the row id goes below, so the window raised is the one
   // that opens the row.
   focusWindow: () => {
+    if (relaunchIfBundleReplaced()) return;
     const win = windows.primary();
     // No window at all: this is the resident's own toast, and a click on it is a request to come
     // back. `reattach` recreates the window; the row id below lands once it exists.
@@ -1349,6 +1515,10 @@ ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Nu
 ipcMain.handle("motion:set", (e, pref: unknown) => applyReducedMotion(e.sender, pref));
 /** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
  *  a turn already running rather than at the next status change. */
+/** Settings ▸ General ▸ Links, as the renderer last said: where a clicked link opens, and which
+ *  browser a link's right-click menu lists first. The renderer reads it at boot and says so. */
+let linksOpenIn: LinksOpenIn = LINKS_OPEN_IN_DEFAULT;
+ipcMain.on("links:open-in", (_e, pref: unknown) => { if (isLinksOpenIn(pref)) linksOpenIn = pref; });
 ipcMain.handle("power:prevent-sleep", (_e, on: unknown) => { sleepGuard.setPreference(on === true); });
 /** Settings ▸ General ▸ Open files in, and the transcript's path menu: the editors this Mac has, and
  *  opening a path that exists in one of them. `existingPath` is the gate Reveal in Finder uses, and it
@@ -1532,7 +1702,7 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
  */
 async function handOff(running: DaemonState, why: "bundle" | "protocol"): Promise<HandoffResult> {
   const work = await daemonWork(running);
-  let decision = decideHandoff({ why, work });
+  let decision = decideHandoff({ why, work, preapproved: await labPreapprovesRestart((method, params) => callDaemon(running, method, params)) });
   if (decision.kind === "confirm") {
     const copy = handoffCopy(decision);
     const buttons = decision.keepable ? [copy.restart, copy.keep] : [copy.restart];
@@ -1646,6 +1816,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
+    if (relaunchIfBundleReplaced()) return;
     const win = windows.primary();
     if (!win) return;
     if (win.isMinimized()) win.restore();
@@ -1713,7 +1884,7 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       port: info.port, token: info.token,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void profileDirectory.refresh(); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void profileDirectory.refresh(); void labOnConnected(labUpdate()); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
       onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
@@ -1722,6 +1893,8 @@ app.whenReady().then(async () => {
         if (event === "profiles.changed") { void profileDirectory.refresh().then(retitleWindows); return; }
         // The counts the tray shows change on exactly one event.
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); return; }
+        // The lab's update window drained the team's runs: install the update the updater holds.
+        if (event === "lab.install") { labInstall(labUpdate(), payload); return; }
         // And the resident's own toasts, for the case the renderer used to own alone: with no window
         // there is nobody to ask for one, and a toast is the whole of how anything reaches you.
         if (event === "notifications.changed") void residentToast(payload);
@@ -1733,6 +1906,17 @@ app.whenReady().then(async () => {
         if (op === "oauthKey") return Promise.resolve({ key: secrets()?.exportOauthKey() ?? null });
         if (op === "machineKey") return Promise.resolve({ key: secrets()?.exportMachineKey() ?? null });
         if (op === "eggsKey") return Promise.resolve({ key: secrets()?.exportEggsKey() ?? null });
+        // The team vault's ops need no window either: a key's request is made from main, not a pane.
+        if (op.startsWith("vault")) return vaultHost.handleOp(op, params);
+        // A ticket's press: read and spent, never made, from this side.
+        if (op === "teamTicketPress") {
+          const p = params as { ticketId?: unknown; contentHash?: unknown };
+          return Promise.resolve(ticketPresses.consume(p.ticketId, p.contentHash));
+        }
+        // A policy's seal: spent, checked, or its stamp moved on — never made, from this side.
+        if (op === "teamPolicySeal") return Promise.resolve(policyPresses.consume((params as { text?: unknown }).text));
+        if (op === "teamPolicyVerify") return Promise.resolve(policyPresses.verify((params as { items?: unknown }).items));
+        if (op === "teamPolicyBump") return Promise.resolve(policyPresses.bump((params as { scope?: unknown }).scope));
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);
@@ -1816,6 +2000,8 @@ function goResident() {
 /** Bring a window back, optionally landing on one session — in the window showing that session's
  *  profile when one is open, else the window used last, else a new first window. */
 async function reattach(target?: { sessionId: string; spaceId: string | null }) {
+  // Even with a window up: everything it loads lazily from here on would come from the wrong file.
+  if (relaunchIfBundleReplaced()) return;
   if (process.platform === "darwin") app.dock?.show();
   const profileId = target?.spaceId ? await profileOfSpace(target.spaceId) : null;
   let win = (profileId ? windows.windowFor(profileId) : null) ?? windows.primary();

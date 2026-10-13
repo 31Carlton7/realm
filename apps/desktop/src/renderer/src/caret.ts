@@ -325,18 +325,19 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
 
   /**
    * Restart the blink, so a caret that has just moved is visible where it landed: the running animation
-   * rewound, which costs nothing. One that has run its course (Blink, then rest) is gone — Blink cancels
+   * rewound, which costs nothing. One that has run its course (every motion rests after ten beats) is gone — Blink cancels
    * a CSS animation that finishes — so the stylesheet is asked for it again instead, across one read of
    * the caret's own box, which the layer's containment keeps to the caret.
    */
   const restart = () => {
     if (!caret.getAnimations) return;
-    const live = caret.getAnimations().filter((a) => "animationName" in a);
+    const live = caret.getAnimations({ subtree: true }).filter((a) => "animationName" in a);
     if (live.length > 0) { for (const a of live) a.currentTime = 0; return; }
     if (win.getComputedStyle(caret).animationName === "none") return;
-    caret.style.animationName = "none";
+    // The glyph too: a block's character fades with an Expand (styles.css `rl-caret-glyph-expand`).
+    for (const el of [caret, glyph]) el.style.animationName = "none";
     void caret.offsetWidth;
-    caret.style.animationName = "";
+    for (const el of [caret, glyph]) el.style.animationName = "";
   };
 
   const draw = (reason: number): string => {
@@ -364,7 +365,9 @@ export function installCaret(doc: Document, initial: CaretPrefs, opts: { support
     clip.style.transform = `translate(${area.left}px, ${area.top}px)`;
     clip.style.width = `${area.width}px`;
     clip.style.height = `${area.height}px`;
-    caret.style.transform = `translate(${box.left - area.left}px, ${box.top - area.top}px)`;
+    // `translate`, not `transform`: Expand scales the caret by `scale`, about its own centre, and a
+    // scale composed onto a `transform` would scale the offset with it.
+    caret.style.translate = `${box.left - area.left}px ${box.top - area.top}px`;
     caret.style.width = `${box.width}px`;
     caret.style.height = `${box.height}px`;
     setGlyph(target, spot, box);

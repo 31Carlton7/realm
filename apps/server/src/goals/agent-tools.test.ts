@@ -27,16 +27,26 @@ function bring(enabled = true) {
 const text = (r: { content: unknown[] }) => (r.content[0] as { text: string }).text;
 
 describe("the goal tools an agent can see", () => {
-  it("appear only while a goal is actually being pursued", async () => {
-    /* THE always-on mutant: offer `update_goal` to every session. A tool for ending an objective,
-       present on a session that has none, is an invitation to invent one to close — and it is a
-       permanent line of the toolset every agent reads on every turn for nothing. */
+  it("are listed whether or not a goal is running, and refuse without one", async () => {
+    /* THE active-only mutant: list the tools only while a goal is active. An agent reads its list
+       when it connects; a `/goal` typed after that never reaches it, so the goal can never be closed
+       and continues itself past done (2026-10-07: fifty continuation turns). */
     const { goals, provider, ctx } = bring();
-    expect(await provider.tools(ctx)).toEqual([]);
+    const names = async () => (await provider.tools(ctx)).map((t) => t.name);
+    expect(await names()).toEqual([UPDATE_GOAL_TOOL_NAME, GOAL_STATUS_TOOL_NAME]);
+    const refused = await provider.call(ctx, UPDATE_GOAL_TOOL_NAME, { status: "complete", note: "x" });
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toMatch(/not pursuing a goal/);
+    expect(goals.get("s1")).toBeNull();
     await goals.start("s1", "ship the release notes", null);
-    expect((await provider.tools(ctx)).map((t) => t.name)).toEqual([UPDATE_GOAL_TOOL_NAME, GOAL_STATUS_TOOL_NAME]);
-    goals.set("s1", "complete", "done");
-    expect(await provider.tools(ctx)).toEqual([]);
+    expect(await names()).toEqual([UPDATE_GOAL_TOOL_NAME, GOAL_STATUS_TOOL_NAME]);
+    expect((await provider.call(ctx, UPDATE_GOAL_TOOL_NAME, { status: "complete", note: "done" })).isError).toBe(false);
+    expect(goals.get("s1")!.status).toBe("complete");
+    expect(await names()).toEqual([UPDATE_GOAL_TOOL_NAME, GOAL_STATUS_TOOL_NAME]);
+  });
+
+  it("are registered as realm-goal, beside Realm's other providers", () => {
+    expect(bring().provider.name).toBe("realm-goal");
   });
 
   it("are gone entirely when the space turned the provider off", async () => {

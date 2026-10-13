@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, AGENT_NOTES, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, AGENT_NOTES, DIRECTORY_MIME, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } from "../../state/store.test-fakes";
@@ -109,7 +109,10 @@ describe("SessionPane", () => {
     const card = tool.closest(".tool-card") as HTMLElement;
     expect(card.querySelector(".cmd-line code")).toHaveTextContent("ls -la");
     expect(screen.getAllByText(/"command": "ls -la"/).length).toBeGreaterThanOrEqual(1); // the permission card still shows the raw details
-    expect(screen.getByLabelText("running")).toBeInTheDocument(); // no result yet while the session is live
+    // No result yet, and the agent is blocked on THIS call's permission: the row says so rather than
+    // spinning like work in progress, and the decision stays in the card at the foot.
+    expect(screen.getByLabelText("waiting for you")).toBeInTheDocument();
+    expect(card.querySelector(".tool-meta")).toHaveTextContent("Waiting for you");
   });
 
   it("empty transcript is the HERO prompter: a greeting and the card, and nothing else", async () => {
@@ -417,9 +420,10 @@ describe("SessionPane", () => {
       sessionEvent("error", { message: "OAuth session expired" }),
     ]));
     expect(screen.queryByLabelText("running")).toBeNull();
-    expect(screen.getByLabelText("no result")).toBeInTheDocument();
+    expect(screen.getByLabelText("stopped")).toBeInTheDocument();
+    expect(document.querySelector(".tool-meta")).toHaveTextContent("Stopped");
     expect(screen.getByRole("alert")).toHaveTextContent("OAuth session expired");
-    expect(screen.getByText("/a/b.ts")).toBeInTheDocument();
+    expect(screen.getByTitle("/a/b.ts")).toHaveTextContent("/a/b.ts");
   });
 
   it("puts the command that fixes an auth failure under the message that reports it", async () => {
@@ -530,6 +534,18 @@ describe("reading a session by opening it", () => {
     expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
     expect(store.getState().sessions["se1"]!.seenSeq).toBe(2);
     rerender(true);
+    await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
+  });
+
+  it("a focused pane in a window nobody is looking at reads nothing — until the window comes back", async () => {
+    // THE MUTANTS: the effect without `windowActive` in its condition (it reads behind another app), or
+    // without it in its dependencies (coming back never reads, and the dot stays on a session on screen).
+    const { api, store, rerender } = await mountAt(false);
+    act(() => store.getState().setWindowActive(false));
+    rerender(true);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(api.calls.some((c) => c.startsWith("markSessionSeen"))).toBe(false);
+    act(() => store.getState().setWindowActive(true));
     await waitFor(() => expect(api.calls).toContain("markSessionSeen:se1@4"));
   });
 });
@@ -923,32 +939,27 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
       delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
     });
 
-    it("an overflowing row folds the permission chip into the model menu instead of wrapping", async () => {
-      // Effort no longer collapses — it LIVES in the menu — so permission is the one chip left
-      // with somewhere to fold to.
+    it("a row that runs short keeps the permission chip on it — the mode is never folded away", async () => {
+      // THE mutant: the old fold, which took "Full access" off the row of every narrow pane and put it
+      // one click deep in the model menu. The row now yields its model name instead (styles.css).
       stageWidths(700, 500);
-      const { store } = await mountFresh();
-      expect(screen.queryByRole("button", { name: "Permission mode" })).toBeNull();
-      expect(document.querySelector(".composer-opts")).toHaveAttribute("data-collapsed");
-      // …and it lives in the model menu as a labelled group, with working handlers.
+      const { store } = await mountFresh({ permissionMode: "bypassPermissions" });
+      const chip = screen.getByRole("button", { name: "Permission mode" });
+      expect(chip).toHaveTextContent("Full access");
+      expect(chip).toHaveAttribute("data-warning");
+      expect(document.querySelector(".composer-opts")).not.toHaveAttribute("data-collapsed");
       openPicker();
-      const perms = screen.getByRole("group", { name: "Permissions" });
-      fireEvent.click(within(perms).getByRole("button", { name: "Accept edits" }));
-      await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("acceptEdits"));
-      await exited();
-      // A setting on the picker's card like the rest: choosing it leaves the picker open.
-      expect(screen.getByRole("dialog", { name: "Model picker" })).not.toHaveAttribute("data-closing");
+      expect(screen.queryByRole("group", { name: "Permissions" })).toBeNull();
+      expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions");
     });
 
-    it("bypassPermissions from the collapsed menu still goes through the inline confirm (U-M7)", async () => {
+    it("the chip carries a short word for a narrow pane beside its long one, and its tooltip names the mode whole", async () => {
       stageWidths(700, 500);
-      const { api, store } = await mountFresh();
-      openPicker();
-      fireEvent.click(within(screen.getByRole("group", { name: "Permissions" })).getByRole("button", { name: "Full access" }));
-      // Nothing transmitted yet — the confirm chip on the row is still the only path in.
-      expect(api.calls.filter((c) => c.startsWith("setSessionOptions"))).toHaveLength(0);
-      fireEvent.click(screen.getByRole("button", { name: "Allow everything? Confirm" }));
-      await waitFor(() => expect(store.getState().sessions.se1?.permissionMode).toBe("bypassPermissions"));
+      await mountFresh({ permissionMode: "acceptEdits" });
+      const chip = screen.getByRole("button", { name: "Permission mode" });
+      expect(chip.querySelector(".perm-long")).toHaveTextContent("Accept edits");
+      expect(chip.querySelector(".perm-short")).toHaveTextContent("Edits");
+      expect(chip).toHaveAttribute("title", "Permission mode: Accept edits");
     });
 
     it("a row that fits keeps the permission chip; the menu carries only its permanent effort track", async () => {
@@ -2581,7 +2592,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
     const files = within(menu).getByRole("menuitem", { name: /^Files…/ });
     expect(files).toHaveAccessibleName(/^Files…\s*⌘U$/);
     expect(files).toHaveAccessibleDescription("Attach to this message");
-    expect(within(menu).getByRole("menuitem", { name: "Folder…" })).toHaveAccessibleDescription("Link a folder to this space");
+    expect(within(menu).getByRole("menuitem", { name: "Folder…" })).toHaveAccessibleDescription("Attach to this message");
     // Select in Realm says the person's own chord for it, and is not an agent's to press (app_act
     // refuses anything inside `data-no-agent`): a pick is the person pointing.
     const select = within(menu).getByRole("menuitem", { name: /^Select in Realm/ });
@@ -2666,12 +2677,52 @@ describe("the '+' menu (Plan 12 W1)", () => {
     await waitFor(() => expect(store.getState().drafts["se1"]).toBe("/goal ship the release notes"));
   });
 
-  it("Folder… runs the existing project-link flow", async () => {
-    const { api } = await mountPlus();
+  /* The bug: Folder… linked the folder to the space as a project, which nothing in the prompter draws,
+     so a chosen folder appeared nowhere. It is an attachment, the same chip a folder dragged in from
+     Finder already becomes, and it reaches the agent as its path. THE mutant: the row going back to
+     `pickAndLinkProject`. */
+  const folder = (path: string) => ({ path, mime: DIRECTORY_MIME, name: path.split("/").pop()!, size: 0 });
+
+  it("Folder… puts each chosen folder in the prompter as a chip, and sends it as a path", async () => {
+    const { api } = await mountPlus({ pickFolders: [folder("/tmp/src"), folder("/Users/me/elsewhere")] });
+    openPlus();
+    const row = screen.getByRole("menuitem", { name: "Folder…" });
+    expect(row).toHaveAccessibleDescription("Attach to this message");
+    fireEvent.click(row);
+    await waitFor(() => expect(document.querySelectorAll(".attach-tile")).toHaveLength(2));
+    expect(api.calls).toContain("pickFolders");
+    expect(api.data.projects.s1 ?? []).toEqual([]);
+    // A folder's chip wears the folder glyph and is named and removable like any other.
+    const tile = document.querySelector(".attach-tile")!;
+    expect(tile.querySelector(".attach-glyph")).not.toBeNull();
+    // Its tip says what it is, not the "0 B" a folder's stat size would read as.
+    expect(tile.querySelector(".visually-hidden")!.textContent).toBe("src — Folder · Claude gets the folder path in your message and opens it itself.");
+    fireEvent.click(screen.getByRole("button", { name: "Remove elsewhere" }));
+    await waitFor(() => expect(document.querySelectorAll(".attach-tile")).toHaveLength(1));
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "look here" } });
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.sent[0]!.attachments).toEqual([{ path: "/tmp/src", mime: DIRECTORY_MIME }]);
+  });
+
+  it("Folder… adds to the files already in the row rather than replacing them", async () => {
+    const { api } = await mountPlus({
+      pickFiles: [{ path: "/x/notes.md", mime: "text/markdown", name: "notes.md", size: 10 }],
+      pickFolders: [folder("/tmp/src")],
+    });
+    openPlus();
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Files…/ }));
+    await waitFor(() => expect(document.querySelectorAll(".attach-tile")).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Add" })).toBeNull());
     openPlus();
     fireEvent.click(screen.getByRole("menuitem", { name: "Folder…" }));
-    // pickFolder resolves "/tmp/picked-repo" in the fake; the project lands in THIS space.
-    await waitFor(() => expect(api.data.projects.s1?.map((p) => p.rootPath)).toEqual(["/tmp/picked-repo"]));
+    await waitFor(() => expect(document.querySelectorAll(".attach-tile")).toHaveLength(2));
+    const box = screen.getByRole("textbox", { name: /message/i });
+    fireEvent.change(box, { target: { value: "both" } });
+    fireEvent.keyDown(box, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(api.sent).toHaveLength(1));
+    expect(api.sent[0]!.attachments).toEqual([{ path: "/x/notes.md", mime: "text/markdown" }, { path: "/tmp/src", mime: DIRECTORY_MIME }]);
   });
 
   it("Skills opens the picker, which lists skills this space has NOT enabled — the whole point of it", async () => {

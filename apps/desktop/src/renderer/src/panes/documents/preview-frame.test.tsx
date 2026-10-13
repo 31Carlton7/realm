@@ -15,6 +15,13 @@ vi.mock("../../rpc/client", () => ({
 }));
 const fire = (event: string, p: unknown) => { act(() => { for (const cb of [...(listeners.get(event) ?? [])]) cb(p); }); };
 
+/* pdf.js itself never loads in jsdom: importing it is slow enough to time a test out, and it draws
+   nothing here. pdf-view.test.tsx drives the viewer against a fake of this seam. */
+vi.mock("./pdf-source", () => ({
+  PdfOpenError: class extends Error {},
+  openPdf: () => ({ promise: new Promise(() => {}), cancel: () => {} }),
+}));
+
 import { DocumentsPane } from "./DocumentsPane";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
@@ -123,14 +130,15 @@ describe("DocumentsPane — html guides (Plan 22)", () => {
 });
 
 describe("DocumentsPane — pdf (Plan 22)", () => {
-  it("shows a PDF preview-only: no text is read, no Source toggle, an unsandboxed frame", async () => {
+  /* Realm draws a PDF itself now (PdfView.tsx; its own suite is pdf-view.test.tsx). What this file
+     still holds is the pane's half: a PDF is never read as text, never framed, and has no Source. */
+  it("shows a PDF in Realm's own viewer: no text is read, no frame, no Source toggle", async () => {
     const { api } = renderPane({}, ["slides/l4.pdf"], "slides/l4.pdf");
-    const frame = await screen.findByTitle("PDF preview of slides/l4.pdf") as HTMLIFrameElement;
-    expect(frame.hasAttribute("sandbox")).toBe(false);
-    expect(frame.src).toContain("/docs1/slides/l4.pdf");
+    await screen.findByRole("region", { name: "PDF l4.pdf" });
+    expect(document.querySelector("iframe")).toBeNull();
+    await waitFor(() => expect(api.calls).toContain("previewInfo"));
     expect(api.calls.some((c) => c.startsWith("readDocument:"))).toBe(false);
     expect(screen.queryByRole("button", { name: "Source" })).toBeNull();
-    expect(screen.getByText("Saved")).toBeInTheDocument();
   });
 
   it("the picker lets a PDF be opened", async () => {

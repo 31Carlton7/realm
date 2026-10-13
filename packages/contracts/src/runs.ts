@@ -101,6 +101,12 @@ export const RunSchema = z.object({
   /** The schedule whose firing created this run, or null for one started by hand. A plain string for
    *  `sessionId`'s reason: "schedule S fired run X" stays true after S is deleted. */
   scheduleId: z.string().nullable(),
+  /** The team role whose run this is, or null. A plain string for `scheduleId`'s reason. */
+  roleId: z.string().nullable(),
+  /** Why a role's run started: `schedule`, `review` (a person asked for changes) or `manual`. */
+  wokeOn: z.string().nullable(),
+  /** What the run's session spent, in API-equivalent dollars, as its last usage report said. */
+  costUsd: z.number().nullable(),
   deadlineAt: z.number().int().nullable(),
   /** The final report of the attempt that settled it — the deliverable, verbatim. */
   result: z.string().nullable(),

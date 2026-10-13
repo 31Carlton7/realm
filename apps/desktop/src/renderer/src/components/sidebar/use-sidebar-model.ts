@@ -18,9 +18,11 @@ export function useSidebarState(): SidebarState {
   const sessionStatus = useApp((s) => s.sessionStatus);
   const sessionSpace = useApp((s) => s.sessionSpace);
   const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
+  const sessionActivityAt = useApp((s) => s.sessionActivityAt);
   const quickChatId = useApp((s) => s.quickChat?.sessionId ?? null);
-  return useMemo(() => ({ spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId }),
-    [spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, quickChatId]);
+  const teams = useApp((s) => s.teams);
+  return useMemo(() => ({ spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId, teams }),
+    [spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId, teams]);
 }
 
 /** The active profile's spaces, in section order. */
@@ -29,9 +31,9 @@ export function useOrderedSpaces() {
   const byActivity = useApp((s) => s.sidebarActivityOrder);
   const sessionStatus = useApp((s) => s.sessionStatus);
   const sessionSpace = useApp((s) => s.sessionSpace);
-  const sessionUpdatedAt = useApp((s) => s.sessionUpdatedAt);
-  return useMemo(() => orderSpaces(spaces, byActivity, { sessionStatus, sessionSpace, sessionUpdatedAt }),
-    [spaces, byActivity, sessionStatus, sessionSpace, sessionUpdatedAt]);
+  const sessionActivityAt = useApp((s) => s.sessionActivityAt);
+  return useMemo(() => orderSpaces(spaces, byActivity, { sessionStatus, sessionSpace, sessionActivityAt }),
+    [spaces, byActivity, sessionStatus, sessionSpace, sessionActivityAt]);
 }
 
 /** The rows of the active profile: what the sections and Recent are drawn from. */

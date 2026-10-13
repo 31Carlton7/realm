@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useApp } from "../../state/store";
 import { memoryReaderNames } from "../../components/settings/MemoryPanel";
 import { MemoryDoc } from "../../components/settings/MemoryDoc";
+import { MemoryRepoRow } from "../../components/settings/MemoryRepoRow";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { LibraryFiles, type LibraryFilesHandle } from "./LibraryFiles";
@@ -209,6 +210,8 @@ function LibraryMemoryTab({ spaceId }: { spaceId: string }) {
                 placeholder={`Durable context for every ${profile.name} space — conventions, links, standing instructions…`} />
             ) : <p className="env-empty">Loading…</p>}
           </div>
+          <h3 className="settings-head">Memory repo</h3>
+          <MemoryRepoRow owner={{ scope: "profile", id: profile.id }} />
         </>
       )}
       <h3 className="settings-head">Each space</h3>

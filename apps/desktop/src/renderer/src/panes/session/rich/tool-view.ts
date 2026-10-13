@@ -1,5 +1,6 @@
 import { isPlayablePath } from "@realm/contracts";
 import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff, type FileDiff } from "./diff";
+import { mcpParts } from "../tool-summary";
 
 /** What a tool call's input and result should be DRAWN as, rather than dumped as JSON and text.
  *
@@ -276,4 +277,92 @@ export function mediaWorkFor(name: string, input: Record<string, unknown>): Medi
     detail: str(input, "description"),
     aspect: aspectIn(command) ?? (kind === "video" ? "16 / 9" : "1 / 1"),
   };
+}
+
+/** One argument of an MCP call, as its panel lists it. `code` marks a value that is an identifier or a
+ *  number — set in mono — against prose, which is not; `nested` is an object or a list, said as JSON
+ *  because a two-column list cannot hold a tree. */
+export type ToolArg = { key: string; value: string; form: "code" | "prose" | "json" };
+
+/** What an opened call's body draws: one panel for the KIND of act, the way a fenced block is one
+ *  panel for its code. Null where Realm has no better drawing than the two raw wells — and also where
+ *  a payload is past `DRAW_LIMIT`, so the wells' own clamp and "Show all" stay the one way to read it. */
+export type ToolPanel =
+  | { kind: "run"; command: string; cwd: string | null; output: string | null; diff: FileDiff[] | null; exitCode: number | null; error: boolean }
+  | { kind: "diff"; files: FileDiff[]; error: string | null }
+  | { kind: "read"; path: string; text: string; firstLine: number | null; error: string | null }
+  | { kind: "media"; path: string; error: string | null }
+  | { kind: "search"; pattern: string; groups: MatchGroup[]; note: string | null }
+  | { kind: "fetch"; url: string | null; query: string | null; prompt: string | null; result: string | null; error: boolean }
+  | { kind: "mcp"; server: string; tool: string; args: ToolArg[]; argsText: string; result: string | null; json: boolean; error: boolean }
+  | { kind: "todos"; todos: Todo[] };
+
+type PanelCall = { name: string; input: Record<string, unknown>; toolKind?: string; result: { content: string; isError: boolean } | null };
+
+const IDENT = /^[\w.:/@#~+-]+$/;
+
+/** An MCP call's arguments as a list of key and value, in the order the agent wrote them. */
+export function toolArgs(input: Record<string, unknown>): ToolArg[] {
+  return Object.entries(input).map(([key, v]) => {
+    // A short list of plain values reads as the list it is; anything deeper falls back to JSON.
+    if (Array.isArray(v) && v.every((x) => typeof x === "string" || typeof x === "number" || typeof x === "boolean"))
+      return { key, value: v.join(", "), form: "prose" };
+    if (v !== null && typeof v === "object") return { key, value: JSON.stringify(v, null, 2), form: "json" };
+    const value = String(v);
+    return { key, value, form: typeof v === "string" && !IDENT.test(v) ? "prose" : "code" };
+  });
+}
+
+export function toolPanel(b: PanelCall): ToolPanel | null {
+  const content = b.result?.content ?? null;
+  // Past the draw limit, everything is the wells: their clamp is the one bounded way to show it.
+  if (content !== null && content.length >= DRAW_LIMIT) return null;
+  const error = b.result?.isError ? content || "(empty)" : null;
+  const media = toolMediaPath(b.name, b.input);
+  if (media) return { kind: "media", path: media, error };
+  if (COMMAND_TOOLS.has(b.name) || b.toolKind === "execute") {
+    const command = str(b.input, "command") ?? (Array.isArray(b.input["command"]) ? (b.input["command"] as unknown[]).join(" ") : null);
+    if (!command) return null;
+    const split = content === null ? null : splitExitCode(content);
+    // `git diff` and `git show` are how most changes reach a transcript, and they deserve the diff an
+    // Edit gets rather than a column of + and − in a terminal.
+    const diff = split && !b.result?.isError && isUnifiedDiff(split.output) ? parseUnifiedDiff(split.output) : null;
+    return { kind: "run", command, cwd: str(b.input, "cwd") ?? str(b.input, "workdir"), output: split ? split.output : null, diff: diff?.length ? diff : null,
+      exitCode: split?.exitCode ?? null, error: b.result?.isError ?? false };
+  }
+  if (DIFF_TOOLS.has(b.name)) {
+    const files = fileDiffsFor(b.name, b.input);
+    return files ? { kind: "diff", files, error } : null;
+  }
+  // An ACP agent's edit carries its diff in the result rather than in its input.
+  if (b.toolKind && (b.toolKind === "edit" || b.toolKind === "delete" || b.toolKind === "move") && content && !error && isUnifiedDiff(content)) {
+    const files = parseUnifiedDiff(content);
+    return files.length ? { kind: "diff", files, error: null } : null;
+  }
+  if (b.name === "Read") {
+    const path = str(b.input, "file_path") ?? "";
+    if (content === null || error) return error ? { kind: "read", path, text: "", firstLine: null, error } : null;
+    const numbered = stripLineNumbers(content);
+    return { kind: "read", path, text: numbered?.text ?? content, firstLine: numbered?.firstLine ?? null, error: null };
+  }
+  if (b.name === "Grep" || b.name === "Glob") {
+    const pattern = str(b.input, "pattern") ?? "";
+    const matches = content && !error ? parseMatches(content) : null;
+    return matches ? { kind: "search", pattern, ...matches } : null;
+  }
+  if (b.name === "WebFetch" || b.name === "WebSearch" || b.name === "web_search" || b.name === "webSearch") {
+    const url = str(b.input, "url"), query = str(b.input, "query");
+    return url || query ? { kind: "fetch", url, query, prompt: str(b.input, "prompt"), result: content, error: b.result?.isError ?? false } : null;
+  }
+  if (b.name === "TodoWrite") {
+    const todos = parseTodos(b.input);
+    return todos ? { kind: "todos", todos } : null;
+  }
+  const mcp = mcpParts(b.name);
+  if (mcp) {
+    let json = false, result = content;
+    if (content !== null) { try { const parsed: unknown = JSON.parse(content); if (parsed !== null && typeof parsed === "object") { result = JSON.stringify(parsed, null, 2); json = true; } } catch { /* prose */ } }
+    return { kind: "mcp", ...mcp, args: toolArgs(b.input), argsText: JSON.stringify(b.input, null, 2), result, json, error: b.result?.isError ?? false };
+  }
+  return null;
 }

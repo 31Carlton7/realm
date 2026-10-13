@@ -112,8 +112,9 @@ export type BrowserServerBridge = {
   get(browserId: string): Promise<Browser>;
   update(browserId: string, patch: { url?: string; title?: string; favicon?: string; failed?: boolean }): Promise<void>;
   allowlist(spaceId: string): Promise<string[] | null>;
-  /** Where this space's downloads land — `<project root>/downloads`, or null with no project. The
-   *  SERVER decides, by the same rule the agent's downloads follow; the renderer never joins paths. */
+  /** Where this space's downloads land — `<project root>/downloads`, else `<space folder>/downloads`;
+   *  null only for a space that is gone. The SERVER decides, by the same rule the agent's downloads
+   *  follow; the renderer never joins paths. */
   downloadDir(spaceId: string): Promise<string | null>;
   /** Where this space's screenshots land — `<space folder>/screenshots`. Same rule as `downloadDir`:
    *  the server says where, and the renderer only passes it on. */

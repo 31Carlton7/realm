@@ -2,10 +2,11 @@ import { createServer, type IncomingMessage, type Server as HttpServer, type Ser
 import { randomBytes, randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
+import { ListToolsRequestSchema, CallToolRequestSchema, type CallToolResult, type ServerNotification, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerConfig } from "@realm/adapters";
-import { callableByApp, visibleToModel } from "@realm/contracts";
+import { REALM_READ_ONLY_TOOLS, callableByApp, visibleToModel } from "@realm/contracts";
 import type { DrawnView } from "../apps/views";
+import { policyAnswered } from "../browsers/permissions";
 import type { RpcServer } from "../rpc/server";
 import type { SessionsStore } from "../store/sessions";
 import type { McpCallLogStore, McpServerRow, McpServersStore } from "../store/mcp";
@@ -15,14 +16,40 @@ import type { McpService } from "./service";
 
 const SUMMARY_MAX = 200;
 const truncate = (s: string): string => (s.length > SUMMARY_MAX ? s.slice(0, SUMMARY_MAX) : s);
+const READ_ONLY_TOOLS = new Set(REALM_READ_ONLY_TOOLS);
 /** How long `refreshTools` waits for a session's agent to read its tool list again. Long enough for
  *  a client that honours `tools/list_changed` to round-trip on this Mac; short enough that one that
  *  ignores it costs a pause the first time, never a hang. */
 const RELIST_WAIT_MS = 1_500;
 
-/** Who is calling a provider tool — the gateway's own session attribution, handed through so a
- *  provider can raise `permission_request` on the RIGHT session and scope policy per space. */
-export type ProviderCallContext = { sessionId: string; spaceId: string };
+/** How often a call that is still running says so. Claude aborts a call that has sent "no response or
+ *  progress for 300s"; once every 25 s keeps a long `agent_wait` well inside that, at a cost of one small
+ *  message per call per 25 s. */
+export const HEARTBEAT_MS = 25_000;
+
+/**
+ * Who is calling a provider tool — the gateway's own session attribution, handed through so a
+ * provider can raise `permission_request` on the RIGHT session and scope policy per space.
+ *
+ * `progress` and `signal` exist only while the gateway is answering a real `tools/call`. `progress`
+ * says what the call is doing now; the gateway sends it at the next heartbeat, and at once when
+ * `done`/`total` moved — a milestone, not a clock tick. `signal` aborts when the agent cancelled the
+ * call, so a tool that is only listening can stop listening for a client that is gone.
+ */
+export type ProviderCallContext = {
+  sessionId: string;
+  spaceId: string;
+  progress?: (message: string, done?: number, total?: number) => void;
+  signal?: AbortSignal;
+};
+
+/** What the SDK hands a `tools/call` handler that the heartbeat needs: the caller's progress token,
+ *  if it sent one, the cancellation signal, and the way back onto the request's own stream. */
+type CallChannel = {
+  progressToken?: string | number;
+  signal?: AbortSignal;
+  send?: (notification: ServerNotification) => Promise<void>;
+};
 
 /** One session's toolset shape — see the `sessionToolset` seam's doc comment in the constructor.
  *  `string[]` = only these providers (no server rows at all); `{ exclude }` = the full normal
@@ -158,6 +185,19 @@ export class McpGateway {
      * result is all anyone sees, exactly as before.
      */
     views?: { drew(sessionId: string, v: DrawnView): void };
+    /** How often a running call says it is still running (`HEARTBEAT_MS`). Tests shrink it. */
+    heartbeatMs?: number;
+    /**
+     * A team's policies (team/policies/gate.ts): asked about every routed call — Realm's own tools and
+     * every server row's — after the allowlist and before the provider or the hub. A refusal is logged
+     * and returned like any other blocked call and never reaches either; a call the policy answered for
+     * runs with `policyAnswered` set, so its own ordinary gate does not ask a second time. Unwired (a
+     * test, a harness), no call is gated by a policy.
+     */
+    policy?: {
+      check(ctx: { sessionId: string; spaceId: string; fromView?: boolean }, call: PolicyRoute & { fullName: string; args: unknown }):
+        Promise<{ ok: true; answered: boolean } | { ok: false; message: string; summary: string }>;
+    };
   }) {}
 
   /** The restriction for one session, `null` meaning unrestricted. One read path shared by
@@ -416,10 +456,14 @@ export class McpGateway {
 
   private async connectSession(sessionId: string, entry: SessionEntry): Promise<{ server: Server; transport: StreamableHTTPServerTransport }> {
     try {
-      const server = new Server({ name: "realm-gateway", version: "1.0.0" }, { capabilities: { tools: { listChanged: true } } });
+      // `logging` is declared so a call whose client sent no progress token can still be kept alive
+      // with `notifications/message` — the SDK refuses to send one from a server that did not say it
+      // logs.
+      const server = new Server({ name: "realm-gateway", version: "1.0.0" }, { capabilities: { tools: { listChanged: true }, logging: {} } });
       server.setRequestHandler(ListToolsRequestSchema, async () => this.listTools(sessionId, entry.spaceId));
-      server.setRequestHandler(CallToolRequestSchema, async (request) =>
-        this.handleCall(sessionId, entry.spaceId, request.params.name, request.params.arguments));
+      server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
+        this.handleCall(sessionId, entry.spaceId, request.params.name, request.params.arguments,
+          { progressToken: request.params._meta?.progressToken, signal: extra.signal, send: extra.sendNotification }));
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
       await server.connect(transport);
       // `register()` (a session restart) may have swapped in a FRESH entry for `sessionId` while this
@@ -469,7 +513,11 @@ export class McpGateway {
     const perProvider = await Promise.all([...this.providers.values()].filter((p) => providerVisible(p.name, toolset)).map(async (p): Promise<Tool[]> => {
       try {
         const tools = await p.tools({ sessionId, spaceId });
-        return tools.map((t): Tool => ({ ...t, name: `${p.name}__${t.name}` }));
+        return tools.map((t): Tool => {
+          const name = `${p.name}__${t.name}`;
+          // Codex asks before any MCP tool not marked read-only; these change nothing, so it need not.
+          return READ_ONLY_TOOLS.has(name) ? { ...t, name, annotations: { ...t.annotations, readOnlyHint: true } } : { ...t, name };
+        });
       } catch { return []; }
     }));
     if (Array.isArray(toolset)) { this.relisted(sessionId); return { tools: perProvider.flat() }; }
@@ -507,7 +555,7 @@ export class McpGateway {
    * what agents tried to do through it, and a denied call is exactly the kind of thing a space owner
    * wants visible there (this is what W7's Activity view surfaces policy denials from).
    */
-  private async handleCall(sessionId: string, spaceId: string, fullName: string, args: unknown): Promise<CallToolResult> {
+  private async handleCall(sessionId: string, spaceId: string, fullName: string, args: unknown, channel: CallChannel = {}): Promise<CallToolResult> {
     const argsJson = JSON.stringify(args ?? {});
     const toolset = this.toolsetOf(sessionId);
     // In-process providers route first, under the same longest-prefix rule (an exact name tie goes to
@@ -515,15 +563,21 @@ export class McpGateway {
     // Provider calls land in the same Activity log, with `serverId: null` — there is no row behind them.
     const provider = this.resolveProvider(spaceId, fullName, toolset);
     if (provider) {
+      const gate = await this.gatePolicy(sessionId, spaceId, { connector: `realm:${provider.p.name}`, tool: provider.tool, fullName, args });
+      if (!gate.ok) return this.blocked(sessionId, null, provider.p.name, provider.tool, argsJson, gate.message, gate.summary);
       const start = Date.now();
+      const alive = this.keepAlive(fullName, channel);
       try {
-        const result = await provider.p.call({ sessionId, spaceId }, provider.tool, args);
+        const run = () => provider.p.call({ sessionId, spaceId, progress: alive.progress, signal: channel.signal }, provider.tool, args);
+        const result = await (gate.answered ? policyAnswered.run(true, run) : run());
         this.record(sessionId, null, provider.p.name, provider.tool, argsJson, result.isError !== true, Date.now() - start, summarize(result));
         return result;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.record(sessionId, null, provider.p.name, provider.tool, argsJson, false, Date.now() - start, truncate(message));
         return errorResult(message);
+      } finally {
+        alive.stop();
       }
     }
     // A restricted session (W5) has nowhere else to route: anything its allowed providers did not
@@ -590,7 +644,10 @@ export class McpGateway {
         `mcp: "${tool}" on "${serverName}" is for that server's view to call, not the agent.`,
         "blocked: a view-only tool");
     }
+    const gate = await this.gatePolicy(sessionId, spaceId, { connector: `mcp:${serverId}`, tool, host: hostOf(this.d.servers.get(serverId)?.url ?? ""), annotations: live?.def.annotations ?? null, fullName, args });
+    if (!gate.ok) return this.blocked(sessionId, serverId, serverName, tool, argsJson, gate.message, gate.summary);
     const start = Date.now();
+    const alive = this.keepAlive(fullName, channel);
     try {
       // Compressed HERE and not one layer down in the hub: the hub is row-keyed and session-blind,
       // and this is the seam that knows a result is on its way to an agent's context rather than,
@@ -624,7 +681,87 @@ export class McpGateway {
       // `isError: true` CallToolResult rather than letting it propagate as a JSON-RPC protocol error
       // gives the agent the same shape of failure it would get from any other failed tool call.
       return errorResult(message);
+    } finally {
+      alive.stop();
     }
+  }
+
+  /** The team policy's word on one routed call; a thrown check refuses rather than letting it through. */
+  private async gatePolicy(sessionId: string, spaceId: string, call: PolicyRoute & { fullName: string; args: unknown }, fromView = false) {
+    if (!this.d.policy) return { ok: true as const, answered: false };
+    try {
+      return await this.d.policy.check({ sessionId, spaceId, ...(fromView ? { fromView } : {}) }, call);
+    } catch (err) {
+      return { ok: false as const, summary: "blocked: the policy check failed", message: `mcp: Realm could not check this space's policy for "${call.fullName}" (${err instanceof Error ? err.message : String(err)}), so it did not run.` };
+    }
+  }
+
+  /**
+   * Where a call by this name would go for this session, as the policy reads it: the connector, the tool,
+   * and what its server said about it. Null for a name that routes nowhere. What the engines ask before
+   * their own MCP card (`PolicyGate.decides`) — the same routing `handleCall` does, without calling.
+   */
+  async route(sessionId: string, spaceId: string, fullName: string): Promise<PolicyRoute | null> {
+    const toolset = this.toolsetOf(sessionId);
+    const provider = this.resolveProvider(spaceId, fullName, toolset);
+    if (provider) return { connector: `realm:${provider.p.name}`, tool: provider.tool };
+    if (Array.isArray(toolset)) return null;
+    const resolved = this.resolveCall(spaceId, fullName);
+    if (!resolved) return null;
+    const live = await this.d.hub.toolOf(resolved.serverId, resolved.tool).catch(() => null);
+    return { connector: `mcp:${resolved.serverId}`, tool: resolved.tool, host: hostOf(this.d.servers.get(resolved.serverId)?.url ?? ""), annotations: live?.def.annotations ?? null };
+  }
+
+  /**
+   * Keep one running call from going silent. Claude Code aborts a tool call that has sent "no response
+   * or progress for 300s", and `agent_wait` legitimately listens for far longer than that.
+   *
+   * Every `heartbeatMs` the call says what it is doing — the provider's last `progress` message, or a
+   * plain "still running" for a call that never reports one. A provider's milestone (its `done`/`total`
+   * moved) goes out at once and restarts the clock, so a call that reports its own progress is never
+   * pinged twice for the same stretch.
+   *
+   * With a `progressToken` the client asked for progress, and gets `notifications/progress`. Without
+   * one it gets `notifications/message` instead: a client with no handler for it drops it, but the
+   * bytes still cross the request's stream, which is what an idle timer watches. Both go out on the
+   * request's OWN stream (the SDK's `sendNotification` carries the request id), because a client that
+   * never opened the standalone GET stream would otherwise never see them.
+   */
+  private keepAlive(tool: string, channel: CallChannel): { progress: NonNullable<ProviderCallContext["progress"]>; stop(): void } {
+    const every = this.d.heartbeatMs ?? HEARTBEAT_MS;
+    let latest = `${tool} is still running`;
+    let milestone: string | null = null;
+    let sent = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+    const send = (): void => {
+      if (stopped || !channel.send) return;
+      sent += 1;
+      const notification: ServerNotification = channel.progressToken !== undefined
+        ? { method: "notifications/progress", params: { progressToken: channel.progressToken, progress: sent, message: latest } }
+        : { method: "notifications/message", params: { level: "info", logger: "realm", data: latest } };
+      void channel.send(notification).catch(() => { /* the stream closed under the call; its result will fail the same way */ });
+      arm();
+    };
+    const arm = (): void => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(send, every);
+    };
+    const stop = (): void => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      channel.signal?.removeEventListener("abort", stop);
+    };
+    channel.signal?.addEventListener("abort", stop);
+    arm();
+    return {
+      progress: (message, done, total) => {
+        latest = message;
+        const mark = done === undefined && total === undefined ? null : `${done ?? ""}/${total ?? ""}`;
+        if (mark !== null && mark !== milestone) { milestone = mark; send(); }
+      },
+      stop,
+    };
   }
 
   /**
@@ -653,6 +790,10 @@ export class McpGateway {
     if (!live || !callableByApp(live.ui)) {
       return this.blocked(sessionId, serverId, row.name, tool, argsJson, `mcp: "${row.name}" has no tool "${tool}" its view may call.`, "blocked: a view's call to a tool not open to views");
     }
+    // The person clicked to allow this, so only what binds every session applies: a team's "never" and
+    // "approve, then press".
+    const gate = await this.gatePolicy(sessionId, session.spaceId, { connector: `mcp:${serverId}`, tool, host: hostOf(row.url), annotations: live.def.annotations ?? null, fullName: `${row.name}__${tool}`, args }, true);
+    if (!gate.ok) return this.blocked(sessionId, serverId, row.name, tool, argsJson, gate.message, `${gate.summary} (from its view)`);
     const start = Date.now();
     try {
       const result = await this.d.hub.call(serverId, tool, args, { sessionId });
@@ -739,6 +880,11 @@ function providerVisible(name: string, toolset: SessionToolset): boolean {
   if (Array.isArray(toolset)) return toolset.includes(name);
   return !toolset.exclude.includes(name);
 }
+
+/** One routed call as a team's policy reads it. */
+export type PolicyRoute = { connector: string; tool: string; host?: string | null; annotations?: Record<string, unknown> | null };
+
+const hostOf = (url: string): string | null => { try { return url ? new URL(url).host.toLowerCase() : null; } catch { return null; } };
 
 const errorResult = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
 

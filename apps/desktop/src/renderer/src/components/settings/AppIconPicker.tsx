@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import graphite from "../../assets/app-icons/default.png?inline";
+import planes from "../../assets/app-icons/default.png?inline";
 import indigo from "../../assets/app-icons/indigo.png?inline";
 import clay from "../../assets/app-icons/clay.png?inline";
 import frost from "../../assets/app-icons/frost.png?inline";
@@ -12,7 +12,7 @@ import mint from "../../assets/app-icons/mint.png?inline";
 /** Every icon Realm ships, the bundle's own first. Ids are main's (`APP_ICON_IDS`, main/app-icon.ts),
  *  which refuses any other — `app-icon.test.ts` holds the two lists and the asset files together. */
 export const APP_ICONS = [
-  { id: "default", label: "Graphite", src: graphite },
+  { id: "default", label: "Realm", src: planes },
   { id: "indigo", label: "Indigo", src: indigo },
   { id: "clay", label: "Clay", src: clay },
   { id: "frost", label: "Frost", src: frost },

@@ -1,10 +1,12 @@
 import type { Item } from "@realm/contracts";
 import type { MenuItem } from "../components/Menu";
-import type { ComponentType, JSX } from "react";
+import { Suspense, type ComponentType, type JSX } from "react";
 import { PlaceholderPane } from "./PlaceholderPane";
 import { SessionMeta, SessionPanelActions, useSessionMenuItems } from "./session/SessionPane";
 import { MachineMeta, MachinePanelActions, useMachineMenuItems } from "./machine/MachineBar";
 import { TerminalMeta } from "./TerminalMeta";
+import { useDocumentsMenuItems } from "./documents/shown-file";
+import { ReviewMeta } from "./team/ReviewPane";
 
 /** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
 export type PaneProps = { item: Item; visible: boolean; focused?: boolean };
@@ -12,7 +14,8 @@ const registry: Partial<Record<Item["kind"], ComponentType<PaneProps>>> = {};
 export function registerPane(kind: Item["kind"], c: ComponentType<PaneProps>) { registry[kind] = c; }
 export function PaneFor(props: PaneProps) {
   const C = registry[props.item.kind] ?? PlaceholderPane;
-  return <C {...props} />;
+  // A pane whose code is still loading (`lazyComponent`) draws nothing over the pane's own ground.
+  return <Suspense fallback={null}><C {...props} /></Suspense>;
 }
 
 /** Optional right-side PanelBar content per item kind. */
@@ -20,6 +23,7 @@ export const paneMeta: Partial<Record<Item["kind"], (p: { item: Item }) => JSX.E
   session: SessionMeta, // model label + status dot + cost, moved out of SessionPane's old header
   machine: MachineMeta,  // the state word, and the guest's live resolution in mono (Plan 25 W3)
   terminal: TerminalMeta, // "Replayed" or "Not running", and nothing at all while the pane is live
+  review: ReviewMeta, // the waiting mark while a team's batch waits for a yes
   // No simulator: its state and its controls are the device's own toolbar, over the device (SimulatorBar.tsx).
 };
 
@@ -52,11 +56,13 @@ export const paneActions: Partial<Record<Item["kind"], (p: { item: Item; keep: n
  * and a machine-shaped `if` in it would be the start of the opposite.
  */
 export function usePaneMenuItems(item: Item, keep: number): MenuItem[] {
-  /* Both hooks, every time, in a fixed order — see the note above. `keep` reaches them because the
+  /* Every kind's hook, every time, in a fixed order — see the note above. `keep` reaches them because the
      rows an action contributes depend on whether its BUTTON is still in the bar: the overflow is
      the same cluster, continued, not a second copy of it. */
   const session = useSessionMenuItems(item, keep);
   const machine = useMachineMenuItems(item, keep);
+  const documents = useDocumentsMenuItems(item);
   if (item.kind === "session") return session;
+  if (item.kind === "documents") return documents;
   return item.kind === "machine" ? machine : [];
 }

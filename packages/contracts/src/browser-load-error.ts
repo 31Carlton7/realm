@@ -21,7 +21,7 @@ export type BrowserLoadError = { code: number; name: string; url: string };
 export const ERR_ABORTED = -3;
 
 /**
- * The page's words. `mark` is which glyph it wears: the spiral reaching for a server, or the padlock
+ * The page's words. `mark` is which glyph it wears: Realm's mark reaching for a server, or the padlock
  * for a connection Realm will not trust. `note` is a second sentence only a certificate failure has —
  * why there is no way past the page. `tips` are the "Try:" list, empty when there is nothing useful to
  * suggest beyond Reload.

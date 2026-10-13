@@ -130,6 +130,13 @@ export function turnEdits(blocks: readonly Block[], opts: {
   changes: Readonly<Record<number, TurnChanges>> | undefined;
   checkpoints: readonly Checkpoint[] | undefined;
   sessionId: string; cwd: string | null; root: string | null;
+  /** Where `blocks` sits in the transcript's numbering (`Transcript.base`), for the cards' keys. */
+  base?: number;
+  /** When the turn before `blocks[0]` settled, for a transcript that starts partway through its log:
+   *  a checkpoint taken before then fronted an earlier turn, not the first one here. Null is a log
+   *  read from its end that does not know, and then the first turn is credited no checkpoint at all
+   *  — an Undo restoring one taken further back would take earlier turns' work with it. */
+  settledAt?: number | null;
 }): { cards: Map<string, TurnEdits>; turns: TurnRecord[] } {
   const cards = new Map<string, TurnEdits>();
   const turns: TurnRecord[] = [];
@@ -139,15 +146,15 @@ export function turnEdits(blocks: readonly Block[], opts: {
   let tools: Extract<Block, { kind: "tool" }>[] = [];
   let askedAt: number | null = null;
   let asked: string | null = null;
-  let lastRun = 0;
+  let lastRun: number | null = opts.settledAt === undefined ? 0 : opts.settledAt;
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i]!;
     if (b.kind === "tool") { tools.push(b); continue; }
     if (b.kind === "user") { if (askedAt === null) { askedAt = b.ts; asked = b.from || b.goal ? null : b.text; } continue; }
     if (b.kind !== "run") continue;
-    const key = blockKey(b, i);
+    const key = blockKey(b, i + (opts.base ?? 0));
     const c = opts.changes?.[b.ts];
-    const fronting = askedAt === null ? null : frontingCheckpoint(opts.checkpoints ?? [], opts.sessionId, lastRun, askedAt);
+    const fronting = askedAt === null || lastRun === null ? null : frontingCheckpoint(opts.checkpoints ?? [], opts.sessionId, lastRun, askedAt);
     // Measured, or still to be: the newest turn a checkpoint fronted, with no message after it yet.
     const pending = !c && fronting !== null && i > lastUser;
     if (c) {

@@ -289,3 +289,16 @@ describe("the session's terminal, as a tab of its side pane", () => {
     expect(findSidePane(store.getState().layout!, "i-lead")).toBeNull();
   });
 });
+
+describe("a link opened in a Realm Browser tab", () => {
+  it("is a new tab of the side pane beside the session in view, already on the link, with the keyboard", async () => {
+    // THE MUTANT: make the tab without the url, and the click lands on a blank new-tab page.
+    const { api, store } = await mount();
+    await store.getState().openLinkInBrowser("http://localhost:4173/page");
+    const id = newest(store);
+    expect(api.calls).toContain("createBrowser:s1:http://localhost:4173/page");
+    expect(side(store)).toMatchObject({ itemId: id, tabs: ["i-br", id] });
+    expect(store.getState().focusedLeafId).toBe(side(store).id);
+    expect(allItems(store.getState().layout!)).toContain("i-lead");
+  });
+});

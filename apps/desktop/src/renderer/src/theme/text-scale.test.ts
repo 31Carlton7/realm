@@ -73,6 +73,6 @@ describe("the real stylesheet, as the build serves it", () => {
   it("is wired into the renderer's build, ahead of the plugins that read the CSS after it", () => {
     // THE unwired mutant: the transform exists and nothing runs it, so both size controls are inert.
     const config = readFileSync(repoFile("apps/desktop/electron.vite.config.ts"), "utf8");
-    expect(config).toMatch(/renderer: \{ plugins: \[[^\]]*textScale\(\)/);
+    expect(config).toMatch(/renderer: \{\s*plugins: \[[^\]]*textScale\(\)/);
   });
 });

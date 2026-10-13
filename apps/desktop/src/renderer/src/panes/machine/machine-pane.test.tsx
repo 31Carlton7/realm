@@ -82,18 +82,20 @@ describe("the machine pane is DOM, not a native view", () => {
 });
 
 describe("the keyboard", () => {
-  const HOTKEYS = strip(Object.values(import.meta.glob("../../hotkeys.ts", { query: "?raw", import: "default", eager: true }) as Record<string, string>)[0]!);
+  /** The keyboard layer as App mounts it: the hook that listens, and the commands it runs. */
+  const KEYS = Object.values(import.meta.glob(["../../keys/use-keybindings.ts", "../../keys/commands.ts"], { query: "?raw", import: "default", eager: true }) as Record<string, string>);
+  const HOTKEYS = strip(KEYS.join("\n"));
 
   /**
-   * Two properties of `hotkeys.ts` that make a machine pane work with no edit to it at all — and
+   * Two properties of the keyboard layer that make a machine pane work with no edit to it at all — and
    * both are one line from breaking, which is why they are asserted here rather than trusted.
    */
   it("lets Escape reach the guest, because the global binding acts only on a session", () => {
     // Esc is a key a guest needs — it is how you leave a dialog in any OS. The global binding is
     // "interrupt the running session", and widening its guard past `kind === "session"` would make
     // pressing Esc in a machine pane interrupt whatever session happened to be focused.
-    expect(HOTKEYS).toContain('e.key === "Escape"');
-    expect(HOTKEYS).toContain('it?.kind === "session"');
+    expect(HOTKEYS).toContain('"session.interrupt": withSession(');
+    expect(HOTKEYS).toContain('item?.kind === "session"');
   });
 
   it("treats a focused canvas as not editable, so the grab is what decides — not a tag name", () => {
@@ -109,12 +111,12 @@ describe("the keyboard", () => {
   /**
    * The grab has to win, and capture is the only thing that guarantees it.
    *
-   * `hotkeys.ts` listens on `window` in the BUBBLE phase. Capture on the same target always runs
+   * `useKeybindings` listens on `window` in the BUBBLE phase. Capture on the same target always runs
    * first, so `stopPropagation` in capture means the global handler never runs at all. A bubble-
    * phase listener — on the pane or on `window` — would be a coin toss decided by registration
    * order, and the losing side of that toss is a lit toggle that changes nothing.
    *
-   * Two mutants: dropping the `true`, and hotkeys moving to capture itself (which would put them
+   * Two mutants: dropping the `true`, and the keybindings moving to capture themselves (which would put them
    * back in a race). Both are asserted, because only one of them lives in this file.
    */
   it("swallows in the capture phase, which is the only thing that beats a bubble listener", () => {
@@ -122,7 +124,7 @@ describe("the keyboard", () => {
     expect(pane).toContain('window.addEventListener("keydown", swallow, true)');
     expect(pane).toContain("e.stopPropagation()");
     expect(HOTKEYS).toContain('window.addEventListener("keydown", onKey)');
-    expect(HOTKEYS, "hotkeys moved to capture — the grab is now a race").not.toMatch(/addEventListener\("keydown",\s*onKey,\s*true\)/);
+    expect(HOTKEYS, "the keybindings moved to capture — the grab is now a race").not.toMatch(/addEventListener\("keydown",\s*onKey,\s*true\)/);
     /* Never preventDefault IN THE SWALLOW: the key still has to reach the canvas for noVNC to send
        it on. Scoped to the handler rather than the file, because the connect form's submit legitimately
        prevents its own default and a file-wide assertion would be testing the wrong function. */
@@ -154,7 +156,7 @@ describe("one scaler, and it is driven by fit.ts", () => {
    *
    * With it on, noVNC fits the canvas to its container, and the container is sized to the fit's own
    * CSS box — so the ratio it derives is the ratio `fitFramebuffer` computed, and its click map and
-   * `toFramebuffer` agree by construction.
+   * the fit agree by construction.
    */
   it("hands noVNC the scaling rather than fighting it", async () => {
     const hub = await import("./machine-hub");

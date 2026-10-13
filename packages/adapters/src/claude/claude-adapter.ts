@@ -1,11 +1,12 @@
 import { readFile, stat } from "node:fs/promises";
 import { spawn as nodeSpawn } from "node:child_process";
 import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, BROWSER_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { ASK_PERMISSION_MODE, REALM_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS } from "../types";
 
 type QueryFn = typeof sdkQuery;
 /** The keys `Settings` actually declares. The SDK's type ends in `[k: string]: unknown`, so a
@@ -96,35 +97,40 @@ export type ClaudeHandle = AgentHandle & { chainCursor(): ChainCursor };
  * three process transports — `{type:'stdio',command,args,env}` and `{type:'http'|'sse',url,headers}`.
  *
  * No filtering happens here: since Plan 9 W3 `servers` is always exactly the gateway's own `http` entry
- * (or empty), and Claude takes every transport anyway. Translation only.
+ * (or empty), and Claude takes every transport anyway.
+ *
+ * The one addition is `timeout`. Without it Claude aborts a call that has sent "no response or
+ * progress for 300s" — its own words, seen on `agent_wait` — and names the per-server timeout as the
+ * way to allow longer silent runs. The gateway's heartbeat keeps a call from going silent; this keeps
+ * a call that legitimately runs to the hour from being cut off short of Realm's own answer.
  */
 export function claudeMcpServers(servers: readonly McpServerConfig[]): Record<string, unknown> {
   return Object.fromEntries(servers.map((s) => [
     s.name,
     s.transport === "stdio"
       ? { type: "stdio" as const, command: s.command, args: s.args, env: s.env }
-      : { type: s.transport, url: s.url, headers: s.headers },
+      : { type: s.transport, url: s.url, headers: s.headers, timeout: GATEWAY_TOOL_TIMEOUT_MS },
   ]));
 }
 
 /**
  * W4's double-prompt fix, read-only half ONLY. The SDK asks `canUseTool` for every MCP tool — which
- * Realm bridges to an ApprovalCard — so before this, a `browser_snapshot` that Realm's own broker
- * deliberately lets run free still raised a card from Claude's side. Pre-allowing the READ-ONLY
- * `realm-browser` tools via `Options.allowedTools` makes reads promptless end to end.
+ * Realm bridges to an ApprovalCard — so a `browser_snapshot` that Realm's own broker lets run free
+ * would still raise a card from Claude's side. Pre-allowing Realm's READ-ONLY gateway tools via
+ * `Options.allowedTools` makes reads promptless end to end.
  *
  * Tool naming, verified against the gateway (`apps/server/src/mcp/gateway.ts`): every session's one
  * MCP server is the gateway entry named `realm`, whose provider tools are re-exported as
- * `realm-browser__browser_*`; the SDK prefixes MCP tools as `mcp__<serverName>__<toolName>` — so
+ * `<provider>__<tool>`; the SDK prefixes MCP tools as `mcp__<serverName>__<toolName>` — so
  * `mcp__realm__realm-browser__browser_snapshot` etc. Derived from `opts.mcpServers` rather than a
  * literal "realm" so a renamed gateway entry cannot silently orphan the allow-list.
  *
- * MUTATING tools are deliberately NOT here and must never be: they keep BOTH prompts (Claude's and
- * Realm's ApprovalCard) — one prompt too many beats one too few. `BROWSER_READ_ONLY_TOOLS` is the
- * same shared list the server's broker gates by, and the test pins its exact expansion.
+ * MUTATING tools are deliberately NOT here and must never be. `REALM_READ_ONLY_TOOLS` is the same
+ * list the gateway marks `readOnlyHint` for Codex, so the two engines prompt for the same tools, and
+ * the test pins its exact expansion.
  */
 export function claudeAllowedTools(servers: readonly McpServerConfig[]): string[] {
-  return servers.flatMap((s) => BROWSER_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__realm-browser__${t}`));
+  return servers.flatMap((s) => REALM_READ_ONLY_TOOLS.map((t) => `mcp__${s.name}__${t}`));
 }
 
 /**
@@ -151,8 +157,8 @@ const CLAUDE_ASK_BUILTINS = ["Read", "Glob", "Grep", "NotebookRead", "WebFetch",
 /**
  * Every tool name an Ask session may run, for a session with these MCP servers.
  *
- * The MCP half is `claudeAllowedTools` itself rather than a second list: those are the read-only
- * `realm-browser` tools, they are already pre-allowed for every session, and deriving them here
+ * The MCP half is `claudeAllowedTools` itself rather than a second list: those are Realm's read-only
+ * gateway tools, they are already pre-allowed for every session, and deriving them here
  * means Ask can never disagree with what the rest of the adapter calls read-only.
  */
 export function claudeAskTools(servers: readonly McpServerConfig[]): Set<string> {
@@ -274,6 +280,11 @@ export class ClaudeAdapter implements AgentAdapter {
       // available, so the model re-plans within the mode instead of retrying the same call.
       if (permissionMode === ASK_PERMISSION_MODE && !askTools.has(toolName)) {
         return { behavior: "deny", message: `This session is in Ask mode: read-only. ${toolName} cannot run. Reading, searching (Grep, Glob) and web lookups are available; to change files or run commands, the user has to leave Ask.` };
+      }
+      // A team's policy answers for its gateway's tools itself, drawing the one card owed (one card,
+      // not two). Only an MCP tool reaches it; a command or an edit asks as it always has.
+      if (toolName.startsWith("mcp__") && opts.gatewayDecides && await opts.gatewayDecides(toolName).catch(() => false)) {
+        return { behavior: "allow", updatedInput: toolInput };
       }
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
@@ -581,14 +592,14 @@ export class ClaudeAdapter implements AgentAdapter {
             const info = (msg as { rate_limit_info?: Record<string, unknown> }).rate_limit_info ?? {};
             const status = info.status;
             const alert: PlanAlert = status === "rejected" ? "exceeded" : status === "allowed_warning" ? "approaching" : "none";
-            const id = typeof info.rateLimitType === "string" ? info.rateLimitType : null;
-            const window: PlanWindow[] = id
-              ? [{ id, label: planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
-              : [];
             // The full picture first, so a panel opened on this event shows every window rather than
             // only the one that moved. Its `alert` is always "none" — the control request reports
             // quotas, not status — so the stream's verdict is laid over it here.
             const full = await readPlanLimits();
+            const id = streamWindowId(typeof info.rateLimitType === "string" ? info.rateLimitType : null, full?.windows ?? []);
+            const window: PlanWindow[] = id
+              ? [{ id, label: full?.windows.find((w) => w.id === id)?.label ?? planWindowLabel(id), utilization: streamPercent(info.utilization), resetsAt: streamMillis(info.resetsAt) }]
+              : [];
             const merged = full
               ? { ...full, windows: mergeWindows(full.windows, window), alert, alertWindow: id }
               : { subscriptionType: null, organization: null, windows: window, alert, alertWindow: id,
@@ -725,4 +736,19 @@ export class ClaudeAdapter implements AgentAdapter {
       },
     };
   }
+}
+
+/**
+ * The window a stream `rate_limit_event` is about, in the ids the control request uses.
+ *
+ * They agree on every account-wide window and disagree on one: the stream names the model bucket
+ * that counts extra usage by its TYPE (`seven_day_overage_included`), while the control request lists
+ * it under the model's own `display_name` in `model_scoped`. Taken literally, the event opened a
+ * second row for the window the panel was already showing, and the two disagreed about it. So that
+ * type lands on the model bucket the control request named — the first, since the CLI lists only the
+ * overage-included model there — and anything else keeps its own id.
+ */
+export function streamWindowId(type: string | null, known: readonly PlanWindow[]): string | null {
+  if (type !== "seven_day_overage_included" || known.some((w) => w.id === type)) return type;
+  return known.find((w) => w.id.startsWith("model:"))?.id ?? type;
 }

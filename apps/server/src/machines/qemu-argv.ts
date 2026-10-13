@@ -176,16 +176,3 @@ export function buildQemuArgv(spec: QemuSpec): string[] {
   if (spec.isoPath) push("-cdrom", spec.isoPath, "-boot", "order=d");
   return argv;
 }
-
-/**
- * What the UI says about how fast this guest will be.
- *
- * Said out loud rather than left to be discovered: an x86_64 guest on Apple Silicon runs under TCG
- * at roughly a tenth of native, and a user who was not told reads that as Realm being broken.
- */
-export function accelNote(arch: QemuArch, accel: "hvf" | "tcg"): string | null {
-  if (accel === "hvf") return null;
-  return arch === "x86_64"
-    ? "This is an Intel guest on an Apple Silicon Mac, so every instruction is emulated — expect it to run roughly 10–30× slower than native."
-    : "Running without hardware acceleration, so expect it to be slow.";
-}

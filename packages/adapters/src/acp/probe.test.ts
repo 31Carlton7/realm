@@ -26,6 +26,15 @@ describe("probeAcp", () => {
     expect(r.version).toBeNull();
   });
 
+  it("marks a CLI that dies of a signal as crashed, and one that only exits non-zero or is missing as not", async () => {
+    // What a binary macOS refuses to run looks like to the probe: killed by SIGKILL, no answer.
+    const killed = await probeAcp(process.execPath, ["-e", "process.kill(process.pid, 'SIGKILL')"]);
+    expect(killed).toMatchObject({ available: false, crashed: true });
+    const failed = await probeAcp(process.execPath, ["-e", "process.exit(2)"]);
+    expect(failed.available).toBe(false);
+    expect(failed.crashed).toBeUndefined();
+    expect((await probeAcp("/definitely/not/a/binary")).crashed).toBeUndefined();
+  });
 });
 
 describe("fetchAcpModels", () => {

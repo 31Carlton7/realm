@@ -50,7 +50,7 @@ function codeMirrorCaret(view: EditorView): CaretSpot | null {
  * tab that inserts a character instead of a level — which is why editing two wrong characters in a
  * source file meant leaving Realm for a real editor and coming back.
  */
-export function CodeEditor({ path, text, onChange, onSave, reveal = null, scrollKey = null, blinkCaret = true }: {
+export function CodeEditor({ path, text, onChange, onSave, reveal = null, scrollKey = null, blinkCaret = true, readOnly = false }: {
   /** The document's path. Decides the grammar, and names the editor for a screen reader. */
   path: string;
   text: string;
@@ -67,6 +67,9 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
   /** Whether the cursors CodeMirror still draws itself — a second selection's — blink. The primary
    *  caret is the app's, and moves as Settings ▸ Appearance ▸ Cursor says. */
   blinkCaret?: boolean;
+  /** Highlighted the same, taking no edits: a file outside the space. Fixed for the editor's life —
+   *  the pane keys it by path, and a path is inside the space or outside it for good. */
+  readOnly?: boolean;
 }) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -97,6 +100,7 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
    *  left with no grammar until the path happens to change again. */
   const perFileConfig = useRef<Extension>([]);
   const attachScroll = useScrollMemory(scrollKey);
+  const readOnlyAtBuild = useRef(readOnly);
 
   useEffect(() => {
     const parent = host.current;
@@ -148,6 +152,7 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
             ...defaultKeymap,
           ]),
           perFile.current.of(perFileConfig.current),
+          ...(readOnlyAtBuild.current ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
           realmCodeTheme(),
           // The app's caret stands where CodeMirror says its own is, so it is told whenever that moves.
           EditorView.updateListener.of((u) => { if (u.selectionSet || u.docChanged || u.geometryChanged) caretMoved(); }),
