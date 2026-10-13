@@ -26,10 +26,9 @@ export async function SiteHeader({ width = "max-w-5xl", floating = false }: { wi
       <Link href="/" className="text-ink transition-opacity duration-150 hover:opacity-75">
         <Wordmark />
       </Link>
-      {/* The two places worth going, between the name and the action. Quiet: the download is the
-          page's one primary, and a row of equal-weight controls is what design.md refuses. */}
+      {/* The one place worth going besides the download, between the name and the action. Quiet: the
+          download is the page's one primary, and a row of equal-weight controls is what design.md refuses. */}
       <nav aria-label="Sections" className="ml-auto mr-1 hidden items-center gap-1 sm:flex">
-        <HeaderLink href="/features">Features</HeaderLink>
         <HeaderLink href="/changelog">Changelog</HeaderLink>
       </nav>
       <DownloadButton href={download.href} />
@@ -39,7 +38,7 @@ export async function SiteHeader({ width = "max-w-5xl", floating = false }: { wi
   return floating ? <FloatingHeader>{header}</FloatingHeader> : header
 }
 
-function HeaderLink({ href, children }: { href: "/features" | "/changelog"; children: string }) {
+function HeaderLink({ href, children }: { href: "/changelog"| "/changelog"; children: string }) {
   return (
     <Link
       href={href}

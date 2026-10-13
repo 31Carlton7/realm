@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* Realm's product palette, mirrored from apps/desktop/src/renderer/src/theme/tokens.css.
-   `--color-page` is also compiled into lib/realm-liquid-glass.ts as its PAGE constant: the hero canvas
+   `--color-page` is also compiled into components/field/stage.ts as its PAGE constant: the live field
    paints its own background, so the two have to agree or the canvas reads as a square. */
 @theme {
   --color-page: oklch(0.209 0.004 264.477);
@@ -71,7 +71,7 @@ p {
 
 /* Inside a clipped surface (the hero's sample window, a bento card, a scrolling tab row) an outer
    ring is cut off by the clip, so focus draws inside the control's own edge instead. */
-[data-dim="portal"] :focus-visible,
+[data-field-anchor="portal"] :focus-visible,
 .spot :focus-visible,
 [role="tablist"] :focus-visible {
   outline-offset: -2px;

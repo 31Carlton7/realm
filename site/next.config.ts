@@ -6,6 +6,11 @@ const config: NextConfig = {
   // tracing root keeps Next from walking up into the monorepo looking for one.
   outputFileTracingRoot: import.meta.dirname,
   typedRoutes: true,
+  // The features page folded into the landing page, which shows every feature it listed with its
+  // capture. Links to it from elsewhere land there rather than on a 404.
+  async redirects() {
+    return [{ source: "/features", destination: "/", permanent: true }]
+  },
 }
 
 export default config
