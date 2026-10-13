@@ -48,8 +48,9 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
     const measure = () => {
       const style = getComputedStyle(frame)
       wide = frame.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
-      // The capsule: its two ends, the plate's inset on either side, and a gap between them.
-      compact = Math.min(wide, brand.offsetWidth + actions.offsetWidth + 18 + 6 + 40)
+      // The capsule: its two ends, the plate's inset on either side, and a gap between them. On a phone
+      // that is wider than the column, and the capsule takes the room up to the window's inset.
+      compact = Math.min(window.innerWidth - 16, brand.offsetWidth + actions.offsetWidth + 18 + 6 + 40)
     }
     const update = () => {
       queued = false
