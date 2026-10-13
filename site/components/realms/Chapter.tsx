@@ -59,7 +59,7 @@ export function Chapter({
                 caption={picture.caption}
                 kind={picture.kind}
                 zoom={picture.zoom ?? 1}
-                maxHeight="min(calc(100vh - 13rem), 820px)"
+                maxHeight="min(calc(100vh - 10rem), 860px)"
                 fieldId={id}
                 className="mx-auto"
               />
@@ -69,8 +69,18 @@ export function Chapter({
       </section>
     )
   }
-  const textCols = !picture ? "lg:col-start-3 lg:col-end-11" : side === "right" ? "lg:col-start-1 lg:col-end-6" : "lg:col-start-8 lg:col-end-13"
-  const slotCols = side === "right" ? "lg:col-start-6 lg:col-end-13 lg:pl-6 xl:pl-10" : "lg:col-start-1 lg:col-end-8 lg:pr-6 xl:pr-10"
+  // A picture wider than seven columns can draw at its own size takes eight, beside a narrower claim,
+  // rather than being drawn at three quarters of its size.
+  const wide = (picture?.image.width ?? 0) > 880
+  const textCols = !picture
+    ? "lg:col-start-3 lg:col-end-11"
+    : side === "right"
+      ? wide ? "lg:col-start-1 lg:col-end-5" : "lg:col-start-1 lg:col-end-6"
+      : wide ? "lg:col-start-9 lg:col-end-13" : "lg:col-start-8 lg:col-end-13"
+  const slotCols =
+    side === "right"
+      ? `${wide ? "lg:col-start-5" : "lg:col-start-6"} lg:col-end-13 lg:pl-6 xl:pl-10`
+      : `lg:col-start-1 ${wide ? "lg:col-end-9" : "lg:col-end-8"} lg:pr-6 xl:pr-10`
   return (
     <section aria-labelledby={`${id}-title`} className="relative">
       <div
