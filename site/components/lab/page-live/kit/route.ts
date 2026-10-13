@@ -103,22 +103,6 @@ export function pointAt(r: Route, s: number): { p: Pt; dir: Pt } {
   return { p: lastSeg.kind === "line" ? lastSeg.b : [0, 0], dir: [1, 0] }
 }
 
-/** How far along a route the point nearest `q` is, and how far `q` is from it. Sampled every 4px. */
-export function nearestOn(r: Route, q: Pt): { s: number; distance: number } {
-  let best = Infinity
-  let at = 0
-  const step = 4
-  for (let s = 0; s <= r.length; s += step) {
-    const { p } = pointAt(r, s)
-    const dd = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2
-    if (dd < best) {
-      best = dd
-      at = s
-    }
-  }
-  return { s: at, distance: Math.sqrt(best) }
-}
-
 /** The SVG path of part of a route, from `s0` to `s1` CSS px along it: a lit stretch of a line. */
 export function slice(r: Route, s0: number, s1: number): string {
   const a = Math.max(0, Math.min(s0, s1))

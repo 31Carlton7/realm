@@ -118,24 +118,3 @@ export function useScrollProgress(
 
   return progress
 }
-
-/** The same reading as `useScrollProgress`, for a pinned track: 0 as the section's top meets the
- *  viewport's top, 1 as its bottom meets the viewport's bottom. */
-export function usePinnedProgress(ref: RefObject<Element | null>): number {
-  const reduced = useReducedMotion()
-  const [progress, setProgress] = useState(reduced ? 1 : 0)
-  useEffect(() => {
-    if (reduced) {
-      setProgress(1)
-      return
-    }
-    return addReader(() => {
-      const node = ref.current
-      if (!node) return
-      const rect = node.getBoundingClientRect()
-      const p = clamp01(-rect.top / Math.max(1, rect.height - window.innerHeight))
-      setProgress(Math.round(p * 1000) / 1000)
-    })
-  }, [ref, reduced])
-  return progress
-}

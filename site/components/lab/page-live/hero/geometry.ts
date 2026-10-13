@@ -67,14 +67,10 @@ export type MapGeometry = {
   /** Dark mode's sub-agent loops, from the fork through each station to the merge. */
   branches: Record<SubAgent, { route: Route; stationS: number }>
   merge: Pt
-  fork: Pt
   /** The collector: one vertical run every space's line crosses on its way to the window. */
   bus: { x: number; top: number; bottom: number }
   /** How far along each space's line the collector crosses it. */
   busS: Record<SpaceId, number>
-  /** Where the station area ends and the lines' turns begin. */
-  turnsFrom: number
-  radius: number
 }
 
 /** The corner radius every bend is drawn at. */
@@ -92,7 +88,6 @@ export function layoutMap(input: MapInput): MapGeometry {
   // one pitch nearer, so a line moving up past another's row passes outside it.
   const turnX = (k: number) => right - 22 - PITCH * (LINE_ORDER.length - 1 - k)
   const busX = turnX(0) - 26
-  const turnsFrom = busX
 
   // Rows: Needs you near the top of the window, the four spaces evenly below it.
   const top = win.y + 36
@@ -156,11 +151,8 @@ export function layoutMap(input: MapInput): MapGeometry {
     stations,
     branches,
     merge,
-    fork,
     bus: { x: busX, top: rowOf("needs"), bottom: rowOf("school") },
     busS,
-    turnsFrom,
-    radius: RADIUS,
   }
 }
 
@@ -216,11 +208,8 @@ function layoutStacked({ column, win, termini }: MapInput): MapGeometry {
     stations,
     branches,
     merge,
-    fork,
     bus: { x: -100, top: 0, bottom: 0 },
     busS,
-    turnsFrom: turnX(4),
-    radius: RADIUS,
   }
 }
 
@@ -239,11 +228,4 @@ export function requestRoute(g: MapGeometry, from: Pt, line: SpaceId): Route | n
   if (needs.turn === null) pts.push(needs.end)
   else pts.push([needs.turn, needs.row], [needs.turn, needs.end[1]], needs.end)
   return route(pts, RADIUS)
-}
-
-/** The way a session's finished work runs into the window: along its line from the station to the end. */
-export function resultRoute(g: MapGeometry, line: SpaceId, fromX: number): { route: Route; from: number } | null {
-  const l = g.lines[line]
-  if (!l) return null
-  return { route: l.route, from: sAtX(l.route, fromX) }
 }
