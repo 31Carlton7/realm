@@ -37,10 +37,6 @@ struct PairView: View {
                 }
             }
         }
-        .sensoryFeedback(.error, trigger: model.pairing) { _, new in
-            if case .failed = new { return true }
-            return false
-        }
         .fullScreenCover(isPresented: $scanning) {
             ScannerScreen { text in
                 scanning = false
@@ -123,6 +119,7 @@ struct PairView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(Palette.accentFill)
                 .accessibilityIdentifier("scan")
                 Button("Paste the link") { pasting = true }
                     .font(.body.weight(.semibold))
@@ -351,7 +348,6 @@ struct ScannerScreen: View {
             }
             .padding(20)
         }
-        .sensoryFeedback(.warning, trigger: notOurs) { _, new in new }
     }
 }
 

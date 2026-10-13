@@ -28,7 +28,6 @@ struct RootView: View {
         }
         .tint(Palette.accent)
         .overlay(alignment: .top) { ToastView() }
-        .sensoryFeedback(.success, trigger: model.pairings)
         .confirmationDialog(replaceTitle, isPresented: replacing, titleVisibility: .visible) {
             Button("Pair") {
                 let link = model.replacingPairLink
