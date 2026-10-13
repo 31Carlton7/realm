@@ -50,9 +50,12 @@ export default function ChangelogPage() {
 
         <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 px-6 pb-32 sm:px-10 lg:grid-cols-[minmax(0,34rem)] xl:grid-cols-[10rem_minmax(0,34rem)] xl:gap-x-16">
           <div className="hidden xl:block">
-            <FieldPanel anchor="c:rail" radius={12} wrapClassName="sticky top-24" className="px-3 py-2">
-              <Rail label="Releases" items={releases.map((release) => ({ id: release.slug, label: release.version, detail: formatShortDate(release.date) }))} />
-            </FieldPanel>
+            {/* Sticky on its own box: the pane's wrapper positions itself, which would undo it. */}
+            <div className="sticky top-24">
+              <FieldPanel anchor="c:rail" radius={12} className="px-3 py-2">
+                <Rail label="Releases" items={releases.map((release) => ({ id: release.slug, label: release.version, detail: formatShortDate(release.date) }))} />
+              </FieldPanel>
+            </div>
           </div>
           <ReleaseList releases={releases} unreleased={unreleased} />
         </div>
