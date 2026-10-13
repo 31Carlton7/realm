@@ -17,7 +17,8 @@ import type { Frame, Gpu, Surface } from "vgpu"
 export type Rect = readonly [number, number, number, number]
 
 export type StageInput = {
-  /** The viewport in CSS px. Every rect and the pointer share this space. */
+  /** The viewport in CSS px, less any classic scroll bar: the box a canvas fixed to the view fills.
+   *  Every rect and the pointer share this space. */
   width: number
   height: number
   /** Seconds since the stage started, held at a composed moment under reduced motion. */
