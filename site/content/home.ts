@@ -29,6 +29,11 @@ export type Claim = {
   part?: string
   /** What the picture shows. Required wherever there is one, and re-read whenever it is retaken. */
   caption?: string
+  /**
+   * The same subject captured narrower, for a phone, where the part would be drawn at less than half
+   * its size; with its own caption where it shows less than the part does.
+   */
+  phone?: { part: string; caption?: string }
 }
 
 export const claims: Claim[] = [
@@ -48,6 +53,7 @@ export const claims: Claim[] = [
       "Tool calls fold into rows you can open, and a reply can carry a chart, a diagram or a comparison. A turn that changes files ends with a card of each file it edited, its diff a click away.",
     capture: "session",
     part: "turn",
+    phone: { part: "turn-phone" },
     caption: "One turn: the ask, its tool calls in one row, the answer, and the two files it edited.",
   },
   {
@@ -66,6 +72,7 @@ export const claims: Claim[] = [
       "Ask in plain words, like “have GPT-6 Luna build this”, or pick models in the session's Agents tab. The session's agent splits up the work and starts a sub-agent on each model.",
     capture: "delegation",
     part: "delegation",
+    phone: { part: "delegation-phone" },
     caption: "Two sub-agents on two harnesses: one waiting on a permission, one done with its report.",
   },
   {
@@ -75,6 +82,7 @@ export const claims: Claim[] = [
       "Linear, Notion, Slack, GitHub, Jira, Figma and Sentry connect to a space in one click. Agents reach them through Realm and never get the credential, and every call is logged.",
     capture: "connections",
     part: "connections",
+    phone: { part: "connections-phone", caption: "Three of the apps a space can connect, each with what it lets an agent do." },
     caption: "Six of the apps a space can connect, each with what it lets an agent do.",
   },
   {
@@ -84,6 +92,7 @@ export const claims: Claim[] = [
       "Code review reads your pull requests through your own gh, so Realm never holds a GitHub token. A reviewer on the model you pick leaves its findings on the page, and nothing reaches GitHub until you press Submit review.",
     capture: "review",
     part: "review",
+    phone: { part: "review-phone" },
     caption: "A pull request and three findings from a reviewer on Fable\u00a05.1.",
   },
   {
@@ -93,6 +102,7 @@ export const claims: Claim[] = [
       "A space can run its agents and terminals in a macOS sandbox, where the checkout stays writable and credential folders can't be read. The network stays open, and it's off by default, because a sandbox that hasn't met your toolchain yet can break a build.",
     capture: "sandbox",
     part: "sandbox",
+    phone: { part: "sandbox-phone" },
     caption: "The three postures a space can take. Every new space starts on No sandbox.",
   },
   {
@@ -102,6 +112,7 @@ export const claims: Claim[] = [
       "realm-server keeps running after you close the window, so a long turn finishes either way. Tasks can run on a schedule, and every run is a session you can pick up from.",
     capture: "schedules",
     part: "schedules",
+    phone: { part: "schedules-phone" },
     caption: "Three tasks on a schedule, each on its own model, and today's run of Weekly numbers.",
   },
 ]

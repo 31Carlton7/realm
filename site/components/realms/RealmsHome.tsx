@@ -46,9 +46,16 @@ const FACTS: { title: string; body: string }[] = [
 function evidence(claim: Claim): ChapterPicture | null {
   const alt = claim.caption ?? claim.title
   const part = claim.part ? partImage(claim.part) : null
-  if (part) return { image: part, alt, caption: claim.caption ?? "", kind: "part" }
+  const phone = claim.phone ? partImage(claim.phone.part) : null
+  if (part) return { image: part, alt, caption: claim.caption ?? "", phone: phone ? { image: phone, caption: claim.phone?.caption } : undefined, kind: "part" }
   if (claim.capture) return { image: sceneImage(claim.capture), alt, caption: claim.caption ?? "", kind: "window" }
   return null
+}
+
+/** On a phone, the realm's terminal on its own: its two halves side by side would be a quarter size. */
+function phoneRealm(): ChapterPicture["phone"] {
+  const image = partImage("realm-phone")
+  return image ? { image, caption: "The file a session's turn edited, open in vim in its terminal." } : undefined
 }
 
 /** The order the flight visits the claims in, and which side each one's screen stands on. */
@@ -125,6 +132,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
           title="What a realm holds."
           picture={{
             image: partImage("realm") ?? sceneImage("terminal"),
+            phone: phoneRealm(),
             kind: "window",
             caption: "A session in the Dashboard space, and the file its turn edited open in vim beside it.",
             alt: "Realm's window with the sidebar folded: a session in the Dashboard space whose turn edited two files, and beside it a terminal with vim open on web/lib/orgs.ts at the function the turn rewrote.",

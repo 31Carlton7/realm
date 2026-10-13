@@ -467,14 +467,14 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
   box-shadow: var(--screen-shadow);
 }
 
-/* The picture's own edge against the plate: a window's dark rim and its shade, or the app's raised
-   shadow under a surface lifted off it. */
+/* The picture's own edge against the plate: a dark rim, and a shade short enough to end inside the
+   plate's margin, so the foot the caption's tab leaves from is the plate's own colour. */
 .screen[data-kind="window"] {
-  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.55), 0 10px 24px -10px oklch(0 0 0 / 0.7);
+  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.55), 0 3px 10px -4px oklch(0 0 0 / 0.6);
 }
 
 .screen[data-kind="part"] {
-  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.45), 0 6px 16px -6px oklch(0 0 0 / 0.55);
+  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.45), 0 3px 10px -4px oklch(0 0 0 / 0.5);
 }
 
 .screen-image {
@@ -514,7 +514,9 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
 .screen-tab {
   --f: 12px;
   position: absolute;
-  top: calc(100% - 1px);
+  /* A pixel deeper into the plate than its rim, so no sliver of the rim shows through the join at
+     any fraction of a pixel the plate's foot lands on; the fillets start a pixel down, on the rim. */
+  top: calc(100% - 2px);
   left: 50%;
   z-index: 1;
   translate: -50% 0;
@@ -523,7 +525,7 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
   /* Within the straight run of the plate's foot, clear of both its corners. */
   max-width: min(32rem, calc(100% - 2 * (var(--share) * (100cqw - 2 * var(--pad)) + var(--pad) + var(--f)) - 1rem));
   margin: 0;
-  padding: 7px 18px 10px;
+  padding: 8px 18px 10px;
   background: var(--plate-foot);
   border: 1px solid var(--rim-foot);
   border-top: 0;
@@ -539,7 +541,7 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
 .screen-tab::after {
   content: "";
   position: absolute;
-  top: 0;
+  top: 1px;
   width: var(--f);
   height: var(--f);
   pointer-events: none;
@@ -559,7 +561,7 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
    rim, its fillets turned over. */
 .screen-tab[data-edge="top"] {
   top: auto;
-  bottom: calc(100% - 1px);
+  bottom: calc(100% - 2px);
   max-width: calc(100% - 2 * (16px + var(--pad) + var(--f)) - 1rem);
   padding: 8px 18px 7px;
   background: var(--plate-top);
@@ -571,7 +573,7 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
 .screen-tab[data-edge="top"]::before,
 .screen-tab[data-edge="top"]::after {
   top: auto;
-  bottom: 0;
+  bottom: 1px;
 }
 
 .screen-tab[data-edge="top"]::before {

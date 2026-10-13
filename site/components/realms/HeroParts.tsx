@@ -89,7 +89,9 @@ export function ProductWindow({
         {tab ? (
           <p data-edge="top" className="screen-tab flex items-center justify-center gap-2">
             <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green" />
-            A working sample of Realm. Click anything.
+            <span>
+              A working sample<span className="max-sm:hidden"> of Realm</span>. Click anything.
+            </span>
           </p>
         ) : null}
         <div data-field-anchor={anchor} className={`hero-window relative w-full overflow-hidden rounded-[16px] bg-page ${frameClassName}`}>

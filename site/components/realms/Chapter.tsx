@@ -8,6 +8,8 @@ export type ChapterPicture = {
   image: ScreenImage
   alt: string
   caption: string
+  /** A narrower capture for a phone (Screen's `phone`). */
+  phone?: { image: ScreenImage; caption?: string }
   kind?: "window" | "part"
   zoom?: number
 }
@@ -57,6 +59,7 @@ export function Chapter({
                 image={picture.image}
                 alt={picture.alt}
                 caption={picture.caption}
+                phone={picture.phone}
                 kind={picture.kind}
                 zoom={picture.zoom ?? 1}
                 maxHeight="min(calc(100vh - 10rem), 860px)"
@@ -98,6 +101,7 @@ export function Chapter({
               image={picture.image}
               alt={picture.alt}
               caption={picture.caption}
+              phone={picture.phone}
               kind={picture.kind}
               zoom={picture.zoom}
               fieldId={id}
