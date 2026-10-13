@@ -35,6 +35,9 @@
   --font-mono: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
 
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  /* A critically damped spring (no overshoot), the app's `--spring-smooth` (apps/desktop tokens.css):
+     it starts from rest, gathers and settles, where a cubic ease-out leaves at full speed. */
+  --ease-spring: linear(0, 0.01 2%, 0.036 4%, 0.074 6%, 0.12 8%, 0.171 10%, 0.252 13%, 0.333 16%, 0.437 20%, 0.532 24%, 0.615 28%, 0.703 33%, 0.773 38%, 0.838 44%, 0.885 50%, 0.924 57%, 0.953 65%, 0.973 74%, 0.987 85%, 1);
 }
 
 :root {
@@ -82,6 +85,328 @@ p {
    rounded rect rather than a broken one — which is why every use pairs the two. */
 @utility app-corner {
   corner-shape: squircle;
+}
+
+/* ---- How a control answers the pointer -----------------------------------------------------------
+   Every button and link on the site (the owner, 10-13: "I want a better transition for hover
+   animations on buttons"). The Mac app's hover arrives at once; the site's arrives on a critically
+   damped spring, the app's `--spring-smooth`, which starts from rest and settles with no overshoot, and
+   leaves on a shorter, quieter ease, so a sweep across a row of controls never strobes. A press is a
+   fill, never a size, and lands at once. Under reduced motion the colours still change and nothing
+   travels: no light follows the pointer, no pill glides, no arrow moves, no line draws. Hover itself
+   only exists where a pointer can hover, so a tap never leaves a control lit. */
+:root {
+  --hover-in: 220ms;
+  --hover-out: 150ms;
+}
+
+/* A button's face. Its light is the pointer's: a wash under the words where the pointer is, and on the
+   rim the stretch nearest it (`--gx`, `--gy`, written by components/PointerLight). The primary's face
+   deepens a step under the wash (`--shade`, set on the button beside the gradient it deepens, where
+   scripts/check-contrast.mjs measures both), so the brightest point of the light is never paler than
+   the face at rest and the white words keep their 4.5 : 1. */
+.btn {
+  position: relative;
+  isolation: isolate;
+  transition-property: background-color, color, box-shadow;
+  transition-duration: var(--hover-out);
+  transition-timing-function: ease-out;
+}
+
+.btn::before,
+.btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  corner-shape: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--hover-out) ease-out;
+}
+
+.btn::before {
+  z-index: -1;
+  background:
+    radial-gradient(var(--wash-size, 110px) circle at var(--gx, 50%) var(--gy, 50%), var(--wash, transparent), transparent 70%),
+    var(--shade, transparent);
+}
+
+.btn::after {
+  padding: 1px;
+  background: radial-gradient(var(--rim-size, 64px) circle at var(--gx, 50%) var(--gy, 50%), var(--rim-light, transparent), transparent 75%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+@media (hover: hover) {
+  .btn:hover {
+    transition-duration: var(--hover-in);
+    transition-timing-function: var(--ease-spring);
+  }
+
+  .btn:hover::before,
+  .btn:hover::after {
+    opacity: 1;
+    transition: opacity var(--hover-in) var(--ease-spring);
+  }
+}
+
+/* The keyboard has no pointer: its focus lights the face from the middle, beside the ring. */
+.btn:focus-visible::before {
+  opacity: 1;
+}
+
+.btn:active,
+.btn:active::before {
+  transition-duration: 0ms;
+}
+
+/* The download: the accent with light from above. Under the pointer the face deepens a step and the
+   pointer's light is the doorways' pale blue, on the face and on the stretch of rim nearest it. */
+.btn-primary {
+  --wash: oklch(0.78 0.13 250 / 0.25);
+  --wash-size: 120px;
+  --rim-light: oklch(0.97 0.03 250);
+  --rim-size: 80px;
+  color: white;
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.28),
+    inset 0 0 0 1px oklch(0.78 0.12 250 / 0.5),
+    0 1px 2px oklch(0 0 0 / 0.4),
+    0 8px 24px -8px oklch(0.68 0.173 253.301 / 0.6);
+}
+
+@media (hover: hover) {
+  .btn-primary:hover {
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.3),
+      inset 0 0 0 1px oklch(0.8 0.1 250 / 0.5),
+      0 1px 2px oklch(0 0 0 / 0.4),
+      0 10px 30px -8px oklch(0.68 0.173 253.301 / 0.8);
+  }
+}
+
+.btn-primary:active::before {
+  --shade: var(--shade-press);
+  opacity: 1;
+}
+
+/* The quiet button: a raised step of the surface, the pointer's light white and faint. */
+.btn-quiet {
+  --wash: oklch(1 0 0 / 0.07);
+  --rim-light: oklch(1 0 0 / 0.5);
+  background-color: var(--color-surface);
+  color: var(--color-ink-2);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.07),
+    inset 0 0 0 1px var(--color-line);
+}
+
+@media (hover: hover) {
+  .btn-quiet:hover {
+    background-color: var(--color-raised);
+    color: var(--color-ink);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.09),
+      inset 0 0 0 1px var(--color-line-strong);
+  }
+}
+
+.btn-quiet:active {
+  background-color: var(--color-raised-2);
+}
+
+/* A control with no face until the pointer comes (the board's Shuffle and Send back): the wash alone. */
+.btn-ghost {
+  --wash: oklch(1 0 0 / 0.07);
+  --shade: oklch(1 0 0 / 0.035);
+  color: var(--color-ink-2);
+}
+
+@media (hover: hover) {
+  .btn-ghost:hover {
+    color: var(--color-ink);
+  }
+}
+
+.btn-ghost:active::before {
+  --shade: oklch(1 0 0 / 0.08);
+  opacity: 1;
+}
+
+/* A small action on the accent (the board's Approve): the accent fill's own hover and press steps,
+   with the primary's light on its rim. */
+.btn-accent {
+  --rim-light: oklch(0.95 0.05 250);
+  --rim-size: 44px;
+  --wash-size: 70px;
+  background-color: var(--color-accent-fill);
+  color: white;
+}
+
+@media (hover: hover) {
+  .btn-accent:hover {
+    background-color: var(--color-accent-fill-hover);
+  }
+}
+
+.btn-accent:active {
+  background-color: var(--color-accent-fill-press);
+}
+
+/* The header's links share one highlight that glides to whichever the pointer is over, and fades in
+   where it lands rather than flying in from the last one it left (components/FloatingHeader). */
+.nav-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--w, 0);
+  height: 100%;
+  translate: var(--x, 0) 0;
+  border-radius: 14px;
+  corner-shape: squircle;
+  background: oklch(1 0 0 / 0.07);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.06),
+    inset 0 0 0 1px oklch(1 0 0 / 0.04);
+  opacity: 0;
+  scale: 0.94;
+  pointer-events: none;
+  transition:
+    opacity var(--hover-out) ease-out,
+    scale var(--hover-out) ease-out,
+    translate 280ms var(--ease-spring),
+    width 280ms var(--ease-spring);
+}
+
+.nav-pill[data-on] {
+  opacity: 1;
+  scale: 1;
+  transition:
+    opacity var(--hover-in) var(--ease-spring),
+    scale var(--hover-in) var(--ease-spring),
+    translate 280ms var(--ease-spring),
+    width 280ms var(--ease-spring);
+}
+
+.nav-pill[data-landing] {
+  transition: opacity var(--hover-in) var(--ease-spring), scale var(--hover-in) var(--ease-spring);
+}
+
+.nav-link {
+  transition: color var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  .nav-link:hover {
+    color: var(--color-ink);
+    transition: color var(--hover-in) var(--ease-spring);
+  }
+}
+
+/* A link in running words or a list of them: the line under its words draws in from the left as the
+   pointer arrives and runs on out to the right as it leaves. On the words themselves (`.link-line`),
+   answering the link round them, or the block a link is stretched over (`.group`). */
+.link-line {
+  background: linear-gradient(currentColor, currentColor) no-repeat right 100% / 0 1px;
+  padding-bottom: 1px;
+  transition: background-size var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  a:hover .link-line,
+  a.link-line:hover,
+  button.link-line:hover,
+  .group:hover .link-line {
+    background-position: left 100%;
+    background-size: 100% 1px;
+    transition: background-size 300ms var(--ease-spring);
+  }
+}
+
+a:focus-visible .link-line,
+.group:focus-within .link-line {
+  background-position: left 100%;
+  background-size: 100% 1px;
+}
+
+/* An arrow that says where a link goes leans that way while the pointer is on it. */
+.nudge {
+  transition: translate var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  a:hover .nudge,
+  .group:hover .nudge {
+    translate: var(--nudge, 3px) 0;
+    transition: translate 280ms var(--ease-spring);
+  }
+}
+
+/* A symbol for an action that turns (the board's Shuffle) turns a little toward it. */
+.turn {
+  transition: rotate var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  .btn:hover .turn {
+    rotate: -60deg;
+    transition: rotate 320ms var(--ease-spring);
+  }
+}
+
+/* A row of a list that is a link: a fill under the pointer, in on the spring and out quietly. */
+.row-link {
+  transition: background-color var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  .row-link:hover {
+    background-color: var(--row-hover, oklch(1 0 0 / 0.05));
+    transition: background-color var(--hover-in) var(--ease-spring);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn::before,
+  .btn::after {
+    --gx: 50%;
+    --gy: 50%;
+  }
+
+  .nav-pill,
+  .nav-pill[data-on] {
+    scale: 1;
+    transition: opacity var(--hover-out) ease-out;
+  }
+
+  .link-line {
+    background-size: 100% 1px;
+    background-image: linear-gradient(transparent, transparent);
+    transition: none;
+  }
+
+  a:hover .link-line,
+  a.link-line:hover,
+  button.link-line:hover,
+  .group:hover .link-line,
+  a:focus-visible .link-line,
+  .group:focus-within .link-line {
+    background-image: linear-gradient(currentColor, currentColor);
+  }
+
+  .nudge,
+  a:hover .nudge,
+  .group:hover .nudge {
+    translate: none;
+  }
+
+  .turn,
+  .btn:hover .turn {
+    rotate: none;
+  }
 }
 
 /* The in-page Realm (components/home/mini). Its quiet ink — hints, labels, timestamps, line numbers —

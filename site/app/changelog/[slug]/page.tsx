@@ -74,10 +74,10 @@ export default async function ChangelogEntryPage({ params }: Params) {
               <FieldPanel anchor="c:title" wrapClassName="mt-8 min-w-0 lg:order-1 lg:mt-0 xl:col-start-2" className="px-6 py-6 sm:px-8 sm:py-7">
                 <Link
                   href="/changelog"
-                  className="group -ml-1 inline-flex min-h-10 items-center gap-2 rounded-[8px] px-1 text-[14px] text-ink-2 transition-colors duration-150 hover:text-ink"
+                  className="-ml-1 inline-flex min-h-10 items-center gap-2 rounded-[8px] px-1 text-[14px] text-ink-2 transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring"
                 >
-                  <ArrowIcon className="h-3.5 w-3.5 rotate-180 transition-transform duration-300 ease-[var(--ease-out-strong)] group-hover:-translate-x-0.5" />
-                  Changelog
+                  <ArrowIcon className="nudge h-3.5 w-3.5 rotate-180 [--nudge:-3px]" />
+                  <span className="link-line">Changelog</span>
                 </Link>
                 <p className="mt-4 font-mono text-[13px] text-ink-2">
                   <time dateTime={entry.date}>{formatDate(entry.date)}</time>
@@ -91,7 +91,7 @@ export default async function ChangelogEntryPage({ params }: Params) {
                 {!entry.version && release ? (
                   <p className="mt-5 text-[14px] text-ink-2">
                     Shipped in{" "}
-                    <Link href={`/changelog/${release.slug}`} className="text-accent-ink underline-offset-4 hover:underline">
+                    <Link href={`/changelog/${release.slug}`} className="link-line text-accent-ink">
                       {release.version}
                     </Link>
                     , {formatDate(release.date)}

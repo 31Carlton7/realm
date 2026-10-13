@@ -18,12 +18,12 @@ export function Announcement({ className = "" }: { className?: string }) {
   return (
     <Link
       href="/changelog/v2-1-0"
-      className={`group inline-flex items-center gap-2.5 text-[13.5px] text-ink-2 transition-colors duration-150 hover:text-ink ${className}`}
+      className={`inline-flex items-center gap-2.5 text-[13.5px] text-ink-2 transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring ${className}`}
     >
       <span className="font-mono text-[12px] text-accent-ink">2.1</span>
       <span className="h-3.5 w-px bg-line-strong" aria-hidden />
       Teams, and long sessions that open in a fifth of a second
-      <ArrowIcon className="h-3.5 w-3.5 transition-transform duration-200 ease-[var(--ease-out-strong)] group-hover:translate-x-0.5" />
+      <ArrowIcon className="nudge h-3.5 w-3.5" />
     </Link>
   )
 }

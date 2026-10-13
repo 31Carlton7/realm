@@ -42,7 +42,7 @@ export function Rail({ items, label, className = "" }: { items: RailItem[]; labe
               <a
                 href={`#${item.id}`}
                 aria-current={here ? "location" : undefined}
-                className={`flex min-h-10 items-center justify-between gap-4 py-2 pl-4 text-[13px] leading-[1.4] transition-colors duration-150 hover:text-ink ${here ? "text-ink" : "text-ink-2"}`}
+                className={`flex min-h-10 items-center justify-between gap-4 py-2 pl-4 text-[13px] leading-[1.4] transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring ${here ? "text-ink" : "text-ink-2"}`}
               >
                 <span className="min-w-0 text-pretty">{item.label}</span>
                 {item.detail ? <span className="shrink-0 font-mono text-[12px] text-ink-2 tabular-nums">{item.detail}</span> : null}

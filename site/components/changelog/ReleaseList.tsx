@@ -60,8 +60,8 @@ function ReleaseHead({ release, index }: { release: Release; index: number }) {
       </h2>
       <p className="mt-3.5 max-w-[60ch] text-[17px] leading-[1.6] text-ink-2">{release.summary}</p>
       <p aria-hidden className="mt-4 inline-flex items-center gap-1.5 text-[14px] text-accent-ink">
-        Read the notes
-        <ArrowIcon className="h-3.5 w-3.5 transition-transform duration-300 ease-[var(--ease-out-strong)] group-hover:translate-x-0.5" />
+        <span className="link-line">Read the notes</span>
+        <ArrowIcon className="nudge h-3.5 w-3.5" />
       </p>
     </div>
   )
@@ -74,7 +74,7 @@ function Changes({ entries }: { entries: Entry[] }) {
         <li key={entry.slug}>
           <Link
             href={`/changelog/${entry.slug}`}
-            className="flex min-h-10 items-baseline justify-between gap-6 rounded-[8px] px-3 py-2 transition-colors duration-150 hover:bg-white/[0.05]"
+            className="row-link flex min-h-10 items-baseline justify-between gap-6 rounded-[8px] px-3 py-2"
           >
             <span className="min-w-0 text-[15px] leading-[1.45] text-ink">{entry.title}</span>
             <span className="shrink-0 text-[13px] text-ink-2">{entry.area}</span>
