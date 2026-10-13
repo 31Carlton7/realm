@@ -43,8 +43,10 @@ const fake = () => new FakeAdapter({ script: [
     { kind: "plan", planId: "p1", steps: [{ text: "Add the column", status: "pending" }, { text: "Backfill it", status: "pending" }] },
     { kind: "tool", name: "ExitPlanMode", needsPermission: true, input: { plan: "## Theme column\n\nAdd it, then backfill it." }, result: "Approved" },
   ] },
+  // The edit changes the file's size: one of the same size, made in the second git last looked at it,
+  // can read as unchanged to git's stat check ("racy git"), and the turn would not count it.
   { on: "edit", emit: [
-    { kind: "tool", name: "Edit", apply: true, input: { file_path: "a.txt", old_string: "one", new_string: "two" }, result: "ok" },
+    { kind: "tool", name: "Edit", apply: true, input: { file_path: "a.txt", old_string: "one", new_string: "one, then two" }, result: "ok" },
     { kind: "tool", name: "Write", apply: true, input: { file_path: "notes/new.md", content: "# New\n\nhello\n" }, result: "created" },
   ] },
 ] });
@@ -400,7 +402,7 @@ describe("Plan 28: a paired phone, in process", () => {
     const changes = MobileCalls["session.changes"].result.parse(await phone.call("session.changes", { id: session.id, checkpointId }));
     expect(changes.files.map((f) => [f.path, f.status, f.additions, f.deletions]).sort()).toEqual([["a.txt", "modified", 1, 1], ["notes/new.md", "added", 3, 0]]);
     const diff = MobileCalls["session.diff"].result.parse(await phone.call("session.diff", { id: session.id, checkpointId, path: "a.txt" }));
-    expect(diff.lines).toEqual(["--- a/a.txt", "+++ b/a.txt", "@@ -1 +1 @@", "-one", "+two"].map((l) => (l.startsWith("@@") ? expect.stringMatching(/^@@ -1(,1)? \+1(,1)? @@/) : l)));
+    expect(diff.lines).toEqual(["--- a/a.txt", "+++ b/a.txt", "@@ -1 +1 @@", "-one", "+one, then two"].map((l) => (l.startsWith("@@") ? expect.stringMatching(/^@@ -1(,1)? \+1(,1)? @@/) : l)));
     // A file in the same repository that this turn did not change is not the phone's to read.
     writeFileSync(join(repo.folderPath, "secret.env"), "KEY=1\n");
     await expect(phone.call("session.diff", { id: session.id, checkpointId, path: "secret.env" })).rejects.toMatchObject({ code: "FORBIDDEN" });
