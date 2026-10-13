@@ -172,10 +172,10 @@ async function sky(gpu: Gpu, output: Surface, size: [number, number]) {
     /**
      * Clear the sky out of the page's way, whenever the stops move: nothing may hang where the camera
      * passes between stops, nor in front of a stop's camera as near as its own realm, nor behind the
-     * words near enough to be more than a point.
+     * words as anything more than a point.
      */
-    clearFor(stops: { view: View; keep: number; words: Rect | null }[], path: Vec3[], width: number, height: number) {
-      const key = `${width}x${height}|${stops.map((s) => `${s.view.eye.map((v) => v.toFixed(2)).join(",")}@${s.view.px.toFixed(0)},${s.view.py.toFixed(0)}`).join(";")}`
+    clearFor(stops: { view: View; keep: number; words: Rect[] }[], path: Vec3[], width: number, height: number) {
+      const key = `${width}x${height}|${stops.map((s) => `${s.view.eye.map((v) => v.toFixed(2)).join(",")}@${s.view.px.toFixed(0)},${s.view.py.toFixed(0)}:${s.words.map((w) => w.map(Math.round).join(",")).join("/")}`).join(";")}`
       if (key === cleared) return
       cleared = key
       const views = stops.map((s) => ({ ...s, b: basis(s.view) }))
@@ -187,7 +187,8 @@ async function sky(gpu: Gpu, output: Surface, size: [number, number]) {
           const across = (view.focal * size) / z
           const r = across + 40
           if (x > -r && x < width + r && y > -r && y < height + r && (z <= keep + size || across > 90)) return false
-          if (words && z < 160 && x > words[0] - r && x < words[0] + words[2] + r && y > words[1] - r && y < words[1] + words[3] + r) return false
+          // Behind the words, nothing more than a point, however far off: the far giants as well.
+          if (across > 4 && words.some((w) => x > w[0] - r && x < w[0] + w[2] + r && y > w[1] - r && y < w[1] + w[3] + r)) return false
         }
         return true
       })
@@ -377,12 +378,16 @@ export function walkStage(releases: AvenueRelease[]): StageFactory {
         })
         const keys = stops.map((stop) => stop.key)
 
-        // The sky cleared out of the way: of the walk, of each release, and of the list.
-        const words: Rect | null = banded ? null : [-W, -H, columnRight + W + 40, H * 3]
+        // The sky cleared out of the way: of the walk, of each release, of the list's side of the page,
+        // and, where the last release is read, of the footer coming up under it.
+        const side: Rect[] = banded ? [] : [[-W, -H, columnRight + W + 40, H * 3]]
+        const footer = input.anchors["c:footer"]
+        const end = document.documentElement.scrollHeight - input.height
+        const foot: Rect[] = footer && !banded ? [[-W, local(footer)[1] + scrollY - end - 60, W * 3, H * 2]] : []
         const path: Vec3[] = []
         for (let k = 0; k + 1 < keys.length; k++) for (let i = 0; i <= 16; i++) path.push(blend(keys[k]!.view, keys[k + 1]!.view, i / 16, keys[k]!.lift).eye)
         if (banded) for (let i = 0; i <= 12; i++) path.push([opening.eye[0], opening.eye[1] + i * 2, opening.eye[2]])
-        s.clearFor(keys.map((key) => ({ view: key.view, keep: 9, words })), path, W, H)
+        s.clearFor(keys.map((key, k) => ({ view: key.view, keep: 9, words: k === keys.length - 1 ? [...side, ...foot] : side })), path, W, H)
 
         const at = place(keys, scrollY)
         const nearest = at.u < 0.5 ? at.from : at.to
@@ -479,8 +484,11 @@ export function arrivalStage(release: number, total: number, dark: boolean): Sta
 
         const path: Vec3[] = []
         for (let i = 0; i <= 12; i++) path.push(blend(far, near, i / 12, 0).eye)
+        // Nothing but points behind the title, nor anywhere on its side of the band where the realm
+        // hangs beside it rather than over it.
         const title = input.anchors["c:title"] ? local(input.anchors["c:title"]) : null
-        s.clearFor([{ view: far, keep: 9, words: title }], path, W, H)
+        const words: Rect[] = !title ? [] : slot[0] > title[0] + title[2] ? [[-W, -H, title[0] + title[2] + W + 40, H * 3]] : [title]
+        s.clearFor([{ view: far, keep: 9, words }], path, W, H)
 
         const corners = panes()
         const clears: [Rect, number, number][] = []
