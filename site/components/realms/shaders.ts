@@ -909,8 +909,14 @@ fn stars(rd: vec3f) -> vec3f {
   let far = skyTurn(rd, scene.haze.z);
   let light = vec3f(1.0) - exp(-stars(far) * (1.0 + 0.6 * hole.ax.w) / max(stretch, 1.0));
 
-  let behind = (base + light * (vec3f(1.0) - base)) * bent.through;
-  let front = vec3f(1.0) - exp(-bent.light * 1.15);
+  // The shadow's edge, soft outward, and the rim of light tracing it, a thin line: drawn as wide as a
+  // pixel is where the hole squeezes them, so the line stays unbroken and the edge stays smooth.
+  let w = clamp(fwidth(bent.edge), 1.0, 4.0);
+  let through = bent.through * mix(1.0, smoothstep(0.0, 1.6 * w, bent.edge), hole.at.w);
+  let rim = exp(-bent.edge / (2.2 * w)) * smoothstep(0.0, 1.4 * w, bent.edge) * 2.6 * bent.rim;
+
+  let behind = (base + light * (vec3f(1.0) - base)) * through;
+  let front = vec3f(1.0) - exp(-(bent.light + HOLE_WHITE * rim) * 1.15);
   return vec4f(behind + front * (vec3f(1.0) - behind), 0.0);
 }
 `

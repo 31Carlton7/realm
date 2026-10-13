@@ -136,6 +136,8 @@ struct HoleRay {
   dir: vec3f,     // where the ray leaves for, in the world
   light: vec3f,   // what the hole puts in front of it
   through: f32,   // how much of what lies beyond still shows: none inside the shadow
+  edge: f32,      // how near it passed the cube, in px at the cube (0 taken in, 64 nowhere near)
+  rim: f32,       // how bright the rim of light that traces the silhouette is where it passed
 }
 
 fn holeHash(i: vec2f, n: f32) -> f32 {
@@ -436,7 +438,7 @@ fn holeOut(eye: vec3f, d: vec3f, tEnd: f32) -> vec3f {
 // front of it, and how much of what lies beyond still shows. Far from the cube it is only bent, in
 // closed form; near it, it is stepped.
 fn holeTrace(rd: vec3f) -> HoleRay {
-  var out = HoleRay(rd, vec3f(0.0), 1.0);
+  var out = HoleRay(rd, vec3f(0.0), 1.0, 64.0, 0.0);
   if (hole.at.w <= 0.0) {
     return out;
   }
@@ -529,8 +531,10 @@ fn holeTrace(rd: vec3f) -> HoleRay {
 
   // The rim: light that grazed the cube on its way past, a thin line tracing the silhouette and a
   // breath round it. It gathers where the streams' plane crosses the silhouette, is brighter on the
-  // side the streams come at the camera from, and is stirred along its length.
-  var rim = 0.0;
+  // side the streams come at the camera from, and is stirred along its length. The line itself, and
+  // the shadow's soft edge, are drawn by the sky pass from how near the ray passed (fs_sky), which can
+  // tell how fast that changes from one pixel to the next.
+  var strength = 0.0;
   var breath = 0.0;
   if (stepped) {
     let t = hole.az.w;
@@ -540,17 +544,17 @@ fn holeTrace(rd: vec3f) -> HoleRay {
     let node = atan2(dot(line, hole.su.xyz), dot(line, hole.sr.xyz));
     let gather = pow(0.5 + 0.5 * cos(2.0 * (around - node)), 3.0);
     let stir = holeNoise(vec2f(around / HOLE_TAU * 24.0 + t * 0.35, t * 0.25), 24.0);
-    let strength = (0.8 + 0.5 * stir) * (1.0 + 1.4 * gather) * (1.0 - 0.3 * flat.x) * (1.0 + 1.5 * hole.dn.w);
-    rim = exp(-sMin / (perPx * 2.2)) * smoothstep(0.0, perPx * 1.4, sMin) * 2.6 * strength;
+    strength = (0.8 + 0.5 * stir) * (1.0 + 1.4 * gather) * (1.0 - 0.3 * flat.x) * (1.0 + 1.5 * hole.dn.w);
     breath = exp(-sMin / 0.14) * 0.26 * strength;
   }
   if (captured) {
     light += through * (holeDoorway(hit, dir, perPx) + holeTaken(hit));
     through = 0.0;
+    out.edge = 0.0;
   } else if (stepped) {
-    light += through * (HOLE_WHITE * rim + HOLE_BLUE * breath);
-    // The shadow's edge, anti-aliased outward: a ray that only just escaped is still mostly dark.
-    through *= smoothstep(0.0, perPx * 1.6, sMin);
+    light += through * HOLE_BLUE * breath;
+    out.edge = min(sMin * hole.de.w, 64.0);
+    out.rim = through * strength * hole.at.w;
   }
 
   light += front * holeOut(eye, d, tEnd);
