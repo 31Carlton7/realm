@@ -80,7 +80,7 @@ export async function SiteFooter({ world }: { world?: ReactNode }) {
           </nav>
         </div>
       </div>
-      {world ? <div className="relative mt-6">{world}</div> : <div className="h-24" />}
+      {world ? <div className="relative mt-12">{world}</div> : <div className="h-24" />}
     </footer>
   )
 }

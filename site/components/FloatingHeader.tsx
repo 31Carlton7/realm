@@ -100,7 +100,7 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
           />
           {flight ? (
             <div aria-hidden className="pointer-events-none absolute inset-x-5 bottom-0 h-px overflow-hidden opacity-[var(--p)]">
-              <div className="h-full w-full origin-left scale-x-[var(--flight)] bg-[linear-gradient(to_right,oklch(0.788_0.113_248.33/0.15),oklch(0.788_0.113_248.33/0.75))]" />
+              <div className="h-full w-full origin-left scale-x-[var(--flight)] bg-[linear-gradient(to_right,oklch(0.788_0.113_248.33/0.2),oklch(0.788_0.113_248.33/0.95))]" />
             </div>
           ) : null}
           <Link ref={brandRef} href="/" className="relative shrink-0 rounded-[8px] text-ink transition-opacity duration-150 hover:opacity-75">
