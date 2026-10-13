@@ -1,7 +1,7 @@
 import {
   AGENT_META, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, USAGE_DIMENSIONS, USAGE_OTHER_KEY,
-  USAGE_REPORTING, USAGE_SERIES_CAP, bucketRange, estimateCostUsd, sumDeltas, usageDeltas,
-  type AgentKind, type UsageBucketKind, type UsageBreakdownRow, type UsageDimension,
+  USAGE_REPORTING, USAGE_SERIES_CAP, bucketRange, estimateCostUsd, sumDeltas, totalTokens, usageDeltas,
+  type AgentKind, type UsageBucketKind, type UsageBreakdownRow, type UsageDimension, type UsagePrice,
   type UsageSample, type UsageSummary, type UsageTotals,
 } from "@realm/contracts";
 import { bucketStart } from "@realm/contracts";
@@ -31,21 +31,29 @@ export type SessionFacts = {
   samples: UsageSample[];
 };
 
-export type PriceLookup = (model: string | null, agentKind: AgentKind) => { priceIn: number | null; priceOut: number | null } | null;
+export type PriceLookup = (model: string | null, agentKind: AgentKind) => UsagePrice | null;
 
 const zeroTotals = (): UsageTotals => ({
   costUsd: 0, reportedUsd: 0, estimatedUsd: 0, inputTokens: 0, outputTokens: 0,
-  turns: 0, sessions: 0, unmeasuredSessions: 0,
+  cacheReadTokens: 0, cacheWriteTokens: 0, turns: 0, sessions: 0, unmeasuredSessions: 0,
 });
 
 function addTotals(a: UsageTotals, b: UsageTotals): void {
   a.costUsd += b.costUsd; a.reportedUsd += b.reportedUsd; a.estimatedUsd += b.estimatedUsd;
   a.inputTokens += b.inputTokens; a.outputTokens += b.outputTokens; a.turns += b.turns;
+  a.cacheReadTokens += b.cacheReadTokens; a.cacheWriteTokens += b.cacheWriteTokens;
   a.sessions += b.sessions; a.unmeasuredSessions += b.unmeasuredSessions;
 }
 
 /** What one session contributed inside the window, plus the per-bucket split of the same numbers. */
-type SessionSlice = { totals: UsageTotals; byBucket: Map<number, { costUsd: number; tokens: number }> };
+type SessionSlice = {
+  totals: UsageTotals; byBucket: Map<number, { costUsd: number; tokens: number }>;
+  /** Tokens that could not be priced because their cache split was never recorded (`cacheSplit`). */
+  unsplitTokens: number;
+  /** True when some in-range tokens came from Claude events that counted the main loop's uncached
+   *  input only — what every Claude event reported before `cumulativeTokens`. */
+  mainLoopOnly: boolean;
+};
 
 /**
  * Reduce one session to its in-range contribution.
@@ -66,17 +74,21 @@ export function sliceSession(s: SessionFacts, from: number, to: number, bucket: 
   const totals = zeroTotals();
   const byBucket = new Map<number, { costUsd: number; tokens: number }>();
   totals.sessions = 1;
+  const empty = { totals, byBucket, unsplitTokens: 0, mainLoopOnly: false };
 
   const reporting = USAGE_REPORTING[s.agentKind];
-  if (reporting.series === "none") { totals.unmeasuredSessions = 1; return { totals, byBucket }; }
+  if (reporting.series === "none") { totals.unmeasuredSessions = 1; return empty; }
 
   const inRange = usageDeltas(s.samples, reporting.series).filter((d) => d.ts >= from && d.ts <= to);
-  if (inRange.length === 0) return { totals, byBucket };
+  if (inRange.length === 0) return empty;
 
   const summed = sumDeltas(inRange);
   totals.inputTokens = summed.inputTokens;
   totals.outputTokens = summed.outputTokens;
+  totals.cacheReadTokens = summed.cacheReadTokens;
+  totals.cacheWriteTokens = summed.cacheWriteTokens;
   totals.turns = summed.turns;
+  let unsplitTokens = 0;
 
   const price = priceFor(s.model, s.agentKind);
   // Per delta rather than per session, so a bucket's dollars are that bucket's own — an estimate
@@ -84,17 +96,23 @@ export function sliceSession(s: SessionFacts, from: number, to: number, bucket: 
   // but would stop being so the day a session changes model mid-run (sessions.setOptions does that).
   for (const d of inRange) {
     const reported = d.costUsd;
-    const estimated = reported > 0 ? 0 : (estimateCostUsd(d.inputTokens, d.outputTokens, price) ?? 0);
+    // A delta whose input still holds its cached part has no honest price: at the input rate, a
+    // Codex turn that was 98% cache reads costs eight times what it did. Counted, named, not priced.
+    if (reported === 0 && !d.cacheSplit) unsplitTokens += totalTokens(d);
+    const estimated = reported > 0 || !d.cacheSplit ? 0
+      : (estimateCostUsd(d.inputTokens, d.outputTokens, price, { read: d.cacheReadTokens, write: d.cacheWriteTokens }) ?? 0);
     totals.reportedUsd += reported;
     totals.estimatedUsd += estimated;
     const b = bucketStart(d.ts, bucket);
     const cell = byBucket.get(b) ?? { costUsd: 0, tokens: 0 };
     cell.costUsd += reported + estimated;
-    cell.tokens += d.inputTokens + d.outputTokens;
+    cell.tokens += totalTokens(d);
     byBucket.set(b, cell);
   }
   totals.costUsd = totals.reportedUsd + totals.estimatedUsd;
-  return { totals, byBucket };
+  const mainLoopOnly = reporting.series === "running-cost"
+    && s.samples.some((x) => x.ts >= from && x.ts <= to && !x.cumulativeTokens);
+  return { totals, byBucket, unsplitTokens, mainLoopOnly };
 }
 
 /* ── breakdown keys ──────────────────────────────────────────────────────────
@@ -162,7 +180,7 @@ export function buildBreakdown(
   // dollars (every ACP kind) still order by something real rather than by Map insertion order.
   const ranked = [...all].sort(([, a], [, b]) =>
     b.totals.costUsd - a.totals.costUsd
-    || (b.totals.inputTokens + b.totals.outputTokens) - (a.totals.inputTokens + a.totals.outputTokens)
+    || totalTokens(b.totals) - totalTokens(a.totals)
     || b.totals.sessions - a.totals.sessions);
   const keep = new Set(ranked.slice(0, USAGE_SERIES_CAP).map(([k]) => k));
 
@@ -261,6 +279,8 @@ export function aggregateUsage(input: AggregateInput): UsageSummary {
   const seriesCells = new Map<number, { costUsd: number; tokens: number }>();
   const unmeasured = new Set<AgentKind>();
   const unpriced = new Set<string>();
+  let unsplitTokens = 0;
+  let mainLoopOnlySessions = 0;
   for (const { facts, slice } of entries) {
     addTotals(totals, slice.totals);
     for (const [b, cell] of slice.byBucket) {
@@ -268,10 +288,13 @@ export function aggregateUsage(input: AggregateInput): UsageSummary {
       into.costUsd += cell.costUsd; into.tokens += cell.tokens;
       seriesCells.set(b, into);
     }
+    unsplitTokens += slice.unsplitTokens;
+    if (slice.mainLoopOnly) mainLoopOnlySessions += 1;
     if (USAGE_REPORTING[facts.agentKind].series === "none") unmeasured.add(facts.agentKind);
     // Only a session that actually reported tokens AND got no dollars for them has an estimate gap
-    // worth naming; a session with no usage at all is the `unmeasured` story, not this one.
-    else if (slice.totals.costUsd === 0 && slice.totals.inputTokens + slice.totals.outputTokens > 0) {
+    // worth naming; a session with no usage at all is the `unmeasured` story, and one whose tokens
+    // had no cache split is the `unsplitTokens` story, not this one.
+    else if (slice.totals.costUsd === 0 && totalTokens(slice.totals) > slice.unsplitTokens) {
       unpriced.add(facts.model ?? `${AGENT_META[facts.agentKind].label} default`);
     }
   }
@@ -282,6 +305,7 @@ export function aggregateUsage(input: AggregateInput): UsageSummary {
     const cell = seriesCells.get(b) ?? { costUsd: 0, tokens: 0 };
     const t = zeroTotals();
     t.costUsd = cell.costUsd;
+    // The bucket's EVERY token, cache included, carried in the one field a series point has room for.
     t.inputTokens = cell.tokens;
     return { bucket: b, totals: t };
   });
@@ -291,9 +315,9 @@ export function aggregateUsage(input: AggregateInput): UsageSummary {
   ) as UsageSummary["breakdowns"];
 
   const sessionRows = entries
-    .filter(({ slice }) => slice.totals.costUsd > 0 || slice.totals.inputTokens + slice.totals.outputTokens > 0)
+    .filter(({ slice }) => slice.totals.costUsd > 0 || totalTokens(slice.totals) > 0)
     .sort((a, b) => b.slice.totals.costUsd - a.slice.totals.costUsd
-      || (b.slice.totals.inputTokens + b.slice.totals.outputTokens) - (a.slice.totals.inputTokens + a.slice.totals.outputTokens))
+      || totalTokens(b.slice.totals) - totalTokens(a.slice.totals))
     .slice(0, USAGE_SESSION_LIMIT)
     .map(({ facts, slice }) => ({
       id: facts.id, title: facts.title, spaceId: facts.spaceId, spaceName: facts.spaceName,
@@ -306,5 +330,6 @@ export function aggregateUsage(input: AggregateInput): UsageSummary {
     sessions: sessionRows, activity: input.activity, budget: input.budget,
     unmeasuredKinds: [...unmeasured].sort(),
     unpricedModels: [...unpriced].sort(),
+    unsplitTokens, mainLoopOnlySessions,
   };
 }

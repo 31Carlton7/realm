@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
 import { dismissBootSplash } from "./boot-splash";
+import { isEditableTarget } from "./keys/commands";
 import { bannerFor, type DaemonUiState } from "./components/daemon-banner";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { Rail } from "./components/sidebar/Rail";
@@ -14,6 +15,7 @@ import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
+import { AddTeammatesSheet } from "./panes/team/TeamPicker";
 import { CommandPalette } from "./components/CommandPalette";
 import { Toasts } from "./components/Toasts";
 import { AppPickerBridge } from "./app-pick/AppPicker";
@@ -23,13 +25,14 @@ import { PageOverlay } from "./components/PageOverlay";
 import { PageNavProvider } from "./components/page-nav";
 import { SpaceOverview } from "./components/sidebar/SpaceOverview";
 import { useKonami } from "./use-konami";
+import { useIdle } from "./use-idle";
 import { useKeybindings, useMenuBar } from "./keys";
 import { PaneHost } from "./components/PaneHost";
 import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, useApp, useAppStore, type AppState } from "./state/store";
+import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, type AppState } from "./state/store";
 import { sidebarHidden } from "./state/selectors";
 import { drawnShare, panelPlace } from "./state/view-room";
 import { useStore, type StoreApi } from "zustand";
@@ -146,8 +149,8 @@ function useSidebarFolded(collapsed: boolean): boolean {
  * Whether the app's decorative motion is allowed to run right now, stamped on `:root` for the
  * stylesheet to answer to.
  *
- * Two reasons it stops: the window does not have the user's attention, or they asked for it to stay
- * off. The first is the one that matters for a laptop — an agent working for an hour while its
+ * Three reasons it stops: the window does not have the user's attention, nobody has touched it for
+ * half a minute, or they asked for it to stay off. The first is the one that matters for a laptop — an agent working for an hour while its
  * person is in another app used to cost exactly what one being watched costs, and measured
  * (`scripts/power-audit.mjs`) that is about half a core per pane.
  *
@@ -177,11 +180,13 @@ function QuietBridge() {
     };
   }, [setWindowActive]);
 
+  // The third reason: in front, but nobody has touched it for half a minute (use-idle.ts).
+  const idle = useIdle(windowActive && !lowPower);
   useEffect(() => {
-    const quiet = lowPower || !windowActive;
-    if (quiet) document.documentElement.setAttribute("data-quiet", lowPower ? "always" : "unfocused");
+    const quiet = lowPower ? "always" : !windowActive ? "unfocused" : idle ? "idle" : null;
+    if (quiet) document.documentElement.setAttribute("data-quiet", quiet);
     else document.documentElement.removeAttribute("data-quiet");
-  }, [lowPower, windowActive]);
+  }, [lowPower, windowActive, idle]);
   return null;
 }
 
@@ -216,14 +221,14 @@ export function KeyWindowBridge() {
 /**
  * Whether the system draws OVERLAY scrollbars — macOS's "show scroll bars: when scrolling", which is
  * also what "automatically" resolves to on a Mac with only a trackpad. Stamped on `:root` as
- * `data-overlay-scrollbars`, and the stylesheet's own scrollbar treatment stands down under it.
+ * `data-overlay-scrollbars`, and the stylesheet's own scrollbar treatment stands down under it but for
+ * one thing: the root's colour pair, whose transparent track takes away the lane macOS lays beside
+ * an overlay thumb under the pointer (styles.css).
  *
- * Realm's thin line is a better classic scrollbar than the classic one, and on an overlay Mac it is
- * worse than the system's. Chromium keeps the overlay bar when a page only colours or thins it, but
- * paints it in the page's colour instead of the system's; and a `::-webkit-scrollbar` rule — which the
- * sidebar and every masked scroller need, for their track margins — turns it into a classic bar that
- * holds a gutter (measured on an overlay Mac: 8px against 0). So the styling is for the Macs whose
- * system draws classic bars anyway, and the rest get the system's own bar.
+ * Chromium keeps the overlay bar when a page only colours or thins it; a `::-webkit-scrollbar` rule —
+ * which the sidebar and every masked scroller need, for their track margins — turns it into a classic
+ * bar that holds a gutter (measured on an overlay Mac: 8px against 0). So the thin styled bar is for
+ * the Macs whose system draws classic bars anyway, and the rest get the system's own bar, trackless.
  *
  * Measured, not read from a preference: "automatically" depends on what is plugged in, and the only
  * party that knows the answer is the scroller Chromium draws. A probe with every scrollbar property
@@ -281,12 +286,9 @@ function CaretBridge() {
   return null;
 }
 
-/** The app's scrollers give at their ends (rubber-band.ts). Off under reduced motion, as AppKit's is. */
+/** The app's scrollers give at their ends (rubber-band.ts), under Reduce motion too, as AppKit's do. */
 function RubberBandBridge() {
-  useEffect(() => installRubberBand(document, {
-    onPhase: window.realm?.onScrollPhase,
-    reducedMotion: () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
-  }), []);
+  useEffect(() => installRubberBand(document, { onPhase: window.realm?.onScrollPhase }), []);
   return null;
 }
 
@@ -370,6 +372,7 @@ function SheetHost() {
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;
+  if (sheet.kind === "add-teammates") return <AddTeammatesSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "new-lecture") return <NewLectureSheet />;
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
@@ -395,7 +398,7 @@ export function Main() {
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const closeEmptyPane = useApp((s) => s.closeEmptyPane);
   const closeInPane = useApp((s) => s.closeInPane);
-  const splitFocused = useApp((s) => s.splitFocused);
+  const splitNewSession = useApp((s) => s.splitNewSession);
   const openItemAt = useApp((s) => s.openItemAt);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const resizeSplit = useApp((s) => s.resizeSplit);
@@ -434,9 +437,10 @@ export function Main() {
         onFocus={focusLeaf}
         onClose={(id) => run(() => closeFromLayout(id))}
         onCloseEmpty={(leafId) => run(() => closeEmptyPane(leafId))}
+        onNewSessionHere={(leafId) => run(() => newSessionInstant(leafId))}
         onUnsplit={(leafId) => run(() => closeInPane(leafId))}
         // The split button targets its own leaf: focus it synchronously, then split reads the fresh focus.
-        onSplit={(leafId, dir) => { focusLeaf(leafId); run(() => splitFocused(dir)); }}
+        onSplit={(leafId, dir) => { focusLeaf(leafId); run(() => splitNewSession(dir)); }}
         onResize={resizeSplit}
         onEqualize={equalizeSplit}
         onDropItem={(id, leafId, edge) => run(() => openItemAt(id, leafId, edge))}
@@ -501,6 +505,11 @@ export function subscribeSpaceLists(store: StoreApi<AppState>, on: Subscribe): (
 }
 
 /** The broadcasts that bring an agent-opened pane into the layout. Exported for its test. */
+/** How recent a keystroke into a field or a terminal keeps an agent's `space_switch` from moving the
+ *  window: long enough to cover the pause between two words, short enough that a person who has
+ *  stopped is not in the way. */
+const TYPING_QUIET_MS = 4_000;
+
 export const AGENT_PANE_EVENTS = ["browser.agentOpened", "simulator.agentOpened", "terminal.agentOpened"] as const;
 
 /**
@@ -556,6 +565,14 @@ export function App() {
     // A schedule was created, edited, deleted or fired. Held-only like ships: the payload carries no
     // row (a schedule changes rarely, and a deletion has no row to carry), so a page already showing
     // this space re-lists and everyone else does nothing.
+    // A team moved: a role woke or settled, work arrived in Review, a decision was made. The space's
+    // snapshot is re-read (the sidebar's Review row and Team fold read it) along with whatever of its
+    // detail is on screen. Read once at start too, for every team space.
+    const offTeam = rpc().on("team.changed", ({ spaceId }) => {
+      const st = store.getState();
+      st.run(() => st.refreshTeam(spaceId));
+    });
+    { const st = store.getState(); st.run(() => Promise.all([st.refreshTeams(), st.hydrateTeamFolds()])); }
     const offSched = rpc().on("schedules.changed", ({ spaceId }) => {
       const st = store.getState();
       if (st.schedules[spaceId]) st.run(() => st.refreshSchedules(spaceId));
@@ -592,6 +609,12 @@ export function App() {
       const st = store.getState();
       st.run(() => st.refreshFonts());
     });
+    // The friend packs opened late — the server could only read the remembered words once the app
+    // handed it their key. Unconditional: the transcript's labels read them, not only Settings.
+    const offEggs = rpc().on("eggs.changed", () => {
+      const st = store.getState();
+      st.run(() => st.refreshEggPacks());
+    });
     // The picture on the page about you changed, here or in another window. The payload is the new
     // copy's path, so it is applied as it stands rather than re-read.
     const offAv = rpc().on("avatar.changed", ({ path }) => store.getState().applyAvatarChanged(path));
@@ -599,6 +622,14 @@ export function App() {
     const offMem = rpc().on("memory.changed", ({ spaceId }) => {
       const st = store.getState();
       if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
+      // A memory repo is told the same way: a save an agent made, or one made in another window.
+      if (st.spaceMemoryRepos[spaceId]) st.run(() => st.refreshSpaceMemoryRepos(spaceId));
+      const profileId = st.spaces.find((x) => x.id === spaceId)?.profileId;
+      if (profileId && st.profileMemoryRepo[profileId] !== undefined) st.run(() => st.refreshProfileMemoryRepo(profileId));
+      // Each repo's history, where a row shows it: the profile's, and this space's own.
+      for (const owner of [...(profileId ? [{ scope: "profile" as const, id: profileId }] : []), { scope: "space" as const, id: spaceId }]) {
+        if (st.memoryRepoLog[memoryRepoKey(owner)]) st.run(() => st.refreshMemoryRepoLog(owner));
+      }
     });
     const offB = subscribeAgentPanes(store, (event, fn) => rpc().on(event, fn));
     // Every browser's page — address, title, icon — saved as it changes, shown in a pane or not: an
@@ -614,6 +645,16 @@ export function App() {
     // stealing focus.
     const offDO = rpc().on("documents.openRequested", (p) => { const st = store.getState(); st.run(() => st.applyDocumentOpenRequested(p)); });
     const offSA = rpc().on("session.agentOpened", (p) => { const st = store.getState(); st.run(() => st.applyAgentOpened(p)); });
+    // An agent's approved `space_switch`. Never under someone typing: a keystroke into a field in the
+    // last few seconds keeps the window where it is, and the agent is told it did not move.
+    let typedAt = 0;
+    const onTyped = (e: KeyboardEvent) => { if (isEditableTarget(e.target) || (e.target instanceof HTMLElement && e.target.closest(".xterm"))) typedAt = Date.now(); };
+    window.addEventListener("keydown", onTyped, true);
+    const offSw = rpc().on("space.switchRequested", (p) => { const st = store.getState(); st.run(() => st.applySpaceSwitchRequested(p, Date.now() - typedAt < TYPING_QUIET_MS)); });
+    // A setting an agent changed with `settings_set`, applied in every window.
+    const offSet = rpc().on("settings.changed", (p) => store.getState().applySettingChanged(p));
+    // A session an agent opened for the user with `session_open`: a pane of its own, beside that agent's.
+    const offSO = rpc().on("session.openRequested", (p) => { const st = store.getState(); st.run(() => st.applySessionOpenRequested(p)); });
     // The same child's run settled. A clean finish reads its "Finished a turn" row (`applyAgentSettled`).
     const offSS = rpc().on("session.agentSettled", (p) => store.getState().applyAgentSettled(p));
     // W4's watching feed: settled actions into the pane chrome's ticker, in-flight acts onto the
@@ -658,6 +699,12 @@ export function App() {
     const offOS = window.realm?.onOpenSession?.(({ sessionId, spaceId }) => {
       const st = store.getState();
       st.run(() => st.revealSession(sessionId, spaceId));
+    });
+    // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, or the
+    // link's right-click menu): main routed it here, and the tab goes beside the session in view.
+    const offLink = window.realm?.links?.onOpenInRealm((url) => {
+      const st = store.getState();
+      st.run(() => st.openLinkInBrowser(url));
     });
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
@@ -709,11 +756,12 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offRm(); offPr(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
+      offEggs();
       window.removeEventListener("drop", swallowDrop);
-      offOS?.();
+      offOS?.(); offLink?.();
     };
   }, [store]);
   return (

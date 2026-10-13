@@ -67,6 +67,17 @@ describe("documents.openPath", () => {
     c.close();
   });
 
+  it("opens an image of several megabytes — it is only looked at, never read here", async () => {
+    // THE MUTANT: read the file to open it. Before openPath was stat-only, 13 of 28 docs_open calls on
+    // a PNG, JPG or PDF over 2 MB came back TOO_LARGE.
+    const { c, space, documentsId, root } = await setup();
+    await writeFile(join(root, "photo.png"), Buffer.alloc(3 * 1024 * 1024));
+    const r = await c.call("documents.openPath", { spaceId: space.id, path: "photo.png" });
+    expect(r.error).toBeUndefined();
+    expect((await c.call("documents.get", { documentsId })).result.activePath).toBe("photo.png");
+    c.close();
+  });
+
   it("refuses a missing file and an escaping path", async () => {
     const { c, space } = await setup();
     expect((await c.call("documents.openPath", { spaceId: space.id, path: "nope.md" })).error?.code).toBe("NOT_FOUND");

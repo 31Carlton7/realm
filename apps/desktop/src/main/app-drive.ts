@@ -78,17 +78,17 @@ export class AppDriveHost {
     if (this.d.picking?.()) return { ok: false, error: PICKING_REFUSAL };
     const cdp = this.require();
     const ref = refOf(action);
-    if (ref !== null) {
-      const forbidden = await forbiddenAncestor(cdp.send, ref);
-      if (forbidden) {
-        return {
-          ok: false,
-          refused: "realm_protected",
-          error:
-            `that element is inside Realm's ${forbidden}, which no agent may act in. `
-            + "Realm never lets an agent answer its own permission request. Say what you need in your reply and let the user click it.",
-        };
-      }
+    // A key with no ref lands on whatever has focus — so Tab, Tab, Return would press a protected
+    // button without ever naming it. Asked of the focused element instead.
+    const forbidden = ref !== null ? await forbiddenAncestor(cdp.send, ref) : action.kind === "key" ? await forbiddenFocus(cdp.send) : null;
+    if (forbidden) {
+      return {
+        ok: false,
+        refused: "realm_protected",
+        error:
+          `that element is inside Realm's ${forbidden}, which no agent may act in. `
+          + "Realm never lets an agent answer its own permission request. Say what you need in your reply and let the user click it.",
+      };
     }
     // The mark first, then the act, exactly as the browser path orders them: the press flash is what
     // marks the moment, so drawing after would depict the act late.
@@ -125,6 +125,22 @@ function refOf(action: BrowserAction): number | null {
  * A failure here is a refusal, not a pass: this runs on the path that decides whether an agent may
  * press Realm's own Approve button, and "the check errored" is not a reason to let it through.
  */
+async function forbiddenFocus(send: CdpSend): Promise<string | null> {
+  const expression = `(function () {
+    try {
+      var a = document.activeElement;
+      var hit = a && a.closest && a.closest("[${NO_AGENT_ATTR}]");
+      return hit ? (hit.getAttribute("${NO_AGENT_ATTR}") || UNNAMED) : null;
+    } catch (e) { return UNNAMED; }
+  })()`.replace(/UNNAMED/g, JSON.stringify(UNNAMED_REGION));
+  try {
+    const res = (await send("Runtime.evaluate", { expression, returnByValue: true })) as { result?: { value?: string | null } };
+    return res.result?.value ?? null;
+  } catch {
+    return UNNAMED_REGION;
+  }
+}
+
 async function forbiddenAncestor(send: CdpSend, ref: number): Promise<string | null> {
   const fn = `function () {
     try {

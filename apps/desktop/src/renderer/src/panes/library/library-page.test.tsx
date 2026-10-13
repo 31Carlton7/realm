@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import { PAGE_REF_IDS } from "@realm/contracts";
 import { LibraryPage } from "./LibraryPage";
 import { StoreContext, createAppStore } from "../../state/store";
-import { space, fakeApi, item, skillRow, type FakeData } from "../../state/store.test-fakes";
+import { space, fakeApi, fakeMemoryRepo, item, skillRow, type FakeData } from "../../state/store.test-fakes";
 
 /** The pane as PaneHost mounts it: kind is the identity, refId the sentinel, spaceId the vantage. */
 const pageItem = (spaceId: string) =>
@@ -134,5 +134,14 @@ describe("the Library page (Plan 12 W4)", () => {
     await store.getState().boot();
     render(<StoreContext.Provider value={store}><LibraryPage item={item("lib-x", "sGone", { kind: "library-page", refId: PAGE_REF_IDS["library-page"] })} visible /></StoreContext.Provider>);
     expect(screen.getByText("This page's space no longer exists.")).toBeInTheDocument();
+  });
+});
+
+describe("LibraryPage · memory repo", () => {
+  it("lists the profile's memory repo under Every space", async () => {
+    await mount({ memoryRepos: { p1: fakeMemoryRepo() } });
+    fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+    expect(await screen.findByRole("heading", { name: "Memory repo" })).toBeInTheDocument();
+    expect(await screen.findByText("/realm-home/memory/repos/profile-p1")).toBeInTheDocument();
   });
 });

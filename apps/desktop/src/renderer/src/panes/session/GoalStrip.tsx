@@ -12,6 +12,10 @@ import { RESUMABLE_GOAL_STATUSES } from "@realm/contracts";
  *
  * Every stop offers its way out, in one control. That is the whole interaction: a goal is either
  * running (and can be paused), stopped and resumable (paused, blocked, spent budget), or finished.
+ *
+ * Any goal that is not finished can also be marked done from here. The agent is meant to say so
+ * itself, but the person watching may know first — and before this they could only say "good job"
+ * into a loop that went on continuing.
  */
 
 const WORDS: Record<GoalStatus, { label: string; dot: string }> = {
@@ -36,15 +40,17 @@ function facts(goal: Goal): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
-export function GoalStrip({ goal, onPause, onResume, onDrop }: {
+export function GoalStrip({ goal, onPause, onResume, onDrop, onDone }: {
   goal: Goal | null;
   onPause: () => void;
   onResume: () => void;
   onDrop: () => void;
+  onDone: () => void;
 }) {
   if (!goal) return null;
   const words = WORDS[goal.status];
   const resumable = RESUMABLE_GOAL_STATUSES.includes(goal.status);
+  const unfinished = goal.status === "active" || resumable;
   const meta = facts(goal);
   return (
     <div className="composer-goal" data-status={goal.status}>
@@ -53,6 +59,11 @@ export function GoalStrip({ goal, onPause, onResume, onDrop }: {
         <span className="composer-goal-label">{words.label}</span>
         {meta && <span className="composer-goal-facts">{meta}</span>}
         <span className="composer-goal-actions">
+          {unfinished && (
+            <button type="button" className="icon-btn" aria-label="Mark this goal done" title="Mark done" onClick={onDone}>
+              <Icon name="check" size={12} />
+            </button>
+          )}
           {goal.status === "active" && (
             <button type="button" className="icon-btn" aria-label="Pause this goal" title="Pause" onClick={onPause}>
               <Icon name="pause" size={12} />

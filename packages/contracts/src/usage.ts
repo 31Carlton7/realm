@@ -17,14 +17,14 @@ import { AgentKindSchema, type AgentKind } from "./entities";
  *    never in tokens. The page must say "not reported" for those, never `$0.00` — a zero is a claim
  *    about spend, and it would be a false one.
  *
- * 2. **The series semantics differ per adapter.** Codex's payload is the thread's RUNNING TOTAL, and
- *    so is Claude's: `claude-adapter.ts` opens ONE long-lived `query()` per session in streaming-input
- *    mode ("init arrives after the first send in streaming mode") and every user turn yields another
- *    `result` message carrying the conversation's totals to date. The renderer has always agreed with
- *    that reading — `reduceTranscript` REPLACES usage rather than adding to it (transcript-model.ts),
- *    and the session header shows the result as the session's cost. A naive `SUM(costUsd)` over the
- *    events would therefore scale with the square of the turn count. Everything here works in
- *    DELTAS instead, computed once by `usageDeltas`.
+ * 2. **The series semantics differ per adapter, and per FIELD.** Codex's payload is the thread's
+ *    RUNNING TOTAL. Claude's is a running total for cost only: `claude-adapter.ts` opens ONE
+ *    long-lived `query()` per session in streaming-input mode, every user turn yields another
+ *    `result`, and that result's `total_cost_usd` is the query's total to date while its `usage` and
+ *    `num_turns` are the turn's own (see `running-cost`). A naive `SUM(costUsd)` over the events
+ *    would scale with the square of the turn count, and reading the tuple as one running total
+ *    re-bills the whole session on every quieter turn. Everything here works in DELTAS instead,
+ *    computed once by `usageDeltas`.
  *
  * 3. **A reported dollar is not the user's bill.** Claude Code bills through a Claude subscription;
  *    `catalog.ts` makes the same point about its OpenRouter prices and refuses to show one without
@@ -40,6 +40,26 @@ export type UsageSeriesKind =
   | "cumulative"
   /** Each event carries only its own turn. Deltas are the values themselves. */
   | "per-turn"
+  /**
+   * Claude's `result` message, which is neither of the above: its fields do not share a lifecycle.
+   *
+   * `total_cost_usd` is the query's RUNNING TOTAL ("each result carries the running total so far, so
+   * read the latest result rather than summing across results" — the SDK's own doc comment), while
+   * `usage` and `num_turns` are PER TURN and cover the main agent loop only ("MAIN AGENT LOOP ONLY —
+   * excludes Task subagent … and is per-turn in streaming-input sessions"). Realm read the whole tuple
+   * as one running total, so every turn that used fewer tokens than the turn before it looked like a
+   * restart and re-billed the session's entire cost: a $512 session summed to $92,378.
+   *
+   * So the fields are read separately. Cost is differenced, and a drop in cost alone is the restart.
+   * Tokens are taken as they come — unless the event says `cumulativeTokens`, which events written
+   * since the adapter switched to `modelUsage` (every model the query used, sub-agents and cache
+   * included, as running totals) do; those are differenced like cost. Turns are per turn either way.
+   *
+   * A repeat of an event already seen is skipped: the adapter restates the turn's `usage` once more
+   * with the context measurement attached, and on a per-turn field that restatement would count the
+   * turn twice.
+   */
+  | "running-cost"
   /** The adapter emits no `usage` event at all. Nothing to read; the session shows activity only. */
   | "none";
 
@@ -66,7 +86,7 @@ export type UsageReporting = {
  * here by being the one kind that exercises the per-turn branch.
  */
 export const USAGE_REPORTING: Record<AgentKind, UsageReporting> = {
-  claude: { series: "cumulative", tokens: true, cost: "reported" },
+  claude: { series: "running-cost", tokens: true, cost: "reported" },
   codex: { series: "cumulative", tokens: true, cost: "estimated" },
   "acp:gemini": { series: "none", tokens: false, cost: "none" },
   "acp:cursor": { series: "none", tokens: false, cost: "none" },
@@ -82,21 +102,62 @@ export const USAGE_REPORTING: Record<AgentKind, UsageReporting> = {
   fake: { series: "per-turn", tokens: true, cost: "reported" },
 };
 
-/** One `usage` event as the aggregator reads it: the payload's four numbers plus when it landed. */
-export type UsageSample = { ts: number; costUsd: number; inputTokens: number; outputTokens: number; numTurns: number };
+/**
+ * One `usage` event as the aggregator reads it, already in ONE token vocabulary whatever engine
+ * wrote it (`usageSampleFromPayload` does the translating):
+ *
+ * - `inputTokens` is UNCACHED input only. `cacheReadTokens` and `cacheWriteTokens` are disjoint from
+ *   it, so the three sum to everything the model was sent — Anthropic's split, which Codex's
+ *   inclusive `inputTokens` is converted into.
+ * - The cache fields are optional because events written before they were recorded have none, and
+ *   `cacheSplit: false` says so where it matters: a Codex event without one counted its cached
+ *   input INSIDE `inputTokens`, so pricing it all at the input rate would bill a 98%-cached session
+ *   about eight times over.
+ */
+export type UsageSample = {
+  ts: number; costUsd: number; inputTokens: number; outputTokens: number; numTurns: number;
+  cacheReadTokens?: number; cacheWriteTokens?: number;
+  /** `running-cost` only: this event's token fields are running totals (see `UsageSeriesKind`). */
+  cumulativeTokens?: boolean;
+  /** False when the engine counts cached input but this event predates Realm recording it. */
+  cacheSplit?: boolean;
+};
 /** What one event ADDED. Always non-negative; `ts` is the event's own, so deltas bucket by time. */
-export type UsageDelta = { ts: number; costUsd: number; inputTokens: number; outputTokens: number; turns: number };
+export type UsageDelta = {
+  ts: number; costUsd: number; inputTokens: number; outputTokens: number; turns: number;
+  cacheReadTokens: number; cacheWriteTokens: number;
+  /** Carried from the sample: whether `inputTokens` can be priced as uncached input. */
+  cacheSplit: boolean;
+};
 
-const EMPTY_DELTA = { costUsd: 0, inputTokens: 0, outputTokens: 0, turns: 0 };
+const EMPTY_DELTA = { costUsd: 0, inputTokens: 0, outputTokens: 0, turns: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+
+const tokensOf = (s: UsageSample) => ({
+  inputTokens: s.inputTokens, outputTokens: s.outputTokens,
+  cacheReadTokens: s.cacheReadTokens ?? 0, cacheWriteTokens: s.cacheWriteTokens ?? 0,
+});
+type Tokens = ReturnType<typeof tokensOf>;
+const ZERO_TOKENS: Tokens = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+const tokensDropped = (a: Tokens, prev: Tokens) => a.inputTokens < prev.inputTokens || a.outputTokens < prev.outputTokens
+  || a.cacheReadTokens < prev.cacheReadTokens || a.cacheWriteTokens < prev.cacheWriteTokens;
+const tokenDiff = (a: Tokens, base: Tokens): Tokens => ({
+  inputTokens: Math.max(0, a.inputTokens - base.inputTokens), outputTokens: Math.max(0, a.outputTokens - base.outputTokens),
+  cacheReadTokens: Math.max(0, a.cacheReadTokens - base.cacheReadTokens), cacheWriteTokens: Math.max(0, a.cacheWriteTokens - base.cacheWriteTokens),
+});
+/** How close to the last total a lower one must land to read as a resumed process restoring its
+ *  saved total rather than one starting from zero. A fresh process's first turn is a turn's cost; a
+ *  restored one is the session's total less whatever its save had not caught. */
+const RESTORED_TOTAL = 0.9;
+const signature = (s: UsageSample) => [s.costUsd, s.inputTokens, s.outputTokens, s.cacheReadTokens ?? 0, s.cacheWriteTokens ?? 0, s.numTurns, s.cumulativeTokens ? 1 : 0].join("|");
 
 /**
  * Turn one session's `usage` events into per-event increments.
  *
  * For a `cumulative` series this is consecutive differences, with one wrinkle that is not
- * hypothetical: `claude-adapter.ts` passes `resume` when a session is picked back up, which starts a
- * fresh `query()` whose counters begin again at zero. A value BELOW its predecessor is therefore a
- * restart, not a refund — the new value is taken whole and becomes the new baseline. Clamping to
- * zero instead would silently drop everything a resumed session went on to spend.
+ * hypothetical: a resumed session can start a fresh process whose counters begin again at zero. A
+ * value BELOW its predecessor is therefore a restart, not a refund — the new value is taken whole and
+ * becomes the new baseline. Clamping to zero instead would silently drop everything a resumed session
+ * went on to spend. `running-cost` (Claude) is documented on `UsageSeriesKind`.
  *
  * `samples` must be in event order (ascending `seq`, which is ascending `ts`). Callers that hold
  * events for several sessions must split them per session first: two sessions' running totals
@@ -109,38 +170,106 @@ export function usageDeltas(samples: readonly UsageSample[], series: UsageSeries
       ts: s.ts,
       costUsd: Math.max(0, s.costUsd), inputTokens: Math.max(0, s.inputTokens),
       outputTokens: Math.max(0, s.outputTokens), turns: Math.max(0, s.numTurns),
+      cacheReadTokens: Math.max(0, s.cacheReadTokens ?? 0), cacheWriteTokens: Math.max(0, s.cacheWriteTokens ?? 0),
+      cacheSplit: s.cacheSplit !== false,
     }));
   }
+  if (series === "running-cost") {
+    const out: UsageDelta[] = [];
+    const seen = new Set<string>();
+    let prevCost = 0;
+    let prevTokens: Tokens = ZERO_TOKENS;
+    for (const s of samples) {
+      // Against EVERY earlier event, not just the last: the context restatement is sent after a
+      // round trip, and can land after the next turn's own result.
+      const sig = signature(s);
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      // A drop in cost is a new process. One that starts from nothing (no saved total to resume
+      // from) is billed whole; one that lands near where the last left off restored a slightly stale
+      // saved total, and billing that whole would count the session twice — so it only re-baselines.
+      const costUsd = s.costUsd >= prevCost ? s.costUsd - prevCost
+        : s.costUsd >= prevCost * RESTORED_TOTAL ? 0 : s.costUsd;
+      prevCost = s.costUsd;
+      const now = tokensOf(s);
+      let tokens: Tokens;
+      if (s.cumulativeTokens) {
+        tokens = tokenDiff(now, tokensDropped(now, prevTokens) ? ZERO_TOKENS : prevTokens);
+        prevTokens = now;
+      } else {
+        tokens = tokenDiff(now, ZERO_TOKENS);
+      }
+      out.push({ ts: s.ts, costUsd: Math.max(0, costUsd), ...tokens, turns: Math.max(0, s.numTurns), cacheSplit: s.cacheSplit !== false });
+    }
+    return out;
+  }
   const out: UsageDelta[] = [];
-  let prev = { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 };
+  let prev: UsageSample = { ts: 0, costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 };
   for (const s of samples) {
     // A restart is judged on the whole tuple, not field by field: a turn that spends no output tokens
     // leaves that one field flat while the others climb, and treating THAT as a restart would re-add
     // the running total. Any field going backwards is the signal.
-    const restarted = s.costUsd < prev.costUsd || s.inputTokens < prev.inputTokens
-      || s.outputTokens < prev.outputTokens || s.numTurns < prev.numTurns;
-    const base = restarted ? { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 } : prev;
+    const restarted = s.costUsd < prev.costUsd || s.numTurns < prev.numTurns || tokensDropped(tokensOf(s), tokensOf(prev));
+    const base: UsageSample = restarted ? { ts: 0, costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 } : prev;
     out.push({
       ts: s.ts,
       costUsd: Math.max(0, s.costUsd - base.costUsd),
-      inputTokens: Math.max(0, s.inputTokens - base.inputTokens),
-      outputTokens: Math.max(0, s.outputTokens - base.outputTokens),
+      ...tokenDiff(tokensOf(s), tokensOf(base)),
       turns: Math.max(0, s.numTurns - base.numTurns),
+      cacheSplit: s.cacheSplit !== false,
     });
     prev = s;
   }
   return out;
 }
 
+/**
+ * One persisted `usage` payload as a `UsageSample`, in the shared token vocabulary.
+ *
+ * Codex counts cached input INSIDE `inputTokens` (OpenAI's convention; map-codex.ts carries the
+ * split beside it as `cacheReadTokens`), so the uncached part is what is left once the cache is taken
+ * out. A Codex event from before the split was recorded keeps its inclusive count and is marked
+ * `cacheSplit: false`, so nothing prices it as if it were all uncached. Every other engine already
+ * reports uncached input.
+ */
+export function usageSampleFromPayload(agentKind: AgentKind, ts: number, p: {
+  costUsd?: unknown; inputTokens?: unknown; outputTokens?: unknown; numTurns?: unknown;
+  cacheReadTokens?: unknown; cacheWriteTokens?: unknown; cumulativeTokens?: unknown;
+}): UsageSample {
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const hasSplit = typeof p.cacheReadTokens === "number";
+  const cacheRead = n(p.cacheReadTokens), cacheWrite = n(p.cacheWriteTokens);
+  const inclusive = agentKind === "codex";
+  return {
+    ts, costUsd: n(p.costUsd), outputTokens: n(p.outputTokens), numTurns: n(p.numTurns),
+    inputTokens: inclusive && hasSplit ? Math.max(0, n(p.inputTokens) - cacheRead - cacheWrite) : n(p.inputTokens),
+    cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite,
+    ...(p.cumulativeTokens === true ? { cumulativeTokens: true } : {}),
+    ...(inclusive && !hasSplit ? { cacheSplit: false } : {}),
+  };
+}
+
 /** Add up deltas. Separate from `usageDeltas` because the page sums the same deltas three ways —
  *  per session, per time bucket, per breakdown key — and each of those is a different grouping of
  *  one list, never a second reading of the events. */
-export function sumDeltas(deltas: readonly UsageDelta[]): Omit<UsageDelta, "ts"> {
+export function sumDeltas(deltas: readonly UsageDelta[]): Omit<UsageDelta, "ts" | "cacheSplit"> {
   return deltas.reduce((a, d) => ({
     costUsd: a.costUsd + d.costUsd, inputTokens: a.inputTokens + d.inputTokens,
     outputTokens: a.outputTokens + d.outputTokens, turns: a.turns + d.turns,
+    cacheReadTokens: a.cacheReadTokens + d.cacheReadTokens, cacheWriteTokens: a.cacheWriteTokens + d.cacheWriteTokens,
   }), { ...EMPTY_DELTA });
 }
+
+/** Every token a delta or a total covers: uncached input, both cache halves, and output. */
+export const totalTokens = (t: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number }): number =>
+  t.inputTokens + t.outputTokens + (t.cacheReadTokens ?? 0) + (t.cacheWriteTokens ?? 0);
+
+export type UsagePrice = {
+  priceIn: number | null; priceOut: number | null;
+  /** Per million cached-input tokens read, and written. Optional: a catalog row from before these
+   *  were parsed has neither, and a model may quote none. */
+  priceCacheRead?: number | null; priceCacheWrite?: number | null;
+};
 
 /**
  * List-price cost for a token count, or `null` when the catalog quoted no price for the model.
@@ -148,15 +277,20 @@ export function sumDeltas(deltas: readonly UsageDelta[]): Omit<UsageDelta, "ts">
  * `null` and `0` are different answers and stay different all the way to the screen: a free tier is
  * a real zero, an unknown model is a gap. Prices are per MILLION tokens (`ModelInfo.priceIn`), which
  * is the unit `catalog.ts` already converted to so that no caller multiplies by 1e6 twice.
+ *
+ * Cached tokens are priced at the catalog's cache rates. Where the catalog quotes none, they fall
+ * back to the input rate — an upper bound rather than a guess at a discount nobody stated.
  */
 export function estimateCostUsd(
   inputTokens: number, outputTokens: number,
-  price: { priceIn: number | null; priceOut: number | null } | null,
+  price: UsagePrice | null,
+  cache: { read: number; write: number } = { read: 0, write: 0 },
 ): number | null {
   if (!price || (price.priceIn === null && price.priceOut === null)) return null;
-  const inUsd = (price.priceIn ?? 0) * (inputTokens / 1_000_000);
-  const outUsd = (price.priceOut ?? 0) * (outputTokens / 1_000_000);
-  return inUsd + outUsd;
+  const perM = (n: number, rate: number | null | undefined) => (rate ?? 0) * (n / 1_000_000);
+  return perM(inputTokens, price.priceIn) + perM(outputTokens, price.priceOut)
+    + perM(cache.read, price.priceCacheRead ?? price.priceIn)
+    + perM(cache.write, price.priceCacheWrite ?? price.priceIn);
 }
 
 /* ────────────────────────────── time buckets ────────────────────────────── */
@@ -507,8 +641,11 @@ export const UsageTotalsSchema = z.object({
   reportedUsd: z.number(),
   /** The `estimated` half — catalog list price applied to reported tokens. */
   estimatedUsd: z.number(),
+  /** Uncached input. The two cache fields are disjoint from it (see `UsageSample`). */
   inputTokens: z.number(),
   outputTokens: z.number(),
+  cacheReadTokens: z.number(),
+  cacheWriteTokens: z.number(),
   turns: z.number(),
   sessions: z.number(),
   /** Sessions in this group whose engine reports no usage at all. Their tokens and dollars are not
@@ -582,5 +719,11 @@ export const UsageSummarySchema = z.object({
   unmeasuredKinds: z.array(AgentKindSchema),
   /** Models seen in range with no catalog price — the reason an estimate is missing. */
   unpricedModels: z.array(z.string()),
+  /** Tokens counted but not priced, because the event recorded no cache split (`UsageSample`). */
+  unsplitTokens: z.number().default(0),
+  /** Claude sessions whose in-range tokens include events that counted only the main loop's uncached
+   *  input — every Claude event before `cumulativeTokens`. Their DOLLARS are whole; their token
+   *  counts are low, and the page says so rather than presenting them as complete. */
+  mainLoopOnlySessions: z.number().default(0),
 });
 export type UsageSummary = z.infer<typeof UsageSummarySchema>;

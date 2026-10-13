@@ -4,7 +4,7 @@ import { MEMORY_DOC_MAX, memorySupportNote, type MemorySources } from "@realm/co
 import { MemoryPanel } from "./MemoryPanel";
 import { MEMORY_SAVE_AFTER_MS } from "./MemoryDoc";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, agentsFileState, session, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, fakeMemoryRepo, agentsFileState, session, type FakeData } from "../../state/store.test-fakes";
 
 async function mount(overrides: FakeData = {}) {
   const api = fakeApi({ memoryDocs: { s1: "remember the port map" }, ...overrides });
@@ -121,7 +121,7 @@ describe("the AGENTS.md opt-in", () => {
 
 const codexSources: MemorySources = {
   agent: "codex", channel: "developerInstructions", basis: "reported",
-  note: memorySupportNote("codex"), realmMemoryInjected: true,
+  note: memorySupportNote("codex"), realmMemoryInjected: true, repoIndexInjected: false,
   sources: [
     { path: "/Users/x/repo/AGENTS.md", origin: "reported", exists: true, via: "cli" },
     { path: "/Users/x/gone/AGENTS.md", origin: "reported", exists: false, via: "cli" },
@@ -129,7 +129,7 @@ const codexSources: MemorySources = {
 };
 const cursorSources: MemorySources = {
   agent: "acp:cursor", channel: "none", basis: "none",
-  note: memorySupportNote("acp:cursor"), realmMemoryInjected: false, sources: [],
+  note: memorySupportNote("acp:cursor"), realmMemoryInjected: false, repoIndexInjected: false, sources: [],
 };
 
 describe("what each agent actually loads", () => {
@@ -169,3 +169,44 @@ describe("what each agent actually loads", () => {
     expect(await screen.findByText(/Cursor takes no per-session context/)).toBeInTheDocument();
   });
 });
+
+describe("the inherited memory repo", () => {
+  it("shows nothing for a profile with no repo — no switch for a repo that does not exist", async () => {
+    const { api } = await mount();
+    await waitFor(() => expect(api.calls).toContain("getMemoryRepos:space:s1"));
+    expect(screen.queryByRole("switch", { name: /memory repo/ })).toBeNull();
+    expect(screen.queryByText(/reach the memory repo through/)).toBeNull();
+  });
+
+  it("turns the profile's repo off for THIS space only, and never touches the repo", async () => {
+    const repo = fakeMemoryRepo();
+    const { api } = await mount({ memoryRepos: { p1: repo } });
+    const sw = await screen.findByRole("switch", { name: "Use Work's memory repo in this space" });
+    expect(sw).toBeChecked();
+    // Cursor and the rest take no context, and the reach line says how memory gets to them anyway.
+    expect(screen.getByText(/reach the memory repo through Realm's memory tools/)).toBeInTheDocument();
+    fireEvent.click(sw);
+    // THE MUTANT: the switch detaches the profile's repo — every space of the profile loses it.
+    await waitFor(() => expect(api.calls).toContain("setMemoryRepoInherited:s1=false"));
+    expect(api.calls.some((c) => c.startsWith("detachMemoryRepo"))).toBe(false);
+    expect(api.data.memoryRepos.p1).toEqual(repo);
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Use Work's memory repo in this space" })).not.toBeChecked());
+    expect(screen.getByText("Off in this space: its sessions neither read it nor save to it.")).toBeInTheDocument();
+  });
+});
+
+describe("the space's own memory repo", () => {
+  it("offers a repo of the space's own beside the profile's, and creates it for THIS space", async () => {
+    const { api } = await mount({ memoryRepos: { p1: fakeMemoryRepo() } });
+    expect(await screen.findByRole("heading", { name: "This space's memory repo" })).toBeInTheDocument();
+    expect(await screen.findByText("No repo of its own")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    // THE MUTANT: create for the profile — the team repo replaces the user's own.
+    await waitFor(() => expect(api.calls).toContain("createMemoryRepo:space:s1"));
+    expect(api.data.memoryRepos.p1).toMatchObject({ scope: "profile" });
+    expect(await screen.findByText("/realm-home/memory/repos/space-s1")).toBeInTheDocument();
+    // The inherited switch is still the profile's, and only the profile's.
+    expect(screen.getAllByRole("switch", { name: /memory repo in this space/ })).toHaveLength(1);
+  });
+});
+

@@ -60,6 +60,22 @@ public struct AnswerDraft: Sendable, Equatable {
         return answers
     }
 
+    /// `session.answer`'s `answers` as the desktop's card hands them back: under each question's key,
+    /// the picked options' values in the order the options list them, then the person's own words —
+    /// a multi-select question's as a list. A Phase 1 Mac sent no question keys and reads one string
+    /// per question, so its questions are answered as `answers` answers them.
+    public var values: [String: AnswerValue] {
+        var values: [String: AnswerValue] = [:]
+        for question in questions where values[question.answerKey] == nil {
+            var parts = question.options.filter { isPicked($0.label, in: question) }.map(\.answerValue)
+            let own = other(for: question).trimmingCharacters(in: .whitespacesAndNewlines)
+            if question.takesText, !own.isEmpty { parts.append(own) }
+            guard !parts.isEmpty else { continue }
+            values[question.answerKey] = question.multiSelect && question.id != nil ? .several(parts) : .one(parts.joined(separator: ", "))
+        }
+        return values
+    }
+
     /// Every question has an answer.
     public var isComplete: Bool {
         let answered = answers

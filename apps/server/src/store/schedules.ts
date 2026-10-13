@@ -7,6 +7,7 @@ type Row = {
   constraints_json: string | null; next_run_at: number | null; last_run_at: number | null;
   last_run_id: string | null; last_skipped_at: number | null;
   new_session_per_run: number; archive_succeeded: number; created_at: number; updated_at: number;
+  role_id: string | null;
 };
 
 /** A constraints blob that does not parse reads as "no constraints" rather than throwing — the same
@@ -25,12 +26,15 @@ const toSchedule = (r: Row): Schedule => ({
   constraints: parseConstraints(r.constraints_json),
   nextRunAt: r.next_run_at, lastRunAt: r.last_run_at, lastRunId: r.last_run_id, lastSkippedAt: r.last_skipped_at,
   newSessionPerRun: r.new_session_per_run === 1, archiveSucceeded: r.archive_succeeded === 1,
+  roleId: r.role_id ?? null,
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 export type ScheduleInsert = {
   spaceId: string; title: string; goal: string; cron: string; enabled: boolean; constraints: RunConstraints | null;
   newSessionPerRun: boolean; archiveSucceeded: boolean;
+  /** The team role whose clock this is (`team/service.ts`). */
+  roleId?: string | null;
 };
 
 export type ScheduleUpdate = {
@@ -59,6 +63,12 @@ export class SchedulesStore {
     return (this.db.prepare("SELECT * FROM schedules WHERE space_id = ? ORDER BY created_at DESC, id DESC").all(spaceId) as Row[]).map(toSchedule);
   }
 
+  /** The clock a team role runs on, if it has one. */
+  forRole(roleId: string): Schedule | null {
+    const r = this.db.prepare("SELECT * FROM schedules WHERE role_id = ? ORDER BY created_at ASC LIMIT 1").get(roleId) as Row | undefined;
+    return r ? toSchedule(r) : null;
+  }
+
   get(id: string): Schedule | null {
     const r = this.db.prepare("SELECT * FROM schedules WHERE id = ?").get(id) as Row | undefined;
     return r ? toSchedule(r) : null;
@@ -71,11 +81,11 @@ export class SchedulesStore {
     // nothing ahead. Both are `null`, and the page reads that column to say "paused" / "never".
     const next = input.enabled ? nextFireOf(input.cron, ts) : null;
     this.db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json,
-        next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`)
+        next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, role_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.title, input.goal, input.cron, input.enabled ? 1 : 0,
         input.constraints ? JSON.stringify(input.constraints) : null, next,
-        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, ts, ts);
+        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, input.roleId ?? null, ts, ts);
     return this.get(id)!;
   }
 

@@ -13,7 +13,7 @@ import { fakeApi, item, profile, session, space } from "../../state/store.test-f
 
 const DAY = 86_400_000;
 const chat = (id: string, spaceId: string, at: number, over: Partial<Session> = {}): Session =>
-  session(id, spaceId, { title: `chat ${id}`, updatedAt: at, createdAt: at, ...over });
+  session(id, spaceId, { title: `chat ${id}`, activityAt: at, createdAt: at, ...over });
 
 async function mount(sessions: Session[], extra: { archived?: string[] } = {}) {
   const spaces = [space("s1", "p1", "Work"), space("s2", "p1", "Homework"), space("s3", "p2", "Lectures")];
@@ -50,15 +50,15 @@ describe("Recent", () => {
     expect(headings[0]).toBe("Today");
   });
 
-  it("names each row's space, the short name kept whole", async () => {
+  it("names each card's space on a line of its own, so a long title never cuts it", async () => {
     const { container } = await mount([chat("a", "s2", Date.now(), { title: "A title long enough that it has to give way to something" })]);
-    await waitFor(() => expect(within(recent(container)).getByText("Homework")).toHaveClass("item-where"));
+    await waitFor(() => expect(within(recent(container)).getByText("Homework").closest(".sb-card-head")).not.toBeNull());
   });
 
   it("wears each row's state at its far end — the marks the feed never drew", async () => {
     const { container } = await mount([chat("a", "s1", Date.now(), { status: "running" }), chat("b", "s2", Date.now() - 1000, { status: "waiting_permission" })]);
     await waitFor(() => expect(rows(container)).toEqual(["chat a in Work — running", "chat b in Homework — needs permission"]));
-    const marks = [...recent(container).querySelectorAll(".item-trail .status-dot")].map((d) => d.getAttribute("data-status"));
+    const marks = [...recent(container).querySelectorAll(".sb-card .item-trail .status-dot")].map((d) => d.getAttribute("data-status"));
     expect(marks).toEqual(["running", "waiting_permission"]);
   });
 

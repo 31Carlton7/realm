@@ -6,6 +6,16 @@ import { StdioJsonRpc, withTimeout } from "../jsonrpc/stdio";
 const run = promisify(execFile);
 
 /**
+ * Whether a probe's child died rather than answered: killed by a signal (a binary macOS refuses to run
+ * dies of SIGKILL, "Code Signature Invalid") or by the probe's own timeout. A missing binary or a
+ * non-zero exit is an answer; this is a CLI that cannot be asked, and asking again soon costs a crash.
+ */
+export function probeCrashed(e: unknown): boolean {
+  const err = e as { signal?: unknown; killed?: unknown } | null;
+  return Boolean(err && (err.signal || err.killed === true));
+}
+
+/**
  * Checks an ACP agent CLI is runnable.
  *
  * `loggedIn` is deliberately `null`: neither Cursor nor Gemini exposes a trustworthy offline login check.
@@ -17,7 +27,7 @@ export async function probeAcp(
   bin: string,
   versionArgs: string[] = ["--version"],
   env?: Record<string, string>,
-): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null }> {
+): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null; crashed?: boolean }> {
   try {
     // The spec's `env` is applied here as well as at `start`, because for some CLIs it is what makes
     // `--version` answerable at all: openhands prints a seven-line ASCII banner ahead of the number
@@ -27,37 +37,8 @@ export async function probeAcp(
     const version = stdout.trim().split("\n")[0]?.trim() || null;
     return { available: true, version, loggedIn: null, reason: "unknown until a session starts" };
   } catch (e) {
-    return { available: false, version: null, loggedIn: null, reason: (e as Error).message };
+    return { available: false, version: null, loggedIn: null, reason: (e as Error).message, ...(probeCrashed(e) ? { crashed: true } : {}) };
   }
-}
-
-/**
- * Extracts picker rows from the DEPRECATED `models` object an ACP `session/new` answers with.
- *
- * Kept because Cursor still speaks this shape and its id vocabulary is the argument below. New code
- * should go through `acpSessionConfig`, which prefers `configOptions` and falls back to here.
- *
- * This — not `cursor-agent --list-models` — is the catalog Realm can honestly offer, because it is the
- * id vocabulary `session/set_model` actually accepts (verified live against cursor-agent 2026.09:
- * parameterized ids like `composer-2.5[fast=true]` and `default[]` are accepted; the bare
- * `--list-models` ids like `gpt-5.3-codex-high`, and the literal `auto`, are rejected with
- * "Invalid params"). Listing ids from one channel and transmitting them on another would make every
- * pick fail.
- *
- * Defensive on purpose: entries missing a string `modelId` are skipped, never invented. A missing
- * `name` falls back to the id — an ugly true label over a pretty guess.
- */
-export function parseAcpModels(models: unknown): { id: string; label: string }[] {
-  const list = (models as { availableModels?: unknown } | null)?.availableModels;
-  const rows = Array.isArray(list) ? list : [];
-  const out: { id: string; label: string }[] = [];
-  for (const row of rows) {
-    const m = row as { modelId?: unknown; name?: unknown } | null;
-    if (!m || typeof m.modelId !== "string" || m.modelId.trim() === "") continue;
-    const label = typeof m.name === "string" && m.name.trim() !== "" ? m.name.trim() : m.modelId;
-    out.push({ id: m.modelId, label });
-  }
-  return out;
 }
 
 /** `session/new` reaches the network (Cursor signs in and spins up session services); shorter than the

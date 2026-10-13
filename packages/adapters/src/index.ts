@@ -11,7 +11,7 @@ export { cleanHint, HINT_MAX } from "./claude/generate-prompt-hint";
 export { generateSessionRecap, splitRecap, type Recap, type RecapInput } from "./claude/generate-session-recap";
 export { StdioJsonRpc, JsonRpcCallError, type JsonRpcId } from "./jsonrpc/stdio";
 export { CodexConnection, type ThreadListener } from "./codex/connection";
-export { createCodexMapper } from "./codex/map-codex";
+export { createCodexMapper, codexRateLimitsReading } from "./codex/map-codex";
 export { CodexAdapter, CODEX_SANDBOX_REFUSAL, pickCodexDecision, codexPolicyFor } from "./codex/codex-adapter";
 export { probeCodex } from "./codex/probe";
 export { AcpAdapter, pickAcpOption, type AcpAgentSpec } from "./acp/acp-adapter";

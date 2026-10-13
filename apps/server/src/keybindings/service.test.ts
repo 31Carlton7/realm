@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { DEFAULT_KEYBINDINGS, commandForChord, type Keybinding } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, REVISED_DEFAULTS, commandForChord, type Keybinding } from "@realm/contracts";
 import { tempDir } from "@realm/test-utils";
 import { KeybindingsService, keybindingsPath } from "./service";
 
@@ -49,6 +49,16 @@ describe("merging newly shipped defaults", () => {
     const file = service().read();
     expect(file.rules).toEqual(SHIPPED);
     expect(onDisk()).toEqual(SHIPPED);
+  });
+
+  it("revises a seeded rule nobody edited, and writes it down", () => {
+    // THE MUTANT: persisting only when the merge grew the file — the revision would hold in memory
+    // and be re-made, unseen in the file, on every boot.
+    const old = REVISED_DEFAULTS.map((r) => r.was);
+    put(JSON.stringify([...SHIPPED, ...old]));
+    const file = service().read();
+    expect(file.rules).toEqual([...SHIPPED, ...REVISED_DEFAULTS.map((r) => r.now)]);
+    expect(onDisk()).toEqual(file.rules);
   });
 
   it("does not re-impose a default the user rebound", () => {

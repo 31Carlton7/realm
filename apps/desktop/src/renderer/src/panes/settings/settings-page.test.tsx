@@ -167,6 +167,15 @@ describe("Engines tab", () => {
     expect(within(ok).queryByText(/opencode auth login/)).toBeNull();
   });
 
+  it("a CLI that crashed on its probe reads Couldn't check, not Not installed, and says why", async () => {
+    // A homebrew opencode macOS refused to run: it is installed, so offering to install it is wrong.
+    const crashed = probe.map((r) => r.kind === "acp:opencode"
+      ? { ...r, available: false, version: null, crashed: true, reason: "couldn't check: Command failed: opencode --version" } : r);
+    await engines({ agentProbe: crashed });
+    const row = await screen.findByRole("listitem", { name: /OpenCode: Couldn't check/ });
+    expect(within(row).getByText(/couldn't check: Command failed/)).toBeInTheDocument();
+  });
+
   it("copying an install command puts the command on the clipboard VERBATIM — no trailing newline (doctrine)", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
@@ -224,14 +233,15 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
 
   it("there is a palette row per face, and each writes only its own key", async () => {
     const { store, api } = await openPage("Appearance");
-    expect(row("Light").getByRole("radio", { name: "Realm" })).toBeChecked();
+    // Codex is the light default for a home that never chose a light palette.
+    expect(row("Light").getByRole("radio", { name: "Codex" })).toBeChecked();
     fireEvent.click(row("Dark").getByRole("radio", { name: "One" }));
     await waitFor(() => expect(store.getState().themeNames.dark).toBe("one"));
     expect(api.calls).toContain("setSetting:ui.themeName.dark=one");
     // THE shared-row mutant: render one picker and point both faces at it. The two rows would move
     // together and the whole feature would be a relabelled single selection.
-    expect(store.getState().themeNames.light).toBe("realm");
-    expect(row("Light").getByRole("radio", { name: "Realm" })).toBeChecked();
+    expect(store.getState().themeNames.light).toBe("codex");
+    expect(row("Light").getByRole("radio", { name: "Codex" })).toBeChecked();
     // THE conflated-axis mutant: have the picker set the mode too. The light/dark preference is the
     // user's and a palette choice is not permission to overwrite it.
     expect(api.calls.filter((c) => c.startsWith("setSetting:ui.theme="))).toEqual([]);
@@ -275,8 +285,8 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     fireEvent.change(field, { target: { value: "not a colour" } });
     fireEvent.blur(field);
     expect(store.getState().themeOverrides).toEqual({});
-    // Realm's light background seed (REALM_SEED.light.bg) — its paper, since the light ramp anchors there.
-    expect(field.value).toBe("#f9fafb");
+    // Codex's light background seed — the light default's surface.
+    expect(field.value).toBe("#ffffff");
   });
 
   it("an edited palette offers a way back to the palette itself", async () => {
@@ -287,8 +297,8 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
     const field = colours("Light").getByRole("textbox", { name: "Accent hex" });
     fireEvent.change(field, { target: { value: "#ff0000" } });
     fireEvent.blur(field);
-    await waitFor(() => expect(colours("Light").getByRole("button", { name: "Reset to Realm" })).toBeInTheDocument());
-    fireEvent.click(colours("Light").getByRole("button", { name: "Reset to Realm" }));
+    await waitFor(() => expect(colours("Light").getByRole("button", { name: "Reset to Codex" })).toBeInTheDocument());
+    fireEvent.click(colours("Light").getByRole("button", { name: "Reset to Codex" }));
     await waitFor(() => expect(store.getState().themeOverrides).toEqual({}));
   });
 
@@ -302,7 +312,7 @@ describe("General, Appearance and Notifications (what the App tab held)", () => 
       fireEvent.change(field, { target: { value: hex } });
       fireEvent.blur(field);
     }
-    await waitFor(() => expect(store.getState().themeOverrides["realm:light"]).toMatchObject({ bg: "#282828", ink: "#2b2b2b" }));
+    await waitFor(() => expect(store.getState().themeOverrides["codex:light"]).toMatchObject({ bg: "#282828", ink: "#2b2b2b" }));
     expect(await colours("Light").findByText(/Below the contrast Realm holds every palette to.*Foreground/)).toBeInTheDocument();
   });
 
@@ -1031,13 +1041,83 @@ describe("Sign-ins tab", () => {
   });
 
   it("says plainly that a Mac without Touch ID can save but cannot fill", async () => {
-    await signIns({ credentialStatus: { available: true, canPromptTouchID: false, presenceTtlMs: 0 } });
+    await signIns({ credentialStatus: { available: true, canPromptTouchID: false, canPromptDeviceOwner: false, presenceTtlMs: 0 } });
     expect(await screen.findByRole("alert")).toHaveTextContent(/no Touch ID sensor/);
   });
 
+  it("points a Mac without Touch ID at the password rung when macOS can ask for one", async () => {
+    await signIns({ credentialStatus: { available: true, canPromptTouchID: false, canPromptDeviceOwner: true, presenceTtlMs: 0 } });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/choose Touch ID or password/);
+  });
+
+  it("drops the no-sensor alert once the profile unlocks some other way", async () => {
+    await signIns({
+      credentialStatus: { available: true, canPromptTouchID: false, canPromptDeviceOwner: true, presenceTtlMs: 0 },
+      unlockPolicies: { p1: { kind: "device-password" } },
+    });
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID or password" })).toBeChecked());
+    expect(screen.queryByText(/no Touch ID sensor/)).toBeNull();
+  });
+
   it("says plainly when macOS offers no encryption key — and does not offer a plaintext fallback", async () => {
-    await signIns({ credentialStatus: { available: false, canPromptTouchID: true, presenceTtlMs: 0 } });
+    await signIns({ credentialStatus: { available: false, canPromptTouchID: true, canPromptDeviceOwner: true, presenceTtlMs: 0 } });
     expect(await screen.findByRole("alert")).toHaveTextContent(/won't store one unencrypted/);
+  });
+
+  describe("Unlock sign-ins with", () => {
+    it("defaults to Touch ID", async () => {
+      await signIns();
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      expect(screen.getByText(/Touch ID for each fill/)).toBeInTheDocument();
+    });
+
+    it("sends a password or session rung straight to main, which asks macOS", async () => {
+      const { api } = await signIns();
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      fireEvent.click(screen.getByRole("radio", { name: "Once per session" }));
+      await waitFor(() => expect(api.calls).toContain("credentialSetUnlockPolicy:p1:session"));
+      await waitFor(() => expect(screen.getByRole("radio", { name: "8 hours" })).toBeChecked());
+    });
+
+    it("never turns on Without asking from one click: it opens the warning first", async () => {
+      // THE MUTANT: "Without asking" applied from the radio like the other rungs.
+      const { api } = await signIns();
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      fireEvent.click(screen.getByRole("radio", { name: "Without asking" }));
+      const sheet = await screen.findByRole("dialog", { name: "Fill without asking on this Mac?" });
+      expect(api.calls.some((c) => c.startsWith("credentialSetUnlockPolicy"))).toBe(false);
+      expect(sheet).toHaveTextContent(/never receives a password/);
+      expect(sheet).toHaveTextContent(/only on this Mac/);
+      expect(sheet).toHaveTextContent(/not for your personal accounts/);
+      fireEvent.click(screen.getByRole("button", { name: /Turn on for/ }));
+      await waitFor(() => expect(api.calls).toContain("credentialSetUnlockPolicy:p1:unattended"));
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Without asking" })).toBeChecked());
+    });
+
+    it("shows main's refusal in the sheet when macOS does not confirm the user, and changes nothing", async () => {
+      await signIns({ refuseUnlock: true });
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      fireEvent.click(screen.getByRole("radio", { name: "Without asking" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Turn on for/ }));
+      expect(await screen.findByText(/did not confirm it was you/)).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked();
+    });
+
+    it("turns Without asking off in one click", async () => {
+      const { api } = await signIns({ unlockPolicies: { p1: { kind: "unattended" } } });
+      fireEvent.click(await screen.findByRole("button", { name: "Ask for Touch ID again" }));
+      await waitFor(() => expect(api.calls).toContain("credentialSetUnlockPolicy:p1:touch-id"));
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+    });
+
+    it("marks the whole setting, and its confirmation, as no place for an agent", async () => {
+      const { container } = await signIns();
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Touch ID" })).toBeChecked());
+      expect(container.querySelector('[data-setting="unlock-policy"]')!.closest("[data-no-agent]")).not.toBeNull();
+      fireEvent.click(screen.getByRole("radio", { name: "Without asking" }));
+      const sheet = await screen.findByRole("dialog", { name: "Fill without asking on this Mac?" });
+      expect(sheet.querySelector("[data-no-agent]")).not.toBeNull();
+    });
   });
 
   it("defaults Touch ID to Every time, and a change round-trips through main", async () => {

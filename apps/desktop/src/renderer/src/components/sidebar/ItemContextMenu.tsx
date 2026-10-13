@@ -22,11 +22,31 @@ export function useItemContextMenu(onRename: (item: Item) => void, opts: {
   // Two-step destructive confirm (U-H2): the first Delete click arms this in place; only the second
   // click, within the same open menu, deletes. Opening or closing the menu disarms.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  // ...unless the user has turned the asking off, when the first click is the only one.
-  const confirmDelete = useApp((s) => s.confirmDelete);
   // "Move to space…" swaps the menu's own item list in place, the same trick — no submenu primitive
   // exists on `Menu`, so a second render of the SAME menu is the picker.
   const [movingToSpace, setMovingToSpace] = useState(false);
+  const onContextMenu = useCallback((item: Item) => (e: MouseEvent) => {
+    e.preventDefault(); setConfirmingDelete(false); setMovingToSpace(false);
+    setMenu({ item, x: e.clientX, y: e.clientY });
+  }, []);
+  const close = useCallback(() => { setMenu(null); setConfirmingDelete(false); setMovingToSpace(false); }, []);
+  /* Everything the menu reads from the store is read by the open menu, not by the row: every row in
+     the sidebar holds this hook, and a row subscribed to `sessions` and `layout` for a menu nobody
+     had opened drew again on every event any session wrote. */
+  const element = menu ? (
+    <ItemContextMenuBody menu={menu} close={close} onRename={onRename} onChanged={opts.onChanged}
+      confirmingDelete={confirmingDelete} setConfirmingDelete={setConfirmingDelete}
+      movingToSpace={movingToSpace} setMovingToSpace={setMovingToSpace} />
+  ) : null;
+  return { onContextMenu, element };
+}
+
+function ItemContextMenuBody({ menu, close, onRename, onChanged, confirmingDelete, setConfirmingDelete, movingToSpace, setMovingToSpace }: {
+  menu: NonNullable<ItemMenuState>; close: () => void; onRename: (item: Item) => void; onChanged?: () => void;
+  confirmingDelete: boolean; setConfirmingDelete: (v: boolean) => void; movingToSpace: boolean; setMovingToSpace: (v: boolean) => void;
+}) {
+  // ...unless the user has turned the asking off, when the first click is the only one.
+  const confirmDelete = useApp((s) => s.confirmDelete);
   const updateItem = useApp((s) => s.updateItem);
   const closeFromLayout = useApp((s) => s.closeFromLayout);
   const archiveItem = useApp((s) => s.archiveItem);
@@ -36,7 +56,6 @@ export function useItemContextMenu(onRename: (item: Item) => void, opts: {
   const zoomedLeafId = useApp((s) => s.view?.zoomedLeafId ?? null);
   const focusPaneFull = useApp((s) => s.focusPaneFull);
   const unfocusPane = useApp((s) => s.unfocusPane);
-  const sessions = useApp((s) => s.sessions);
   const spaces = useApp((s) => s.spaces);
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const openCheckpoints = useApp((s) => s.openCheckpoints);
@@ -47,30 +66,24 @@ export function useItemContextMenu(onRename: (item: Item) => void, opts: {
   // nowhere for a peek to go, so it does not offer one.
   const peekOwner = useApp((s) => s.peekOwner());
   const run = useApp((s) => s.run);
-  const { onChanged } = opts;
   /** A write, then the word to whoever lists it. */
   const write = (fn: () => Promise<unknown>) => run(async () => { await fn(); onChanged?.(); });
-  const onContextMenu = useCallback((item: Item) => (e: MouseEvent) => {
-    e.preventDefault(); setConfirmingDelete(false); setMovingToSpace(false);
-    setMenu({ item, x: e.clientX, y: e.clientY });
-  }, []);
-  const close = useCallback(() => { setMenu(null); setConfirmingDelete(false); setMovingToSpace(false); }, []);
   // A session's own checkpoints (W4), scoped to the session rather than to the whole checkout: the
   // diff pane's History shows every turn in the environment, this shows the ones this session took.
-  const session = menu?.item.kind === "session" ? sessions[menu.item.refId] : undefined;
+  const session = useApp((s) => (menu.item.kind === "session" ? s.sessions[menu.item.refId] : undefined));
   // A session that has already run moves too: the server carries its checkout across, so the cwd its
   // transcript describes is unchanged. What the client can see of that — `lastEventSeq` — only decides
   // the WORDING, not whether the entry is offered.
   const hasRun = session !== undefined && session.lastEventSeq > 0;
   const destinations = spaces.filter((sp) => sp.id !== (session?.spaceId ?? activeSpaceId));
   // Whether this pane is on screen in the window's one view, and whether it is the focused one.
-  const leafId = menu && layout ? findLeafOfItem(layout, menu.item.id)?.id ?? null : null;
+  const leafId = layout ? findLeafOfItem(layout, menu.item.id)?.id ?? null : null;
   const holder = leafId !== null;
   const isFocused = !!leafId && zoomedLeafId === leafId;
   // On screen in a pane that is not the focused one: the only case where "here" is not what a plain
   // row click already does — an unopened row opens into the focused pane anyway.
   const elsewhere = holder && leafId !== focusedLeafId;
-  const element = menu ? (
+  return (
     <Menu at={{ x: menu.x, y: menu.y }}
       label={movingToSpace ? `Move ${menu.item.title} to…` : `Actions for ${menu.item.title}`}
       onClose={close} items={
@@ -127,7 +140,6 @@ export function useItemContextMenu(onRename: (item: Item) => void, opts: {
                 : { label: "Delete", danger: true, onSelect: () => write(() => deleteItem(menu.item.id)) },
           ]
     } />
-  ) : null;
-  return { onContextMenu, element };
+  );
 }
 

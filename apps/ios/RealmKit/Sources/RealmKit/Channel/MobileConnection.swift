@@ -429,13 +429,43 @@ public struct MobileAPI: Sendable {
     }
 
     /// `answers` maps a question's text to the chosen label; several labels for a multi-select
-    /// question are joined with ", ", as the desktop's question card does.
+    /// question are joined with ", ", as Phase 1's question card did.
     public func answer(id: String, requestId: String, decision: Decision, answers: [String: String]? = nil,
                        timeout: Duration? = nil) async throws {
-        struct Params: Encodable, Sendable { let id: String; let requestId: String; let decision: Decision; let answers: [String: String]? }
+        try await answer(id: id, requestId: requestId, decision: decision, values: answers?.mapValues(AnswerValue.one), timeout: timeout)
+    }
+
+    /// `values` maps a question's key to its answer, several picks as a list, as the desktop's card
+    /// hands them back (`AnswerDraft.values`).
+    public func answer(id: String, requestId: String, decision: Decision, values: [String: AnswerValue]?,
+                       timeout: Duration? = nil) async throws {
+        struct Params: Encodable, Sendable { let id: String; let requestId: String; let decision: Decision; let answers: [String: AnswerValue]? }
         _ = try await connection.call("session.answer",
-                                      params: Params(id: id, requestId: requestId, decision: decision, answers: answers),
+                                      params: Params(id: id, requestId: requestId, decision: decision, answers: values),
                                       as: Acknowledged.self, timeout: timeout)
+    }
+
+    /// The files one of the session's turns changed, by the checkpoint in front of it.
+    public func changes(id: String, checkpointId: String) async throws -> TurnChanges {
+        struct Params: Encodable, Sendable { let id: String; let checkpointId: String }
+        return try await connection.call("session.changes", params: Params(id: id, checkpointId: checkpointId), as: TurnChanges.self)
+    }
+
+    /// One page of a changed file's diff, from line `from`.
+    public func diff(id: String, checkpointId: String, path: String, from: Int = 0) async throws -> DiffPage {
+        struct Params: Encodable, Sendable { let id: String; let checkpointId: String; let path: String; let from: Int }
+        return try await connection.call("session.diff", params: Params(id: id, checkpointId: checkpointId, path: path, from: from), as: DiffPage.self)
+    }
+
+    /// A preview of a file the session's turns made, by the path its row names.
+    public func file(id: String, path: String) async throws -> FilePreview {
+        struct Params: Encodable, Sendable { let id: String; let path: String }
+        return try await connection.call("session.file", params: Params(id: id, path: path), as: FilePreview.self)
+    }
+
+    /// A space's own picture, for a space whose icon is one.
+    public func spaceIcon(id: String) async throws -> SpacePicture {
+        try await connection.call("space.icon", params: SessionID(id: id), as: SpacePicture.self)
     }
 
     public func stop(id: String) async throws {

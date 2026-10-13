@@ -1,0 +1,382 @@
+import { describeSchedule, reviewVerb, verbFamily, type ActKind, type ActTicket, type HandoffState, type RoleGoal, type RoleRun, type TeamActivity, type TeamBackoff, type TeamLimits, type TeamReviewSummary, type TeamRole } from "@realm/contracts";
+import { cadenceSentence, clockLabel } from "../schedules/schedule-model";
+import { vaultSentence } from "./vault-format";
+
+/**
+ * The words and numbers the team surfaces print, pure so each is testable. Dollars are always shown
+ * (the Teams plan, 9.5) and always as dollars — on a subscription they are an API-equivalent weight,
+ * which the overview's tooltip says once.
+ */
+
+/** "$0.84", "$3", "$12.50". Under a cent reads as "<$0.01", never "$0.00" beside work that cost something. */
+export function money(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  if (n > 0 && n < 0.005) return "<$0.01";
+  return Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`;
+}
+
+/** A run's length: "<1s", "45s", "6m", "1h 12m". A run that settled inside half a second says "<1s",
+ *  not the "0s" that reads as a run that never happened. */
+export function duration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || ms < 0) return "—";
+  const s = Math.round(ms / 1000);
+  if (s < 1) return "<1s";
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/** How long ago, in a list's corner: "now", "40m", "2h", then the weekday this week, then the date. */
+export function ageShort(ts: number, now = Date.now()): string {
+  const min = Math.floor((now - ts) / 60_000);
+  if (min < 1) return "now";
+  if (min < 60) return `${min}m`;
+  if (min < 24 * 60 && new Date(ts).toDateString() === new Date(now).toDateString()) return `${Math.floor(min / 60)}h`;
+  if (now - ts < 6 * 86_400_000) return new Date(ts).toLocaleDateString(undefined, { weekday: "short" });
+  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** The clock time a log line was written: "14:06" today, the weekday before that. */
+export function feedTime(ts: number, now = Date.now()): string {
+  const d = new Date(ts);
+  // The transcript's clock ("4:57 AM"), not a 24-hour one beside it.
+  if (d.toDateString() === new Date(now).toDateString()) return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return ageShort(ts, now);
+}
+
+/** "2h ago" inside a sentence. */
+export function agoPhrase(ts: number, now = Date.now()): string {
+  const a = ageShort(ts, now);
+  return a === "now" ? "just now" : /^\d/.test(a) ? `${a} ago` : a;
+}
+
+/** How a role's runs are woken, in a sentence: "Every weekday at 9:00 AM", or that it waits to be
+ *  asked. The clock is the Scheduled page's — a team card reading "09:00" beside a task reading
+ *  "9:00 AM" was one time written two ways. Days the task modal cannot name keep the schedule's own
+ *  words with the same clock: "Monday, Thursday at 9:00 AM". */
+export function wakeSentence(cron: string | null): string {
+  if (!cron) return "Only when you run it";
+  const named = cadenceSentence(cron);
+  const words = named !== cron ? named : describeSchedule(cron).replace(/\b(\d{2}):(\d{2})\b/g, (_, h: string, m: string) => clockLabel(Number(h), Number(m)));
+  return words.replace(/^Weekdays at/, "Every weekday at");
+}
+
+/** A role's state, in a card's corner: "Working · 4m", "Next run Thu 9:00 AM", "Waiting on you" —
+ *  the words the role's sidebar row uses for the same fact. */
+export function roleStateLine(role: TeamRole, now = Date.now()): string {
+  if (role.state === "working") return role.stateSince ? `Working · ${duration(now - role.stateSince)}` : "Working";
+  if (role.state === "waiting") return "Waiting on you";
+  if (role.state === "queued") return "Queued";
+  if (role.state === "paused") return "Paused";
+  if (role.cron && role.scheduleEnabled && role.nextRunAt) {
+    const d = new Date(role.nextRunAt);
+    const day = d.toDateString() === new Date(now).toDateString() ? "today" : d.toLocaleDateString(undefined, { weekday: "short" });
+    return `Next run ${day} ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+  }
+  return "Idle";
+}
+
+/** The spend line under a role: "$5.10 of $20 this week", or just what it spent when it has no cap. */
+export function spendLine(spent: number, budget: number | null): string {
+  return budget ? `${money(spent)} of ${money(budget)} this week` : `${money(spent)} this week`;
+}
+
+/** The team's week as its roles' shares divide it: "$45 of the team's $60 a week", and — past the cap,
+ *  which the server refuses — by how much. The meter fills to the cap and stops there. */
+export function sharesNote(shares: number, cap: number): { text: string; over: boolean; pct: number } {
+  const over = shares > cap + 1e-9;
+  const text = over
+    ? `Shares come to ${money(round2(shares))} of the team's ${money(cap)} a week — ${money(round2(shares - cap))} over`
+    : `Shares come to ${money(round2(shares))} of the team's ${money(cap)} a week`;
+  return { text, over, pct: cap > 0 ? Math.max(0, Math.min(100, (shares / cap) * 100)) : 100 };
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** A teammate's fields as the role sheet names them, and what each needs, in words a person reads. */
+export const ROLE_FIELD_WORDS: Record<string, string> = {
+  name: "Give this teammate a name of up to 60 characters.",
+  brief: "Say what this teammate does.",
+  model: "Pick a model.",
+  effort: "Pick an effort level.",
+  permissionMode: "Pick a mode.",
+  cron: "Pick when it wakes.",
+  weekBudgetUsd: "A week's budget is a number of dollars above zero, up to $10,000 — or leave it empty for no share of its own.",
+  runCapUsd: "A run's limit is a number of dollars above zero.",
+  runCapMs: "A run's time limit is between 1 minute and a day.",
+  skills: "Pick at most 50 skills.",
+  realmite: "Its Realmite could not be read. Shuffle it and try again.",
+};
+
+export type RoleFieldErrors = Partial<Record<string, string>>;
+
+type Issue = { path: readonly PropertyKey[]; message?: string };
+
+/** Validation issues as one plain message per field: the last part of each issue's path that names a
+ *  field. A field Realm has no words for is left out here and said by `plainError`. */
+export function roleFieldErrors(issues: readonly Issue[]): RoleFieldErrors {
+  const out: RoleFieldErrors = {};
+  for (const i of issues) {
+    const field = [...i.path].reverse().find((p): p is string => typeof p === "string" && p in ROLE_FIELD_WORDS);
+    if (field && !out[field]) out[field] = ROLE_FIELD_WORDS[field];
+  }
+  return out;
+}
+
+/** The issues a server's INVALID_PARAMS answer carries — its message is the validator's JSON — or
+ *  null when the error is anything else. */
+export function invalidIssues(e: unknown): Issue[] | null {
+  const code = (e as { code?: unknown } | null)?.code;
+  if (code !== "INVALID_PARAMS" || !(e instanceof Error)) return null;
+  try {
+    const v = JSON.parse(e.message) as unknown;
+    return Array.isArray(v) && v.every((i) => i && Array.isArray((i as Issue).path)) ? (v as Issue[]) : null;
+  } catch { return null; }
+}
+
+/** Any error as a sentence: never the validator's JSON. A field it names is said in that field's words;
+ *  anything else in the request reads as one plain line. */
+export function plainError(e: unknown): string {
+  const issues = invalidIssues(e);
+  if (issues) {
+    const words = [...new Set(Object.values(roleFieldErrors(issues)))];
+    return words.length > 0 ? words.join(" ") : "Realm could not read part of this request. Check the fields and try again.";
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** How full a meter is, 0–100, and whether it has crossed 80% — orange is state, not decoration. */
+export function meter(spent: number, budget: number | null): { pct: number; high: boolean } | null {
+  if (!budget) return null;
+  const pct = Math.max(0, Math.min(100, (spent / budget) * 100));
+  return { pct, high: pct >= 80 };
+}
+
+/** Why a run woke, as its page's table says it. */
+export function wokeLine(run: RoleRun): string {
+  if (run.wokeOn === "schedule") return "Its schedule";
+  if (run.wokeOn === "review") return "You asked for changes";
+  if (run.wokeOn === "manual") return run.wokeNote ? "Your message" : "Run now";
+  if (run.wokeOn === "handoff") return run.wokeBy ? `Handoff from ${run.wokeBy}` : "A handoff";
+  if (run.wokeOn === "mention") return run.wokeBy && run.wokeBy !== "You" ? `@mention by ${run.wokeBy}` : "Your @mention";
+  if (run.wokeOn === "goal") return "Your goal";
+  return "—";
+}
+
+/** A run's outcome as one chip: its tone and its word. */
+export function runChip(run: RoleRun): { tone: "ok" | "warn" | "bad" | null; word: string } {
+  if (run.state === "running") return { tone: null, word: "Working" };
+  if (run.state === "queued") return { tone: null, word: "Queued" };
+  if (run.state === "blocked") return { tone: "warn", word: "Needs you" };
+  if (run.stoppedAtCap) return { tone: "warn", word: run.stoppedAtCap === "usd" ? "Stopped at $ cap" : "Stopped at time cap" };
+  if (run.wokeOn === "goal" && run.state === "cancelled") return { tone: "warn", word: "Goal stopped" };
+  if (run.wokeOn === "goal" && run.state === "succeeded") return { tone: "ok", word: "Goal met" };
+  if (run.state === "failed" || run.state === "expired") return { tone: "bad", word: "Failed" };
+  if (run.state === "cancelled") return { tone: null, word: "Cancelled" };
+  if (run.reviewState === "waiting" || run.reviewState === "changes") return { tone: "warn", word: "In review" };
+  if (run.reviewState === "approved") return { tone: "ok", word: "Approved" };
+  if (run.reviewState === "done") return { tone: "ok", word: "Done" };
+  return { tone: null, word: "Done" };
+}
+
+/** A review's state line in the list, in words. */
+export function reviewStateLine(r: TeamReviewSummary): { text: string; dot: "waiting" | null } {
+  // Worded by what the batch does when it goes out; a summary from before the verb was sent reads its
+  // legacy label the way it always did.
+  const family = verbFamily(r.verb !== undefined ? r.verb : reviewVerb(r.kind, []));
+  const goes = family === "send" ? "sends" : family === "post" ? "posts" : "leaves Realm";
+  if (r.state === "waiting") {
+    if (r.changedSinceApproval) return { text: "A file changed after you approved it", dot: "waiting" };
+    if (r.version > 1) return { text: `Version ${r.version} · approve before anything ${goes}`, dot: "waiting" };
+    return { text: family === "send" && r.account ? `Sends from ${r.account}` : `Approve before anything ${goes}`, dot: "waiting" };
+  }
+  if (r.state === "changes") return { text: "Changes asked · the role is on it", dot: null };
+  if (r.state === "approved") {
+    if (r.actsTotal > 0) return { text: `Approved by you · ${r.actsDone} of ${r.actsTotal} ${family === "send" ? "sent" : "posted"}`, dot: null };
+    return { text: family === "send" ? "Approved by you · send it yourself" : family === "post" ? "Approved by you · post it by hand" : "Approved by you", dot: null };
+  }
+  if (r.state === "done") return { text: "Done", dot: null };
+  return { text: "Put away", dot: null };
+}
+
+/** The list's three groups, in the order a person works through them. Done shows this week's only. */
+export function reviewGroups(reviews: readonly TeamReviewSummary[], now = Date.now()): { label: string; rows: TeamReviewSummary[] }[] {
+  const week = now - 7 * 86_400_000;
+  const by = (a: TeamReviewSummary, b: TeamReviewSummary) => b.createdAt - a.createdAt;
+  return [
+    { label: "Waiting for you", rows: reviews.filter((r) => r.state === "waiting" || r.state === "changes").sort(by) },
+    { label: "Approved, not posted", rows: reviews.filter((r) => r.state === "approved").sort(by) },
+    { label: "Done this week", rows: reviews.filter((r) => r.state === "done" && (r.decidedAt ?? r.updatedAt) >= week).sort(by) },
+  ].filter((g) => g.rows.length > 0);
+}
+
+/** One line of the activity log, in plain words, with the actor's name already resolved. */
+export function activitySentence(a: TeamActivity, actorName: string): { text: string; detail: string | null } {
+  const d = a.detail;
+  const str = (k: string) => (typeof d[k] === "string" ? (d[k] as string) : null);
+  const num = (k: string) => (typeof d[k] === "number" ? (d[k] as number) : null);
+  switch (a.verb) {
+    case "made_team": return { text: "You made this space a team", detail: null };
+    case "made_role": return { text: `You made ${a.object}`, detail: null };
+    case "edited_role": return { text: `You changed ${a.object}`, detail: Array.isArray(d.changed) ? (d.changed as string[]).join(", ") : null };
+    case "archived_role": return { text: `You removed ${a.object} from the team`, detail: "its runs and what it made stay" };
+    case "edited_team": return { text: "You changed the team's week", detail: num("weekBudgetUsd") !== null ? `${money(num("weekBudgetUsd"))} a week` : null };
+    case "woke": return { text: d.wokeOn === "handoff" && str("by") ? `${actorName} woke on ${str("by")}'s handoff` : d.wokeOn === "goal" ? `${actorName} started on its goal` : `${actorName} woke`,
+      detail: str("note") ? `“${str("note")}”` : d.wokeOn === "schedule" ? "on its schedule" : d.wokeOn === "review" ? "for your changes" : "when you ran it" };
+    case "queued": return { text: `${a.object} is waiting for a free slot`, detail: null };
+    case "finished": return { text: `${actorName} finished`, detail: [str("summary"), num("costUsd") !== null ? money(num("costUsd")) : null].filter(Boolean).join(" · ") || null };
+    case "failed": return { text: `${actorName}'s run ended`, detail: str("summary") };
+    case "stopped_at_cap": return { text: `${a.object} stopped at its ${d.cap === "time" ? "time" : "dollar"} limit`, detail: num("costUsd") !== null ? money(num("costUsd")) : null };
+    case "paused": return { text: `${a.object} skipped its schedule`, detail: str("why") };
+    case "submitted": return { text: `${actorName} sent ${a.object} to Review`, detail: num("items") !== null ? `${num("items")} item${num("items") === 1 ? "" : "s"}` : null };
+    case "revised": return { text: `${actorName} sent a new version of ${a.object}`, detail: num("version") !== null ? `version ${num("version")}` : null };
+    case "approved": return { text: `You approved ${a.object}`, detail: null };
+    case "asked_changes": return { text: `You asked for changes to ${a.object}`, detail: str("note") ? `“${str("note")}”` : null };
+    case "marked_done": return a.actor === "realm" ? { text: `Everything in ${a.object} went out`, detail: null } : { text: `You marked ${a.object} done`, detail: null };
+    case "dismissed": return { text: `You put away ${a.object}`, detail: null };
+    case "edited_item": return { text: `You edited item ${num("item") ?? ""} of ${a.object}`.replace("item  of", "an item of"), detail: num("version") !== null ? `version ${num("version")}` : null };
+    case "read_record": return { text: `${actorName} read ${a.object}'s record`, detail: null };
+    case "updated_record": return { text: `${actorName === "You" ? "You" : actorName} updated ${a.object}'s record`, detail: str("line") };
+    case "made_record_type": return { text: `You made a kind of record: ${a.object}`, detail: str("folder") ? `${str("folder")}/` : null };
+    case "edited_record_type": return { text: `You changed ${a.object}`, detail: Array.isArray(d.changed) ? (d.changed as string[]).join(", ") : null };
+    case "archived_record_type": return { text: `You archived ${a.object}`, detail: str("folder") ? `its files stay in ${str("folder")}/` : "its files stay" };
+    case "adopted_record_type": return { text: `${a.object} became a kind of record`, detail: d.why === "template" ? "with the creator starters"
+      : d.why === "first-record" ? "with its first record" : str("folder") ? `from the files in ${str("folder")}/` : null };
+    case "refused": return typeof d.ticketId === "string" ? refusedAct(a) : { text: `${a.object} needs your yes again`, detail: "a file changed after you approved it" };
+    case "handed_off": return { text: `${actorName} handed work to ${a.object}`, detail: [str("note") ? `“${str("note")}”` : null, str("record")].filter(Boolean).join(" · ") || null };
+    case "mentioned": return { text: `${str("by") ?? "A session"} mentioned ${a.object}`, detail: str("note") ? `“${str("note")}”` : null };
+    case "goal_set": return { text: `You gave ${a.object} a goal`, detail: str("objective") ? `“${str("objective")}”` : null };
+    case "goal_stopped": return { text: `${a.object} stopped working toward its goal`, detail: str("why") };
+    case "backed_off": return d.lifted
+      ? { text: `You let ${a.object} runs go again`, detail: null }
+      : { text: `Team runs on ${a.object} wait until ${clockAt(num("until") ?? 0)}`, detail: str("why") };
+    case "edited_limits": return { text: "You changed how many runs go at once", detail: limitsChange(d) };
+    case "issued_tickets": {
+      const n = num("tickets") ?? 0;
+      return { text: `${n} ${n === 1 ? "act" : "acts"} from ${a.object} wait for your press`, detail: "each goes out only when you press it, at its slot" };
+    }
+    case "pressed": return { text: `You set ${actPhrase(a)} for ${num("slotAt") !== null ? feedTime(num("slotAt")!) : "its slot"}`, detail: null };
+    case "acted": return { text: `${ACT_WORDS[actKindOf(a)].past} ${actPhrase(a, false)}`, detail: str("url") };
+    case "act_failed": return { text: `${actPhrase(a)} did not go out`, detail: str("error") ?? (d.why === "interrupted" ? "Realm stopped while it was going out" : null) };
+    case "cancelled_ticket": return { text: `${actPhrase(a)} was taken back`, detail: str("why") };
+    case "held_acts": return { text: "You held every post and send of the team", detail: null };
+    case "resumed_acts": return { text: "You let the team's posts and sends go", detail: "each still waits for its press" };
+    default: return vaultSentence(a, actorName) ?? { text: `${actorName}: ${a.verb.replace(/_/g, " ")}${a.object ? ` ${a.object}` : ""}`, detail: null };
+  }
+}
+
+const clockAt = (ts: number) => new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+function limitsChange(d: Record<string, unknown>): string | null {
+  const parts = [typeof d.teamMaxLive === "number" ? `${d.teamMaxLive} for this team` : null, typeof d.realmMaxUnattended === "number" ? `${d.realmMaxUnattended} across Realm` : null];
+  return parts.filter(Boolean).join(" · ") || null;
+}
+
+/** The plan-limit protection, in one line: "1 of 2 running for this team · 3 at most across Realm · 1 waiting". */
+export function limitsLine(l: TeamLimits): string {
+  return [
+    `${l.teamRunning} of ${l.teamMaxLive} running for this team`,
+    `${l.realmRunning} of ${l.realmMaxUnattended} unattended across Realm`,
+    l.teamQueued > 0 ? `${l.teamQueued} waiting for a slot` : null,
+  ].filter(Boolean).join(" · ");
+}
+
+/** A back-off as the overview's banner says it: whose limit, and until when. */
+export function backoffLine(b: TeamBackoff, now = Date.now()): string {
+  const d = new Date(b.until);
+  const day = d.toDateString() === new Date(now).toDateString() ? "" : `${d.toLocaleDateString(undefined, { weekday: "short" })} `;
+  return `${b.why}. Team runs on it wait until ${day}${clockAt(b.until)}.`;
+}
+
+/** A handoff's or mention's state as its line's chip says it. */
+export function handoffChip(state: HandoffState): { tone: "ok" | "warn" | "bad" | null; word: string } {
+  if (state === "queued") return { tone: null, word: "Waiting for a slot" };
+  if (state === "working") return { tone: null, word: "Working" };
+  if (state === "needs-you") return { tone: "warn", word: "Needs you" };
+  if (state === "done") return { tone: "ok", word: "Done" };
+  if (state === "stopped") return { tone: null, word: "Stopped" };
+  return { tone: "bad", word: "Failed" };
+}
+
+/** A role's goal, in the line under its objective. */
+export function goalLine(g: RoleGoal): { text: string; tone: "ok" | "warn" | null } {
+  const turns = g.turns > 0 ? ` · ${g.turns} turn${g.turns === 1 ? "" : "s"}` : "";
+  if (g.status === "queued") return { text: "Waiting for a free slot", tone: null };
+  if (g.status === "active") return { text: `Working toward it${turns}`, tone: null };
+  // A goal that ended wears its outcome as a chip beside this line, so the line says how it got there.
+  const after = g.turns > 0 ? `After ${g.turns} turn${g.turns === 1 ? "" : "s"}` : "";
+  if (g.status === "budget_limited") return { text: [after, "its budget is spent"].filter(Boolean).join(" · "), tone: "warn" };
+  return { text: [after, g.note].filter(Boolean).join(" · ") || (g.status === "complete" ? "Met" : "Stopped"), tone: g.status === "complete" ? "ok" : "warn" };
+}
+
+/* ── approve → act ──────────────────────────────────────────────────────────────────────────────── */
+
+export const ACT_WORDS: Record<ActKind, { verb: string; past: string; noun: string; plural: string }> = {
+  post: { verb: "Post", past: "Posted", noun: "post", plural: "posts" },
+  dm: { verb: "Send", past: "Sent", noun: "DM", plural: "DMs" },
+  email: { verb: "Send", past: "Sent", noun: "email", plural: "emails" },
+};
+
+const actKindOf = (a: TeamActivity): ActKind => (a.detail.kind === "dm" || a.detail.kind === "email" ? a.detail.kind : "post");
+
+/** "a post as @versed.nathan on TikTok", "a DM to @reader from @versed.nathan". */
+function actPhrase(a: TeamActivity, article = true): string {
+  const k = actKindOf(a);
+  const d = a.detail;
+  const account = typeof d.account === "string" ? d.account : a.object ?? "";
+  const channel = typeof d.channel === "string" ? d.channel : null;
+  const to = typeof d.to === "string" ? d.to : null;
+  const head = article ? `${k === "email" ? "an" : "a"} ${ACT_WORDS[k].noun}` : "";
+  const body = k === "post" ? `as ${account}${channel ? ` on ${channel}` : ""}` : `${to ? `to ${to} ` : ""}from ${account}`;
+  return `${head} ${body}`.trim();
+}
+
+const REFUSED_WORDS: Record<string, string> = {
+  no_press: "nobody pressed its sheet in Realm's window",
+  changed_since_approval: "a file changed after you approved it",
+  no_consent: "the record names no consent for the account",
+  no_disclosure: "it discloses no paid partnership",
+  slot_moved: "its slot moved since the sheet showed it",
+  held: "the team's posts were held",
+  missed_slot: "it missed its slot while Realm was not running",
+  account_day: "the account's day was full",
+  team_day: "the team's day was full",
+  gap: "too soon after the last one",
+};
+
+function refusedAct(a: TeamActivity): { text: string; detail: string | null } {
+  const why = typeof a.detail.why === "string" ? a.detail.why : "";
+  return { text: `Realm refused ${actPhrase(a)}`, detail: REFUSED_WORDS[why] ?? (typeof a.detail.words === "string" ? a.detail.words : null) };
+}
+
+/** When a slot is, in a sentence: "now", "4:10 PM today", "8:00 AM tomorrow", "Sat at 8:00 AM". */
+export function slotPhrase(ts: number, now = Date.now()): string {
+  if (ts <= now + 30_000) return "now";
+  const time = new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const day = (t: number) => new Date(t).toDateString();
+  if (day(ts) === day(now)) return `${time} today`;
+  if (day(ts) === day(now + 86_400_000)) return `${time} tomorrow`;
+  return `${new Date(ts).toLocaleDateString(undefined, { weekday: "short" })} at ${time}`;
+}
+
+/** The sheet's button: the action and its time — "Post at 4:10 PM", "Post now", "Send tomorrow at
+ *  8:00 AM" — never "now" beside a later slot. */
+export function actButton(t: Pick<ActTicket, "kind" | "slotAt">, now = Date.now()): string {
+  const verb = ACT_WORDS[t.kind].verb;
+  const when = slotPhrase(t.slotAt, now);
+  if (when === "now") return `${verb} now`;
+  if (when.endsWith(" today")) return `${verb} at ${when.slice(0, -" today".length)}`;
+  if (when.endsWith(" tomorrow")) return `${verb} tomorrow at ${when.slice(0, -" tomorrow".length)}`;
+  return `${verb} ${when}`;
+}
+
+/** "Slideshows 2–6", "Slideshow 3", "Slideshows 2, 4 and 5": the others still waiting, by number. */
+export function othersPhrase(ords: readonly number[], noun: string): string | null {
+  if (ords.length === 0) return null;
+  const n = [...ords].sort((a, b) => a - b).map((o) => o + 1);
+  const cap = noun.charAt(0).toUpperCase() + noun.slice(1);
+  if (n.length === 1) return `${cap} ${n[0]}`;
+  const run = n.every((x, i) => i === 0 || x === n[i - 1]! + 1);
+  return `${cap}s ${run ? `${n[0]}–${n[n.length - 1]}` : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`}`;
+}

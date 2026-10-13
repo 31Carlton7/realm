@@ -19,6 +19,31 @@
  */
 export const UPDATE_FEED_LIVE = true;
 
+/** electron-updater's cache under `~/Library/Caches`: `${package name}-updater` with the slash dropped,
+ *  as electron-builder writes it into app-update.yml for `@realm/desktop`. */
+export const UPDATER_CACHE_DIR_NAME = "@realmdesktop-updater";
+
+/**
+ * Delete the downloaded zip of the update this Realm already is. electron-updater keeps two copies of
+ * every download: `update.zip`, which the NEXT update diffs against (kept), and the installed one in
+ * `pending/` (263 MB), which nothing reads again once that version is running. Only the file
+ * `pending/update-info.json` names, only when its name carries the running version, and only inside
+ * the updater's own cache. Returns the path deleted, or null.
+ */
+export function pruneInstalledDownload(d: { cacheDir: string; version: string; fs: {
+  readFileSync(path: string, enc: "utf8"): string; rmSync(path: string, opts: { force: true }): void } }): string | null {
+  let fileName: unknown;
+  try { fileName = (JSON.parse(d.fs.readFileSync(`${d.cacheDir}/pending/update-info.json`, "utf8")) as { fileName?: unknown }).fileName; }
+  catch { return null; }
+  if (typeof fileName !== "string" || /[\\/]/.test(fileName) || !fileName.includes(`-${d.version}-`)) return null;
+  const zip = `${d.cacheDir}/pending/${fileName}`;
+  d.fs.rmSync(zip, { force: true });
+  // The record goes with it: electron-updater validates it against the file before trusting a cache,
+  // and a record naming a missing file only costs it a clean-up it would do anyway.
+  d.fs.rmSync(`${d.cacheDir}/pending/update-info.json`, { force: true });
+  return zip;
+}
+
 export type UpdateDisabledReason = "dev" | "unsigned" | "no-feed";
 export type UpdaterDecision = { enabled: true } | { enabled: false; reason: UpdateDisabledReason };
 

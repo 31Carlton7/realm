@@ -214,6 +214,19 @@ describe("the asker's stop is not the peer's stop", () => {
     expect(fake.interruptsFor("MY OWN TASK")).toBe(1);
   });
 
+  it("lowering the ASKER's mode leaves the peer's alone — a peer is not its child", async () => {
+    // THE MUTANT: the mode cascade walking every run in the asker's registry, ask runs included. The
+    // person lowered one session; a peer it happened to be asking keeps the mode its own owner chose.
+    const { spaceId, askerId, peerId } = await boot({ budgetMs: 2000, delayMs: 30, script: SLOW_TO_ANSWER });
+    await startPeerWorking(peerId);
+    const pending = app!.asks.ask({ sessionId: askerId, spaceId }, { sessionId: peerId, question: "q?" });
+    await requestIdIn(peerId);
+    await app!.sessions.setOptions(askerId, { permissionMode: "default" });
+    expect(app!.sessions.get(peerId).permissionMode).toBe("bypassPermissions");
+    await app!.sessions.interrupt(askerId);
+    await pending;
+  });
+
   it("an answer that arrives after the timeout is refused, and nothing crashes", async () => {
     const { spaceId, askerId, peerId } = await boot({ budgetMs: 300, delayMs: 30, script: SLOW_TO_ANSWER });
     await startPeerWorking(peerId);
@@ -291,6 +304,8 @@ describe("the refusals, and that each one has no side effect behind it", () => {
     const { spaceId, askerId, peerId } = await boot({
       script: [{ on: "NEEDS PERMISSION", emit: [{ kind: "tool", name: "Bash", input: { cmd: "rm" }, needsPermission: true, result: "ok" }] }],
     });
+    // The scripted agent, like a real one, raises no card in Full access — this peer asks each time.
+    await app!.sessions.setOptions(peerId, { permissionMode: "default" });
     await app!.sessions.send(peerId, { text: "NEEDS PERMISSION", attachments: [] });
     await waitFor(() => app!.sessions.get(peerId).status === "waiting_permission");
 

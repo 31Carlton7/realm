@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  PLAN_LIMIT_REPORTING, mergeWindows, planLabel, planUnavailableNote, planWindowLabel,
-  reportsPlanLimits, tightestWindow, windowLabelForMinutes, windowsByUrgency, type PlanWindow,
+  PLAN_LIMIT_REPORTING, currentAlert, formatSpan, mergeWindows, planLabel, planUnavailableNote, planWindowLabel,
+  reportsPlanLimits, tightestWindow, windowHasReset, windowLabelForMinutes, windowMinutes, windowPace, windowsByUrgency, type PlanWindow,
 } from "./plan-limits";
 
 const w = (id: string, utilization: number | null): PlanWindow =>
@@ -146,5 +146,45 @@ describe("windowsByUrgency / tightestWindow", () => {
     const original = [w("five_hour", 10), w("seven_day", 90)];
     windowsByUrgency(original);
     expect(original.map((x) => x.id)).toEqual(["five_hour", "seven_day"]);
+  });
+});
+
+describe("a window against the clock", () => {
+  const H = 3_600_000;
+  const at = (id: string, label: string, utilization: number | null, resetsAt: number | null): PlanWindow => ({ id, label, utilization, resetsAt });
+
+  it("reads a window's length off Claude's ids and off the labels Codex's durations wrote", () => {
+    expect(windowMinutes(at("five_hour", "5-hour", 1, null))).toBe(300);
+    expect(windowMinutes(at("model:Fable", "Fable weekly", 1, null))).toBe(10080);
+    expect(windowMinutes(at("primary", windowLabelForMinutes(300), 1, null))).toBe(300);
+    expect(windowMinutes(at("secondary", windowLabelForMinutes(10080), 1, null))).toBe(10080);
+    expect(windowMinutes(at("primary", windowLabelForMinutes(43200), 1, null))).toBe(43200);
+    expect(windowMinutes(at("overage", "Extra usage", 1, null))).toBeNull();
+  });
+
+  it("judges pace against how far through its window the clock is", () => {
+    // Two hours into a five-hour window is 40% of the time. 62% used is ahead; 38% is on; 20% is under.
+    const now = 10 * H, resets = now + 3 * H;
+    expect(windowPace(at("five_hour", "5-hour", 62, resets), now)).toEqual({ elapsed: 0.4, pace: "ahead" });
+    expect(windowPace(at("five_hour", "5-hour", 38, resets), now)?.pace).toBe("on");
+    expect(windowPace(at("five_hour", "5-hour", 20, resets), now)?.pace).toBe("under");
+    expect(windowPace(at("five_hour", "5-hour", null, resets), now)).toBeNull();
+  });
+
+  it("calls a window reset once its reset time has passed, and lets an alert about it lapse", () => {
+    const now = 10 * H;
+    const spent = at("five_hour", "5-hour", 100, now - H);
+    expect(windowHasReset(spent, now)).toBe(true);
+    expect(windowPace(spent, now)).toBeNull();
+    expect(currentAlert({ alert: "exceeded", alertWindow: "five_hour", windows: [spent] }, now)).toBe("none");
+    expect(currentAlert({ alert: "exceeded", alertWindow: "five_hour", windows: [{ ...spent, resetsAt: now + H }] }, now)).toBe("exceeded");
+  });
+
+  it("writes a countdown the way a person reads one", () => {
+    expect(formatSpan(30_000)).toBe("under a minute");
+    expect(formatSpan(12 * 60_000)).toBe("12m");
+    expect(formatSpan(72 * 60_000)).toBe("1h 12m");
+    expect(formatSpan(2 * H)).toBe("2h");
+    expect(formatSpan(76 * H)).toBe("3d 4h");
   });
 });

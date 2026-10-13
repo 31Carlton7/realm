@@ -106,14 +106,47 @@ describe("the plan card", () => {
       windows: [win("five_hour", "5-hour", 20), win("seven_day", "Weekly", 92)],
     })]);
     await waitFor(() => expect(bars()).toHaveLength(2));
-    const alerted = bars().filter((b) => b.hasAttribute("data-alerted"));
+    const alerted = bars().filter((b) => b.hasAttribute("data-alert"));
     expect(alerted).toHaveLength(1);
     expect(alerted[0]!.querySelector(".plan-window-label")?.textContent).toBe("Weekly");
   });
 
-  it("says when a window resets, as a time rather than a raw stamp", async () => {
-    const noon = new Date(); noon.setHours(12, 20, 0, 0);
-    await mount([row({ agentKind: "claude", subscriptionType: "max", windows: [win("five_hour", "5-hour", 31, noon.getTime())] })]);
-    expect(await screen.findByText(/resets Today at/)).toBeInTheDocument();
+  it("says when a window resets as a countdown and a time, never a raw stamp", async () => {
+    const soon = Date.now() + (72 * 60 + 30) * 1000;
+    await mount([row({ agentKind: "claude", subscriptionType: "max", ts: Date.now(), windows: [win("five_hour", "5-hour", 31, soon)] })]);
+    expect(await screen.findByText(/^Resets in 1h 12m · (Today|Tomorrow) at /)).toBeInTheDocument();
+  });
+
+  it("leads with what is LEFT, and states used, left and the reset in the meter's own words", async () => {
+    const soon = Date.now() + 3 * 3_600_000;
+    await mount([row({ agentKind: "claude", subscriptionType: "max", ts: Date.now(), windows: [win("five_hour", "5-hour", 62, soon)] })]);
+    expect(await screen.findByText("38% left")).toBeInTheDocument();
+    expect(screen.getByText("62% used")).toBeInTheDocument();
+    expect(meters()[0]!.getAttribute("aria-valuetext")).toMatch(/^62% used, 38% left\. Resets in 2h 59m/);
+  });
+
+  it("marks where even spending would be, and says whether the window is ahead of it", async () => {
+    // Two hours into five is 40% of the window; 62% used is ahead of that.
+    const soon = Date.now() + 3 * 3_600_000;
+    await mount([row({ agentKind: "claude", subscriptionType: "max", ts: Date.now(), windows: [win("five_hour", "5-hour", 62, soon)] })]);
+    await screen.findByText("ahead of pace");
+    const tick = document.querySelector<HTMLElement>(".plan-pace-tick");
+    expect(parseFloat(tick!.style.left)).toBeCloseTo(40, 0);
+  });
+
+  it("draws a window that has reset since its reading as reset, not at its old figure", async () => {
+    // The reading is kept across launches. "92% used" on a window that reset at midnight would send
+    // someone to wait for quota they already have.
+    await mount([row({ agentKind: "claude", subscriptionType: "max", ts: Date.now() - 6 * 3_600_000,
+      windows: [win("five_hour", "5-hour", 92, Date.now() - 3_600_000)] })]);
+    expect(await screen.findByText("reset since this reading")).toBeInTheDocument();
+    expect(meters()).toHaveLength(0);
+    expect(screen.queryByText(/92%/)).toBeNull();
+  });
+
+  it("says how old a kept reading is", async () => {
+    await mount([row({ agentKind: "codex", subscriptionType: "plus", ts: Date.now() - 40 * 60_000,
+      windows: [win("primary", "5-hour", 17, Date.now() + 3_600_000)] })]);
+    expect(await screen.findByText("as of 40m ago")).toBeInTheDocument();
   });
 });

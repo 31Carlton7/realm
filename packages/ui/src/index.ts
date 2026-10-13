@@ -11,11 +11,14 @@ export { applyTheme, clampGroundAlpha, clampPaneAlpha, DEFAULT_GROUND_ALPHA, DEF
    helpers, the brand marks, the document and seed types, and the role lists the parsers
    walk) stay exported from their own modules, where applyTheme and the package's own suites import
    them directly — a barrel entry for each would advertise a public API nothing consumes. */
+export { accentFill, ON_ACCENT_TARGET } from "./accent-fill";
 export { exportTheme, importTheme } from "./theme-io";
 export { clampLeading, CODE_SIZE_RANGE, DEFAULT_FONTS, FONT_FACES, FONT_WEIGHTS, LEADING_RANGE, parseFontPref, UI_SIZE_RANGE,
   type FontId, type FontPref, type FontRole, type FontWeight } from "./fonts";
-export { allThemes, clampContrast, CONTRAST_RANGE, contrastMisses, DEFAULT_SELECTION, deriveVars, isHexColour, isOverridden,
+export { allThemes, clampContrast, CONTRAST_RANGE, contrastMisses, DEFAULT_SELECTION, derivationFor, deriveVars, isHexColour, isOverridden,
   isThemeName, overrideKey, paletteFor, parseThemeOverrides, REALM_SEED, seedFor, setCustomThemes, THEMES, themeModes, themeSwatches,
   type ThemeDef, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection } from "./themes";
 /* A terminal's sixteen and the ink around them, for the hub that hands them to xterm. */
 export { ANSI_NAMES, terminalPalette, type TerminalPalette } from "./terminal-palette";
+/* A team role's creature: the spec a role row stores, the generator, and the drawing. */
+export * from "./realmite";

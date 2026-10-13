@@ -1,5 +1,4 @@
-import { Terminal, type ITheme } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
+import type { ITheme } from "@xterm/xterm";
 import { oklchToHex, parseOklch, sameProgram, TERMINALS_COLORS_DEFAULT, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_STYLE_DEFAULT, type CaretShape, type Oklch, type TerminalColorScheme, type TerminalCursorStyle, type TerminalProgram, type EventName, type EventPayload, type MethodName, type MethodParams, type MethodResult } from "@realm/contracts";
 import { ANSI_NAMES, terminalPalette } from "@realm/ui";
 import { rpc } from "../rpc/client";
@@ -124,7 +123,25 @@ export function terminalFontSize(doc: Document = document): number {
   return Number.isFinite(scale) && scale > 0 ? +(TERMINAL_FONT_SIZE * scale).toFixed(2) : TERMINAL_FONT_SIZE;
 }
 
+/**
+ * xterm and its fit addon, loaded the first time a terminal is shown rather than with the window:
+ * they are about 300 KB of script, and a window opened on a transcript never draws a terminal.
+ * `TerminalHub.whenReady` is what a pane waits on before it acquires.
+ */
+type Xterm = { Terminal: typeof import("@xterm/xterm").Terminal; FitAddon: typeof import("@xterm/addon-fit").FitAddon };
+let xterm: Xterm | null = null;
+let xtermLoading: Promise<void> | null = null;
+function loadXterm(): Promise<void> {
+  xtermLoading ??= Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]).then(
+    ([t, f]) => { xterm = { Terminal: t.Terminal, FitAddon: f.FitAddon }; },
+    (err: unknown) => { xtermLoading = null; throw err; },
+  );
+  return xtermLoading;
+}
+
 const defaultFactory: TerminalFactory = () => {
+  if (!xterm) throw new Error("xterm is not loaded: wait on TerminalHub.whenReady before acquiring");
+  const { Terminal, FitAddon } = xterm;
   /* `cursorBlink` is the hub's to set — it is a preference, and the hub is what knows the current
      answer for a terminal opened at any moment. Constructed on, then corrected in `acquire`, so a
      terminal opened while the switch is off never blinks even once. */
@@ -207,6 +224,13 @@ export class TerminalHub {
 
   constructor(private transport: HubTransport, private factory: TerminalFactory = defaultFactory,
     private doc: Document = document) {}
+
+  /** Whether `acquire` can build a terminal now. Always, for an injected factory; for xterm, once
+   *  its chunk has loaded. */
+  ready(): boolean { return this.factory !== defaultFactory || xterm !== null; }
+
+  /** Resolves when `ready()` is true. */
+  whenReady(): Promise<void> { return this.ready() ? Promise.resolve() : loadXterm(); }
 
   private buffer(id: string): TerminalBuffer {
     let b = this.buffers.get(id);

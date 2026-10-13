@@ -17,7 +17,7 @@ const session = (extra: Partial<Session> = {}): Session => ({
   id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId: "01BX5ZZKBKACTAV9WEVGEMMVRZ", projectId: null, agentKind: "fake",
   model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FA0", cwd: "/tmp",
   status: "running", providerSessionId: null, title: "Fix the login flow", lastEventSeq: 0, seenSeq: 0, terminalItemId: null,
-  dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra,
+  dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra,
 });
 const ask = (requestId: string) => sessionEvent("permission_request", { requestId, toolName: "Bash", input: {}, title: "Run ls", suggestions: [] });
 const flush = () => new Promise((r) => setTimeout(r, 0));

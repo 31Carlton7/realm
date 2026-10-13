@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { ASK_PERMISSION_MODE, AskCardSchema, askCardFromElicitation, elicitationContent, loggableAnswers, normalizeAnswers, requiredAnswered, sessionEvent, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, isRpcTimeout, type JsonRpcId } from "../jsonrpc/stdio";
@@ -5,6 +8,7 @@ import { CodexConnection, type ThreadListener } from "./connection";
 import { createCodexMapper } from "./map-codex";
 import { CODEX_FAST_TIER, parseCodexModelPage, probeCodex, type CodexModel } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS } from "../types";
 import { obj, str, type Bag } from "../bag";
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -40,19 +44,33 @@ const realmAdditionalContext = {
 } as const;
 
 /**
- * W4 double-prompt verdict for Codex: NOTHING to wire, on purpose. Claude's SDK prompts per MCP tool
- * (fixed there via `allowedTools`); Codex's app-server protocol raises approvals ONLY for the two
- * methods below — captured live, and `mcpToolCall` items stream through `map-codex.ts` as tool calls
- * with no approval request at all. So a read-only realm-browser tool already runs promptless on
- * Codex, and a mutating one is gated by Realm's broker alone (single prompt — the desired end
- * state). The protocol offers no per-MCP-tool allow-list on `thread/start` to wire even if we
- * wanted one; if a future preview build starts raising MCP-tool approvals, it will surface here as
- * a new request method and this verdict gets revisited, not assumed away.
+ * The approvals Codex raises as requests of their own. A third kind arrives in another shape: from
+ * 0.154, Codex asks before running any MCP tool its server does not mark `readOnlyHint`, and it asks
+ * through `mcpServer/elicitation/request` — see `codexMcpToolApproval`. Realm's gateway marks its
+ * read-only tools (`REALM_READ_ONLY_TOOLS`), so only a tool that changes something reaches the card.
  */
 const APPROVAL_METHODS: Record<string, { toolName: string; title: string }> = {
   "item/commandExecution/requestApproval": { toolName: "exec_command", title: "Run this command?" },
   "item/fileChange/requestApproval": { toolName: "apply_patch", title: "Apply these edits?" },
 };
+
+/**
+ * A Codex MCP tool approval, or null when `params` is any other elicitation.
+ *
+ * Captured from 0.154: `mode: "form"`, an empty `requestedSchema`, `_meta.codex_approval_kind:
+ * "mcp_tool_call"` with `tool_params`, and the tool named only inside `message` — `Allow the realm MCP
+ * server to run tool "realm-agent__agent_peers"?`. Read as a form it has nothing to fill in, so it
+ * was refused, and the model saw "user rejected MCP tool call" on every tool Realm did not mark
+ * read-only. It is a yes/no about one tool, so it gets the card every other tool approval gets.
+ */
+export function codexMcpToolApproval(params: unknown): { toolName: string; input: Record<string, unknown>; title: string } | null {
+  const p = obj(params);
+  const meta = obj(p._meta);
+  if (meta.codex_approval_kind !== "mcp_tool_call") return null;
+  const server = str(p.serverName) || "mcp";
+  const tool = /run tool "([^"]+)"/.exec(str(p.message))?.[1] ?? "tool";
+  return { toolName: `mcp__${server}__${tool}`, input: obj(meta.tool_params), title: str(p.message) || `Run ${tool}?` };
+}
 
 /** Who asks when Codex's own `request_user_input` tool reaches the card. */
 const CODEX_ASKER = { kind: "agent", name: "Codex", agent: "codex" } as const;
@@ -92,10 +110,10 @@ export function codexUserInputReply(answers: AskAnswers): { answers: Record<stri
 /**
  * How long Codex waits on one of Realm's tools before giving up on it. Its own default is a minute,
  * and a Realm tool can rightly take far longer: a question waits for the user up to the broker's
- * fifteen minutes, and `agent_wait` listens for sub-agents by default for as long. A minute more than
- * the longest of them, so Realm's own answer — even a timeout — is the one that lands.
+ * fifteen minutes, and `agent_wait` listens for sub-agents for up to an hour. The shared gateway
+ * limit, in the seconds Codex counts in.
  */
-export const GATEWAY_TOOL_TIMEOUT_SEC = 16 * 60;
+export const GATEWAY_TOOL_TIMEOUT_SEC = GATEWAY_TOOL_TIMEOUT_MS / 1000;
 
 /**
  * Codex decisions Realm will send, most preferred first.
@@ -161,6 +179,37 @@ export function codexMcpConfig(servers: readonly McpServerConfig[]): Bag | undef
       : { url: s.url, ...(Object.keys(s.headers).length ? { http_headers: s.headers } : {}), tool_timeout_sec: GATEWAY_TOOL_TIMEOUT_SEC },
   ] as const);
   return { mcp_servers: Object.fromEntries(entries) };
+}
+
+/**
+ * The MCP servers the user's own Codex config names (`[mcp_servers.NAME]` and its sub-tables), read
+ * from the TOML's table headers. Codex merges these with a thread's `config.mcp_servers`, so a role
+ * run turns each one off by name in its own config. Read only; Realm never writes the user's config.
+ */
+export function codexUserMcpServers(toml: string): string[] {
+  const names = new Set<string>();
+  for (const m of toml.matchAll(/^\s*\[\s*mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))/gm)) names.add((m[1] ?? m[2] ?? m[3])!);
+  return [...names];
+}
+
+/**
+ * `thread/start`'s `config` for one session. A team role's run reaches the world only through Realm's
+ * gateway, where its team's policy decides: the sandbox's network is pinned off (over a user's
+ * `network_access = true`, verified against 0.154), and every server the user's own config names is
+ * turned off for this thread, so the gateway is the only MCP server it has.
+ */
+export function codexThreadConfig(servers: readonly McpServerConfig[], roleRun: { userServers: readonly string[] } | null): Bag | undefined {
+  const mcp = codexMcpConfig(servers);
+  if (!roleRun) return mcp;
+  const own = obj(mcp?.mcp_servers);
+  const off = Object.fromEntries(roleRun.userServers.filter((n) => !(n in own)).map((n) => [n, { enabled: false }]));
+  return { mcp_servers: { ...off, ...own }, sandbox_workspace_write: { network_access: false } };
+}
+
+/** The user's Codex config, read only, or "" when there is none to read. */
+function readUserCodexConfig(): string {
+  const home = process.env.CODEX_HOME || join(homedir(), ".codex");
+  try { return readFileSync(join(home, "config.toml"), "utf8"); } catch { return ""; }
 }
 
 /**
@@ -409,6 +458,7 @@ export class CodexAdapter implements AgentAdapter {
      *  question answers with what the user gave, or with what "no answer" is on its protocol. */
     type Pending =
       | { kind: "approval"; id: JsonRpcId; decisions: unknown[] }
+      | { kind: "mcpApproval"; id: JsonRpcId }
       | { kind: "question"; id: JsonRpcId; card: AskCard; accept: (given: AskAnswers) => unknown; decline: () => unknown; cancel: () => unknown };
     const pending = new Map<string, Pending>();
     let conn: CodexConnection | null = null;
@@ -450,6 +500,11 @@ export class CodexAdapter implements AgentAdapter {
         const answered = given !== undefined && Object.keys(given).length > 0 && requiredAnswered(p.card, given);
         conn?.respond(p.id, answered ? p.accept(given) : cancelled ? p.cancel() : p.decline());
         events.push(sessionEvent("permission_response", { requestId, decision: answered ? decision : "deny", ...(answered ? { answers: loggableAnswers(p.card, given) } : {}) }));
+      } else if (p.kind === "mcpApproval") {
+        // Never `persist`: "always" is Codex writing the grant into the user's own config.toml.
+        const action = decision !== "deny" ? "accept" : cancelled ? "cancel" : "decline";
+        conn?.respond(p.id, { action, content: action === "accept" ? {} : null, _meta: null });
+        events.push(sessionEvent("permission_response", { requestId, decision }));
       } else {
         conn?.respond(p.id, { decision: pickCodexDecision(decision, p.decisions) });
         events.push(sessionEvent("permission_response", { requestId, decision }));
@@ -576,6 +631,12 @@ export class CodexAdapter implements AgentAdapter {
         }
       },
       onServerRequest: (id, method, params) => {
+        const cardFor = (rid: JsonRpcId, toolApproval: NonNullable<ReturnType<typeof codexMcpToolApproval>>) => {
+          const requestId = String(rid);
+          if (pending.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
+          pending.set(requestId, { kind: "mcpApproval", id: rid });
+          events.push(sessionEvent("permission_request", { requestId, ...toolApproval, suggestions: [] }));
+        };
         // Codex's own question tool, asked of the user on Realm's card.
         if (method === "item/tool/requestUserInput") {
           const card = codexUserInputCard(params);
@@ -588,6 +649,21 @@ export class CodexAdapter implements AgentAdapter {
         // A server from the user's own Codex config asking through Codex (MCP elicitation, passed on).
         // The card names the server AND the agent it came through: it is the server asking, not Codex.
         if (method === "mcpServer/elicitation/request") {
+          const toolApproval = codexMcpToolApproval(params);
+          if (toolApproval) {
+            // A team's policy answers for its gateway's tools itself, drawing the one card owed: Codex
+            // approves without a card of its own. Never `persist`, as below.
+            if (opts.gatewayDecides) {
+              const decides = opts.gatewayDecides;
+              void decides(toolApproval.toolName).catch(() => false).then((yes) => {
+                if (yes) conn?.respond(id, { action: "accept", content: {}, _meta: null });
+                else cardFor(id, toolApproval);
+              });
+              return;
+            }
+            cardFor(id, toolApproval);
+            return;
+          }
           const p = obj(params);
           const asker = { kind: "server" as const, name: str(p.serverName) || "An MCP server", via: "Codex" };
           const mode = str(p.mode);
@@ -640,7 +716,7 @@ export class CodexAdapter implements AgentAdapter {
         if (disposed) { await releaseOnce(); return; }
         conn = c;
         const { approvalPolicy, sandbox } = codexPolicyFor(opts.permissionMode);
-        const config = codexMcpConfig(opts.mcpServers);
+        const config = codexThreadConfig(opts.mcpServers, opts.roleRun ? { userServers: codexUserMcpServers(readUserCodexConfig()) } : null);
         // No `effort` here: Codex takes reasoning effort per turn, and `effortParam` sends it on `turn/start`.
         const common = {
           cwd: opts.cwd,

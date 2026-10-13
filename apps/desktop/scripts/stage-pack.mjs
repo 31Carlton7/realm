@@ -63,11 +63,17 @@ for (const [binary, missing] of [
   ["scrollphase", "the app falls back to timer-based scroll phases"],
   ["axhelper", "the computer-use tools stay unavailable"],
   ["phonescreen", "a real iPhone's picture is the runner's screenshots, about one a second"],
+  ["deviceowner", "sign-ins unlock with Touch ID only, never the login password"],
+  ["policystamp", "sign-ins stay on Touch ID: a looser unlock policy cannot be kept"],
 ]) {
   const built = join(desktop, "native", "bin", binary);
   if (existsSync(built)) cpSync(built, join(stage, binary));
   else console.warn(`[stage-pack] native/bin/${binary} not built; ${missing}`);
 }
+
+// 3b. The menu-bar item's template image, both scales (main/tray-icon.ts reads <resources>/trayTemplate.png,
+// and macOS finds the @2x beside it by name).
+for (const name of ["trayTemplate.png", "trayTemplate@2x.png"]) cpSync(join(desktop, "resources", name), join(stage, name));
 
 // 4. App icon where electron-builder's mac.icon points.
 mkdirSync(join(desktop, "build"), { recursive: true });

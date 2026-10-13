@@ -188,7 +188,7 @@ export function createSdkMapper(opts: { resumed?: boolean } = {}) {
           break;
         }
         case "result": {
-          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number }; result?: string; errors?: string[]; fast_mode_state?: string; fast_mode_disabled_reason?: string };
+          const r = msg as { subtype: string; is_error: boolean; num_turns: number; total_cost_usd: number; usage?: { input_tokens: number; output_tokens: number }; modelUsage?: Record<string, unknown>; result?: string; errors?: string[]; fast_mode_state?: string; fast_mode_disabled_reason?: string };
           // No context figure here, deliberately. `input_tokens + cache_read + cache_creation` off
           // this result reads like the size of the prompt just sent, and it is not: the SDK's
           // per-turn `usage` sums every REQUEST the turn made, so a turn with thirty tool calls
@@ -202,7 +202,15 @@ export function createSdkMapper(opts: { resumed?: boolean } = {}) {
           const fast = FAST_STATES.has(String(r.fast_mode_state)) ? (r.fast_mode_state as "off" | "cooldown" | "on") : undefined;
           const reason = fast !== undefined && fast !== "on" && typeof r.fast_mode_disabled_reason === "string"
             ? r.fast_mode_disabled_reason : undefined;
-          out.push(sessionEvent("usage", { costUsd: r.total_cost_usd, inputTokens: r.usage?.input_tokens ?? 0, outputTokens: r.usage?.output_tokens ?? 0, numTurns: r.num_turns,
+          // Tokens from `modelUsage`, not `usage`. The SDK says it outright: `usage` is "MAIN AGENT LOOP
+          // ONLY — excludes Task subagent … and is per-turn in streaming-input sessions", while
+          // `modelUsage` covers every model the query called, sub-agents and compaction included, as
+          // running totals with the cache counted apart. A session whose sub-agents did two thirds of
+          // the work was reporting a third of its tokens, and none of its cache. `cumulativeTokens`
+          // tells the usage page which reading this event carries; a result without `modelUsage`
+          // falls back to the per-turn figures and says nothing.
+          const tokens = modelUsageTotals(r.modelUsage) ?? { inputTokens: r.usage?.input_tokens ?? 0, outputTokens: r.usage?.output_tokens ?? 0 };
+          out.push(sessionEvent("usage", { costUsd: r.total_cost_usd, ...tokens, numTurns: r.num_turns,
             ...(fast === undefined ? {} : { fastMode: fast }),
             ...(reason === undefined ? {} : { fastModeReason: reason }) }));
           if (r.subtype !== "success" || r.is_error) out.push(sessionEvent("error", { message: r.errors?.join("\n") || r.result || r.subtype }));
@@ -219,5 +227,23 @@ export function createSdkMapper(opts: { resumed?: boolean } = {}) {
       }
       return out;
     },
+  };
+}
+
+/**
+ * The result's `modelUsage`, summed across models, as the `usage` event's token fields — or null when
+ * there is nothing to sum, so the caller falls back to the per-turn figures rather than reporting a
+ * session that ran as one that used no tokens. Each model's `inputTokens` is uncached input; the two
+ * cache counts sit beside it, disjoint, as Anthropic reports them.
+ */
+export function modelUsageTotals(modelUsage: Record<string, unknown> | undefined) {
+  const rows = Object.values(modelUsage ?? {}).filter((v): v is Record<string, unknown> => !!v && typeof v === "object");
+  if (rows.length === 0) return null;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const sum = (k: string) => rows.reduce((a, row) => a + n(row[k]), 0);
+  return {
+    inputTokens: sum("inputTokens"), outputTokens: sum("outputTokens"),
+    cacheReadTokens: sum("cacheReadInputTokens"), cacheWriteTokens: sum("cacheCreationInputTokens"),
+    cumulativeTokens: true as const,
   };
 }

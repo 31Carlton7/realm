@@ -1,5 +1,5 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
-import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape } from "@realm/contracts";
+import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape, type UnlockPolicy, type UnlockPolicyStatus } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
@@ -15,11 +15,12 @@ import {
   groupsFromLayout, SpaceGroupsSchema,
   besidePane, clampPanelShare, columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type Room, type StoredView, type WindowView,
   canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
+  SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
-  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, type EditorId, type InstalledEditor,
+  AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -31,21 +32,27 @@ import { closeIntent } from "./close-intent";
 import { panelPlace, splitRefusal } from "./view-room";
 import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
+import { CHILD_ORIGINS } from "../panes/session-labels";
+import { QUICK_CHAT_SETTING } from "@realm/view";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
   isOverridden, parseFontPref, type FontPref,
   isThemeName, overrideKey, parseThemeOverrides, themeModes,
   type Mode, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection, setCustomThemes, type ThemeDef }  from "@realm/ui";
 import type { ThemePref } from "../theme/useTheme";
-import { emptyTranscript, lastUserMessage, reduceTranscript, type Rating, type Transcript } from "../panes/session/transcript-model";
+import { emptyTranscript, lastUserMessage, prependTranscript, reduceTranscript, type Earlier, type Rating, type Transcript } from "../panes/session/transcript-model";
+import { CARRIED_LIMIT, CARRIED_TYPES, EARLIER_EVENTS, TAIL_EVENTS, readBack } from "./transcript-paging";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
 import { draftRun, withOptions } from "../panes/session/draft-run";
+import { usableModel } from "../panes/session/model-catalog";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
 import type { AskAnswers } from "@realm/contracts";
 import { NOTIFICATIONS_IPHONE_KEY, type PairRequest, type PairingWindow, type RemoteStatus } from "@realm/contracts";
+import { teamSlice, type TeamApi, type TeamSlice } from "./team-slice";
+import { labSlice, type LabApi, type LabSlice } from "./lab-slice";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 /** What the New space sheet hands over: the row, and what is made WITH it — the folder its sessions
@@ -110,6 +117,18 @@ export type McpTestResult = { reached: boolean; detail: string };
 /** A `session.event` broadcast: persisted rows carry their seq; ephemeral ones (deltas) have seq -1. */
 export type LiveSessionEvent = StoredSessionEvent & { ephemeral: boolean };
 
+/** `ui.lastModels` as stored: entries of a known agent kind with a model id or null. Anything else —
+ *  a kind this build does not know, a value of another shape — is dropped rather than guessed at. */
+function parseLastModels(raw: unknown): Partial<Record<AgentKind, string | null>> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Partial<Record<AgentKind, string | null>> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const kind = AgentKindSchema.safeParse(k);
+    if (kind.success && (typeof v === "string" || v === null)) out[kind.data] = v;
+  }
+  return out;
+}
+
 /** Each kind's currently-known model ids, for kinds that could enumerate at all. A kind absent from
  *  the map is one whose catalog is unknown, which is not the same as one whose catalog is empty. */
 function modelIdsByKind(probe: AgentProbe[]): Map<AgentKind, Set<string>> {
@@ -141,11 +160,11 @@ export type TranscriptEntry = { lastSeq: number; t: Transcript };
 /** What main reports about the secret store itself. `available`: macOS will encrypt (no store
  *  without it). `canPromptTouchID`: this Mac can satisfy a fill — Settings says so plainly rather
  *  than letting the user enroll a password and find out at a sign-in prompt. */
-export type CredentialStatus = { available: boolean; canPromptTouchID: boolean; presenceTtlMs: number };
+export type CredentialStatus = { available: boolean; canPromptTouchID: boolean; canPromptDeviceOwner: boolean; presenceTtlMs: number };
 /** What a Share with ▸ <profile> did: copied, into the profile named, or why not. */
 export type ShareResult = { ok: true; profileName: string } | { ok: false; error: string };
 
-export type Api = {
+export type Api = TeamApi & LabApi & {
   listProfiles(): Promise<Profile[]>;
   /** Icon/color left out are the server's defaults (`user` / grey) — the New space sheet's inline
    *  add asks only for a name; the New profile sheet asks for all three. */
@@ -195,7 +214,7 @@ export type Api = {
   /** `cwd`: the checkout the shell starts in — the server's primary one when absent. */
   createTerminal(spaceId: string, cwd?: string): Promise<{ terminalId: string; itemId: string }>;
   /** `browsers.create` — row + item; the native view is the pane's own business (Plan 11 W1). */
-  createBrowser(spaceId: string): Promise<{ browserId: string; itemId: string; url: string }>;
+  createBrowser(spaceId: string, url?: string): Promise<{ browserId: string; itemId: string; url: string }>;
   /** `machines.create` — row + item, with no address yet (Plan 25 W3). The connect flow is the
    *  pane's own body rather than a sheet, so the pane has to exist before there is an address. */
   createMachine(spaceId: string, name: string): Promise<{ machineId: string; itemId: string }>;
@@ -243,6 +262,9 @@ export type Api = {
   pickFolder(): Promise<string | null>;
   /** Native multi-select file picker; resolves [] when cancelled. */
   pickFiles(): Promise<PickedAttachment[]>;
+  /** Native multi-select folder picker, each folder already described (`DIRECTORY_MIME`); [] when
+   *  cancelled. */
+  pickFolders(): Promise<PickedAttachment[]>;
   /** The filesystem path behind a dropped File. "" when it has none — a pasted image, which has to be
    *  written out with `saveTempAttachment` before any adapter can be given a path. */
   pathForFile(file: File): string;
@@ -270,6 +292,8 @@ export type Api = {
   /** `null` = every profile. The chat feed passes the active one; callers resolving a session by id
    *  pass null. Scoped by the server's space→profile join, never by a filter here. */
   listAllSessions(profileId?: string | null): Promise<Session[]>;
+  /** Each of a space's sessions' newest reply, as one line — null where it has not replied. */
+  sessionsDigest(spaceId: string): Promise<{ sessionId: string; lastReply: string | null }[]>;
   getSession(id: string): Promise<Session>;
   createSession(input: CreateSessionInput): Promise<{ session: Session; itemId: string }>;
   /** A session with NO item row, and so in no list anywhere — the quick chat's shape. Its own method
@@ -374,6 +398,14 @@ export type Api = {
   /** `sessions.releaseQueued` — send one queued message now. Server-side by id, so the mentions and
    *  element chips it was composed with survive; see `QueuedPrompt`. */
   releaseQueuedPrompt(id: string, queuedId: string): Promise<void>;
+  /** `sessions.holdQueued` — hold a queued message while it is edited, or let it go. Answers whether
+   *  it is now held: false when it has already gone out. */
+  holdQueuedPrompt(id: string, queuedId: string, held: boolean): Promise<boolean>;
+  /** `sessions.editQueued` — replace a queued message's text where it stands. False when it had
+   *  already gone out. */
+  editQueuedPrompt(id: string, queuedId: string, text: string): Promise<boolean>;
+  /** `sessions.moveQueued` — put a queued message in front of `before`, or last when it is null. */
+  moveQueuedPrompt(id: string, queuedId: string, before: string | null): Promise<void>;
   sessionQueue(id: string): Promise<QueuedPrompt[]>;
   /** `limits.get` — every provider's plan quota as last reported. */
   planLimits(): Promise<PlanLimits[]>;
@@ -410,6 +442,8 @@ export type Api = {
   moveSessionToSpace(id: string, spaceId: string): Promise<Session>;
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
+  /** The newest `limit` persisted events before `beforeSeq`, ascending — of `types` only, when given. */
+  sessionEventsBefore(id: string, beforeSeq: number, limit: number, types?: StoredSessionEvent["event"]["type"][]): Promise<StoredSessionEvent[]>;
   /** `sessions.openTerminal` — get-or-create the session's terminal side panel. The FIRST call is what
    *  spawns the pty, so this must only ever be called when the panel is actually being shown. */
   openSessionTerminal(sessionId: string): Promise<{ terminalId: string; itemId: string }>;
@@ -480,6 +514,9 @@ export type Api = {
   credentialRemove(profileId: string, id: string): Promise<boolean>;
   credentialShare(profileId: string, id: string, toProfileId: string): Promise<ShareResult>;
   credentialSetPresenceTtl(ms: number): Promise<number>;
+  /** A profile's unlock policy, and the one way to change it — IPC to main, never RPC. */
+  credentialUnlockPolicy(profileId: string): Promise<UnlockPolicyStatus | null>;
+  credentialSetUnlockPolicy(profileId: string, policy: UnlockPolicy): Promise<{ ok: true; status: UnlockPolicyStatus } | { ok: false; error: string }>;
   /** The passkeys Realm holds, and the one way to forget one. No `add`: a passkey is created by a
    *  site asking for one in a pane and the user answering Touch ID. */
   passkeyList(profileId: string): Promise<Passkey[]>;
@@ -540,6 +577,8 @@ export type Api = {
   setReducedMotion(pref: ReducedMotionPref): Promise<void>;
   /** Tell main the keep-awake switch moved; main holds the blocker while a session works. */
   setPreventSleep(on: boolean): Promise<void>;
+  /** Tell main where a clicked link opens (Settings ▸ General ▸ Links); main routes the click. */
+  setLinksOpenIn(pref: LinksOpenIn): void;
   /** The apps installed on this Mac (main's scan), for the `@` list. [] without the bridge. */
   installedApps(): Promise<InstalledApp[]>;
   /** Those apps' own icons by bundle path. Main answers only for bundles its scan found. */
@@ -598,6 +637,28 @@ export type Api = {
   /** `memory.setProfileDocEnabled` — THIS space's inheritance override for the profile doc, never a
    *  write to the doc itself. */
   setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<MemoryState>;
+  /** `memory.repo.get` — a profile's memory repo, or the ones a space's sessions use (with `inheritedHere`). */
+  getMemoryRepos(scope: { profileId: string } | { spaceId: string }): Promise<MemoryRepoState[]>;
+  /** `memory.repo.create` — under Realm's home unless a path is given; reuses a memory repo already there. */
+  createMemoryRepo(owner: MemoryRepoOwner, path?: string): Promise<MemoryRepoState>;
+  /** `memory.repo.attach` — use an existing memory repo; refused for anything else, and writes nothing. */
+  attachMemoryRepo(owner: MemoryRepoOwner, path: string): Promise<MemoryRepoState>;
+  /** `memory.repo.detach` — the folder and its history stay where they are. */
+  detachMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
+  /** `memory.repo.setInherited` — THIS space's opt-out of its profile's repo. */
+  setMemoryRepoInherited(spaceId: string, enabled: boolean): Promise<MemoryRepoState[]>;
+  /** `memory.repo.log` — the latest commits, newest first. */
+  memoryRepoLog(owner: MemoryRepoOwner, limit: number): Promise<MemoryRepoCommit[]>;
+  /** `memory.repo.setRemote` — point `origin` at a URL; sync goes off until it is checked again. */
+  setMemoryRepoRemote(owner: MemoryRepoOwner, url: string): Promise<MemoryRepoState>;
+  /** `memory.repo.checkRemote` — whether the remote is private, as far as Realm can tell. */
+  checkMemoryRepoRemote(owner: MemoryRepoOwner): Promise<MemoryRemoteCheck>;
+  /** `memory.repo.setSync` — refused for a public remote, and for an unchecked one without the user's word. */
+  setMemoryRepoSync(owner: MemoryRepoOwner, enabled: boolean, confirmPrivate: boolean): Promise<MemoryRepoState>;
+  /** `memory.repo.sync` — pull and push now; a network failure comes back as `syncError`, not a throw. */
+  syncMemoryRepo(owner: MemoryRepoOwner): Promise<MemoryRepoState>;
+  /** `memory.repo.importClaude` — the imported Claude memory as entries; `dryRun` only counts. */
+  importClaudeMemory(owner: MemoryRepoOwner, dryRun: boolean): Promise<MemoryClaudeImport>;
   /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
    *  the list is still a renderable result. */
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
@@ -683,6 +744,10 @@ export type McpCallsFilter = { sessionId?: string; serverId?: string };
 /** `memory.getProfile`'s shape: the profile doc at its defining scope — no per-space fields, because
  *  the defining scope has none (`enabledHere` belongs to `MemoryState.profile`, a space's view). */
 export type ProfileMemoryDoc = { profileId: string; path: string; doc: string };
+/** Whose a memory repo is: a profile's, or one space's own. */
+export type MemoryRepoOwner = { scope: MemoryRepoScope; id: string };
+/** One owner's key in the per-repo maps (`memoryRepoLog`). */
+export const memoryRepoKey = (o: MemoryRepoOwner): string => `${o.scope}:${o.id}`;
 
 /** One Realm-native gateway toolset as `mcp.providers.list` reports it for a space (W4). `enabled` is
  *  the space's switch; `offered` is whether the provider can do anything on this Mac at all (`null`
@@ -762,15 +827,13 @@ export type NewTabTool = "terminal" | "documents" | "agents" | "simulator" | "ma
  *  files at a line. `path` is the tab's own name for the file (`documents.openPath` answers it). */
 export type DocumentsAsk = { documentsId: string; seq: number } & ({ search: true } | { path: string; line: number });
 
-/** The space last made current — where a new session goes when no session has focus. Before Plan 27
- *  it was the room the window was in, which is why a home upgraded from rooms migrates from it. */
-export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
+/** The space last made current, and the window's view per profile — in contracts, because the
+ *  server reads both to tell an agent what is on screen (`realm-workspace`'s `workspace_state`). */
+export { SETTING_ACTIVE_SPACE, viewSettingKey };
 /** The profile the window was last on: what a window main bound to no profile opens on. */
 export const SETTING_ACTIVE_PROFILE = "ui.activeProfileId";
-/** The window's one view, per profile — its panes, their side panes, and the side panes of the
- *  sessions not on screen. Keyed by profile because a profile's spaces are the only ones it shows. */
-export const viewSettingKey = (profileId: string): string => `ui.view:${profileId}`;
-export const SETTING_THEME = "ui.theme";
+/** In contracts, as `SETTING_SUBMIT_KEY` is: an agent's `settings_set` writes them (`AGENT_SETTINGS`). */
+export { SETTING_THEME };
 /** The palette, one key per face — a second axis from `ui.theme`'s light/dark: that says which mode,
  *  these say what the colours are in it. A key each rather than one compound value so the two faces
  *  are written independently, which is what choosing them independently means.
@@ -796,9 +859,11 @@ const SETTING_GROUND_ALPHA = "ui.groundAlpha";
 export const SETTING_PANE_ALPHA = "ui.paneAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
 export const SETTING_LAST_AGENT = "ui.lastAgentKind";
+/** Per agent kind, the model of the last message the user sent — what "+"/⌘N put the next session
+ *  of that kind on. `null` is a send on the harness's own default, and is remembered as one. */
+export const SETTING_LAST_MODELS = "ui.lastModels";
 /** Whether the app keeps its decorative motion off for good. See `lowPower`. */
 const SETTING_LOW_POWER = "ui.lowPower";
-const SETTING_SUBMIT_KEY = "ui.submitKey";
 /** Whether the playful bits are allowed to run at all. Off unless the stored value is exactly
  *  `true`: a key nobody could read is not a request to be surprised. */
 const SETTING_EASTER_EGGS = "ui.easterEggs";
@@ -809,8 +874,6 @@ const SETTING_KONAMI_UNLOCKED = "ui.konamiUnlocked";
 /** Whether the sidebar is collapsed to the top rail. Persisted so a collapsed window stays
  *  collapsed across launches — the whole point of collapsing is reclaiming the column for good. */
 const SETTING_SIDEBAR_COLLAPSED = "ui.sidebarCollapsed";
-/** The side panes put away (`toggleSidePanes`): their tabs kept, the panes not drawn. */
-const SETTING_SIDE_PANES_HIDDEN = "ui.sidePanesHidden";
 /** How wide the sidebar column is, in pixels. Its own key rather than a field on the one above: the
  *  two answer different questions, and a width remembered through a collapse is what makes bringing
  *  the sidebar back restore the column the user had rather than the one Realm ships. */
@@ -833,8 +896,10 @@ export const SETTING_LIBRARY_VIEW = "ui.libraryView";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
- *  ever read together — a position with no conversation to put in it is nothing. */
-export const SETTING_QUICK_CHAT = "ui.quickChat";
+ *  ever read together — a position with no conversation to put in it is nothing. Named in
+ *  `@realm/view`, because the server reads the session id from it to leave the quick chat out of
+ *  Realm Mobile's Needs you, as the sidebar does. */
+export const SETTING_QUICK_CHAT = QUICK_CHAT_SETTING;
 export const EVENTS_PAGE = 1000;
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
@@ -875,7 +940,12 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
  */
 export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "subagent"; toolUseId: string } | { kind: "terminal" };
 
-export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history";
+export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history"
+  /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): the Overview, the records
+     and one of them, a role, the log. */
+  | "team" | "records" | "roles" | "policies" | "vault" | "activity" | `role:${string}` | `record:${string}`
+  /* A kind of record's list, and the page its fields are shaped on (`recordtype:new` makes one). */
+  | `records:${string}` | `recordtype:${string}`;
 /** The profile page's rail (Plan 14 W2). */
 export type ProfilePageTab = "general" | "skills" | "connections" | "memory";
 /** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
@@ -901,6 +971,9 @@ export type Sheet =
    *  Opened from McpSection ("Activity") or the palette ("MCP Activity"); replaces whatever sheet was
    *  open (the one-slot ruling — see the sheet-plumbing note above), including space settings itself. */
   | { kind: "activity" }
+  /** Teams: who joins a team that exists — the starters not on it yet, and teammates the person
+   *  writes. From the team's page and the sidebar's Team fold alike. */
+  | { kind: "add-teammates"; spaceId: string }
   /** Plan 22: start a lecture (title prompt), wrap one up (pick which), import Plynn recordings. */
   | { kind: "new-lecture" }
   | { kind: "wrap-up-lecture" }
@@ -910,7 +983,7 @@ export type Sheet =
    *  the revision, not the snapshot that was taken when the row was clicked. */
   | { kind: "session-plan"; sessionId: string; planId: string };
 
-export type AppState = {
+export type AppState = TeamSlice & LabSlice & {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
    *  what an unbooted store looks like, so without this the sheet would flash on every launch. */
   booted: boolean;
@@ -1113,6 +1186,9 @@ export type AppState = {
   /** Agent of the last session created or switched to, persisted across launches; null until one exists
    *  (then instant-create falls back to FALLBACK_AGENT). */
   lastAgentKind: AgentKind | null;
+  /** The model of the last message sent on each agent kind (`SETTING_LAST_MODELS`). A kind absent
+   *  from it has never been sent on, and starts on its harness's default. */
+  lastModels: Partial<Record<AgentKind, string | null>>;
   /** Arms the inline rename of the pane showing this item (palette → PanelBar seam). */
   renamingItemId: string | null;
   /** The leaf pane that has focus (pane clicks, open/split target). Reset to the first leaf whenever the
@@ -1180,7 +1256,7 @@ export type AppState = {
   documentsAsk: DocumentsAsk | null;
   /** The space overview (⌘⇧Space): every space across every profile, sectioned. Its own flag rather
    *  than a `Sheet`, for the same reason `paletteOpen` is — it must toggle from its own hotkey while
-   *  open, which the sheet guard in hotkeys.ts forbids. */
+   *  open, which an `!overlayOpen` clause would forbid. */
   spacesOpen: boolean;
   /** profileId → the space last current in that profile, THIS RUN: the current space's fallback when
    *  no session has focus. A restart starts from the saved one (`SETTING_ACTIVE_SPACE`). */
@@ -1252,13 +1328,23 @@ export type AppState = {
    *  this map is what lets an inactive space's strip button wear its badge. */
   sessionSpace: Record<string, string>;
   /**
-   * When each session last moved, by session id — the tiebreaker behind "Sort by activity".
+   * When each session's STATUS last moved, by session id — how long Needs you has been waiting on it.
    *
    * Kept beside `sessionSpace` rather than read off `sessions`, and for the same reason that map
-   * exists: `sessions` holds only the ACTIVE space's rows, while the strip sorts every space in the
-   * profile. Seeded from `listAllSessions` at boot and kept current by the status broadcasts.
+   * exists: `sessions` holds only the ACTIVE space's rows, while the sidebar reads every space in the
+   * profile. Seeded from `listAllSessions` at boot and kept current by the status broadcasts. Not an
+   * order: opening a session can move its status, and a row must not move for being opened.
    */
   sessionUpdatedAt: Record<string, number>;
+  /**
+   * When each session's conversation last moved, by session id (`Session.activityAt`) — what every
+   * list of sessions, and "Sort by activity", is ordered by.
+   *
+   * Seeded with `sessionUpdatedAt`, and moved by a prompt going out (stamped as it is sent, so the row
+   * comes up at once), a prompt or a reply arriving, and a turn settling. Never by selecting, reading,
+   * a status the session passes through on a resume, or any other write to its row. Never backwards.
+   */
+  sessionActivityAt: Record<string, number>;
   /**
    * Every session in the home, as a row — what the sidebar draws a session of ANOTHER profile from.
    *
@@ -1355,6 +1441,8 @@ export type AppState = {
   /** Whose sign-ins and passkeys `credentials` and `passkeys` are — they are a profile's own, and a
    *  list read for one profile must never be shown as another's. */
   credentialsProfileId: string | null;
+  /** The loaded profile's unlock policy (`credentialsProfileId`'s), or null before it loads. */
+  unlockPolicy: UnlockPolicyStatus | null;
   /** The `mac` CLI's access, exactly as `mac doctor` reported it through main; null until the
    *  Permissions tab first asks. Never synthesised client-side: an audit that could not run comes
    *  back with every row `unknown`, which is what "we don't know" looks like. */
@@ -1636,6 +1724,12 @@ export type AppState = {
   /** Profile memory docs at their defining scope, by profile id (W4: the Library page's
    *  "Edit in profile" editor). Absent = never fetched. */
   profileMemory: Record<string, ProfileMemoryDoc>;
+  /** The profile's memory repo by profile id: null = none attached, absent = never fetched. */
+  profileMemoryRepo: Record<string, MemoryRepoState | null>;
+  /** The memory repos a space's sessions use, by space id (each with `inheritedHere`). */
+  spaceMemoryRepos: Record<string, MemoryRepoState[]>;
+  /** A repo's latest commits, by `memoryRepoKey` of its owner — the row's "Recent memories". */
+  memoryRepoLog: Record<string, MemoryRepoCommit[]>;
   /** Which space's Connections panel (McpSection) is mounted right now, null when none is. Set
    *  synchronously by `clearMcpServers` on mount/unmount; it is the guard that keeps a slow
    *  `mcp.list` response — or an `mcp.changed` refetch — from clobbering another space's list
@@ -1645,6 +1739,12 @@ export type AppState = {
    *  space's tab — and with it another space's data fetch — onto a different space's page. Absent =
    *  "general". */
   spacePageTab: Record<string, SpacePageTab>;
+  /** Which of a space's sessions its Sessions page lists, PER SPACE — the live ones or the archived
+   *  ones — so the sidebar's "Archived sessions" can land on the archived ones. Absent = "active". */
+  spaceSessionsView: Record<string, "active" | "archived">;
+  /** Where each session left off — its newest reply's first line, null where it has not replied —
+   *  for the space's Sessions page. Read per space when the page is up (`loadSessionReplies`). */
+  sessionReplies: Record<string, string | null>;
   /** The profile page's tab, per PROFILE id (Plan 14 W2) — in the store, not component state, because
    *  openers land on a section ("Edit in profile" on an MCP row lands on Connections; the memory
    *  row's on Memory) whether or not the page is already open. */
@@ -1932,6 +2032,11 @@ export type AppState = {
   /** An empty pane beside the focused one (beside the pane of the session whose tab is showing, from
    *  the panel), focused — refused, in a toast that says why, when there is no room for it. */
   splitFocused(dir: "row" | "col"): Promise<void>;
+  /** "Split right" / "Split down" as the key, the menu bar, the palette and the pane bar mean them: a
+   *  NEW session beside the focused pane (beside its session's pane, from the panel), in that pane's
+   *  space, focused — refused before anything is made when there is no room, so a refusal never leaves
+   *  a session behind. With no space to make one in, the empty pane `splitFocused` makes. */
+  splitNewSession(dir: "row" | "col"): Promise<void>;
   /** Drag-to-split: center replaces the leaf's item (or, on the panel, adds it as a tab); an edge
    *  opens it beside the pane on that side — refused, in a toast, when there is no room. */
   openItemAt(itemId: string, leafId: string, edge: DropEdge): Promise<void>;
@@ -2022,8 +2127,14 @@ export type AppState = {
    *  window to that profile first. False when its space holds no item for that session, so a caller
    *  with a fallback can take it. */
   revealSession(sessionId: string, spaceId: string | null): Promise<boolean>;
-  /** Load (or catch up) a session's transcript: fetch events after the last known seq and reduce them. */
+  /** Load (or catch up) a session's transcript. A first open reads from the end (`transcript-paging.ts`);
+   *  after that, events after the last known seq are fetched and reduced. */
   openSession(id: string): Promise<void>;
+  /** Read the stretch of an opened transcript before what it holds, and put it in front. Nothing when it
+   *  already starts at the log's start. */
+  loadEarlierEvents(id: string): Promise<void>;
+  /** Read back until the transcript holds `seq` — 0 for the whole log. */
+  loadEventsThrough(id: string, seq: number): Promise<void>;
   /** Persisted events apply at once; ephemeral `assistant_delta`s are buffered and land on the next
    *  painted frame — see `pendingDeltas` for why that is where the app's power goes. */
   applySessionEvent(ev: LiveSessionEvent): void;
@@ -2045,13 +2156,26 @@ export type AppState = {
   promptTaken(n: number): void;
   dequeuePrompt(sessionId: string, queuedId: string): Promise<void>;
   releaseQueuedPrompt(sessionId: string, queuedId: string): Promise<void>;
+  /** Open a queued message for editing. It is held, so the queue will not send the old text while
+   *  the new one is typed. False when it had already gone out — there is nothing left to edit. */
+  beginQueuedEdit(sessionId: string, queuedId: string): Promise<boolean>;
+  /** Close an edit without saving: the message goes back to waiting its turn as it was. */
+  cancelQueuedEdit(sessionId: string, queuedId: string): Promise<void>;
+  /** Save an edit. A message that went out before the save is not lost: the edit lands in the
+   *  session's draft, and a toast says why. */
+  saveQueuedEdit(sessionId: string, queuedId: string, text: string): Promise<void>;
+  /** Move a queued message in front of `before`, or to the end. Shown at once — a dragged row that
+   *  waited on the round trip would snap back before it moved — and the server's broadcast, which
+   *  follows, is the order that stands. */
+  moveQueuedPrompt(sessionId: string, queuedId: string, before: string | null): Promise<void>;
   /** Create a session, open its item in the main view, and open its transcript. It goes to
    *  `input.spaceId`, else the current space — the space of the session in focus. When `edge` is
    *  supplied with a target leaf, it opens there the way a dragged row would. */
   newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
-   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, adapter-default model
-   *  and permission mode. Everything else is changed on the prompter's chips afterwards. `spaceId`
+   *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model last sent
+   *  on with that agent (`lastModels`, else the adapter's default) and the default permission mode;
+   *  its prompter gets the keyboard. Everything else is changed on the prompter's chips afterwards. `spaceId`
    *  names the space (a space section's own +); omitted, the current space. */
   newSessionInstant(targetLeafId?: string | null, edge?: DropEdge, spaceId?: string | null): Promise<void>;
   /** Make a fresh `git worktree` and open a session in it (W2), rather than in the space folder.
@@ -2344,6 +2468,9 @@ export type AppState = {
   attachFiles(sessionId: string, files: readonly File[]): Promise<void>;
   /** The prompter's attach button — the native multi-select picker. */
   attachFromPicker(sessionId: string): Promise<void>;
+  /** The "+" menu's Folder… — the native folder picker, each folder a chip the agent is given the
+   *  path of, exactly as one dragged in from Finder is. */
+  attachFoldersFromPicker(sessionId: string): Promise<void>;
   /** Attach files already on disk and already described — a browser pane's screenshot, which main
    *  wrote and measured. Same path as a drop: the same cap, the same dedupe by path. */
   attachPicked(sessionId: string, picked: readonly PickedAttachment[]): void;
@@ -2528,6 +2655,18 @@ export type AppState = {
    *  delegated child opens nowhere — it is listed under its lead's running-agents control — and is
    *  remembered so its clean finish can be read (`applyAgentSettled`). */
   applyAgentOpened(payload: { spaceId: string; sessionId: string; itemId: string }): Promise<void>;
+  /** The `session.openRequested` handler: a session an agent's `session_open` made for the user goes
+   *  on screen beside that agent's pane, on the edge it asked for — quietly, the keyboard left where it
+   *  was. With the agent's pane not on screen it stays a sidebar row; with no room for a split it takes
+   *  the place of the pane beside the agent's, as any open beside does. */
+  /** The `space.switchRequested` handler: an agent's approved `space_switch`, carried out as the
+   *  user's own `selectSpace` — except while they are `typing`, and in a window bound to one profile
+   *  (the first window is the one whose space the server reads back). */
+  applySpaceSwitchRequested(payload: { spaceId: string }, typing: boolean): Promise<void>;
+  /** The `settings.changed` handler: an agent's `settings_set`, taken as if this window's own Settings
+   *  had made it — for the keys on `AGENT_SETTINGS` and no other, and only a value the app offers. */
+  applySettingChanged(payload: { key: string; value?: unknown }): void;
+  applySessionOpenRequested(payload: { spaceId: string; sessionId: string; itemId: string; openedBy: string; edge: "right" | "bottom" }): Promise<void>;
   /** The `session.agentSettled` handler: a delegated child that finished cleanly has its "Finished a
    *  turn" row read — its report is already in the lead's transcript. */
   applyAgentSettled(payload: { spaceId: string; sessionId: string; itemId: string; outcome: DelegationOutcome }): void;
@@ -2535,8 +2674,15 @@ export type AppState = {
    *  page on a section — the plus-menu's "Manage connections…" passes "connections"; omitted keeps
    *  whatever tab the page last showed. While it is up, that space is the current one. */
   openSpacePage(spaceId: string, tab?: SpacePageTab): void;
+  /** The space's Review pane, on one review when one is named: the pane is one per space, found or
+   *  made, and it takes the main pane in focus as any item opened from the sidebar does. */
+  openTeamReview(spaceId: string, reviewId?: string | null): Promise<void>;
   /** The page's tab, per space — see `spacePageTab`. */
   setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
+  /** The Sessions page's filter, per space — see `spaceSessionsView`. */
+  setSpaceSessionsView(spaceId: string, view: "active" | "archived"): void;
+  /** Read one space's `sessionReplies`. */
+  loadSessionReplies(spaceId: string): Promise<void>;
   /** Open (or focus) the ACTIVE space's profile page (Plan 14 W2) — a `profile-page` destination item
    *  (sentinel refId; the page derives its profile live from the item's space). `tab` lands the page
    *  on a section — the retargeted "Edit in profile" affordances pass one. */
@@ -2604,6 +2750,9 @@ export type AppState = {
   addCredential(profileId: string, input: BrowserCredentialInput): Promise<void>;
   removeCredential(profileId: string, id: string): Promise<void>;
   setCredentialPresenceTtl(ms: number): Promise<void>;
+  /** Change how a profile's sign-ins are unlocked. Answers main's refusal in words (macOS did not
+   *  confirm the user, say) rather than throwing, so the sheet can show it where it was asked. */
+  setUnlockPolicy(profileId: string, policy: UnlockPolicy): Promise<{ ok: true } | { ok: false; error: string }>;
   removePasskey(profileId: string, id: string): Promise<void>;
   /** Share with ▸ <profile>: COPY one of `profileId`'s sign-ins (or passkeys) into `toProfileId`. The
    *  original stays, and the list shown does not change; the answer says what happened. */
@@ -2695,6 +2844,12 @@ export type AppState = {
   /** Keep the Mac awake while a session works (Settings ▸ General ▸ Power). Off by default. */
   preventSleep: boolean;
   setPreventSleep(on: boolean): Promise<void>;
+  /** Where a clicked web link opens (Settings ▸ General ▸ Links): the default browser unless asked. */
+  linksOpenIn: LinksOpenIn;
+  setLinksOpenIn(pref: LinksOpenIn): Promise<void>;
+  /** A web link in a Realm Browser tab: a new tab in the side pane of the session in view, the way
+   *  ⌘T opens one, already on `url` — and with no session on screen, a browser beside the focus. */
+  openLinkInBrowser(url: string): Promise<void>;
   /** Which editor the transcript's path menu offers — an id, "realm" for none, null for the first
    *  installed one (see `resolveEditor`). */
   openFilesIn: OpenFilesIn | null;
@@ -2818,6 +2973,32 @@ export type AppState = {
   saveProfileMemoryDoc(profileId: string, doc: string): Promise<void>;
   /** THIS space's inheritance override for the profile doc — never a write to the doc itself. */
   setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<void>;
+  /** Fetch a profile's memory repo into `profileMemoryRepo`. */
+  refreshProfileMemoryRepo(profileId: string): Promise<void>;
+  /** Fetch the memory repos a space's sessions use into `spaceMemoryRepos`. */
+  refreshSpaceMemoryRepos(spaceId: string): Promise<void>;
+  /** Fetch one owner's repo: the profile's into `profileMemoryRepo`, a space's with its list. */
+  refreshMemoryRepoOf(owner: MemoryRepoOwner): Promise<void>;
+  /** Make the owner's memory repo in its default place under Realm's home. */
+  createMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
+  /** Ask for a folder and use the memory repo in it. Nothing happens when the picker is cancelled. */
+  attachMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
+  /** Stop using the owner's repo; the folder stays. */
+  detachMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
+  /** THIS space's opt-out of its profile's memory repo — never a change to the repo or the profile. */
+  setMemoryRepoInherited(spaceId: string, enabled: boolean): Promise<void>;
+  /** Fetch the repo's latest commits into `memoryRepoLog`. */
+  refreshMemoryRepoLog(owner: MemoryRepoOwner): Promise<void>;
+  /** Point the repo's `origin` at `url`. */
+  setMemoryRepoRemote(owner: MemoryRepoOwner, url: string): Promise<void>;
+  /** Whether the repo's remote is private, for the row to decide what it asks before sync. */
+  checkMemoryRepoRemote(owner: MemoryRepoOwner): Promise<MemoryRemoteCheck>;
+  /** Turn sync on (with the user's word, where Realm cannot check) or off. */
+  setMemoryRepoSync(owner: MemoryRepoOwner, enabled: boolean, confirmPrivate?: boolean): Promise<void>;
+  /** Pull and push now — the row's "Retry now". */
+  syncMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
+  /** Import the Claude memory Realm copied — `dryRun` for the preview count — answering what it adds. */
+  importClaudeMemory(owner: MemoryRepoOwner, dryRun: boolean): Promise<MemoryClaudeImport>;
   /** Narrow (or, with `null`, reset) this space's allowlist for one server. */
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
   /** Refresh one server's cached tools. Never throws for a connect failure — that lands in
@@ -2942,14 +3123,14 @@ export function spaceBadge(
 export function spaceActivity(
   sessionStatus: Record<string, SessionStatus>,
   sessionSpace: Record<string, string>,
-  sessionUpdatedAt: Record<string, number>,
+  sessionActivityAt: Record<string, number>,
   spaceId: string,
 ): number {
   let newest = 0;
   for (const [id, sid] of Object.entries(sessionSpace)) {
     if (sid !== spaceId) continue;
     if (sessionStatus[id] === "waiting_permission") return Infinity;
-    const at = sessionUpdatedAt[id];
+    const at = sessionActivityAt[id];
     if (at !== undefined && at > newest) newest = at;
   }
   return newest;
@@ -3077,8 +3258,8 @@ const themeDefOf = (t: StoredTheme): ThemeDef => ({
 const isPageItemKind = (kind: string): boolean => kind.endsWith("-page");
 
 const storedPalette = (stored: unknown, legacy: unknown, mode: Mode): ThemeName => {
-  const name = isThemeName(stored) ? stored : isThemeName(legacy) ? legacy : "realm";
-  return themeModes(name).includes(mode) ? name : "realm";
+  const name = isThemeName(stored) ? stored : isThemeName(legacy) ? legacy : DEFAULT_SELECTION[mode];
+  return themeModes(name).includes(mode) ? name : DEFAULT_SELECTION[mode];
 };
 
 /** Forget both sides of every named path in one checkout — what staging or unstaging invalidates. */
@@ -3105,6 +3286,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const nextItemsSeq = (sid: string): number => { const n = (itemsFetchSeq.get(sid) ?? 0) + 1; itemsFetchSeq.set(sid, n); return n; };
     /** Bumped by every profile switch, so a response for the profile being left can never land. */
     let profileEpoch = 0;
+    /** A repo the server answered with, where its rows read it: a profile's under the profile, a
+     *  space's in that space's list, in front of the profile repo it sits beside. */
+    const putRepo = (r: MemoryRepoState): void => {
+      if (r.scope === "profile") { set({ profileMemoryRepo: { ...get().profileMemoryRepo, [r.ownerId]: r } }); return; }
+      const rest = (get().spaceMemoryRepos[r.ownerId] ?? []).filter((x) => x.scope !== "space");
+      set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [r.ownerId]: [r, ...rest] } });
+    };
     /** The ONE place the unread count is written — and therefore the one place the dock badge is
      *  pushed. Five paths change the count (boot, refresh, page, markRead, broadcast); a badge each
      *  of them had to remember separately is a badge that drifts from the pill beside it. Switched
@@ -3291,8 +3479,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  quietly stale, which is the one failure a feed cannot have. A third surface adds a term. */
     const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
+    /**
+     * The write that says a session's conversation moved at `at` (`sessionActivityAt`), or undefined
+     * when it already says as much: the time only ever goes forward, so a list refetched a moment
+     * after a send cannot pull the row back under the one the send just put it above.
+     *
+     * A patch, like `logGrew` below, so it can ride a write already being made.
+     */
+    const movedAt = (id: string, at: number): Partial<AppState> | undefined =>
+      at > (get().sessionActivityAt[id] ?? 0) ? { sessionActivityAt: { ...get().sessionActivityAt, [id]: at } } : undefined;
     const mergeSession = (s: Session) => set({ sessions: { ...get().sessions, [s.id]: s }, sessionStatus: { ...get().sessionStatus, [s.id]: s.status },
-      sessionSpace: { ...get().sessionSpace, [s.id]: s.spaceId }, allSessions: { ...get().allSessions, [s.id]: s } });
+      sessionSpace: { ...get().sessionSpace, [s.id]: s.spaceId }, allSessions: { ...get().allSessions, [s.id]: s },
+      ...movedAt(s.id, s.activityAt) });
     /**
      * The write a persisted event owes the rows that describe its session: their `lastEventSeq`, which
      * is how far the log has been WRITTEN and so half of what the unread ring reads. Undefined when
@@ -3324,8 +3522,42 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       set({ lastAgentKind: agentKind });
       get().run(() => api.setSetting(SETTING_LAST_AGENT, agentKind));
     };
+    /** The model a message was just sent on, the same posture: a failed write never fails the send. */
+    const rememberModel = (agentKind: AgentKind, model: string | null) => {
+      const now = get().lastModels;
+      if (agentKind in now && now[agentKind] === model) return;
+      const lastModels = { ...now, [agentKind]: model };
+      set({ lastModels });
+      get().run(() => api.setSetting(SETTING_LAST_MODELS, lastModels));
+    };
+    /** Recorded on SEND, never on pick: a model picked and abandoned is not the one the user used. */
+    const rememberSentOn = (sessionId: string) => {
+      const row = get().sessions[sessionId] ?? get().allSessions[sessionId];
+      if (!row) return;
+      rememberModel(row.agentKind, row.model);
+      rememberAgent(row.agentKind);
+    };
+    /** `newSession`, answering with the session it made — null when there was no space to make it in. */
+    const makeSession = async (input: Parameters<AppState["newSession"]>[0], targetLeafId: string | null, edge: DropEdge | undefined): Promise<string | null> => {
+      const { spaceId, ...rest } = input;
+      const sid = spaceFor(spaceId); if (!sid) return null;
+      const { session, itemId } = await api.createSession({ ...rest, spaceId: sid });
+      rememberAgent(rest.agentKind);
+      if (inProfile(sid)) mergeSession(session);
+      await adoptItem(sid, itemId, targetLeafId, false, edge);
+      await get().openSession(session.id);
+      return session.id;
+    };
+    /** What a session made with no other say is put on: the last agent, and the model last sent on it
+     *  if that harness still offers it. */
+    const instantPick = (): { agentKind: AgentKind; model: string | null } => {
+      const agentKind = get().lastAgentKind ?? FALLBACK_AGENT;
+      return { agentKind, model: usableModel(agentKind, get().lastModels[agentKind] ?? null, get().agentProbe) };
+    };
     /** Persisted events that arrive while openSession is fetching; replayed after the fetch so order is kept. */
     const loading = new Map<string, StoredSessionEvent[]>();
+    /** The earlier-stretch read in flight per session, so a second ask joins it rather than reading twice. */
+    const loadingEarlier = new Map<string, Promise<void>>();
     /** `also` is folded into the SAME write. A transcript move and a session's activity line are two
      *  facts about one event, and two `set` calls for them is two notifications — a render of every
      *  subscribed pane — per event, per streaming session. */
@@ -3423,9 +3655,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (profileId) get().setProfilePageTab(profileId, (entry.view ?? "general") as ProfilePageTab);
       }
     };
-    /** Whether this session is the pane with the keyboard. The one thing the renderer knows about
-     *  attention, and the same test the notifications feed's auto-read already makes. */
+    /** Whether this session is the pane with the keyboard, in a window someone is looking at. The one
+     *  thing the renderer knows about attention. The window counts: a turn that finishes in the
+     *  focused pane of a window behind another app, or behind Realm's other window, was seen by
+     *  nobody, and it keeps its dot until the window comes back (SessionPane reads it then). */
     const isFocusedSession = (sessionId: string): boolean => {
+      if (!get().windowActive) return false;
       const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
       return focused?.kind === "session" && focused.refId === sessionId;
     };
@@ -3737,6 +3972,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       await persist();
       return true;
     };
+    /** `newTab`'s browser, and a link's: a tab in the side pane of the session the ask is about, on
+     *  `url` (blank without one). Answers the browser's item, or null when it never reached the screen. */
+    const openBrowserTab = async (leafId: string | null, url?: string): Promise<string | null> => {
+      // For the session the ask came from — read before the awaits, since the click or the key was
+      // about the panes as they stood when it landed: the session pane `leafId` (else the focus) is
+      // in, or in the panel the session whose tab is showing, else the first session on screen.
+      const owner = leafId ? sessionAt(leafId) ?? get().peekOwner() : get().peekOwner();
+      const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
+      const sid = ownerItem?.spaceId ?? get().activeSpaceId; if (!sid) return null;
+      const { itemId } = await api.createBrowser(sid, url);
+      await loadSpaceItems(sid);
+      if (!inProfile(sid)) return null;
+      // A tab of that session's run — and with no session on screen, an ordinary browser beside the
+      // focused pane.
+      if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
+      return itemId;
+    };
     /** Bring the side panel back if it was put away: a person just asked to look at something in it
      *  (a tool asked for by its key, a tab, a row whose item is a tab), and a keyboard parked in a pane
      *  nobody can see is a click that missed. */
@@ -3754,15 +4006,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (panel) set(writeView({ ...viewNow(), zoomedLeafId: panel.id }));
     };
 
-    /** The newest session of a space that has a pane to open — by the session's own `updatedAt`,
+    /** When a session item's conversation last moved (`sessionActivityAt`), else when it was made. */
+    const lastMovedAt = (item: Item): number =>
+      get().sessionActivityAt[item.refId] ?? get().sessions[item.refId]?.activityAt ?? item.createdAt;
+    /** The newest session of a space that has a pane to open — by when its conversation last moved,
      *  which is what "most recent" means to the person who last worked on it. */
     const newestSessionItem = (spaceId: string): Item | null => {
-      const sessions = get().sessions;
       let best: Item | null = null;
       let bestAt = -1;
       for (const item of get().items) {
         if (item.spaceId !== spaceId || item.kind !== "session" || item.archived) continue;
-        const at = sessions[item.refId]?.updatedAt ?? item.updatedAt;
+        const at = lastMovedAt(item);
         if (at <= bestAt) continue;
         best = item;
         bestAt = at;
@@ -3893,7 +4147,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * An aborted `signal` (the sheet dismissed while this ran) starts nothing further and moves
      * nothing: whatever was already made stays made, and the window stays where the person went.
      */
-    const openNewSpace = async (input: CreateSpaceInput & { folder: string | null; memory?: string; agentKind: AgentKind },
+    const openNewSpace = async (input: CreateSpaceInput & { folder: string | null; memory?: string; agentKind: AgentKind; model?: string | null },
       made: NewSpaceProgress = {}, signal?: AbortSignal) => {
       const stopped = () => signal?.aborted === true;
       const before = profileSpaceIds();
@@ -3917,7 +4171,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().refreshProjects(space.id);
       }
       if (stopped()) return;
-      const { session, itemId } = await api.createSession({ spaceId: space.id, agentKind: input.agentKind, projectId });
+      const { session, itemId } = await api.createSession({ spaceId: space.id, agentKind: input.agentKind, model: input.model ?? null, projectId });
       rememberAgent(input.agentKind);
       if (inProfile(space.id)) mergeSession(session);
       if (stopped()) return;
@@ -4100,9 +4354,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     let contrastTimer: ReturnType<typeof setTimeout> | null = null;
 
     return {
+      ...teamSlice(api, get, set),
+      ...labSlice(api, get, set),
       booted: false,
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
-      allItems: [], archivedSessions: null, lastAgentKind: null, renamingItemId: null,
+      allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
       libraryRevision: 0,
@@ -4110,24 +4366,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       failover: null,
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
-      spacePageTab: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
-      profileMemory: {},
+      profileMemory: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
+      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -4141,6 +4397,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Same posture: a face that fails to load is an initial, never a failed boot.
           api.getAvatar().catch(() => null),
           api.getSetting(SETTING_SIDE_PANES_HIDDEN),
+          api.getSetting(SETTING_LAST_MODELS),
         ]);
         const agent = AgentKindSchema.safeParse(lastAgent);
         /* The panes' own value, or — in a home saved while one control moved both — the value that
@@ -4153,6 +4410,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Every boot, "system" included: the window may still hold the answer an earlier preference
         // gave it, and asking is how it is put back.
         void api.setReducedMotion(isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT).catch(() => {});
+        /* The imported themes are registered BEFORE the saved selection is read, because
+           `storedPalette` checks each name against the registry: read first, a face wearing an
+           imported theme found no such name and was set to `realm` — on every launch, which the
+           owner met as "every update puts my theme back to the default". Also before the spaces
+           are published, so the first painted frame already wears it. */
+        await get().refreshCustomThemes().catch(() => {});
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
           themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default, fonts: parseFontPref(fonts),
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, lowPower: lowPower === true,
@@ -4174,18 +4437,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
           // has said", and the answer to that for a destructive step is to keep asking.
           confirmDelete: askDelete !== false,
-          lastAgentKind: agent.success ? agent.data : null,
+          lastAgentKind: agent.success ? agent.data : null, lastModels: parseLastModels(lastModels),
           easterEggs: eggs === true, konamiUnlocked: konami === true,
           terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
         // icon can resolve, rather than visibly rendering its folder fallback first.
-        /* Before the spaces are published, and so before the first painted frame: `applyTheme`
-           resolves a palette name through the registry, and a saved selection naming an imported
-           theme would otherwise fall back to `realm` for one frame and then repaint. */
-await get().refreshCustomThemes().catch(() => {});
         // Same reason, same place: a preference naming a downloaded family needs its `@font-face` in
         // the document before the first paint that reads `--font-ui`.
         await get().refreshFonts().catch(() => {});
+        /* The friend packs this Realm has the words for. At boot rather than when Settings opens,
+           because the transcript's labels and greetings read them too. Not a dependency of boot. */
+        void get().refreshEggPacks().catch(() => {});
         await hydrateSpaceIcons(spaces);
         set({ spaces });
         /* Which profile this window shows. The bound one first — a window opened for a profile is that
@@ -4237,6 +4499,10 @@ await get().refreshCustomThemes().catch(() => {});
         const awake = await api.getSetting(POWER_PREVENT_SLEEP_KEY).catch(() => null);
         set({ preventSleep: awake === true });
         void api.setPreventSleep(awake === true).catch(() => {});
+        const linksIn = await api.getSetting(LINKS_OPEN_IN_KEY).catch(() => null);
+        const linksOpenIn = isLinksOpenIn(linksIn) ? linksIn : LINKS_OPEN_IN_DEFAULT;
+        set({ linksOpenIn });
+        api.setLinksOpenIn(linksOpenIn);
         const openIn = await api.getSetting(FILES_OPEN_IN_KEY).catch(() => null);
         set({ openFilesIn: isOpenFilesIn(openIn) ? openIn : null, editors: await api.listEditors().catch(() => []) });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
@@ -4271,7 +4537,7 @@ await get().refreshCustomThemes().catch(() => {});
         const layout = get().layout ?? emptyLayout();
         const shown = allItems(layout).map((itemId) => get().items.find((i) => i.id === itemId))
           .filter((i): i is Item => !!i && i.kind === "session" && i.spaceId === id && !findLeafOfItem(layout, i.id)?.tabs);
-        const newest = shown.sort((a, b) => (get().sessions[b.refId]?.updatedAt ?? 0) - (get().sessions[a.refId]?.updatedAt ?? 0))[0]
+        const newest = shown.sort((a, b) => lastMovedAt(b) - lastMovedAt(a))[0]
           ?? newestSessionItem(id);
         // Its most recent session, in the main view — focus moving there is what makes it current.
         if (newest) { await get().openItem(newest.id); return; }
@@ -4475,7 +4741,7 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async createSpace({ folder = null, memory, ...input }, attempt) {
         // Another profile's switches the window, as a click on one of its spaces would.
-        await openNewSpace({ ...input, folder, memory, agentKind: get().lastAgentKind ?? FALLBACK_AGENT }, attempt?.made, attempt?.signal);
+        await openNewSpace({ ...input, folder, memory, ...instantPick() }, attempt?.made, attempt?.signal);
       },
       spaceFolderFor(profileId, name) { return api.spaceFolderFor(profileId, name); },
       async updateSpace(input) {
@@ -4840,7 +5106,7 @@ await get().refreshCustomThemes().catch(() => {});
         // Each space's own list, not `items.listAll`: that one leaves archived rows out on purpose,
         // because the palette offers what is live.
         const lists = await Promise.all(get().spaces.map((sp) => api.listItems(sp.id).catch(() => [] as Item[])));
-        const at = (i: Item) => get().sessionUpdatedAt[i.refId] ?? i.updatedAt;
+        const at = (i: Item) => get().sessionActivityAt[i.refId] ?? i.createdAt;
         set({ archivedSessions: lists.flat().filter((i) => i.kind === "session" && i.archived).sort((a, b) => at(b) - at(a)) });
       },
       async restoreArchivedSession(itemId) {
@@ -4929,19 +5195,11 @@ await get().refreshCustomThemes().catch(() => {});
         await persist();
       },
       async newTab(leafId = null, opts = {}) {
-        // For the session the ask came from — read before the awaits, since the click or the key was
-        // about the panes as they stood when it landed: the session pane `leafId` (else the focus) is
-        // in, or in the panel the session whose tab is showing, else the first session on screen.
-        const owner = leafId ? sessionAt(leafId) ?? get().peekOwner() : get().peekOwner();
-        const ownerItem = owner ? get().items.find((i) => i.id === owner) : undefined;
-        const sid = ownerItem?.spaceId ?? get().activeSpaceId; if (!sid) return;
-        const { itemId } = await api.createBrowser(sid);
-        await loadSpaceItems(sid);
-        if (!inProfile(sid)) return;
-        // A tab of that session's run — and with no session on screen, an ordinary browser beside the
-        // focused pane.
-        if (!(ownerItem && await openInSidePaneOf(ownerItem.id, itemId, { focus: true }))) await get().openItemBeside(itemId);
-        if (opts.full) await zoomItemPane(itemId);
+        const itemId = await openBrowserTab(leafId);
+        if (itemId && opts.full) await zoomItemPane(itemId);
+      },
+      async openLinkInBrowser(url) {
+        await openBrowserTab(null, url);
       },
       peekOwner() {
         const layout = get().layout; if (!layout) return null;
@@ -5156,6 +5414,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _st, ...sessionStatus } = get().sessionStatus; const { [it.refId]: _se, ...sessions } = get().sessions;
           const { [it.refId]: _dr, ...drafts } = get().drafts; const { [it.refId]: _sp, ...sessionSpace } = get().sessionSpace;
           const { [it.refId]: _ua, ...sessionUpdatedAt } = get().sessionUpdatedAt;
+          const { [it.refId]: _aa, ...sessionActivityAt } = get().sessionActivityAt;
           const { [it.refId]: _as, ...allSessions } = get().allSessions;
           const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _dk, ...sessionDock } = get().sessionDock;
@@ -5167,7 +5426,7 @@ await get().refreshCustomThemes().catch(() => {});
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
           const { [it.refId]: _drf, ...draftRefs } = get().draftRefs;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
           if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
         }
       },
@@ -5179,6 +5438,17 @@ await get().refreshCustomThemes().catch(() => {});
         const { layout, leafId } = splitEmptyInView(get().layout ?? emptyLayout(), get().focusedLeafId, dir);
         set(writeView(revealing({ ...viewNow(), layout }, leafId), { focusedLeafId: leafId }));
         await persist();
+      },
+      async splitNewSession(dir) {
+        const why = get().splitRefusal(dir);
+        if (why) { get().toast({ tone: "warning", text: why }); return; }
+        const layout = get().layout ?? emptyLayout();
+        const anchor = columnOf(layout, get().focusedLeafId) ?? primaryLeaves(layout)[0] ?? null;
+        // The anchor pane's own space: a session from another space can share the view, and what is
+        // opened beside a session belongs to that session's space.
+        const sid = spaceFor(anchor?.itemId ? get().items.find((i) => i.id === anchor.itemId)?.spaceId : null);
+        if (!sid) return get().splitFocused(dir);
+        await get().newSessionInstant(anchor?.id ?? null, dir === "row" ? "right" : "bottom", sid);
       },
       async openItemAt(itemId, leafId, edge) {
         // Self-drop: the item already occupies the target leaf. Splitting would first close the item
@@ -5321,7 +5591,7 @@ await get().refreshCustomThemes().catch(() => {});
         set({ connectionState: state });
         if (state !== "connected") return;
         // The socket was down: change events were lost, so refetch what they would have delivered.
-        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions()]));
+        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions(), get().refreshTeams()]));
         // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
         // …and the terminals, which are the same problem with a different cursor.
@@ -5524,11 +5794,15 @@ await get().refreshCustomThemes().catch(() => {});
         }
         const sessionSpace = { ...get().sessionSpace };
         const sessionUpdatedAt = { ...get().sessionUpdatedAt };
+        const sessionActivityAt = { ...get().sessionActivityAt };
         const rows: Record<string, Session> = {};
         for (const [, list] of fresh) {
-          for (const se of list) { rows[se.id] = se; sessions[se.id] = se; sessionStatus[se.id] = se.status; sessionSpace[se.id] = se.spaceId; sessionUpdatedAt[se.id] = se.updatedAt; }
+          for (const se of list) {
+            rows[se.id] = se; sessions[se.id] = se; sessionStatus[se.id] = se.status; sessionSpace[se.id] = se.spaceId; sessionUpdatedAt[se.id] = se.updatedAt;
+            sessionActivityAt[se.id] = Math.max(sessionActivityAt[se.id] ?? 0, se.activityAt);
+          }
         }
-        set({ sessions: keepHeldSessions(sessions), sessionStatus, sessionSpace, sessionUpdatedAt, allSessions: { ...get().allSessions, ...rows } });
+        set({ sessions: keepHeldSessions(sessions), sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions: { ...get().allSessions, ...rows } });
       },
       listAllSessions(profileId = null) { return api.listAllSessions(profileId); },
       async refreshAllSessions() {
@@ -5537,8 +5811,12 @@ await get().refreshCustomThemes().catch(() => {});
         // are written before each session.status broadcast), so they simply overwrite.
         const sessionSpace: Record<string, string> = {}; const sessionStatus: Record<string, SessionStatus> = {};
         const sessionUpdatedAt: Record<string, number> = {}; const allSessions: Record<string, Session> = {};
-        for (const s of all) { sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; allSessions[s.id] = s; }
-        set({ sessionSpace, sessionStatus, sessionUpdatedAt, allSessions });
+        const sessionActivityAt: Record<string, number> = {};
+        for (const s of all) {
+          sessionSpace[s.id] = s.spaceId; sessionStatus[s.id] = s.status; sessionUpdatedAt[s.id] = s.updatedAt; allSessions[s.id] = s;
+          sessionActivityAt[s.id] = Math.max(get().sessionActivityAt[s.id] ?? 0, s.activityAt);
+        }
+        set({ sessionSpace, sessionStatus, sessionUpdatedAt, sessionActivityAt, allSessions });
       },
       async jumpToPermission(sessionId = null) {
         const spaceOf = (id: string) => get().sessionSpace[id] ?? get().sessions[id]?.spaceId ?? null;
@@ -5565,7 +5843,8 @@ await get().refreshCustomThemes().catch(() => {});
         // spelling out, and deltas arriving DURING the fetch are dropped for exactly that reason.
         pendingDeltas.delete(id);
         try {
-          const prev = get().transcripts[id] ?? { lastSeq: 0, t: emptyTranscript() };
+          const held = get().transcripts[id];
+          const prev = held ?? { lastSeq: 0, t: emptyTranscript() };
           const fetchAll = async () => {
             const all: StoredSessionEvent[] = []; let after = prev.lastSeq;
             for (;;) {
@@ -5575,7 +5854,20 @@ await get().refreshCustomThemes().catch(() => {});
               after = page.at(-1)!.seq;
             }
           };
-          const [session, events] = await Promise.all([get().sessions[id] ? null : api.getSession(id), fetchAll()]);
+          /* A first open reads from the END: the newest turns, back to the reader's mark when it is in
+             reach, and the last word on what the prompter reads from wherever it was said. A catch-up
+             (a reconnect, a reopen) reads forward from what is already held. */
+          const markAt = (get().sessions[id] ?? get().allSessions[id])?.seenSeq ?? 0;
+          const fetchTail = async (): Promise<{ events: StoredSessionEvent[]; earlier: Earlier | null; carried: StoredSessionEvent[] }> => {
+            const [tail, carried] = await Promise.all([
+              readBack((before, limit) => api.sessionEventsBefore(id, before, limit), Number.MAX_SAFE_INTEGER, TAIL_EVENTS, markAt > 0 ? markAt : null),
+              api.sessionEventsBefore(id, Number.MAX_SAFE_INTEGER, CARRIED_LIMIT, CARRIED_TYPES),
+            ]);
+            return { events: tail.events, earlier: tail.earlier, carried };
+          };
+          const [session, read] = await Promise.all([get().sessions[id] ? null : api.getSession(id),
+            held ? fetchAll().then((events) => ({ events, earlier: null, carried: [] })) : fetchTail()]);
+          const events = read.events;
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           refreshGitFor(id); // opening a session refreshes its cwd's git context
@@ -5592,8 +5884,15 @@ await get().refreshCustomThemes().catch(() => {});
           // is something on both sides of it: a session opened for the first time (`seenSeq` 0) has
           // missed nothing, and one already caught up has nothing to divide.
           const row = get().sessions[id];
-          const seenSeq = row && row.seenSeq > 0 ? row.seenSeq : null;
+          // A mark before the stretch read is out of reach: the rule would land on its first event.
+          const { earlier } = read;
+          const seenSeq = row && row.seenSeq > 0 && (earlier === null || row.seenSeq >= earlier.from) ? row.seenSeq : null;
           let { lastSeq, t } = get().transcripts[id] ?? prev;
+          if (earlier !== null && !get().transcripts[id]) {
+            // What the log last said before the stretch read, about what outlives it — see `CARRIED_TYPES`.
+            for (const e of read.carried) if (e.seq < earlier.from) t = reduceTranscript(t, e.event, false, e.seq);
+            t = { ...t, earlier };
+          }
           let marked = get().newSinceSeq[id] !== undefined;
           for (const e of [...events, ...(loading.get(id) ?? [])]) {
             if (e.seq <= lastSeq) continue;
@@ -5610,6 +5909,35 @@ await get().refreshCustomThemes().catch(() => {});
           }
         } finally { loading.delete(id); }
       },
+      loadEarlierEvents(id) {
+        const from = get().transcripts[id]?.t.earlier?.from;
+        if (from === undefined) return Promise.resolve();
+        const inFlight = loadingEarlier.get(id);
+        if (inFlight) return inFlight;
+        const load = (async () => {
+          try {
+            const read = await readBack((before, limit) => api.sessionEventsBefore(id, before, limit), from, EARLIER_EVENTS);
+            // Closed, reopened from scratch or already extended while this read: what it read is not
+            // the stretch in front of what is held now.
+            const cur = get().transcripts[id];
+            if (!cur || cur.t.earlier?.from !== from) return;
+            let older = emptyTranscript();
+            for (const e of read.events) older = reduceTranscript(older, e.event, false, e.seq);
+            setTranscript(id, { ...cur, t: prependTranscript(older, cur.t, read.earlier ?? undefined) });
+          } finally { loadingEarlier.delete(id); }
+        })();
+        loadingEarlier.set(id, load);
+        return load;
+      },
+      async loadEventsThrough(id, seq) {
+        for (;;) {
+          const from = get().transcripts[id]?.t.earlier?.from;
+          if (from === undefined || from <= seq) return;
+          await get().loadEarlierEvents(id);
+          // A read that changed nothing (the transcript was dropped or replaced) must not spin.
+          if (get().transcripts[id]?.t.earlier?.from === from) return;
+        }
+      },
       applySessionEvent(ev) {
         /* The activity line, derived before every early return below — it is the one thing here that
            is wanted for sessions nobody has OPENED: a lead's sub-agents are all of them, and they are
@@ -5625,7 +5953,11 @@ await get().refreshCustomThemes().catch(() => {});
         /* …and the log's new length, for the rows that describe this session — another profile's as
            much as this one's (`logGrew`). Carried the same way, for the same reason. */
         const grew = !ev.ephemeral && ev.seq > 0 ? logGrew(ev.sessionId, ev.seq) : undefined;
-        const also = activity || grew ? { ...grew, ...activity } : undefined;
+        /* …and, for a prompt or a reply, the session's activity: the conversation moved, so its row
+           comes up — the server's `persist` keeps the same rule. */
+        const spoke = !ev.ephemeral && (ev.event.type === "user_message" || ev.event.type === "assistant_text")
+          ? movedAt(ev.sessionId, ev.event.ts) : undefined;
+        const also = activity || grew || spoke ? { ...grew, ...activity, ...spoke } : undefined;
         /* An auth failure the server has already re-probed and given up on. Re-read the agents here
            too, and before the transcript returns below, because the answer is about the CLI rather
            than about this session: a signed-out `claude` is signed out for every pane, including the
@@ -5693,6 +6025,11 @@ await get().refreshCustomThemes().catch(() => {});
            `Date.now()` beside the server's own `updatedAt` is not two clocks: realm-server is a
            process on this machine, so both read the same one. */
         if (prev !== status) set({ sessionUpdatedAt: { ...get().sessionUpdatedAt, [sessionId]: Date.now() } });
+        /* A turn ending is the conversation moving, even a turn that said nothing: the server stamps
+           the settle (`SessionService.onEvent`), and this is the same moment heard here. Any other
+           change — the idle a resume passes through on being opened — leaves the row where it is. */
+        const settled = (prev === "running" || prev === "waiting_permission") && status !== "running" && status !== "waiting_permission";
+        if (settled) { const moved = movedAt(sessionId, Date.now()); if (moved) set(moved); }
         // A turn just finished (or died): the working tree likely changed, so refresh git context.
         if (prev !== status && (status === "idle" || status === "error")) refreshGitFor(sessionId);
       },
@@ -5730,31 +6067,52 @@ await get().refreshCustomThemes().catch(() => {});
       async releaseQueuedPrompt(sessionId, queuedId) {
         await api.releaseQueuedPrompt(sessionId, queuedId);
       },
+      beginQueuedEdit(sessionId, queuedId) {
+        return api.holdQueuedPrompt(sessionId, queuedId, true);
+      },
+      async cancelQueuedEdit(sessionId, queuedId) {
+        await api.holdQueuedPrompt(sessionId, queuedId, false);
+      },
+      async saveQueuedEdit(sessionId, queuedId, text) {
+        if (await api.editQueuedPrompt(sessionId, queuedId, text)) return;
+        // The drain beat the save. The edit is the user's writing, so it goes where a message is
+        // written — after what is already in the draft, never over it.
+        const draft = get().drafts[sessionId] ?? "";
+        get().setDraft(sessionId, draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text);
+        get().toast({ tone: "info", text: "That message had already gone out. Your edit is in the prompter." });
+      },
+      async moveQueuedPrompt(sessionId, queuedId, before) {
+        const was = get().sessionQueues[sessionId] ?? [];
+        const moving = was.find((q) => q.id === queuedId);
+        if (moving) {
+          const left = was.filter((q) => q !== moving);
+          const at = before === null ? left.length : left.findIndex((q) => q.id === before);
+          if (at >= 0) { left.splice(at, 0, moving); get().applySessionQueue(sessionId, left); }
+        }
+        try { await api.moveQueuedPrompt(sessionId, queuedId, before); }
+        catch (e) { void get().refreshSessionQueue(sessionId); throw e; }
+      },
       async newSession(input, targetLeafId = null, edge) {
-        const { spaceId, ...rest } = input;
-        const sid = spaceFor(spaceId); if (!sid) return;
-        const { session, itemId } = await api.createSession({ ...rest, spaceId: sid });
-        rememberAgent(rest.agentKind);
-        if (inProfile(sid)) mergeSession(session);
-        await adoptItem(sid, itemId, targetLeafId, false, edge);
-        await get().openSession(session.id);
+        await makeSession(input, targetLeafId, edge);
       },
       async newSessionInstant(targetLeafId = null, edge, spaceId = null) {
-        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, spaceId }, targetLeafId, edge);
+        const id = await makeSession({ ...instantPick(), spaceId }, targetLeafId, edge);
+        // Made to be typed in: ⌘N, a split, an empty pane's button — its prompter gets the keyboard.
+        if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
       },
       async newSessionInWorktree(targetLeafId = null, spaceId = null) {
         const sid = spaceFor(spaceId); if (!sid) return;
         // A plain folder has no worktrees. The session asked for still opens — in the folder, the only
         // checkout such a space has — and nothing is said, because nothing went wrong.
         if (!(await checkoutIsRepo(sid))) {
-          await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, spaceId: sid }, targetLeafId);
+          await get().newSession({ ...instantPick(), spaceId: sid }, targetLeafId);
           return;
         }
         // The worktree is created FIRST and the session pinned to it. If creating it throws (git
         // refused the add) no session is made at all — `run` surfaces the reason.
         const env = await api.createWorktree(sid, null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
-        await get().newSession({ agentKind: get().lastAgentKind ?? FALLBACK_AGENT, environmentId: env.id, spaceId: sid }, targetLeafId);
+        await get().newSession({ ...instantPick(), environmentId: env.id, spaceId: sid }, targetLeafId);
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       /**
@@ -5765,6 +6123,11 @@ await get().refreshCustomThemes().catch(() => {});
       async sendMessage(id, text) {
         // A delegated child the user writes to is theirs from here on — see `delegatedChildren`.
         delegatedChildren.delete(id);
+        /* The row comes to the top as the prompt goes, not when the server's echo arrives. Not while a
+           turn is in flight: the message may be queued, and a queued message moves its session when
+           it goes out (the server's `user_message`), not when it is written. */
+        const st = get().sessionStatus[id];
+        if (st !== "running" && st !== "waiting_permission") { const moved = movedAt(id, Date.now()); if (moved) set(moved); }
         const pending = get().pendingAttachments[id] ?? [];
         // What travels as `mentions` is a re-scan of the FINAL text against the recognised ids plus
         // whatever is mentionable now — read synchronously, before the prompter clears the draft (and
@@ -5783,6 +6146,8 @@ await get().refreshCustomThemes().catch(() => {});
         // The named files and apps, re-derived from the FINAL text like the elements above.
         const named = keepLiveRefs(text, get().draftRefs[id] ?? []);
         await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
+        // The quick chat's model is a throwaway choice, not the one the next session should start on.
+        if (get().quickChat?.sessionId !== id) rememberSentOn(id);
         if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });
         // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
         // chip row would leave the user with no record of what they had attached, and a file dragged in
@@ -5818,9 +6183,11 @@ await get().refreshCustomThemes().catch(() => {});
           userDispatched: true,
         });
         if (inProfile(source.spaceId)) mergeSession(session);
+        { const moved = movedAt(session.id, Date.now()); if (moved) set(moved); }
         // Send FIRST, clear after: a rejected send must leave the draft in the composer (run
         // surfaces the reason), exactly as a failed normal send would.
         await api.sendMessage(session.id, text, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, get().draftSessionRefs[sessionId] ?? [], named);
+        rememberSentOn(session.id);
         const sent = new Set(pending.map((a) => a.path));
         const left = (get().pendingAttachments[sessionId] ?? []).filter((a) => !sent.has(a.path));
         set({
@@ -5876,8 +6243,8 @@ await get().refreshCustomThemes().catch(() => {});
        *
        * Off the STORE's transcript, not a fresh fetch: what the reader asked to export is what they
        * were reading, and a re-read could differ from it by whatever arrived in the meantime. The
-       * store's copy is complete — `openSession` loads the whole event log — so this is not a
-       * shortcut past a page boundary.
+       * store's copy is made complete first — a long session opens on its end (`openSession`) — so
+       * this is not a shortcut past a page boundary.
        *
        * The bridge is optional and the absence is answered with null rather than an error: there is
        * no renderer-side fallback worth building (a download would land in a folder the user did not
@@ -5885,6 +6252,8 @@ await get().refreshCustomThemes().catch(() => {});
        * pane's error toast for a reason the user cannot act on.
        */
       async exportSession(id) {
+        // The whole conversation, not the stretch the pane has read so far.
+        await get().loadEventsThrough(id, 0);
         const t = get().transcripts[id]?.t;
         const session = get().sessions[id];
         if (!t || !session) return null;
@@ -6284,7 +6653,8 @@ await get().refreshCustomThemes().catch(() => {});
       addMentionRef(sessionId, ref, candidates) {
         const current = get().draftRefs[sessionId] ?? [];
         // The same thing named twice is one entry under one label — the second token is the same chip.
-        const same = current.find((r) => r.kind === ref.kind && (r.kind === "app" ? r.bundleId === (ref as { bundleId?: string }).bundleId : r.path === (ref as { path?: string }).path));
+        const same = current.find((r) => r.kind === ref.kind && (r.kind === "app" ? r.bundleId === (ref as { bundleId?: string }).bundleId
+          : r.kind === "role" ? r.roleId === (ref as { roleId?: string }).roleId : r.path === (ref as { path?: string }).path));
         if (same) return same.label;
         const taken = [...current, ...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? [])].map((c) => c.label);
         const label = mentionRefLabel(candidates, taken);
@@ -6453,6 +6823,51 @@ await get().refreshCustomThemes().catch(() => {});
         const state = await api.setProfileDocEnabled(spaceId, enabled);
         set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
       },
+      async refreshProfileMemoryRepo(profileId) {
+        const [repo] = await api.getMemoryRepos({ profileId });
+        set({ profileMemoryRepo: { ...get().profileMemoryRepo, [profileId]: repo ?? null } });
+      },
+      async refreshSpaceMemoryRepos(spaceId) {
+        const repos = await api.getMemoryRepos({ spaceId });
+        set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [spaceId]: repos } });
+      },
+      async createMemoryRepo(owner) {
+        putRepo(await api.createMemoryRepo(owner));
+        await get().refreshMemoryRepoLog(owner);
+      },
+      async attachMemoryRepo(owner) {
+        const path = await api.pickFolder();
+        if (!path) return;
+        putRepo(await api.attachMemoryRepo(owner, path));
+        await get().refreshMemoryRepoLog(owner);
+      },
+      async detachMemoryRepo(owner) {
+        await api.detachMemoryRepo(owner);
+        if (owner.scope === "profile") set({ profileMemoryRepo: { ...get().profileMemoryRepo, [owner.id]: null } });
+        else set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [owner.id]: (get().spaceMemoryRepos[owner.id] ?? []).filter((r) => r.scope !== "space") } });
+        set({ memoryRepoLog: { ...get().memoryRepoLog, [memoryRepoKey(owner)]: [] } });
+      },
+      async setMemoryRepoInherited(spaceId, enabled) {
+        const repos = await api.setMemoryRepoInherited(spaceId, enabled);
+        set({ spaceMemoryRepos: { ...get().spaceMemoryRepos, [spaceId]: repos } });
+      },
+      async refreshMemoryRepoLog(owner) {
+        const commits = await api.memoryRepoLog(owner, 8);
+        set({ memoryRepoLog: { ...get().memoryRepoLog, [memoryRepoKey(owner)]: commits } });
+      },
+      async setMemoryRepoRemote(owner, url) { putRepo(await api.setMemoryRepoRemote(owner, url)); },
+      checkMemoryRepoRemote(owner) { return api.checkMemoryRepoRemote(owner); },
+      async setMemoryRepoSync(owner, enabled, confirmPrivate = false) { putRepo(await api.setMemoryRepoSync(owner, enabled, confirmPrivate)); },
+      async syncMemoryRepo(owner) { putRepo(await api.syncMemoryRepo(owner)); },
+      async importClaudeMemory(owner, dryRun) {
+        const r = await api.importClaudeMemory(owner, dryRun);
+        if (!dryRun && r.sha !== null) await Promise.all([get().refreshMemoryRepoLog(owner), get().refreshMemoryRepoOf(owner)]);
+        return r;
+      },
+      async refreshMemoryRepoOf(owner) {
+        if (owner.scope === "profile") await get().refreshProfileMemoryRepo(owner.id);
+        else await get().refreshSpaceMemoryRepos(owner.id);
+      },
       async refreshMemorySources(sessionId) {
         const sources = await api.memorySources(sessionId);
         set({ sessionMemorySources: { ...get().sessionMemorySources, [sessionId]: sources } });
@@ -6515,6 +6930,7 @@ await get().refreshCustomThemes().catch(() => {});
         addAttachments(sessionId, picked);
       },
       async attachFromPicker(sessionId) { addAttachments(sessionId, await api.pickFiles()); },
+      async attachFoldersFromPicker(sessionId) { addAttachments(sessionId, await api.pickFolders()); },
       attachPicked(sessionId, picked) { addAttachments(sessionId, picked); },
       async attachPaths(sessionId, paths) {
         const described = await api.describePaths([...paths]);
@@ -6985,6 +7401,42 @@ await get().refreshCustomThemes().catch(() => {});
         // lead's running-agents control, and a click there previews it as a tab of the lead's side pane.
         delegatedChildren.set(sessionId, {});
       },
+      async applySpaceSwitchRequested({ spaceId }, typing) {
+        if (typing || api.boundProfileId() !== null) return;
+        if (!get().spaces.some((sp) => sp.id === spaceId && sp.profileId === get().activeProfileId)) return;
+        await get().selectSpace(spaceId);
+      },
+      applySettingChanged({ key, value }) {
+        switch (key) {
+          case AGENT_SETTINGS.theme.key: if (isThemePref(value)) set({ themePref: value }); return;
+          case AGENT_SETTINGS.reduceMotion.key:
+            if (isReducedMotionPref(value)) { set({ reduceMotion: value }); get().run(() => api.setReducedMotion(value)); }
+            return;
+          case AGENT_SETTINGS.submitKey.key: if (isSubmitKey(value)) set({ submitKey: value }); return;
+          case AGENT_SETTINGS.midTurnMode.key: set({ midTurnMode: resolveMidTurnMode(value) }); return;
+          case AGENT_SETTINGS.terminalCursorBlink.key: if (typeof value === "boolean") set({ terminalCursorBlink: value }); return;
+        }
+      },
+      async applySessionOpenRequested({ spaceId, itemId, openedBy, edge }) {
+        if (!inProfile(spaceId)) return;
+        await get().refreshItems(spaceId);
+        if (!inProfile(spaceId)) return;
+        const view = viewNow();
+        if (findLeafOfItem(view.layout, itemId)) return;
+        const opener = get().items.find((i) => i.kind === "session" && i.refId === openedBy);
+        const at = opener ? findLeafOfItem(view.layout, opener.id) : null;
+        if (!at) return;
+        const dir = edge === "right" ? "row" : "col";
+        let layout: Layout;
+        if (!get().splitRefusal(dir, at.id)) layout = openBesideInView(view.layout, at.id, itemId, edge);
+        else {
+          const other = besidePane(view.layout, at.id);
+          if (!other) return;
+          layout = showInView(view.layout, other.id, itemId);
+        }
+        set(writeView({ ...view, layout }));
+        await persist();
+      },
       applyAgentSettled({ sessionId, outcome }) {
         const child = delegatedChildren.get(sessionId);
         if (!child) return; // a session the user has joined, or one this window never saw start
@@ -6998,6 +7450,17 @@ await get().refreshCustomThemes().catch(() => {});
         // is held — a previewed tab), and the row the feed counts.
         get().run(() => get().markSessionSeen(sessionId));
         if (child.doneRow) get().run(() => get().markNotificationsRead([child.doneRow!]));
+      },
+      async openTeamReview(spaceId, reviewId = null) {
+        if (reviewId) get().selectTeamReview(spaceId, reviewId);
+        let itemId = get().items.find((i) => i.kind === "review" && i.refId === spaceId)?.id;
+        if (!itemId) {
+          const made = await api.createItem(spaceId, "review", "Review", spaceId);
+          await get().refreshItems(spaceId);
+          itemId = made.id;
+        }
+        get().closePageOverlay();
+        await get().openItem(itemId);
       },
       openSpacePage(spaceId, tab) {
         // The tab lands even when the page is already up — "Manage connections…" on an open page
@@ -7018,6 +7481,11 @@ await get().refreshCustomThemes().catch(() => {});
         set({ pageOverlay: destinationTarget(kind, spaceId) });
       },
       setSpacePageTab(spaceId, tab) { set({ spacePageTab: { ...get().spacePageTab, [spaceId]: tab } }); },
+      setSpaceSessionsView(spaceId, view) { set({ spaceSessionsView: { ...get().spaceSessionsView, [spaceId]: view } }); },
+      async loadSessionReplies(spaceId) {
+        const rows = await api.sessionsDigest(spaceId);
+        set({ sessionReplies: { ...get().sessionReplies, ...Object.fromEntries(rows.map((r) => [r.sessionId, r.lastReply])) } });
+      },
       openProfilePage(tab) {
         // The tab is keyed by PROFILE — resolved from the active space, the same vantage the page
         // renders from, so the section the opener lands on is the section the page shows.
@@ -7138,16 +7606,21 @@ await get().refreshCustomThemes().catch(() => {});
       },
       async refreshTcc() { set({ tccRows: await api.tccProbe() }); },
       async refreshCredentials(profileId) {
-        const [credentials, credentialStatus, passkeys] = await Promise.all([
-          api.credentialList(profileId), api.credentialStatus(), api.passkeyList(profileId),
+        const [credentials, credentialStatus, passkeys, unlockPolicy] = await Promise.all([
+          api.credentialList(profileId), api.credentialStatus(), api.passkeyList(profileId), api.credentialUnlockPolicy(profileId),
         ]);
-        set({ credentials, credentialStatus, passkeys, credentialsProfileId: profileId });
+        set({ credentials, credentialStatus, passkeys, unlockPolicy, credentialsProfileId: profileId });
       },
       // Each of these re-reads rather than patching local state: main clamps the TTL and mints the
       // id, so what it returns is the truth and a locally-patched list would be a guess at it.
       async addCredential(profileId, input) { await api.credentialAdd(profileId, input); await get().refreshCredentials(profileId); },
       async removeCredential(profileId, id) { await api.credentialRemove(profileId, id); await get().refreshCredentials(profileId); },
       async setCredentialPresenceTtl(ms) { await api.credentialSetPresenceTtl(ms); set({ credentialStatus: await api.credentialStatus() }); },
+      async setUnlockPolicy(profileId, policy) {
+        const r = await api.credentialSetUnlockPolicy(profileId, policy);
+        if (r.ok && get().credentialsProfileId === profileId) set({ unlockPolicy: r.status });
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      },
       async removePasskey(profileId, id) { await api.passkeyRemove(profileId, id); await get().refreshCredentials(profileId); },
       shareCredential(profileId, id, toProfileId) { return api.credentialShare(profileId, id, toProfileId); },
       sharePasskey(profileId, id, toProfileId) { return api.passkeyShare(profileId, id, toProfileId); },
@@ -7302,6 +7775,12 @@ await get().refreshCustomThemes().catch(() => {});
         if (n.readAt === null) await get().markNotificationsRead([n.id]);
         // A row that names a session is about that session's pane; `permission` goes through
         // jumpToPermission because putting the pane in the focused leaf is what pops its card open.
+        // A sub-agent's request is answered on its card in its lead's Agents tab, where the sidebar's
+        // count on the lead's row also goes. A lead this window does not hold leaves the child's own pane.
+        const child = n.category === "permission" && n.sessionId !== null ? get().sessions[n.sessionId] ?? get().allSessions[n.sessionId] : undefined;
+        const leadId = child?.dispatchedBy && CHILD_ORIGINS.has(child.dispatchedBy.kind) ? child.dispatchedBy.sessionId : null;
+        const lead = leadId ? get().sessions[leadId] ?? get().allSessions[leadId] : undefined;
+        if (lead && await get().revealSession(lead.id, lead.spaceId)) { await get().openAgentsTab(lead.id, { childId: child!.id }); return; }
         const landed = n.sessionId !== null && (n.category === "permission"
           ? await get().jumpToPermission(n.sessionId)
           : await get().revealSession(n.sessionId, n.spaceId));
@@ -7386,6 +7865,11 @@ await get().refreshCustomThemes().catch(() => {});
       async setTerminalDock(edge) {
         set({ terminalDock: edge });
         await api.setSetting(TERMINALS_DOCK_KEY, edge);
+      },
+      async setLinksOpenIn(pref) {
+        set({ linksOpenIn: pref });
+        api.setLinksOpenIn(pref);
+        await api.setSetting(LINKS_OPEN_IN_KEY, pref);
       },
       async setPreventSleep(on) {
         set({ preventSleep: on });

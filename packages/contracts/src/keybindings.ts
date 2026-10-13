@@ -422,7 +422,7 @@ export const CONTEXT_KEYS: readonly ContextKey[] = [
  * command: `./commands` holds the user-written `/slash` templates, and one generic name across the
  * barrel export would leave callers importing whichever one they did not mean.
  *
- * Derived from what the app actually does today: the window-level bindings in
+ * Derived from what the app did before this layer: the window-level bindings of the old
  * `renderer/src/hotkeys.ts` and the one-shot rows in `renderer/src/components/CommandPalette.tsx`.
  * Every id here has a runner in `renderer/src/keys/commands.ts`; a catalog entry with nothing behind
  * it would be a shortcut a user could set and then watch do nothing, which is the honesty rule
@@ -499,12 +499,16 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
  * true, which is what makes `chordsForCommand` usable for menu hints without inventing a fake state.
  */
 const WHEN_IDLE = "!overlayOpen && !inputFocus";
+/** The splits fire from a text field too: ⌘\ types nothing there, and a split hands its new session's
+ *  prompter the keyboard, so a guard on `inputFocus` would leave the second of two splits dead. */
+const WHEN_SPLIT = "!overlayOpen";
 
 /**
  * What Realm ships, seeded into the user's file on first run.
  *
- * Every chord here is the one that key already ran before this layer existed (`hotkeys.ts`,
- * `usePaletteHotkey`, `useSpacesHotkey`), so making shortcuts rebindable rebinds nothing by accident.
+ * Every chord here is the one that key already ran before this layer existed (the retired
+ * `hotkeys.ts`, `usePaletteHotkey` and `useSpacesHotkey`), so making shortcuts rebindable rebinds
+ * nothing by accident.
  * The clauses are the same guard those handlers applied, spelled as conditions instead of as flags:
  *
  *  - `WHEN_IDLE` is the old default — no overlay, not typing.
@@ -535,8 +539,8 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
      nothing there — so the guard is the palette's: only a modal sheet holds it back. */
   { key: "mod+,", command: "settings.open", when: "!sheetOpen" },
 
-  { key: "mod+\\", command: "pane.splitRight", when: WHEN_IDLE },
-  { key: "mod+shift+\\", command: "pane.splitDown", when: WHEN_IDLE },
+  { key: "mod+\\", command: "pane.splitRight", when: WHEN_SPLIT },
+  { key: "mod+shift+\\", command: "pane.splitDown", when: WHEN_SPLIT },
   { key: "mod+w", command: "pane.close", when: WHEN_IDLE },
   { key: "mod+shift+f", command: "pane.toggleFocus", when: WHEN_IDLE },
   { key: "mod+alt+left", command: "pane.focusLeft", when: WHEN_IDLE },
@@ -610,7 +614,23 @@ export function defaultIsClaimed(existing: readonly Keybinding[], shipped: Keybi
 }
 
 /**
- * The user's rules plus any shipped default nothing in them claims, appended.
+ * Defaults that shipped with another clause, and what they ship as now.
+ *
+ * The seeded file holds the old rule, and `mergeDefaults` never re-imposes a claimed default, so a
+ * revision would otherwise reach fresh installs only. A rule still EXACTLY as shipped — key, command
+ * and clause — is one nobody edited, and it takes the revision; one with any change is the user's.
+ */
+export const REVISED_DEFAULTS: readonly { was: Keybinding; now: Keybinding }[] = [
+  { was: { key: "mod+\\", command: "pane.splitRight", when: WHEN_IDLE }, now: { key: "mod+\\", command: "pane.splitRight", when: WHEN_SPLIT } },
+  { was: { key: "mod+shift+\\", command: "pane.splitDown", when: WHEN_IDLE }, now: { key: "mod+shift+\\", command: "pane.splitDown", when: WHEN_SPLIT } },
+];
+
+const sameRule = (a: Keybinding, b: Keybinding): boolean =>
+  a.command === b.command && (a.when ?? null) === (b.when ?? null) && normalizeKeyChord(a.key) !== null && normalizeKeyChord(a.key) === normalizeKeyChord(b.key);
+
+/**
+ * The user's rules — any still exactly as a revised default first shipped, revised in place — plus
+ * any shipped default nothing in them claims, appended.
  *
  * Appended rather than prepended, and the ordering is load-bearing under rule 2: a rule at the end
  * wins, so a new default placed there could defeat something the user wrote — except that a default
@@ -618,8 +638,8 @@ export function defaultIsClaimed(existing: readonly Keybinding[], shipped: Keybi
  * Appending also leaves every existing rule at its index, which keeps the precedence the user has
  * already tuned exactly where they left it.
  */
-export function mergeDefaults(existing: readonly Keybinding[], defaults: readonly Keybinding[] = DEFAULT_KEYBINDINGS): Keybinding[] {
-  const merged = [...existing];
+export function mergeDefaults(existing: readonly Keybinding[], defaults: readonly Keybinding[] = DEFAULT_KEYBINDINGS, revised = REVISED_DEFAULTS): Keybinding[] {
+  const merged = existing.map((rule) => revised.find((r) => sameRule(rule, r.was))?.now ?? rule);
   for (const shipped of defaults) {
     if (!defaultIsClaimed(merged, shipped)) merged.push(shipped);
   }

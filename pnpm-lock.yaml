@@ -105,6 +105,9 @@ importers:
       '@realm/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@realm/view':
+        specifier: workspace:*
+        version: link:../../packages/view
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@6.4.3(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.12))
@@ -195,6 +198,9 @@ importers:
       papaparse:
         specifier: ^5.7.0
         version: 5.7.0
+      pdfjs-dist:
+        specifier: ^5.7.284
+        version: 5.7.284
       prosemirror-markdown:
         specifier: ^1.13.7
         version: 1.13.7
@@ -246,6 +252,9 @@ importers:
       '@realm/remote':
         specifier: workspace:*
         version: link:../../packages/remote
+      '@realm/view':
+        specifier: workspace:*
+        version: link:../../packages/view
       '@xterm/headless':
         specifier: ^5.5.0
         version: 5.5.0
@@ -339,6 +348,12 @@ importers:
       react:
         specifier: ^19.0.0
         version: 19.2.8
+
+  packages/view:
+    dependencies:
+      '@realm/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   services/relay:
     dependencies:

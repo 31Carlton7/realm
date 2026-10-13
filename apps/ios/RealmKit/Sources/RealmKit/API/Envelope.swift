@@ -76,6 +76,7 @@ public enum Envelope {
         switch name {
         case "session.rows": return payload(SessionRowsEvent.self).map(MobileEvent.sessionRows) ?? .unknown(name: name)
         case "session.status": return payload(SessionStatusEvent.self).map(MobileEvent.sessionStatus) ?? .unknown(name: name)
+        case "session.hint": return payload(SessionHintEvent.self).map(MobileEvent.sessionHint) ?? .unknown(name: name)
         case "home.changed": return .homeChanged
         case "pair.result": return payload(PairResult.self).map(MobileEvent.pairResult) ?? .unknown(name: name)
         default: return .unknown(name: name)

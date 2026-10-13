@@ -43,3 +43,32 @@ describe("AppDriveHost while the person is picking", () => {
     expect(sent.length).toBeGreaterThan(0);
   });
 });
+
+describe("AppDriveHost and a key with no ref", () => {
+  const host = (focusedIn: string | null) => {
+    const sent: string[] = [];
+    const drive = new AppDriveHost({
+      attach: () => ({ send: async (method: string) => {
+        sent.push(method);
+        return method === "Runtime.evaluate" ? { result: { value: focusedIn } } : {};
+      } }),
+    });
+    return { drive, sent };
+  };
+
+  it("refuses Return while focus is inside a protected surface — Tab, Tab, Return cannot press a post sheet's button", async () => {
+    // THE MUTANT: check only refs. A ref-less key lands on the focused element, so an agent tabs onto
+    // "Post at 4:10 PM" and presses Return without ever naming the button.
+    const { drive, sent } = host("post sheet");
+    const r = await drive.act({ kind: "key", key: "Enter" } as BrowserAction);
+    expect(r).toMatchObject({ ok: false, refused: "realm_protected" });
+    expect(r.ok === false && r.error).toContain("post sheet");
+    expect(sent).toEqual(["Runtime.evaluate"]);
+  });
+
+  it("presses the key when focus is anywhere else", async () => {
+    const { drive, sent } = host(null);
+    await drive.act({ kind: "key", key: "Enter" } as BrowserAction);
+    expect(sent.length).toBeGreaterThan(1);
+  });
+});

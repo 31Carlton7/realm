@@ -55,6 +55,12 @@ interface Window {
       arm(on: boolean): void;
       capture(rect: { x: number; y: number; w: number; h: number }, ground: [number, number, number] | null, name: string): Promise<{ file: PickedFile | null; webView: boolean }>;
     };
+    /** Settings ▸ General ▸ Links: where a clicked link opens, told to main; and a link main hands
+     *  back to open in a Realm Browser tab. Optional like the other late bridges. */
+    links?: {
+      setOpenIn(pref: import("@realm/contracts").LinksOpenIn): void;
+      onOpenInRealm(cb: (url: string) => void): () => void;
+    };
     /** Settings ▸ General ▸ Power: tells main the keep-awake switch moved. */
     power?: { preventSleep(on: boolean): Promise<void> };
     /** The apps installed on this Mac and their icons (the prompter's `@` list). Optional like every
@@ -71,6 +77,8 @@ interface Window {
     pickFolder(): Promise<string | null>;
     /** Native multi-select file picker; [] when cancelled. */
     pickFiles(): Promise<PickedFile[]>;
+    /** Native multi-select folder picker, each folder described as an attachment; [] when cancelled. */
+    pickFolders(): Promise<PickedFile[]>;
     /** The path of a VS Code colour theme the user chose, or null if they cancelled. */
     pickThemeFile(): Promise<string | null>;
     /** Downscaled data: URL for an image attachment; null for anything not a readable image. */
@@ -134,6 +142,8 @@ interface Window {
       quickLook?(path: string, base?: string): Promise<void>;
       share?(path: string, at: { x: number; y: number }, base?: string): Promise<void>;
       startDrag?(path: string): void;
+      /** A PDF handed to Preview, for what Realm's viewer does not do: print, forms, signing. */
+      openInPreview?(path: string): Promise<void>;
     };
     /** Write a pasted (pathless) file under Realm's home and describe it like a picked one. */
     saveTempAttachment(name: string, mime: string, bytes: Uint8Array): Promise<PickedFile>;
@@ -154,6 +164,12 @@ interface Window {
     /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` runs `mac doctor`,
      *  which never prompts; `grant` deliberately DOES — it runs the one read-only command that
      *  raises that capability's macOS dialog, so it stays pending while the dialog is up. */
+    /** Settings ▸ Lab (main/lab-host.ts). */
+    lab?: {
+      loginItem(): Promise<{ openAtLogin: boolean | null; canSet: boolean }>;
+      setLoginItem(on: boolean): Promise<{ openAtLogin: boolean | null; canSet: boolean }>;
+      openSettings(pane: string): Promise<void>;
+    };
     macAccess: {
       status(): Promise<MacAccessStatus>;
       grant(id: string): Promise<MacAccessStatus>;
@@ -193,12 +209,33 @@ interface Window {
     /** Every door names the PROFILE whose sign-ins it is: they are a profile's own (Plan 27 Phase 2). */
     credentials: {
       list(profileId: string): Promise<import("@realm/contracts").BrowserCredential[]>;
-      status(): Promise<{ available: boolean; canPromptTouchID: boolean; presenceTtlMs: number }>;
+      status(): Promise<{ available: boolean; canPromptTouchID: boolean; canPromptDeviceOwner: boolean; presenceTtlMs: number }>;
       add(profileId: string, input: import("@realm/contracts").BrowserCredentialInput): Promise<import("@realm/contracts").BrowserCredential>;
       remove(profileId: string, id: string): Promise<boolean>;
       /** COPY one into another profile; the original stays. */
       share(profileId: string, id: string, toProfileId: string): Promise<{ ok: true; profileName: string } | { ok: false; error: string }>;
       setPresenceTtl(ms: number): Promise<number>;
+      unlockPolicy(profileId: string): Promise<import("@realm/contracts").UnlockPolicyStatus | null>;
+      setUnlockPolicy(profileId: string, policy: import("@realm/contracts").UnlockPolicy): Promise<{ ok: true; status: import("@realm/contracts").UnlockPolicyStatus } | { ok: false; error: string }>;
+    };
+    /** A team's post sheet: the one click that lets an act ticket go out (main/ticket-presses.ts).
+     *  Optional like every bridge: jsdom has none, and without it nothing can be posted. */
+    team?: {
+      pressTicket(input: { ticketId: string; contentHash: string; slotAt: number; label: boolean }): Promise<boolean>;
+      /** The Policies page's press on a loosening (main/policy-presses.ts): macOS confirms the person,
+       *  then main seals exactly this row for the server's write to spend. */
+      pressPolicy(input: import("@realm/contracts").PolicyPressInput): Promise<{ ok: true } | { ok: false; error: string }>;
+    };
+    /** A team's Vault page (main/vault-ipc.ts). Optional like every bridge: jsdom has none. Values go
+     *  in once and never come back; `setAllow` is confirmed by macOS in main. */
+    vault?: {
+      list(profileId: string, spaceId: string): Promise<{ available: boolean; secrets: import("@realm/contracts").VaultSecrets; allows: import("@realm/contracts").VaultAllow[]; profileUnattended: boolean }>;
+      addSignin(profileId: string, spaceId: string, input: import("@realm/contracts").BrowserCredentialInput): Promise<import("@realm/contracts").BrowserCredential>;
+      addKey(profileId: string, spaceId: string, input: import("@realm/contracts").VaultKeyInput): Promise<import("@realm/contracts").VaultKey>;
+      remove(profileId: string, spaceId: string, secretId: string): Promise<boolean>;
+      setAllow(profileId: string, input: { spaceId: string; secretId: string; roleId: string; hosts: string[]; grantAt: number; roleName: string; secretName: string }):
+        Promise<{ ok: true; allow: import("@realm/contracts").VaultAllow } | { ok: false; error: string }>;
+      clearAllow(secretId: string, roleId: string): Promise<boolean>;
     };
     /** Settings → Sign-ins, the passkey half. No `add`: a passkey is created by a site asking for one
      *  in a pane and the user answering Touch ID, so there is nothing for a person to type. */

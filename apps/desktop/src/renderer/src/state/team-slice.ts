@@ -1,0 +1,261 @@
+import type {
+  ActTicket, CreateRecordTypeInput, CreateRoleInput, CustomRoleInput, RoleRun, Run, SetRoleHandoffsInput, TeamActivity, TeamRecord, TeamRecordSummary, TeamRecordType, TeamReviewDetail, TeamReviewSummary,
+  TeamRole, TeamSpace, UpdateRecordTypeInput, UpdateRoleInput,
+} from "@realm/contracts";
+
+/** What making a team, or adding to one, can carry besides the starters: the person's own teammates,
+ *  the folder they chose for its memory, and the team's week raised to fit. */
+export type TeamMakeOptions = { roles?: CustomRoleInput[]; repoPath?: string; weekBudgetUsd?: number };
+
+/** The team calls the renderer makes (`team.*`, contracts/rpc.ts). */
+export type TeamApi = {
+  teamOverview(): Promise<TeamSpace[]>;
+  teamSpace(spaceId: string): Promise<TeamSpace>;
+  teamMake(spaceId: string, templates: string[], o?: TeamMakeOptions): Promise<TeamSpace>;
+  teamRoleCreate(input: CreateRoleInput): Promise<TeamRole>;
+  teamRoleUpdate(input: UpdateRoleInput): Promise<TeamRole>;
+  teamRoleArchive(id: string): Promise<void>;
+  teamRoleRun(id: string, message: string | null): Promise<Run>;
+  teamRoleRuns(id: string): Promise<RoleRun[]>;
+  teamReview(id: string): Promise<TeamReviewDetail>;
+  teamReviewDecide(id: string, decision: "approve" | "done" | "dismiss"): Promise<TeamReviewSummary>;
+  teamReviewRequestChanges(id: string, note: string): Promise<TeamReviewSummary>;
+  teamReviewEditItem(id: string, itemId: string, body: string): Promise<TeamReviewSummary>;
+  teamRecords(spaceId: string): Promise<TeamRecordSummary[]>;
+  teamRecord(spaceId: string, path: string): Promise<TeamRecord>;
+  teamRecordWrite(spaceId: string, path: string, markdown: string): Promise<TeamRecord>;
+  teamRecordCreate(spaceId: string, name: string, type?: string): Promise<TeamRecord>;
+  teamRecordTypeCreate(input: CreateRecordTypeInput): Promise<TeamRecordType>;
+  teamRecordTypeUpdate(input: UpdateRecordTypeInput): Promise<TeamRecordType>;
+  teamRecordTypeArchive(id: string, archived: boolean): Promise<TeamRecordType>;
+  teamActivity(spaceId: string, limit: number): Promise<TeamActivity[]>;
+  teamRoleHandoffs(input: SetRoleHandoffsInput): Promise<TeamRole>;
+  teamRoleGoal(id: string, objective: string): Promise<Run>;
+  teamSetBudget(spaceId: string, weekBudgetUsd: number): Promise<TeamSpace>;
+  teamSetLimits(spaceId: string, o: { teamMaxLive?: number; realmMaxUnattended?: number }): Promise<TeamSpace>;
+  teamLiftBackoff(agentKind: string): Promise<void>;
+  /** The person's click on a ticket's post sheet, to Electron main (`main/ticket-presses.ts`) — false
+   *  where there is no main to take it. Never the server: a press made there would be a press any
+   *  token holder could make. */
+  teamTicketPress(input: { ticketId: string; contentHash: string; slotAt: number; label: boolean }): Promise<boolean>;
+  teamTicketPost(id: string): Promise<ActTicket>;
+  teamTicketCancel(id: string): Promise<ActTicket>;
+  teamActsHold(spaceId: string, held: boolean): Promise<{ held: boolean }>;
+};
+
+/**
+ * What the window holds about teams. `teams` is every team space's snapshot, read once at boot and
+ * again for a space whenever the server says `team.changed`: the sidebar's Review row, Team fold and
+ * Needs you rows read it, and so do the pages. Everything else — a review's detail, a role's runs,
+ * the records, the log — is held only once something has shown it, and re-read on the same event.
+ */
+export type TeamSlice = {
+  teams: Record<string, TeamSpace>;
+  teamReviewDetail: Record<string, TeamReviewDetail>;
+  /** The review the Review pane is reading, per space. */
+  teamReviewSelected: Record<string, string>;
+  teamRoleRuns: Record<string, RoleRun[]>;
+  teamRecords: Record<string, TeamRecordSummary[]>;
+  teamActivity: Record<string, TeamActivity[]>;
+  /** Spaces whose Team row is folded shut (`ui.sidebarTeamFolded`). Open unless listed. */
+  sidebarTeamFolded: string[];
+
+  refreshTeams(): Promise<void>;
+  /** One space's team again, and whatever detail of it the window is holding. */
+  refreshTeam(spaceId: string): Promise<void>;
+  makeTeam(spaceId: string, templates: string[], o?: TeamMakeOptions): Promise<TeamSpace>;
+  /** A space's team as the server sees it, team or not, held nowhere — what making a team reads to
+   *  learn whether the space already keeps creator records. */
+  peekTeam(spaceId: string): Promise<TeamSpace>;
+  createRole(input: CreateRoleInput): Promise<TeamRole>;
+  updateRole(input: UpdateRoleInput): Promise<TeamRole>;
+  archiveRole(id: string, spaceId: string): Promise<void>;
+  runRole(id: string, message: string | null): Promise<Run>;
+  loadRoleRuns(roleId: string): Promise<void>;
+  loadTeamReview(id: string): Promise<TeamReviewDetail>;
+  selectTeamReview(spaceId: string, id: string): void;
+  decideTeamReview(id: string, decision: "approve" | "done" | "dismiss"): Promise<void>;
+  requestTeamReviewChanges(id: string, note: string): Promise<void>;
+  /** The person's edit of an item's text before approving: the batch's next version. */
+  editTeamReviewItem(id: string, itemId: string, body: string): Promise<void>;
+  /** The post sheet's one click: the press to main, then the ticket set for its slot. Throws what the
+   *  server refused, after re-reading the review so the sheet shows the slot as it now is. */
+  postTeamTicket(ticket: ActTicket, o: { label: boolean }): Promise<void>;
+  cancelTeamTicket(ticket: ActTicket): Promise<void>;
+  /** The team's kill switch. */
+  holdTeamActs(spaceId: string, held: boolean): Promise<void>;
+  loadTeamRecords(spaceId: string): Promise<void>;
+  fetchTeamRecord(spaceId: string, path: string): Promise<TeamRecord>;
+  writeTeamRecord(spaceId: string, path: string, markdown: string): Promise<TeamRecord>;
+  createTeamRecord(spaceId: string, name: string, type?: string): Promise<TeamRecord>;
+  /** The kinds of record a team keeps: made, changed and archived by the person, never by a role. */
+  createRecordType(input: CreateRecordTypeInput): Promise<TeamRecordType>;
+  updateRecordType(input: UpdateRecordTypeInput): Promise<TeamRecordType>;
+  archiveRecordType(id: string, spaceId: string, archived: boolean): Promise<void>;
+  loadTeamActivity(spaceId: string): Promise<void>;
+  /** Who a role hands work to, and whether a mention wakes it. */
+  setRoleHandoffs(input: SetRoleHandoffsInput): Promise<void>;
+  /** Give a role a goal: one run on the goal loop. */
+  giveRoleGoal(id: string, objective: string): Promise<Run>;
+  setTeamBudget(spaceId: string, weekBudgetUsd: number): Promise<void>;
+  setTeamLimits(spaceId: string, o: { teamMaxLive?: number; realmMaxUnattended?: number }): Promise<void>;
+  /** "Try now": end an engine's back-off before its reset. */
+  liftTeamBackoff(spaceId: string, agentKind: string): Promise<void>;
+  hydrateTeamFolds(): Promise<void>;
+  setTeamFolded(spaceId: string, folded: boolean): Promise<void>;
+};
+
+type Host = {
+  teams: Record<string, TeamSpace>;
+  teamReviewDetail: Record<string, TeamReviewDetail>;
+  teamReviewSelected: Record<string, string>;
+  teamRoleRuns: Record<string, RoleRun[]>;
+  teamRecords: Record<string, TeamRecordSummary[]>;
+  teamActivity: Record<string, TeamActivity[]>;
+  sidebarTeamFolded: string[];
+  spaces: readonly { id: string }[];
+};
+
+export const TEAM_ACTIVITY_PAGE = 100;
+
+export function teamSlice<S extends Host & TeamSlice>(
+  api: TeamApi & { getSetting(key: string): Promise<unknown>; setSetting(key: string, value: unknown): Promise<void> },
+  get: () => S,
+  set: (partial: Partial<TeamSlice>) => void,
+): TeamSlice {
+  const put = <K extends keyof TeamSlice>(key: K, id: string, value: TeamSlice[K] extends Record<string, infer V> ? V : never) =>
+    set({ [key]: { ...(get()[key] as object), [id]: value } } as Partial<TeamSlice>);
+  return {
+    teams: {}, teamReviewDetail: {}, teamReviewSelected: {}, teamRoleRuns: {}, teamRecords: {}, teamActivity: {}, sidebarTeamFolded: [],
+
+    async refreshTeams() {
+      const all = await api.teamOverview();
+      set({ teams: Object.fromEntries(all.map((t) => [t.spaceId, t])) });
+    },
+    async refreshTeam(spaceId) {
+      const team = await api.teamSpace(spaceId);
+      if (team.enabled || get().teams[spaceId]) put("teams", spaceId, team);
+      const s = get();
+      // The detail that is on screen somewhere, re-read; nothing nobody is looking at.
+      const held = [
+        ...Object.values(s.teamReviewDetail).filter((r) => r.spaceId === spaceId).map((r) => s.loadTeamReview(r.id)),
+        ...team.roles.filter((r) => s.teamRoleRuns[r.id]).map((r) => s.loadRoleRuns(r.id)),
+        ...(s.teamRecords[spaceId] ? [s.loadTeamRecords(spaceId)] : []),
+        ...(s.teamActivity[spaceId] ? [s.loadTeamActivity(spaceId)] : []),
+      ];
+      await Promise.all(held.map((p) => p.catch(() => undefined)));
+    },
+    async makeTeam(spaceId, templates, o) {
+      const team = await api.teamMake(spaceId, templates, o);
+      put("teams", spaceId, team);
+      return team;
+    },
+    peekTeam: (spaceId) => api.teamSpace(spaceId),
+    async createRole(input) {
+      const role = await api.teamRoleCreate(input);
+      await get().refreshTeam(input.spaceId);
+      return role;
+    },
+    async updateRole(input) {
+      const role = await api.teamRoleUpdate(input);
+      await get().refreshTeam(role.spaceId);
+      return role;
+    },
+    async archiveRole(id, spaceId) {
+      await api.teamRoleArchive(id);
+      await get().refreshTeam(spaceId);
+    },
+    async runRole(id, message) {
+      const run = await api.teamRoleRun(id, message);
+      await Promise.all([get().refreshTeam(run.spaceId), get().loadRoleRuns(id)]);
+      return run;
+    },
+    async loadRoleRuns(roleId) { put("teamRoleRuns", roleId, await api.teamRoleRuns(roleId)); },
+    async loadTeamReview(id) {
+      const detail = await api.teamReview(id);
+      put("teamReviewDetail", id, detail);
+      return detail;
+    },
+    selectTeamReview(spaceId, id) { put("teamReviewSelected", spaceId, id); },
+    async decideTeamReview(id, decision) {
+      const r = await api.teamReviewDecide(id, decision);
+      await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
+    },
+    async requestTeamReviewChanges(id, note) {
+      const r = await api.teamReviewRequestChanges(id, note);
+      await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
+    },
+    async editTeamReviewItem(id, itemId, body) {
+      const r = await api.teamReviewEditItem(id, itemId, body);
+      await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
+    },
+    async postTeamTicket(ticket, o) {
+      const reread = () => Promise.all([get().loadTeamReview(ticket.reviewId), get().refreshTeam(ticket.spaceId)]);
+      const taken = await api.teamTicketPress({ ticketId: ticket.id, contentHash: ticket.contentHash, slotAt: ticket.slotAt, label: o.label });
+      if (!taken) throw new Error("Realm's window could not take the press. Nothing went out.");
+      try { await api.teamTicketPost(ticket.id); } finally { await reread().catch(() => undefined); }
+    },
+    async cancelTeamTicket(ticket) {
+      await api.teamTicketCancel(ticket.id);
+      await Promise.all([get().loadTeamReview(ticket.reviewId), get().refreshTeam(ticket.spaceId)]);
+    },
+    async holdTeamActs(spaceId, held) {
+      await api.teamActsHold(spaceId, held);
+      const open = Object.values(get().teamReviewDetail).filter((r) => r.spaceId === spaceId).map((r) => get().loadTeamReview(r.id));
+      await Promise.all([get().refreshTeam(spaceId), ...open]);
+    },
+    async loadTeamRecords(spaceId) { put("teamRecords", spaceId, await api.teamRecords(spaceId)); },
+    fetchTeamRecord: (spaceId, path) => api.teamRecord(spaceId, path),
+    async writeTeamRecord(spaceId, path, markdown) {
+      const rec = await api.teamRecordWrite(spaceId, path, markdown);
+      await get().loadTeamRecords(spaceId);
+      return rec;
+    },
+    async createTeamRecord(spaceId, name, type) {
+      const rec = await api.teamRecordCreate(spaceId, name, type);
+      await Promise.all([get().loadTeamRecords(spaceId), get().refreshTeam(spaceId)]);
+      return rec;
+    },
+    async createRecordType(input) {
+      const t = await api.teamRecordTypeCreate(input);
+      await get().refreshTeam(t.spaceId);
+      return t;
+    },
+    async updateRecordType(input) {
+      const t = await api.teamRecordTypeUpdate(input);
+      await get().refreshTeam(t.spaceId);
+      return t;
+    },
+    async archiveRecordType(id, spaceId, archived) {
+      await api.teamRecordTypeArchive(id, archived);
+      await get().refreshTeam(spaceId);
+    },
+    async loadTeamActivity(spaceId) { put("teamActivity", spaceId, await api.teamActivity(spaceId, TEAM_ACTIVITY_PAGE)); },
+    async setRoleHandoffs(input) {
+      const role = await api.teamRoleHandoffs(input);
+      await get().refreshTeam(role.spaceId);
+    },
+    async giveRoleGoal(id, objective) {
+      const run = await api.teamRoleGoal(id, objective);
+      await Promise.all([get().refreshTeam(run.spaceId), get().loadRoleRuns(id)]);
+      return run;
+    },
+    async setTeamBudget(spaceId, weekBudgetUsd) { put("teams", spaceId, await api.teamSetBudget(spaceId, weekBudgetUsd)); },
+    async setTeamLimits(spaceId, o) { put("teams", spaceId, await api.teamSetLimits(spaceId, o)); },
+    async liftTeamBackoff(spaceId, agentKind) {
+      await api.teamLiftBackoff(agentKind);
+      await get().refreshTeam(spaceId);
+    },
+    async hydrateTeamFolds() {
+      const v = await api.getSetting("ui.sidebarTeamFolded");
+      set({ sidebarTeamFolded: Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [] });
+    },
+    async setTeamFolded(spaceId, folded) {
+      const known = new Set(get().spaces.map((s) => s.id));
+      const kept = get().sidebarTeamFolded.filter((id) => id !== spaceId && known.has(id));
+      const next = folded ? [...kept, spaceId] : kept;
+      set({ sidebarTeamFolded: next });
+      await api.setSetting("ui.sidebarTeamFolded", next);
+    },
+  };
+}

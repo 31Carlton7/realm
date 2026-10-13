@@ -91,9 +91,9 @@ export function opening(md: string): string | null {
  *
  * `editedBy(i)` is the number of files the run line at block `i` closes its turn on, read from the
  * transcript's own Edited cards, so the track and the card under the turn cannot disagree about it.
- * `saved` is the session's saved turns, by their prompts' seqs.
+ * `saved` is the session's saved turns, by their prompts' seqs. `base` is the transcript's, for keys.
  */
-export function trackPrompts(blocks: readonly Block[], editedBy: (runIndex: number) => number, saved: ReadonlySet<number> = NOTHING_SAVED): TrackPrompt[] {
+export function trackPrompts(blocks: readonly Block[], editedBy: (runIndex: number) => number, saved: ReadonlySet<number> = NOTHING_SAVED, base = 0): TrackPrompt[] {
   const out: TrackPrompt[] = [];
   let open: TrackPrompt | null = null;
   // A turn that failed before it said anything is still a turn the card can describe.
@@ -103,7 +103,7 @@ export function trackPrompts(blocks: readonly Block[], editedBy: (runIndex: numb
     if (b.kind === "user") {
       settle();
       const seq = b.seq ?? null;
-      open = { key: blockKey(b, i), ts: b.ts, title: promptTitle(b), from: b.from?.title ?? null, reply: null, edited: 0, seq, saved: seq !== null && saved.has(seq) };
+      open = { key: blockKey(b, i + base), ts: b.ts, title: promptTitle(b), from: b.from?.title ?? null, reply: null, edited: 0, seq, saved: seq !== null && saved.has(seq) };
       failed = null;
       out.push(open);
       return;

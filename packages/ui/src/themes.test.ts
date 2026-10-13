@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contrast, hexToOklch, parseOklch as parse } from "@realm/contracts";
-import { clampContrast, CONTRAST_FLOOR, CONTRAST_RANGE, INK_GROUNDS, REALM_SEED, THEMES, THEME_VARS, contrastMisses, deriveVars, paletteFor,
+import { clampContrast, CONTRAST_FLOOR, CONTRAST_RANGE, INK_GROUNDS, REALM_SEED, THEMES, THEME_EXTRA_VARS, THEME_VARS, contrastMisses, deriveVars, paletteFor,
   parseThemeOverride, parseThemeOverrides, resolveMode, seedFor, themeModes, themeSwatches, themeVars,
   type ThemeName, type ThemeOverride } from "./themes";
 import type { Mode } from "./theme";
@@ -60,7 +60,12 @@ describe("the default theme is the absence of a theme", () => {
     // Realm would leave one of Monokai's colours behind on a palette that never asked for it.
     for (const { theme, mode } of faces()) {
       if (theme.name === "realm") continue;
-      expect(Object.keys(themeVars(theme.name, mode)).sort(), theme.name).toEqual([...THEME_VARS].sort());
+      const keys = Object.keys(themeVars(theme.name, mode));
+      // A palette with its own derivation may also set the extra ramps — and only names that are on
+      // the extra clear-down list, or leaving it would strand them on the next palette.
+      const own = theme.derive ? keys.filter((k) => !(THEME_VARS as readonly string[]).includes(k)) : [];
+      for (const k of own) expect(THEME_EXTRA_VARS, `${theme.name} ${k}`).toContain(k);
+      expect(keys.filter((k) => !own.includes(k)).sort(), theme.name).toEqual([...THEME_VARS].sort());
     }
   });
 });
@@ -74,7 +79,8 @@ describe("what a theme states survives derivation", () => {
     const PAPER_MAX = 0.986;
     for (const { theme, mode } of faces()) {
       const seed = mode === "dark" ? theme.dark : theme.light;
-      if (!seed) continue;
+      // A palette with its own derivation places its ground by its own rules (codex-theme.test.ts).
+      if (!seed || theme.derive) continue;
       const v = themeVars(theme.name, mode);
       for (const [token, hex] of [[mode === "dark" ? "--page" : "--canvas", seed.bg], ["--ink", seed.ink]] as const) {
         const [a, b] = [parse(v[token]!), hexToOklch(hex)];
@@ -131,8 +137,10 @@ describe(`every theme clears the floor (ink ${CONTRAST_FLOOR.ink}:1, ink-2 ${CON
         expect(onSurface(token), token).toBeGreaterThanOrEqual(CONTRAST_FLOOR.chrome);
       }
       expect(onSurface("--accent-ink"), "--accent-ink").toBeGreaterThanOrEqual(CONTRAST_FLOOR.accentInk);
-      expect(contrast(parse(v["--rl-accent-contrast"]!), parse(v["--accent"]!)), "label on the accent fill")
-        .toBeGreaterThanOrEqual(CONTRAST_FLOOR.onAccent);
+      for (const fill of ["--accent-fill", "--accent-fill-hover", "--accent-fill-press"]) {
+        expect(contrast(parse(v["--rl-accent-contrast"]!), parse(v[fill]!)), `label on ${fill}`)
+          .toBeGreaterThanOrEqual(CONTRAST_FLOOR.onAccent);
+      }
 
       for (const token of THEME_VARS.filter((t) => t.startsWith("--syn-"))) {
         expect(onSurface(token), token).toBeGreaterThanOrEqual(CONTRAST_FLOOR.syntax);
@@ -194,7 +202,10 @@ describe("the ramps derivation reproduces", () => {
       const v = themeVars(theme.name, mode);
       const [page, surface, canvas] = ["--page", "--surface", "--canvas"].map((k) => parse(v[k]!).l);
       expect(canvas!, `${theme.name}/${mode}`).toBeGreaterThan(page!);
-      expect(surface!, `${theme.name}/${mode}`).toBeGreaterThan(canvas!);
+      // Codex's composer is its surface lifted towards white, which on a white surface is the same
+      // white — it never sinks below the canvas, but it may sit level with it.
+      if (theme.derive) expect(surface!, `${theme.name}/${mode}`).toBeGreaterThanOrEqual(canvas!);
+      else expect(surface!, `${theme.name}/${mode}`).toBeGreaterThan(canvas!);
     }
   });
 
@@ -248,6 +259,8 @@ describe("provenance", () => {
   it("every vendored palette credits its upstream and its licence", () => {
     for (const theme of THEMES) {
       if (OWN.includes(theme.name)) { expect(theme.credit, theme.name).toBeNull(); continue; }
+      // Codex's palette is OpenAI's, read off its app rather than taken from a licensed package.
+      if (theme.name === "codex") { expect(theme.credit).toMatch(/© OpenAI/); continue; }
       expect(theme.credit, theme.name).toMatch(/MIT ©/);
     }
   });

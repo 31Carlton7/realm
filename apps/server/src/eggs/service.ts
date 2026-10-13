@@ -93,16 +93,29 @@ export class EggService {
     this.d.settings.set(EGGS_UNLOCKED_KEY, stored);
   }
 
-  /** Boot: re-open everything whose word was remembered. A word that no longer opens its pack — the
-   *  pack was re-sealed with a different one — is dropped rather than kept as a broken entry. */
+  /**
+   * Re-open everything whose word was remembered and is not open yet. Run at boot, and again once the
+   * desktop app has handed over the key (`browserHost.register`), because boot comes FIRST: a sealed
+   * word read before the key arrives cannot be opened yet, and that is not the same as a word that
+   * is wrong.
+   *
+   * Treating the two as the same is how every update lost the owner's friend packs: the new daemon
+   * restored before the new app supplied the key, found every sealed word unreadable, and wrote the
+   * empty map back over them. So the only entry ever dropped here is one whose word was READ and
+   * whose pack — present in this build — refused it: the pack was re-sealed under another word and
+   * the remembered one is dead for good. A word sealed under a key not held yet, or naming a pack
+   * this build does not ship, is kept for the launch that can use it.
+   */
   restore(): number {
     const stored = this.stored();
     let opened = 0;
     let changed = false;
     for (const [id, blob] of Object.entries(stored)) {
+      if (this.open.has(id)) continue;
       const sealedPack = this.packs.find((p) => p.id === id);
-      const word = typeof blob === "string" ? eggSecretBox.open(blob) : null;
-      const pack = sealedPack && word ? openPack(word, sealedPack) : null;
+      const word = eggSecretBox.open(blob);
+      if (!sealedPack || word === null) continue;
+      const pack = openPack(word, sealedPack);
       if (!pack) { delete stored[id]; changed = true; continue; }
       this.open.set(id, { ...pack, id });
       opened++;

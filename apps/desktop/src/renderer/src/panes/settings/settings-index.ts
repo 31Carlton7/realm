@@ -9,7 +9,7 @@ export type SettingsTab =
   | "general" | "appearance" | "keys" | "notifications" | "devices"
   | "engines" | "usage"
   | "signins"
-  | "permissions" | "computer-use"
+  | "permissions" | "computer-use" | "lab"
   | "import" | "archived";
 
 /**
@@ -29,7 +29,7 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
   ] },
   { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }] },
   { label: "Browser", tabs: [{ id: "signins", label: "Sign-ins", icon: "key" }] },
-  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }] },
+  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }, { id: "lab", label: "Lab", icon: "serverStack" }] },
   { label: "Data", tabs: [{ id: "import", label: "Import", icon: "inboxDownload" }, { id: "archived", label: "Archived", icon: "archive" }] },
 ];
 
@@ -93,6 +93,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "mid-turn", tab: "general", section: "Sessions", label: "A message typed while a turn is running", terms: "queue steer interrupt" },
   { id: "default-permission", tab: "general", section: "Sessions", label: "New sessions start in", terms: "permission mode default full access accept edits ask bypass" },
   { id: "open-files-in", tab: "general", section: "Files", label: "Open files in", terms: "editor cursor vscode code zed xcode ide path" },
+  { id: "open-links-in", tab: "general", section: "Links", label: "Open links in", terms: "web url browser default safari chrome realm click command" },
   { id: "sidebar-activity-order", tab: "general", section: "Sidebar", label: "Sort spaces by activity", terms: "order drag strip" },
   { id: "confirm-delete", tab: "general", section: "Deleting", label: "Ask before deleting", terms: "confirm delete trash" },
   { id: "terminal-history", tab: "general", section: "Terminals", label: TERMINALS_HISTORY_COPY.label, terms: "output history restart" },
@@ -113,7 +114,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "sidebar-translucency", tab: "appearance", label: "Sidebar translucency", terms: "transparency transparent vibrancy material opacity window" },
   { id: "pane-translucency", tab: "appearance", label: "Pane translucency", terms: "transparency transparent vibrancy material opacity window" },
   { id: "reduce-motion", tab: "appearance", label: "Reduce motion", terms: "animation movement accessibility" },
-  { id: "app-icon", tab: "appearance", label: "App icon", terms: "dock logo alternate custom graphite",
+  { id: "app-icon", tab: "appearance", label: "App icon", terms: "dock logo alternate custom realm",
     available: () => typeof window.realm?.appIcon?.set === "function" },
   { id: "ui-font", tab: "appearance", section: "Text", label: "UI font", terms: "typeface family weight interface" },
   { id: "ui-font-size", tab: "appearance", section: "Text", label: "UI font size", terms: "text bigger smaller larger zoom px" },
@@ -155,6 +156,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
 
   // Usage
   { id: "usage", tab: "usage", label: "Spend, tokens and activity", terms: "cost money usage chart heaviest sessions plan limits", page: true },
+  { id: "usage-plan", tab: "usage", label: "Plan limits", terms: "quota left remaining reset 5-hour weekly rate limit subscription claude codex pace" },
+  { id: "usage-sessions", tab: "usage", label: "Heaviest sessions", terms: "most expensive cost tokens open" },
   { id: "usage-budget", tab: "usage", label: "Monthly budget", terms: "spend limit threshold cost" },
 
   // Sign-ins
@@ -162,12 +165,21 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "saved-signins", tab: "signins", label: "Saved sign-ins", terms: "password credential login account generated agent sign-up" },
   { id: "passkeys", tab: "signins", label: "Passkeys", terms: "webauthn" },
   { id: "touch-id", tab: "signins", label: "Touch ID", terms: "fingerprint presence biometric" },
+  { id: "unlock-policy", tab: "signins", label: "Unlock sign-ins with", terms: "touch id password session without asking unattended lab mac mini headless policy" },
 
   // Permissions
   { id: "computer-control", tab: "computer-use", label: "Computer control", terms: "accessibility screen recording grant macos" },
   { id: "computer-spaces", tab: "computer-use", label: "Computer control in each space", terms: "realm-computer apps always allowed bundle switch drive" },
   { id: "mac-apps", tab: "permissions", label: "Apps on this Mac", terms: "calendar reminders contacts mail messages notes automation full disk access grant macos" },
   { id: "realm-access", tab: "permissions", label: "Realm's own access", terms: "files folders full disk grant macos" },
+
+  // Lab
+  { id: "lab-mode", tab: "lab", label: "This Mac is a lab", terms: "mac mini always on unattended headless team phones" },
+  { id: "lab-readiness", tab: "lab", label: "Ready to be left alone", terms: "checklist sleep pmset power failure restart automatic login filevault display dummy hdmi disk space network ups touch id keyboard" },
+  { id: "lab-update-hour", tab: "lab", section: "Update window", label: "Install updates at", terms: "update window drain night hour" },
+  { id: "lab-update-cap", tab: "lab", section: "Update window", label: "Wait for running work", terms: "update drain cap runs" },
+  { id: "lab-devices", tab: "lab", label: "Devices", terms: "iphone phone simulator android udid accounts team registry" },
+  { id: "lab-reach", tab: "lab", section: "Reach this Mac", label: "From your laptop", terms: "screen sharing vnc machine remote bonjour local address" },
 
   // Import
   { id: "import", tab: "import", label: "Import from the agent CLIs", terms: "claude codex cursor transcripts memory skills history", page: true },

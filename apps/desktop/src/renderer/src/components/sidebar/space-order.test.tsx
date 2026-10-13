@@ -57,31 +57,44 @@ describe("spaceActivity, the sort key behind \"Sort spaces by activity\"", () =>
 /** Two spaces of one profile: Versed with an older session, Homework with a newer one. */
 const twoSpaces = () => fakeApi({
   spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework")],
-  sessions: [session("se1", "s1", { status: "idle", updatedAt: 100 }), session("se2", "s2", { status: "idle", updatedAt: 200 })],
+  sessions: [session("se1", "s1", { status: "idle", activityAt: 100 }), session("se2", "s2", { status: "idle", activityAt: 200 })],
   items: { s1: [], s2: [] },
 });
 
 /**
- * The half `spaceActivity` cannot see on its own: something has to KEEP `sessionUpdatedAt` current.
- * `applySessionStatus` patches status locally rather than refetching, so without a stamp there the
- * timestamps sit at whatever the last list said — a "sort by activity" that does not follow activity.
+ * The half `spaceActivity` cannot see on its own: something has to KEEP `sessionActivityAt` current.
+ * `applySessionStatus` patches status locally rather than refetching, so without a stamp on a turn's
+ * end the times sit at whatever the last list said — a "sort by activity" that does not follow it.
  */
-describe("what keeps sessionUpdatedAt current", () => {
-  it("a status CHANGE moves the session's space to the front of the order", async () => {
+describe("what keeps sessionActivityAt current", () => {
+  it("a turn ending moves the session's space to the front of the order", async () => {
     const { container, store } = await mount(twoSpaces());
-    await waitFor(() => expect(store.getState().sessionUpdatedAt.se2).toBe(200));
+    await waitFor(() => expect(store.getState().sessionActivityAt.se2).toBe(200));
     await act(async () => { await store.getState().setSidebarActivityOrder(true); });
     expect(order(container)).toEqual(["Homework", "Versed"]);
     act(() => store.getState().applySessionStatus("se1", "running"));
-    expect(store.getState().sessionUpdatedAt.se1).toBeGreaterThan(200);
+    act(() => store.getState().applySessionStatus("se1", "idle"));
+    expect(store.getState().sessionActivityAt.se1).toBeGreaterThan(200);
     expect(order(container)).toEqual(["Versed", "Homework"]);
+  });
+
+  it("a status that is not a turn ending moves nothing — opening a session can pass through one", async () => {
+    // THE MUTANT: every status change stamped as activity, which is what moved a row for being opened.
+    const { container, store } = await mount(twoSpaces());
+    await waitFor(() => expect(store.getState().sessionActivityAt.se1).toBe(100));
+    await act(async () => { await store.getState().setSidebarActivityOrder(true); });
+    act(() => store.getState().applySessionStatus("se1", "ended"));
+    act(() => store.getState().applySessionStatus("se1", "idle"));
+    expect(store.getState().sessionActivityAt.se1).toBe(100);
+    expect(order(container)).toEqual(["Homework", "Versed"]);
   });
 
   it("a repeat of the same status is a broadcast, not movement", async () => {
     const { store } = await mount(twoSpaces());
-    await waitFor(() => expect(store.getState().sessionUpdatedAt.se1).toBe(100));
+    await waitFor(() => expect(store.getState().sessionUpdatedAt.se1).toBe(0));
     act(() => store.getState().applySessionStatus("se1", "idle")); // already idle
-    expect(store.getState().sessionUpdatedAt.se1).toBe(100);
+    expect(store.getState().sessionUpdatedAt.se1).toBe(0);
+    expect(store.getState().sessionActivityAt.se1).toBe(100);
   });
 });
 
@@ -113,13 +126,13 @@ describe("a section's state, live from every space (U-H3)", () => {
 describe("sorted by activity", () => {
   it("leaves the arranged order alone until the setting is turned on", async () => {
     const { container, store } = await mount(twoSpaces());
-    await waitFor(() => expect(store.getState().sessionUpdatedAt.se2).toBe(200));
+    await waitFor(() => expect(store.getState().sessionActivityAt.se2).toBe(200));
     expect(order(container)).toEqual(["Versed", "Homework"]);
   });
 
   it("turning it on re-sorts without writing a new order, and back off restores it", async () => {
     const { container, store } = await mount(twoSpaces());
-    await waitFor(() => expect(store.getState().sessionUpdatedAt.se2).toBe(200));
+    await waitFor(() => expect(store.getState().sessionActivityAt.se2).toBe(200));
     await act(async () => { await store.getState().setSidebarActivityOrder(true); });
     expect(order(container)).toEqual(["Homework", "Versed"]);
     expect(store.getState().spaces.map((sp) => sp.id)).toEqual(["s1", "s2"]); // sort_order untouched

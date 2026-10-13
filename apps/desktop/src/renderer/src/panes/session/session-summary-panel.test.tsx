@@ -282,7 +282,7 @@ describe("pinned beside the transcript, or floating over it", () => {
 
 describe("the session's context", () => {
   const base = () => fakeSession("se1", "s1", { cwd: "/Users/me/code/realm", model: "claude-opus-5", effort: "high", permissionMode: "acceptEdits", agentKind: "claude" });
-  const memory = { agent: "claude" as const, channel: "systemPrompt" as const, basis: "modeled" as const, note: "n", realmMemoryInjected: true,
+  const memory = { agent: "claude" as const, channel: "systemPrompt" as const, basis: "modeled" as const, note: "n", realmMemoryInjected: true, repoIndexInjected: false,
     sources: [
       { path: "/Users/me/code/realm/CLAUDE.md", origin: "project" as const, exists: true, via: "cli" as const },
       { path: "/Users/me/.claude/CLAUDE.md", origin: "user" as const, exists: false, via: "cli" as const },

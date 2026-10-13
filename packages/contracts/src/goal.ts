@@ -78,6 +78,45 @@ export type Goal = z.infer<typeof GoalSchema>;
  *  tokens is not one — it is the absence of a guard written down as though it were present. */
 export const MAX_GOAL_TOKEN_BUDGET = 50_000_000;
 
+/** The gateway provider that carries `update_goal` and `goal_status`. Prefixed like every other
+ *  provider of Realm's own, so an agent searching its deferred tools for `realm-` finds it. */
+export const GOAL_PROVIDER_NAME = "realm-goal";
+export const UPDATE_GOAL_TOOL_NAME = "update_goal";
+export const GOAL_STATUS_TOOL_NAME = "goal_status";
+
+/**
+ * `update_goal` under the name the agent actually sees.
+ *
+ * The bare name is not one any agent can call: the gateway re-exports it as
+ * `realm-goal__update_goal` on the `realm` server, and Claude prefixes every MCP tool again as
+ * `mcp__<server>__<tool>` and may hold it back behind ToolSearch. An agent told to call
+ * `update_goal` searched for exactly that, found nothing, and its goal ran fifty turns past done.
+ */
+export function goalToolWireName(agentKind: string): string {
+  const gateway = `${GOAL_PROVIDER_NAME}__${UPDATE_GOAL_TOOL_NAME}`;
+  return agentKind === "claude" ? `mcp__realm__${gateway}` : gateway;
+}
+
+/** The line in a continuation that says which turn it is. Exported because the scripted adapter keys
+ *  a live check's turns on it — see `FakeScript`'s `turn`. */
+export const goalTurnLine = (turn: number): string => `This is turn ${turn}.`;
+
+/**
+ * How an agent with no `update_goal` ends a goal: a line of its reply, starting `GOAL COMPLETE:` or
+ * `GOAL BLOCKED:`, with the note after the colon. For a session whose space switched the goal tools
+ * off, or an engine that never got them.
+ *
+ * The whole line must start with the marker, so a reply that quotes or discusses the convention in
+ * a sentence does not end anything.
+ */
+export function parseGoalSentinel(text: string): { status: "complete" | "blocked"; note: string } | null {
+  for (const line of text.split("\n")) {
+    const m = /^\s*GOAL (COMPLETE|BLOCKED):\s*(\S.*)$/.exec(line);
+    if (m) return { status: m[1] === "COMPLETE" ? "complete" : "blocked", note: m[2]!.trim().slice(0, 2_000) };
+  }
+  return null;
+}
+
 /**
  * What a continuation turn says.
  *
@@ -88,16 +127,28 @@ export const MAX_GOAL_TOKEN_BUDGET = 50_000_000;
  *
  * The three paragraphs are the three refusals from the doc comment above, in the order an agent
  * needs them: what to do, what not to call finished, and what not to call blocked.
+ *
+ * `closeWith` is `update_goal`'s name as this agent sees it (`goalToolWireName`), or null when the
+ * session cannot reach it — then the agent is told the text line that does the same job.
  */
-export function goalContinuationPrompt(goal: { objective: string; turns: number; tokensUsed: number; tokenBudget: number | null }): string {
+export function goalContinuationPrompt(goal: { objective: string; turns: number; tokensUsed: number; tokenBudget: number | null }, closeWith: string | null): string {
   const spent = goal.tokenBudget
     ? `You have used ${goal.tokensUsed.toLocaleString("en-US")} of ${goal.tokenBudget.toLocaleString("en-US")} tokens for this objective.`
     : `You have used ${goal.tokensUsed.toLocaleString("en-US")} tokens on this objective so far.`;
+  const close = closeWith
+    ? {
+      how: `Call the \`${closeWith}\` tool (Realm's \`update_goal\`; load it with your tool search first if it is deferred)`,
+      complete: "with `complete`", blocked: "with `blocked`",
+    }
+    : {
+      how: "You have no goal tool in this session, so end the goal with a line of your reply on its own",
+      complete: "reading `GOAL COMPLETE: <what was achieved>`", blocked: "reading `GOAL BLOCKED: <what is in the way>`",
+    };
   return [
     `Continue working towards this objective:\n\n${goal.objective}`,
-    `This is turn ${goal.turns + 1}. ${spent} The objective persists across turns, so ending a turn is not a reason to shrink it — take the next real step towards the end state that was asked for, rather than redefining success as whatever fits in this turn.`,
+    `${goalTurnLine(goal.turns + 1)} ${spent} The objective persists across turns, so ending a turn is not a reason to shrink it — take the next real step towards the end state that was asked for, rather than redefining success as whatever fits in this turn.`,
     "Start by deciding what the last turn actually achieved. Work that changed something, finished something, or produced evidence that changes what to do next is progress; restating a status or writing a plan you did not carry out is not. If the last turn made no progress, do something different this turn.",
-    "Call `update_goal` with `complete` only when every requirement is met and you can show it — evidence, not intent, not a plausible summary, and never because you are running low on budget. Call it with `blocked` only once the same obstacle has stopped you on three turns in a row and you have no safe action left; the first appearance of a problem is a thing to work around, not a wall.",
+    `${close.how} ${close.complete} only when every requirement is met and you can show it — evidence, not intent, not a plausible summary, and never because you are running low on budget. End it ${close.blocked} only once the same obstacle has stopped you on three turns in a row and you have no safe action left; the first appearance of a problem is a thing to work around, not a wall.`,
   ].join("\n\n");
 }
 

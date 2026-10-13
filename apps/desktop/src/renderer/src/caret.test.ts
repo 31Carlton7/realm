@@ -220,7 +220,7 @@ const drawn = () => {
   const px = (t: string) => (t.match(/-?[\d.]+/g) ?? ["0", "0"]).map(Number);
   const [cx, cy] = px((document.querySelector(".caret-clip") as HTMLElement).style.transform);
   const caret = document.querySelector(".caret-layer .caret") as HTMLElement;
-  const [x, y] = px(caret.style.transform);
+  const [x, y] = px(caret.style.translate);
   return { shown, left: cx! + x!, top: cy! + y!, width: parseFloat(caret.style.width), height: parseFloat(caret.style.height), glide: caret.hasAttribute("data-glide") };
 };
 
@@ -328,6 +328,43 @@ describe("where it is drawn", () => {
     input.dispatchEvent(new Event("scroll"));
     flush();
     expect(drawn().glide).toBe(false);
+  });
+
+  it("starts the caret's motion over when it moves, the block's fading character with it", () => {
+    /* Every motion rests after ten beats, so a move has to start it again or a caret that has gone
+       solid never blinks where it lands. THE caret-only mutant: rewinding the caret's own animation and
+       not its character's, which leaves an Expand block's glyph out of step with its fill. */
+    stubGeometry();
+    install({ shape: "block", animation: "expand" });
+    const input = boxed(field("<input>")) as HTMLInputElement;
+    input.value = "abcdef";
+    input.focus();
+    input.setSelectionRange(1, 1);
+    flush();
+    const caret = document.querySelector(".caret-layer .caret") as HTMLElement;
+    const own = { animationName: "rl-caret-expand", currentTime: 4200 };
+    const glyph = { animationName: "rl-caret-glyph-expand", currentTime: 4200 };
+    Object.defineProperty(caret, "getAnimations", { configurable: true, value: (o?: { subtree?: boolean }) => (o?.subtree ? [own, glyph] : [own]) });
+    input.setSelectionRange(2, 2);
+    document.dispatchEvent(new Event("selectionchange"));
+    flush();
+    expect(own.currentTime).toBe(0);
+    expect(glyph.currentTime).toBe(0);
+  });
+
+  it("is placed by `translate`, so Expand's `scale` shrinks it about its own centre", () => {
+    /* A scale composed onto a `transform: translate(...)` scales the offset too: the caret would
+       collapse toward the window's corner instead of its own middle line. */
+    stubGeometry();
+    install();
+    const input = boxed(field("<input>")) as HTMLInputElement;
+    input.value = "abc";
+    input.focus();
+    input.setSelectionRange(1, 1);
+    flush();
+    const caret = document.querySelector(".caret-layer .caret") as HTMLElement;
+    expect(caret.style.transform).toBe("");
+    expect(caret.style.translate).toMatch(/^-?[\d.]+px -?[\d.]+px$/);
   });
 
   it("still glides when something that does not move the field lands in the same frame", () => {

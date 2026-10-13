@@ -13,10 +13,12 @@ export const ORIGIN_META: Record<DispatchKind, { icon: string; label: string }> 
   fork: { icon: "branch", label: "Forked from a checkpoint" },
   import: { icon: "download", label: "Imported from an agent CLI" },
   run: { icon: "bot", label: "Durable run" },
+  session_open: { icon: "bot", label: "Opened by an agent" },
 };
 
 /** The dispatch origins that make a session a delegated CHILD: listed under its lead's running-agents
- *  control and named by the call that started it, never given a row or a pane of its own. */
-export const CHILD_ORIGINS: ReadonlySet<DispatchKind> = new Set<DispatchKind>(["agent_run", "browser_agent_run", "review"]);
+ *  control and named by the call that started it, never given a row or a pane of its own. Kept in
+ *  `@realm/view` beside Needs you, which reads it on the server too. */
+export { CHILD_ORIGINS } from "@realm/view";
 
 export const SESSION_STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;

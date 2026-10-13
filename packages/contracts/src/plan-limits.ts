@@ -237,3 +237,63 @@ export function mergeWindows(base: readonly PlanWindow[], fresher: readonly Plan
   const known = new Set(base.map((w) => w.id));
   return [...merged, ...fresher.filter((f) => !known.has(f.id))];
 }
+
+/* ────────────────────────────── a window against the clock ────────────────────────────── */
+
+/**
+ * How long a window is, in minutes, or null when neither its id nor its label says.
+ *
+ * Neither provider puts the length on the window Realm keeps: Claude's ids are the length
+ * (`five_hour`, `seven_day*`, and its per-model buckets are weekly), and Codex's labels were written
+ * FROM its `windowDurationMins` by `windowLabelForMinutes`, so reading them back is exact.
+ */
+export function windowMinutes(w: Pick<PlanWindow, "id" | "label">): number | null {
+  if (w.id === "five_hour") return 300;
+  if (w.id.startsWith("seven_day") || w.id.startsWith("model:")) return 10080;
+  if (w.label === "Weekly") return 10080;
+  if (w.label === "Daily") return 1440;
+  const m = /^(\d+)-(minute|hour|day)$/.exec(w.label);
+  if (!m) return null;
+  return Number(m[1]) * (m[2] === "day" ? 1440 : m[2] === "hour" ? 60 : 1);
+}
+
+/** Whether the window has reset since its reading was taken. Its figure then describes a period that
+ *  is over: the bar would claim usage the new window does not have, and an alert about it is spent. */
+export const windowHasReset = (w: Pick<PlanWindow, "resetsAt">, now: number): boolean =>
+  w.resetsAt !== null && w.resetsAt <= now;
+
+export type WindowPace = "ahead" | "on" | "under";
+
+/**
+ * Use against the clock: how far through its window the clock is, and whether the quota is going
+ * faster than that. Spending evenly leaves as much quota as time; within five points counts as on
+ * pace (T3 Code's rule, and the width a person reads as "about even"). Null when the window's length
+ * or reset is unknown, or it has no figure — a pace drawn from a guess is a verdict nobody made.
+ */
+export function windowPace(w: PlanWindow, now: number): { elapsed: number; pace: WindowPace } | null {
+  const mins = windowMinutes(w);
+  if (mins === null || w.resetsAt === null || w.utilization === null || windowHasReset(w, now)) return null;
+  const length = mins * 60_000;
+  const elapsed = Math.max(0, Math.min(1, (length - (w.resetsAt - now)) / length));
+  const gap = w.utilization - elapsed * 100;
+  return { elapsed, pace: gap > 5 ? "ahead" : gap < -5 ? "under" : "on" };
+}
+
+/** The provider's alert, unless the window it was about has reset since — then it is over. */
+export function currentAlert(row: Pick<PlanLimits, "alert" | "alertWindow" | "windows">, now: number): PlanAlert {
+  if (row.alert === "none") return "none";
+  const named = row.windows.find((w) => w.id === row.alertWindow);
+  if (named) return windowHasReset(named, now) ? "none" : row.alert;
+  // Unnamed: it stands while any window it could be about is still open.
+  return row.windows.length > 0 && row.windows.every((w) => windowHasReset(w, now)) ? "none" : row.alert;
+}
+
+/** A span as a person reads a countdown: `3d 4h`, `1h 12m`, `12m`, `under a minute`. */
+export function formatSpan(ms: number): string {
+  if (ms < 60_000) return "under a minute";
+  const mins = Math.floor(ms / 60_000);
+  const d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
+  if (d > 0) return h > 0 ? `${d}d ${h}h` : `${d}d`;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
+}

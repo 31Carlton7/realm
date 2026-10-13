@@ -19,8 +19,10 @@ import { useScrollMemory } from "../scroll-memory";
  * (measured at 72% of lines on this repo's own docs). Replacing the document with the parsed nodes
  * themselves keeps identity intact, so only edited blocks are ever re-serialized.
  */
-export function RichTextEditor({ text, onChange, scrollKey = null }: {
+export function RichTextEditor({ text, onChange, scrollKey = null, readOnly = false }: {
   text: string; onChange: (markdown: string) => void;
+  /** Drawn the same, taking no edits and offering no toolbar: a file outside the space. */
+  readOnly?: boolean;
   /** What this column is, for the scroll memory that survives a space switch (scroll-memory.ts).
    *  Null opts out — the read-only mounts have no reader to put back. */
   scrollKey?: string | null;
@@ -32,6 +34,7 @@ export function RichTextEditor({ text, onChange, scrollKey = null }: {
   const lastEmitted = useRef<string | null>(null);
 
   const editor = useEditor({
+    editable: !readOnly,
     // The same code block the schema has (`docSchema`), with a view that draws the block fences an
     // agent writes — a chart, a diagram, a comparison — rather than showing their source.
     extensions: [StarterKit.configure({ codeBlock: false }), UiCodeBlock, Image.configure({ inline: true }), ...TABLE_EXTENSIONS, RawBlock],
@@ -71,7 +74,7 @@ export function RichTextEditor({ text, onChange, scrollKey = null }: {
   if (!editor) return <div className="documents-rich" />;
   return (
     <div className="documents-rich">
-      <RichToolbar editor={editor} />
+      {!readOnly && <RichToolbar editor={editor} />}
       {/* The class is load-bearing, not decorative. `EditorContent` renders a plain wrapper div
           between this flex column and the ProseMirror element that actually scrolls, and a wrapper
           with no `flex`/`min-height` sizes to its CONTENT — so the scroller inside it was never

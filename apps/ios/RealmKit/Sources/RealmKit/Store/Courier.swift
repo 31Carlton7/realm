@@ -14,8 +14,8 @@ extension MobileAPI: OutboxTransport {
         case .message(let text):
             try await send(id: item.sessionId, text: text, timeout: Self.deliveryTimeout)
         case .answer(let requestId, let decision, let answers):
-            try await answer(id: item.sessionId, requestId: requestId, decision: decision, answers: answers,
-                             timeout: Self.deliveryTimeout)
+            try await answer(id: item.sessionId, requestId: requestId, decision: decision,
+                             values: item.answerValues ?? answers?.mapValues(AnswerValue.one), timeout: Self.deliveryTimeout)
         }
     }
 }

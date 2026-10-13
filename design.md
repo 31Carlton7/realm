@@ -60,15 +60,20 @@ Inspect the existing implementation before designing.
 - Shared theme derivation: `packages/ui/src/theme.ts` and `packages/ui/src/themes.ts`
 - Marketing tokens and prose styles: `site/app/globals.css`
 - App icon: `resources/icon-src/`
-- The mark is a cube lying on its side with a lit doorway in its dark wall (`resources/icon-src/mark.mjs`):
-  a space, and the way into it. It is drawn in the family of Cursor's cube — crisp facets on one
-  lattice, monochrome, one bold negative-space facet — and kept apart from it on purpose: Cursor's
-  stands on a corner with an arrow cut from its top, Realm's lies on the edge it always has and is
-  cut with a door. Every drawing of the mark is written from that one file, the flat one included.
-- The app icon and its Dock alternates are one vector drawing in nine colourings
-  (`resources/icon-src/icons.mjs`), rendered natively at every size. The body and its shadow are
-  macOS's own, measured on the machine rather than recalled from a template (`shape.swift`): an app
-  icon whose body is not the system's shape is shrunk onto a grey plate, which is how the last one
+- The mark is a cube lying on its side with a doorway cut through its right wall
+  (`resources/icon-src/mark.mjs`): a space, and the way into it. It is flat, drawn two ways. Where the
+  brand is the subject — the app icon, the boot mark, onboarding — it is three planes, the top
+  `#9cc1ff`, the left wall `#4f8cf5`, the right wall `#2457c4`, with the doorway knocked out so what is
+  behind the mark shows through. Everywhere small — a glyph, a loading state, the menu bar's template
+  image — it is the silhouette in one ink (`mark-flat.svg`, `currentColor`; `RealmMark.tsx` in the
+  renderer), because three tones blur into one at that size. A loading mark dims and a glint crosses
+  it, the boot mark's sweep at the same tempo; under Reduce motion it is simply drawn. Every drawing of
+  the mark is written from that one file.
+- The app icon is the three-plane mark on a near-black body (`#15161a`), one look that holds in a
+  light Dock and a dark one. It and its eight Dock alternates (the shaded mark in eight colourings)
+  are one vector drawing (`resources/icon-src/icons.mjs`), rendered natively at every size. The body
+  and its shadow are macOS's own, measured on the machine rather than recalled from a template
+  (`shape.swift`): an app icon whose body is not the system's shape is shrunk onto a grey plate, which is how the last one
   sat in the Dock. The artwork carries no edge light of its own, because macOS lays its glass edge
   over every app icon it draws, and an icon lit twice is the shine the generated set was dropped for.
   A picture with no source can only be regenerated, never adjusted, which is why the colourings are
@@ -294,6 +299,18 @@ Rules:
   stacks. Never invent a single heavy drop shadow.
 - The blue accent is a condiment: focus, selection, progress, links, and primary actions. It is not a
   background wash.
+- A word or a mark on a solid accent fill reads at 4.5:1 or better, in every theme, in both modes,
+  at rest, on hover and pressed. The accent itself is a mid blue (white on Realm's dark #3d9aff is
+  2.9:1), so a filled control never paints with `--accent`: it paints with `--accent-fill`, the same
+  hue and chroma solved for its label (`packages/ui/src/accent-fill.ts`, target 5:1 for the bevel's
+  headroom). White is the label while the fill stays within 0.16 L of the accent — Realm's own fill
+  is 0.136 deeper, white at 5.0:1 — and past that the label goes to the theme's dark pole and the fill
+  brightens (Dracula, Nord). Codex keeps its own pairing, black on its exact #3a83f7 (5.8:1). Hover
+  and press step the fill AWAY from its label, deeper under white and brighter under a dark label, so
+  no state reads worse than rest. `--accent` stays the bright one, for rings, links on dark,
+  progress, dots and highlights — the marks that carry no word.
+  A destructive button is the same rule in red: `--danger-fill`, solved the same way (Realm's dark
+  red 0.102 deeper, white at 5.0:1), never the bare `--red`, which stays for error text and dots.
 - A chip drawn on a RAISED surface may not take its fill from the neutral ladder. One step off the
   ground it sits on is a step nobody can see — the sent element chip was `inset` on `raised`, which
   measures 1.05:1, so the chip existed only as text with a smudge behind it. A tint is what separates
@@ -534,7 +551,8 @@ acronym that is uppercase anyway (a file extension on a tile).
 - Align asymmetric icons optically. A mathematically centered arrow or play mark can still look wrong.
 - A press is a fill, not a size. AppKit buttons darken on the mouse-down frame and never shrink;
   the shrink is a touch idiom, where a finger hides the control and scale is the only feedback left
-  to see. Pressed is one rung past hover on the ladder, or the accent darkened for a filled control.
+  to see. Pressed is one rung past hover on the ladder, or for a filled control the accent fill's
+  press step — darker under a white label, brighter under a dark one.
 - A press TRACKS the pointer: drag off a held button and it lets go at once, drag back and it lights
   again, which is how a person sees that releasing out there will not click. Chromium drops `:active`
   for good when a held pointer leaves, so the press is marked up (`press-tracking.ts`), not inferred.
@@ -729,6 +747,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 
 - Use transitions for hover, press, selection, resize, open, and close states so they can reverse.
 - Use keyframes only for one-shot entrances or ambient states that genuinely need a loop.
+- A loop that says a state began — the working dot's ping, a working label's shimmer, the caret's
+  blink — plays a few cycles and then holds its still form: the halo, the words in quiet ink, a solid
+  caret. The motion is what catches the eye; once seen, the still form says the same thing, and a loop
+  left running keeps the window producing a frame every vsync for as long as an agent works
+  (the 2026-10-12 power audit: 43% CPU focused, against 8% at rest). It plays again when the state is drawn anew.
+  Loops that cannot rest — the orb beside a tool in flight — pause with the rest of `data-quiet`,
+  which a window also takes after half a minute with no input (`idle`).
 - Interactive fills answer quickly; popovers and swaps are short; drawers and spatial moves may take
   longer. Use the duration and easing ladder in `tokens.css`.
 - Stagger a composed entrance by semantic parts, not every child.
@@ -743,12 +768,17 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   are on the trackpad, spring home on lift, and bounce once when a coast reaches an end
   (`rubber-band.ts`). The trackpad phase stream is what tells a trackpad from a mouse wheel, which
   never stretches; editors, terminals and grids keep their own engines' scrolling.
-- Scrollbars follow the system. On a Mac that draws overlay bars, a page's colour repaints the
-  system's thumb in the page's ink, and a `::-webkit-scrollbar` rule turns it into a classic bar with
-  a gutter (8px against 0, measured). So Realm's thin line is for Macs whose system draws classic
-  bars anyway, and stands down on the rest (`data-overlay-scrollbars`, measured, not read from a
-  preference that depends on what is plugged in — this Mac changed mode mid-session as its Bluetooth
-  mouse came and went).
+- No scroll bar draws a track, anywhere (the owner, 10-12: "We shouldn't be showing scroll bar
+  tracks anywhere in the app"). A thumb is the whole bar, and it shows only while the scroller is in
+  use. On a Mac that draws overlay bars the system's bar is kept — it appears on scroll and reserves
+  no width — with its track coloured transparent on the root, because under the pointer macOS widens
+  the bar and lays a full-height lane beside the thumb; no other scrollbar rule applies there, since
+  a `::-webkit-scrollbar` rule turns an overlay bar into a classic one with a gutter (8px against 0,
+  measured). On a Mac drawing classic bars every element states its own colour — transparent, and a
+  quiet thumb under the pointer — so no scroller inherits a lit thumb from a hovered ancestor. Which
+  kind the system draws is measured (`data-overlay-scrollbars`), not read from a preference that
+  depends on what is plugged in — this Mac changed mode mid-session as its Bluetooth mouse came and
+  went. `scrollbar-tracks-live.mjs` looks at both kinds, in both faces.
 - A column that opens or closes is a box that clips what it holds, its content riding one slide on
   the box's moving edge; everything beside it — the panes, a page over them, a bar's title — is laid
   out from that edge or moves on the same curve and duration. A layer placed against the window
@@ -873,7 +903,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   session by what it needed and drew the live ones as a wall and an office; it said again what those
   rows said, from a second place you had to go to, and the owner removed it (10-05). A relay beyond
   the Mac (a text, a Slack line) carries only those moments a person has to come back for, and one
-  open condition is sent once.
+  open condition is sent once. A sub-agent's request is said on its lead's row, as a count with the
+  waiting dot, and answered on its card in the lead's Agents tab, because the person started the lead
+  and not the child; one whose lead the window does not hold keeps a Needs you row of its own.
 - Home is the way back to the work, not a page: it puts away whatever page is up and lands on the
   session that was in front, in its space — or on a fresh prompter when nothing was, as closing the
   last pane does. A control that only ever returns is not a toggle, so it is never lit and carries no
@@ -930,10 +962,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   well-formed: each model by the name the server resolves, the tools that do it named too. The agent
   stays the one who splits the work, reads the reports and answers for them, and the transcript holds
   the ask beside everything done about it.
-- A sub-agent in its lead's transcript is a line of its own — "Subagent finished · <task>", its model,
+- A sub-agent in its lead's transcript is a line of its own — "Sub-agent finished · <task>", its model,
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
   came for, hidden behind the one line that says nothing about it.
+- The lead's Agents tab is where its sub-agents are run from, not only watched: a card each, saying
+  where it stands, what it runs on, in which checkout and mode, and how much of its budget of working
+  time is spent. A card waiting on a request is open with the request in it, answered there through
+  the same call the transcript uses; any card opens its transcript, takes a message or is stopped. What
+  a sub-agent started of its own nests under it, never beside it.
 - A question is one card whichever agent or server asked it, and it says who is asking first —
   "Codex asks", "Linear's MCP server asks" — because the same question means something different from
   each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the
@@ -976,6 +1013,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   Library lists every saved turn of the profile, because the Library holds what a person kept and the
   activity view is a log of what went by.
 - Never invent human-like agent presence, mood, or certainty.
+- A team role wears a Realmite (`packages/ui/src/realmite/`), at the owner's ask (10-08): a small
+  creature, generated from a seed and customisable, in place of a glyph. It is a mark, not a persona.
+  Its face reports the role's run and nothing else — idle, working, needs you, asleep — never a mood,
+  never a reaction to what was said, and no line of the interface is written in its voice: the role
+  still speaks through its transcript and its Review items, like any session. It is drawn at the
+  sizes a glyph would take (16 in a row or a log line, 32 on a card, 160 as a role page's hero),
+  nothing moves below 24px, idle breathes only from 48px, and Reduce motion stills it.
 
 ## Documents, diffs, terminals, and data
 

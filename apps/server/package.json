@@ -21,6 +21,7 @@
     "@realm/adapters": "workspace:*",
     "@realm/contracts": "workspace:*",
     "@realm/remote": "workspace:*",
+    "@realm/view": "workspace:*",
     "@xterm/headless": "^5.5.0",
     "katex": "^0.16.47",
     "node-pty": "1.2.0-beta.15",

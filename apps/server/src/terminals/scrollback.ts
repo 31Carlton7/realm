@@ -162,6 +162,13 @@ export class Scrollback {
     return [...this.rings.keys()];
   }
 
+  /** A key that changes whenever `snapshot` would: a new run, new output, or a resize. Cheap — it
+   *  does not join the buffer — so a flush can skip a terminal that printed nothing since the last. */
+  version(terminalId: string): string | null {
+    const ring = this.rings.get(terminalId);
+    return ring ? `${ring.runId}:${ring.newest}:${ring.cols}x${ring.rows}` : null;
+  }
+
   /** The size this terminal is currently being printed at, or null for one with no live ring.
    *  `read` deliberately does not carry it — a pane already knows how big it made the pty — but a
    *  reader that has to RENDER the bytes cannot lay them out without it (`screen.ts`). */

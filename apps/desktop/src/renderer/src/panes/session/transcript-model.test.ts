@@ -493,3 +493,15 @@ describe("a question put to the user", () => {
     expect(refused.blocks.at(-1)).toMatchObject({ kind: "question", card: { refused: "It asked for a password." }, decision: "deny" });
   });
 });
+
+describe("the media a turn left on disk", () => {
+  it("folds files_made in beside the blocks, keyed by its settle, and draws nothing", () => {
+    let t = reduceTranscript(emptyTranscript(), sessionEvent("user_message", { text: "make slides", attachments: [] }, 1));
+    const before = t.blocks;
+    const made = { settledAt: 50, files: [{ path: "/w/decks/v1/01.png", size: 10 }], totalFiles: 1 };
+    t = reduceTranscript(t, sessionEvent("files_made", made, 60));
+    // THE mutant: rendering it as a stray block in the transcript.
+    expect(t.blocks).toBe(before);
+    expect(t.made).toEqual({ 50: made });
+  });
+});

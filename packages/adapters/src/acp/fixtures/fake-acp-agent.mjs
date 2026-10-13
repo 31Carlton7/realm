@@ -266,7 +266,7 @@ function handleRequest(id, method, params) {
       if (process.env.FAKE_ACP_CONFIGOPTIONS) { ok(id, { sessionId: `sess_${nextSessionN++}`, ...sessionConfigOptions() }); return; }
       ok(id, { sessionId: `sess_${nextSessionN++}`, ...sessionModes(), models: { currentModelId: "fake-model-1", availableModels: process.env.FAKE_ACP_MODEL_GARBAGE
         // Rows a real preview build could plausibly emit around the good ones: no modelId, wrong types,
-        // blank ids, plus one nameless-but-valid id. Only the well-formed survive parseAcpModels.
+        // blank ids, plus one nameless-but-valid id. Only the well-formed survive the parse.
         ? [null, 42, "composer", { name: "No id" }, { modelId: "", name: "Blank id" }, { modelId: "fake-model-1", name: "Fake 1" }, { modelId: 7, name: "Numeric id" }, { modelId: "fake-model-2" }]
         : [{ modelId: "fake-model-1", name: "Fake 1" }, { modelId: "fake-model-2", name: "Fake 2" }] } });
       return;

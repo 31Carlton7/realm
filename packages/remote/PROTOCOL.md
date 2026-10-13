@@ -319,10 +319,12 @@ The Notification Service Extension:
 
 If any step fails, the placeholder stays. There is never a plaintext fallback.
 
-## 8. mobile.v1: the Phase 1 subset
+## 8. mobile.v1
 
 All times are Unix milliseconds. A field marked `?` may be absent. A reader must ignore fields it
-does not know, so the Mac can add fields without breaking an older phone.
+does not know, so the Mac can add fields without breaking an older phone. Everything added after
+Phase 1 is a field marked `?`, a new call or a new event: an older phone ignores all three, and a
+newer phone treats a missing field as the Phase 1 meaning given beside it.
 
 ### Rows
 
@@ -335,11 +337,15 @@ SessionRow {
   status: "idle"|"running"|"waiting"|"error"|"ended",
   needsYou: bool,
   unread: bool,
-  updatedAt: ms
+  updatedAt: ms,
+  agentName?: string,     the agent as the desktop names it ("Claude", "GitHub Copilot")
+  agentMark?: string,     the mark the desktop draws for it: a vendor's ("claude", "openai") or a glyph ("bot")
+  modelLabel?: string     the model as the desktop's chip names it ("Opus 5.5"), or its default's name
 }
 ```
 
-`waiting` is the desktop's `waiting_permission`.
+- `waiting` is the desktop's `waiting_permission`.
+- `needsYou` is true exactly when the row is in `home.get`'s `needsYou`.
 
 A **transcript row** is one thing in a session's transcript. Every row has `key`, `seq` and `kind`,
 then the fields its kind adds:
@@ -350,39 +356,109 @@ then the fields its kind adds:
 | `assistant` | `text`, `streaming: bool` |
 | `thinking` | `text` |
 | `tool` | `name`, `summary`, `state: "running"\|"done"\|"error"`, `detail: string\|null` |
-| `request` | `requestId`, `tool`, `title`, `summary`, `state: "pending"\|"allowed"\|"denied"`, `questions: [{question, header, multiSelect, options: [{label, description?}]}] \| null` |
+| `request` | `requestId`, `tool`, `title`, `summary`, `state: "pending"\|"allowed"\|"denied"`, `questions: [Question] \| null`, `asker?`, `message?`, `answers?`, `plan?: {text: string\|null, steps: [{text, status}] \| null}` |
 | `plan` | `text: string\|null`, `steps: [{text, status}] \| null` |
-| `notice` | `text` |
+| `notice` | `text`, `checkpointId?`, `files?: [{path, size}]` |
 | `error` | `text`, `hint: string\|null` |
 | `unknown` | `type`: the event type this phone cannot draw |
 
 - **A key names a row.** Keys look like `u:<seq>`, `m:<messageId>`, `k:<messageId>`,
-  `t:<toolUseId>`, `r:<requestId>`, `p:<planId>` or `e:<seq>`.
+  `t:<toolUseId>`, `r:<requestId>`, `p:<planId>`, `c:<checkpointId>` or `e:<seq>`.
 - **A later row with the same key replaces the earlier one** where it stands. That is how streamed
   text, tool results and answered requests update in place.
 - **`seq`** is the server's sequence number of the event that made the row. Streamed rows carry the
   seq of the last persisted event before them.
+
+A **request** is a question when it carries `questions`, a plan to approve when its `tool` is
+`ExitPlanMode`, and a permission otherwise. The questions are read from Realm's own ask card, by the
+rule the desktop's card uses (`questionOf` in `@realm/view`), never from an agent's arguments alone:
+
+```
+Question {
+  question: string,          the prompt
+  header: string,
+  multiSelect: bool,
+  options: [{label, description?, value?}],    value?: what the answer carries, where it is not the label
+  id?: string,               the key its answer goes under; absent from a Phase 1 Mac, where it was `question`
+  kind?: "choice"|"multi"|"text"|"confirm"|"model"|"file"|"branch"|"time"|"link"
+  allowOther?: bool,         an answer of the person's own is taken beside the options; absent means yes
+  secret?: bool,             typed into a masked field, and kept by the Mac only as a mark
+  required?: bool, detail?: string, placeholder?: string, default?: string|[string]
+}
+```
+
+- A `confirm` question carries the options `Yes` (`yes`) and `No` (`no`), as the desktop draws it.
+- `asker` says who asks: the agent's name, or `<name>'s MCP server`. `message` is what they said
+  the questions are for.
+- `answers`, once the request is answered, are the answers as the Mac logged them: question id → a
+  value or a list of values, a secret one only as `••••••`.
+- `plan` is on an `ExitPlanMode` request: the plan's text (from the request, else the session's
+  latest plan), and the latest plan's steps.
+
+A **notice** may lead somewhere. A turn's changes carry `checkpointId`, which `session.changes`
+opens. A turn's files made carry `files`, each of which `session.file` previews.
 
 ### Calls
 
 | Method | Params | Result |
 |---|---|---|
 | `ping` | `{}` | `{at: ms}`, the Mac's clock |
-| `home.get` | `{}` | `{mac: {name}, needsYou: [SessionRow], spaces: [{id, name, icon, color, sessions: [SessionRow], more: int}]}` |
-| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool}` |
+| `home.get` | `{}` | `{mac: {name}, needsYou: [SessionRow], spaces: [Space]}` |
+| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null}` |
 | `session.close` | `{id}` | `{ok: true}` |
 | `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer"}` | `{ok: true}` |
-| `session.answer` | `{id, requestId, decision: "allow"\|"allow_always"\|"deny", answers?: {<question>: <label>}}` | `{ok: true}` |
+| `session.answer` | `{id, requestId, decision: "allow"\|"allow_always"\|"deny", answers?: {<question id>: <value> \| [<value>]}}` | `{ok: true}` |
 | `session.stop` | `{id}` | `{ok: true}` |
 | `session.seen` | `{id, seq}` | `{ok: true}`. It marks the session read up to `seq`, and never moves backwards. |
 | `session.create` | `{spaceId, agent, text}` | `{id}` |
+| `session.changes` | `{id, checkpointId}` | `{checkpointId, files: [{path, oldPath, status, additions, deletions}], totalFiles}` |
+| `session.diff` | `{id, checkpointId, path, from?: int = 0}` | `{path, oldPath, status, binary, additions, deletions, lines: [string], from, next: int\|null, total, truncated, truncatedReason}` |
+| `session.file` | `{id, path}` | `{path, name, size, mime, preview: {kind: "image", mime, data} \| {kind: "text", text, truncated} \| {kind: "none", reason}}` |
+| `space.icon` | `{id}` | `{mime, data}`: base64 |
 | `debug.report` | `{name, data}` | `{ok: true}` |
 
+`Space` is `{id, name, icon, color, sessions: [SessionRow], more: int, iconKind?, glyph?, emoji?}`.
+`iconKind` reads `icon` as the desktop does: `glyph` (a Hugeicons glyph, by `glyph`), `emoji` (`emoji`),
+or `picture` (the person's own picture, which `space.icon` sends).
+
+**Needs you is the desktop's.** `home.get`'s `needsYou` is the sidebar's own rule, `needsYou` in
+`@realm/view`, run on the lists the sidebar is seeded from: `sessions.listAll`, `items.listAll`,
+`spaces.list`, and the quick chat's session from the `ui.quickChat` setting. So it leaves out the quick
+chat, a sub-agent waiting under a lead that is a row, a failure that has been read and an archived
+one, and it orders the waiting by how long each has waited, then the failures.
+
 **Opening a session subscribes the channel to it.** From then until `session.close` or the end of
-the channel, the Mac sends that session's `session.rows` and `session.status` events.
+the channel, the Mac sends that session's `session.rows`, `session.status` and `session.hint` events.
+
+**Answers are the desktop's shape.** `answers` maps a question's `id` (its `question` on a Phase 1
+Mac) to an option's `value` or words of the person's own; a multi-select question's answer is a
+list. The Mac holds them to the request's card, as it holds the desktop's. A Phase 1 phone's
+`{<question>: <label>}` is still accepted.
 
 `debug.report` exists only in development builds. The Mac writes it to `<home>/remote/reports/`.
 Phase 1 uses it to bring the phone's measurements back.
+
+### What each call exposes
+
+`mobile.v1` is an allowlist: a call that is not in it does not exist. What the later calls let a
+phone read, and what bounds it:
+
+- **`session.changes`**: the paths, statuses and line counts of the files one turn of that session
+  changed, as that turn's own `turn_changes` recorded them. A checkpoint of another session is not
+  found. At most 200 files.
+- **`session.diff`**: the patch of one of those files, between the two trees that turn recorded. The
+  path must be one the turn's changes list, or the call is refused (`FORBIDDEN`) without git being
+  asked; the phone names no tree. The Mac caps a patch at 512 KB and 4,000 lines, and a page at
+  2,000 lines and 256 KB of JSON; a line longer than 4,000 characters is cut, and says so.
+- **`session.file`**: a preview of one file that session's `files_made` listed, by the exact path
+  listed, or a refusal (`FORBIDDEN`). A path that is now a link, or not a file, is refused. A picture
+  is sent as a JPEG at most 1024 px on its longer side and 512 KB; a text as at most its first 16 KB;
+  anything else as nothing but its name, size and type.
+- **`space.icon`**: the picture a person uploaded or had made for a space, at most 256 KB.
+- **`session.hint`** and `hint`: the suggested next message the desktop's prompter shows.
+
+No call or event carries a terminal's output, a file outside those rules, another session's stream,
+a setting or a key.
 
 ### Events
 
@@ -390,6 +466,7 @@ Phase 1 uses it to bring the phone's measurements back.
 |---|---|---|
 | `session.rows` | `{id, rows: [Row]}` | Rows to upsert by key. Text deltas are coalesced to at most ten a second. |
 | `session.status` | `{id, status}` | The session's status changed. |
+| `session.hint` | `{id, text: string\|null}` | The suggested next message changed: a newer one after a turn, or none once something was sent. |
 | `home.changed` | `{}` | Call `home.get` again. Sent at most once a second. |
 | `pair.result` | see §4.1 | Pairing channels only. |
 
@@ -411,4 +488,8 @@ Phase 1 uses it to bring the phone's measurements back.
   sending cipher, created with `key` and starting at nonce 0, encrypting every message in order. One
   message is over 150 KB, to cover fragmentation.
 - **Links.** `ts-links.json` is `[{url, fields}]`, including an expired link and an unknown version.
+- **The API.** `ts-api.json` holds `mobile.v1`'s answers as the Mac's own projector and `MobileApi`
+  make them, every row kind included, with the answer the phone's card must send for one question.
+  The server's suite fails when the committed file is not what the code produces, or when a row kind
+  has no example in it; RealmKit decodes every answer in it.
 - **The relay.** Its own tests drive §3 against the Worker in workerd.

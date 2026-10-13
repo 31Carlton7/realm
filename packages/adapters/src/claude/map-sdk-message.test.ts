@@ -122,6 +122,30 @@ describe("map-sdk-message", () => {
 
   });
 
+  describe("the result's tokens", () => {
+    const result = (modelUsage: unknown) => createSdkMapper().map({
+      type: "result", subtype: "success", session_id: "s", uuid: "u", is_error: false, num_turns: 4,
+      total_cost_usd: 2.5, usage: { input_tokens: 10, output_tokens: 300, cache_read_input_tokens: 9_000 }, modelUsage,
+      permission_denials: [], result: "ok",
+    } as never).find((e) => e.type === "usage");
+
+    it("counts every model the query used, cache and sub-agents included, as running totals", () => {
+      // `usage` is the main loop's turn alone — on a real session it held 3.6M of the 9.4M output
+      // tokens, the rest being sub-agents'. `modelUsage` is the SDK's own accounting field.
+      const e = result({
+        "claude-opus-5-5": { inputTokens: 40, outputTokens: 2_000, cacheReadInputTokens: 900_000, cacheCreationInputTokens: 30_000, costUSD: 2 },
+        "claude-haiku-4-5": { inputTokens: 5, outputTokens: 100, cacheReadInputTokens: 10_000, cacheCreationInputTokens: 0, costUSD: 0.5 },
+      });
+      expect(e?.payload).toMatchObject({ inputTokens: 45, outputTokens: 2_100, cacheReadTokens: 910_000, cacheWriteTokens: 30_000, cumulativeTokens: true, costUsd: 2.5, numTurns: 4 });
+    });
+
+    it("falls back to the turn's own usage, unmarked, when there is no modelUsage to read", () => {
+      const e = result({});
+      expect(e?.payload).toMatchObject({ inputTokens: 10, outputTokens: 300 });
+      expect(e?.payload).not.toHaveProperty("cumulativeTokens");
+    });
+  });
+
   describe("the result states no context, because it cannot", () => {
     const result = (usage: unknown) => createSdkMapper().map({
       type: "result", subtype: "success", session_id: "s", uuid: "u", is_error: false, num_turns: 3,
