@@ -325,16 +325,20 @@ export function Film({ download, claims }: { download: MacDownload; claims: Prov
           return
         }
         const cx = keyX + (i + 1 - q) * step
+        const lit = litOf(cx)
         node.style.visibility = "visible"
         node.style.transform = `translate3d(${(cx - g.F / 2).toFixed(2)}px, ${(g.cy - g.Fh / 2).toFixed(2)}px, 0)`
-        node.dataset.lightLit = litOf(cx).toFixed(3)
+        // Out of the light, a picture is as dim as the light on it says.
+        node.style.filter = `brightness(${(0.42 + 0.58 * lit).toFixed(3)})`
+        node.dataset.lightLit = lit.toFixed(3)
       })
-      frameEl.dataset.lightLit = stripOn ? litOf(pose.tx + (pose.s * WINDOW.width) / 2).toFixed(3) : "1"
+      const windowLit = stripOn ? litOf(pose.tx + (pose.s * WINDOW.width) / 2) : 1
+      frameEl.dataset.lightLit = windowLit.toFixed(3)
+      frameEl.style.filter = stripOn ? `brightness(${(0.42 + 0.58 * windowLit).toFixed(3)})` : ""
 
-      // The key light, aimed into the set; the floor is wherever the window (or the strip) stands.
-      studioScene.key = stripOn
-        ? [keyX, g.cy - g.Fh * 0.35, g.F * 1.25, 1]
-        : [set.x + set.w * 0.58, set.y + set.h * 0.3, set.w * 0.95, 1]
+      // The key light hangs above the set, fixed to the studio rather than to the window, so the window
+      // moves under it as the camera does; the floor is wherever the window (or the strip) stands.
+      studioScene.key = stripOn ? [keyX, -g.vh * 0.3, g.vh * 1.15, 1] : [set.x + set.w * 0.62, -g.vh * 0.32, g.vh * 1.2, 1]
       studioScene.floor = stripOn ? g.cy + g.Fh / 2 : pose.ty + pose.s * WINDOW.height
       studioScene.hot = null
       studioScene.dark = g.dark
@@ -366,7 +370,10 @@ export function Film({ download, claims }: { download: MacDownload; claims: Prov
           const tw = pose.s * box.w
           const th = pose.s * box.h
           const [sx, sy] = g.starts[BEATS[shownBeat]!.chapter] ?? [set.x - 132, g.vh / 2]
-          const ex = Math.max(tx, set.x - 40)
+          // The camera's focus marks round the part, closing on it as the line arrives; the line ends
+          // on their left side, so it meets the frame of the part rather than crossing into it.
+          const pad = 8 + 16 * (1 - smoother(ramp(0.4, 1, draw)))
+          const ex = Math.max(tx - pad, set.x - 40)
           const ey = clamp(sy, ty + 18, ty + th - 18)
           const run = Math.abs(ey - sy) * Math.tan(Math.PI / 6)
           const bend = ex - 12 - run
@@ -382,8 +389,6 @@ export function Film({ download, claims }: { download: MacDownload; claims: Prov
           ring.setAttribute("cx", ex.toFixed(1))
           ring.setAttribute("cy", ey.toFixed(1))
           ring.style.opacity = `${ramp(0.75, 1, draw)}`
-          // The camera's focus marks round the part, closing on it as the line arrives.
-          const pad = 8 + 16 * (1 - smoother(ramp(0.4, 1, draw)))
           const x0 = tx - pad
           const y0 = ty - pad
           const x1 = tx + tw + pad

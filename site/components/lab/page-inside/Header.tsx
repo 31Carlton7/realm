@@ -35,7 +35,7 @@ export function Header({ download }: { download: MacDownload }) {
       ref={ref}
       className="group/head fixed inset-x-0 top-0 z-50 transition-[background-color,box-shadow] duration-300 ease-[var(--ease-out-strong)] data-[scrolled]:bg-page data-[scrolled]:shadow-[inset_0_-1px_0_var(--color-line)]"
     >
-      <div data-light-words data-light-pad="28" className="mx-auto flex h-16 w-full max-w-[1680px] items-center gap-4 px-6 sm:px-10 lg:px-14">
+      <div data-light-words data-light-pad="110" className="mx-auto flex h-16 w-full max-w-[1680px] items-center gap-4 px-6 sm:px-10 lg:px-14">
         <Link href="/" className="text-ink transition-opacity duration-150 hover:opacity-75">
           <Wordmark />
         </Link>

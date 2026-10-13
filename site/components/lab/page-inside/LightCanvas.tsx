@@ -86,6 +86,7 @@ export function LightCanvas() {
           lit: Number(node.dataset.lightLit ?? 1),
           face: Number(node.dataset.lightFace ?? 0.06),
           squircle: node.dataset.lightShape === "squircle",
+          rim: node.dataset.lightRim !== "off",
         })
       }
       const words: StudioInput["words"] = []
@@ -95,10 +96,10 @@ export function LightCanvas() {
         words.push({ rect, pad: Number(node.dataset.lightPad ?? 64) })
       }
 
-      // The camera says where the key light is aimed; without one, it is aimed just above and to the
-      // right of the first lit object, and the floor is that object's foot.
+      // The camera says where the key light hangs; without one, it hangs above the first lit object and
+      // toward its right, and the floor is that object's foot.
       const main = objects[0]?.rect
-      const key = studioScene.key ?? (main ? ([main[0] + main[2] * 0.62, main[1] + main[3] * 0.3, Math.max(main[2], 320), 1] as const) : ([0, 0, 0, 0] as const))
+      const key = studioScene.key ?? (main ? ([main[0] + main[2] * 0.62, main[1] - main[3] * 0.8, Math.max(main[2], main[3]) * 1.4, 1] as const) : ([0, 0, 0, 0] as const))
       const floor = studioScene.floor ?? (main ? main[1] + main[3] : window.innerHeight * 2)
 
       return {

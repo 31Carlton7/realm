@@ -49,7 +49,7 @@ struct Studio {
   floor: vec4f,    // the floor line (CSS px), unused, unused, unused
   counts: vec4f,   // lit objects, word blocks, bright regions, unused
   objs: array<vec4f, ${MAX_OBJECTS}>,   // each lit object's rect: left, top, width, height
-  looks: array<vec4f, ${MAX_OBJECTS}>,  // its corner radius (CSS px), how lit it is 0..1, its face's light, its shape (0 round, 1 squircle)
+  looks: array<vec4f, ${MAX_OBJECTS}>,  // its corner radius (CSS px), how lit it is 0..1, its face's light, flags: 1 squircle, 2 no rim
   words: array<vec4f, ${MAX_WORDS}>,    // text no light with area may reach
   pads: vec4f,                          // how far outside each text block the light takes to return (CSS px)
   hot: vec4f,                           // a bright region on the main object's face (rect), for its reflection
@@ -135,12 +135,15 @@ fn wordsBound(p: vec2f) -> f32 {
   var bound = wordsBound(p);
   // On the stage, everything left of the light's edge is in the dark, the window's own edge included:
   // the same ramp the window is masked with.
-  if (studio.dark.z > 0.0) { bound *= smoothstep(studio.dark.x, studio.dark.y, p.x); }
+  if (studio.dark.z > 0.0) { bound *= smoothstep(studio.dark.x, studio.dark.y + 120.0, p.x); }
   if (bound <= 0.0) { return vec4f(page, 1.0); }
 
-  // The key light, turned toward the pointer a little: where its highlight sits on an edge.
+  // The key light hangs above the object, in front of it. The pointer moves it, the way a light is
+  // moved round a product on a set, so the highlight travels along the edge toward the hand.
   let presence = studio.pointer.z * (1.0 - studio.view.w);
-  let keyAt = studio.key.xy + (studio.pointer.xy - studio.key.xy) * 0.22 * presence;
+  let follow = vec2f(0.62, 0.25) * presence;
+  let keyAt = studio.key.xy + (studio.pointer.xy - studio.key.xy) * follow;
+  let reachKey = max(studio.key.z, 1.0);
   let strength = studio.key.w;
   let floorY = studio.floor.x;
 
@@ -151,74 +154,83 @@ fn wordsBound(p: vec2f) -> f32 {
     if (i >= n) { break; }
     let rect = studio.objs[i];
     let look = studio.looks[i];
-    let lit = look.y;
+    let lit = look.y * strength;
     if (rect.z < 1.0 || lit <= 0.001) { continue; }
     let half = rect.zw * 0.5;
     let centre = rect.xy + half;
     let q = p - centre;
-    let sd = sdShape(q, half, look.x, look.w);
+    let squircle = look.w - 2.0 * floor(look.w * 0.5) > 0.5;
+    let rimmed = look.w < 1.5;
+    var sd = sdRound(q, half, look.x);
+    if (squircle) { sd = sdSquircle(q, half, look.x); }
     // The object itself is the DOM's; the canvas is only ever seen around it.
     if (sd < -0.75 * px) { return vec4f(page, 1.0); }
     let bottom = rect.y + rect.w;
     let below = p.y - bottom;
-    let reach = max(rect.z, rect.w);
-    if (sd > reach * 0.6 && below < 0.0) { continue; }
+    let size = max(rect.z, rect.w);
+    if (sd > size * 0.7 && below < 0.0) { continue; }
+    let s = max(sd, 0.0);
 
-    // Rim. The light comes from above and toward the key side; the edges that face it catch it, the
-    // top edge most, and most of all where the light's own reflection sits on it. A device-pixel line
-    // with almost no glow: a lit edge, not a halo.
-    if (sd < 60.0) {
-      let toKey = normalize(vec2f((keyAt.x - centre.x) / max(half.x, 1.0) * 0.55, -1.0));
-      let nrm = edgeNormal(q, half, look.x);
-      let facing = dot(nrm, toKey);
-      let catchLight = pow(smoothstep(-0.1, 1.0, facing), 1.8);
-      let glintX = centre.x + (keyAt.x - centre.x) * 0.6;
-      let glint = exp(-pow((p.x - glintX) / (rect.z * 0.18 + 36.0), 2.0)) * smoothstep(0.2, 0.9, -nrm.y);
-      let s = max(sd, 0.0);
-      let line = exp(-s * dpr * 1.3);
-      let edge = catchLight * (0.22 + 0.78 * glint);
-      light += KEY * edge * (line * 0.42 + exp(-s / 2.5) * 0.05 + exp(-s / 10.0) * 0.012) * lit * strength;
-      // The screen's own light, on the page right around it.
-      light += SCREEN * look.z * exp(-s / 26.0) * 0.03 * lit;
+    // Where on the edge this pixel is, which way that edge faces, and how it stands to the light.
+    let nrm = edgeNormal(q, half, look.x);
+    let onEdge = p - nrm * s;
+    let toKey = keyAt - onEdge;
+    let distance = length(toKey);
+    let facing = dot(nrm, toKey / max(distance, 1.0));
+    let near = 1.0 / (1.0 + pow(distance / (reachKey * 0.5), 2.0));
+    let edgeLight = smoothstep(-0.05, 1.0, facing) * (0.12 + 0.88 * near);
+
+    // The rim: a device-pixel line where the edge catches the light, and a short bloom off it.
+    if (rimmed && s < 48.0) {
+      let line = exp(-s * dpr * 1.15);
+      light += KEY * edgeLight * (line * 0.85 + exp(-s / 3.5) * 0.07 + exp(-s / 16.0) * 0.022) * lit;
     }
+    // The screen's own light on the page right around it.
+    light += SCREEN * look.z * exp(-s / 34.0) * 0.045 * lit;
 
-    // The floor, under this object: the shadow along the line it stands on, and its reflection —
-    // mirrored, blurred more the further it travels, and gone within a few percent of its height.
-    if (below > 0.0 && below < rect.w * 0.3) {
-      let ends = 1.0 - smoothstep(-4.0 - below * 0.5, 5.0 + below * 0.7, abs(q.x) - half.x);
-      shade += (0.5 * exp(-below / 3.0) + 0.22 * exp(-below / 18.0)) * ends * lit;
+    // The wall behind it, lit from above: brightest just behind its upper edge and toward the key side,
+    // falling away before it reaches anything else on the page.
+    let wallAt = vec2f(centre.x + (keyAt.x - centre.x) * 0.35, rect.y + rect.w * 0.2);
+    let wv = (p - wallAt) / vec2f(rect.z * 0.58, rect.w * 0.62);
+    light += KEY * 0.014 / pow(1.0 + dot(wv, wv), 2.2) * smoothstep(-6.0, 40.0, sd) * lit;
 
+    // The floor it stands on: the reflection starts at the line it stands on, mirrored, blurred more
+    // the further it travels, and gone within a few percent of the object's height. Off its ends the
+    // floor darkens where the object shades it.
+    if (below > 0.0 && below < rect.w * 0.4) {
       let m = vec2f(q.x, rect.w * 0.5 - below);
-      let blur = 2.0 + below * 0.22;
-      let sdm = sdShape(m, half, look.x, look.w);
+      let blur = 1.5 + below * 0.34;
+      var sdm = sdRound(m, half, look.x);
+      if (squircle) { sdm = sdSquircle(m, half, look.x); }
       let cover = 1.0 - smoothstep(-blur, blur, sdm);
-      let rimm = exp(-abs(sdm) / (blur * 0.7 + 0.5));
-      let fade = exp(-below / (rect.w * 0.05 + 10.0));
-      var reflected = cover * look.z * 0.05 + rimm * 0.035;
+      let fade = exp(-below / (rect.w * 0.07 + 10.0));
+      // The mirrored edge carries the light that edge caught; the bottom edge caught none.
+      let mn = edgeNormal(m, half, look.x);
+      let mFacing = dot(mn, normalize(keyAt - (centre + m)));
+      let mirroredRim = exp(-abs(sdm) / (blur * 0.6 + 0.6)) * smoothstep(-0.05, 1.0, mFacing) * select(0.0, 0.5, rimmed);
+      var reflected = cover * look.z * 0.12 + mirroredRim * 0.06;
       if (i == 0 && studio.hotLight.x > 0.0) {
         let h = studio.hot;
         let hm = vec2f(p.x, bottom - below) - h.xy - h.zw * 0.5;
         let hc = 1.0 - smoothstep(-blur, blur, sdBox(hm, h.zw * 0.5));
-        reflected += hc * studio.hotLight.x * 0.06;
+        reflected += hc * studio.hotLight.x * 0.12;
       }
-      light += mix(KEY, SCREEN, 0.5) * reflected * fade * lit;
+      light += mix(KEY, SCREEN, 0.6) * reflected * fade * lit;
+      // Occlusion where the floor meets the object, outside its reflection: round its two ends, and
+      // gone a short way beyond them, so the floor line is never drawn across the page.
+      let beyond = abs(q.x) - half.x;
+      let ends = smoothstep(-2.0, 6.0 + below * 0.6, beyond) * exp(-max(beyond, 0.0) / (18.0 + below * 0.8));
+      let under = exp(-pow(max(beyond, 0.0) / (rect.z * 0.08 + 20.0), 2.0));
+      shade += (0.45 * exp(-below / 4.0) * ends + 0.16 * exp(-below / 26.0) * (1.0 - cover) * under) * look.y;
     }
   }
 
-  // The studio around the objects, from the key light: a soft band where the wall curves into the
-  // floor behind them, and the pool the light throws on the floor in front of them. Both are a few
-  // code values over the page at their brightest; the dither keeps them from banding.
-  let reachKey = studio.key.z;
-  if (reachKey > 1.0 && strength > 0.0) {
-    let dx = (p.x - keyAt.x) / (reachKey * 0.75);
-    let across = exp(-dx * dx);
-    let dyWall = (p.y - (floorY - reachKey * 0.22)) / (reachKey * 0.5);
-    var studioLight = 0.0045 * across * exp(-dyWall * dyWall);
-    if (p.y > floorY) {
-      let dy = p.y - floorY;
-      studioLight += 0.0045 * exp(-dx * dx * 1.6) * exp(-dy / (reachKey * 0.18)) * smoothstep(0.0, 24.0, dy);
-    }
-    light += KEY * studioLight * strength;
+  // The pool the key light throws on the floor in front of the objects. A few code values over the
+  // page at its brightest; the dither keeps it from banding.
+  if (studio.key.z > 1.0 && strength > 0.0 && p.y > floorY) {
+    let dy = p.y - floorY;
+    let dx = (p.x - keyAt.x) / (reachKey * 0.42);
+    light += KEY * 0.008 * exp(-dx * dx) * exp(-dy / (reachKey * 0.16)) * smoothstep(0.0, 18.0, dy) * strength;
   }
 
   let color = finish(light * bound, shade * bound);
@@ -235,7 +247,7 @@ export type StudioInput = {
   dpr: number
   key: readonly [number, number, number, number]
   floor: number
-  objects: { rect: readonly [number, number, number, number]; radius: number; lit: number; face: number; squircle?: boolean }[]
+  objects: { rect: readonly [number, number, number, number]; radius: number; lit: number; face: number; squircle?: boolean; rim?: boolean }[]
   words: { rect: readonly [number, number, number, number]; pad: number }[]
   hot: { rect: readonly [number, number, number, number]; light: number } | null
   dark: readonly [number, number] | null
@@ -286,7 +298,7 @@ export function createStudio(gpu: Gpu, output: Surface) {
         objs: Array.from({ length: MAX_OBJECTS }, (_, i) => (objects[i] ? ([...objects[i]!.rect] as Vec4) : ZERO)),
         looks: Array.from({ length: MAX_OBJECTS }, (_, i) => {
           const o = objects[i]
-          return o ? ([o.radius, o.lit, o.face, o.squircle ? 1 : 0] as Vec4) : ZERO
+          return o ? ([o.radius, o.lit, o.face, (o.squircle ? 1 : 0) + (o.rim === false ? 2 : 0)] as Vec4) : ZERO
         }),
         words: Array.from({ length: MAX_WORDS }, (_, i) => (words[i] ? ([...words[i]!.rect] as Vec4) : ZERO)),
         pads: Array.from({ length: 4 }, (_, i) => words[i]?.pad ?? 1) as Vec4,

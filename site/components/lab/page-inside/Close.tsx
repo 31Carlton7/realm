@@ -50,6 +50,7 @@ export function Close({ download }: { download: MacDownload }) {
       frame.style.borderRadius = `${r.toFixed(2)}px`
       frame.dataset.lightR = r.toFixed(2)
       frame.dataset.lightShape = mixIcon > 0.5 ? "squircle" : "round"
+      frame.dataset.lightRim = mixIcon > 0.5 ? "off" : "on"
       frame.dataset.lightFace = mix(0.07, 0.22, mixIcon).toFixed(3)
       shot.style.opacity = (1 - mixIcon).toFixed(3)
       const size = w / BODY
@@ -69,7 +70,7 @@ export function Close({ download }: { download: MacDownload }) {
       const key = `${film}|${p.toFixed(4)}|${box.left}|${box.top}|${box.width}|${box.height}`
       if (onScreen) {
         // The light is aimed at the icon, from above it and to the key side, with the floor at its foot.
-        studioScene.key = [box.left + box.width * 0.55, box.top + box.height * 0.35, Math.max(260, box.width * 0.6), 1]
+        studioScene.key = [box.left + box.width * 0.56, box.top - box.height * 0.5, Math.max(520, box.height * 1.5), 1]
         studioScene.floor = null
         studioScene.dark = null
       }
@@ -80,10 +81,12 @@ export function Close({ download }: { download: MacDownload }) {
       const cy = box.top + box.height * (film ? 0.44 : 0.5)
       const w0 = Math.min(box.width * 0.94, 980)
       const h0 = w0 * 0.625
+      // It shrinks first, as a window, then squares off into the icon: the width eases down in
+      // proportion, and the shape goes from the window's 16:10 to the icon's square near the end.
       const shrink = smoother(ramp(0.04, 0.8, p))
-      const square = smoother(ramp(0.3, 0.86, p))
+      const square = smoother(ramp(0.38, 0.86, p))
       const w = Math.exp(mix(Math.log(w0), Math.log(iconSize), shrink))
-      const h = Math.exp(mix(Math.log(h0), Math.log(iconSize), Math.min(shrink, square)))
+      const h = w / mix(w0 / h0, 1, square)
       const r = mix(14, iconSize * 0.24, smoother(ramp(0.35, 0.9, p)))
       place(cx - box.left, cy - box.top, w, h, r, ramp(0.62, 0.92, p))
     }
