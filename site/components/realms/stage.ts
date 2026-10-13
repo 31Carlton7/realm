@@ -22,6 +22,7 @@ import {
   type RealmData,
   type SceneUniforms,
 } from "./shaders"
+import { takeOpened } from "./hands"
 import { ROLES, WORLD_REALMITE } from "./Team"
 import { between, clearOff, doorCorners, doorSill, facing, inWorld, MAX_REALMS, packRealms, populate, realmAt, type Pose, type Realm } from "./world"
 
@@ -248,7 +249,7 @@ function moment(list: Stand[], scrollY: number, mode: Mode): Moment {
  * and the light still runs from one to the other. Placed by where it should land on the page at the
  * chapter's own view, so it sits in the room the layout leaves above the screen, whatever its size.
  */
-function chapterRealm(stand: Stand, slot: Rect, height: number, t: number, index: number): Pose {
+function chapterRealm(stand: Stand, slot: Rect, height: number, t: number, index: number, turned: number): Pose {
   const view = stand.key.view
   const b = basis(view)
   const side = stand.side ?? 1
@@ -268,8 +269,20 @@ function chapterRealm(stand: Stand, slot: Rect, height: number, t: number, index
   // it, and pitched down toward the screen under it, so its top is what faces the reader. A slow turn
   // either way about that, so it is never quite still.
   const toEye = normalize(sub3(view.eye, at))
-  const heading = Math.atan2(toEye[1], toEye[0]) - side * 0.5 + Math.sin(t * 0.17 + index * 1.7) * 0.08
-  const pitch = -0.62 + Math.sin(t * 0.13 + index) * 0.04
+  // A hand near it turns it to the reader: its doorway square to them, its top still showing.
+  const heading = Math.atan2(toEye[1], toEye[0]) - side * 0.5 * (1 - turned) + Math.sin(t * 0.17 + index * 1.7) * 0.08 * (1 - turned)
+  const pitch = lerp(-0.62, -0.32, turned) + Math.sin(t * 0.13 + index) * 0.04
+  return facing(at, [Math.cos(pitch) * Math.cos(heading), Math.cos(pitch) * Math.sin(heading), Math.sin(pitch)], size)
+}
+
+/**
+ * A realm turned to an eye as the mark is drawn for it: the doorway a little to the right of the eye,
+ * the left wall beside it, and pitched toward the eye so its top shows.
+ */
+function presented(at: Vec3, eye: Vec3, size: number, aside = 0.5, down = 0.42): Pose {
+  const toEye = normalize(sub3(eye, at))
+  const heading = Math.atan2(toEye[1], toEye[0]) + aside
+  const pitch = Math.asin(clamp(toEye[2], -1, 1)) - down
   return facing(at, [Math.cos(pitch) * Math.cos(heading), Math.cos(pitch) * Math.sin(heading), Math.sin(pitch)], size)
 }
 
@@ -394,13 +407,15 @@ export const createRealms: StageFactory = async (gpu, output) => {
   const root = document.documentElement
   const screens = new Map<string, Node>()
   const realmites = new Map<string, Node>()
+  /** The keyboard's keys to the chapters' realms (RealmKey), by chapter. */
+  const keys = new Map<string, Node>()
   /** The panes words sit on (FieldPanel), by their anchor: each one's corner as drawn right now. */
   const panes = new Map<string, number>()
 
   // ---- the reader's hand ------------------------------------------------------------------------
   /** Realms the reader is touching, by index: the sky's from 0, the page's from MAX_REALMS. */
   const touches = new Map<number, Touch>()
-  const hand = { x: -1, y: -1, over: false, inside: false, clicked: false, clickX: 0, clickY: 0 }
+  const hand = { x: -1, y: -1, over: false, inside: false, clicked: false, clickX: 0, clickY: 0, key: "" }
   /** Content under the pointer takes the pointer: words, pictures, controls. */
   const CONTENT = "a,button,input,select,textarea,summary,label,[data-field-panel],[data-screen],[data-field-anchor='portal'],header,footer,[role='button']"
   const onMove = (event: PointerEvent) => {
@@ -408,13 +423,18 @@ export const createRealms: StageFactory = async (gpu, output) => {
     hand.x = event.clientX
     hand.y = event.clientY
     hand.inside = true
-    hand.over = event.target instanceof Element && event.target.closest(CONTENT) !== null
+    const target = event.target instanceof Element ? event.target : null
+    // A realm's own key is the realm, not content over it.
+    const key = target?.closest<HTMLElement>("[data-realm-key]")
+    hand.key = key?.dataset.realmKey ?? ""
+    hand.over = !key && target?.closest(CONTENT) != null
   }
   const onLeave = () => {
     hand.inside = false
   }
   const onClick = (event: MouseEvent) => {
     if (event.target instanceof Element && event.target.closest(CONTENT)) return
+    if (event.target instanceof Element && event.target.closest("[data-realm-key]")) return
     hand.clicked = true
     hand.clickX = event.clientX
     hand.clickY = event.clientY
@@ -447,6 +467,10 @@ export const createRealms: StageFactory = async (gpu, output) => {
     for (const el of document.querySelectorAll<HTMLElement>("[data-realmite]")) {
       const id = el.dataset.realmite!
       if (realmites.get(id)?.el !== el) realmites.set(id, { el, last: "" })
+    }
+    for (const el of document.querySelectorAll<HTMLElement>("[data-realm-key]")) {
+      const id = el.dataset.realmKey!
+      if (keys.get(id)?.el !== el) keys.set(id, { el, last: "" })
     }
   }
 
@@ -668,7 +692,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
         if (stand.foot && stand.slot && stand.depth !== undefined && pageCount < PAGE_REALMS) {
           const slotNow = input.anchors[`s:${id}`]
           const slotAtKey: Rect = slotNow ? rest(slotNow, scrollY, stand.key.y) : [0, 0, stand.slot[0], stand.slot[1]]
-          const pose = chapterRealm(stand, slotAtKey, height, t, index)
+          const pose = chapterRealm(stand, slotAtKey, height, t, index, smooth(touches.get(MAX_REALMS + pageCount)?.turn ?? 0))
           const near = Math.max(0, 1 - Math.abs(index - progress))
           const slot = pageCount++
           pageIndex.set(id, slot)
@@ -688,7 +712,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
             const picked = node?.el.dataset.picked !== undefined
             const toEye = normalize(sub3(stand.key.view.eye, at))
             const bobbing: Vec3 = [0, 0, Math.sin(t * 0.5 + r * 1.9) * 0.06]
-            const pose = facing(add(at, bobbing), spun([toEye[0], toEye[1], 0], 0.5), 1)
+            const turned = smooth(touches.get(MAX_REALMS + pageCount)?.turn ?? 0)
+            const pose = facing(add(at, bobbing), spun([toEye[0], toEye[1], toEye[2] * 0.6 * turned], 0.5 * (1 - turned)), 1)
             const slot = pageCount++
             pageIndex.set(`team-${r}`, slot)
             pagePoses[slot] = pose
@@ -792,6 +817,34 @@ export const createRealms: StageFactory = async (gpu, output) => {
         )
       }
 
+      // The keyboard's keys, each over its chapter's realm while that is in view.
+      for (const [id, node] of keys) {
+        const slot = pageIndex.get(id)
+        const pose = slot !== undefined ? pagePoses[slot] : null
+        let css = ""
+        if (pose && mode !== "still") {
+          let x0 = Infinity
+          let y0 = Infinity
+          let x1 = -Infinity
+          let y1 = -Infinity
+          let behind = false
+          for (const cx of [-0.5, 0.5]) for (const cy of [-0.5, 0.5]) for (const cz of [-0.5, 0.5]) {
+            const [x, y, z] = project(view, b, inWorld(pose, [cx, cy, cz]))
+            if (z < 1) behind = true
+            x0 = Math.min(x0, x)
+            y0 = Math.min(y0, y)
+            x1 = Math.max(x1, x)
+            y1 = Math.max(y1, y)
+          }
+          const w = x1 - x0
+          const h = y1 - y0
+          if (!behind && w > 24 && w < width && x1 > 0 && y1 > 0 && x0 < width && y0 < height) {
+            css = `width:${(w + 12).toFixed(1)}px;height:${(h + 12).toFixed(1)}px;transform:translate3d(${(x0 - 6).toFixed(1)}px,${(y0 - 6).toFixed(1)}px,0);visibility:visible`
+          }
+        }
+        write(node, css)
+      }
+
       // The working sample is a lit screen too: the same breath of light at its edge as every chapter's.
       const portal = input.anchors.portal
       if (portal && visible(portal) && panels.length < PANELS * 2) panels.push([...portal], [0, 16, 0.85, 0])
@@ -837,6 +890,20 @@ export const createRealms: StageFactory = async (gpu, output) => {
           const pose = pagePoses[k]
           if (pose) consider(MAX_REALMS + k, pose)
         }
+      }
+      // A key with the focus, or under the pointer, is its realm.
+      const focusedKey = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.realmKey : undefined
+      for (const id of [focusedKey, hand.inside ? hand.key : ""]) {
+        const slot = id ? pageIndex.get(id) : undefined
+        if (live && slot !== undefined) found = MAX_REALMS + slot
+      }
+      for (const id of takeOpened()) {
+        const slot = pageIndex.get(id)
+        if (!live || slot === undefined) continue
+        const index = MAX_REALMS + slot
+        const touch = touches.get(index) ?? { hover: 0, turn: 0, open: 0, opened: -100, glow: 0, until: 0 }
+        touch.opened = t
+        touches.set(index, touch)
       }
       if (found !== hovered) hovered = found
       const wantCursor = hovered >= 0
@@ -913,9 +980,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
           scene.touched[j * 5 + 4] = [-1, 0, 0, 0]
           continue
         }
-        // It turns toward the reader as the hand comes near, its doorway to them.
-        const toEye = normalize(sub3(view.eye, natural.at))
-        const turned = between(natural, facing(natural.at, toEye, Math.hypot(...natural.z)), smooth(touch.turn) * 0.9)
+        // It turns toward the reader as the hand comes near, as the mark is drawn for them.
+        const turned = between(natural, presented(natural.at, view.eye, Math.hypot(...natural.z)), smooth(touch.turn))
         writeSpecial(scene.touched, j, turned, touch.glow, 0, touch.open, index, touch.hover)
       }
 
@@ -924,12 +990,12 @@ export const createRealms: StageFactory = async (gpu, output) => {
         if (touch.open <= 0.01 || beamsNow.length >= BEAMS) continue
         const natural = naturalPose(index, t)
         if (!natural) continue
-        const pose = index < MAX_REALMS ? between(natural, facing(natural.at, normalize(sub3(view.eye, natural.at)), Math.hypot(...natural.z)), smooth(touch.turn) * 0.9) : natural
+        const pose = index < MAX_REALMS ? between(natural, presented(natural.at, view.eye, Math.hypot(...natural.z)), smooth(touch.turn)) : natural
         const door = doorCorners(pose)
         const out = normalize(mul(pose.y, -1))
         const s = Math.hypot(...pose.z)
         const mid = add(mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25), mul(out, 5 * s))
-        beamsNow.unshift({ door, mid, half: [1.1 * s, 1.5 * s], light: 1.4 * touch.open, kind: 1, moment: index * 0.13, reach: touch.open })
+        beamsNow.unshift({ door, mid, half: [1.1 * s, 1.5 * s], light: 1.1 * touch.open, kind: 1, moment: index * 0.13, reach: touch.open })
       }
 
       // The hand-offs in flight: a point of light from one doorway to the other.

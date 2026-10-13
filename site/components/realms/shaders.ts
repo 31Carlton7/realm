@@ -1066,7 +1066,9 @@ fn fence(p: vec2f, depthHere: f32, dpr: f32) -> vec3f {
   let t = comp.view.w;
   let page = toLinear(PAGE);
   let scene = textureSampleLevel(sceneTex, sceneSampler, uv, 0.0);
-  let field = scene.rgb;
+  // The glows are added into the scene and can carry it past white; held there, so the light laid over
+  // it below brightens and never turns a channel back down.
+  let field = min(scene.rgb, vec3f(1.0));
   let clear = clearance(p, dpr);
   var color = mix(SPACE_DEEP, field, clear);
 

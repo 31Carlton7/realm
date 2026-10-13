@@ -2,6 +2,7 @@
 
 import { FieldCanvas } from "@/components/field/FieldCanvas"
 
+import { RealmKeys } from "./RealmKey"
 import { createRealms } from "./stage"
 
 /**
@@ -13,7 +14,14 @@ import { createRealms } from "./stage"
  *   p:<id>           or the picture it is composed around, where the words stand above it
  *   s:<id>           the slot a chapter's screen comes to rest in, or where the team's realms stand
  *   c:<name>         any other block of words the field keeps its light off
+ *
+ * Each chapter's realm also has a key for the keyboard (RealmKey), which the field lays over it.
  */
 export function Flight() {
-  return <FieldCanvas create={createRealms} />
+  return (
+    <>
+      <FieldCanvas create={createRealms} />
+      <RealmKeys />
+    </>
+  )
 }
