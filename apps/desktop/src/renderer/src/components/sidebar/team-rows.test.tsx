@@ -113,4 +113,17 @@ describe("Needs you", () => {
     await waitFor(() => expect(api.calls.some((c) => c === "createItem:s1|review|s1")).toBe(true));
     expect(store.getState().teamReviewSelected["s1"]).toBe("v1");
   });
+
+  it("drops a review its role closed once the space's team is re-read, as `team.changed` does", async () => {
+    // A role's `review_close`: the server files the review done (or puts it away, when it leaves the
+    // snapshot altogether) and says `team.changed`; App re-reads that one space.
+    const { api, store } = await mount(home({ reviews: [teamReview("v1", "s1", "Reply to Dana"), teamReview("v2", "s1", "Old draft")] }), "needs");
+    const needs = () => within(screen.getByRole("region", { name: "Needs you" })).getAllByRole("button", { name: / — waiting for your review/ });
+    expect(needs()).toHaveLength(2);
+    const team = api.data.teams[0]!;
+    team.reviews = [{ ...team.reviews[0]!, state: "done" }];
+    await store.getState().refreshTeam("s1");
+    // THE MUTANT: Needs you listing every review the snapshot holds, not only the waiting ones.
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull());
+  });
 });
