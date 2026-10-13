@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 
 import { Icon } from "@/components/home/mini/icons"
+import { FieldPanel } from "@/components/realms/FieldPanel"
 import { FIELD_PATTERN, TILE } from "@/components/realms/hive/fallback"
 import { Realmite, realmiteFromSeed, type RealmiteSpec, type RealmiteState } from "@/lib/realmite"
 
@@ -66,7 +67,7 @@ export function Team({ side }: { side: "left" | "right" }) {
   return (
     <section aria-labelledby="teams-title" className="relative">
       <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-10 px-6 py-24 sm:px-10 lg:min-h-[150vh] lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0">
-        <div data-field-anchor="k:teams" className={`relative z-[2] min-w-0 lg:row-start-1 ${textCols}`}>
+        <FieldPanel anchor="k:teams" wrapClassName={`z-[2] min-w-0 lg:row-start-1 ${textCols}`} className="px-5 pt-7 pb-5 sm:px-7 sm:pt-8 sm:pb-6">
           <p className="flex items-center gap-2 text-[13px] text-accent-ink">
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
             New in Realm 2.1
@@ -80,7 +81,7 @@ export function Team({ side }: { side: "left" | "right" }) {
             Review, and nothing is posted, sent or published until you approve it.
           </p>
 
-          <div data-field-anchor="c:board" className="spot mt-8 rounded-[28px] p-4">
+          <div className="spot mt-8 p-4" style={{ borderRadius: 12 }}>
             <div className="flex items-center justify-between px-1">
               <p className="text-[13px] text-ink-2">
                 <span className="text-ink">Newsletter</span> · 4 roles
@@ -177,7 +178,7 @@ export function Team({ side }: { side: "left" | "right" }) {
               </ul>
             </div>
           </div>
-        </div>
+        </FieldPanel>
 
         {/* Where the team's realms stand in the field. Without the field it holds nothing, and the
             board beside it carries the whole of the section. */}

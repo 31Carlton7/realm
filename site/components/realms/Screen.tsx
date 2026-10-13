@@ -23,7 +23,8 @@ export type ScreenImage = {
 export type ScreenProps = {
   image: ScreenImage
   alt: string
-  /** What is in the frame (design.md: a caption describes what is IN the frame), set under it. */
+  /** What is in the frame (design.md: a caption describes what is IN the frame), set under it on a
+   *  small pane of the field: from its left edge, or centred under a picture narrower than it. */
   caption?: ReactNode
   /**
    * `window`: the app's whole window (or a scene of it), standing in the page under a window's
@@ -80,7 +81,7 @@ export function Screen({
   return (
     <div className={`screen ${className}`} data-kind={kind} style={{ maxWidth }}>
       <div data-field-anchor={fieldId ? `s:${fieldId}` : undefined} className="screen-slot" style={{ aspectRatio: `${width} / ${height}`, ...corner }}>
-        <figure data-screen={fieldId} data-radius={fieldId ? (radius / width).toFixed(5) : undefined} className="screen-figure">
+        <figure data-screen={fieldId} data-radius={fieldId ? (radius / width).toFixed(5) : undefined} className="screen-figure @container">
           {fieldId ? <span aria-hidden className="screen-ground" /> : null}
           <div className="screen-frame">
             <img
@@ -100,7 +101,8 @@ export function Screen({
           {caption ? (
             <figcaption
               data-field-anchor={fieldId ? `c:caption-${fieldId}` : undefined}
-              className="absolute top-full left-0 mt-5 w-max max-w-[min(34rem,max(22rem,100%))] text-[14px] leading-[1.5] text-ink-2"
+              data-field-panel={fieldId ? 12 : undefined}
+              className="field-panel absolute top-full left-0 mt-6 w-max max-w-[min(34rem,max(22rem,100%),calc(100vw-3rem))] rounded-[12px] px-3.5 py-2.5 text-[14px] leading-[1.5] text-ink-2 @max-[22rem]:left-1/2 @max-[22rem]:-translate-x-1/2"
             >
               {caption}
             </figcaption>

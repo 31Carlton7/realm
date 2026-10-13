@@ -461,3 +461,41 @@ html[data-field="on"] .screen-ground {
   background: radial-gradient(closest-side, oklch(0 0 0 / 0.5), oklch(0 0 0 / 0));
   filter: blur(4px);
 }
+
+/* Words over the field (components/realms/FieldPanel.tsx): a pane of the field itself, blurred and
+   dimmed under them, edged by a hairline lit from above, with the blur carried a short way past its
+   edge and fading out there. The composite pass dims the field inside it by its exact rect and
+   leaves it untouched outside, so there is no smudge round it (the owner, 10-12: "love the blur
+   around it, just needs to be a bit cleaner and professional looking"). */
+.field-panel-wrap {
+  position: relative;
+}
+
+.field-feather {
+  position: absolute;
+  inset: -24px;
+  border-radius: 40px;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent), linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent), linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  mask-composite: intersect;
+}
+
+.field-panel {
+  position: relative;
+  background: color-mix(in oklch, var(--color-page) 62%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(1.15);
+  backdrop-filter: blur(22px) saturate(1.15);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.07),
+    inset 0 0 0 1px oklch(1 0 0 / 0.05);
+}
+
+@media (max-width: 639px) {
+  .field-feather {
+    inset: -16px;
+  }
+}

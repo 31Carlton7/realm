@@ -6,6 +6,7 @@ import { Actions, Announcement, Lede, ProductWindow } from "@/components/realms/
 import { GitHubIcon, GlobeIcon, LinkedInIcon, XIcon } from "@/components/icons"
 import { FIELD_PATTERN, TILE } from "@/components/realms/hive/fallback"
 import { Chapter, type ChapterPicture } from "@/components/realms/Chapter"
+import { FieldPanel } from "@/components/realms/FieldPanel"
 import { Flight } from "@/components/realms/Flight"
 import { Team } from "@/components/realms/Team"
 import { SiteHeader } from "@/components/SiteHeader"
@@ -172,7 +173,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
               <p>{claim.body}</p>
             )}
             {id === "agents" ? (
-              <ul aria-label="Agents Realm runs" className="grid grid-cols-3 gap-x-4 gap-y-3 pt-2">
+              <ul aria-label="Agents Realm runs" className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2 sm:grid-cols-3">
                 {AGENTS.map(({ id: agent, name }) => (
                   <li key={agent} className="flex items-center gap-2.5 text-[14px] text-ink">
                     <AgentMark id={agent} className="h-[18px] w-[18px] shrink-0 text-ink-2" />
@@ -189,11 +190,11 @@ export async function RealmsHome({ download, claims }: HomeProps) {
         {/* The climb: the field falls away under where the work lives and the questions. */}
         <section aria-labelledby="facts-title" className="relative">
           <div className="mx-auto flex w-full max-w-[92rem] flex-col justify-center px-6 py-24 sm:px-10 lg:min-h-[110vh]">
-            <div data-field-anchor="k:facts" className="relative z-[2]">
+            <FieldPanel anchor="k:facts" wrapClassName="z-[2]" className="px-6 pt-8 sm:px-9 sm:pt-9">
               <h2 id="facts-title" className="text-[clamp(1.6rem,2.4vw,2.1rem)] leading-[1.1] font-[580] tracking-[-0.035em] text-ink">
                 Where the work lives.
               </h2>
-              <dl className="mt-8 grid border-y border-line sm:grid-cols-2 lg:grid-cols-4">
+              <dl className="mt-8 grid border-t border-line sm:grid-cols-2 lg:grid-cols-4">
                 {FACTS.map((fact, i) => (
                   <div
                     key={fact.title}
@@ -204,19 +205,19 @@ export async function RealmsHome({ download, claims }: HomeProps) {
                   </div>
                 ))}
               </dl>
-            </div>
+            </FieldPanel>
           </div>
         </section>
 
         <section aria-labelledby="faq-title" className="relative">
           <div className="mx-auto w-full max-w-[52rem] px-6 py-24 sm:px-10 lg:min-h-[120vh] lg:py-40">
-            <div data-field-anchor="k:faq" className="relative z-[2]">
+            <FieldPanel anchor="k:faq" wrapClassName="z-[2]" className="px-6 pt-8 pb-3 sm:px-9 sm:pt-9 sm:pb-4">
               <h2 id="faq-title" className="text-[clamp(1.6rem,2.4vw,2.1rem)] leading-[1.1] font-[580] tracking-[-0.035em] text-ink">
                 Questions
               </h2>
               <div className="mt-8">
                 {faq.map((item, i) => (
-                  <details key={item.q} name="realms-faq" open={i === 0} className="group border-t border-line py-4 last:border-b">
+                  <details key={item.q} name="realms-faq" open={i === 0} className="group border-t border-line py-4">
                     <summary className="flex cursor-pointer list-none items-start justify-between gap-6 text-[16px] leading-[1.45] font-[500] text-ink [&::-webkit-details-marker]:hidden">
                       <span>{item.q}</span>
                       <span aria-hidden className="mt-1 shrink-0 text-ink-2 transition-transform duration-200 ease-[var(--ease-out-strong)] group-open:rotate-45">
@@ -229,7 +230,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
                   </details>
                 ))}
               </div>
-            </div>
+            </FieldPanel>
           </div>
         </section>
 
@@ -237,7 +238,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
         <section aria-labelledby="finale-title" className="relative overflow-x-clip">
           <FallbackPlanet />
           <div className="mx-auto flex w-full max-w-[92rem] flex-col items-center px-6 pt-40 pb-[46vh] text-center sm:px-10 lg:min-h-[150vh] lg:justify-center lg:pt-0">
-            <div data-field-anchor="k:finale" className="relative z-[2] flex flex-col items-center">
+            <FieldPanel anchor="k:finale" wrapClassName="z-[2]" className="flex flex-col items-center px-8 py-10 sm:px-14 sm:py-12">
               <h2 id="finale-title" className="max-w-[16ch] text-[clamp(2.4rem,5vw,4.25rem)] leading-[1] font-[580] tracking-[-0.05em] text-balance text-ink">
                 Give your agents a world to work in.
               </h2>
@@ -254,7 +255,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
               <p className="mt-4 font-mono text-[12px] text-ink-2">
                 {download.version ? `${download.version} · ` : ""}macOS on Apple silicon · in active development
               </p>
-            </div>
+            </FieldPanel>
           </div>
         </section>
       </main>

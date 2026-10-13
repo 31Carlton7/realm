@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 
+import { FieldPanel } from "@/components/realms/FieldPanel"
 import { Screen, type ScreenImage } from "@/components/realms/Screen"
 
 /** A chapter's evidence: the capture, what it is, and how it stands on the page. */
@@ -12,8 +13,8 @@ export type ChapterPicture = {
 }
 
 /**
- * A chapter of the flight: the claim on one side, and on the other the slot its picture comes to
- * rest in. The picture is a real capture at its own size and shape (Screen). On a
+ * A chapter of the flight: the claim on a pane of the field on one side, and on the other the slot
+ * its picture comes to rest in. The picture is a real capture at its own size and shape (Screen). On a
  * wide screen with motion the field positions it every frame from the realm whose doorway it opens
  * out of (it rides `position: fixed` then, so it moves with the world and not with the scroll), and it
  * lands in this slot exactly when the claim is in the middle of the view. Everywhere else it simply
@@ -44,12 +45,12 @@ export function Chapter({
       <div
         className={`mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-16 px-6 py-24 sm:px-10 lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0 ${tall ? "lg:min-h-[175vh]" : "lg:min-h-[135vh]"}`}
       >
-        <div data-field-anchor={`k:${id}`} className={`relative z-[2] min-w-0 lg:row-start-1 ${textCols}`}>
+        <FieldPanel anchor={`k:${id}`} wrapClassName={`z-[2] min-w-0 lg:row-start-1 ${textCols}`} className="px-5 py-6 sm:px-8 sm:py-8">
           <h2 id={`${id}-title`} className="text-[clamp(1.9rem,2.9vw,2.6rem)] leading-[1.06] font-[580] tracking-[-0.04em] text-balance text-ink">
             {title}
           </h2>
           <div className="mt-5 max-w-[34rem] space-y-4 text-[17px] leading-[1.6] text-ink-2">{children}</div>
-        </div>
+        </FieldPanel>
         {picture ? (
           <div className={`relative min-w-0 pb-24 lg:row-start-1 lg:pb-0 ${slotCols}`}>
             <Screen
