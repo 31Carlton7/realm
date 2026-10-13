@@ -173,7 +173,7 @@ export function computerAccessRows(grants: ComputerGrantState, ctx: ComputerRowC
  */
 export function computerGrantExplanation(id: ComputerAccessId, place = settingsPlace(id), host = "Realm"): string {
   const ask = id === "accessibility"
-    ? "Asks macOS, which adds Realm to its list"
+    ? `Asks macOS, which adds ${host} to its list`
     : "Asks macOS once (it stays silent if it has asked before)";
   return `${ask}, then opens System Settings ▸ ${place}. Switch ${host} on there; nothing is granted until you do, and this row changes on its own when you have.`;
 }
