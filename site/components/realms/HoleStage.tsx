@@ -5,8 +5,10 @@ import { FACES, MARK_CENTER, MARK_RADIUS, WALLS } from "@/lib/mark"
 import { dropRealm, HOLE } from "./blackhole"
 
 /**
- * Where the flight ends: the rect the field draws the black hole into, at the foot of the page under
- * the footer. The cube is centred across it, a little below its middle.
+ * Where the flight ends: the black hole's place at the foot of the page, under the footer. It is a
+ * viewport tall with the cube at its middle, so the page ends with the hole in the middle of the view;
+ * the field hangs the hole in its own sky there and lowers the camera's eyes to it as the reader comes
+ * down (stage.ts), so the hole and its sky come up the page together.
  *
  * Clicking the hole drops a realm in at the point clicked; its button does the same from the keyboard
  * (a key's click carries no pointer, so the realm goes in where it is easiest to follow), and while it
@@ -21,19 +23,19 @@ export function HoleStage() {
   return (
     <div
       data-field-anchor="hole"
-      className="relative h-[clamp(300px,40vh,380px)] w-full [--hex:clamp(34px,min(11vw,11vh),104px)] sm:h-[clamp(400px,56vh,540px)] sm:[--hex:clamp(34px,min(7vw,11vh),104px)]"
+      className="relative h-svh w-full [--hex:clamp(34px,min(11vw,11vh),104px)] sm:[--hex:clamp(34px,min(7vw,11vh),104px)]"
     >
       <FallbackHole />
       <button
         type="button"
         aria-label="Drop a realm into the black hole"
         onClick={(event) => (event.detail === 0 ? dropRealm() : dropRealm(event.clientX, event.clientY))}
-        className="peer absolute top-[56%] left-1/2 h-[calc(var(--hex)*3.2)] w-[min(calc(var(--hex)*8.4),100%)] -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full focus-visible:outline-none! motion-reduce:hidden [html[data-field=off]_&]:hidden [html[data-field=pending]_&]:hidden"
+        className="peer absolute top-1/2 left-1/2 h-[calc(var(--hex)*3.2)] w-[min(calc(var(--hex)*8.4),100%)] -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full focus-visible:outline-none! motion-reduce:hidden [html[data-field=off]_&]:hidden [html[data-field=pending]_&]:hidden"
       />
       <FocusRing />
       <p
         aria-hidden
-        className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 text-[13px] whitespace-nowrap text-ink-2 opacity-0 transition-opacity duration-200 peer-hover:opacity-100 peer-focus-visible:opacity-100 motion-reduce:hidden"
+        className="pointer-events-none absolute top-[calc(50%+var(--hex)*2.3)] left-1/2 -translate-x-1/2 text-[13px] whitespace-nowrap text-ink-2 opacity-0 transition-opacity duration-200 peer-hover:opacity-100 peer-focus-visible:opacity-100 motion-reduce:hidden"
       >
         Drop a realm in
       </p>
@@ -62,7 +64,7 @@ function FocusRing() {
     <svg
       aria-hidden
       viewBox={`${-r - 2} ${-r - 2} ${2 * r + 4} ${2 * r + 4}`}
-      className="pointer-events-none absolute top-[56%] left-1/2 h-[calc(var(--hex)*2.85)] w-[calc(var(--hex)*2.85)] -translate-x-1/2 -translate-y-1/2 overflow-visible opacity-0 peer-focus-visible:opacity-100"
+      className="pointer-events-none absolute top-1/2 left-1/2 h-[calc(var(--hex)*2.85)] w-[calc(var(--hex)*2.85)] -translate-x-1/2 -translate-y-1/2 overflow-visible opacity-0 peer-focus-visible:opacity-100"
     >
       <path
         d={through([0, 1, 2, 3, 4, 5].map((i) => corner(r, i)), true)}
@@ -187,9 +189,9 @@ function FallbackHole() {
   return (
     <svg
       aria-hidden
-      viewBox="-520 -250 1040 480"
+      viewBox="-520 -240 1040 480"
       preserveAspectRatio="xMidYMid meet"
-      className="pointer-events-none absolute inset-x-0 top-[56%] mx-auto hidden h-[min(100%,72vw)] w-full max-w-[1100px] -translate-y-[52%] [html[data-field=off]_&]:block"
+      className="pointer-events-none absolute inset-x-0 top-1/2 mx-auto hidden h-[min(100%,72vw)] w-full max-w-[1100px] -translate-y-1/2 [html[data-field=off]_&]:block"
     >
       <defs>
         <linearGradient id="hole-hat" gradientUnits="userSpaceOnUse" x1="-160" x2="160" y1="0" y2="0">
@@ -213,8 +215,8 @@ function FallbackHole() {
           <feGaussianBlur stdDeviation="7" />
         </filter>
         {/* Over the cube's faces the near threads are mostly taken in. */}
-        <mask id="hole-faces" maskUnits="userSpaceOnUse" x="-520" y="-250" width="1040" height="480">
-          <rect x="-520" y="-250" width="1040" height="480" fill="white" />
+        <mask id="hole-faces" maskUnits="userSpaceOnUse" x="-520" y="-240" width="1040" height="480">
+          <rect x="-520" y="-240" width="1040" height="480" fill="white" />
           <path d={silhouette} fill="oklch(0.32 0 0)" />
         </mask>
       </defs>

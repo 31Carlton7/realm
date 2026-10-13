@@ -11,9 +11,9 @@ import { site } from "@/lib/site"
  * Realm. It resolves the download link itself, as the header does, so a page only has to place it.
  *
  * `world` is what a page stands under it, and the landing page stands the black hole its flight ends
- * at there. The words keep to one band above it and `c:footer` names that band for the field, which
- * holds the hole's light off it: clean ground, with the hole centred under the gap between the name
- * and the links.
+ * at there: a viewport of sky with the hole at its middle, so the page ends with the hole in the middle
+ * of the view. The words keep to one band above it and `c:footer` names that band for the field, which
+ * holds the hole's light off it: clean ground, with the hole's sky running on under it.
  */
 const linkClass =
   "inline-flex min-h-8 items-center gap-2.5 text-ink-2 transition-colors duration-150 hover:text-ink focus-visible:text-ink"

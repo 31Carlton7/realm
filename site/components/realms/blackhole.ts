@@ -7,15 +7,17 @@ import { basis as basisOf, clamp, dot, lerp, rayThrough, smooth, type Basis, typ
  * The black hole the flight ends at, under the footer: Realm's mark as the thing the field falls into.
  *
  * Its horizon is a black cube in the mark's pose — seen down its body diagonal, so its outline is the
- * mark's hexagon — with the mark's doorway cut into its dark right wall. It is traced per pixel in the
- * sky pass, inside the rect the page marks `data-field-anchor="hole"` and nowhere else, in the cube's
- * own space, where the cube is 2 across and the doorway is where `DOORWAY` (read off lib/mark.ts) puts
- * it.
+ * mark's hexagon — with the mark's doorway cut into its dark right wall. It hangs in the page's own sky,
+ * centred in the rect the page marks `data-field-anchor="hole"`, and is traced per pixel in the sky
+ * pass, in the cube's own space, where the cube is 2 across and the doorway is where `DOORWAY` (read
+ * off lib/mark.ts) puts it. It has no sky of its own: every ray of the page's sky is bent by it, and a
+ * bent ray reads the same deep sky and stars as any other (shaders.ts, fs_sky).
  *
  *   the pull      a ray near the cube is stepped through a field that is a point mass far off and the
  *                 cube's own shape close in: the pull runs down the cube's distance field, so light
  *                 grazing a face is bent hard round its edges and light further out gently, and the
- *                 far bend is closed form. A ray that meets the cube is gone: the shadow is the mark.
+ *                 far bend, which reaches across the whole view, is closed form. A ray that meets the
+ *                 cube is gone: the shadow is the mark.
  *   the rim       light that grazed the cube on its way past leaves as a thin bright line tracing the
  *                 silhouette, and a wider breath of it
  *   the inflow    streams of plasma, starlight and tiny realms spiralling in along the lines matter
@@ -29,7 +31,8 @@ import { basis as basisOf, clamp, dot, lerp, rayThrough, smooth, type Basis, typ
  * The hole answers the pointer: the view turns a few degrees about the cube toward it, and every ray
  * is retraced, so the outline, the doorway's depth and the lensing all follow. A click (or Enter on
  * its button) drops a realm in, which rides the streams down, is taken in at a face, and comes back
- * out through the doorway. Arriving, the cube turns into the mark's pose as the footer comes up.
+ * out through the doorway. Arriving, the cube turns into the mark's pose as the reader comes down to it,
+ * and its pull comes up on the sky before the hole itself is in view (`holeOnset`).
  */
 
 /** The hole's measure, in the cube's half-edges (it is 2 across), and how it moves. */
@@ -70,7 +73,6 @@ const DOOR = {
 
 export type HoleUniforms = {
   at: number[]
-  box: number[]
   eye: number[]
   ax: number[]
   ay: number[]
@@ -114,8 +116,7 @@ const HOLE_WHITE = vec3f(0.9, 0.95, 1.0);
 
 // The shader that includes this declares the binding: var<uniform> hole: Hole.
 struct Hole {
-  at: vec4f,     // the cube's middle on the page and its hexagon's radius (CSS px), shown (0 .. 1)
-  box: vec4f,    // the rect it may bend and light: left, top, right, bottom (CSS px)
+  at: vec4f,     // the cube's middle on the page and its hexagon's radius (CSS px), how far it has come up (0 .. 1)
   eye: vec4f,    // the camera in the cube's space (half-edges), and its distance
   ax: vec4f,     // the cube's axes in the world; ax.w how far the camera has lifted its eyes to the
   ay: vec4f,     //   night it hangs in (the sky pass brightens its stars by it); ay.w the doorway's
@@ -431,32 +432,14 @@ fn holeOut(eye: vec3f, d: vec3f, tEnd: f32) -> vec3f {
   return light;
 }
 
-// Stars of the hole's own, so it has space to bend whatever sky is drawn round it: few, in the world's
-// directions, each a point a pixel or so across.
-fn holeStars(rd: vec3f) -> f32 {
-  let q = rd * 70.0;
-  let id = floor(q);
-  let seed = hash21(id.xy * 1.31 + id.z * 7.7 + 11.0);
-  if (seed < 0.74) { return 0.0; }
-  let jitter = vec3f(hash21(id.xy + 1.3 + id.z), hash21(id.yz + 4.1), hash21(id.zx + 8.9));
-  let star = normalize(id + 0.2 + 0.6 * jitter);
-  let d = length(cross(rd, star)) * hole.sr.w;
-  let m = hash21(id.zy + 2.7);
-  return mix(0.1, 0.8, m * m * m) * exp(-d * d / 0.75);
-}
-
-// The view ray through a point of the page (CSS px), followed round the cube. Outside the hole's rect
-// it is returned as it came.
-fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
+// A view ray of the page's sky, followed round the cube: where it leaves for, what the hole puts in
+// front of it, and how much of what lies beyond still shows. Far from the cube it is only bent, in
+// closed form; near it, it is stepped.
+fn holeTrace(rd: vec3f) -> HoleRay {
   var out = HoleRay(rd, vec3f(0.0), 1.0);
-  if (hole.at.w <= 0.0 || css.x < hole.box.x || css.x > hole.box.z || css.y < hole.box.y || css.y > hole.box.w) {
+  if (hole.at.w <= 0.0) {
     return out;
   }
-  // How far from the hole this pixel is, as a share of the room it has: past it, no bending at all.
-  let room = (hole.box.zw - hole.box.xy) * 0.5;
-  let reach = length((css - hole.at.xy) / max(room, vec2f(1.0)));
-  let bend = 1.0 - smoothstep(0.72, 1.0, reach);
-  if (bend <= 0.0) { return out; }
 
   let d = normalize(vec3f(dot(rd, hole.ax.xyz), dot(rd, hole.ay.xyz), dot(rd, hole.az.xyz)));
   let eye = hole.eye.xyz;
@@ -572,9 +555,9 @@ fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
 
   light += front * holeOut(eye, d, tEnd);
 
+  // The pull comes up on the sky as the hole comes up the page, so nothing of it starts at once.
   let world = normalize(dir.x * hole.ax.xyz + dir.y * hole.ay.xyz + dir.z * hole.az.xyz);
-  light += INK * holeStars(world) * through * (1.0 - smoothstep(0.55, 0.95, reach)) * (0.35 + 0.65 * hole.ax.w);
-  out.dir = normalize(mix(rd, world, bend));
+  out.dir = normalize(mix(rd, world, hole.at.w));
   out.light = light * hole.at.w;
   out.through = mix(1.0, through, hole.at.w);
   return out;
@@ -584,7 +567,6 @@ fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
 /** The uniforms of a hole that is not on the page: every ray passes it by. */
 export const holeOff = (): HoleUniforms => ({
   at: [0, 0, 0, 0],
-  box: [0, 0, 0, 0],
   eye: [0, 0, 30, 30],
   ax: [1, 0, 0, 0],
   ay: [0, 1, 0, 0],
@@ -646,6 +628,18 @@ const surfaceAlong = (u: Vec3) => 1 / Math.max(Math.abs(u[0]), Math.abs(u[1]), M
  *  phone. HoleStage's button and the drawing without WebGPU size themselves by the same rule. */
 export const shadowRadius = (width: number, height: number) => clamp(Math.min(width * (width < 640 ? 0.11 : 0.07), height * 0.11), 34, 104)
 
+/** The hole's middle on the page: the middle of its rect, which is a viewport tall, so it is the middle
+ *  of the view when the page is at its end. */
+export const holeMiddle = (rect: Rect): [number, number] => [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2]
+
+/** How far the hole has come up into the view, 0 .. 1: from its rect's top reaching the foot of the view
+ *  to its middle a little under it. Its pull on the sky comes up with it, and the camera starts to lower
+ *  its eyes to it (stage.ts). */
+export const holeOnset = (rect: Rect | undefined, height: number) => {
+  if (!rect || rect[2] <= 0) return 0
+  return smooth((height * 1.5 - holeMiddle(rect)[1]) / (height * 0.45))
+}
+
 export type HoleFrame = {
   view: View
   b?: Basis
@@ -673,14 +667,14 @@ export class BlackHole {
   frame(input: HoleFrame): { uniforms: HoleUniforms; live: boolean } {
     const { view, rect, width, height, seconds, still } = input
     const b = input.b ?? basisOf(view)
-    if (!rect || rect[2] <= 0 || rect[1] > height || rect[1] + rect[3] < 0) {
+    const shown = holeOnset(rect, height)
+    if (!rect || shown <= 0) {
       clicks.length = 0
       return { uniforms: holeOff(), live: false }
     }
 
     const radius = shadowRadius(width, height)
-    const cx = rect[0] + rect[2] / 2
-    const cy = rect[1] + rect[3] * 0.56
+    const [cx, cy] = holeMiddle(rect)
     // Arriving: how far the reader has come down to it, by how much of its rect is on screen.
     const arrived = still ? 1 : smooth(clamp((height - rect[1]) / Math.max(rect[3], 1), 0, 1))
 
@@ -689,7 +683,7 @@ export class BlackHole {
     const dt = Math.min(Math.max(input.dt, 0), 0.1)
     const k = still ? 1 : 1 - Math.exp(-dt / 0.5)
     const tx = still ? 0 : clamp((px - cx) / Math.max(rect[2] * 0.5, 1), -1, 1) * presence
-    const ty = still ? 0 : clamp((py - cy) / Math.max(rect[3] * 0.6, 1), -1, 1) * presence
+    const ty = still ? 0 : clamp((py - cy) / Math.max(height * 0.4, 1), -1, 1) * presence
     this.lean[0] += (tx - this.lean[0]) * k
     this.lean[1] += (ty - this.lean[1]) * k
 
@@ -792,8 +786,7 @@ export class BlackHole {
 
     return {
       uniforms: {
-        at: [cx, cy, radius, 1],
-        box: [rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]],
+        at: [cx, cy, radius, shown],
         eye: [...eye, distance],
         ax: [...ax, 0],
         ay: [...ay, flare],

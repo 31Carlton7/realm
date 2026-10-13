@@ -2,7 +2,7 @@ import { draw, effect, sampler, target } from "vgpu"
 
 import type { Rect, StageFactory, StageInput } from "@/components/field/stage"
 
-import { BlackHole, holeOff } from "./blackhole"
+import { BlackHole, HOLE, holeMiddle, holeOff, holeOnset, shadowRadius } from "./blackhole"
 import { basis, blend, clamp, dot, Follow, lerp, orbit, place, project, ramp, smooth, smoother, type Basis, type Key, type Place, type Vec3, type View } from "./camera"
 import { CHAPTERS, CLIMB, FINALE, OPENING, TEAM } from "./route"
 import {
@@ -100,6 +100,18 @@ const centred = (r: Rect, scrollY: number, height: number) => scrollY + r[1] + r
 
 /** A level view from `eye` facing `yaw`, its axis meeting the page at (x, y). */
 const level = (eye: Vec3, yaw: number, focal: number, x: number, y: number, pitch = 0): View => ({ eye, yaw, pitch, focal, px: x, py: y })
+
+/**
+ * At the foot of the page the camera lowers its eyes to the black hole as the reader comes down to it,
+ * so the hole and the sky it hangs in come up the page together: the hole's direction in the world
+ * holds still while the page carries it from below the view (`from`) to `y`, and to the middle of the
+ * view as the page ends.
+ */
+function lowered(view: View, y: number, from: number): View {
+  if (!(y < from)) return view
+  const tilt = Math.atan((from - view.py) / view.focal) - Math.atan((y - view.py) / view.focal)
+  return { ...view, pitch: view.pitch - tilt }
+}
 
 /** The direction from the eye through a point of the page. */
 function rayAt(view: View, b: Basis, x: number, y: number): Vec3 {
@@ -338,7 +350,6 @@ export const createRealms: StageFactory = async (gpu, output) => {
     stars: [0, 0, 0, 60],
     haze: [30, 0.004, 0, 0],
     light: [...KEY_LIGHT, KEY_STRENGTH],
-    holeBox: [0, 0, 0, 0],
     flare: [0, 0, 0, 0],
     touched: Array.from({ length: TOUCHED }, () => [...special().slice(0, 4), [-1, 0, 0, 0]]).flat(),
     page: Array.from({ length: PAGE_REALMS }, special).flat(),
@@ -540,8 +551,21 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const open = list[0].key.view
       for (let i = 0; i <= 60; i++) path.push([open.eye[0] + Math.cos(open.yaw) * i * 5, open.eye[1] + Math.sin(open.yaw) * i * 5, open.eye[2]])
     }
+    // Where the page ends, the black hole hangs in the middle of the view, and no realm hangs over its
+    // disk: the realms that were near it are the ones falling in.
+    const finale = list.find((s) => s.key.kind === "finale")?.key.view
+    const end = finale ? lowered(finale, finale.py, height * 1.5) : null
+    const endBasis = end ? basis(end) : null
+    const disk = (HOLE.outer * shadowRadius(width, height)) / HOLE.hexagon
     realmsNow = clearOff(population, (at, size) => {
       for (const p of path) if (length3(sub3(at, p)) < 3 + size * 0.9) return false
+      if (end && endBasis) {
+        const [x, y, z] = project(end, endBasis, at)
+        const across = z > 0.3 ? (end.focal * size) / z : 0
+        const dx = (x - end.px) / (disk * 1.08 + across)
+        const dy = (y - end.py) / (disk * 0.45 + across)
+        if (z > 0.3 && dx * dx + dy * dy < 1) return false
+      }
       for (const { view, b, keep, words, largest } of views) {
         const [x, y, z] = project(view, b, at)
         if (z <= 0.3) continue
@@ -666,6 +690,10 @@ export const createRealms: StageFactory = async (gpu, output) => {
       }
 
       // ---- the camera ------------------------------------------------------------------------
+      // The black hole under the footer: where its middle is on the page, and how far it has come up.
+      const holeRect = input.anchors.hole
+      const holeY = holeRect ? holeMiddle(holeRect)[1] : Infinity
+      const foot = holeOnset(holeRect, height)
       const now = moment(list, scrollY, mode!)
       let view: View = now.view
       if (mode === "drift") {
@@ -696,12 +724,15 @@ export const createRealms: StageFactory = async (gpu, output) => {
       lamp.x += (pointerX - lamp.x) * k
       lamp.y += (pointerY - lamp.y) * k
       lamp.presence += ((input.still ? 0 : presence) - lamp.presence) * k
-      sway += ((pointerX / Math.max(width, 1) - 0.5) * presence - sway) * k
+      // The sway goes as the black hole comes up, so the hole and its sky stay as one.
+      sway += ((pointerX / Math.max(width, 1) - 0.5) * presence * (1 - foot) - sway) * k
 
       if (mode === "flight") {
         view = follow.step(view, dt)
         view = orbit(view, list[now.nearest]!.key.pivot, -sway * 0.9 * DEG)
       }
+      // Past the spring, so the sky keeps exact step with the page the hole is laid out on.
+      view = lowered(view, holeY, height * 1.5)
       const b = basis(view)
 
       // ---- the page's own realms: each chapter's, over its screen, and the team's ----------------
@@ -1134,8 +1165,6 @@ export const createRealms: StageFactory = async (gpu, output) => {
       ]
       scene.haze = [hazeStart, hazeDensity, t * SKY_TURN, 0]
       scene.flare = [...flare.at, flareLight]
-      const holeRect = input.anchors.hole
-      scene.holeBox = holeRect && holeRect[1] < height && holeRect[1] + holeRect[3] > 0 ? [holeRect[0], holeRect[1], holeRect[0] + holeRect[2], holeRect[1] + holeRect[3]] : [0, 0, 0, 0]
       prev = { view, b, seconds: t }
 
       // The beams: the light of the doorways thrown open, then those of the screens in view, the

@@ -37,7 +37,8 @@ export type SceneUniforms = {
   stars: number[]
   haze: number[]
   light: number[]
-  holeBox: number[]
+  /** Nothing reads it now: the black hole keeps no rect of its own in the sky. A page that still sets it is ignored. */
+  holeBox?: number[]
   flare: number[]
   touched: number[][]
   page: number[][]
@@ -64,7 +65,6 @@ struct Scene {
   stars: vec4f,     // the near stars' block: origin cell x, y, z, and how far they are drawn
   haze: vec4f,      // distance the haze into the sky starts, its density, the sky's turn (rad), unused
   light: vec4f,     // the key light: direction toward it, strength
-  holeBox: vec4f,   // the black hole's rect on the page, kept clear of realms: left, top, right, bottom
   flare: vec4f,     // a light flaring inside a nebula: where (world), how bright
   touched: array<vec4f, ${TOUCHED * 5}>,    // realms the page has a hand on (see Special)
   page: array<vec4f, ${PAGE_REALMS * 5}>,   // the page's own realms: the chapters' and the team's
@@ -200,11 +200,6 @@ fn toClip(p: vec3f) -> vec4f {
   let ndc = vec2f(sx / scene.view.x * 2.0 - 1.0, 1.0 - sy / scene.view.y * 2.0);
   return vec4f(ndc * z, scene.fwd.w, z);
 }
-
-fn inHoleBox(p: vec2f, r: f32) -> bool {
-  let b = scene.holeBox;
-  return b.z > b.x && p.x > b.x - r && p.x < b.z + r && p.y > b.y - r && p.y < b.w + r;
-}
 `
 
 /** Noise the space pass and the sky share. */
@@ -277,20 +272,17 @@ const EXPOSURE = 1.6;
 `
 
 /**
- * The deep sky, at half the page's resolution: a band of the galaxy's light across it, a few far
- * galaxies, and nebulae hanging at real distances, marched as volumes so they have depth, light from
- * the stars inside them, and dust that dims what is behind. They are near enough that the flight
- * moves past them, far enough that they move slowly; and they move on their own, the gas billowing
- * and drifting and the far sky turning, so the sky is never still unless the reader asks for stillness.
+ * The deep sky along a ray from the eye: a band of the galaxy's light across it, a few far galaxies,
+ * and nebulae hanging at real distances, marched as volumes so they have depth, light from the stars
+ * inside them, and dust that dims what is behind. They are near enough that the flight moves past
+ * them, far enough that they move slowly; and they move on their own, the gas billowing and drifting
+ * and the far sky turning, so the sky is never still unless the reader asks for stillness.
+ *
+ * Shared by the space pass, which draws it for the view, and the black hole, which looks along its own
+ * bent rays where they leave the page: one sky, wherever the light that shows it has come from.
+ * Needs `scene`, the palette and the noise.
  */
-export const spaceShader = /* wgsl */ `
-${sceneStruct}
-@group(0) @binding(0) var<uniform> scene: Scene;
-
-${fieldWgsl}
-${paletteWgsl}
-${noiseWgsl}
-
+const deepSkyWgsl = /* wgsl */ `
 // Each nebula, three vec4s: its middle (world) and radius; the axis it is drawn out along and by how
 // much; and its character: how far its light leans to cyan, how much dust it carries, its grain's
 // scale, and how fast its gas moves.
@@ -455,10 +447,8 @@ fn farSky(rd: vec3f, t: f32) -> vec3f {
   return c;
 }
 
-@fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
-  let page = uv * scene.view.xy;
-  let f = scene.eye.w;
-  let rd = normalize(scene.fwd.xyz + scene.right.xyz * ((page.x - scene.view.z) / f) - scene.up.xyz * ((page.y - scene.view.w) / f));
+// The deep sky along a ray from the eye, exposed as the scene target holds it.
+fn deepSky(rd: vec3f) -> vec3f {
   let t = scene.clock.x;
   var c = farSky(skyTurn(rd, scene.haze.z), t);
   // The nebulae, the far ones first, each over what is behind it.
@@ -466,7 +456,26 @@ fn farSky(rd: vec3f, t: f32) -> vec3f {
     let n = nebula(k, scene.eye.xyz, rd, t);
     c = c * n.w + n.rgb;
   }
-  return vec4f(vec3f(1.0) - exp(-c * EXPOSURE), 1.0);
+  return vec3f(1.0) - exp(-c * EXPOSURE);
+}
+`
+
+/** The deep sky for the view, at half the page's resolution: it is soft everywhere, and the costliest
+ *  thing on the page per pixel. */
+export const spaceShader = /* wgsl */ `
+${sceneStruct}
+@group(0) @binding(0) var<uniform> scene: Scene;
+
+${fieldWgsl}
+${paletteWgsl}
+${noiseWgsl}
+${deepSkyWgsl}
+
+@fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
+  let page = uv * scene.view.xy;
+  let f = scene.eye.w;
+  let rd = normalize(scene.fwd.xyz + scene.right.xyz * ((page.x - scene.view.z) / f) - scene.up.xyz * ((page.y - scene.view.w) / f));
+  return vec4f(deepSky(rd), 1.0);
 }
 `
 
@@ -498,6 +507,7 @@ ${holeWgsl}
 ${paletteWgsl}
 ${realmWgsl}
 ${noiseWgsl}
+${deepSkyWgsl}
 
 // The mark's tones, linear.
 const TOP_FAR = ${lin3(TONES.top[0])};
@@ -580,11 +590,10 @@ const NOTHING = vec4f(2.0, 2.0, 2.0, 1.0);
     out.clip = NOTHING;
     return out;
   }
-  // Too far, behind the camera, too small to draw as a solid (it is a point of light then, vs_glow),
-  // or over the black hole, whose sky is bent and whose realms are its own.
+  // Too far, behind the camera, or too small to draw as a solid (it is a point of light then, vs_glow).
   let c = toPage(pose.at);
   let px = scene.eye.w * pose.size / max(c.z, 1e-3);
-  if (c.z < -pose.size * 1.5 || px < 2.2 || inHoleBox(c.xy, px)) {
+  if (c.z < -pose.size * 1.5 || px < 2.2) {
     out.clip = NOTHING;
     return out;
   }
@@ -753,10 +762,6 @@ struct GlowOut {
     out.clip = NOTHING;
     return out;
   }
-  if (inHoleBox(centre, radius)) {
-    out.clip = NOTHING;
-    return out;
-  }
   let k = CORNERS[vi % 6u] * 2.0 - 1.0;
   let p = centre + k * radius * 2.2;
   let ndc = vec2f(p.x / scene.view.x * 2.0 - 1.0, 1.0 - p.y / scene.view.y * 2.0);
@@ -883,17 +888,26 @@ fn stars(rd: vec3f) -> vec3f {
   let f = scene.eye.w;
   let ray = normalize(scene.fwd.xyz + scene.right.xyz * ((page.x - scene.view.z) / f) - scene.up.xyz * ((page.y - scene.view.w) / f));
 
-  // The black hole at the foot of the page: in its rect the ray is bent round it, and its disk is
-  // put in front. A bent ray reads the sky where its new direction would meet the page.
-  let bent = holeTrace(page, ray);
+  // The black hole at the foot of the page bends every ray of the sky toward it, and puts its disk and
+  // its doorway's light in front. A bent ray reads the deep sky drawn for this view where its new
+  // direction meets the page; one bent off the page or behind the camera, as only light that grazed the
+  // hole can be, is looked along itself. Either way it is the page's own sky the hole bends.
+  let bent = holeTrace(ray);
   let rd = bent.dir;
   let ahead = dot(rd, scene.fwd.xyz);
-  let css = select(page, scene.view.zw + vec2f(dot(rd, scene.right.xyz), -dot(rd, scene.up.xyz)) * f / max(ahead, 1e-4), ahead > 0.05);
-  let base = select(SPACE_DEEP * EXPOSURE, backdrop(clamp(css, vec2f(0.0), scene.view.xy)), ahead > 0.05);
+  let css = scene.view.zw + vec2f(dot(rd, scene.right.xyz), -dot(rd, scene.up.xyz)) * f / max(ahead, 1e-4);
+  let past = select(1e4, max(max(-css.x, css.x - scene.view.x), max(-css.y, css.y - scene.view.y)), ahead > 0.05);
+  let onPage = 1.0 - smoothstep(0.0, 40.0, past);
+  var base = vec3f(0.0);
+  if (onPage > 0.0) { base = backdrop(clamp(css, vec2f(0.0), scene.view.xy)) * onPage; }
+  if (onPage < 1.0) { base += deepSky(rd) * (1.0 - onPage); }
 
-  // The far stars, on the turning sky; brighter over the hole, once the camera has lifted its eyes.
+  // The far stars, on the turning sky; brighter once the camera has lifted its eyes to the night. Where
+  // the hole squeezes a stretch of sky into one pixel, a star is a share of that pixel and never all of
+  // it, so the ring round the shadow is starlight rather than salt.
+  let stretch = length(fwidth(rd)) * f * scene.right.w * 0.7071;
   let far = skyTurn(rd, scene.haze.z);
-  let light = vec3f(1.0) - exp(-stars(far) * (1.0 + 0.6 * hole.ax.w));
+  let light = vec3f(1.0) - exp(-stars(far) * (1.0 + 0.6 * hole.ax.w) / max(stretch, 1.0));
 
   let behind = (base + light * (vec3f(1.0) - base)) * bent.through;
   let front = vec3f(1.0) - exp(-bent.light * 1.15);
