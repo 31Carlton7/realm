@@ -140,17 +140,12 @@ fn emit(src: vec3f, landed: vec4f, channel: u32) -> VOut {
   return out;
 }
 
-// The six corners of a grid cell's two triangles.
-fn corner(k: u32) -> vec2f {
-  var c = array<vec2f, 6>(vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0), vec2f(0.0, 1.0));
-  return c[k];
-}
 
-// The top: a grid over the mark's box.
+// The top: a grid over the mark's box, drawn indexed, so each corner is traced once and shared by the
+// six triangles around it. vi is the corner: (n + 1) of them to a row.
 @vertex fn vs_top(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
   let n = u32(caustic.domain.z);
-  let cell = vi / 6u;
-  let g = vec2f(f32(cell % n), f32(cell / n)) + corner(vi % 6u);
+  let g = vec2f(f32(vi % (n + 1u)), f32(vi / (n + 1u)));
   let p = (g / f32(n) * 2.0 - 1.0) * (BOX + vec2f(0.3));
   let s = vec3f(p, heightAt(p) + LIFT);
   if (sdMark(p) > -0.03) { return emit(s, vec4f(p, 0.0, -1.0), ii); }
@@ -168,8 +163,7 @@ fn rimPoint(a: f32) -> vec2f {
 // The walls: around the silhouette, and from the paper up to where the top's rounded edge begins.
 @vertex fn vs_wall(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
   let around = u32(caustic.domain.w);
-  let cell = vi / 6u;
-  let g = vec2f(f32(cell % around), f32(cell / around)) + corner(vi % 6u);
+  let g = vec2f(f32(vi % (around + 1u)), f32(vi / (around + 1u)));
   let a = g.x / f32(around) * 6.2831853;
   let edge = rimPoint(a);
   let outward = markNormal(edge);

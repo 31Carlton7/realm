@@ -662,3 +662,45 @@
     display: none;
   }
 }
+
+/* The tree's rules, measured paths drawn from the parent down; the report drawn back up, later. */
+.lineRule,
+.report {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+.terminator {
+  transform-origin: center;
+}
+
+@keyframes rule-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .lineRule {
+      animation: rule-draw linear both;
+      animation-timeline: view();
+      animation-range: entry 40% cover 50%;
+    }
+
+    .report {
+      animation: rule-draw linear both;
+      animation-timeline: view();
+      animation-range: cover 45% cover 70%;
+    }
+
+    .terminator {
+      animation: span linear both;
+      animation-timeline: view();
+      animation-range: entry 100% cover 55%;
+    }
+  }
+}

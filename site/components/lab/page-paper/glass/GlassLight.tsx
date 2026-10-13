@@ -11,6 +11,8 @@ declare global {
   interface Window {
     /** Frames painted since load — the lab's screenshot script reads it to estimate the frame rate. */
     __labFrames?: number
+    /** Development only (`?paper-debug=timing`): milliseconds per frame of the light, the GPU waited on. */
+    __paperTiming?: (frames?: number) => Promise<number>
   }
 }
 
@@ -94,13 +96,31 @@ export function GlassLight({ className = "" }: { className?: string }) {
         const half = DOMAIN
         const texel = ((2 * half) / MAP) ** 2
 
+        // A grid of cols × rows cells as triangle indices over its (cols + 1) × (rows + 1) corners.
+        const gridIndices = (cols: number, rows: number) => {
+          const indices = new Uint32Array(cols * rows * 6)
+          let k = 0
+          for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+              const a = y * (cols + 1) + x
+              const b = a + 1
+              const c = a + cols + 1
+              const d = c + 1
+              indices.set([a, b, c, b, d, c], k)
+              k += 6
+            }
+          }
+          const buffer = gpu.gpu.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
+          gpu.gpu.queue.writeBuffer(buffer, 0, indices)
+          return { indexBuffer: buffer, indexFormat: "uint32" as const, indexCount: indices.length }
+        }
         const lightSet = { caustic: { lamp: [0, 0, 1, 1], domain: [half, texel, GRID, WALL_AROUND], ior: [1.497, 1.504, 1.513, 0] } }
         const causticSource = causticWgsl(shape)
         const top = draw(gpu, {
           shader: causticSource,
           label: "paper-caustic-top",
           entry: { vertex: "vs_top" },
-          vertices: GRID * GRID * 6,
+          geometry: gridIndices(GRID, GRID),
           instances: 3,
           blend: "additive",
           set: lightSet,
@@ -109,7 +129,7 @@ export function GlassLight({ className = "" }: { className?: string }) {
           shader: causticSource,
           label: "paper-caustic-walls",
           entry: { vertex: "vs_wall" },
-          vertices: WALL_AROUND * WALL_ROWS * 6,
+          geometry: gridIndices(WALL_AROUND, WALL_ROWS),
           instances: 3,
           blend: "additive",
           set: lightSet,
@@ -272,6 +292,19 @@ export function GlassLight({ className = "" }: { className?: string }) {
         Object.assign(lamp, goal)
         paint()
         root.dataset.labField = "on"
+
+        if (new URLSearchParams(window.location.search).get("paper-debug") === "timing") {
+          // Every frame waited on to the end of its GPU work, so this is an upper bound on the cost.
+          window.__paperTiming = async (frames = 40) => {
+            const t0 = performance.now()
+            for (let i = 0; i < frames; i++) {
+              Object.assign(lamp, lampAt(restAngle + (i / frames) * Math.PI * 2, REST.reach))
+              paint()
+              await gpu.gpu.queue.onSubmittedWorkDone()
+            }
+            return (performance.now() - t0) / frames
+          }
+        }
 
         teardown = () => {
           cancelAnimationFrame(raf)
