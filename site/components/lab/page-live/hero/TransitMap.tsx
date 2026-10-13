@@ -372,8 +372,8 @@ function tripPath(g: MapGeometry, trip: Trip): { route: Route; from: number; to:
 
 /* ── Light ───────────────────────────────────────────────────────────────────────────────────── */
 
-/** A stretch of route as straight pieces the light can draw: runs as they are, arcs as three chords. */
-function pieces(r: Route, s0 = 0, s1 = r.length): [Pt, Pt][] {
+/** A stretch of route as straight pieces the light can draw: runs as they are, arcs as `chords`. */
+function pieces(r: Route, s0 = 0, s1 = r.length, chords = 3): [Pt, Pt][] {
   const out: [Pt, Pt][] = []
   let walked = 0
   for (const seg of r.segments) {
@@ -383,7 +383,7 @@ function pieces(r: Route, s0 = 0, s1 = r.length): [Pt, Pt][] {
     if (b <= s0 || a >= s1) continue
     const from = Math.max(a, s0)
     const to = Math.min(b, s1)
-    const steps = seg.kind === "arc" ? 3 : 1
+    const steps = seg.kind === "arc" ? chords : 1
     for (let i = 0; i < steps; i++) {
       const u = from + ((to - from) * i) / steps
       const v = from + ((to - from) * (i + 1)) / steps
@@ -399,11 +399,15 @@ function lightOf(g: MapGeometry, s: SampleState, m: Movers) {
   const points: LightPoint[] = []
   const rim: RimLight[] = []
 
-  // A hovered line is lit along its whole length, the branches of its space with it.
+  // Every space's line carries a breath of light, so a hairline reads as a lit fibre rather than a
+  // grey stroke; a hovered line is lit along its whole length, the branches of its space with it.
   const hot = s.hover.space as SpaceId | null
-  if (hot && g.lines[hot]) {
-    const routes = [g.lines[hot]!.route, ...(hot === "realm" ? [g.branches.luna.route, g.branches.fable.route] : [])]
-    for (const r of routes) for (const [a, b] of pieces(r)) segments.push({ a, b, ia: 0.26, ib: 0.26, width: 2.2 })
+  for (const id of SPACE_ORDER) {
+    const line = g.lines[id]
+    if (!line) continue
+    const level = hot === id ? 0.26 : hot ? 0.025 : 0.06
+    const routes = [line.route, ...(id === "realm" ? [g.branches.luna.route, g.branches.fable.route] : [])]
+    for (const r of routes) for (const [a, b] of pieces(r, 0, r.length, hot === id ? 3 : 1)) segments.push({ a, b, ia: level, ib: level, width: 2.2 })
   }
 
   // Pulses: a tail brightening to its head, and the head itself.
@@ -425,7 +429,7 @@ function lightOf(g: MapGeometry, s: SampleState, m: Movers) {
   const along = (p: Pt) => (g.mode === "side" ? p[1] : p[0])
   for (const id of LINES) {
     const line = g.lines[id]
-    if (line) rim.push({ y: along(line.end), i: id === hot ? 0.6 : 0.26, spread: id === hot ? 30 : 18 })
+    if (line) rim.push({ y: along(line.end), i: id === hot ? 0.7 : 0.36, spread: id === hot ? 30 : 18 })
   }
   for (const l of m.landings) {
     rim.push({ y: along(l.at), i: 1.3 * (1 - l.age) ** 1.5, spread: 10 + l.age * 70 })
@@ -562,7 +566,7 @@ function MapDrawing({
                   className="live-spin"
                 />
               ) : null}
-              {st.id === "weekly" ? <WeekDial at={st.at} /> : null}
+              {st.id === "weekly" ? <WeekDial at={st.at} active={state.hover.session === "weekly"} /> : null}
             </g>
           )
         })}
@@ -622,6 +626,11 @@ function MapDrawing({
         }
         return (
           <div key={st.id}>
+            {st.id === "weekly" && state.hover.session === "weekly" ? (
+              <span aria-hidden style={{ left: st.at[0], top: st.at[1] + 21 }} className="absolute -translate-x-1/2 font-mono text-[11.5px] whitespace-nowrap text-accent-ink">
+                next run Mon 9:00 · {untilRun(weekNow())}
+              </span>
+            ) : null}
             {/* On a phone the sub-agents go unnamed: their marks say who they are, and the room is the stations'. */}
             {st.sub && g.mode === "stacked" ? null : (
               <span
@@ -639,7 +648,7 @@ function MapDrawing({
               onPointerLeave={() => store.hover(null)}
               onFocus={() => store.hover(space, st.id)}
               onBlur={() => store.hover(null)}
-              aria-label={`${st.label}, in ${SPACES.find((s) => s.id === space)!.name}: ${STATE_WORD[status]}. Open it in the sample.`}
+              aria-label={`${st.label}, in ${SPACES.find((s) => s.id === space)!.name}: ${st.id === "weekly" ? "scheduled every Monday at 9:00 AM" : STATE_WORD[status]}. Open it in the sample.`}
               style={{ left: st.at[0], top: st.at[1] }}
               className={`pointer-events-auto absolute grid size-[26px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full transition-colors duration-200 focus-visible:outline-offset-1 ${lit ? "text-ink" : "text-ink-2"}`}
             >
@@ -689,26 +698,44 @@ function Bus({ x, top, bottom, crossings }: { x: number; top: number; bottom: nu
   )
 }
 
+/** Monday 9:00 AM, as a fraction of the week from Monday midnight: when Weekly numbers runs. */
+const RUN_AT = 9 / 168
+
+/** Where this week is now, 0..1 from Monday midnight, read from the reader's own clock. */
+function weekNow() {
+  const d = new Date()
+  const day = (d.getDay() + 6) % 7
+  return (day * 24 + d.getHours() + d.getMinutes() / 60) / 168
+}
+
+/** How long until the next run, in words a schedule would use. */
+function untilRun(now: number) {
+  const hours = (((RUN_AT - now) % 1) + 1) % 1 * 168
+  const days = Math.floor(hours / 24)
+  const rest = Math.round(hours % 24)
+  return days ? `in ${days}d ${rest}h` : `in ${rest}h`
+}
+
 /**
  * A scheduled session's dial: seven ticks for the days of the week, the run's mark at Monday 9:00,
- * and where this week is now, read from the reader's own clock.
+ * and a hand at where this week is now, from the reader's own clock. Pointing at the station winds
+ * the hand on to the next run, the way a schedule counts down to it, and says when that is; leaving
+ * lets it fall back to now.
  */
-function WeekDial({ at }: { at: Pt }) {
+function WeekDial({ at, active }: { at: Pt; active: boolean }) {
   const [now, setNow] = useState<number | null>(null)
   useEffect(() => {
-    const read = () => {
-      const d = new Date()
-      const day = (d.getDay() + 6) % 7
-      setNow((day * 24 + d.getHours() + d.getMinutes() / 60) / 168)
-    }
+    const read = () => setNow(weekNow())
     read()
     const t = window.setInterval(read, 60_000)
     return () => window.clearInterval(t)
   }, [])
   const polar = (f: number, r: number): Pt => [at[0] + Math.sin(f * Math.PI * 2) * r, at[1] - Math.cos(f * Math.PI * 2) * r]
-  const run = 9 / 168
-  const a = polar(run, 13)
-  const b = polar(run, 18)
+  const a = polar(RUN_AT, 13)
+  const b = polar(RUN_AT, 18)
+  // The hand is drawn at twelve o'clock and turned to its angle, so the turn can be eased.
+  const turns = now === null ? 0 : active ? (now > RUN_AT ? 1 + RUN_AT : RUN_AT) : now
+  const top = polar(0, 14.75)
   return (
     <g>
       {Array.from({ length: 7 }, (_, i) => {
@@ -716,8 +743,18 @@ function WeekDial({ at }: { at: Pt }) {
         const q = polar(i / 7, 16)
         return <path key={i} d={`M${p[0]} ${p[1]}L${q[0]} ${q[1]}`} stroke="oklch(1 0 0 / 0.32)" strokeWidth={1} />
       })}
-      <path d={`M${a[0]} ${a[1]}L${b[0]} ${b[1]}`} stroke="var(--color-accent-ink)" strokeWidth={1.25} />
-      {now !== null ? <circle cx={polar(now, 14.75)[0]} cy={polar(now, 14.75)[1]} r={1.6} fill="var(--color-ink)" /> : null}
+      <path d={`M${a[0]} ${a[1]}L${b[0]} ${b[1]}`} stroke="var(--color-accent-ink)" strokeWidth={active ? 1.75 : 1.25} />
+      {now !== null ? (
+        <g
+          className="live-dial"
+          style={{
+            transform: `rotate(${turns * 360}deg)`,
+            transformOrigin: `${at[0]}px ${at[1]}px`,
+          }}
+        >
+          <circle cx={top[0]} cy={top[1]} r={1.6} fill={active ? "var(--color-accent-ink)" : "var(--color-ink)"} />
+        </g>
+      ) : null}
     </g>
   )
 }

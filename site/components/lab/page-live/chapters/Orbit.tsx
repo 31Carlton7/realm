@@ -202,7 +202,7 @@ export function Orbit() {
               ))}
               {!runs.length ? <li className="px-2 py-1.5 text-[12.5px] text-ink-3">Nothing has run yet this week.</li> : null}
             </ul>
-            <p className="mt-3 text-[12.5px] leading-[1.5] text-ink-3">
+            <p className="mt-3 text-[12.5px] leading-[1.5] text-ink-2">
               {closed ? "The window is closed, and the runs still happen: realm-server keeps going without it." : "Every run is a real session you can open, read and pick up from."}
             </p>
           </div>

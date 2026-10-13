@@ -1,6 +1,6 @@
 import { labWgsl } from "@/components/lab/stage"
 
-export const MAX_SEGMENTS = 64
+export const MAX_SEGMENTS = 112
 export const MAX_POINTS = 24
 export const MAX_RIM = 12
 

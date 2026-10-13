@@ -166,9 +166,9 @@ export function Timeline() {
           {/* The last checkpoint, after the newest turn. */}
           <path d={`M${checkX(count) - 4} 36H${checkX(count)}V56H${checkX(count) - 4}`} stroke="oklch(1 0 0 / 0.38)" />
           {/* The turn under the playhead, lit between the two checkpoints that bracket it. */}
-          <path d={`M${checkX(picked) + 1} 46H${checkX(picked + 1) - 1}`} stroke="var(--color-accent)" strokeWidth={2} className="transition-[d] duration-200" />
+          <path d={`M${checkX(picked) + 1} 46H${checkX(picked + 1) - 1}`} stroke="var(--color-accent)" strokeWidth={2} className="transition-[d] duration-200 motion-reduce:transition-none" />
           {/* The playhead. */}
-          <path d={`M${tickX(picked)} 14V92`} stroke="var(--color-accent)" strokeWidth={1} className="transition-[d] duration-200" />
+          <path d={`M${tickX(picked)} 14V92`} stroke="var(--color-accent)" strokeWidth={1} className="transition-[d] duration-200 motion-reduce:transition-none" />
           <circle cx={tickX(picked)} cy={46} r={5} fill="var(--color-page)" stroke="var(--color-accent)" strokeWidth={1.5} />
         </svg>
         {TURNS.map((t, i) => (
@@ -238,7 +238,7 @@ export function Timeline() {
               Undo <Icon name="undo" className="h-3.5 w-3.5" />
             </button>
           ) : null}
-          <p className="text-[12.5px] leading-[1.5] text-ink-3">
+          <p className="text-[12.5px] leading-[1.5] text-ink-2">
             {canUndo
               ? "Undo is here because nothing after this turn changed a file, so its checkpoint takes back exactly this turn."
               : turn.edits.length && blocker >= 0

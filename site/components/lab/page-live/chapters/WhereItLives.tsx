@@ -82,7 +82,7 @@ export function WhereItLives() {
           <div aria-hidden className="pointer-events-none absolute hidden rounded-[22px] shadow-[inset_0_0_0_1px_oklch(1_0_0/0.32)] md:-inset-4 md:block md:[grid-area:1/1/5/3]" />
           <p className="flex items-baseline justify-between text-[13px] text-ink md:col-span-2 md:row-start-1">
             Your Mac
-            <span className="text-[12px] text-ink-3">no account, nothing uploaded</span>
+            <span className="text-[12px] text-ink-2">no account, nothing uploaded</span>
           </p>
 
           <Block part="realm" hot={hot} hover={hover("realm")} title="~/Realm" mono note="Files and a SQLite database on disk. Nothing here leaves." className="md:col-start-1 md:row-span-2 md:row-start-2">
@@ -120,7 +120,7 @@ export function WhereItLives() {
           <Block part="provider" hot={hot} hover={hover("provider")} title="Your model provider" note="The agent talks to it itself. Realm never proxies it, and never asks for a key." outside className="md:col-start-4 md:row-start-4" />
         </div>
 
-        <ul className="mt-9 hidden gap-x-6 gap-y-1 text-[12.5px] text-ink-3 md:flex md:flex-wrap">
+        <ul className="mt-9 hidden gap-x-6 gap-y-1 text-[12.5px] text-ink-2 md:flex md:flex-wrap">
           {WIRES.map((w) => (
             <li key={w.id} className="flex items-center gap-2">
               <svg aria-hidden width="22" height="6" viewBox="0 0 22 6" fill="none">

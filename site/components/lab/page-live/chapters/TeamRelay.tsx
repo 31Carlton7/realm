@@ -131,7 +131,7 @@ export function TeamRelay() {
             </ul>
             <div aria-live="polite" className="mt-6 max-w-[30rem] rounded-[12px] bg-canvas px-4 py-3 text-[13.5px]">
               <p className="text-ink">{role.goal}</p>
-              <p className="mt-1 flex items-center gap-1.5 text-ink-3">
+              <p className="mt-1 flex items-center gap-1.5 text-ink-2">
                 Hands work to <Icon name="chevronRight" className="h-3 w-3" /> <span className="text-ink-2">{role.handsTo}</span>
               </p>
             </div>
@@ -193,7 +193,7 @@ export function TeamRelay() {
                 )
               })}
             </ul>
-            <p className="mt-3 text-[12px] leading-[1.5] text-ink-3">Nothing is posted, sent or published until you approve it.</p>
+            <p className="mt-3 text-[12.5px] leading-[1.5] text-ink-2">Nothing is posted, sent or published until you approve it.</p>
           </div>
         </div>
       </div>

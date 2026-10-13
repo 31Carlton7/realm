@@ -157,7 +157,7 @@ export function Gateway() {
                   ) : null}
                 </span>
               </p>
-              {s.note ? <p className="mt-1.5 text-[12.5px] leading-[1.5] text-ink-3">{s.note}</p> : null}
+              {s.note ? <p className="mt-1.5 text-[12.5px] leading-[1.5] text-ink-2">{s.note}</p> : null}
               {pending ? (
                 <button
                   type="button"
@@ -255,7 +255,7 @@ export function Gateway() {
                     Submit review
                   </button>
                 ) : s.note ? (
-                  <span className="absolute top-[34px] text-[12px] whitespace-nowrap text-ink-3">{s.note}</span>
+                  <span className="absolute top-[34px] text-[12px] whitespace-nowrap text-ink-2">{s.note}</span>
                 ) : null}
               </div>
             )

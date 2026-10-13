@@ -190,7 +190,7 @@ function Tree({ progress: p }: { progress: number }) {
       {/* Level names, at the left edge. */}
       {!narrow
         ? ["Your session", "Level one", "Level two"].map((label, i) => (
-            <span key={label} style={{ top: LEVEL_Y[i]! - 22 }} className="absolute left-0 text-[12px] text-ink-3">
+            <span key={label} style={{ top: LEVEL_Y[i]! - 22 }} className="absolute left-0 text-[12px] text-ink-2">
               {label}
             </span>
           ))
@@ -231,7 +231,7 @@ function Tree({ progress: p }: { progress: number }) {
           </div>
         )
       })}
-      <p className="absolute right-0 bottom-0 left-0 text-[12.5px] leading-[1.5] text-ink-3">
+      <p className="absolute right-0 bottom-0 left-0 text-[12.5px] leading-[1.5] text-ink-2">
         <Icon name="shield" className="mr-1 inline h-3 w-3 -translate-y-px" />
         Every sub-agent opens in your session&rsquo;s mode, and asks for permission like any other session.
       </p>

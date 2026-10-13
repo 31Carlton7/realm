@@ -178,7 +178,7 @@ export function Switchboard() {
               <dd className="text-ink">none, ever</dd>
             </dl>
             <p className="mt-3 text-[12.5px] leading-[1.5] text-ink-2">{harness.install}</p>
-            <p className="mt-4 border-t border-line pt-3 text-[12.5px] leading-[1.5] text-ink-3">
+            <p className="mt-4 border-t border-line pt-3 text-[12.5px] leading-[1.5] text-ink-2">
               The same either way: the checkout, its terminals, browsers and documents, and the space&rsquo;s connections.
             </p>
           </div>

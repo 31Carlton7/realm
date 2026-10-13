@@ -94,18 +94,17 @@ export function Boundary() {
 
   return (
     <Instrument kind="Sample" caption="Pick a posture, then try something. The drawing shows where the policy stops it.">
-      <div role="radiogroup" aria-label="The space's sandbox" className="mb-6 inline-flex flex-wrap gap-1 rounded-[12px] bg-canvas p-1">
+      <div role="group" aria-label="The space's sandbox" className="mb-6 inline-flex flex-wrap gap-1 rounded-[12px] bg-canvas p-1">
         {POSTURES.map((p) => (
           <button
             key={p.id}
             type="button"
-            role="radio"
-            aria-checked={posture === p.id}
+            aria-pressed={posture === p.id}
             onClick={() => {
               setPosture(p.id)
               setHit(null)
             }}
-            className="app-corner flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-[13px] text-ink-2 transition-colors duration-150 hover:text-ink aria-checked:bg-raised aria-checked:text-ink"
+            className="app-corner flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-[13px] text-ink-2 transition-colors duration-150 hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink"
           >
             {p.name}
             {p.note ? <span className="text-[12px] text-ink-3">· {p.note}</span> : null}
@@ -139,13 +138,13 @@ export function Boundary() {
               <AgentMark id="claude" className="size-4" />
             </span>
             <p className="mt-3 text-[13px] leading-[1.4] text-ink">The agent, and every process it starts</p>
-            <p className="mt-1 text-[12px] leading-[1.45] text-ink-3">{posture === "none" ? "Runs with your full account." : "Inside a macOS Seatbelt policy."}</p>
+            <p className="mt-1 text-[12px] leading-[1.45] text-ink-2">{posture === "none" ? "Runs with your full account." : "Inside a macOS Seatbelt policy."}</p>
           </div>
 
           <div className="sm:col-start-3 sm:space-y-3">
             <p data-anchor="network" className="mb-3 flex items-center justify-between text-[12.5px] text-ink-2 sm:mb-1">
               <span>The network</span>
-              <span className="text-ink-3">open in every posture</span>
+              <span className="text-ink-2">open in every posture</span>
             </p>
             {ZONES.map((z) => {
               const a = access(posture, z.id)
@@ -168,7 +167,7 @@ export function Boundary() {
                     {z.name}
                     <span className={`shrink-0 text-[12px] ${a === "no access" ? "text-red" : a === "read only" ? "text-orange" : "text-green"}`}>{a}</span>
                   </p>
-                  <p className="mt-1 font-mono text-[11.5px] leading-[1.5] text-ink-3">{z.paths}</p>
+                  <p className="mt-1 font-mono text-[11.5px] leading-[1.5] text-ink-2">{z.paths}</p>
                 </div>
               )
             })}

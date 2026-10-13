@@ -38,6 +38,7 @@ export function Hero({ download }: { download: MacDownload }) {
   }, [store])
 
   const settled = Object.values(state.status).every((s) => s === "done" || s === "scheduled")
+  const waiting = (["tests", "settings", "luna"] as const).filter((id) => state.status[id] === "waiting").length
   const replay = () => {
     store.reset(reducedNow() ? restingState(state.epoch + 1) : openingState(state.epoch + 1))
     if (!reducedNow()) store.play()
@@ -88,7 +89,7 @@ export function Hero({ download }: { download: MacDownload }) {
               it on a phone, where the lines turn down into its top edge. */}
           <div className="h-[350px] lg:flex lg:h-auto lg:flex-col lg:justify-end lg:pb-1">
             <div className="hidden lg:block">
-              <Legend settled={settled} onReplay={replay} />
+              <Legend settled={settled} waiting={waiting} onReplay={replay} />
             </div>
           </div>
           <div
@@ -100,15 +101,27 @@ export function Hero({ download }: { download: MacDownload }) {
           <TransitMap store={store} plateRef={plateRef} windowRef={windowRef} />
         </div>
         <div className="mt-4 px-2 lg:hidden">
-          <Legend settled={settled} onReplay={replay} />
+          <Legend settled={settled} waiting={waiting} onReplay={replay} />
         </div>
       </div>
     </section>
   )
 }
 
-function Legend({ settled, onReplay }: { settled: boolean; onReplay: () => void }) {
+function Legend({ settled, waiting, onReplay }: { settled: boolean; waiting: number; onReplay: () => void }) {
   return (
+    <div>
+      {/* What the map is waiting for, said once, where the key is read. */}
+      <p aria-live="polite" className="mb-3 min-h-[1.5em] text-[13px] text-ink-2">
+        {waiting ? (
+          <>
+            <span className="text-orange">{waiting === 1 ? "One request waits" : `${waiting === 2 ? "Two" : "Three"} requests wait`} on you.</span>{" "}
+            Answer {waiting === 1 ? "it" : "them"} in the window&rsquo;s Needs you.
+          </>
+        ) : settled ? (
+          "Everything came back."
+        ) : null}
+      </p>
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-ink-2">
       <span className="flex items-center gap-1.5">
         <svg aria-hidden width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -140,6 +153,7 @@ function Legend({ settled, onReplay }: { settled: boolean; onReplay: () => void 
           Play the day again
         </button>
       ) : null}
+    </div>
     </div>
   )
 }
