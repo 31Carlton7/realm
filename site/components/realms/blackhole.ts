@@ -8,7 +8,9 @@ import { basis as basisOf, clamp, dot, lerp, rayThrough, smooth, type Basis, typ
  * It is a Schwarzschild hole traced per pixel in the sky pass, inside the rect the page marks
  * `data-field-anchor="hole"` and nowhere else. Each view ray is followed in its own orbital plane by
  * the photon orbit equation, u'' + u = 3Mu² (u = 1/r, M = 1), so a ray costs at most 64 steps of an
- * ODE with no square roots in it, and the disk is met exactly where that plane crosses the disk's.
+ * ODE with no square roots in it, and the disk is met exactly where that plane crosses the disk's. A
+ * ray that never comes within the disk's reach takes the weak-field bend in closed form instead. The
+ * whole hole measured about a millisecond of GPU time a frame at 1440×900, and none off screen.
  *
  *   the shadow    every ray whose impact parameter is under 3√3 falls in: an exact, anti-aliased edge
  *   the disk      thin, from the innermost stable orbit out: blue-white plasma, beamed toward the side
@@ -76,7 +78,8 @@ struct Hole {
   eye: vec4f,    // the camera in the hole's own space (units of M), and its distance
   ax: vec4f,     // the hole's axes in the world: x in the disk toward the camera,
   ay: vec4f,     //   y across the disk,
-  az: vec4f,     //   z the disk's normal; az.w the hole's clock (s)
+  az: vec4f,     //   z the disk's normal; az.w the hole's clock (s), ax.w how far the camera has
+                 //   lifted its eyes to the night it hangs in (the sky pass brightens its stars by it)
   drops: array<vec4f, ${HOLE.drops * 2}>,  // per realm dropped in: radius (M), angle, glow, the spiral's dr/dphi;
                                            // then how far round it has come so far (rad)
 }
@@ -349,6 +352,17 @@ fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
 }
 `
 
+/** The uniforms of a hole that is not on the page: every ray passes it by. */
+export const holeOff = (): HoleUniforms => ({
+  at: [0, 0, 0, 0],
+  box: [0, 0, 0, 0],
+  eye: [0, 0, 1, 100],
+  ax: [1, 0, 0, 0],
+  ay: [0, 1, 0, 0],
+  az: [0, 0, 1, 0],
+  drops: Array.from({ length: HOLE.drops * 2 }, () => [0, 0, 0, 0]),
+})
+
 /** A click (or a key) on the hole: where on the page, to be dropped in on the next frame. */
 const clicks: { x: number; y: number }[] = []
 
@@ -397,18 +411,9 @@ export class BlackHole {
   frame(input: HoleFrame): { uniforms: HoleUniforms; live: boolean } {
     const { view, rect, width, height, seconds, still } = input
     const b = input.b ?? basisOf(view)
-    const off: HoleUniforms = {
-      at: [0, 0, 0, 0],
-      box: [0, 0, 0, 0],
-      eye: [0, 0, 1, 100],
-      ax: [1, 0, 0, 0],
-      ay: [0, 1, 0, 0],
-      az: [0, 0, 1, 0],
-      drops: Array.from({ length: HOLE.drops * 2 }, () => [0, 0, 0, 0]),
-    }
     if (!rect || rect[2] <= 0 || rect[1] > height || rect[1] + rect[3] < 0) {
       clicks.length = 0
-      return { uniforms: off, live: false }
+      return { uniforms: holeOff(), live: false }
     }
 
     const radius = shadowRadius(width, height)

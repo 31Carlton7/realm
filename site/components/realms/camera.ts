@@ -106,7 +106,7 @@ export function orbit(view: View, pivot: Vec3, angle: number): View {
  */
 export type Key = {
   id: string
-  kind: "open" | "chapter" | "teams" | "calm" | "finale" | "end"
+  kind: "open" | "chapter" | "teams" | "calm" | "finale"
   y: number
   view: View
   /** Fractions of the gap to the previous and next key spent holding this view. */

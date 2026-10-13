@@ -2,7 +2,7 @@ import { draw, effect, sampler, target } from "vgpu"
 
 import type { Rect, StageFactory, StageInput } from "@/components/field/stage"
 
-import { BlackHole } from "./blackhole"
+import { BlackHole, holeOff } from "./blackhole"
 import {
   basis,
   blend,
@@ -279,14 +279,13 @@ export const createRealms: StageFactory = async (gpu, output) => {
     set: { scene },
   })
   const blackHole = new BlackHole()
-  const hole = blackHole.frame({ view: { eye: [0, 0, 10], yaw: 0, pitch: 0, focal: 1500, px: 0, py: 0 }, rect: undefined, width: 1, height: 1, seconds: 0, dt: 0, still: true, pointer: [0, 0, 0] }).uniforms
   const sky = draw(gpu, {
     label: "realms-sky",
     shader: sceneShader,
     entry: { vertex: "vs_sky", fragment: "fs_sky" },
     vertices: 3,
     depth: { write: false, compare: "greater-equal" },
-    set: { scene, hole },
+    set: { scene, hole: holeOff() },
   })
   const linear = sampler(gpu, { minFilter: "linear", magFilter: "linear" })
   const composite = effect(gpu, compositeShader, { label: "realms-composite", set: { comp, sceneTex: world, sceneSampler: linear } })
