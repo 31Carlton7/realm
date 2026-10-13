@@ -1,32 +1,30 @@
 import Link from "next/link"
 
 import { ArrowIcon } from "@/components/icons"
+import { FieldPanel } from "@/components/realms/FieldPanel"
 import { formatDate, isWithdrawn, shortTitle, type Entry, type Release } from "@/lib/changelog"
 
 /**
- * The releases, newest first, each with the changes that shipped in it.
+ * The releases, newest first, each on a pane of the sky with the changes that shipped in it.
  *
  * A release's head is one link, to its notes: the date, its name, and its summary, which is the part
- * a reader scanning the page actually reads. Its head is also the block the walk arrives at (`k:<r>`),
- * and the walk stays at that release while the rest of its card (`r:<r>`) is read. The changes under
- * it are quieter rows, one line each, every one its own link: the title says what changed, and the
- * area says where.
+ * a reader scanning the page actually reads. The head is the block the walk arrives at (`k:<r>`), and
+ * the walk stays at that release while the rest of its pane (`r:<r>`) is read. The changes under it
+ * are quieter rows, one line each, every one its own link: the title says what changed, the area where.
  */
 export function ReleaseList({ releases, unreleased }: { releases: Release[]; unreleased: Entry[] }) {
   return (
     <div data-field-anchor="c:list" className="min-w-0">
       {unreleased.length > 0 ? (
-        <section aria-labelledby="unreleased-title" className="pb-[clamp(5rem,16vh,9rem)]">
-          <h2 id="unreleased-title" className="text-[15px] font-[560] text-ink">
-            Not in a release yet
-          </h2>
+        <FieldPanel as="section" anchor="c:unreleased" wrapClassName="mb-10 lg:mb-[clamp(4rem,12vh,7rem)]" className="p-6 sm:p-8">
+          <h2 className="text-[15px] font-[560] text-ink">Not in a release yet</h2>
           <Changes entries={unreleased} />
-        </section>
+        </FieldPanel>
       ) : null}
-      <ol className="space-y-20 lg:space-y-[clamp(5rem,18vh,10rem)]">
+      <ol className="space-y-10 lg:space-y-[clamp(4rem,14vh,8rem)]">
         {releases.map((release, r) => (
-          <li key={release.slug} id={release.slug} className="scroll-mt-32">
-            <article data-field-anchor={`r:${r}`} aria-labelledby={`${release.slug}-title`}>
+          <li key={release.slug} id={release.slug} className="scroll-mt-28">
+            <FieldPanel as="article" anchor={`r:${r}`} className="p-6 sm:p-8">
               <ReleaseHead release={release} index={r} />
               {release.changes.length > 0 ? (
                 <section aria-label={`Changes in ${release.version}`} className="mt-8">
@@ -36,7 +34,7 @@ export function ReleaseList({ releases, unreleased }: { releases: Release[]; unr
                   <Changes entries={release.changes} />
                 </section>
               ) : null}
-            </article>
+            </FieldPanel>
           </li>
         ))}
       </ol>
@@ -76,7 +74,7 @@ function Changes({ entries }: { entries: Entry[] }) {
         <li key={entry.slug}>
           <Link
             href={`/changelog/${entry.slug}`}
-            className="group flex min-h-10 items-baseline justify-between gap-6 rounded-[8px] px-3 py-2 transition-colors duration-150 hover:bg-surface"
+            className="flex min-h-10 items-baseline justify-between gap-6 rounded-[8px] px-3 py-2 transition-colors duration-150 hover:bg-white/[0.05]"
           >
             <span className="min-w-0 text-[15px] leading-[1.45] text-ink">{entry.title}</span>
             <span className="shrink-0 text-[13px] text-ink-2">{entry.area}</span>

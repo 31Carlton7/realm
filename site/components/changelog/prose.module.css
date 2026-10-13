@@ -102,10 +102,13 @@
   line-height: 1.7;
 }
 
-/* A capture takes more air than a paragraph: it is something to look at, not the next line. */
-.prose > figure {
-  margin-top: 2.75rem;
-  margin-bottom: 2.75rem;
+/* A capture (the landing page's Screen) takes more air than a paragraph: it is something to look at,
+   not the next line, and its caption hangs below its plate on a tab that needs the room. A whole
+   window may run past the reading column into the room the page gives it (`--figure-room`). */
+.prose > :global(.screen) {
+  width: var(--figure-room, 100%);
+  margin-top: 2.5rem;
+  margin-bottom: 6rem;
 }
 
 /* A note: a later word on the entry, set apart on a surface, under the name it goes by. */

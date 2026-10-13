@@ -1,251 +1,337 @@
 import { draw, effect, sampler, target, type Frame, type Gpu, type Surface } from "vgpu"
 
 import type { Rect, StageFactory, StageInput } from "@/components/field/stage"
-import { basis, blend, clamp, Follow, lerp, orbit, place, rayThrough, smooth, smoother, type Key, type Vec3, type View } from "@/components/realms/camera"
-import { CLEAR, compositeShader, LIT, PANELS, PLAZAS, SCREENS, sceneShader, type CompositeUniforms, type SceneUniforms } from "@/components/realms/shaders"
-import { latticeOf, PLANET_RADIUS } from "@/components/realms/world"
+import { holeOff } from "@/components/realms/blackhole"
+import { basis, blend, clamp, Follow, lerp, orbit, place, project, smooth, smoother, type Basis, type Key, type Vec3, type View } from "@/components/realms/camera"
+import {
+  BEAMS,
+  BURSTS,
+  CLEAR,
+  compositeShader,
+  PAGE_REALMS,
+  PANELS,
+  PULSES,
+  REALM_VERTICES,
+  sceneShader,
+  spaceShader,
+  STAR_BLOCK,
+  STAR_CELL,
+  TOUCHED,
+  type CompositeUniforms,
+  type RealmData,
+  type SceneUniforms,
+} from "@/components/realms/shaders"
+import { clearOff, doorCorners, MAX_REALMS, packRealms, populate, type Pose, type Realm } from "@/components/realms/world"
 
-import { aimed, AVENUE_X, EYE, FOCAL, footOf, lateralFor, realmOf, standing, STREET, streetView } from "./avenue"
+import { poseOf, realmOf, SPACING, viewAt } from "./world"
 
 /**
- * The changelog's two views of the landing page's world, drawn with its shaders (components/realms):
+ * The changelog's two views of the landing page's sky, drawn with its passes (components/realms):
  *
- *   the walk     the index. The releases stand in a row up the field, newest nearest, and the camera
- *                walks the street beside them as the page scrolls, arriving at each release as its
- *                card comes to the reading line. Each release's doorway is lit; the one being read is
- *                lit fully, and a withdrawn build's stands dark.
- *   the arrival  an entry's header band. The camera stands in front of that release's realm with the
- *                older ones going away behind it, and walks up to its doorway as the reader scrolls
- *                into the notes. The band's own box is the canvas, so the picture leaves with the band
- *                and the loop stops once it has (FieldCanvas, `stage`).
+ *   the walk     the index. Each release is a realm hanging in a row up the route, newest nearest, its
+ *                doorway lit; the camera walks up the route as the page scrolls and comes to each
+ *                release as its card comes to the reading line, the older ones waiting ahead of it.
+ *                The release being read is lit fully, and a withdrawn build's stands dark.
+ *   the arrival  an entry's band. The camera hangs in front of that release's realm, the older ones
+ *                going away behind it, and comes up to its doorway as the reader scrolls into the
+ *                notes, the doorway thrown open as they go in. The band's own box is the canvas, so
+ *                the picture leaves with the band and the loop stops once it has (FieldCanvas).
  *
- * The layout is the DOM's. `stage` is the canvas's box; `c:<name>` is a block of words the field keeps
- * clear of; `k:<r>` is release r's card on the index, whose scroll position is the release's stop;
- * `s:door` is where an entry's realm stands in its band.
+ * The layout is the DOM's. `stage` is the canvas's box; `k:<r>` is release r's head on the index, whose
+ * scroll position is its stop, and `r:<r>` its whole card, read while the camera stays; `c:<name>` is
+ * any other block of words; `s:<name>` is where a realm hangs in a band. Words on a FieldPanel tell the
+ * composite their corner, and the field is dimmed inside exactly that.
  */
 
 const DEG = Math.PI / 180
-const GRID = 64
-const GRID_PHONE = 40
-/** The realm mesh: thirteen quads, two triangles each (components/realms/stage.ts). */
-const REALM_VERTICES = 78
+
+// The landing page's sky, as components/realms/stage.ts sets it.
+const SPACE_SCALE = 0.5
+const PANE_FIELD = 0.45
+const KEY_LIGHT: Vec3 = (() => {
+  const v: Vec3 = [-0.45, -0.62, 0.64]
+  const l = Math.hypot(...v)
+  return [v[0] / l, v[1] / l, v[2] / l]
+})()
+const KEY_STRENGTH = 1.15
+const DOOR_SHARE = 0.36
+const SKY_TURN = 0.0026
+const STAR_DRIFT: Vec3 = [0.07, -0.11, 0.03]
+
 /** A doorway that is not the one being read is lit this much of the way. */
-const LIT_AHEAD = 0.5
-/** The evening the changelog is set in: the landing page's dusk, a little on. */
-const NIGHT = 0.12
+const LIT_AHEAD = 0.45
 
 export type AvenueRelease = { slug: string; dark: boolean }
 
-type Scene = Awaited<ReturnType<typeof world>>
+const sub3 = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+const length3 = (a: Vec3) => Math.hypot(a[0], a[1], a[2])
 
-async function world(gpu: Gpu, size: [number, number]) {
+/** The canvas's own box in the viewport: the `stage` anchor, or the viewport when there is none. */
+const boxOf = (input: StageInput): Rect => input.anchors.stage ?? [0, 0, input.width, input.height]
+
+const inView = (r: Rect, height: number) => r[2] > 0 && r[3] > 0 && r[1] < height + 200 && r[1] + r[3] > -200
+
+/** The corners of the panes words sit on (FieldPanel's `data-field-panel`), by their anchor. */
+function panes(): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const el of document.querySelectorAll<HTMLElement>("[data-field-panel]")) {
+    if (el.dataset.fieldAnchor) out.set(el.dataset.fieldAnchor, Number(el.dataset.fieldPanel))
+  }
+  return out
+}
+
+/**
+ * The sky: the landing page's passes, its population, and its uniforms, drawn into a canvas of any
+ * size. `frame` writes everything the camera and the moment decide; the caller decides the rest.
+ */
+async function sky(gpu: Gpu, output: Surface, size: [number, number]) {
   const zero = () => [0, 0, 0, 0]
   const scene: SceneUniforms = {
-    eye: [0, 0, 10, FOCAL],
+    eye: [0, 0, 10, 1500],
     fwd: [0, 1, 0, 0.05],
     right: [1, 0, 0, 1],
     up: [0, 0, 1, 0],
     view: [1, 1, 0, 0],
-    clock: [0, NIGHT, 0, 0],
-    fog: [10, 0.02, 0, 0],
-    planet: [0, 0, PLANET_RADIUS, 0],
-    sun: [0, 0, 1, 0],
-    air: [1, 0, 0, 1],
-    field: [0, 0, 0, 0],
-    fence: [0, 0, 0, 0],
-    lamp: [0, 0, 2, 0],
-    grid: [0, 0, GRID, 120],
-    screens: Array.from({ length: SCREENS * 2 }, zero),
-    plazas: Array.from({ length: PLAZAS * 2 }, zero),
-    lit: Array.from({ length: LIT }, () => [0, 0, -1, 0]),
+    clock: [0, 0, DOOR_SHARE, 0],
+    prevEye: [0, 0, 10, 1500],
+    prevFwd: [0, 1, 0, 0],
+    prevRight: [1, 0, 0, 0],
+    prevUp: [0, 0, 1, 0],
+    stars: [0, 0, 0, 60],
+    haze: [30, 0.004, 0, 0],
+    light: [...KEY_LIGHT, KEY_STRENGTH],
+    holeBox: [0, 0, 0, 0],
+    flare: [0, 0, 0, 0],
+    touched: Array.from({ length: TOUCHED }, () => [zero(), zero(), zero(), zero(), [-1, 0, 0, 0]]).flat(),
+    page: Array.from({ length: PAGE_REALMS * 5 }, zero),
   }
   const comp: CompositeUniforms = {
     view: [1, 1, 1, 0],
     look: [0, 0, 0, 0],
-    clear: Array.from({ length: CLEAR }, zero),
+    cam: Array.from({ length: 4 }, zero),
+    clear: Array.from({ length: CLEAR * 2 }, zero),
     panels: Array.from({ length: PANELS * 2 }, zero),
+    plates: Array.from({ length: PANELS * 2 }, zero),
+    beams: Array.from({ length: BEAMS * 7 }, (_, i) => (i % 7 === 1 ? [0, 0, 1, 0] : zero())),
+    pulses: Array.from({ length: PULSES * 5 }, zero),
+    bursts: Array.from({ length: BURSTS * 2 }, zero),
+    fence: Array.from({ length: 10 }, zero),
   }
 
+  const population = populate()
+  const realmData: RealmData = { items: packRealms(population) }
+  const spaceOf = (s: [number, number]): [number, number] => [Math.max(1, Math.round(s[0] * SPACE_SCALE)), Math.max(1, Math.round(s[1] * SPACE_SCALE))]
   let current = size
   const scenery = target(gpu, { size, format: "rgba16float", depth: "depth32float", msaa: true, label: "changelog-world" })
+  const space = target(gpu, { size: spaceOf(size), format: "rgba16float", label: "changelog-space" })
+  const linear = sampler(gpu, { minFilter: "linear", magFilter: "linear" })
+
+  const deep = effect(gpu, spaceShader, { label: "changelog-space", set: { scene } })
   const realms = draw(gpu, {
     label: "changelog-realm",
     shader: sceneShader,
     entry: { vertex: "vs_realm", fragment: "fs_realm" },
     cull: "back",
     depth: { write: true, compare: "greater" },
-    set: { scene },
+    set: { scene, realms: realmData, spaceTex: space, spaceSampler: linear },
   })
-  const sky = draw(gpu, {
+  const backdrop = draw(gpu, {
     label: "changelog-sky",
     shader: sceneShader,
     entry: { vertex: "vs_sky", fragment: "fs_sky" },
     vertices: 3,
     depth: { write: false, compare: "greater-equal" },
+    set: { scene, hole: holeOff(), spaceTex: space, spaceSampler: linear },
+  })
+  const additive = { color: { src: "one", dst: "one" }, alpha: { src: "zero", dst: "one" } } as const
+  const glows = draw(gpu, {
+    label: "changelog-glow",
+    shader: sceneShader,
+    entry: { vertex: "vs_glow", fragment: "fs_glow" },
+    blend: additive,
+    depth: { write: false, compare: "greater" },
+    set: { scene, realms: realmData },
+  })
+  const stars = draw(gpu, {
+    label: "changelog-stars",
+    shader: sceneShader,
+    entry: { vertex: "vs_star", fragment: "fs_star" },
+    blend: additive,
+    depth: { write: false, compare: "greater" },
     set: { scene },
   })
-  const linear = sampler(gpu, { minFilter: "linear", magFilter: "linear" })
   const composite = effect(gpu, compositeShader, { label: "changelog-composite", set: { comp, sceneTex: scenery, sceneSampler: linear } })
-  await Promise.all([realms.compile(scenery), sky.compile(scenery)])
+  await Promise.all([realms.compile(scenery), backdrop.compile(scenery), glows.compile(scenery), stars.compile(scenery)])
+
+  let prev: { view: View; b: Basis; seconds: number } | null = null
+  let cleared = ""
 
   return {
     scene,
     comp,
-    render(frame: Frame, output: Surface, size: [number, number], instances: number) {
-      if (size[0] !== current[0] || size[1] !== current[1]) {
-        current = size
-        scenery.resize(size)
-        composite.set({ sceneTex: scenery })
+    /**
+     * Clear the sky out of the page's way, whenever the stops move: nothing may hang where the camera
+     * passes between stops, nor in front of a stop's camera as near as its own realm, nor behind the
+     * words near enough to be more than a point.
+     */
+    clearFor(stops: { view: View; keep: number; words: Rect | null }[], path: Vec3[], width: number, height: number) {
+      const key = `${width}x${height}|${stops.map((s) => `${s.view.eye.map((v) => v.toFixed(2)).join(",")}@${s.view.px.toFixed(0)},${s.view.py.toFixed(0)}`).join(";")}`
+      if (key === cleared) return
+      cleared = key
+      const views = stops.map((s) => ({ ...s, b: basis(s.view) }))
+      const kept: Realm[] = clearOff(population, (at, size) => {
+        for (const p of path) if (length3(sub3(at, p)) < 3 + size * 0.9) return false
+        for (const { view, b, keep, words } of views) {
+          const [x, y, z] = project(view, b, at)
+          if (z <= 0.3) continue
+          const across = (view.focal * size) / z
+          const r = across + 40
+          if (x > -r && x < width + r && y > -r && y < height + r && (z <= keep + size || across > 90)) return false
+          if (words && z < 160 && x > words[0] - r && x < words[0] + words[2] + r && y > words[1] - r && y < words[1] + words[3] + r) return false
+        }
+        return true
+      })
+      realmData.items = packRealms(kept)
+      realms.set({ realms: realmData })
+      glows.set({ realms: realmData })
+    },
+    /** The page's own realms this frame: their poses, how lit each doorway is, and how open. */
+    page(list: { pose: Pose; glow: number; open: number }[]) {
+      for (let k = 0; k < PAGE_REALMS; k++) {
+        const item = list[k]
+        if (!item) {
+          scene.page[k * 5] = [0, 0, 0, 0]
+          continue
+        }
+        const { pose, glow, open } = item
+        scene.page[k * 5] = [...pose.at, Math.hypot(...pose.z)]
+        scene.page[k * 5 + 1] = [...pose.x, glow]
+        scene.page[k * 5 + 2] = [...pose.y, 0]
+        scene.page[k * 5 + 3] = [...pose.z, open]
+        scene.page[k * 5 + 4] = [-1, 0, 0, 0]
       }
+    },
+    render(
+      frame: Frame,
+      view: View,
+      set: { width: number; height: number; seconds: number; still: boolean; haze: [number, number]; clears: [Rect, number, number][]; bursts: [number, number, number, number, number][] },
+    ) {
+      const b = basis(view)
+      const t = set.seconds
+      const last = prev ?? { view, b, seconds: t }
+      scene.eye = [...view.eye, view.focal]
+      scene.fwd = [...b.fwd, 0.05]
+      scene.right = [...b.right, 1]
+      scene.up = [...b.up, 0]
+      scene.view = [set.width, set.height, view.px, view.py]
+      scene.clock = [t, set.still ? 1 : 0, DOOR_SHARE, last.seconds]
+      scene.prevEye = [...last.view.eye, last.view.focal]
+      scene.prevFwd = [...last.b.fwd, last.view.px]
+      scene.prevRight = [...last.b.right, last.view.py]
+      scene.prevUp = [...last.b.up, 0]
+      const drifted = sub3(view.eye, [STAR_DRIFT[0] * t, STAR_DRIFT[1] * t, STAR_DRIFT[2] * t])
+      scene.stars = [
+        Math.floor(drifted[0] / STAR_CELL) - STAR_BLOCK / 2,
+        Math.floor(drifted[1] / STAR_CELL) - STAR_BLOCK / 2,
+        Math.floor(drifted[2] / STAR_CELL) - STAR_BLOCK / 2,
+        (STAR_BLOCK / 2 - 1) * STAR_CELL,
+      ]
+      scene.haze = [set.haze[0], set.haze[1], t * SKY_TURN, 0]
+      prev = { view, b, seconds: t }
+
+      const clears = set.clears.filter(([r]) => r[2] > 0 && r[3] > 0).slice(0, CLEAR)
+      const dpr = output.size[0] / Math.max(set.width, 1)
+      comp.view = [set.width, set.height, dpr, t]
+      comp.look = [set.still ? 1 : 0, clears.length, 0, 0]
+      comp.cam = [
+        [...view.eye, view.focal],
+        [...b.fwd, view.px],
+        [...b.right, view.py],
+        [...b.up, 0],
+      ]
+      comp.clear = [...clears.flatMap(([r, radius, inside]) => [[...r], [radius, inside, 0, 0]]), ...Array.from({ length: (CLEAR - clears.length) * 2 }, () => [0, 0, 0, 0])]
+      for (let k = 0; k < BURSTS; k++) {
+        const burst = set.bursts[k]
+        comp.bursts[k * 2] = burst ? [burst[0], burst[1], burst[2], burst[3]] : [0, 0, 0, 0]
+        comp.bursts[k * 2 + 1] = burst ? [burst[4], k * 0.61, 0, 0] : [0, 0, 0, 0]
+      }
+
+      const wanted: [number, number] = [Math.max(1, Math.round(set.width)), Math.max(1, Math.round(set.height))]
+      if (wanted[0] !== current[0] || wanted[1] !== current[1]) {
+        current = wanted
+        scenery.resize(wanted)
+        space.resize(spaceOf(wanted))
+        composite.set({ sceneTex: scenery })
+        realms.set({ spaceTex: space })
+        backdrop.set({ spaceTex: space })
+      }
+      deep.set({ scene })
       realms.set({ scene })
-      sky.set({ scene })
+      backdrop.set({ scene })
+      glows.set({ scene })
+      stars.set({ scene })
       composite.set({ comp })
-      frame.pass({ target: scenery, clear: [0, 0, 0, 1], clearDepth: 0 }, (pass) => {
-        if (instances > 0) pass.draw(realms, { vertices: REALM_VERTICES, instances })
-        pass.draw(sky, { vertices: 3 })
+      frame.pass({ target: space, clear: [0, 0, 0, 1] }, (pass) => pass.draw(deep))
+      frame.pass({ target: scenery, clear: [0, 0, 0, 0], clearDepth: 0 }, (pass) => {
+        pass.draw(realms, { vertices: REALM_VERTICES, instances: MAX_REALMS + PAGE_REALMS })
+        pass.draw(backdrop, { vertices: 3 })
+        pass.draw(glows, { vertices: 6, instances: MAX_REALMS + PAGE_REALMS })
+        pass.draw(stars, { vertices: 6, instances: STAR_BLOCK * STAR_BLOCK * STAR_BLOCK })
       })
       frame.pass(output, composite)
     },
   }
 }
 
-/** What one frame of either view needs besides the camera. */
-type Setting = {
-  width: number
-  height: number
-  seconds: number
-  still: boolean
-  fog: [number, number]
-  /** Release index and how lit its doorway is (0 dark .. 1 the one being read). */
-  doors: [number, number][]
-  lamp: { x: number; y: number; presence: number }
-  clears: Rect[]
-  grid: number
-  dpr: number
-  /** How many releases stand in the avenue. Past the oldest the field closes over the street, so the
-   *  avenue ends at the first release. */
-  total: number
-}
-
-function compose(s: Scene, view: View, set: Setting): number {
-  const b = basis(view)
-  const { scene, comp } = s
-
-  // The pointer's lamp, where its ray meets the ground, held a little above it.
-  const ray = rayThrough(view, b, set.lamp.x, set.lamp.y)
-  let lampAt: Vec3 = [0, 0, 0]
-  let lampOn = 0
-  if (ray[2] < -1e-3) {
-    const t = -view.eye[2] / ray[2]
-    lampAt = [view.eye[0] + ray[0] * t, view.eye[1] + ray[1] * t, 0]
-    lampOn = set.lamp.presence
-  }
-
-  // The lattice round where the camera looks, and how far out a realm is still worth drawing.
-  const [fogStart, fogDensity] = set.fog
-  const level = view.pitch > -0.05
-  const ahead = level ? clamp(fogStart * 1.4, 18, 70) : Math.min(view.eye[2] / Math.tan(-view.pitch), 120)
-  const lookX = view.eye[0] + Math.cos(view.yaw) * ahead
-  const lookY = view.eye[1] + Math.sin(view.yaw) * ahead
-  const [gi, gj] = latticeOf(lookX, lookY).map(Math.round) as [number, number]
-  const cull = Math.min(fogStart + 4.2 / Math.max(fogDensity, 1e-4), 260)
-
-  // The street: cleared from behind the camera to the oldest release, and quiet everywhere, so the only
-  // doorways lit in the field are the releases'.
-  const end = Math.min(view.eye[1] + cull + 12, realmOf(set.total - 1)[1] + 2.4)
-  const plazas: number[][] = [[STREET.x, view.eye[1] - 12, STREET.radius, 1e5], [STREET.x, Math.max(end, view.eye[1] - 11), 0, 0]]
-  while (plazas.length < PLAZAS * 2) plazas.push([0, 0, 0, 0])
-
-  // The releases nearest where the camera looks: the scene keeps LIT of them, and a release it is not
-  // told about stands in the street's clearing and so is not drawn, which only ever happens far into
-  // the haze.
-  const lit = set.doors
-    .map(([r, glow]) => {
-      const [x, y] = realmOf(r)
-      return { x, y, glow, d: Math.hypot(x - lookX, y - lookY) }
-    })
-    .sort((a, c) => a.d - c.d)
-    .slice(0, LIT)
-    .map(({ x, y, glow }) => [x, y, glow, 0])
-  while (lit.length < LIT) lit.push([0, 0, -1, 0])
-
-  scene.eye = [...view.eye, view.focal]
-  scene.fwd = [...b.fwd, clamp(view.eye[2] * 0.02, 0.03, 4)]
-  scene.right = [...b.right, 1]
-  scene.up = [...b.up, 0]
-  scene.view = [set.width, set.height, view.px, view.py]
-  scene.clock = [set.seconds, NIGHT, set.still ? 1 : 0, 0]
-  scene.fog = [fogStart, fogDensity, 0, 0]
-  scene.planet = [view.eye[0], view.eye[1], PLANET_RADIUS, 0]
-  scene.lamp = [lampAt[0], lampAt[1], clamp(view.eye[2] * 0.35, 1.2, 6), lampOn]
-  scene.grid = [gi, gj, set.grid, cull]
-  scene.plazas = plazas
-  scene.lit = lit
-
-  const clears = set.clears.filter((r) => r[2] > 0 && r[3] > 0).slice(0, CLEAR)
-  comp.view = [set.width, set.height, set.dpr, set.seconds]
-  comp.look = [set.still ? 1 : 0, clears.length, 0, 0]
-  comp.clear = [...clears.map((r) => [...r]), ...Array.from({ length: CLEAR - clears.length }, () => [0, 0, 0, 0])]
-  return set.grid * set.grid
-}
-
-/** The canvas's own box in the viewport: the `stage` anchor, or the viewport when there is none. */
-function box(input: StageInput): Rect {
-  return input.anchors.stage ?? [0, 0, input.width, input.height]
-}
-
-const inView = (r: Rect, height: number) => r[2] > 0 && r[1] < height + 200 && r[1] + r[3] > -200
-
-/** The pointer's lamp, easing after it as the landing page's does. */
-function lampFollower() {
-  const lamp = { x: 0, y: 0, presence: 0 }
+/** The pointer: the smallest sway of the camera about where it stands, easing after the mouse. */
+function swayer() {
   let sway = 0
-  return {
-    lamp,
-    get sway() {
-      return sway
-    },
-    step(input: StageInput, origin: Rect, dt: number) {
-      const [px, py, presence] = input.pointer
-      const x = px - origin[0]
-      const y = py - origin[1]
-      const k = input.still ? 1 : 1 - Math.exp(-Math.max(dt, 0) / 0.6)
-      if (lamp.presence < 0.001) {
-        lamp.x = x
-        lamp.y = y
-      }
-      lamp.x += (x - lamp.x) * k
-      lamp.y += (y - lamp.y) * k
-      lamp.presence += ((input.still ? 0 : presence) - lamp.presence) * k
-      sway += ((x / Math.max(origin[2], 1) - 0.5) * presence - sway) * k
-    },
+  return (input: StageInput, box: Rect, dt: number) => {
+    const [x, , presence] = input.pointer
+    const k = input.still ? 1 : 1 - Math.exp(-Math.max(dt, 0) / 0.6)
+    sway += ((((x - box[0]) / Math.max(box[2], 1) - 0.5) * (input.still ? 0 : presence)) - sway) * k
+    return sway
   }
+}
+
+/** A doorway thrown open, as the composite draws one: its middle on the page, distance, light, size. */
+function burstOf(pose: Pose, view: View, open: number): [number, number, number, number, number] | null {
+  if (open <= 0.01) return null
+  const b = basis(view)
+  const door = doorCorners(pose)
+  const mid: Vec3 = [0, 1, 2].map((i) => (door[0][i]! + door[1][i]! + door[2][i]! + door[3][i]!) / 4) as Vec3
+  const [x, y, z] = project(view, b, mid)
+  if (z < 1) return null
+  const out = [-pose.y[0], -pose.y[1], -pose.y[2]] as Vec3
+  const toEye = sub3(view.eye, mid)
+  const facingEye = (out[0] * toEye[0] + out[1] * toEye[1] + out[2] * toEye[2]) / (length3(out) * length3(toEye))
+  if (facingEye <= 0) return null
+  return [x, y, length3(toEye), open * (0.4 + 0.6 * facingEye), (view.focal * Math.hypot(...pose.z)) / z]
 }
 
 /**
- * The index: a walk up the avenue, one stop per release card.
+ * The index: a walk up the route, one stop per release card.
  */
 export function walkStage(releases: AvenueRelease[]): StageFactory {
   return async (gpu, output) => {
-    const sizeOf = (r: Rect): [number, number] => [Math.max(1, Math.round(r[2])), Math.max(1, Math.round(r[3]))]
-    const s = await world(gpu, [Math.max(1, window.innerWidth), Math.max(1, window.innerHeight)])
+    const s = await sky(gpu, output, [Math.max(1, window.innerWidth), Math.max(1, window.innerHeight)])
     const follow = new Follow(9)
-    const pointer = lampFollower()
+    const sway = swayer()
     let lastSeconds = -1
-    let drawn = ""
     let mode = ""
 
     return {
       draw(frame, input) {
-        const canvas = box(input)
+        const canvas = boxOf(input)
         const [W, H] = [canvas[2], canvas[3]]
         if (W < 2 || H < 2) return
-        const dt = lastSeconds < 0 ? 0 : input.seconds - lastSeconds
-        lastSeconds = input.seconds
+        const t = input.seconds
+        const dt = lastSeconds < 0 ? 0 : t - lastSeconds
+        lastSeconds = t
         const scrollY = window.scrollY
         const local = (r: Rect): Rect => [r[0] - canvas[0], r[1] - canvas[1], r[2], r[3]]
-        // A phone, or any window too narrow for the field beside the list, gets the field only in the
-        // band at the top of the page, where the canvas has been confined.
+        // A phone, or any window too narrow for the sky beside the list, gets it only in the band at
+        // the top of the page, where the canvas has been confined.
         const banded = H < input.height * 0.9 || W < 1024
         const next = input.still ? "still" : banded ? "band" : "walk"
         if (next !== mode) {
@@ -253,225 +339,167 @@ export function walkStage(releases: AvenueRelease[]): StageFactory {
           follow.reset()
         }
 
-        // The doorway being read stands right of the list, on the reading line's level, with the
-        // horizon high enough to see the street; the camera walks as far left of the releases as puts
-        // the avenue's far end a little clear of the list.
-        const list = input.anchors["c:list"]
-        const columnRight = list ? local(list)[0] + list[2] : W * 0.5
-        const horizon = H * 0.27
-        const sx = columnRight + (W - columnRight) * 0.68
-        const sy = H * 0.68
-        const lateral = lateralFor(sx - (columnRight + 190), sy, horizon)
-        const street = (r: number) => streetView(r, sx, sy, horizon, EYE, lateral)
+        // The release being read hangs right of the list, a little above the reading line.
+        const list = input.anchors["c:list"] ?? input.anchors["k:0"]
+        const columnRight = list ? local(list)[0] + local(list)[2] : W * 0.5
+        const room = W - columnRight
+        const sx = columnRight + room * 0.56
+        const sy = H * 0.5
+        const edge = clamp(room * 0.25, 96, 168)
 
-        // The opening, over the top of the page: up and back from the newest release, looking down
-        // the street, so the releases' doorways are lights in one row going away into the haze.
-        // On a narrow screen the newest release stands in the right half of the band over the title,
-        // the older ones going away to its left, as an entry's band stands its release.
-        const slot = input.anchors["s:avenue"] ? local(input.anchors["s:avenue"]) : undefined
-        const opening: View =
-          banded && slot
-            ? standing(0, [slot[0] + slot[2] * 0.5, slot[1] + slot[3] * 0.08, slot[2] * 0.42, slot[3] * 0.84]).view
-            : aimed({ eye: [AVENUE_X - lateral - 0.8, footOf(0)[1] - 14, 6.4], yaw: 90 * DEG, pitch: -15 * DEG, focal: FOCAL, px: 0, py: 0 }, footOf(0), sx, H * 0.74)
+        // The opening: further back down the route, so the releases ahead are a row of lit doorways.
+        const slot = input.anchors["s:avenue"] ? local(input.anchors["s:avenue"]) : null
+        const opening = banded && slot ? viewAt(0, slot[0] + slot[2] * 0.62, slot[1] + slot[3] * 0.55, slot[3] * 0.34, 2.2, 1.1) : viewAt(0, sx, H * 0.56, edge * 0.62, 2.8, 1.5)
 
-        type Stop = { key: Key; fog: [number, number]; release: number; through: number }
-        const stops: Stop[] = [
-          { key: { id: "open", kind: "open", y: 0, view: opening, hold: [0, 0.08], turn: 0, pivot: footOf(0), lift: 0 }, fog: [20, 1 / 60], release: -1, through: 0 },
-        ]
+        type Stop = { key: Key; release: number; through: number }
+        const stops: Stop[] = [{ key: { id: "open", kind: "open", y: 0, view: opening, hold: [0, 0.08], turn: 0, pivot: realmOf(0), lift: 0 }, release: 0, through: 0 }]
         if (!banded) {
           releases.forEach((_, r) => {
             const head = input.anchors[`k:${r}`]
             if (!head) return
             const h = local(head)
             const whole = input.anchors[`r:${r}`] ? local(input.anchors[`r:${r}`]!) : h
-            // A release's stop is where its card's head sits a little above the middle of the view, and
-            // the camera stays there for as long as the rest of the card (its changes) is being read.
+            // A release's stop is where its head sits a little above the middle of the view, and the
+            // camera stays there while the rest of its card (its changes) is read.
             const y = Math.max(1, scrollY + h[1] + h[3] / 2 - H * 0.4)
-            const view = street(r)
-            const distance = footOf(r)[1] - view.eye[1]
             stops.push({
-              key: { id: String(r), kind: "chapter", y, view, hold: [0.12, 0.12], turn: 0, pivot: footOf(r), lift: 0 },
-              fog: [distance + 4, 1 / (distance * 3.4)],
+              key: { id: String(r), kind: "chapter", y, view: viewAt(r, sx, sy, edge), hold: [0.12, 0.12], turn: 0, pivot: realmOf(r), lift: 0.6 },
               release: r,
               through: scrollY + whole[1] + whole[3] - H * 0.4,
             })
           })
-          // The end of the page: the camera rises off the street and looks back down on the first
-          // release, where the avenue begins, standing above the footer.
-          const last = releases.length - 1
-          const footer = input.anchors["c:footer"]
-          const end = document.documentElement.scrollHeight - input.height
-          const lastStop = stops.at(-1)
-          if (footer && lastStop && end > lastStop.key.y + H * 0.3) {
-            const footerTop = local(footer)[1] + scrollY - end
-            const high: View = { eye: [AVENUE_X - 3.4, footOf(last)[1] - 10, 7.5], yaw: 82 * DEG, pitch: -32 * DEG, focal: FOCAL, px: 0, py: 0 }
-            stops.push({
-              key: { id: "end", kind: "calm", y: end, view: aimed(high, footOf(last), sx, Math.max(H * 0.3, footerTop - 110)), hold: [0.15, 0], turn: 0, pivot: footOf(last), lift: 0 },
-              fog: [14, 1 / 40],
-              release: last,
-              through: end,
-            })
-          }
         }
         stops.sort((a, c) => a.key.y - c.key.y)
-        // Each stop holds across its own card: the share of the way to the next stop that the card's
-        // remaining length takes up.
         stops.forEach((stop, k) => {
-          const next = stops[k + 1]
-          if (!next || stop.key.kind !== "chapter") return
-          const gap = Math.max(next.key.y - stop.key.y, 1)
-          stop.key.hold[1] = clamp((stop.through - stop.key.y) / gap, 0.12, 0.72)
+          const after = stops[k + 1]
+          if (!after || stop.key.kind !== "chapter") return
+          stop.key.hold[1] = clamp((stop.through - stop.key.y) / Math.max(after.key.y - stop.key.y, 1), 0.12, 0.72)
         })
         const keys = stops.map((stop) => stop.key)
+
+        // The sky cleared out of the way: of the walk, of each release, and of the list.
+        const words: Rect | null = banded ? null : [-W, -H, columnRight + W + 40, H * 3]
+        const path: Vec3[] = []
+        for (let k = 0; k + 1 < keys.length; k++) for (let i = 0; i <= 16; i++) path.push(blend(keys[k]!.view, keys[k + 1]!.view, i / 16, keys[k]!.lift).eye)
+        if (banded) for (let i = 0; i <= 12; i++) path.push([opening.eye[0], opening.eye[1] + i * 2, opening.eye[2]])
+        s.clearFor(keys.map((key) => ({ view: key.view, keep: 9, words })), path, W, H)
 
         const at = place(keys, scrollY)
         const nearest = at.u < 0.5 ? at.from : at.to
         let view = at.view
-        if (mode === "band") {
-          // The band at the top of a phone's page: the opening, carried a little up the street as it
-          // scrolls away.
-          view = { ...opening, eye: [opening.eye[0], opening.eye[1] + scrollY * 0.006, opening.eye[2]] }
-        } else if (mode === "still") {
-          view = keys[nearest]!.view
-        }
-
-        pointer.step(input, canvas, dt)
+        if (mode === "band") view = { ...opening, eye: [opening.eye[0], opening.eye[1] + scrollY * 0.006, opening.eye[2]] }
+        else if (mode === "still") view = keys[nearest]!.view
+        const swayNow = sway(input, canvas, dt)
         if (mode === "walk") {
           view = follow.step(view, dt)
-          view = orbit(view, keys[nearest]!.pivot, -pointer.sway * 0.8 * DEG)
+          view = orbit(view, keys[nearest]!.pivot, -swayNow * 0.8 * DEG)
         }
 
-        // How far along the releases the reader is, in releases: the doorway being read is lit fully.
+        // How far along the releases the reader is: the doorway being read is lit fully.
         const from = stops[at.from]!
         const to = stops[at.to]!
-        const reading = mode === "band" ? 0 : mode === "still" ? stops[nearest]!.release : lerp(from.release, to.release, smooth(at.u))
-        const doors: [number, number][] = releases.map((release, r) =>
-          release.dark ? [r, 0] : [r, lerp(LIT_AHEAD, 1, clamp(1 - Math.abs(r - reading), 0, 1))],
-        )
+        const reading = mode === "still" ? stops[nearest]!.release : lerp(from.release, to.release, smooth(at.u))
+        const near = Math.max(0, Math.round(view.eye[1] / SPACING))
+        const shown = releases
+          .map((release, r) => ({ release, r }))
+          .filter(({ r }) => r >= near - 2)
+          .slice(0, 14)
+          .map(({ release, r }) => ({
+            pose: poseOf(r, viewAt(r, sx, sy, edge).eye, t, input.still),
+            glow: release.dark ? 0 : lerp(LIT_AHEAD, 1, clamp(1 - Math.abs(r - reading), 0, 1)),
+            open: 0,
+          }))
+        s.page(shown)
 
-        const e = smoother(at.u)
-        let fog: [number, number] = [lerp(from.fog[0], to.fog[0], e), Math.exp(lerp(Math.log(from.fog[1]), Math.log(to.fog[1]), e))]
-        if (mode === "band") fog = stops[0]!.fog
-        if (mode === "still") fog = stops[nearest]!.fog
-
-        // Clean ground for the words: on a wide screen the whole of the list's side of the page, and
-        // everything from the footer down.
-        const clears: Rect[] = []
-        if (!banded) clears.push([-400, -400, columnRight + 400, H + 800])
+        // The words: the list's cards and the rail on panes, the opening's and the footer's on none.
+        const corners = panes()
+        const clears: [Rect, number, number][] = []
         for (const [name, rect] of Object.entries(input.anchors)) {
-          if (!name.startsWith("c:") || !inView(local(rect), H)) continue
-          const r = local(rect)
-          clears.push(name === "c:footer" ? [-400, r[1] - 40, W + 800, H + 800] : r)
+          if (!(name.startsWith("c:") || name.startsWith("r:")) || name === "c:list" || !inView(local(rect), H)) continue
+          const radius = corners.get(name)
+          clears.push([local(rect), radius ?? -1, radius === undefined ? 1 : PANE_FIELD])
         }
+        clears.sort((a, c) => Math.abs(a[0][1] + a[0][3] / 2 - H / 2) - Math.abs(c[0][1] + c[0][3] / 2 - H / 2))
 
-        const size = sizeOf(canvas)
-        const dpr = output.size[0] / Math.max(W, 1)
-        const state = `${scrollY}|${W}x${H}|${view.eye.map((v) => v.toFixed(4)).join(",")}|${view.yaw.toFixed(5)}|${pointer.lamp.x.toFixed(1)},${pointer.lamp.y.toFixed(1)},${pointer.lamp.presence.toFixed(3)}|${mode}`
-        if (state === drawn && !input.still) return
-        drawn = state
-
-        const instances = compose(s, view, {
+        const distance = realmOf(Math.max(0, Math.round(reading)))[1] - view.eye[1]
+        s.render(frame, view, {
           width: W,
           height: H,
-          seconds: input.seconds,
+          seconds: t,
           still: input.still,
-          fog,
-          doors,
-          lamp: pointer.lamp,
+          haze: [Math.max(distance, 6) + 30, 1 / 170],
           clears,
-          grid: banded ? GRID_PHONE : GRID,
-          dpr,
-          total: releases.length,
+          bursts: [],
         })
-        s.render(frame, output, size, instances)
       },
     }
   }
 }
 
 /**
- * An entry's band: the release's realm, and the walk up to its doorway as the band scrolls away.
+ * An entry's band: its release's realm, and the walk up to its doorway as the band scrolls away, the
+ * doorway thrown open as the reader goes in.
  */
 export function arrivalStage(release: number, total: number, dark: boolean): StageFactory {
   return async (gpu, output) => {
-    const s = await world(gpu, [Math.max(1, window.innerWidth), Math.max(1, Math.round(window.innerHeight * 0.7))])
-    const pointer = lampFollower()
+    const s = await sky(gpu, output, [Math.max(1, window.innerWidth), Math.max(1, Math.round(window.innerHeight * 0.7))])
+    const sway = swayer()
     let lastSeconds = -1
-    let drawn = ""
 
     return {
       draw(frame, input) {
-        const canvas = box(input)
+        const canvas = boxOf(input)
         const [W, H] = [canvas[2], canvas[3]]
         if (W < 2 || H < 2) return
-        const dt = lastSeconds < 0 ? 0 : input.seconds - lastSeconds
-        lastSeconds = input.seconds
+        const t = input.seconds
+        const dt = lastSeconds < 0 ? 0 : t - lastSeconds
+        lastSeconds = t
         const local = (r: Rect): Rect => [r[0] - canvas[0], r[1] - canvas[1], r[2], r[3]]
 
-        // Where the realm stands: in `s:door`, with room for the older releases to go away behind it.
-        const slot = input.anchors["s:door"] ? local(input.anchors["s:door"]) : ([W * 0.6, H * 0.25, W * 0.3, H * 0.5] as Rect)
+        // Where the realm hangs: in the middle of `s:door`, about half as tall as it.
+        const slot = input.anchors["s:door"] ? local(input.anchors["s:door"]) : ([W * 0.62, H * 0.25, W * 0.26, H * 0.5] as Rect)
         const sx = slot[0] + slot[2] / 2
-        const sy = slot[1] + slot[3]
-        const { view: far, distance, horizon } = standing(release, slot)
+        const sy = slot[1] + slot[3] * 0.5
+        const edge = clamp(slot[3] * 0.5, 64, 150)
+        const far = viewAt(release, sx, sy, edge)
 
-        // Up to the door: the camera comes down level with the doorway and in toward it, the lens
-        // shifting so the doorway's middle stays where it stood on the band.
-        const foot = footOf(release)
-        const wall = 0.1
-        const doorMid = 0.485
-        const doorY = horizon + (FOCAL * (EYE - doorMid)) / (distance + wall)
-        const nearDistance = 4.2
-        const nearLateral = 0.7
-        const nearEye: Vec3 = [foot[0] - nearLateral, foot[1] - nearDistance, doorMid + 0.15]
-        const near: View = {
-          eye: nearEye,
-          yaw: 90 * DEG,
-          pitch: 0,
-          focal: FOCAL,
-          px: sx - (FOCAL * nearLateral) / (nearDistance + wall),
-          py: doorY - (FOCAL * (nearEye[2] - doorMid)) / (nearDistance + wall),
-        }
-        // The walk covers the band's own height of scroll, from the moment it starts to leave.
-        const travelled = clamp(-canvas[1] / Math.max(H * 0.85, 1), 0, 1)
+        // Up to the door, from the moment the band starts to leave until it has gone.
+        const travelled = clamp(-canvas[1] / Math.max(H * 0.8, 1), 0, 1)
         const u = input.still ? 0 : travelled
-        let view = blend(far, near, u, 0)
-        pointer.step(input, canvas, dt)
-        if (!input.still) view = orbit(view, foot, -pointer.sway * 0.8 * DEG)
+        const near = viewAt(release, sx, sy, edge * 2.3, 1.2, 0.35)
+        let view = blend(far, near, smoother(u), 0)
+        if (!input.still) view = orbit(view, realmOf(release), -sway(input, canvas, dt) * 0.8 * DEG)
 
-        const doors: [number, number][] = []
-        for (let r = 0; r < total; r++) doors.push([r, r === release ? (dark ? 0 : 1) : LIT_AHEAD])
+        // The release's own realm, and the older ones going away behind it.
+        const pose = poseOf(release, far.eye, t, input.still)
+        const open = dark || input.still ? 0 : smooth((u - 0.15) / 0.55)
+        const page: { pose: Pose; glow: number; open: number }[] = [{ pose, glow: dark ? 0 : 1, open }]
+        for (let r = release + 1; r < total && page.length < 6; r++) page.push({ pose: poseOf(r, viewAt(r, sx, sy, edge).eye, t, input.still), glow: LIT_AHEAD, open: 0 })
+        s.page(page)
 
-        const away = lerp(foot[1] - far.eye[1], nearDistance, smoother(u))
-        const fog: [number, number] = [away + 3, 1 / (Math.max(away, 3) * 3.4)]
+        const path: Vec3[] = []
+        for (let i = 0; i <= 12; i++) path.push(blend(far, near, i / 12, 0).eye)
+        const title = input.anchors["c:title"] ? local(input.anchors["c:title"]) : null
+        s.clearFor([{ view: far, keep: 9, words: title }], path, W, H)
 
-        // The band's foot, where the field gives way to the page, and the words: where the realm stands
-        // beside the title, the whole of the title's side of the band.
-        const clears: Rect[] = [[-400, H, W + 800, 800]]
-        const title = input.anchors["c:title"] ? local(input.anchors["c:title"]) : undefined
-        if (title && slot[0] > title[0] + title[2]) clears.push([-400, -400, title[0] + title[2] + 400, H + 800])
+        const corners = panes()
+        const clears: [Rect, number, number][] = []
         for (const [name, rect] of Object.entries(input.anchors)) {
-          if (name.startsWith("c:") && inView(local(rect), H)) clears.push(local(rect))
+          if (!name.startsWith("c:") || !inView(local(rect), H)) continue
+          const radius = corners.get(name)
+          clears.push([local(rect), radius ?? -1, radius === undefined ? 1 : PANE_FIELD])
         }
 
-        const dpr = output.size[0] / Math.max(W, 1)
-        const state = `${canvas.join(",")}|${view.eye.map((v) => v.toFixed(4)).join(",")}|${pointer.lamp.x.toFixed(1)},${pointer.lamp.y.toFixed(1)},${pointer.lamp.presence.toFixed(3)}`
-        if (state === drawn && !input.still) return
-        drawn = state
-
-        const instances = compose(s, view, {
+        const burst = burstOf(pose, view, open)
+        s.render(frame, view, {
           width: W,
           height: H,
-          seconds: input.seconds,
+          seconds: t,
           still: input.still,
-          fog,
-          doors,
-          lamp: pointer.lamp,
+          haze: [lerp(realmOf(release)[1] - far.eye[1], 4, smoother(u)) + 30, 1 / 170],
           clears,
-          grid: W < 1024 ? GRID_PHONE : GRID,
-          dpr,
-          total,
+          bursts: burst ? [burst] : [],
         })
-        s.render(frame, output, [Math.max(1, Math.round(W)), Math.max(1, Math.round(H))], instances)
       },
     }
   }

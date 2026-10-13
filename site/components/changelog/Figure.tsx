@@ -1,31 +1,32 @@
-import Image, { type StaticImageData } from "next/image"
-import type { CSSProperties, ReactNode } from "react"
+import type { StaticImageData } from "next/image"
+import type { ReactNode } from "react"
 
-import { CAPTURE_DENSITY } from "@/lib/frames"
+import { Screen } from "@/components/realms/Screen"
+import { CAPTURE_DENSITY, WINDOW } from "@/lib/frames"
+import { sceneImage } from "@/lib/pictures"
+
+/** The corner a crop of the window is drawn with: the app's card corner, on the window's own ground. */
+const CROP_RADIUS = 12
 
 /**
- * A capture of the app, shown as the landing page shows its screens: a lit frame on the page's own
- * ground, with the one-device-pixel outline drawn inside the picture so a dark capture's edge never
- * dissolves into the page, and its caption under it.
+ * A capture of the app in an entry, shown as the landing page shows its pictures (components/realms/
+ * Screen): on a plate of the realm it comes from, its caption hanging from the plate's foot.
  *
- * It is laid out at its natural size, which is a third of its pixels (the crops are cut from a window
- * drawn at three times its density, lib/frames.ts), and never wider than the room the page gives it
- * in `--figure-room`: a narrow crop is not blown up, and a whole window may run past the reading
- * column into the space beside it. Served as written, lossless; Next's optimiser would re-encode it.
- *
- * The API is the picture, what it shows, and what the caption says, so it can become the landing
- * page's Screen when that is shared.
+ * An entry's figure is either a whole window (a scene, shot at the window's size, which also has a 1×
+ * copy for phones) or a crop of one, written at the capture's density (lib/frames.ts), so its size in
+ * the app is a third of its pixels.
  */
 export function Figure({ image, alt, caption }: { image: StaticImageData; alt: string; caption: ReactNode }) {
-  const width = Math.round(image.width / CAPTURE_DENSITY)
-  const height = Math.round(image.height / CAPTURE_DENSITY)
+  const scene = image.width === WINDOW.width * CAPTURE_DENSITY ? /\/([a-z-]+)-\d+\.[^/]*$/.exec(image.src)?.[1] : undefined
+  if (scene) {
+    return <Screen kind="window" image={sceneImage(scene)} alt={alt} caption={caption} zoom={1} sizes="(min-width: 1024px) 928px, 100vw" />
+  }
   return (
-    <figure className="w-[min(var(--w),var(--figure-room,100%))] max-w-none" style={{ "--w": `${width}px` } as CSSProperties}>
-      <div className="relative overflow-hidden rounded-[12px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.08),0_0_10px_oklch(0.8_0.07_250/0.1),0_0_64px_oklch(0.78_0.08_250/0.06),0_32px_80px_-32px_oklch(0_0_0/0.85)]">
-        <Image src={image} alt={alt} width={width} height={height} sizes={`(min-width: 1024px) ${width}px, 100vw`} unoptimized className="block h-auto w-full" />
-        <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[12px] shadow-[inset_0_0_0_1px_oklch(1_0_0/0.1)]" />
-      </div>
-      <figcaption className="mt-3.5 max-w-[62ch] text-[14px] leading-[1.55] text-ink-2">{caption}</figcaption>
-    </figure>
+    <Screen
+      kind="part"
+      image={{ src: image.src, width: Math.round(image.width / CAPTURE_DENSITY), height: Math.round(image.height / CAPTURE_DENSITY), radius: CROP_RADIUS }}
+      alt={alt}
+      caption={caption}
+    />
   )
 }

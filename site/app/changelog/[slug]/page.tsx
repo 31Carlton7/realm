@@ -7,6 +7,7 @@ import { Onward } from "@/components/changelog/Onward"
 import { Prose } from "@/components/changelog/Prose"
 import { Rail } from "@/components/changelog/Rail"
 import { ArrowIcon } from "@/components/icons"
+import { FieldPanel } from "@/components/realms/FieldPanel"
 import { SiteFooter } from "@/components/SiteFooter"
 import { SiteHeader } from "@/components/SiteHeader"
 import { changelog, entryBySlug, formatDate, isWithdrawn, outline, releaseOf, releases } from "@/lib/changelog"
@@ -55,20 +56,22 @@ export default async function ChangelogEntryPage({ params }: Params) {
 
   return (
     <div className="relative min-h-[100dvh]">
-      <SiteHeader width="max-w-[92rem]" floating />
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-20 bg-[#03050b]" />
+      <SiteHeader width="max-w-[92rem]" />
 
       <main>
         <article aria-labelledby="entry-title">
-          <header className="relative">
+          {/* The band reaches up under the header, so the sky is behind the bar as it is on the landing page. */}
+          <header className="relative -mt-[72px] pt-[72px]">
             <Arrival release={index} total={releases.length} dark={release ? isWithdrawn(release) : false} />
-            <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 px-6 pt-10 pb-16 sm:px-10 sm:pt-14 lg:min-h-[min(62vh,38rem)] lg:grid-cols-[minmax(0,36rem)_1fr] lg:items-end lg:gap-x-16 lg:pt-20 lg:pb-20 xl:grid-cols-[10rem_minmax(0,40rem)_1fr]">
+            <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 px-6 pt-6 pb-16 sm:px-10 sm:pt-10 lg:min-h-[min(62vh,38rem)] lg:grid-cols-[minmax(0,36rem)_1fr] lg:items-end lg:gap-x-16 lg:pt-20 lg:pb-20 xl:grid-cols-[10rem_minmax(0,40rem)_1fr]">
               {/* Where the realm stands. On a phone it stands over the words; beside them otherwise. */}
               <div
                 aria-hidden
                 data-field-anchor="s:door"
                 className="mx-auto h-44 w-40 sm:h-52 lg:order-2 lg:mx-0 lg:mb-4 lg:h-[clamp(11rem,26vh,15rem)] lg:w-[min(100%,16rem)] lg:justify-self-center"
               />
-              <div data-field-anchor="c:title" className="mt-8 min-w-0 lg:order-1 lg:mt-0 xl:col-start-2">
+              <FieldPanel anchor="c:title" wrapClassName="mt-8 min-w-0 lg:order-1 lg:mt-0 xl:col-start-2" className="px-6 py-6 sm:px-8 sm:py-7">
                 <Link
                   href="/changelog"
                   className="group -ml-1 inline-flex min-h-10 items-center gap-2 rounded-[8px] px-1 text-[14px] text-ink-2 transition-colors duration-150 hover:text-ink"
@@ -76,7 +79,7 @@ export default async function ChangelogEntryPage({ params }: Params) {
                   <ArrowIcon className="h-3.5 w-3.5 rotate-180 transition-transform duration-300 ease-[var(--ease-out-strong)] group-hover:-translate-x-0.5" />
                   Changelog
                 </Link>
-                <p className="mt-6 font-mono text-[13px] text-ink-2">
+                <p className="mt-4 font-mono text-[13px] text-ink-2">
                   <time dateTime={entry.date}>{formatDate(entry.date)}</time>
                   {entry.version ? null : ` · ${entry.area}`}
                   {withdrawn ? <span className="text-orange"> · Withdrawn</span> : null}
@@ -94,7 +97,7 @@ export default async function ChangelogEntryPage({ params }: Params) {
                     , {formatDate(release.date)}
                   </p>
                 ) : null}
-              </div>
+              </FieldPanel>
             </div>
           </header>
 
