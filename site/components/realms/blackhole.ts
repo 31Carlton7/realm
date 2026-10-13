@@ -44,7 +44,7 @@ export const HOLE = {
   inclination: [64, 71] as const,
   /** How far the inflow's plane is turned on the page, its right side down, in degrees: so its near
    *  side passes under the doorway's wall rather than across the doorway. */
-  roll: 20,
+  roll: 14,
   /** How far the pointer turns the view about the cube, in degrees: across, and up and down. */
   lean: [8, 6] as const,
   /** How far the cube is turned from the mark's pose before the reader has arrived, in degrees. */
@@ -53,6 +53,8 @@ export const HOLE = {
   ring: 2.55,
   /** Realms dropped in at once. */
   drops: 4,
+  /** How long the hole waits, with nothing dropped in, before a realm of the field's own goes in (s). */
+  idle: 9,
 }
 
 /** The doorway in the cube's space: its sides across the wall (the jamb is at x0), its floor and
@@ -124,7 +126,9 @@ struct Hole {
   su: vec4f,     // the view's up in the cube's space; w the far pull, a point mass's
   drops: array<vec4f, ${HOLE.drops * 3}>,  // per realm dropped in: radius, angle, glow, size; then how far it
                                            // has come (rad), how far out of the doorway it is, its glow there,
-                                           // a seed; then where a face took it, and how long ago (s)
+                                           // a seed; then where a face took it, and how long ago (s). Once a
+                                           // face has taken it, the first's w is how bright it is (the
+                                           // field's own are dimmer than the reader's)
 }
 
 struct HoleRay {
@@ -296,7 +300,7 @@ fn holeDoorway(p: vec3f, dir: vec3f, perPx: f32) -> vec3f {
   // The wall is seen at a slant, so a pixel covers more of it than of the page.
   let open = smoothstep(perPx * 1.5, -perPx * 1.5, edge);
   // Its light spills a little onto the wall round it.
-  let spill = HOLE_DOOR_BLUE * exp(-max(edge, 0.0) / (perPx * 4.0)) * 0.22 * (1.0 + 1.5 * hole.ay.w) * (1.0 - open);
+  let spill = HOLE_DOOR_BLUE * exp(-max(edge, 0.0) / 0.06) * 0.22 * (1.0 + 1.5 * hole.ay.w) * (1.0 - open);
   if (open <= 0.0) { return spill; }
   let tb = (p.y - HOLE_DY) / max(-dir.y, 1e-4);
   let tj = select(1e4, max(p.x - HOLE_DX0, 0.0) / max(-dir.x, 1e-4), dir.x < -1e-4);
@@ -323,11 +327,18 @@ fn holeTaken(p: vec3f) -> vec3f {
   for (var k = 0; k < ${HOLE.drops}; k++) {
     let e = hole.drops[k * 3 + 2];
     if (e.w <= 0.0 || e.w > 1.6) { continue; }
+    // Only across the face that took it: a ripple stops at the face's edges, as water does at a shore.
+    let face = abs(e.xyz);
+    let here = abs(p);
+    let axis = select(select(2, 1, face.y >= face.z), 0, face.x >= max(face.y, face.z));
+    let mine = select(select(2, 1, here.y >= here.z), 0, here.x >= max(here.y, here.z));
+    if (axis != mine || sign(e[axis]) != sign(p[axis])) { continue; }
+    let strength = hole.drops[k * 3].w;
     let dist = length(p - e.xyz);
-    let radius = 0.06 + 1.3 * pow(e.w, 0.7);
-    let ring = exp(-pow((dist - radius) / (0.03 + 0.04 * e.w), 2.0)) * pow(1.0 - e.w / 1.6, 2.0);
+    let radius = 0.05 + 0.95 * pow(e.w, 0.7);
+    let ring = exp(-pow((dist - radius) / (0.025 + 0.03 * e.w), 2.0)) * pow(1.0 - e.w / 1.6, 2.5);
     let flash = exp(-dist * dist / 0.012) * exp(-e.w / 0.15);
-    light += HOLE_DOOR_BLUE * ring * 0.65 + HOLE_WHITE * flash * 3.0;
+    light += (HOLE_DOOR_BLUE * ring * 0.5 + HOLE_WHITE * flash * 3.0) * strength;
   }
   return light;
 }
@@ -365,8 +376,8 @@ fn holeOut(eye: vec3f, d: vec3f, tEnd: f32) -> vec3f {
   // Sparks: what was taken in, coming back out, a few at a time, always.
   let mid = vec2f(HOLE_DX1 + HOLE_DX0, HOLE_DZ1 + HOLE_DZ0) * 0.5;
   let half = vec2f(HOLE_DX1 - HOLE_DX0, HOLE_DZ1 - HOLE_DZ0) * 0.5;
-  for (var k = 0; k < 9; k++) {
-    let cycle = t / 3.4 + f32(k) / 9.0 + 0.13;
+  for (var k = 0; k < 7; k++) {
+    let cycle = t / 3.4 + f32(k) / 7.0 + 0.13;
     let phase = fract(cycle);
     let h = hash22(vec2f(floor(cycle), f32(k) * 1.37 + 0.5));
     let g = hash22(h * 9.1 + 2.3) - 0.5;
@@ -374,9 +385,9 @@ fn holeOut(eye: vec3f, d: vec3f, tEnd: f32) -> vec3f {
     let out = 0.05 + 3.0 * pow(phase, 1.4);
     let way = normalize(vec3f(g.x * 0.8, 1.0, g.y * 0.8));
     let c = vec3f(origin.x, 1.0, origin.y) + way * out;
-    let size = 0.016 + 0.008 * out;
+    let size = 0.018 + 0.008 * out;
     let glow = smoothstep(0.0, 0.05, phase) * pow(1.0 - phase, 1.6) * (0.5 + h.x);
-    light += HOLE_WHITE * holeSpark(eye, d, c, way, size, 1.0 + 7.0 * phase) * glow * 4.0;
+    light += mix(HOLE_WHITE, HOLE_DOOR_BLUE, 0.3) * holeSpark(eye, d, c, way, size, 1.0 + 7.0 * phase) * glow * 5.5;
   }
   // And the reader's own, brighter, with the doorway flaring as it comes.
   for (var k = 0; k < ${HOLE.drops}; k++) {
@@ -508,22 +519,30 @@ fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
     dir = normalize(d * cos(alpha) - inward * sin(alpha));
   }
 
+  // The rim: light that grazed the cube on its way past, a thin line tracing the silhouette and a
+  // breath round it. It gathers where the streams' plane crosses the silhouette, is brighter on the
+  // side the streams come at the camera from, and is stirred along its length.
+  var rim = 0.0;
+  var breath = 0.0;
+  if (stepped) {
+    let t = hole.az.w;
+    let flat = vec2f(dot(inward, hole.sr.xyz), dot(inward, hole.su.xyz));
+    let around = atan2(flat.y, flat.x);
+    let line = cross(n, eye);
+    let node = atan2(dot(line, hole.su.xyz), dot(line, hole.sr.xyz));
+    let gather = pow(0.5 + 0.5 * cos(2.0 * (around - node)), 3.0);
+    let stir = holeNoise(vec2f(around / HOLE_TAU * 24.0 + t * 0.35, t * 0.25), 24.0);
+    let strength = (0.8 + 0.5 * stir) * (1.0 + 1.4 * gather) * (1.0 - 0.3 * flat.x) * (1.0 + 1.5 * hole.dn.w);
+    rim = exp(-sMin / (perPx * 2.2)) * smoothstep(0.0, perPx * 1.4, sMin) * 2.6 * strength;
+    breath = exp(-sMin / 0.14) * 0.26 * strength;
+  }
   if (captured) {
     light += through * (holeDoorway(hit, dir, perPx) + holeTaken(hit));
     through = 0.0;
   } else if (stepped) {
-    // The rim: light that grazed the cube, a thin line tracing the silhouette and a breath round it,
-    // brighter on the side the streams come at the camera from and stirred along its length.
-    let t = hole.az.w;
-    let around = atan2(dot(inward, hole.su.xyz), dot(inward, hole.sr.xyz));
-    let stir = holeNoise(vec2f(around / HOLE_TAU * 24.0 + t * 0.35, t * 0.25), 24.0);
-    let side = 1.0 - 0.35 * dot(inward, hole.sr.xyz);
-    let pulse = 1.0 + 1.5 * hole.dn.w;
-    let line = exp(-sMin / (perPx * 1.8)) * smoothstep(0.0, perPx * 0.9, sMin);
-    let breath = exp(-sMin / 0.14);
-    light += through * (HOLE_WHITE * line * (0.9 + 0.5 * stir) * 2.2 + HOLE_BLUE * breath * 0.22) * side * pulse;
-    // The shadow's edge, anti-aliased one pixel outward.
-    through *= smoothstep(0.0, perPx * 1.1, sMin);
+    light += through * (HOLE_WHITE * rim + HOLE_BLUE * breath);
+    // The shadow's edge, anti-aliased outward: a ray that only just escaped is still mostly dark.
+    through *= smoothstep(0.0, perPx * 1.6, sMin);
   }
 
   light += front * holeOut(eye, d, tEnd);
@@ -563,7 +582,7 @@ export function dropRealm(x?: number, y?: number) {
 }
 
 /** A realm dropped in: where it is on the inflow's plane, and once it has been taken in, how long ago. */
-type Drop = { r: number; phi: number; age: number; travelled: number; taken: number; seed: number; entry: Vec3 }
+type Drop = { r: number; phi: number; age: number; travelled: number; taken: number; seed: number; entry: Vec3; strength: number }
 
 const DEG = Math.PI / 180
 
@@ -581,11 +600,26 @@ const TOWARD: Vec3 = norm([1, 1, 1])
 const RIGHT: Vec3 = norm([-1, 2, -1])
 const UP: Vec3 = norm([-1, 0, 1])
 
+/** A realm put in where it is easiest to follow: on the far side, from where its stream carries it over
+ *  the cube's top, round past the side coming at the camera and across the front, to be taken in by
+ *  the wall under the cube's near corner. */
+const fromFarSide = (seed: number, strength: number): Drop => ({
+  r: 6 + seed * 0.6,
+  phi: (155 + (seed - 0.5) * 16) * DEG,
+  age: 0,
+  travelled: 0,
+  taken: -1,
+  seed,
+  entry: [0, 0, 0],
+  strength,
+})
+
 /** How far the cube's surface is from its middle along a direction: where a realm on the plane meets it. */
 const surfaceAlong = (u: Vec3) => 1 / Math.max(Math.abs(u[0]), Math.abs(u[1]), Math.abs(u[2]), 1e-3)
 
-/** The hexagon's radius on the page for a viewport: a tenth of its height, held to its width on a phone. */
-export const shadowRadius = (width: number, height: number) => clamp(Math.min(width * (width < 640 ? 0.098 : 0.064), height * 0.1), 32, 96)
+/** The hexagon's radius on the page for a viewport: about a ninth of its height, held to its width on a
+ *  phone. HoleStage's button and the drawing without WebGPU size themselves by the same rule. */
+export const shadowRadius = (width: number, height: number) => clamp(Math.min(width * (width < 640 ? 0.11 : 0.07), height * 0.11), 34, 104)
 
 export type HoleFrame = {
   view: View
@@ -608,6 +642,8 @@ export class BlackHole {
   private lean = [0, 0]
   private drops: Drop[] = []
   private pulse = 0
+  /** When the hole last had a realm going in or coming out (s), for the field's own. */
+  private busy = Number.NEGATIVE_INFINITY
 
   frame(input: HoleFrame): { uniforms: HoleUniforms; live: boolean } {
     const { view, rect, width, height, seconds, still } = input
@@ -672,7 +708,7 @@ export class BlackHole {
       if (still) continue
       const seed = Math.random()
       if (Number.isNaN(click.x)) {
-        this.drops.push({ r: 6 + Math.random() * 0.6, phi: (155 + (Math.random() - 0.5) * 16) * DEG, age: 0, travelled: 0, taken: -1, seed, entry: [0, 0, 0] })
+        this.drops.push(fromFarSide(seed, 1))
       } else {
         const ray = rayThrough(view, b, click.x, click.y)
         const d: Vec3 = [dot(ray, ax), dot(ray, ay), dot(ray, az)]
@@ -685,9 +721,17 @@ export class BlackHole {
           rr = clamp(Math.hypot(dot(hit, de), dot(hit, e2)), HOLE.inner + 0.6, HOLE.outer * 0.85)
           phi = Math.atan2(dot(hit, e2), dot(hit, de))
         }
-        this.drops.push({ r: rr, phi, age: 0, travelled: 0, taken: -1, seed, entry: [0, 0, 0] })
+        this.drops.push({ r: rr, phi, age: 0, travelled: 0, taken: -1, seed, entry: [0, 0, 0], strength: 1 })
       }
       if (this.drops.length > HOLE.drops) this.drops.shift()
+    }
+
+    // While nothing is being dropped in, every so often a realm of the field's own goes in the same
+    // way, dimmer, so the hole is seen taking things in and giving them back without being asked.
+    if (still || this.drops.length > 0) this.busy = seconds
+    else if (seconds - this.busy > HOLE.idle) {
+      this.drops.push(fromFarSide(Math.random(), 0.6))
+      this.busy = seconds
     }
 
     // A dropped realm rides its stream down, faster the deeper it goes, until a face takes it; a
@@ -710,15 +754,15 @@ export class BlackHole {
           drop.entry = onPlane(meets, drop.phi)
           this.pulse = 1
         }
-        const glow = smooth(drop.age / 0.25) * smooth((drop.r - meets) / 0.6)
+        const glow = smooth(drop.age / 0.25) * smooth((drop.r - meets) / 0.6) * drop.strength
         drops.push([Math.max(drop.r, meets), drop.phi, glow, 0.55 + 0.45 * smooth((drop.r - meets) / 1.2)], [drop.travelled, 0, 0, 0], [0, 0, 0, 0])
       } else {
         drop.taken += dt
         const out = drop.taken - 0.9
-        const glow = out > 0 ? smooth(out / 0.12) * Math.exp(-out / 0.9) : 0
-        flare = Math.max(flare, out > 0 ? Math.exp(-out / 0.5) * smooth(out / 0.08) : 0)
+        const glow = out > 0 ? smooth(out / 0.12) * Math.exp(-out / 0.9) * drop.strength : 0
+        flare = Math.max(flare, out > 0 ? Math.exp(-out / 0.5) * smooth(out / 0.08) * drop.strength : 0)
         const along = out > 0 ? 0.1 + 0.9 * out + 0.55 * out * out : 0
-        drops.push([0, 0, 0, 0], [drop.travelled, along, glow, drop.seed], [...drop.entry, Math.max(drop.taken, 1e-3)])
+        drops.push([0, 0, 0, drop.strength], [drop.travelled, along, glow, drop.seed], [...drop.entry, Math.max(drop.taken, 1e-3)])
       }
     }
     while (drops.length < HOLE.drops * 3) drops.push([0, 0, 0, 0])
