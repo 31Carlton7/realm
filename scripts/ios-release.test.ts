@@ -104,9 +104,13 @@ describe("ipaProblems", () => {
 });
 
 describe("cloudRunOutcome", () => {
-  const run = (status: string | undefined) => ({ data: { id: "4400c480", attributes: { number: 1, completionStatus: status } } });
+  // As asc 3.5.1 prints it (build run 2, trimmed).
+  const run = (completionStatus: string | undefined) => ({ buildRunId: "8c26f312", buildNumber: 2, executionProgress: "COMPLETE", completionStatus, startReason: "MANUAL" });
   it("reads the run asc started, and that it built", () => {
-    expect(cloudRunOutcome(run("SUCCEEDED"))).toEqual({ runId: "4400c480", number: 1, status: "SUCCEEDED", succeeded: true });
+    expect(cloudRunOutcome(run("SUCCEEDED"))).toEqual({ runId: "8c26f312", number: 2, status: "SUCCEEDED", succeeded: true });
+  });
+  it("reads the API's own shape too", () => {
+    expect(cloudRunOutcome({ data: { id: "4400c480", attributes: { number: 1, completionStatus: "SUCCEEDED" } } })).toEqual({ runId: "4400c480", number: 1, status: "SUCCEEDED", succeeded: true });
   });
   it("calls anything but SUCCEEDED a failure, including no answer yet", () => {
     for (const status of ["FAILED", "ERRORED", "CANCELED", "SKIPPED", undefined]) expect(cloudRunOutcome(run(status)).succeeded).toBe(false);
