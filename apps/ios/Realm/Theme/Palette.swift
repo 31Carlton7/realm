@@ -30,6 +30,12 @@ enum Palette {
     static let accentInk = Color("AccentInk")
     /// `--accent-tint`: The wash behind an accent chip. Dark `oklch(0.68 0.173 253.301 / 0.16)`, light `oklch(0.959 0.021 256)`.
     static let accentTint = Color("AccentTint")
+    /// `--accent-fill`: A filled control's ground: the accent solved for the white word on it. Dark `oklch(0.544 0.173 253.301)`, light `oklch(0.546 0.2 256)`.
+    static let accentFill = Color("AccentFill")
+    /// `--accent-fill-press`: A filled control, pressed. Dark `oklch(0.454 0.173 253.301)`, light `oklch(0.456 0.2 256)`.
+    static let accentFillPress = Color("AccentFillPress")
+    /// `--danger-fill`: A filled destructive control's ground, solved the same way. Dark `oklch(0.564 0.18 21.433)`, light `oklch(0.545 0.19 25)`.
+    static let dangerFill = Color("DangerFill")
     /// `--green`: State: done, allowed. Dark `oklch(0.705 0.154 153.814)`, light `oklch(0.51 0.14 152)`.
     static let green = Color("Green")
     /// `--green-tint`: The wash behind a green chip. Dark `oklch(0.705 0.154 153.814 / 0.14)`, light `oklch(0.959 0.015 151)`.
