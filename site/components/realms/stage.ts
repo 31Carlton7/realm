@@ -352,6 +352,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
     touched: Array.from({ length: TOUCHED }, () => [...special().slice(0, 4), [-1, 0, 0, 0]]).flat(),
     page: Array.from({ length: PAGE_REALMS }, special).flat(),
   }
+  /** The openings of the doorways thrown open, as the composite's glare reads them. */
+  const doors = Array.from({ length: BURSTS * 2 }, () => [...zero])
   const comp: CompositeUniforms = {
     view: [1, 1, 1, 0],
     look: [0, 0, 0, 0],
@@ -362,7 +364,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     beams: Array.from({ length: BEAMS * 7 }, () => [...zero]),
     pulses: Array.from({ length: PULSES * 5 }, () => [...zero]),
     bursts: Array.from({ length: BURSTS * 2 }, () => [...zero]),
-    doors: Array.from({ length: BURSTS * 2 }, () => [...zero]),
+    doors,
     fence: Array.from({ length: 10 }, () => [...zero]),
   }
 
@@ -1048,10 +1050,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
       }
 
       // The doorways thrown open: the light pouring out of each, as the eye takes it at the opening (its
-      // glare, only from in front), and hanging in the space before it (a shaft, spreading from the
-      // opening as the light of a shallow doorway does, seen from any side but behind).
+      // glare, only from in front), and hanging in the space before it (a shaft of the opening's own
+      // shape, seen from any side but behind).
       const glares: { mid: [number, number]; corners: [number, number][]; distance: number; light: number; px: number; size: number }[] = []
-      const doors = comp.doors!
       const shafts: Beam[] = []
       for (const [index, touch] of touches) {
         if (touch.open <= 0.01) continue
