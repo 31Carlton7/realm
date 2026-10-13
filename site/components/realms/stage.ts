@@ -806,6 +806,13 @@ export const createRealms: StageFactory = async (gpu, output) => {
           write(node, slotRect ? rimLamp(lamp.x - slotRect[0], lamp.y - slotRect[1]) : "")
           captions.set(id, 1)
           if (slotRect && visible(slotRect) && panels.length < PANELS * 2) panels.push([...slotRect], [0, corner * slotRect[2], 1, 0])
+          // Held still, the chapter in view is its own composed view, so its realm and the light running
+          // to its screen are drawn as they rest.
+          if (mode === "still" && pose && index === now.nearest && slotRect) {
+            const W = (stand.slot[0] * stand.depth) / stand.key.view.focal
+            const H = (stand.slot[1] * stand.depth) / stand.key.view.focal
+            beamsNow.push({ door: doorCorners(pose), mid: add(stand.foot, [0, 0, H / 2]), half: [W * 0.48, H * 0.48], light: 0.42, moment: index * 0.37, reach: 1, hidden: slotRect })
+          }
         }
       })
       for (let k = pageCount; k < PAGE_REALMS; k++) {
