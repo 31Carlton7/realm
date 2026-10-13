@@ -177,11 +177,13 @@ struct FoldedWork: View {
     let sessionId: String
     var checkpointAfter: String?
     @State private var open = false
+    @Environment(\.holdPlace) private var holdPlace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
+                holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -328,6 +330,7 @@ private struct ToolLine: View {
     let checkpointId: String?
     @State private var open = false
     @State private var showingAll = false
+    @Environment(\.holdPlace) private var holdPlace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// A tool's output shows this many lines in place; the rest opens in a sheet of its own.
@@ -337,6 +340,7 @@ private struct ToolLine: View {
         let words = ToolWords.line(tool: name, summary: summary, running: state == .running)
         VStack(alignment: .leading, spacing: 6) {
             Button {
+                holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -464,11 +468,13 @@ private struct OutputSheet: View {
 private struct ThinkingLine: View {
     let text: String
     @State private var open = false
+    @Environment(\.holdPlace) private var holdPlace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
+                holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -748,7 +754,7 @@ struct MadeFilesRow: View {
                         Button {
                             previewing = file
                         } label: {
-                            FileTile(file: file)
+                            FileTile(file: file, sessionId: sessionId)
                         }
                         .buttonStyle(.plain)
                     }
@@ -766,27 +772,54 @@ extension MadeFile: @retroactive Identifiable {
     public var id: String { path }
 }
 
-/// A file as one square tile: its kind's glyph in the middle, its name at the foot.
+/// A file as a square tile with its name under it, as Files shows one: a picture as itself, once the
+/// Mac has sent a small copy, anything else as its kind's glyph.
 private struct FileTile: View {
     let file: MadeFile
+    let sessionId: String
+    @Environment(AppModel.self) private var model
+    @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .footnote) private var side: CGFloat = 92
 
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: FileKind.symbol(file.path))
-                .font(.title2)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Palette.ink2)
-                .frame(maxHeight: .infinity)
+        let thumbnail = model.thumbnail(file.path, in: sessionId)
+        VStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .fill(Fill.card)
+                if let thumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: side, height: side)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                        .overlay {
+                            // A picture's edge, so a dark one does not bleed into the ground.
+                            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                                .strokeBorder(Palette.line, lineWidth: 1 / displayScale)
+                        }
+                        .transition(.opacity)
+                } else {
+                    Image(systemName: FileKind.symbol(file.path))
+                        .font(.title2)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Palette.ink2)
+                }
+            }
+            .frame(width: side, height: side)
             Text(file.name)
                 .font(.caption)
                 .foregroundStyle(Palette.ink)
                 .lineLimit(2)
+                .truncationMode(.middle)
                 .multilineTextAlignment(.center)
+                .frame(width: side)
         }
-        .padding(10)
-        .frame(width: side, height: side)
-        .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .animation(.easeOut(duration: 0.2), value: thumbnail != nil)
+        .task(id: file.path) {
+            guard FileKind.isPicture(file.path) else { return }
+            await model.loadThumbnail(file.path, in: sessionId, side: side * displayScale)
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(file.name)
         .accessibilityHint("Opens a preview")
@@ -795,6 +828,11 @@ private struct FileTile: View {
 
 /// A file's kind by its extension, as the glyph that says it.
 enum FileKind {
+    /// A picture the Mac can make a small copy of.
+    static func isPicture(_ path: String) -> Bool {
+        ["png", "jpg", "jpeg", "gif", "heic", "webp", "tiff"].contains((path as NSString).pathExtension.lowercased())
+    }
+
     static func symbol(_ path: String) -> String {
         switch (path as NSString).pathExtension.lowercased() {
         case "png", "jpg", "jpeg", "gif", "heic", "webp", "svg", "tiff": "photo"

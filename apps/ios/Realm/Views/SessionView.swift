@@ -7,98 +7,127 @@ struct SessionView: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Where the transcript is scrolled to: its foot, until the reader scrolls it themselves.
+    @State private var position = ScrollPosition(idType: String.self, edge: .bottom)
     @State private var atBottom = true
-    /// The reader is at the newest row, so what arrives keeps them there. A drag away lets go of it;
-    /// reaching the foot again, or sending, takes it back.
+    /// The reader is at the newest row, so what arrives keeps them there. Scrolling away, or opening
+    /// something in place, lets go of it; coming to rest at the foot again, the press for the newest
+    /// row, or sending takes it back.
     @State private var follows = true
     @State private var dragging = false
+    /// How many of the transcript's newest items are drawn; earlier ones are a press away.
+    @State private var shown = SessionView.window
     /// The height the transcript is seen through, between the bars: a short transcript fills it from
     /// the bottom, so there is never less content than window to place.
     @State private var viewport: CGFloat = 0
     @FocusState private var composing: Bool
+
+    /// The items drawn at a time. Every one drawn is measured as it is, so the foot is where the
+    /// transcript really ends at any text size — a lazy list places it by guesses, and a long answer
+    /// at the largest sizes is many screens tall.
+    static let window = 60
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
         let outgoing = model.store.outbox.items(for: sessionId).filter(\.isMessage)
         let status = transcript.status ?? transcript.session?.status
         let items = TranscriptLayout.items(transcript.rows, settled: status != .running && status != .waiting)
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    if transcript.hasMore {
-                        Label("Earlier messages are on your Mac", systemImage: "laptopcomputer")
-                            .font(.footnote)
-                            .foregroundStyle(Palette.ink2)
-                            .frame(maxWidth: .infinity)
+        let drawn = items.suffix(shown)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if drawn.count < items.count, let first = drawn.first {
+                    Button {
+                        shown += Self.window
+                        // The reader stays with the row they were reading; the earlier ones open above it.
+                        position.scrollTo(id: first.id, anchor: .top)
+                    } label: {
+                        Label("Show earlier messages", systemImage: "arrow.up")
+                            .font(.footnote.weight(.medium))
                     }
-                    if transcript.rows.isEmpty && outgoing.isEmpty {
-                        EmptyTranscript(isLoaded: transcript.session != nil)
-                    }
-                    ForEach(items) { item in
-                        TranscriptItemView(item: item, sessionId: sessionId)
-                            .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
-                            .id(item.id)
-                    }
-                    if transcript.isLive, status == .running, let live = LiveActivity.of(transcript.rows) {
-                        LiveLine(thinking: live == .thinking)
-                    }
-                    ForEach(outgoing) { item in
-                        OutgoingMessageView(item: item)
-                            .id(item.id.uuidString)
-                    }
-                    Color.clear
-                        .frame(height: 1)
-                        .id(Self.bottom)
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .frame(maxWidth: .infinity)
+                } else if transcript.hasMore {
+                    Label("Earlier messages are on your Mac", systemImage: "laptopcomputer")
+                        .font(.footnote)
+                        .foregroundStyle(Palette.ink2)
+                        .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(minHeight: viewport, alignment: .bottom)
-            }
-            .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom
-            } action: { _, height in
-                viewport = max(0, height)
-            }
-            .onScrollPhaseChange { _, phase in
-                dragging = phase == .tracking || phase == .interacting || phase == .decelerating
-            }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.visibleRect.maxY >= geometry.contentSize.height - 32
-            } action: { _, isAtBottom in
-                withAnimation(Motion.animation(reduceMotion)) { atBottom = isAtBottom }
-                if isAtBottom {
-                    follows = true
-                    model.markSeen(sessionId)
-                } else if dragging {
-                    follows = false
+                if transcript.rows.isEmpty && outgoing.isEmpty {
+                    EmptyTranscript(isLoaded: transcript.session != nil)
+                }
+                ForEach(drawn) { item in
+                    TranscriptItemView(item: item, sessionId: sessionId)
+                        .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
+                        .id(item.id)
+                }
+                if transcript.isLive, status == .running, let live = LiveActivity.of(transcript.rows) {
+                    LiveLine(thinking: live == .thinking)
+                }
+                ForEach(outgoing) { item in
+                    OutgoingMessageView(item: item)
+                        .id(item.id.uuidString)
                 }
             }
-            // Rows measured taller than the list guessed, text still streaming in, a row that
-            // arrived: while the reader follows, the foot stays in view.
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentSize.height
-            } action: { _, _ in
-                if follows && !dragging { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(minHeight: viewport, alignment: .bottom)
+        }
+        .scrollPosition($position)
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(.bottom, for: .alignment)
+        // While the reader follows, a change of size keeps the foot where it is; once they have let
+        // go, what arrives below leaves the rows they are reading where they are.
+        .defaultScrollAnchor(follows ? .bottom : nil, for: .sizeChanges)
+        .scrollDismissesKeyboard(.interactively)
+        .environment(\.holdPlace) { follows = false }
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom
+        } action: { _, height in
+            viewport = max(0, height)
+        }
+        .onScrollPhaseChange { _, phase in
+            dragging = phase == .tracking || phase == .interacting || phase == .decelerating
+            if dragging {
+                follows = false
+            } else if phase == .idle && atBottom {
+                // A reader who comes to rest at the foot is following again.
+                follows = true
             }
-            .onChange(of: outgoing.count) { old, new in
-                // What the person just sent is always brought into view.
-                if new > old {
-                    follows = true
-                    scrollToBottom(proxy)
-                }
+        }
+        .onChange(of: position.isPositionedByUser) { _, byUser in
+            // Scrolled by an accessibility action or a key rather than a drag.
+            if byUser && !atBottom { follows = false }
+        }
+        .onScrollGeometryChange(for: ScrollFoot.self, of: ScrollFoot.init) { old, new in
+            if new.atFoot != atBottom {
+                withAnimation(Motion.animation(reduceMotion)) { atBottom = new.atFoot }
             }
-            .onChange(of: transcript.isLive) { _, live in
-                if live && atBottom { model.markSeen(sessionId) }
+            if new.atFoot {
+                if !dragging { follows = true }
+                model.markSeen(sessionId)
+            } else if follows && !dragging && new.frame != old.frame {
+                // The bars grew — a request docked, the composer took another line: the foot stays
+                // in view for a reader who follows.
+                position.scrollTo(edge: .bottom)
             }
-            .overlay(alignment: .bottom) {
-                SessionPill(sessionId: sessionId, showsLatest: !atBottom && !transcript.rows.isEmpty) {
-                    follows = true
-                    scrollToBottom(proxy)
-                }
-                .padding(.bottom, 10)
+        }
+        .onChange(of: transcript.rows.last) {
+            // A row arrived, or the newest grew: a reader who follows sees it.
+            if follows && !dragging { position.scrollTo(edge: .bottom) }
+        }
+        .onChange(of: outgoing.count) { old, new in
+            // What the person just sent is always brought into view.
+            if new > old { scrollToBottom() }
+        }
+        .onChange(of: transcript.isLive) { _, live in
+            if live && atBottom { model.markSeen(sessionId) }
+        }
+        .overlay(alignment: .bottom) {
+            SessionPill(sessionId: sessionId, showsLatest: !atBottom && !transcript.rows.isEmpty) {
+                scrollToBottom()
             }
+            .padding(.bottom, 10)
         }
         .background(Ground.transcript)
         .safeAreaBar(edge: .bottom) {
@@ -113,8 +142,6 @@ struct SessionView: View {
         }
     }
 
-    private static let bottom = "bottom"
-
     /// The session's status and space while the Mac is there; the Mac's state when it is not, since
     /// a status from before the connection went is not news.
     private func subtitle(_ transcript: Transcript) -> String {
@@ -123,9 +150,45 @@ struct SessionView: View {
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        withAnimation(Motion.animation(reduceMotion)) { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+    private func scrollToBottom() {
+        follows = true
+        withAnimation(Motion.animation(reduceMotion)) { position.scrollTo(edge: .bottom) }
     }
+}
+
+/// Where a transcript stands in its scroll view, as one value, so a change can be told apart from the
+/// moment before it: a scroll moves only the offset, while bars that grow or shrink change the frame.
+struct ScrollFoot: Equatable {
+    var content: CGFloat
+    var offset: CGFloat
+    /// The bottom of what is seen above the bars at the foot, in the content's terms.
+    var seen: CGFloat
+    /// The height left between the bars.
+    var frame: CGFloat
+
+    init(content: CGFloat, offset: CGFloat, seen: CGFloat, frame: CGFloat) {
+        self.content = content
+        self.offset = offset
+        self.seen = seen
+        self.frame = frame
+    }
+
+    init(_ geometry: ScrollGeometry) {
+        self.init(content: geometry.contentSize.height, offset: geometry.contentOffset.y,
+                  seen: geometry.visibleRect.maxY - geometry.contentInsets.bottom,
+                  frame: geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom)
+    }
+
+    /// Within a few points of the newest row, the bars aside.
+    var atFoot: Bool { seen >= content - Self.slack }
+
+    static let slack: CGFloat = 32
+}
+
+extension EnvironmentValues {
+    /// Called by a row that opens in place — a fold, a tool's output, the thinking — before it does:
+    /// the reader is reading there, so the rows they opened stay where they are rather than the foot.
+    @Entry var holdPlace: @MainActor () -> Void = {}
 }
 
 /// What a running turn is doing where no row on screen says so already: a tool that runs and text
@@ -179,7 +242,7 @@ private struct SessionPill: View {
                                 Image(systemName: away.glyph)
                                     .foregroundStyle(away.tone.color)
                             }
-                            Text(PillWords.away(away))
+                            Text(PillWords.away(away, reconnecting: model.linkTroubled))
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(Palette.ink)
                         }
@@ -197,8 +260,11 @@ private struct SessionPill: View {
                             .foregroundStyle(Palette.accentInk)
                             .restingPulse(when: true)
                         if let since = model.workingSince[sessionId] {
-                            Text("Working \(Text(since, style: .timer))")
-                                .monospacedDigit()
+                            TimelineView(.periodic(from: since, by: 1)) { context in
+                                Text("Working \(PillWords.elapsed(context.date.timeIntervalSince(since)))")
+                                    .monospacedDigit()
+                                    .accessibilityLabel("Working, \(PillWords.elapsed(context.date.timeIntervalSince(since), spoken: true))")
+                            }
                         } else {
                             Text("Working")
                         }
@@ -235,9 +301,10 @@ private struct SessionPill: View {
 
 /// What the pill says about the link while the Mac is away.
 enum PillWords {
-    static func away(_ kind: LinkStatus.Kind) -> String {
+    /// `reconnecting`: the link was up a moment ago, so this is it coming back.
+    static func away(_ kind: LinkStatus.Kind, reconnecting: Bool = false) -> String {
         switch kind {
-        case .connecting: "Connecting…"
+        case .connecting: reconnecting ? "Reconnecting…" : "Connecting…"
         case .asleep: "Mac asleep · Retry"
         case .notAnswering: "Mac not answering · Retry"
         case .relayUnreachable: "Can't reach the relay · Retry"
@@ -246,10 +313,16 @@ enum PillWords {
         case .connected: "Connected"
         }
     }
+
+    /// How long a turn has been working: "12s", "3m 12s", "1h 4m"; spoken in whole words.
+    static func elapsed(_ interval: TimeInterval, spoken: Bool = false) -> String {
+        Duration.seconds(max(0, Int(interval)))
+            .formatted(.units(allowed: [.hours, .minutes, .seconds], width: spoken ? .wide : .narrow, maximumUnitCount: 2))
+    }
 }
 
 /// What sits at a session's foot. The request it waits on takes the composer's place, opaque, as the
-/// thing to do next; folded away, it is one line with Stop, and the composer comes back under it with
+/// thing to do next; folded away, it is one line, and the composer comes back under it with Stop and
 /// its draft as it was.
 private struct SessionFoot: View {
     let sessionId: String
@@ -290,8 +363,8 @@ private struct SessionFoot: View {
     }
 }
 
-/// A request folded out of the composer's way: who asks and what, in one line, with Stop and the
-/// press that brings the card back.
+/// A request folded out of the composer's way: who asks, in one line that brings the card back. Stop
+/// is the composer's, on the row under it.
 private struct FoldedRequest: View {
     let pending: PendingRequest
     let sessionId: String
@@ -300,29 +373,26 @@ private struct FoldedRequest: View {
 
     var body: some View {
         let session = model.store.transcript(sessionId).session
-        HStack(spacing: 10) {
-            Button(action: unfold) {
-                HStack(spacing: 8) {
-                    Image(systemName: "hand.raised.fill")
-                        .foregroundStyle(Palette.orange)
-                    Text("\(Asker.name(pending.request, agent: session?.agent ?? "")) is waiting on you")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.ink)
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.up")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                }
-                .padding(.horizontal, 16)
-                .frame(minHeight: 48)
-                .contentShape(Rectangle())
+        Button(action: unfold) {
+            HStack(spacing: 8) {
+                Image(systemName: "hand.raised.fill")
+                    .foregroundStyle(Palette.orange)
+                Text("\(Asker.name(pending.request, agent: session?.agent ?? "")) is waiting on you")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.ink3)
             }
-            .buttonStyle(.plain)
-            .background(Fill.card, in: Capsule())
-            .accessibilityHint("Opens the request")
-            StopButton(sessionId: sessionId)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 48)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .background(Fill.card, in: Capsule())
+        .accessibilityHint("Opens the request")
     }
 }
 

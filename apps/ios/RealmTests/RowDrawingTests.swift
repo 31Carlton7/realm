@@ -454,6 +454,78 @@ struct WorkWordsTests {
     @Test func aPlanSaysHowFarAlong() {
         #expect(PlanSteps.progress([PlanStep(text: "a", status: "completed"), PlanStep(text: "b", status: "pending")]) == "1 of 2 done")
     }
+
+    /// A turn that changed only pictures has no lines to count, and says none rather than "+0 −0".
+    @Test func onlyLinesAreCounted() {
+        let pictures = TurnChanges(checkpointId: "cp", files: [
+            ChangedFile(path: "renders/page.png", oldPath: nil, status: "added", additions: nil, deletions: nil),
+        ], totalFiles: 1)
+        #expect(!pictures.countsLines)
+        #expect(pictures.spoken == "Changed 1 file")
+        let mixed = TurnChanges(checkpointId: "cp", files: [
+            ChangedFile(path: "renders/page.png", oldPath: nil, status: "added", additions: nil, deletions: nil),
+            ChangedFile(path: "web/lib/orgs.ts", oldPath: nil, status: "modified", additions: 17, deletions: 2),
+        ], totalFiles: 2)
+        #expect(mixed.countsLines)
+        #expect(mixed.spoken == "Changed 2 files, 17 lines added, 2 taken away")
+        // A file renamed and nothing else still has lines, none of them changed.
+        let renamed = TurnChanges(checkpointId: "cp", files: [
+            ChangedFile(path: "b.ts", oldPath: "a.ts", status: "renamed", additions: 0, deletions: 0),
+        ], totalFiles: 1)
+        #expect(renamed.countsLines)
+    }
+}
+
+@Suite("Following the newest row")
+struct ScrollFootTests {
+    /// What is seen ends where the composer begins, not at the window's own bottom.
+    @Test func theFootIsWhatIsSeenAboveTheBars() {
+        #expect(ScrollFoot(content: 1_000, offset: 300, seen: 1_000, frame: 600).atFoot)
+        #expect(ScrollFoot(content: 1_000, offset: 300, seen: 1_000 - ScrollFoot.slack, frame: 600).atFoot)
+        #expect(!ScrollFoot(content: 1_000, offset: 300, seen: 1_000 - ScrollFoot.slack - 1, frame: 600).atFoot)
+    }
+
+    /// The last rows under the composer are not the foot in view, however near the window's bottom.
+    @Test func whatIsUnderTheComposerIsNotSeen() {
+        func geometry(offset: CGFloat) -> ScrollGeometry {
+            ScrollGeometry(contentOffset: CGPoint(x: 0, y: offset), contentSize: CGSize(width: 402, height: 1_000),
+                           contentInsets: EdgeInsets(top: 0, leading: 0, bottom: 150, trailing: 0),
+                           containerSize: CGSize(width: 402, height: 874))
+        }
+        #expect(ScrollFoot(geometry(offset: 276)).atFoot)
+        // The window reaches past the content's end, but its last 150 points are the composer's.
+        #expect(!ScrollFoot(geometry(offset: 100)).atFoot)
+    }
+
+    /// A scroll moves the offset and leaves the frame; a bar that grows changes the frame.
+    @Test func theBarsAreToldFromAScroll() {
+        func geometry(offset: CGFloat, bar: CGFloat) -> ScrollGeometry {
+            ScrollGeometry(contentOffset: CGPoint(x: 0, y: offset), contentSize: CGSize(width: 402, height: 1_000),
+                           contentInsets: EdgeInsets(top: 100, leading: 0, bottom: bar, trailing: 0),
+                           containerSize: CGSize(width: 402, height: 874))
+        }
+        let before = ScrollFoot(geometry(offset: 276, bar: 150))
+        #expect(ScrollFoot(geometry(offset: 100, bar: 150)).frame == before.frame)
+        #expect(ScrollFoot(geometry(offset: 276, bar: 190)).frame < before.frame)
+    }
+}
+
+@Suite("The pill over a session's foot")
+struct PillWordsTests {
+    @Test func aTurnsTimeIsSaidInUnits() {
+        #expect(PillWords.elapsed(0) == "0s")
+        #expect(PillWords.elapsed(12.7) == "12s")
+        #expect(PillWords.elapsed(192) == "3m 12s")
+        #expect(PillWords.elapsed(3_840) == "1h 4m")
+        #expect(PillWords.elapsed(-5) == "0s")
+        #expect(PillWords.elapsed(192, spoken: true) == "3 minutes, 12 seconds")
+    }
+
+    @Test func aLinkComingBackSaysSo() {
+        #expect(PillWords.away(.connecting) == "Connecting…")
+        #expect(PillWords.away(.connecting, reconnecting: true) == "Reconnecting…")
+        #expect(PillWords.away(.asleep(since: nil), reconnecting: true) == "Mac asleep · Retry")
+    }
 }
 
 @MainActor
