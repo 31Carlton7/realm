@@ -477,6 +477,24 @@ struct WorkWordsTests {
         #expect(DiffNumbering.starts("@@ nonsense") == nil)
     }
 
+    /// A diff page is as wide as its longest line, so every line's wash runs as far.
+    @Test func aDiffIsAsWideAsItsLongestLine() {
+        var numbering = DiffNumbering()
+        let lines = numbering.number(["@@ -1,2 +1,2 @@", " short", "+a line twice as long"], from: 0)
+        let longest = CGFloat("+a line twice as long".count)
+        #expect(DiffLines.width(of: lines, advance: 7.2, gutter: 38) == 38 + 10 + longest * 7.2 + 16)
+        #expect(DiffLines.width(of: [], advance: 7.2, gutter: 38) == 64)
+    }
+
+    /// Only what the Mac can make a small copy of is asked for one.
+    @Test func aPictureIsKnownByItsExtension() {
+        #expect(FileKind.isPicture("renders/page.png"))
+        #expect(FileKind.isPicture("Shot.JPEG"))
+        #expect(!FileKind.isPicture("logo.svg"))
+        #expect(!FileKind.isPicture("demo.mp4"))
+        #expect(!FileKind.isPicture("README"))
+    }
+
     @Test func aPlanSaysHowFarAlong() {
         #expect(PlanSteps.progress([PlanStep(text: "a", status: "completed"), PlanStep(text: "b", status: "pending")]) == "1 of 2 done")
     }
