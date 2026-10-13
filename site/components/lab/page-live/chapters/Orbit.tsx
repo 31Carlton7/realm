@@ -107,16 +107,21 @@ export function Orbit() {
                 {t.runs.map((h) => {
                   const [cx, cy] = polar(h, t.r)
                   const fired = h <= hours
+                  // A step the hand has just passed rings once as it fires.
+                  const since = hours - h
+                  const ring = fired && since < 7 ? since / 7 : null
                   return (
-                    <circle
-                      key={h}
-                      cx={cx}
-                      cy={cy}
-                      r={1.3}
-                      fill={fired ? "var(--color-accent)" : "var(--color-page)"}
-                      stroke={fired ? "var(--color-accent)" : "oklch(1 0 0 / 0.55)"}
-                      vectorEffect="non-scaling-stroke"
-                    />
+                    <g key={h}>
+                      {ring !== null ? <circle cx={cx} cy={cy} r={1.3 + ring * 4.5} stroke="var(--color-accent-ink)" strokeOpacity={(1 - ring) * 0.8} vectorEffect="non-scaling-stroke" /> : null}
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={1.3}
+                        fill={fired ? "var(--color-accent)" : "var(--color-page)"}
+                        stroke={fired ? "var(--color-accent)" : "oklch(1 0 0 / 0.55)"}
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    </g>
                   )
                 })}
               </g>
@@ -147,16 +152,21 @@ export function Orbit() {
             <br />
             server
           </span>
-          {/* The window, beside the server, closable without stopping anything. */}
-          <span
-            aria-hidden
-            style={{ left: "50%", top: "31%" }}
-            className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-[4px] px-1.5 py-0.5 text-[11.5px] transition-[opacity,box-shadow] duration-300 ${closed ? "text-ink-3 opacity-70 shadow-[inset_0_0_0_1px_oklch(1_0_0/0.14)]" : "bg-raised text-ink shadow-[inset_0_0_0_1px_oklch(1_0_0/0.3)]"}`}
-          >
-            {closed ? "window closed" : "the window"}
-          </span>
-          <span aria-live="polite" className="absolute top-full left-1/2 mt-6 -translate-x-1/2 font-mono text-[12px] whitespace-nowrap text-ink-2">
+          {/* Each track's head: the agent that runs it, where the week begins. */}
+          {TASKS.map((t) => {
+            const [x, y] = polar(0, t.r)
+            return (
+              <span key={t.id} aria-hidden style={{ left: `${x}%`, top: `${y}%` }} className="absolute grid size-[22px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-page text-ink-2 shadow-[inset_0_0_0_1px_oklch(1_0_0/0.25)]">
+                <AgentMark id={t.agent} className="size-3" />
+              </span>
+            )
+          })}
+          <span aria-live="polite" className="absolute top-full left-1/2 mt-6 flex -translate-x-1/2 items-center gap-3 font-mono text-[12px] whitespace-nowrap text-ink-2">
             {stamp(hours)}
+            <span className={`flex items-center gap-1.5 font-sans text-[12.5px] ${closed ? "text-ink-3" : "text-ink-2"}`}>
+              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${closed ? "bg-ink-3/60" : "bg-green"}`} />
+              {closed ? "Window closed" : "Window open"}
+            </span>
           </span>
         </div>
 

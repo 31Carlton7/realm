@@ -40,7 +40,12 @@ export const SUB_STATIONS: { id: SubAgent; label: string; agent: AgentId; side: 
 export type Box = { x: number; y: number; w: number; h: number }
 
 export type MapInput = {
-  /** The map's own column, beside the window (plate-local CSS px). */
+  /**
+   * Beside the window (a wide screen: the lines run in from the left and land on its sidebar's rows)
+   * or above it (a phone: the lines run across and turn down together into its top edge).
+   */
+  mode: "side" | "stacked"
+  /** The map's own area (plate-local CSS px). */
   column: Box
   /** The sample window's frame. */
   win: Box
@@ -54,6 +59,9 @@ export type Line = { id: LineId; route: Route; row: number; start: Pt; end: Pt; 
 export type Station = { id: string; line: SpaceId; at: Pt; label: string; agent: AgentId; sub?: SubAgent; side?: -1 | 1 }
 
 export type MapGeometry = {
+  mode: "side" | "stacked"
+  /** The window's frame the lines run into. */
+  win: Box
   lines: Record<LineId, Line | null>
   stations: Station[]
   /** Dark mode's sub-agent loops, from the fork through each station to the merge. */
@@ -75,7 +83,9 @@ export const RADIUS = 12
 const PITCH = 11
 const RING = 11
 
-export function layoutMap({ column, win, termini }: MapInput): MapGeometry {
+export function layoutMap(input: MapInput): MapGeometry {
+  if (input.mode === "stacked") return layoutStacked(input)
+  const { column, win, termini } = input
   const x0 = column.x
   const right = win.x
   // The nested turns: the top line (Needs you) turns furthest from the window, each line under it
@@ -85,16 +95,16 @@ export function layoutMap({ column, win, termini }: MapInput): MapGeometry {
   const turnsFrom = busX
 
   // Rows: Needs you near the top of the window, the four spaces evenly below it.
-  const top = win.y + 40
+  const top = win.y + 36
   const first = win.y + win.h * 0.24
-  const last = win.y + win.h * 0.8
+  const last = win.y + win.h * 0.745
   const rowOf = (id: LineId) => {
     if (id === "needs") return top
     const i = SPACE_ORDER.indexOf(id)
     return first + ((last - first) * i) / (SPACE_ORDER.length - 1)
   }
-  const lineStart = x0 + 98
-  const col = [x0 + 140, x0 + 262] as const
+  const lineStart = x0 + 110
+  const col = [x0 + 152, x0 + 272] as const
 
   const lines = {} as Record<LineId, Line | null>
   LINE_ORDER.forEach((id, k) => {
@@ -140,6 +150,8 @@ export function layoutMap({ column, win, termini }: MapInput): MapGeometry {
   }
 
   return {
+    mode: "side",
+    win,
     lines,
     stations,
     branches,
@@ -152,9 +164,75 @@ export function layoutMap({ column, win, termini }: MapInput): MapGeometry {
   }
 }
 
+/**
+ * The phone's map: the same lines and stations across the top of the plate, every line turning down
+ * at the right into the window's top edge. The turns nest — the top line outermost — so a line
+ * descending past the rows under it never crosses one. There is no collector: Needs you is a line of
+ * its own, and a request runs along its session's own line into the window.
+ */
+function layoutStacked({ column, win, termini }: MapInput): MapGeometry {
+  const x0 = column.x + 4
+  const w = column.w - 8
+  const turnX = (k: number) => x0 + w - 10 - PITCH * k
+  const rows = [column.y + 22, ...SPACE_ORDER.map((_, i) => column.y + 104 + ((column.h - 104 - 34) * i) / (SPACE_ORDER.length - 1))]
+  const rowOf = (id: LineId) => rows[LINE_ORDER.indexOf(id)]!
+  const lineStart = x0
+  const col = [x0 + w * 0.42, x0 + w * 0.7] as const
+  const bottom = win.y
+
+  const lines = {} as Record<LineId, Line | null>
+  LINE_ORDER.forEach((id, k) => {
+    const row = rowOf(id)
+    if (termini[id] === null) {
+      lines[id] = null
+      return
+    }
+    const tx = turnX(k)
+    lines[id] = { id, route: route([[lineStart, row], [tx, row], [tx, bottom]], RADIUS), row, start: [lineStart, row], end: [tx, bottom], turn: tx }
+  })
+
+  const stations: Station[] = STATIONS.map((s) => ({ id: s.id, line: s.line, at: [col[s.col], rowOf(s.line)] as Pt, label: s.label, agent: s.agent }))
+  const realmRow = rowOf("realm")
+  const fork: Pt = [col[0] + RING + 3, realmRow]
+  const offset = 19
+  const outAt = fork[0] + offset
+  const merge: Pt = [Math.min(col[0] + w * 0.34, turnX(1) - 30), realmRow]
+  const inAt = merge[0] - offset
+  const subX = (outAt + inAt) / 2
+  const branches = {} as MapGeometry["branches"]
+  for (const sub of SUB_STATIONS) {
+    const y = realmRow + sub.side * offset
+    const r = route([fork, [outAt, y], [inAt, y], merge], RADIUS)
+    branches[sub.id] = { route: r, stationS: sAtX(r, subX) }
+    stations.push({ id: sub.id, line: "realm", at: [subX, y], label: sub.label, agent: sub.agent, sub: sub.id, side: sub.side })
+  }
+  const busS = {} as Record<SpaceId, number>
+  for (const id of SPACE_ORDER) busS[id] = lines[id]?.route.length ?? 0
+
+  return {
+    mode: "stacked",
+    win,
+    lines,
+    stations,
+    branches,
+    merge,
+    fork,
+    bus: { x: -100, top: 0, bottom: 0 },
+    busS,
+    turnsFrom: turnX(4),
+    radius: RADIUS,
+  }
+}
+
 /** A request's way to Needs you: along its own line to the collector, up it, and along Needs you into
- *  the window. Read backwards, it is the way an answer comes back. */
-export function requestRoute(g: MapGeometry, from: Pt): Route | null {
+ *  the window. Read backwards, it is the way an answer comes back. On a phone there is no collector,
+ *  and the request runs along its own line into the window. */
+export function requestRoute(g: MapGeometry, from: Pt, line: SpaceId): Route | null {
+  if (g.mode === "stacked") {
+    const own = g.lines[line]
+    if (!own || own.turn === null) return null
+    return route([from, [own.turn, from[1]], own.end], RADIUS)
+  }
   const needs = g.lines.needs
   if (!needs) return null
   const pts: Pt[] = [from, [g.bus.x, from[1]], [g.bus.x, needs.row]]

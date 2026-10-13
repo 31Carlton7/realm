@@ -10,6 +10,7 @@ import { site } from "@/lib/site"
 
 import { Sample } from "../sample/Sample"
 import { createSampleStore, openingState, restingState, type SampleStore } from "../sample/store"
+import { HeroLight } from "../field/HeroLight"
 import { TransitMap } from "./TransitMap"
 
 const reducedNow = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -44,11 +45,11 @@ export function Hero({ download }: { download: MacDownload }) {
 
   return (
     <section aria-labelledby="hero-title" className="relative">
-      <div className="mx-auto w-full max-w-[85rem] px-5 pt-8 sm:px-10 lg:pt-9">
+      <div className="mx-auto w-full max-w-[85rem] px-5 pt-5 sm:px-10 sm:pt-8 lg:pt-9">
         <Announcement />
         <h1
           id="hero-title"
-          className="mt-5 max-w-[14ch] text-[clamp(2.6rem,4.7vw,4.4rem)] leading-[0.98] font-[580] tracking-[-0.052em] text-balance text-ink xl:max-w-none"
+          className="mt-4 max-w-[14ch] text-[clamp(2.4rem,4.7vw,4.4rem)] leading-[0.98] font-[580] tracking-[-0.052em] text-balance text-ink sm:mt-5 xl:max-w-none"
         >
           Give your agents a world to work in.
         </h1>
@@ -73,15 +74,22 @@ export function Hero({ download }: { download: MacDownload }) {
         </div>
       </div>
 
-      <div role="group" aria-labelledby="hero-map-title" className="mx-auto mt-9 w-full max-w-[85rem] px-3 sm:px-10 lg:mt-10">
-        <div ref={plateRef} className="relative lg:grid lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
-          {/* The map's own column: its title at the top, its key at the foot, the lines between. */}
-          <div className="mb-4 flex flex-col justify-between gap-4 px-2 sm:px-0 lg:mb-0 lg:pr-10">
-            <p className="max-w-[36ch] text-[13px] leading-[1.5] text-ink-2">
-              <span id="hero-map-title" className="text-ink">A sample of a day in Realm.</span> The map is a diagram of the window beside it,
-              and the window is a working sample: click anything.
-            </p>
-            <Legend settled={settled} onReplay={replay} />
+      <div role="group" aria-labelledby="hero-map-title" className="mx-auto mt-8 w-full max-w-[85rem] px-3 sm:px-10 lg:mt-10">
+        <p className="mb-4 px-2 text-[13px] leading-[1.5] text-ink-2 sm:px-0">
+          <span id="hero-map-title" className="text-ink">
+            A sample of a day in Realm.
+          </span>{" "}
+          The map is a diagram of the window <span className="lg:hidden">under</span>
+          <span className="hidden lg:inline">beside</span> it, and the window is a working sample: click anything.
+        </p>
+        <div ref={plateRef} className="relative isolate lg:grid lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
+          <HeroLight />
+          {/* The map's own room: beside the window on a wide screen, with its key at the foot; above
+              it on a phone, where the lines turn down into its top edge. */}
+          <div className="h-[350px] lg:flex lg:h-auto lg:flex-col lg:justify-end lg:pb-1">
+            <div className="hidden lg:block">
+              <Legend settled={settled} onReplay={replay} />
+            </div>
           </div>
           <div
             ref={windowRef}
@@ -90,6 +98,9 @@ export function Hero({ download }: { download: MacDownload }) {
             <Sample store={store} />
           </div>
           <TransitMap store={store} plateRef={plateRef} windowRef={windowRef} />
+        </div>
+        <div className="mt-4 px-2 lg:hidden">
+          <Legend settled={settled} onReplay={replay} />
         </div>
       </div>
     </section>

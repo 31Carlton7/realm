@@ -27,7 +27,7 @@ export function Chapter({
   wide?: boolean
 }) {
   return (
-    <section aria-labelledby={`${id}-title`} className="mx-auto w-full max-w-[85rem] px-5 py-20 sm:px-10 sm:py-28 lg:py-32">
+    <section aria-labelledby={`${id}-title`} className="mx-auto w-full max-w-[85rem] px-5 py-16 sm:px-10 sm:py-24">
       <div className={wide ? "" : `grid gap-x-12 gap-y-10 lg:grid-cols-12 lg:items-start ${flip ? "lg:[&>*:first-child]:order-2" : ""}`}>
         <div className={wide ? "max-w-[44rem]" : "lg:sticky lg:top-28 lg:col-span-4"}>
           <h2 id={`${id}-title`} className="text-[clamp(1.9rem,3.2vw,2.75rem)] leading-[1.04] font-[580] tracking-[-0.042em] text-balance text-ink">
@@ -37,7 +37,7 @@ export function Chapter({
         </div>
         <div className={wide ? "mt-12" : "min-w-0 lg:col-span-8"}>{instrument}</div>
       </div>
-      {evidence ? <div className="mt-14 sm:mt-20">{evidence}</div> : null}
+      {evidence ? <div className="mt-12 sm:mt-16">{evidence}</div> : null}
     </section>
   )
 }

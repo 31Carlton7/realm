@@ -162,7 +162,7 @@ export function Gateway() {
           <div className="absolute inset-x-0 top-0 grid" style={{ gridTemplateColumns: `repeat(${scenario.lanes.length}, minmax(0, 1fr))` }}>
             {scenario.lanes.map((lane) => (
               <div key={lane.id} className="flex justify-center">
-                <div data-anchor={`lane-${lane.id}`} className="flex w-[9.5rem] flex-col items-center rounded-[12px] bg-canvas px-3 py-2.5 text-center shadow-[inset_0_0_0_1px_var(--color-line)]">
+                <div data-anchor={`lane-${lane.id}`} className="flex w-[9.5rem] flex-col items-center rounded-[12px] bg-canvas px-3 py-2.5 text-center">
                   <span className="flex items-center gap-1.5 text-[13px] text-ink">
                     <span className="text-ink-2">{lane.glyph}</span>
                     {lane.name}

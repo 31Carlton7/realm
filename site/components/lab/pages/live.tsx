@@ -14,6 +14,7 @@ import { Footer } from "@/components/lab/page-live/Footer"
 import { Header } from "@/components/lab/page-live/Header"
 import { Hero } from "@/components/lab/page-live/hero/Hero"
 import { Chapter, Detail, Evidence } from "@/components/lab/page-live/kit/Chapter"
+import { LiveStyles } from "@/components/lab/page-live/kit/LiveStyles"
 import { delegation, facets, type Claim } from "@/content/home"
 import { site } from "@/lib/site"
 import track from "@/public/product/details/track.webp"
@@ -45,6 +46,7 @@ export default function Live({ download, claims }: PageDesignProps) {
 
   return (
     <div className="min-h-[100dvh] overflow-x-clip">
+      <LiveStyles />
       <Header href={download.href} />
       <main>
         <Hero download={download} />

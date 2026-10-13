@@ -129,7 +129,7 @@ export function TeamRelay() {
                 <RoleStation key={r.id} role={r} spec={specs[r.id]!} state={states[r.id]} picked={picked === r.id} onPick={() => setPicked(r.id)} />
               ))}
             </ul>
-            <div aria-live="polite" className="mt-6 max-w-[30rem] rounded-[12px] bg-canvas px-4 py-3 text-[13.5px] shadow-[inset_0_0_0_1px_var(--color-line)]">
+            <div aria-live="polite" className="mt-6 max-w-[30rem] rounded-[12px] bg-canvas px-4 py-3 text-[13.5px]">
               <p className="text-ink">{role.goal}</p>
               <p className="mt-1 flex items-center gap-1.5 text-ink-3">
                 Hands work to <Icon name="chevronRight" className="h-3 w-3" /> <span className="text-ink-2">{role.handsTo}</span>
@@ -138,7 +138,7 @@ export function TeamRelay() {
           </div>
 
           {/* Review: where everything the team makes waits for you. */}
-          <div className="rounded-[16px] bg-canvas p-4 shadow-[inset_0_0_0_1px_var(--color-line)]">
+          <div className="rounded-[16px] bg-canvas p-4">
             <p data-anchor="role-review" className="flex items-center gap-2 text-[13px] text-ink">
               <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${waiting.length ? "bg-orange" : "bg-ink-3/60"}`} />
               Review
@@ -149,7 +149,7 @@ export function TeamRelay() {
                 const from = ROLES.find((r) => r.id === item.from)!
                 const outcome = decided[item.id]
                 return (
-                  <li key={item.id} className="rounded-[12px] bg-page px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--color-line)]">
+                  <li key={item.id} className="rounded-[12px] bg-page px-3 py-2.5">
                     <div className="flex items-center gap-2.5">
                       <Realmite spec={specs[from.id]!} size={24} state={outcome ? "idle" : "needs-you"} />
                       <div className="min-w-0 flex-1">

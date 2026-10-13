@@ -174,7 +174,7 @@ export function Timeline() {
       </div>
 
       {/* What the tick under the playhead holds: the card the app shows for it. */}
-      <div aria-live="polite" className="mt-4 rounded-[16px] bg-canvas p-5 shadow-[inset_0_0_0_1px_var(--color-line)] sm:p-6">
+      <div aria-live="polite" className="mt-4 rounded-[16px] bg-canvas p-5 sm:p-6">
         <div className="flex items-baseline justify-between gap-4">
           <p className="text-[12px] text-ink-3">
             Turn {picked + 1} · {turn.at} AM
@@ -189,7 +189,7 @@ export function Timeline() {
           </p>
         ) : null}
         {turn.edits.length ? (
-          <div className="mt-4 space-y-1.5 rounded-[12px] bg-page/60 p-3.5 text-[12.5px] shadow-[inset_0_0_0_1px_var(--color-line)]">
+          <div className="mt-4 space-y-1.5 rounded-[10px] bg-page/70 p-3.5 text-[12.5px]">
             {turn.edits.map((e) => (
               <p key={e.path + e.file} className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-ink-3">

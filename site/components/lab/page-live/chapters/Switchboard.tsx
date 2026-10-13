@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useRef, useState, type CSSProperties } from "react"
 
 import { AgentMark, type AgentId } from "@/components/AgentMark"
 import { Icon } from "@/components/home/mini/icons"
@@ -90,49 +90,52 @@ export function Switchboard() {
           </svg>
         ) : null}
 
-        <div className="relative grid gap-y-8 sm:grid-cols-[minmax(0,11rem)_minmax(2.5rem,1fr)_minmax(0,8.5rem)_minmax(2.5rem,1fr)_minmax(0,16rem)] sm:gap-y-0">
-          {/* The jacks. */}
-          <fieldset className="grid grid-cols-3 gap-1 sm:col-start-1 sm:grid-cols-1 sm:gap-0" style={{ gridAutoRows: `${ROW}px` }}>
+        <div className="relative grid gap-y-8 sm:grid-cols-[minmax(0,10rem)_minmax(2.5rem,1fr)_minmax(0,8rem)_minmax(2.5rem,1fr)_minmax(0,16rem)] sm:gap-y-0">
+          {/* Column heads, as a drawing labels its columns. */}
+          <p aria-hidden className="hidden pb-3 text-right font-mono text-[11.5px] text-ink-3 sm:col-start-1 sm:block">agent</p>
+          <p aria-hidden className="hidden pb-3 text-center font-mono text-[11.5px] text-ink-3 sm:col-start-3 sm:block">adapter</p>
+          <p aria-hidden className="hidden pb-3 font-mono text-[11.5px] text-ink-3 sm:col-start-5 sm:block">workspace</p>
+
+          {/* The jacks: each agent's name, then its socket, so a wire leaves the socket and never crosses a word. */}
+          <fieldset className="grid grid-cols-3 gap-1 sm:col-start-1 sm:row-start-2 sm:grid-cols-1 sm:gap-0 sm:[grid-auto-rows:var(--row)]" style={{ "--row": `${ROW}px` } as CSSProperties}>
             <legend className="sr-only">The agent</legend>
             {AGENTS.map((a) => {
               const on = a.id === picked
               return (
                 <label
                   key={a.id}
-                  className={`group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-[10px] pr-2 text-[13px] transition-colors duration-200 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent max-sm:flex-col max-sm:justify-center max-sm:gap-1.5 max-sm:py-2 max-sm:text-center ${on ? "text-ink" : "text-ink-2 hover:text-ink"}`}
+                  className={`group flex min-w-0 cursor-pointer items-center justify-end gap-2.5 rounded-[10px] text-[13px] transition-colors duration-200 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent max-sm:flex-col-reverse max-sm:justify-center max-sm:gap-1.5 max-sm:py-2 max-sm:text-center ${on ? "text-ink" : "text-ink-2 hover:text-ink"}`}
                 >
                   <input type="radio" name="switchboard-agent" value={a.id} checked={on} onChange={() => pick(a.id)} className="sr-only" />
+                  <span className="truncate max-sm:text-[12px]">{a.name}</span>
                   <span
                     data-anchor={`jack-${a.id}`}
                     className={`grid size-[26px] shrink-0 place-items-center rounded-full bg-page transition-[box-shadow] duration-200 ${on ? "shadow-[inset_0_0_0_1px_var(--color-accent),0_0_0_3px_oklch(0.68_0.173_253.301/0.18)]" : "shadow-[inset_0_0_0_1px_oklch(1_0_0/0.22)] group-hover:shadow-[inset_0_0_0_1px_oklch(1_0_0/0.4)]"}`}
                   >
                     <AgentMark id={a.id} className="size-3.5" />
                   </span>
-                  <span className="truncate max-sm:text-[12px]">{a.name}</span>
                 </label>
               )
             })}
           </fieldset>
 
           {/* The adapters, each beside the agents it speaks to. */}
-          <div aria-hidden className="hidden sm:col-start-3 sm:grid" style={{ gridTemplateRows: `${ROW}px ${ROW}px ${ROW * 7}px` }}>
+          <div aria-hidden className="hidden sm:col-start-3 sm:row-start-2 sm:grid" style={{ gridTemplateRows: `${ROW}px ${ROW}px ${ROW * 7}px` }}>
             {(Object.keys(HARNESS) as Harness[]).map((h) => {
               const lit = h === agent.harness
               return (
-                <div key={h} className={`flex items-center ${h === "acp" ? "py-2" : "py-[7px]"}`}>
+                <div key={h} className={`flex items-center ${h === "acp" ? "py-1.5" : "py-[6px]"}`}>
                   <span
                     data-anchor={`adapter-${h}`}
-                    className={`flex h-full w-full items-center justify-center rounded-[8px] bg-page px-2 text-center text-[12px] leading-[1.3] transition-[box-shadow,color] duration-300 ${lit ? "text-ink shadow-[inset_0_0_0_1px_oklch(1_0_0/0.7)]" : "text-ink-2 shadow-[inset_0_0_0_1px_oklch(1_0_0/0.2)]"}`}
+                    className={`flex h-full w-full items-center justify-center rounded-[8px] px-2 text-center text-[12.5px] leading-[1.3] transition-[box-shadow,color,background-color] duration-300 ${lit ? "bg-raised text-ink shadow-[inset_0_0_0_1px_oklch(1_0_0/0.5)]" : "bg-canvas text-ink-2 shadow-[inset_0_0_0_1px_oklch(1_0_0/0.12)]"}`}
                   >
                     {h === "acp" ? (
                       <span>
-                        Agent Client
-                        <br />
-                        Protocol
-                        <span className="mt-1 block text-[11.5px] text-ink-3">one adapter for seven</span>
+                        Agent Client Protocol
+                        <span className="mt-1.5 block text-[12px] text-ink-3">one adapter, seven agents</span>
                       </span>
                     ) : (
-                      `${HARNESS[h].short} adapter`
+                      HARNESS[h].short
                     )}
                   </span>
                 </div>
@@ -141,7 +144,7 @@ export function Switchboard() {
           </div>
 
           {/* The workspace: the same space, whichever agent answers in it. */}
-          <div data-anchor="workspace" aria-live="polite" className="rounded-[14px] bg-canvas p-4 shadow-[inset_0_0_0_1px_var(--color-line)] sm:col-start-5 sm:row-start-1 sm:self-center">
+          <div data-anchor="workspace" aria-live="polite" className="rounded-[14px] bg-canvas p-4 sm:col-start-5 sm:row-start-2 sm:self-center">
             <div className="flex items-center gap-2.5">
               <span data-anchor="socket" className="grid size-[30px] place-items-center rounded-full bg-page text-ink shadow-[inset_0_0_0_1px_var(--color-green)]">
                 <AgentMark id={agent.id} className="size-4" />
