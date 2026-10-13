@@ -5,7 +5,8 @@
  * Boots the BUILT server on a scratch home with the scripted agent standing in for Claude and Codex
  * (no billed turn), the relay's real Worker under `wrangler dev` on a fixed port, and the gateway.
  * Stages spaces and sessions in the states the app draws — a permission waiting, questions, a plan,
- * Markdown prose, an error with its fix, more sessions than Home lists — then prints one JSON line,
+ * Markdown prose, an error with its fix, a turn that changed files under git and made a picture, more
+ * sessions than Home lists — then prints one JSON line,
  * `{"pairLink", "sessions": {...}}`, and takes commands on stdin:
  *
  *   sleep        the Mac goes quiet: the gateway stops, and the relay tells the phone it is offline
@@ -27,8 +28,8 @@
  *
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
  */
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { bootServer, freePort, removeHome, repoRoot, scratchGateway } from "../../server/scripts/lib/mobile-rig";
@@ -137,6 +138,29 @@ sessions.error = await session(laya.id, "codex", "gpt-6-astra", "Train the socia
 await send(sessions.error, "hit the limit");
 sessions.markdown = await session(realm.id, "claude", "claude-sonnet-5", "Explain the relay");
 await send(sessions.markdown, MARKDOWN);
+// A turn that changes a file the space's checkout already holds, and leaves a picture behind: the Mac
+// records the first as the turn's changes (it needs git) and the second as a file made.
+{
+  const folder = (realm as { folderPath: string }).folderPath;
+  const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=Realm", "-c", "user.email=staging@realm.computer", ...args], { cwd: folder, stdio: "pipe" });
+  mkdirSync(join(folder, "apps/server/src/db"), { recursive: true });
+  writeFileSync(join(folder, "README.md"), "# Realm\n");
+  writeFileSync(join(folder, "apps/server/src/db/migrations.ts"), [
+    "-- The spaces table, as the first release made it.",
+    "CREATE TABLE spaces (id TEXT PRIMARY KEY, name TEXT NOT NULL);",
+    "CREATE INDEX spaces_name ON spaces (name);",
+    "",
+  ].join("\n"));
+  git("init", "-q");
+  git("add", "-A");
+  git("commit", "-qm", "Start");
+  sessions.changes = await session(realm.id, "claude", "claude-opus-5-5", "Store the theme choice");
+  await rpc.call("sessions.send", { id: sessions.changes, text: "Write the migration that stores the theme choice" });
+  mkdirSync(join(folder, "renders"), { recursive: true });
+  copyFileSync(join(repoRoot, "resources/icon.png"), join(folder, "renders/theme-preview.png"));
+  await new Promise((r) => setTimeout(r, 300));
+  await settled(sessions.changes);
+}
 sessions.plan = await session(realm.id, "claude", "claude-opus-5-5", "Rework the transcript mapper");
 await send(sessions.plan, "Make a plan for the mapper");
 // Needs you: questions, then a permission.

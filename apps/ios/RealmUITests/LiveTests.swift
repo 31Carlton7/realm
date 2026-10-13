@@ -64,13 +64,18 @@ final class LiveTests: XCTestCase {
         app.swipeDown()
 
         open("Add the dark-mode toggle")
-        XCTAssert(app.staticTexts["Allow Bash?"].waitForExistence(timeout: 10))
+        XCTAssert(text("Allow Bash?").waitForExistence(timeout: 10))
         shot("session-request")
-        let read = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Read, ")).firstMatch
+        // Folded away, the request leaves the composer its place, with Stop beside it.
+        app.buttons["Fold"].tap()
+        XCTAssert(element(containing: "is waiting on you").waitForExistence(timeout: 5))
+        let read = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Read apps")).firstMatch
         if read.waitForExistence(timeout: 3) {
             read.tap()
             shot("session-tool-open")
         }
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "is waiting on you")).firstMatch.tap()
+        XCTAssert(app.buttons["Allow"].waitForExistence(timeout: 5), "the request did not come back")
         back()
 
         open("Choose the database")
@@ -83,7 +88,8 @@ final class LiveTests: XCTestCase {
         sqlite.tap()
         app.buttons["us-east-1"].tap()
         // Every question answered, so a sheet that answered on its way out would have something to send.
-        let token = app.textFields["Your answer"]
+        // The token is a secret: its field is masked.
+        let token = app.secureTextFields["Your answer"].exists ? app.secureTextFields["Your answer"] : app.textFields["Your answer"]
         token.tap()
         token.typeText("staging-token")
         XCTAssert(app.navigationBars["Codex asks"].buttons["Send"].isEnabled, "the answers are complete")
@@ -96,7 +102,7 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.buttons["Continue answering"].waitForExistence(timeout: 5), "the picks were not kept")
         sleep(3)
         XCTAssertFalse(element(containing: "Sending").exists, "putting the sheet away sent an answer")
-        XCTAssert(app.staticTexts["Waiting on you"].exists, "putting the sheet away answered the request")
+        XCTAssert(text("Waiting on you").exists, "putting the sheet away answered the request")
         shot("question-put-away")
         back()
 
@@ -112,6 +118,38 @@ final class LiveTests: XCTestCase {
         XCTAssert(element(containing: "echo: Ship it on Friday").waitForExistence(timeout: 15), "the Mac never answered the message")
         XCTAssertFalse(element(containing: "Sending").exists)
         shot("session-sent")
+        back()
+
+        open("Store the theme choice")
+        let changed = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Changed")).firstMatch
+        XCTAssert(changed.waitForExistence(timeout: 10), "the turn's changes are not drawn")
+        shot("session-changes")
+        let fold = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Worked")).firstMatch
+        if fold.waitForExistence(timeout: 3) {
+            fold.tap()
+            let wrote = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Wrote")).firstMatch
+            if wrote.waitForExistence(timeout: 3) {
+                wrote.tap()
+                XCTAssert(element(containing: "Open the diff").waitForExistence(timeout: 10), "the edit's diff did not open in its line")
+                shot("session-inline-diff")
+            }
+        }
+        changed.tap()
+        let migrations = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "migrations.ts")).firstMatch
+        XCTAssert(migrations.waitForExistence(timeout: 10), "the changed files did not load")
+        shot("changes-sheet")
+        migrations.tap()
+        XCTAssert(element(containing: "theme").waitForExistence(timeout: 10), "the diff did not load")
+        shot("diff")
+        back()
+        app.navigationBars.buttons["Done"].firstMatch.tap()
+        let picture = app.buttons["theme-preview.png"]
+        if picture.waitForExistence(timeout: 5) {
+            picture.tap()
+            XCTAssert(app.images["theme-preview.png"].waitForExistence(timeout: 10), "the picture did not arrive")
+            shot("file-preview")
+            app.navigationBars.buttons["Done"].firstMatch.tap()
+        }
         back()
 
         open("Rework the transcript mapper")
@@ -134,7 +172,7 @@ final class LiveTests: XCTestCase {
     func test2_asleep() throws {
         launch()
         XCTAssert(element(containing: "Asleep since").waitForExistence(timeout: 90), "the phone was never told the Mac slept")
-        XCTAssert(element(containing: "Last updated").exists)
+        XCTAssert(element(containing: "Updated").exists, "Home does not say how old its copy is")
         shot("asleep-home")
         open("Add the dark-mode toggle")
         let allow = app.buttons["Allow"]
@@ -150,7 +188,7 @@ final class LiveTests: XCTestCase {
         launch()
         XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
         open("Add the dark-mode toggle")
-        XCTAssert(app.staticTexts["Allowed"].waitForExistence(timeout: 30), "the answer kept while the Mac slept never went")
+        XCTAssert(text("Allowed").waitForExistence(timeout: 30), "the answer kept while the Mac slept never went")
         shot("answer-delivered")
     }
 
@@ -188,11 +226,17 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.staticTexts["Needs you"].waitForExistence(timeout: 30))
         shot("rt-home")
         open("Add the dark-mode toggle")
-        XCTAssert(app.staticTexts["Allowed"].waitForExistence(timeout: 10))
+        XCTAssert(text("Allowed").waitForExistence(timeout: 10))
         shot("rt-session")
     }
 
     // MARK: - Helpers
+
+    /// Words on screen, the first where a card and the dock both say them.
+    @MainActor
+    private func text(_ words: String) -> XCUIElement {
+        app.staticTexts.matching(identifier: words).firstMatch
+    }
 
     @MainActor
     private func element(containing text: String) -> XCUIElement {
