@@ -473,13 +473,13 @@ export function arrivalStage(release: number, total: number, dark: boolean): Sta
         // Up to the door, from the moment the band starts to leave until it has gone.
         const travelled = clamp(-canvas[1] / Math.max(H * 0.8, 1), 0, 1)
         const u = input.still ? 0 : travelled
-        const near = viewAt(release, sx, sy, edge * 1.7, 1.5, 0.45)
+        const near = viewAt(release, sx, sy, edge * 1.4, 1.7, 0.5)
         let view = blend(far, near, smoother(u), 0)
         if (!input.still) view = orbit(view, realmOf(release), -sway(input, canvas, dt) * 0.8 * DEG)
 
         // The release's own realm, and the older ones going away behind it.
         const pose = poseOf(release, far.eye, t, input.still)
-        const open = dark || input.still ? 0 : 0.7 * smooth((u - 0.25) / 0.6)
+        const open = dark || input.still ? 0 : 0.55 * smooth((u - 0.25) / 0.6)
         const page: { pose: Pose; glow: number; open: number }[] = [{ pose, glow: dark ? 0 : 1, open }]
         for (let r = release + 1; r < total && page.length < 6; r++) page.push({ pose: poseOf(r, viewAt(r, sx, sy, edge).eye, t, input.still), glow: LIT_AHEAD, open: 0 })
         s.page(page)
