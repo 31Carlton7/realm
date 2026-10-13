@@ -188,9 +188,17 @@ p {
   corner-shape: squircle;
 }
 
-/* The in-page Realm (components/home/mini). The caret blinks the way the app's plain caret does and
+/* The in-page Realm (components/home/mini). Its quiet ink — hints, labels, timestamps, line numbers —
+   is lifted inside the sample from the app's ink-3 (oklch 0.541, 3.1–3.5:1 on the sample's grounds)
+   to the step that clears AA on the brightest ground it is drawn on, a hovered row or the composer
+   (oklch 0.289): 5.0:1 there, 6.2:1 on the page, and still a step under ink-2, so the window keeps its
+   three tiers (design.md: quiet text is text). The caret blinks the way the app's plain caret does and
    goes solid under reduced motion, never frozen at nothing (design.md, Motion). The flash is the one
    moment a followed file link gets: the named line lights and settles. */
+.mini-realm {
+  --color-ink-3: oklch(0.68 0.01 264.484);
+}
+
 .mini-caret {
   display: inline-block;
   width: 0.55em;
