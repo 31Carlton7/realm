@@ -33,6 +33,7 @@ import { panelPlace, splitRefusal } from "./view-room";
 import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CHILD_ORIGINS } from "../panes/session-labels";
+import { QUICK_CHAT_SETTING } from "@realm/view";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
   isOverridden, parseFontPref, type FontPref,
@@ -895,8 +896,10 @@ export const SETTING_LIBRARY_VIEW = "ui.libraryView";
 /** Per-session terminal-panel state (open + width), keyed by session id. */
 export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
- *  ever read together — a position with no conversation to put in it is nothing. */
-export const SETTING_QUICK_CHAT = "ui.quickChat";
+ *  ever read together — a position with no conversation to put in it is nothing. Named in
+ *  `@realm/view`, because the server reads the session id from it to leave the quick chat out of
+ *  Realm Mobile's Needs you, as the sidebar does. */
+export const SETTING_QUICK_CHAT = QUICK_CHAT_SETTING;
 export const EVENTS_PAGE = 1000;
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */

@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AgentKindSchema, type Item, type Session, type Space, type StoredSessionEvent } from "@realm/contracts";
 import { MobileCalls, type MobileErrorCode, type MobileMethod, type Row, type SessionRow } from "@realm/remote";
+import { needsYou, QUICK_CHAT_SETTING, quickChatIdOf, type NeedsYouState } from "@realm/view";
 import { SessionProjector } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
 
@@ -30,6 +31,27 @@ const HISTORY_LIMIT = 20_000;
 const mobileStatus = (s: Session["status"]): SessionRow["status"] => (s === "waiting_permission" ? "waiting" : s);
 
 const isUnread = (s: Session): boolean => s.seenSeq > 0 && s.lastEventSeq > s.seenSeq;
+
+/** What realm-server knows, as one listing: every space, session and item, and the quick chat's
+ *  session, which its window keeps in a setting. */
+type Lists = { spaces: Space[]; sessions: Session[]; items: Item[]; quickChatId: string | null };
+
+/**
+ * Needs you's input (`@realm/view`), built from the lists the desktop's own store is seeded from:
+ * `sessions.listAll` for every session's row, status, space and the time its status last moved;
+ * `items.listAll` for titles and what is listed (archived rows already left out); `spaces.list`; and
+ * the quick chat's setting. A server holds no window, so no profile is the window's own: every item
+ * comes in through `allItems`, as another profile's would in the sidebar.
+ */
+export function needsYouInput(l: Lists): NeedsYouState {
+  const by = <T>(f: (s: Session) => T): Record<string, T> => Object.fromEntries(l.sessions.map((s) => [s.id, f(s)]));
+  return {
+    spaces: l.spaces, activeProfileId: null, items: [], allItems: l.items,
+    sessions: {}, allSessions: by((s) => s),
+    sessionStatus: by((s) => s.status), sessionSpace: by((s) => s.spaceId), sessionUpdatedAt: by((s) => s.updatedAt),
+    quickChatId: l.quickChatId,
+  };
+}
 
 export class MobileApi {
   constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean }) {}
@@ -82,42 +104,41 @@ export class MobileApi {
     }
   }
 
-  private async lists(rpc: RpcPort): Promise<{ spaces: Space[]; sessions: Session[]; items: Item[] }> {
-    const [spaces, sessions, items] = await Promise.all([
+  private async lists(rpc: RpcPort): Promise<Lists> {
+    const [spaces, sessions, items, quickChat] = await Promise.all([
       rpc.call("spaces.list", {}),
       rpc.call("sessions.listAll", { profileId: null }),
       rpc.call("items.listAll", {}),
+      rpc.call("settings.get", { key: QUICK_CHAT_SETTING }),
     ]);
-    return { spaces, sessions, items };
+    return { spaces, sessions, items, quickChatId: quickChatIdOf(quickChat.value) };
   }
 
-  private row(s: Session, title: string, space: Space | undefined): SessionRow {
-    const needsYou = s.status === "waiting_permission" || (s.status === "error" && isUnread(s));
+  /** `need` is the ids Needs you lists, so a row says it is in that list exactly when it is. */
+  private row(s: Session, title: string, space: Space | undefined, need: ReadonlySet<string>): SessionRow {
     return {
       id: s.id, title: title || s.title, spaceId: s.spaceId, spaceName: space?.name ?? "", agent: s.agentKind, model: s.model,
-      status: mobileStatus(s.status), needsYou, unread: isUnread(s), updatedAt: s.updatedAt,
+      status: mobileStatus(s.status), needsYou: need.has(s.id), unread: isUnread(s), updatedAt: s.updatedAt,
     };
   }
 
-  /** Needs you is the sidebar's rule (Plan 27): everything waiting on a permission or a question, then
-   *  failures not yet read that the person owns. Phase 2 imports the sidebar's own `needsYou()`. */
+  /** Needs you is the sidebar's own rule (`@realm/view`), run on the lists the sidebar is seeded
+   *  from; then each space's sessions, newest first. */
   async home(rpc: RpcPort): Promise<unknown> {
-    const { spaces, sessions, items } = await this.lists(rpc);
+    const lists = await this.lists(rpc);
+    const { spaces, sessions, items } = lists;
     const spaceById = new Map(spaces.map((s) => [s.id, s]));
     const titles = new Map<string, string>();
     for (const it of items) if (it.kind === "session") titles.set(it.refId, it.title);
-    const rows = sessions.map((s) => ({ s, row: this.row(s, titles.get(s.id) ?? "", spaceById.get(s.spaceId)) }));
-    const needsYou = rows
-      .filter(({ s }) => s.status === "waiting_permission" || (s.status === "error" && isUnread(s) && !s.dispatchedBy?.sessionId && titles.has(s.id)))
-      .sort((a, b) => (a.s.status === b.s.status ? a.s.updatedAt - b.s.updatedAt : a.s.status === "waiting_permission" ? -1 : 1))
-      .map(({ row }) => row);
-    const listed = rows.filter(({ s }) => titles.has(s.id));
+    const waiting = needsYou(needsYouInput(lists));
+    const need = new Set(waiting.map((r) => r.session.id));
+    const listed = sessions.filter((s) => titles.has(s.id));
     return {
       mac: { name: this.o.macName() },
-      needsYou,
+      needsYou: waiting.map((r) => this.row(r.session, r.title, spaceById.get(r.spaceId), need)),
       spaces: spaces.map((sp) => {
-        const mine = listed.filter(({ s }) => s.spaceId === sp.id).sort((a, b) => b.s.updatedAt - a.s.updatedAt);
-        return { id: sp.id, name: sp.name, icon: sp.icon, color: sp.color, sessions: mine.slice(0, 5).map(({ row }) => row), more: Math.max(0, mine.length - 5) };
+        const mine = listed.filter((s) => s.spaceId === sp.id).sort((a, b) => b.updatedAt - a.updatedAt);
+        return { id: sp.id, name: sp.name, icon: sp.icon, color: sp.color, sessions: mine.slice(0, 5).map((s) => this.row(s, titles.get(s.id) ?? "", sp, need)), more: Math.max(0, mine.length - 5) };
       }),
     };
   }
@@ -141,10 +162,11 @@ export class MobileApi {
       }
       for (const ev of entry.buffer ?? []) entry.projector.apply(ev);
       entry.buffer = null;
-      const [items, spaces] = await Promise.all([rpc.call("items.listAll", {}), rpc.call("spaces.list", {})]);
-      const title = items.find((it) => it.kind === "session" && it.refId === id)?.title ?? "";
+      const lists = await this.lists(rpc);
+      const title = lists.items.find((it) => it.kind === "session" && it.refId === id)?.title ?? "";
+      const need = new Set(needsYou(needsYouInput(lists)).map((r) => r.session.id));
       const all = entry.projector.all();
-      return { session: this.row(session, title, spaces.find((s) => s.id === session.spaceId)), rows: all.slice(-limit), hasMore: all.length > limit };
+      return { session: this.row(session, title, lists.spaces.find((s) => s.id === session.spaceId), need), rows: all.slice(-limit), hasMore: all.length > limit };
     } catch (e) {
       ctx.sessions.delete(id);
       throw e;
