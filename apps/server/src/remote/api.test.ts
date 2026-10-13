@@ -2,10 +2,11 @@ import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
-import { sessionEvent, type FileDiff, type Item, type MethodName, type MethodParams, type MethodResult, type Session, type Space, type StoredSessionEvent, type TurnChanges } from "@realm/contracts";
+import { sessionEvent, type FileDiff, type MethodName, type StoredSessionEvent, type TurnChanges } from "@realm/contracts";
 import { HomeSchema, MobileCalls } from "@realm/remote";
 import { needsYou } from "@realm/view";
-import { ICON_MAX_BYTES, MobileApi, MobileError, needsYouInput, type ChannelContext } from "./api";
+import { ICON_MAX_BYTES, MobileApi, MobileError, needsYouInput } from "./api";
+import { channel, fakeRpc, item, session, space, type Lists } from "./api.test-fakes";
 import { DIFF_PAGE_BYTES } from "./changes";
 import { PREVIEW_MAX_BYTES, TEXT_HEAD_BYTES, type Downscale } from "./preview";
 import type { RpcPort } from "./rpc-port";
@@ -15,51 +16,12 @@ import type { RpcPort } from "./rpc-port";
  * is the server's own, and so what these hold, is the input it builds for that rule from its lists.
  */
 
-const space = (id: string, profileId = "p1"): Space =>
-  ({ id, profileId, name: `Space ${id}`, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 });
-const item = (refId: string, spaceId: string, title: string, extra: Partial<Item> = {}): Item =>
-  ({ id: `i-${refId}`, spaceId, kind: "session", title, sortOrder: 0, pinned: false, archived: false, refId, createdAt: 0, updatedAt: 0, ...extra });
-const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
-  ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: `${id} (session)`, lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra });
-
-type Home = { spaces?: Space[]; sessions: Session[]; items: Item[]; settings?: Record<string, unknown> };
-
-/** The desktop's RPC as `home.get` reads it: `items.listAll` leaves archived rows out, as the store does. */
-export function fakeRpc(h: Home, more: Partial<Record<MethodName, (p: never) => unknown>> = {}): RpcPort & { calls: string[] } {
-  const calls: string[] = [];
-  const answer = (method: MethodName, params: unknown): unknown => {
-    const extra = more[method];
-    if (extra) return extra(params as never);
-    switch (method) {
-      case "spaces.list": return h.spaces ?? [space("s1"), space("s2", "p2")];
-      case "sessions.listAll": return h.sessions;
-      case "items.listAll": return h.items.filter((i) => !i.archived);
-      case "settings.get": return { value: h.settings?.[(params as { key: string }).key] ?? null };
-      case "sessions.get": {
-        const found = h.sessions.find((s) => s.id === (params as { id: string }).id);
-        if (!found) throw new Error(`no session ${(params as { id: string }).id}`);
-        return found;
-      }
-      case "sessions.events": return [];
-      default: throw new Error(`the fake has no ${method}`);
-    }
-  };
-  return {
-    calls,
-    call: async <M extends MethodName>(method: M, params: MethodParams<M>) => { calls.push(method); return answer(method, params) as MethodResult<M>; },
-    onEvent: () => () => {},
-    close: () => {},
-  };
-}
-
-export const channel = (rpc: RpcPort): ChannelContext => ({ phoneId: "phone", rpc, sessions: new Map() });
 const api = (downscale?: Downscale) => new MobileApi({ macName: () => "Test Mac", reportsDir: "/nonexistent", dev: false, downscale });
-const home = async (h: Home) => HomeSchema.parse(await api().handle(channel(fakeRpc(h)), "home.get", {}));
+const home = async (h: Lists) => HomeSchema.parse(await api().handle(channel(fakeRpc(h)), "home.get", {}));
 
 describe("home.get's Needs you is the sidebar's", () => {
   /** Every case the rule decides, as the desktop's lists would carry it. */
-  const lists: Home = {
+  const lists: Lists = {
     sessions: [
       session("asks", "s1", { status: "waiting_permission", updatedAt: 300, createdAt: 900, activityAt: 900 }),
       session("permits", "s2", { status: "waiting_permission", updatedAt: 100, createdAt: 800, activityAt: 950 }),

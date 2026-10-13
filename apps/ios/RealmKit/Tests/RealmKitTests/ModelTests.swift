@@ -104,6 +104,23 @@ struct ModelTests {
         #expect(questions.map(\.takesText) == [true, false, true])
     }
 
+    @Test func aPhase1MacsQuestionIsAnsweredByItsTextAndADiffLineByItsFirstCharacter() throws {
+        let questions = try Self.decode([Question].self, #"""
+        [{"question":"Which?","header":"","multiSelect":false,"options":[{"label":"A"}]},
+         {"question":"Which file?","header":"","multiSelect":false,"options":[],"id":"file","kind":"file"}]
+        """#)
+        #expect(questions.map(\.answerKey) == ["Which?", "file"])
+        #expect(questions.map(\.isAnswerableHere) == [true, false], "a file is picked on the Mac, from its own workspace")
+        #expect(questions[0].options[0].answerValue == "A")
+        #expect(["--- a/x", "+++ b/x", "@@ -1 +1 @@", "+a", "-b", " c", "\\ No newline at end of file", ""].map(DiffPage.kind(of:)) ==
+                [.fileHeader, .fileHeader, .hunkHeader, .added, .removed, .context, .note, .context])
+        #expect(MadeFile(path: "/Users/me/Desktop/shot.png", size: 1).name == "shot.png")
+        // A Phase 1 Mac's row names neither its agent nor its model: the phone's own table and the id stand in.
+        let row = try Self.decode(SessionRow.self, Self.sessionRow)
+        #expect(row.agentDisplayName == "Claude")
+        #expect(row.modelDisplayName == "claude-opus")
+    }
+
     @Test func aRequestSaysWhatItAsksFor() throws {
         let opened = try Self.decode(OpenedSession.self, Self.everyKind)
         guard case .request(let question) = opened.rows[4].content else {

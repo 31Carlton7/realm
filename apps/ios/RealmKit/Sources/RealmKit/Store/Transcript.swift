@@ -8,6 +8,8 @@ public struct Transcript: Sendable, Equatable {
     public var session: SessionRow?
     public var status: SessionStatus?
     public var hasMore = false
+    /// The suggested next message, which sits above the field until something is sent.
+    public var hint: String?
     /// When these rows were last fresh from the Mac; nil while they are live on this connection.
     public var savedAt: Date?
 
@@ -20,6 +22,7 @@ public struct Transcript: Sendable, Equatable {
         session = snapshot.session
         status = snapshot.status
         hasMore = snapshot.hasMore
+        hint = snapshot.hint
         self.savedAt = savedAt
     }
 
