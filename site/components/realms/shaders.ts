@@ -593,10 +593,8 @@ export type CompositeUniforms = {
  * hard bound round each block of text, with each screen's own light drawn crisply at its rect, and
  * dithered so the dark haze never bands.
  *
- * A screen's panel is opaque from the moment the doorway starts to open: first the doorway's light
- * filling the rect as it grows from the doorway's shape to the screen's, then, as the capture fades
- * in over it, the page's own colour under the picture. So the world never shows through a picture
- * that is still arriving, and once it has arrived the panel is only its breath of light outside.
+ * A screen is its own plate (Screen.tsx), opaque, so the pass draws nothing under it: only its breath
+ * of light on the field outside it, which comes up with the picture where the picture is.
  */
 export const compositeShader = /* wgsl */ `
 struct Comp {
@@ -659,19 +657,16 @@ fn clearance(p: vec2f, dpr: f32) -> f32 {
   for (var k = 0; k < ${PANELS}; k++) {
     let r = comp.panels[k * 2];
     let s = comp.panels[k * 2 + 1];
-    if (r.z <= 0.0 || (s.x <= 0.0 && s.z <= 0.0)) { continue; }
+    if (r.z <= 0.0 || s.z <= 0.0) { continue; }
+    // A screen's breath of light on the field round its plate. Nothing is drawn under the plate, which
+    // is opaque, and nothing while the rect is still travelling from the doorway: the light comes up
+    // with the picture, at the picture's place, so no lit shape stands behind it out of line.
     let h = r.zw * 0.5;
     let d = sdRoundRect(p - r.xy - h, h, s.y);
-    let inside = saturate(0.5 - d * dpr);
-    // The doorway's light opening out into the screen: the rect goes dark as it grows, with the light
-    // gathered at its edges like a frame being drawn open, and the picture fades in over the dark.
-    let depth = clamp(d, -400.0, 0.0);
-    let rim = exp(depth / 5.0) * 0.7 + exp(depth / 22.0) * 0.07 + 0.02;
-    let panel = page + vec3f(0.74, 0.84, 1.0) * s.w * rim;
-    color = mix(color, panel, inside * s.x);
     let out = max(d, 0.0);
-    let halo = (exp(-out / 9.0) * 0.05 + exp(-out / 60.0) * 0.022) * max(s.z, s.w) * clear;
-    color += vec3f(0.62, 0.76, 1.0) * halo * (1.0 - inside);
+    let here = smoothstep(0.45, 1.0, s.z);
+    let halo = (exp(-out / 12.0) * 0.032 + exp(-out / 72.0) * 0.018) * here * clear;
+    color += vec3f(0.62, 0.76, 1.0) * halo * saturate(0.5 + d * dpr);
   }
 
   var srgb = toSrgb(color);

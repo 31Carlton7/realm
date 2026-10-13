@@ -32,10 +32,10 @@ const AGENTS: { id: AgentId; name: string }[] = [
 ]
 
 const FACTS: { title: string; body: string }[] = [
-  { title: "On your Mac", body: "Transcripts, documents, skills and checkpoints are files and a SQLite database under ~/Realm." },
-  { title: "No account", body: "There is nothing to sign up for, and nothing you make in Realm is uploaded." },
-  { title: "No API key", body: "Realm drives the agent CLIs you already have, on the plan you already pay for." },
-  { title: "Signed and notarized", body: "Builds for Apple silicon, updated from a public release feed. The source is on GitHub." },
+  { title: "On your Mac", body: "Transcripts, documents and checkpoints live under ~/Realm." },
+  { title: "No account", body: "Nothing to sign up for, and nothing you make is uploaded." },
+  { title: "No API key", body: "Realm drives the agent CLIs you have, on your own plan." },
+  { title: "Signed and notarized", body: "Built for Apple silicon. The source is on GitHub." },
 ]
 
 /**
@@ -46,9 +46,16 @@ const FACTS: { title: string; body: string }[] = [
 function evidence(claim: Claim): ChapterPicture | null {
   const alt = claim.caption ?? claim.title
   const part = claim.part ? partImage(claim.part) : null
-  if (part) return { image: part, alt, caption: claim.caption ?? "", kind: "part" }
+  const phone = claim.phone ? partImage(claim.phone.part) : null
+  if (part) return { image: part, alt, caption: claim.caption ?? "", phone: phone ? { image: phone, caption: claim.phone?.caption } : undefined, kind: "part" }
   if (claim.capture) return { image: sceneImage(claim.capture), alt, caption: claim.caption ?? "", kind: "window" }
   return null
+}
+
+/** On a phone, the realm's terminal on its own: its two halves side by side would be a quarter size. */
+function phoneRealm(): ChapterPicture["phone"] {
+  const image = partImage("realm-phone")
+  return image ? { image, caption: "The file a session's turn edited, open in vim in its terminal." } : undefined
 }
 
 /** The order the flight visits the claims in, and which side each one's screen stands on. */
@@ -125,8 +132,9 @@ export async function RealmsHome({ download, claims }: HomeProps) {
           title="What a realm holds."
           picture={{
             image: partImage("realm") ?? sceneImage("terminal"),
+            phone: phoneRealm(),
             kind: "window",
-            caption: "A session in the Dashboard space, and the file its turn edited open in vim in a terminal beside it.",
+            caption: "A session in the Dashboard space, and the file its turn edited open in vim beside it.",
             alt: "Realm's window with the sidebar folded: a session in the Dashboard space whose turn edited two files, and beside it a terminal with vim open on web/lib/orgs.ts at the function the turn rewrote.",
           }}
         >
@@ -149,29 +157,20 @@ export async function RealmsHome({ download, claims }: HomeProps) {
             key={id}
             id={id}
             side={side}
-            tall={id === "delegation"}
             title={claim.title}
             picture={evidence(claim)}
           >
+            <p>{claim.body}</p>
             {id === "delegation" ? (
-              <>
-                <p>
-                  Ask in plain words (&ldquo;have GPT-6 Luna build this&rdquo;) or pick models in a session&rsquo;s Agents tab and
-                  say what to build. The session&rsquo;s agent splits up the work, starts a sub-agent on each model through
-                  whichever harness runs it, and waits for the reports.
-                </p>
-                <dl className="space-y-3 pt-1">
-                  {delegation.map((beat) => (
-                    <div key={beat.title}>
-                      <dt className="text-[16px] font-[560] text-ink">{beat.title}</dt>
-                      <dd className="mt-0.5 text-[16px] leading-[1.55]">{beat.body}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </>
-            ) : (
-              <p>{claim.body}</p>
-            )}
+              <dl className="space-y-3 pt-1">
+                {delegation.map((beat) => (
+                  <div key={beat.title}>
+                    <dt className="text-[16px] font-[560] text-ink">{beat.title}</dt>
+                    <dd className="mt-0.5 text-[16px] leading-[1.55]">{beat.body}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
             {id === "agents" ? (
               <ul aria-label="Agents Realm runs" className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2 sm:grid-cols-3">
                 {AGENTS.map(({ id: agent, name }) => (

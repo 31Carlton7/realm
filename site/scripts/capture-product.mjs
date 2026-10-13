@@ -722,18 +722,23 @@ function makeContext(page, rpc) {
    * size. `lift` names a floating surface (the model picker) to photograph alone, on transparency:
    * everything else is hidden for the shot and so is its own shadow, because the page draws one, and
    * a copy of this one cut off at the file's edge would ring it. Without `lift`, the part is the
-   * window's own pixels on the page colour, and the page rounds its corners.
+   * window's own pixels on the page colour, and the page rounds its corners. `hide`, as for `shot`,
+   * takes out of the frame what is not about it and would only show at its edge as a sliver — the
+   * top of the next row past the one a crop ends on — leaving the ground it stands on.
    */
-  const part = async (name, expect, { box, radius, lift = null }) => {
+  const part = async (name, expect, { box, radius, lift = null, hide = [] }) => {
     await prove(name, expect)
     const x = Math.floor(box.x), y = Math.floor(box.y)
     const clip = { x, y, width: Math.ceil(box.x + box.width) - x, height: Math.ceil(box.y + box.height) - y }
     if (lift) await page.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } })
     else await evaluate(`(() => { document.documentElement.style.background = ${JSON.stringify(PAGE)}; return true; })()`)
-    const isolate = lift && `html, body { background: transparent !important; } body * { visibility: hidden !important; } ${lift}, ${lift} * { visibility: visible !important; } ${lift} { box-shadow: none !important; }`
+    const isolate = [
+      lift && `html, body { background: transparent !important; } body * { visibility: hidden !important; } ${lift}, ${lift} * { visibility: visible !important; } ${lift} { box-shadow: none !important; }`,
+      hide.length && `${hide.join(", ")} { visibility: hidden !important; }`,
+    ].filter(Boolean).join(" ") || null
     try {
       await withStyle(isolate, async () => {
-        await sleep(lift ? 200 : 0)
+        await sleep(isolate ? 200 : 0)
         const result = await page.send("Page.captureScreenshot", { format: "png", clip: { ...clip, scale: 1 } })
         fs.mkdirSync(partRawDir, { recursive: true })
         fs.writeFileSync(path.join(partRawDir, `${name}.png`), Buffer.from(result.data, "base64"))
@@ -995,6 +1000,18 @@ const scenes = [
           const top = __capture.room(ask, "top", 22), bottom = __capture.room(end, "bottom", 22);
           return { x: c.left - 22, y: top, width: c.width + 44, height: bottom - top }; })()`)
         await part("turn", `${expect} && (() => { const { ask } = ${turn}; return ask.textContent.includes('fix the org access crash'); })()`, { box, radius: 12 })
+        // For a phone, the same turn in a window a phone's width: the transcript takes the window and
+        // wraps to a column a phone draws near its own size. The track down the pane's edge would sit
+        // in the crop's margin, cut off from the turns it marks, and is hidden for the shot.
+        await viewport(500, 1700)
+        const phone = await evaluate(`(() => { const { col, ask, card } = ${turn}; let s = col.parentElement;
+          while (s && !(/(auto|scroll)/.test(getComputedStyle(s).overflowY) && s.scrollHeight > s.clientHeight)) s = s.parentElement;
+          if (s) { const sr = s.getBoundingClientRect(); s.scrollTop += ask.getBoundingClientRect().top - sr.top - 40; }
+          const c = col.getBoundingClientRect(); const end = card.nextElementSibling?.classList.contains('msg-run') ? card.nextElementSibling : card;
+          const top = __capture.room(ask, "top", 22), bottom = __capture.room(end, "bottom", 22);
+          return { x: c.left - 22, y: top, width: c.width + 44, height: bottom - top }; })()`)
+        await park()
+        await part("turn-phone", `${expect} && (() => { const { ask } = ${turn}; return ask.textContent.includes('fix the org access crash'); })()`, { box: phone, radius: 12, hide: [".view-main .scroll-track"] })
       } finally {
         await viewport()
       }
@@ -1083,7 +1100,7 @@ const scenes = [
     // Work handed to other models: the lead's sub-agents in its Agents tab, one finished with its
     // report and one waiting on you, and the quiet line each is in the lead's transcript.
     name: "delegation",
-    async run({ evaluate, openSession, sidePanel, sideTool, park, shot, part, boxOf, until }) {
+    async run({ evaluate, openSession, sidePanel, sideTool, park, shot, part, viewport, boxOf, until }) {
       await openSession(TITLES.lead)
       await sidePanel(true)
       const shown = await evaluate(`[...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.trim() === 'Agents')`)
@@ -1103,6 +1120,17 @@ const scenes = [
       const panel = await evaluate(`(() => { const p = document.querySelector('.view-panel:not([hidden])'); const r = p.getBoundingClientRect(); const last = [...p.querySelectorAll('.subagent')].at(-1).getBoundingClientRect();
         return { x: r.x + 1, y: 0, width: r.right - r.x - 1, height: last.bottom + 22 }; })()`)
       await part("delegation", `${expect} && !!document.querySelector('.view-panel:not([hidden]) .subagent[data-state="waiting"]')`, { box: panel, radius: 16 })
+      // For a phone, the same panel in a window narrow enough that it is a phone's width: the sidebar
+      // and the session take the rest.
+      try {
+        await viewport(1240, 1000)
+        await park()
+        const narrow = await evaluate(`(() => { const p = document.querySelector('.view-panel:not([hidden])'); const r = p.getBoundingClientRect(); const last = [...p.querySelectorAll('.subagent')].at(-1).getBoundingClientRect();
+          return { x: r.x + 1, y: 0, width: r.right - r.x - 1, height: last.bottom + 22 }; })()`)
+        await part("delegation-phone", `${expect} && !!document.querySelector('.view-panel:not([hidden]) .subagent[data-state="waiting"]')`, { box: narrow, radius: 16 })
+      } finally {
+        await viewport()
+      }
     },
   },
   {
@@ -1154,23 +1182,52 @@ const scenes = [
       await rpc.call("terminals.write", { terminalId: terminal.refId, data: "clear; vim -u NONE -i NONE -N -n --cmd 'set bg=dark' --cmd 'syntax on' -c 'set ft=javascript number laststatus=2 ruler linebreak breakindent' -c 'hi StatusLine cterm=NONE ctermbg=236 ctermfg=250' -c 'hi StatusLineNC cterm=NONE ctermbg=236 ctermfg=244' -c 'normal! 62Gzt81G' web/lib/orgs.ts\r" })
       await until(async () => (await rpc.call("terminals.programs", {}).catch(() => ({})))[terminal.refId]?.id === "editor", 15_000, "vim in the foreground")
       await until(async () => (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live.includes("withInviteDefaults"), 30_000, "vim's screen drawn")
+      /** A line too long for the rows left at the foot of the screen is drawn there as "@", vim's mark
+       *  for a line it could not fit: scrolled down a line at a time until the foot ends on a line. */
+      const footFits = async () => {
+        for (let i = 0; i < 6; i++) {
+          const live = (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live ?? ""
+          if (!live.split("\n").filter((row) => row.trim() !== "").slice(-3).some((row) => /^\s*@+\s*$/.test(row))) return
+          await rpc.call("terminals.write", { terminalId: terminal.refId, data: "\x05" })
+          await sleep(500)
+        }
+      }
       await sleep(1200)
       await park()
       const expect = `!!document.querySelector('.view-panel:not([hidden]) .xterm') && [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.includes('vim'))`
       await shot("terminal", expect)
       // The same realm at work as one picture the landing page can draw near its own size: a window of
-      // 1200 by 760 with the sidebar folded (the session's bar still names its space), so the session's
+      // 1280 by 820 with the sidebar folded (the session's bar still names its space), so the session's
       // turn and the terminal beside it take the room. vim redraws for the new size before it is taken.
       try {
         await evaluate(`document.activeElement?.blur?.(); true`)
         await press("b", { code: "KeyB", vk: 66, meta: true })
         await until(() => evaluate(`!!document.querySelector('.sidebar[data-collapsed]')`), 5_000, "the sidebar folded")
-        await viewport(1200, 760)
-        await reveal(".session-pane .edit-summary", "end", 40)
+        await viewport(1280, 820)
+        // The turn whole, from its ask to its card: the ask at the head of the transcript, so the
+        // dissolve along the top falls on the gap above it rather than across a sentence. Where the
+        // turn is too tall for that, its card at the foot as before.
+        const whole = await evaluate(`(() => { const col = document.querySelector('.view-main .session-pane .transcript-col'); const ask = [...col.querySelectorAll(':scope > .msg-user-row')].at(-1); const card = col.querySelector(':scope > .edit-summary');
+          let s = col.parentElement; while (s && !(/(auto|scroll)/.test(getComputedStyle(s).overflowY) && s.scrollHeight > s.clientHeight)) s = s.parentElement;
+          const sr = s.getBoundingClientRect(); s.scrollTop += ask.getBoundingClientRect().top - sr.top - 20;
+          const composer = document.querySelector('.view-main .composer')?.getBoundingClientRect();
+          return card.getBoundingClientRect().bottom <= Math.min(sr.bottom, composer ? composer.top : sr.bottom) - 30; })()`)
+        if (!whole) await reveal(".session-pane .edit-summary", "end", 40)
         await sleep(1200)
         await until(async () => (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live.includes("withInviteDefaults"), 15_000, "vim redrawn")
+        await footFits()
         await park()
-        await part("realm", `${expect} && !!document.querySelector('.sidebar[data-collapsed]') && !!document.querySelector('.session-pane .edit-summary')`, { box: { x: 0, y: 0, width: 1200, height: 760 }, radius: 16 })
+        await part("realm", `${expect} && !!document.querySelector('.sidebar[data-collapsed]') && !!document.querySelector('.session-pane .edit-summary')`, { box: { x: 0, y: 0, width: 1280, height: 820 }, radius: 16 })
+        // For a phone, the terminal on its own, in a window narrow enough that the side panel is a
+        // phone's width, vim redrawn for it: the window's two halves side by side would be drawn at a
+        // quarter of their size there.
+        await viewport(960, 760)
+        await sleep(1200)
+        await until(async () => (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live.includes("getOrgMembership"), 15_000, "vim redrawn narrow")
+        await footFits()
+        await park()
+        const side = await evaluate(`(() => { const p = document.querySelector('.view-panel:not([hidden])').getBoundingClientRect(); return { x: p.x + 1, y: 0, width: p.right - p.x - 1, height: innerHeight }; })()`)
+        await part("realm-phone", `${expect} && !!document.querySelector('.sidebar[data-collapsed]')`, { box: side, radius: 16 })
       } finally {
         await viewport()
         await press("b", { code: "KeyB", vk: 66, meta: true })
@@ -1214,7 +1271,7 @@ const scenes = [
     // A pull request read and reviewed in Realm: its summary, and the findings of a reviewer run on
     // the model chosen — none of which reaches GitHub until Submit review.
     name: "review",
-    async run({ evaluate, home, rail, park, shot, part, boxOf, until, sleep }) {
+    async run({ evaluate, home, rail, park, shot, part, viewport, boxOf, until, sleep }) {
       await home()
       await rail("Code review")
       await until(() => evaluate(`document.querySelectorAll('.cr-row').length >= 6`), 15_000, "the pull requests")
@@ -1232,11 +1289,24 @@ const scenes = [
       if (box) await shot("review-findings", expect, { clip: box })
       // The request and the reviewer's findings under it, as one column: its state, repository and
       // title, then the review with its three findings and what to do with them.
-      const column = await evaluate(`(() => { const head = document.querySelector('.cr-head'), review = document.querySelector('.cr-review'); const h = head.getBoundingClientRect(), v = review.getBoundingClientRect();
+      // The page's bar of tabs and actions ends a few points over the request's state: the margin over
+      // it is the one round the rest, and the foot of the bar inside it is hidden for the shot.
+      const columnOf = (head) => `(() => { const head = document.querySelector('.cr-head'), review = document.querySelector('.cr-review'); const h = head.getBoundingClientRect(), v = review.getBoundingClientRect();
         const last = [...review.children].filter((e) => e.getBoundingClientRect().height > 0).at(-1);
-        const left = Math.min(h.left, v.left) - 22, right = Math.max(h.right, v.right) + 22, top = __capture.room(head, "top", 22), bottom = __capture.room(last, "bottom", 22);
-        return { x: left, y: top, width: right - left, height: bottom - top }; })()`)
-      await part("review", expect, { box: column, radius: 12 })
+        const left = Math.min(h.left, v.left) - 22, right = Math.max(h.right, v.right) + 22, top = ${head}, bottom = __capture.room(last, "bottom", 22);
+        return { x: left, y: top, width: right - left, height: bottom - top }; })()`
+      const column = await evaluate(columnOf(`h.top - 22`))
+      await part("review", expect, { box: column, radius: 12, hide: [".cr-bar"] })
+      // For a phone, a window narrow enough that the column is a phone's width; the request's details
+      // stand over it there, and the crop starts under them.
+      try {
+        await viewport(860, 1700)
+        await park()
+        const narrow = await evaluate(columnOf(`__capture.room(head, "top", 22)`))
+        await part("review-phone", expect, { box: narrow, radius: 12 })
+      } finally {
+        await viewport()
+      }
       await home()
     },
   },
@@ -1272,6 +1342,12 @@ const scenes = [
         const page = await evaluate(`(() => { const c = document.querySelector('.sched-col').getBoundingClientRect(); const v = document.querySelector('.sched-view-session').getBoundingClientRect();
           return { x: c.x, y: c.y, width: v.right - c.x, height: v.bottom - c.y }; })()`)
         await part("schedules", `${expect} && !!document.querySelector('.sched-run') && document.querySelector('.sched-view-session')?.textContent.includes('Scheduled run')`, { box: page, radius: 12 })
+        // For a phone, the column of tasks on its own, down to the last one on the clock: each task's
+        // next time and model, and today's run under Weekly numbers.
+        const tasks = await evaluate(`(() => { const c = document.querySelector('.sched-col').getBoundingClientRect(); const all = [...document.querySelectorAll('.sched-task')];
+          const last = all.find((t) => t.querySelector('.sched-task-name')?.textContent.includes('Dependency sweep')) ?? all.at(-1);
+          return { x: c.x, y: c.y, width: c.width, height: __capture.room(last, "bottom", 22) - c.y }; })()`)
+        await part("schedules-phone", `${expect} && !!document.querySelector('.sched-run')`, { box: tasks, radius: 12 })
       } finally {
         await viewport()
       }
@@ -1307,7 +1383,7 @@ const scenes = [
   {
     // Connections takes the whole width right of the rail: it has no use for the spaces beside it.
     name: "connections",
-    async run({ evaluate, home, rail, park, shot, part, boxOf, until, sleep }) {
+    async run({ evaluate, home, rail, park, shot, part, viewport, boxOf, until, sleep }) {
       await home()
       await rail("Connections")
       await until(() => evaluate(`!!document.querySelector('.connections-page-pane')`), 10_000, "Connections")
@@ -1315,12 +1391,29 @@ const scenes = [
       await park()
       const expect = `!!document.querySelector('.connections-page-pane') && !!document.querySelector('.page-overlay')`
       await shot("connections", expect)
-      // The page's head and every app it can connect, all seven cards, ending in the gap before the
-      // MCP servers.
+      // The page's head and its first six apps, two rows of three: a grid that ends where it is full,
+      // rather than seven cards with the last alone on a row of its own. The crop ends the gap a margin
+      // takes under the second row, where the top of the seventh card would be a sliver; it is hidden
+      // for the shot, and the caption says six.
       const market = await evaluate(`(() => { const h1 = document.querySelector('.connections-page-pane h1'), market = document.querySelector('.connections-page-pane .market'); const m = market.getBoundingClientRect();
-        const top = __capture.room(h1, "top", 22), bottom = __capture.room(market, "bottom", 22);
-        return { x: m.left - 22, y: top, width: m.width + 44, height: bottom - top }; })()`)
-      await part("connections", `${expect} && document.querySelectorAll('.connections-page-pane .market-grid > li').length >= 7`, { box: market, radius: 12 })
+        const sixth = document.querySelectorAll('.connections-page-pane .market-grid > li')[5].getBoundingClientRect();
+        const top = __capture.room(h1, "top", 22);
+        return { x: m.left - 22, y: top, width: m.width + 44, height: sixth.bottom + 22 - top }; })()`)
+      await part("connections", `${expect} && document.querySelectorAll('.connections-page-pane .market-grid > li').length >= 7`, { box: market, radius: 12, hide: [".connections-page-pane .market-grid > li:nth-child(n+7)"] })
+      // For a phone, the page in a window a phone's width, where the apps stand in one column: its head
+      // and the first three. The page's bar is no edge of drawn ground, so the margin stops under it.
+      try {
+        await viewport(500, 1000)
+        await park()
+        const narrow = await evaluate(`(() => { const h1 = document.querySelector('.connections-page-pane h1'), market = document.querySelector('.connections-page-pane .market'); const m = market.getBoundingClientRect();
+          const third = document.querySelectorAll('.connections-page-pane .market-grid > li')[2].getBoundingClientRect();
+          const floor = (document.querySelector('.page-overlay-bar')?.getBoundingClientRect().bottom ?? 0) + 2;
+          const top = Math.max(__capture.room(h1, "top", 22), floor);
+          return { x: m.left - 22, y: top, width: m.width + 44, height: third.bottom + 22 - top }; })()`)
+        await part("connections-phone", `${expect} && document.querySelectorAll('.connections-page-pane .market-grid > li').length >= 7`, { box: narrow, radius: 12, hide: [".connections-page-pane .market-grid > li:nth-child(n+4)"] })
+      } finally {
+        await viewport()
+      }
       await home()
     },
   },
@@ -1368,7 +1461,7 @@ const scenes = [
   {
     // A space's settings, at its sandbox: the three postures it can take, on the one it ships with.
     name: "sandbox",
-    async run({ evaluate, home, park, shot, part, until, sleep }, staged) {
+    async run({ evaluate, home, park, shot, part, viewport, until, sleep }, staged) {
       await home()
       await evaluate(`(() => { __capture.store().getState().openSpacePage(${JSON.stringify(staged.realm.id)}, "sandbox"); return true; })()`)
       await until(() => evaluate(`!!document.querySelector('.space-page-pane')`), 10_000, "the space's page")
@@ -1379,15 +1472,28 @@ const scenes = [
       const expect = `!!document.querySelector('.space-page-pane') && !!document.querySelector('.sandbox-choice')`
       await shot("sandbox", expect)
       // The three postures under their label, and the note under them saying which one this space
-      // has and why: inherited, because new spaces start with none.
-      const box = await evaluate(`(() => { const pane = document.querySelector('.space-page-pane'); const choice = pane.querySelector('.sandbox-choice').getBoundingClientRect();
+      // has and why: inherited, because new spaces start with none. The margin over the label is the
+      // one round the rest; the last line of the section's introduction ends inside it, and is hidden
+      // for the shot rather than left there as a sliver.
+      const postures = `(() => { const pane = document.querySelector('.space-page-pane'); const choice = pane.querySelector('.sandbox-choice').getBoundingClientRect();
         const label = [...pane.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent.trim() === 'Posture');
         const note = [...pane.querySelectorAll('p')].find((p) => p.textContent.trim().startsWith('Inherited from the default'));
         if (!label || !note) return null;
-        const top = __capture.room(label, "top", 22), bottom = __capture.room(note, "bottom", 22);
-        return { x: choice.x - 22, y: top, width: choice.width + 44, height: bottom - top }; })()`)
+        const top = label.getBoundingClientRect().top - 22, bottom = __capture.room(note, "bottom", 22);
+        return { x: choice.x - 22, y: top, width: choice.width + 44, height: bottom - top }; })()`
+      const box = await evaluate(postures)
       if (!box) throw new Error("No Posture label or inherited note on the sandbox page")
-      await part("sandbox", `${expect} && !!document.querySelector('.sandbox-choice [aria-checked="true"], .sandbox-choice input:checked')`, { box, radius: 12 })
+      await part("sandbox", `${expect} && !!document.querySelector('.sandbox-choice [aria-checked="true"], .sandbox-choice input:checked')`, { box, radius: 12, hide: [".space-page-pane :is(h3, p):has(~ .field .sandbox-choice)"] })
+      // For a phone, the same postures in a window narrow enough that they are a phone's width.
+      try {
+        await viewport(700, 1300)
+        await park()
+        const narrow = await evaluate(postures)
+        if (!narrow) throw new Error("No Posture label or inherited note on the narrow sandbox page")
+        await part("sandbox-phone", `${expect} && !!document.querySelector('.sandbox-choice [aria-checked="true"], .sandbox-choice input:checked')`, { box: narrow, radius: 12, hide: [".space-page-pane :is(h3, p):has(~ .field .sandbox-choice)"] })
+      } finally {
+        await viewport()
+      }
     },
   },
   {
