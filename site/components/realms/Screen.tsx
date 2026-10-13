@@ -5,8 +5,8 @@ import type { CSSProperties, ReactNode } from "react"
  *
  * `width` and `height` are the size the surface had in the app, in points; the file is that at the
  * capture's density (3×, lib/frames.ts), so it stays sharp on a Retina screen up to 1.5× zoom.
- * `radius` is the surface's own corner in the same points; it is drawn as a share of the box, so it
- * scales with the picture.
+ * `radius` is the surface's own corner in the same points; it is drawn as a share of the picture's
+ * width, so it scales with the picture.
  */
 export type ScreenImage = {
   /** The file at full density. */
@@ -21,48 +21,62 @@ export type ScreenImage = {
 export type ScreenProps = {
   image: ScreenImage
   alt: string
-  /** What is in the frame (design.md: a caption describes what is IN the frame), set under it on a
-   *  small pane of the field: from its left edge, or centred under a picture narrower than it. */
+  /** What is in the frame (design.md: a caption describes what is IN the frame), on a tab that hangs
+   *  from the middle of the plate's foot. */
   caption?: ReactNode
   /**
-   * `window`: the app's whole window (or a scene of it), standing in the page under a window's
-   * shadow. `part`: a surface lifted off the window — a picker, a column, a card and its ground —
-   * floating under the app's own raised shadow. Default `part`.
+   * A narrower capture of the same subject for a phone, where the wide one would be drawn at less
+   * than half its size; with its own caption where it shows less than the wide one does.
+   */
+  phone?: { image: ScreenImage; caption?: ReactNode }
+  /**
+   * `window`: the app's whole window (or a scene of it). `part`: a surface lifted off the window — a
+   * picker, a column, a card and its ground. Each sits on the plate under its own shadow. Default
+   * `part`.
    */
   kind?: "window" | "part"
   /** The most it is enlarged past the size it had in the app. Default 1.15: a part is read at about
    *  the size it is used at, so its text stays at the size it was set. */
   zoom?: number
-  /** The tallest it may be drawn, as a CSS length: a tall part shrinks to stay in one view with its
-   *  caption under it, below the page's header. Default `min(76vh, 760px)`. */
+  /** The tallest the plate may be drawn, as a CSS length: a tall part shrinks to stay in one view
+   *  with its caption under it, below the page's header. Default `min(76vh, 760px)`. */
   maxHeight?: string
   /** `sizes` for `srcSet`. Default: the chapter column on a wide screen, the viewport below it. */
   sizes?: string
   /** Load it eagerly (above the fold). */
   priority?: boolean
   /**
-   * The landing page's flight. Given an id, the box is the slot the field reads (`s:<id>`), the figure
-   * is what the field moves and lights (`data-screen`, with `data-radius` its corner as a share of
-   * its width), the caption rides with it, and a contact shadow stands it on the field's ground.
+   * The landing page's flight. Given an id, the plate is the slot the field reads (`s:<id>`), the
+   * figure is what the field moves and lights (`data-screen`, with `data-radius` the plate's corner
+   * as a share of its width), and the caption's tab rides with it.
    */
   fieldId?: string
   className?: string
 }
 
-const percent = (n: number) => `${+(n * 100).toFixed(4)}%`
+/** The plate's margin round the picture on a wide screen, in CSS px (globals.css `.screen`). */
+const PLATE = 16
 
 /**
- * A picture of the app: a real capture, drawn the way the app draws the surface it shows.
+ * A picture of the app: a real capture, drawn the way the app draws the surface it shows, set on a
+ * plate of the realm it comes from.
  *
- * Its box always has the picture's own aspect, so the page crops nothing; it takes the width it is
- * given up to `zoom` times its own. The one-device-pixel inset outline (design.md, Surfaces), the light
- * from above on its top edge and, in the flight, the pointer's lamp on its rim are each a ring a
- * hairline wide on the surface's own curve — nothing is laid over the picture itself.
+ * The plate is a margin of the field's own dark, lit from above: a rim of the doorways' blue-white
+ * light along its edge, brightest across the top, and the lattice the realms stand on in its margin,
+ * fading down it. Its corner is concentric with the picture's. The caption hangs from the middle of
+ * its foot on a tab cut from the same plate, so the words read as coming out of the picture rather
+ * than as a card left under it.
+ *
+ * The picture's box always has the capture's own aspect, so the page crops nothing; it takes the
+ * width it is given up to `zoom` times its own. It keeps the one-device-pixel inset outline
+ * (design.md, Surfaces) and the light from above on its top edge, each a ring a hairline wide on its
+ * own curve, so nothing is laid over the picture itself.
  */
 export function Screen({
   image,
   alt,
   caption,
+  phone,
   kind = "part",
   zoom = 1.15,
   maxHeight = "min(76vh, 760px)",
@@ -72,37 +86,57 @@ export function Screen({
   className = "",
 }: ScreenProps) {
   const { width, height, radius } = image
-  const corner = { "--screen-radius": `${percent(radius / width)} / ${percent(radius / height)}` } as CSSProperties
-  // As wide as the column, never past `zoom` times its own size, and never so wide that it is taller
-  // than `maxHeight`: the aspect is the picture's, so the height follows.
-  const maxWidth = `min(${Math.round(width * zoom)}px, calc(${maxHeight} * ${+(width / height).toFixed(5)}))`
+  // The plate is the picture's width and the margin either side, and never so wide that it is
+  // taller than `maxHeight`: the picture's aspect sets its height, and the margin adds to both.
+  const limit = (picture: ScreenImage) =>
+    `min(${Math.round(picture.width * zoom) + 2 * PLATE}px, calc((${maxHeight} - 2 * var(--pad)) * ${+(picture.width / picture.height).toFixed(5)} + 2 * var(--pad)))`
+  // The plate's corner as a share of its width, at the width it is drawn at on a wide screen: what
+  // the field rounds the screen's light to.
+  const plateWidth = Math.round(width * zoom) + 2 * PLATE
+  const plateRadius = ((radius / width) * (plateWidth - 2 * PLATE) + PLATE) / plateWidth
+  const shape = {
+    "--share-wide": radius / width,
+    "--aspect-wide": `${width} / ${height}`,
+    "--max-wide": limit(image),
+    ...(phone
+      ? { "--share-phone": phone.image.radius / phone.image.width, "--aspect-phone": `${phone.image.width} / ${phone.image.height}`, "--max-phone": limit(phone.image) }
+      : {}),
+  } as CSSProperties
   return (
-    <div className={`screen ${className}`} data-kind={kind} style={{ maxWidth }}>
-      <div data-field-anchor={fieldId ? `s:${fieldId}` : undefined} className="screen-slot" style={{ aspectRatio: `${width} / ${height}`, ...corner }}>
-        <figure data-screen={fieldId} data-radius={fieldId ? (radius / width).toFixed(5) : undefined} className="screen-figure @container">
-          {fieldId ? <span aria-hidden className="screen-ground" /> : null}
-          <div className="screen-frame">
-            <img
-              src={image.src}
-              srcSet={image.srcSet}
-              sizes={image.srcSet ? sizes : undefined}
-              alt={alt}
-              width={width}
-              height={height}
-              loading={priority ? "eager" : "lazy"}
-              fetchPriority={priority ? "high" : undefined}
-              decoding="async"
-              className="screen-image"
-            />
-            <span aria-hidden className="screen-light" />
+    <div className={`screen ${className}`} data-kind={kind} style={shape}>
+      <div data-field-anchor={fieldId ? `s:${fieldId}` : undefined} className="screen-slot">
+        <span aria-hidden className="screen-room" />
+        <figure data-screen={fieldId} data-radius={fieldId ? plateRadius.toFixed(5) : undefined} className="screen-figure @container">
+          <div className="plate screen-plate">
+            <div className="screen-frame">
+              <picture>
+                {phone ? <source media="(max-width: 639px)" srcSet={phone.image.src} width={phone.image.width} height={phone.image.height} /> : null}
+                <img
+                  src={image.src}
+                  srcSet={image.srcSet}
+                  sizes={image.srcSet ? sizes : undefined}
+                  alt={alt}
+                  width={width}
+                  height={height}
+                  loading={priority ? "eager" : "lazy"}
+                  fetchPriority={priority ? "high" : undefined}
+                  decoding="async"
+                  className="screen-image"
+                />
+              </picture>
+              <span aria-hidden className="screen-light" />
+            </div>
           </div>
           {caption ? (
-            <figcaption
-              data-field-anchor={fieldId ? `c:caption-${fieldId}` : undefined}
-              data-field-panel={fieldId ? 12 : undefined}
-              className="field-panel absolute top-full left-0 mt-6 w-max max-w-[min(34rem,max(22rem,100%),calc(100vw-3rem))] rounded-[12px] px-3.5 py-2.5 text-[14px] leading-[1.5] text-ink-2 @max-[22rem]:left-1/2 @max-[22rem]:-translate-x-1/2"
-            >
-              {caption}
+            <figcaption className="screen-tab">
+              {phone?.caption ? (
+                <>
+                  <span className="max-sm:hidden">{caption}</span>
+                  <span className="sm:hidden">{phone.caption}</span>
+                </>
+              ) : (
+                caption
+              )}
             </figcaption>
           ) : null}
         </figure>

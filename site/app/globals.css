@@ -236,10 +236,6 @@ p {
 
 /* A label that hangs off the top of the thing it names, its far edge cut at 60 degrees: the angle of
    every edge in Realm's mark, so the seam reads as a piece of the logo. 18.5px is 32px × tan 30°. */
-.hero-tab {
-  border-top-left-radius: 10px;
-  clip-path: polygon(0 0, calc(100% - 18.5px) 0, 100% 100%, 0 100%);
-}
 
 /* JetBrains Mono's ligatures draw `===` as one glyph; code on this site is read, so it shows what was typed. */
 .font-mono,
@@ -352,16 +348,93 @@ pre {
   }
 }
 
-/* A picture of the app (components/realms/Screen.tsx). Its corner is the surface's own, carried as
-   a percentage of its box (`--screen-radius`), so it scales with the picture at any width. */
+/* A picture of the app on its plate (components/realms/Screen.tsx; the hero's sample window wears the
+   same one). The plate is a margin of the field's own dark, lit from above: a rim of the doorways'
+   blue-white light, brightest across the top and gone to a hairline by the foot, and in its margin
+   the lattice the realms stand on, as points, fading down it. Its corner is the picture's plus the
+   margin, so the two curves are concentric; the picture's is the surface's own, carried as a share of
+   its width (`--share`) and drawn in the figure's container units, so both scale with the picture. */
 .screen {
+  --pad: 16px;
+  --share: var(--share-wide);
   position: relative;
   width: 100%;
+  max-width: var(--max-wide);
+}
+
+/* A phone draws the narrower capture where there is one (Screen's `phone`), at its own shape. */
+@media (max-width: 639px) {
+  .screen {
+    --pad: 10px;
+    --share: var(--share-phone, var(--share-wide));
+    max-width: var(--max-phone, var(--max-wide));
+  }
+}
+
+:root {
+  --plate-top: oklch(0.252 0.009 262);
+  --plate-foot: oklch(0.2 0.005 264);
+  --rim-top: oklch(0.9 0.045 250 / 0.5);
+  --rim-foot: oklch(1 0 0 / 0.09);
+}
+
+.plate {
+  background:
+    radial-gradient(110% 80% at 50% -20%, oklch(0.8 0.06 252 / 0.09), transparent 70%),
+    linear-gradient(180deg, var(--plate-top), var(--plate-foot) 82%);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.28),
+    0 22px 44px -16px oklch(0 0 0 / 0.55),
+    0 60px 120px -48px oklch(0 0 0 / 0.6);
+}
+
+/* The lattice, as the points where its lines meet: the field seen from above, one realm to a point. */
+.plate::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='24.249'%3E%3Cg fill='white' fill-opacity='0.14'%3E%3Ccircle cx='0' cy='0' r='0.9'/%3E%3Ccircle cx='14' cy='0' r='0.9'/%3E%3Ccircle cx='7' cy='12.124' r='0.9'/%3E%3Ccircle cx='0' cy='24.249' r='0.9'/%3E%3Ccircle cx='14' cy='24.249' r='0.9'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 14px 24.249px;
+  /* The first row in the middle of the margin, clear of the rim and of a tab standing on the edge. */
+  background-position: center calc(var(--pad) / 2 - 1px);
+  -webkit-mask-image: linear-gradient(180deg, #000, rgb(0 0 0 / 0.45) 45%, transparent 82%);
+  mask-image: linear-gradient(180deg, #000, rgb(0 0 0 / 0.45) 45%, transparent 82%);
+}
+
+/* The rim: one hairline on the plate's own curve, lit from above, and in the flight the pointer's lamp
+   on the stretch nearest it (`--lx`, `--ly`, `--lamp`, written by the field into the plate's box). */
+.plate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background:
+    radial-gradient(300px circle at var(--lx, -999px) var(--ly, -999px), oklch(0.86 0.08 250 / calc(var(--lamp, 0) * 0.75)), transparent 70%),
+    linear-gradient(180deg, var(--rim-top), oklch(0.9 0.035 250 / 0.17) 32%, var(--rim-foot) 72%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
 }
 
 .screen-slot {
   position: relative;
+  padding: var(--pad);
+}
+
+.screen-room {
+  display: block;
   width: 100%;
+  aspect-ratio: var(--aspect-wide);
+}
+
+@media (max-width: 639px) {
+  .screen-room {
+    aspect-ratio: var(--aspect-phone, var(--aspect-wide));
+  }
 }
 
 .screen-figure {
@@ -380,22 +453,29 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
   opacity: 0;
 }
 
-.screen-frame {
+.screen-plate {
+  --pic-r: calc(var(--share) * (100cqw - 2 * var(--pad)));
   position: absolute;
   inset: 0;
-  border-radius: var(--screen-radius);
+  border-radius: calc(var(--pic-r) + var(--pad));
+}
+
+.screen-frame {
+  --screen-radius: var(--pic-r);
+  position: absolute;
+  inset: var(--pad);
+  border-radius: var(--pic-r);
   box-shadow: var(--screen-shadow);
 }
 
-/* A window stands in the page under a window's shadow; a part lifted off it floats under the app's
-   own raised shadow (`--shadow-raised`, the picker's and the track card's), with a dark rim so its
-   edge holds against whatever the field draws behind it. */
+/* The picture's own edge against the plate: a dark rim, and a shade short enough to end inside the
+   plate's margin, so the foot the caption's tab leaves from is the plate's own colour. */
 .screen[data-kind="window"] {
-  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.5), 0 30px 70px -20px oklch(0 0 0 / 0.65), 0 80px 140px -60px oklch(0 0 0 / 0.5);
+  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.55), 0 3px 10px -4px oklch(0 0 0 / 0.6);
 }
 
 .screen[data-kind="part"] {
-  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.42), 0 8px 16px oklch(0 0 0 / 0.22), 0 24px 117px oklch(0 0 0 / 0.24);
+  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.45), 0 3px 10px -4px oklch(0 0 0 / 0.5);
 }
 
 .screen-image {
@@ -404,12 +484,11 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: var(--screen-radius);
+  border-radius: var(--pic-r);
 }
 
-/* What lies on the picture's edge and nowhere else: the outline, the light from above catching its
-   top edge, and in the flight the pointer's lamp on the rim nearest it (`--lx`, `--ly`, `--lamp`,
-   written by the field). Each is a ring one hairline wide, so none of it is over the picture. */
+/* What lies on the picture's edge and nowhere else: the outline, and the light from above catching
+   its top edge. Each is a ring one hairline wide, so none of it is over the picture. */
 .screen-light {
   position: absolute;
   inset: 0;
@@ -418,56 +497,119 @@ html[data-realms-flight="on"] .screen-figure[data-screen] {
   box-shadow: inset 0 0 0 var(--hairline) oklch(1 0 0 / 0.1);
 }
 
-.screen-light::before,
-.screen-light::after {
+.screen-light::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   padding: var(--hairline);
+  background: linear-gradient(to bottom, oklch(1 0 0 / 0.2), oklch(1 0 0 / 0) 40%);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
 }
 
-.screen-light::before {
-  background: linear-gradient(to bottom, oklch(1 0 0 / 0.2), oklch(1 0 0 / 0) 40%);
-}
-
-.screen-light::after {
-  background: radial-gradient(320px circle at var(--lx, -999px) var(--ly, -999px), oklch(0.84 0.08 250 / calc(var(--lamp, 0) * 0.7)), transparent 70%);
-}
-
-/* Where it meets the ground, only where there is a field to stand in. A window stands on it: a tight
-   dark contact where its foot meets the ground. A part floats a little above it: a wider, softer
-   shade a little below, as an object held over a surface casts. */
-.screen-ground {
+/* The caption: a tab cut from the plate, hanging from the middle of its foot. It is the plate's foot
+   colour under the plate's foot rim, and where it leaves the plate each corner is a fillet whose rim
+   runs on from the plate's edge into the tab's side, so the edge is one line round both. */
+.screen-tab {
+  --f: 12px;
   position: absolute;
-  top: 100%;
-  z-index: -1;
-  display: none;
+  /* A pixel deeper into the plate than its rim, so no sliver of the rim shows through the join at
+     any fraction of a pixel the plate's foot lands on; the fillets start a pixel down, on the rim. */
+  top: calc(100% - 2px);
+  left: 50%;
+  z-index: 1;
+  translate: -50% 0;
+  box-sizing: border-box;
+  width: max-content;
+  /* Within the straight run of the plate's foot, clear of both its corners. */
+  max-width: min(32rem, calc(100% - 2 * (var(--share) * (100cqw - 2 * var(--pad)) + var(--pad) + var(--f)) - 1rem));
+  margin: 0;
+  padding: 8px 18px 10px;
+  background: var(--plate-foot);
+  border: 1px solid var(--rim-foot);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--color-ink-2);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.screen-tab::before,
+.screen-tab::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  width: var(--f);
+  height: var(--f);
   pointer-events: none;
 }
 
-html[data-field="on"] .screen-ground {
-  display: block;
+.screen-tab::before {
+  right: 100%;
+  background: radial-gradient(circle at 0 100%, transparent calc(var(--f) - 1px), var(--rim-foot) calc(var(--f) - 1px), var(--rim-foot) var(--f), var(--plate-foot) calc(var(--f) + 0.5px));
 }
 
-.screen[data-kind="window"] .screen-ground {
-  left: 3%;
-  right: 3%;
-  height: 22px;
-  margin-top: -11px;
-  background: radial-gradient(closest-side, oklch(0 0 0 / 0.75), oklch(0 0 0 / 0));
+.screen-tab::after {
+  left: 100%;
+  background: radial-gradient(circle at 100% 100%, transparent calc(var(--f) - 1px), var(--rim-foot) calc(var(--f) - 1px), var(--rim-foot) var(--f), var(--plate-foot) calc(var(--f) + 0.5px));
 }
 
-.screen[data-kind="part"] .screen-ground {
-  left: 10%;
-  right: 10%;
-  height: 40px;
-  margin-top: 6px;
-  background: radial-gradient(closest-side, oklch(0 0 0 / 0.5), oklch(0 0 0 / 0));
-  filter: blur(4px);
+/* The same tab standing on the plate's top edge (the hero's label): the top's colour under the top's
+   rim, its fillets turned over. */
+.screen-tab[data-edge="top"] {
+  top: auto;
+  bottom: calc(100% - 2px);
+  max-width: calc(100% - 2 * (16px + var(--pad) + var(--f)) - 1rem);
+  padding: 8px 18px 7px;
+  background: var(--plate-top);
+  border: 1px solid var(--rim-top);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+}
+
+.screen-tab[data-edge="top"]::before,
+.screen-tab[data-edge="top"]::after {
+  top: auto;
+  bottom: 1px;
+}
+
+.screen-tab[data-edge="top"]::before {
+  background: radial-gradient(circle at 0 0, transparent calc(var(--f) - 1px), var(--rim-top) calc(var(--f) - 1px), var(--rim-top) var(--f), var(--plate-top) calc(var(--f) + 0.5px));
+}
+
+.screen-tab[data-edge="top"]::after {
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--f) - 1px), var(--rim-top) calc(var(--f) - 1px), var(--rim-top) var(--f), var(--plate-top) calc(var(--f) + 0.5px));
+}
+
+/* The hero's working sample on its plate: Realm's window corner (16) inside the plate's margin. */
+.hero-plate {
+  --pad: 16px;
+  position: relative;
+  padding: var(--pad);
+  border-radius: calc(16px + var(--pad));
+}
+
+.hero-window {
+  z-index: 1;
+  box-shadow: 0 0 0 1px oklch(0 0 0 / 0.55), 0 10px 24px -10px oklch(0 0 0 / 0.7);
+}
+
+@media (max-width: 639px) {
+  .hero-plate {
+    --pad: 10px;
+  }
+}
+
+@media (max-width: 639px) {
+  .screen-tab {
+    --f: 10px;
+    padding: 6px 14px 9px;
+    font-size: 13.5px;
+  }
 }
 
 /* Words over the field (components/realms/FieldPanel.tsx): a pane of the field itself, blurred and

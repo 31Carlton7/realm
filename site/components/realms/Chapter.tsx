@@ -8,6 +8,8 @@ export type ChapterPicture = {
   image: ScreenImage
   alt: string
   caption: string
+  /** A narrower capture for a phone (Screen's `phone`). */
+  phone?: { image: ScreenImage; caption?: string }
   kind?: "window" | "part"
   zoom?: number
 }
@@ -29,7 +31,6 @@ export function Chapter({
   title,
   children,
   picture,
-  tall = false,
   stacked = false,
 }: {
   id: string
@@ -37,7 +38,6 @@ export function Chapter({
   title: ReactNode
   children: ReactNode
   picture: ChapterPicture | null
-  tall?: boolean
   /** The words across the page and the picture the whole width under them, for a picture of the whole
    *  window: beside the words it is drawn at half its size, and its type is too small to read. The
    *  stop is then composed around the picture. */
@@ -59,9 +59,10 @@ export function Chapter({
                 image={picture.image}
                 alt={picture.alt}
                 caption={picture.caption}
+                phone={picture.phone}
                 kind={picture.kind}
                 zoom={picture.zoom ?? 1}
-                maxHeight="min(calc(100vh - 13rem), 820px)"
+                maxHeight="min(calc(100vh - 10rem), 860px)"
                 fieldId={id}
                 className="mx-auto"
               />
@@ -71,12 +72,22 @@ export function Chapter({
       </section>
     )
   }
-  const textCols = !picture ? "lg:col-start-3 lg:col-end-11" : side === "right" ? "lg:col-start-1 lg:col-end-6" : "lg:col-start-8 lg:col-end-13"
-  const slotCols = side === "right" ? "lg:col-start-6 lg:col-end-13 lg:pl-6 xl:pl-10" : "lg:col-start-1 lg:col-end-8 lg:pr-6 xl:pr-10"
+  // A picture wider than seven columns can draw at its own size takes eight, beside a narrower claim,
+  // rather than being drawn at three quarters of its size.
+  const wide = (picture?.image.width ?? 0) > 880
+  const textCols = !picture
+    ? "lg:col-start-3 lg:col-end-11"
+    : side === "right"
+      ? wide ? "lg:col-start-1 lg:col-end-5" : "lg:col-start-1 lg:col-end-6"
+      : wide ? "lg:col-start-9 lg:col-end-13" : "lg:col-start-8 lg:col-end-13"
+  const slotCols =
+    side === "right"
+      ? `${wide ? "lg:col-start-5" : "lg:col-start-6"} lg:col-end-13 lg:pl-6 xl:pl-10`
+      : `lg:col-start-1 ${wide ? "lg:col-end-9" : "lg:col-end-8"} lg:pr-6 xl:pr-10`
   return (
     <section aria-labelledby={`${id}-title`} className="relative">
       <div
-        className={`mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-16 px-6 py-24 sm:px-10 lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0 ${tall ? "lg:min-h-[175vh]" : "lg:min-h-[135vh]"}`}
+        className="mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-16 px-6 py-24 sm:px-10 lg:min-h-[135vh] lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0"
       >
         <FieldPanel anchor={`k:${id}`} wrapClassName={`z-[2] min-w-0 lg:row-start-1 ${textCols}`} className="px-5 py-6 sm:px-8 sm:py-8">
           <h2 id={`${id}-title`} className="text-[clamp(1.9rem,2.9vw,2.6rem)] leading-[1.06] font-[580] tracking-[-0.04em] text-balance text-ink">
@@ -90,6 +101,7 @@ export function Chapter({
               image={picture.image}
               alt={picture.alt}
               caption={picture.caption}
+              phone={picture.phone}
               kind={picture.kind}
               zoom={picture.zoom}
               fieldId={id}

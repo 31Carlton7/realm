@@ -1,12 +1,24 @@
 {
   "connections": {
     "width": 754,
-    "height": 730,
+    "height": 568,
+    "radius": 12,
+    "cutout": false
+  },
+  "connections-phone": {
+    "width": 454,
+    "height": 650,
     "radius": 12,
     "cutout": false
   },
   "delegation": {
     "width": 553,
+    "height": 663,
+    "radius": 16,
+    "cutout": false
+  },
+  "delegation-phone": {
+    "width": 453,
     "height": 663,
     "radius": 16,
     "cutout": false
@@ -18,26 +30,50 @@
     "cutout": true
   },
   "realm": {
-    "width": 1200,
+    "width": 1280,
+    "height": 820,
+    "radius": 16,
+    "cutout": false
+  },
+  "realm-phone": {
+    "width": 453,
     "height": 760,
     "radius": 16,
     "cutout": false
   },
   "review": {
     "width": 765,
-    "height": 568,
+    "height": 578,
+    "radius": 12,
+    "cutout": false
+  },
+  "review-phone": {
+    "width": 515,
+    "height": 608,
     "radius": 12,
     "cutout": false
   },
   "sandbox": {
     "width": 765,
-    "height": 450,
+    "height": 419,
+    "radius": 12,
+    "cutout": false
+  },
+  "sandbox-phone": {
+    "width": 383,
+    "height": 602,
     "radius": 12,
     "cutout": false
   },
   "schedules": {
     "width": 948,
     "height": 680,
+    "radius": 12,
+    "cutout": false
+  },
+  "schedules-phone": {
+    "width": 280,
+    "height": 355,
     "radius": 12,
     "cutout": false
   },
@@ -50,6 +86,12 @@
   "turn": {
     "width": 764,
     "height": 738,
+    "radius": 12,
+    "cutout": false
+  },
+  "turn-phone": {
+    "width": 444,
+    "height": 906,
     "radius": 12,
     "cutout": false
   }

@@ -7199,6 +7199,10 @@ select { appearance: none; padding-right: 22px;
   corner-shape: squircle; }
 .sandbox-posture[data-selected] { background: var(--rl-raised); }
 .sandbox-posture input { grid-row: 1; }
+/* `.field input…` gives every input in a field the 30px text box, the radios here included, and a
+   30px box set on the name's baseline stood each radio half a line above the name it belongs to. A
+   radio keeps its own size and sits on the middle of the name's line. */
+.field .sandbox-choice .sandbox-posture input[type="radio"] { height: auto; align-self: center; }
 .sandbox-posture-name { grid-row: 1; font-size: 13px; }
 /* Under the name, not under the radio: the sentence belongs to the choice, and indenting it past the
    control is what keeps three of them from reading as one paragraph. */
