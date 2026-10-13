@@ -2,7 +2,6 @@ import { AgentMark, type AgentId } from "@/components/AgentMark"
 import { DownloadButton, QuietButton } from "@/components/Buttons"
 import { Actions, Announcement, Lede, ProductWindow } from "@/components/realms/HeroParts"
 import { GitHubIcon } from "@/components/icons"
-import { FIELD_PATTERN, TILE } from "@/components/realms/hive/fallback"
 import { Chapter, type ChapterPicture } from "@/components/realms/Chapter"
 import { FieldPanel } from "@/components/realms/FieldPanel"
 import { Flight } from "@/components/realms/Flight"
@@ -106,15 +105,9 @@ export async function RealmsHome({ download, claims }: HomeProps) {
               <Actions download={download} className="mt-7" center />
             </div>
           </div>
+          {/* Without WebGPU, the sky behind the whole page is the field's own opening held still (Flight). */}
           <div className="relative mt-[clamp(3.5rem,calc(100dvh-50rem),7rem)]">
-            {/* Without WebGPU, the field as the Hive draws it still: the same realms in the same light,
-                hazing out toward the words and gone before the section ends. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-x-0 -top-28 bottom-[-4rem] -z-10 hidden [mask-image:linear-gradient(to_bottom,transparent,rgb(0_0_0/0.55)_8rem,black_18rem,black_calc(100%-10rem),transparent)] [html[data-field=off]_&]:block"
-              style={{ backgroundImage: FIELD_PATTERN, backgroundSize: `${TILE.width}px ${TILE.height}px`, backgroundPosition: "center top" }}
-            />
-            <ProductWindow className="mx-auto w-full max-w-[76rem] px-4 sm:px-10 [html[data-field=off]_&]:bg-page [html[data-field=off]_&]:shadow-[0_0_40px_24px_var(--color-page)]" />
+            <ProductWindow className="mx-auto w-full max-w-[76rem] px-4 sm:px-10" />
           </div>
         </section>
 

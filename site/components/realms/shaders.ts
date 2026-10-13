@@ -822,9 +822,10 @@ fn starLayer(rd: vec3f, grid: f32, chance: f32, bright: f32, salt: f32) -> f32 {
   let seed = hash21(id.xy + id.z * 17.17 + salt);
   let across = dot(rd, BAND);
   let band = exp(-across * across / 0.03);
-  if (seed > chance * (0.55 + 1.6 * band)) { return 0.0; }
+  // Never so many that the grid they are drawn from shows through.
+  if (seed > min(chance * (0.55 + 1.2 * band), 0.36)) { return 0.0; }
   let jitter = vec3f(hash21(id.xy + 3.1 + id.z + salt), hash21(id.yz + 7.3 + salt), hash21(id.zx + 1.7 + salt));
-  let star = normalize(id + 0.2 + 0.6 * jitter);
+  let star = normalize(id + 0.08 + 0.84 * jitter);
   let d = length(cross(rd, star)) * scene.eye.w * scene.right.w;
   let m = hash21(id.zy + 5.13 + salt);
   // A few of them shimmer a little.
@@ -833,7 +834,7 @@ fn starLayer(rd: vec3f, grid: f32, chance: f32, bright: f32, salt: f32) -> f32 {
 }
 
 fn stars(rd: vec3f) -> vec3f {
-  let dim = starLayer(rd, 260.0, 0.32, 0.12, 0.0);
+  let dim = starLayer(rd, 260.0, 0.22, 0.12, 0.0);
   let mid = starLayer(rd, 120.0, 0.22, 0.32, 11.0);
   let bright = starLayer(rd, 46.0, 0.16, 0.85, 23.0);
   return vec3f(0.78, 0.87, 1.0) * dim + vec3f(0.86, 0.92, 1.0) * mid + vec3f(0.95, 0.97, 1.0) * bright;
