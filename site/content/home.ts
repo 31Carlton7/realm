@@ -36,43 +36,43 @@ export const claims: Claim[] = [
     id: "spaces",
     title: "Every space in one sidebar.",
     body:
-      "Each space in a profile gets its own section of the sidebar: its name in its colour, a count of what's waiting and working, and its sessions. Needs you sits on top and collects every session that's waiting on a permission or a question, from every space and every profile. Open a row and you can answer it right there. Switching spaces loads nothing, because they're all loaded already.",
+      "Each space gets its own section, with a count of what's waiting and working. Needs you sits on top and collects every session waiting on you, from every space and every profile.",
     capture: "sidebar",
     part: "sidebar",
-    caption: "Two questions waiting on you, one from another profile, above every space's sessions and a count of what's waiting and working in each.",
+    caption: "Two questions waiting on you, above every space.",
   },
   {
     id: "transcript",
     title: "A transcript you can read.",
     body:
-      "A turn isn't a wall of log. Tool calls fold into rows you can open, a plan shows up as a plan, and a reply can carry a chart, a diagram or a comparison. When a turn changes files, it ends with a card listing each file and its line counts from git. Review opens that turn's diff, and Undo is there when a checkpoint can take back exactly that turn. Every prompt also leaves a tick down the edge of the pane, so a long session has a map.",
+      "Tool calls fold into rows you can open, and a reply can carry a chart, a diagram or a comparison. A turn that changes files ends with a card of each file it edited, its diff a click away.",
     capture: "session",
     part: "turn",
-    caption: "One turn: the ask, its tool calls folded into one row, the answer, and a card for the two files it edited, with Undo and Review.",
+    caption: "One turn: the ask, its tool calls in one row, the answer, and the two files it edited.",
   },
   {
     id: "agents",
     title: "Bring the agent you already use.",
     body:
-      "Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code and Grok all run here, most of them through one Agent Client Protocol adapter. Each keeps its own login, models and permission modes. The model picker groups models by the harness that runs them, and its footer holds each model's effort levels and fast mode. Realm never asks for an API key. Signing in runs the agent's own login, and you're the one who approves it.",
+      "Each one keeps its own login, models and permission modes, and Realm never asks for an API key.",
     capture: "models",
     part: "models",
-    caption: "Claude's and Codex's models in one list, grouped by the harness that runs them. Opus 5.5 is picked, at Max, with fast mode on.",
+    caption: "Claude's and Codex's models in one picker, with Opus\u00a05.5 at Max and fast mode on.",
   },
   {
     id: "delegation",
     title: "Hand work to other models.",
     body:
-      "Ask in plain words (\"have GPT-6 Luna build this\") or pick models in a session's Agents tab and say what to build. The session's agent splits up the work, starts a sub-agent on each model through whichever harness runs it, waits for the reports and tells you what each one did. Every sub-agent gets its own line in the transcript, and its own session is a click away.",
+      "Ask in plain words, like “have GPT-6 Luna build this”, or pick models in the session's Agents tab. The session's agent splits up the work and starts a sub-agent on each model.",
     capture: "delegation",
     part: "delegation",
-    caption: "A session's Agents tab: two sub-agents on two harnesses, one waiting on a permission you can answer there, one finished with its report.",
+    caption: "Two sub-agents on two harnesses: one waiting on a permission, one done with its report.",
   },
   {
     id: "gateway",
     title: "Your tools, without your credentials.",
     body:
-      "Linear, Notion, Slack, GitHub, Jira, Figma and Sentry connect in one click, and you sign in through the app. A connection belongs to the space instead of an agent, so every session in the space reaches it through one Realm endpoint. The agent gets the tools and never the credential: it calls Realm, and Realm calls the server. Every call is logged with its arguments and what came back, and your own MCP servers go in the same place. OAuth connections are encrypted with a key kept in the macOS Keychain. A key you paste into a custom server isn't, and the app tells you so right at that field.",
+      "Linear, Notion, Slack, GitHub, Jira, Figma and Sentry connect to a space in one click. Agents reach them through Realm and never get the credential, and every call is logged.",
     capture: "connections",
     part: "connections",
     caption: "The apps a space can connect, each with what it lets an agent do and one Connect button.",
@@ -81,28 +81,28 @@ export const claims: Claim[] = [
     id: "review",
     title: "Review pull requests without handing over GitHub.",
     body:
-      "Code review lists your pull requests through your own gh, so Realm never holds a GitHub token and sees exactly what gh sees. A pull request opens on its summary and its changes. A reviewer reads the diff in read-only mode, on the model and effort level you pick, and leaves its findings on the page. None of its findings and none of your comments reach GitHub until you press Submit review.",
+      "Code review reads your pull requests through your own gh, so Realm never holds a GitHub token. A reviewer on the model you pick leaves its findings on the page, and nothing reaches GitHub until you press Submit review.",
     capture: "review",
     part: "review",
-    caption: "A pull request and three findings from a reviewer on Fable 5.1, one of them on a line the diff doesn't show.",
+    caption: "A pull request and three findings from a reviewer on Fable\u00a05.1.",
   },
   {
     id: "sandbox",
     title: "Confine what an agent can touch.",
     body:
-      "A space can run its agents and terminals inside a macOS Seatbelt policy. Its checkouts and toolchain caches stay writable, the files in your home that run things later can be read but not changed, and credential folders can't be read at all. The policy covers the process and everything it starts. Seatbelt isn't a container and the network stays open, so this limits what a session can damage or read, not what it can send. It's off by default, per space, because a list of writable folders that hasn't met your toolchain yet can break a build.",
+      "A space can run its agents and terminals in a macOS sandbox, where the checkout stays writable and credential folders can't be read. The network stays open, and it's off by default, because a sandbox that hasn't met your toolchain yet can break a build.",
     capture: "sandbox",
     part: "sandbox",
-    caption: "The three postures a space can take, on No sandbox, which every new space starts with.",
+    caption: "The three postures a space can take. Every new space starts on No sandbox.",
   },
   {
     id: "durable",
     title: "Work that outlives the window.",
     body:
-      "realm-server keeps running after you close the window, so a long turn finishes whether you're watching or not. Tasks can run on a schedule, and every run is a real session you can read and pick up from. Each turn is bracketed by a checkpoint. Restoring one puts the files back, and for Claude it rewinds the conversation too.",
+      "realm-server keeps running after you close the window, so a long turn finishes either way. Tasks can run on a schedule, and every run is a session you can pick up from.",
     capture: "schedules",
     part: "schedules",
-    caption: "Three tasks on a schedule, each on its own model, and the run Weekly numbers made today.",
+    caption: "Three tasks on a schedule, each on its own model, and today's run of Weekly numbers.",
   },
 ]
 
@@ -118,40 +118,34 @@ export type Facet = { title: string; body: string }
 export const facets: Facet[] = [
   {
     title: "The checkout",
-    body: "A space points at your code, one checkout or several, and its sessions work there. Every turn gets a checkpoint, so you can put the files back.",
+    body: "Your code, one checkout or several, with a checkpoint at every turn.",
   },
   {
     title: "The terminal",
-    body: "Real terminals next to the agent. The agent can read what a terminal is actually showing on screen, not a raw log, and answer a prompt that's waiting in it.",
+    body: "Real terminals beside the agent, which it can read and answer.",
   },
   {
     title: "The browser",
-    body: "A browser pane that stays signed in, which agents can read and drive. It stops at a consent screen: approving a sign-in is your click unless the space says otherwise.",
+    body: "A browser that stays signed in, for agents to read and drive. It stops at a consent screen.",
   },
   {
     title: "The tools",
-    body: "Linear, GitHub, Slack, Notion and your own MCP servers, through one gateway per space. Agents get the tools but never the credentials, and every call is logged.",
+    body: "Linear, GitHub, Slack, Notion and your own MCP servers. Agents get the tools, never the credentials.",
   },
   {
     title: "The boundary",
-    body: "A macOS sandbox a space can put its agents in. The checkout stays writable and credential folders can't be read. It's off by default, because a sandbox that hasn't met your toolchain yet can break a build.",
+    body: "A macOS sandbox that keeps credential folders unreadable. It's off by default.",
   },
   {
     title: "The agent",
-    body: "Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code or Grok, each with its own login, models and permission modes. Realm never asks for an API key.",
+    body: "Claude Code, Codex, Cursor, Gemini and more, each with its own login and models.",
   },
 ]
 
-/** The eighth step, when the view pulls back and the realm is one of many. */
-export const facetsMany: Facet = {
-  title: "One for every project, all at once.",
-  body: "Your spaces sit side by side, each with its own agents working. The sidebar shows all of them at once with what's waiting and working in each, and Needs you at the top collects anything that's stuck on you.",
-}
-
-/** The seventh step, when all six are in. */
+/** What the six come to. */
 export const facetsCoda: Facet = {
   title: "That's a realm.",
-  body: "Make one for every project. They run side by side, none of them can reach another's tools, and each one is right where you left it when you come back.",
+  body: "Make one for every project. None can reach another's tools, and each is right where you left it.",
 }
 
 /**
@@ -162,19 +156,19 @@ export const facetsCoda: Facet = {
 export const delegation: Facet[] = [
   {
     title: "One agent can start more.",
-    body: "An agent in Realm can hand work to other agents. Each one is a real session in the space, so you can open it and watch it work.",
+    body: "Each sub-agent is a real session in the space, so you can open it and watch it work.",
   },
   {
     title: "Several at once.",
-    body: "Independent tasks run in parallel, in the space's checkout, an environment you name, or a fresh worktree. A sub-agent asks for permission like any other session, and none of them gets to skip that, even if it's asked to.",
+    body: "Independent tasks run in parallel, and every sub-agent asks for permission like any other session.",
   },
   {
     title: "Two levels deep, and that's it.",
-    body: "A sub-agent can hand work off once more. Past that, Realm says no, because every level is one more agent somebody has to keep track of.",
+    body: "A sub-agent can hand work off once more. Past that, Realm says no.",
   },
   {
     title: "Everything comes back.",
-    body: "Each sub-agent sends a final report to the agent that started it. Its whole run stays in its own session, and the transcript gives it a line of its own when it's done.",
+    body: "Each sub-agent sends a final report to the agent that started it.",
   },
 ]
 

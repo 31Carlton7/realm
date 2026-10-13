@@ -29,7 +29,6 @@ export function Chapter({
   title,
   children,
   picture,
-  tall = false,
   stacked = false,
 }: {
   id: string
@@ -37,7 +36,6 @@ export function Chapter({
   title: ReactNode
   children: ReactNode
   picture: ChapterPicture | null
-  tall?: boolean
   /** The words across the page and the picture the whole width under them, for a picture of the whole
    *  window: beside the words it is drawn at half its size, and its type is too small to read. The
    *  stop is then composed around the picture. */
@@ -76,7 +74,7 @@ export function Chapter({
   return (
     <section aria-labelledby={`${id}-title`} className="relative">
       <div
-        className={`mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-16 px-6 py-24 sm:px-10 lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0 ${tall ? "lg:min-h-[175vh]" : "lg:min-h-[135vh]"}`}
+        className="mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-16 px-6 py-24 sm:px-10 lg:min-h-[135vh] lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0"
       >
         <FieldPanel anchor={`k:${id}`} wrapClassName={`z-[2] min-w-0 lg:row-start-1 ${textCols}`} className="px-5 py-6 sm:px-8 sm:py-8">
           <h2 id={`${id}-title`} className="text-[clamp(1.9rem,2.9vw,2.6rem)] leading-[1.06] font-[580] tracking-[-0.04em] text-balance text-ink">
