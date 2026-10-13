@@ -9,13 +9,17 @@
  *
  * The run is isolated from the developer's app: Realm's data and Electron's user data live in a
  * disposable directory (under `REALM_CAPTURE_SCRATCH`, the system temp dir unless set), on the
- * documented alternate ports. The content is staged through the same RPC and UI paths a person uses;
- * only the final PNGs are kept.
+ * documented alternate ports (`REALM_CAPTURE_CDP_PORT`, `REALM_CAPTURE_SERVER_PORT`). The app gets an
+ * allowlisted environment and the system's PATH, the server reads skills, Claude and Codex files from
+ * empty folders of the run's own, and the window is the harness's capture window — invisible,
+ * unfocusable and click-through — so it never comes in front of the person at the Mac. The content is
+ * staged through the same RPC and UI paths a person uses; only the final PNGs are kept.
  *
  * Nothing it does is billed. Claude and Codex are the scripted agent here (`REALM_FAKE_STANDS_IN`),
  * so every session — onboarding's included — answers from the fake's script, and the model chips
- * still name the models a real session would run. Code review talks to a fake `gh` that serves the
- * fixture pull requests, so nothing reaches GitHub either.
+ * still name the models a real session would run; no other agent CLI is on the app's PATH to probe.
+ * Code review talks to a fake `gh` that serves the fixture pull requests, so nothing reaches GitHub
+ * either.
  *
  * Every capture asserts its own subject before it is written (see `shot`), so a scene that lands on
  * the wrong screen fails instead of photographing it. Scenes are independent and each is wrapped: a
@@ -43,6 +47,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const outputDir = path.join(repoRoot, "site/public/product")
 const sceneRawDir = path.join(rawDir, "scenes")
 const detailRawDir = path.join(rawDir, "details")
+const partRawDir = path.join(rawDir, "parts")
 const cdpPort = Number(process.env.REALM_CAPTURE_CDP_PORT ?? 9350)
 const serverPort = Number(process.env.REALM_CAPTURE_SERVER_PORT ?? 8917)
 const scratchRoot = process.env.REALM_CAPTURE_SCRATCH ?? os.tmpdir()
@@ -432,6 +437,30 @@ window.__capture = window.__capture ?? {
     return [...document.querySelectorAll(".sb-sections .item-row, .sb-section .item-row")]
       .find((row) => !row.closest(".sb-needs") && row.textContent.trim().startsWith(title)) ?? null;
   },
+  /**
+   * Where a crop round \`el\` may end on one side: \`want\` points out, or 4 short of the nearest thing
+   * drawn there in its column, whichever is closer — so a margin is never a sliver of the next row's
+   * text or the bottom edge of a bar. \`side\` is "top" or "bottom"; the answer is a y in the viewport.
+   */
+  room(el, side, want) {
+    const r = el.getBoundingClientRect();
+    const drawn = (e) => {
+      if (e.contains(el) || el.contains(e)) return false;
+      const b = e.getBoundingClientRect();
+      if (!b.width || !b.height || b.right <= r.left || b.left >= r.right) return false;
+      const s = getComputedStyle(e);
+      if (s.visibility === "hidden" || s.display === "contents" || Number(s.opacity) === 0) return false;
+      return e.childElementCount === 0 ? (e.textContent.trim() !== "" || /^(IMG|SVG|CANVAS|INPUT|HR)$/i.test(e.tagName))
+        : s.backgroundColor !== "rgba(0, 0, 0, 0)" || parseFloat(s.borderTopWidth) > 0 || parseFloat(s.borderBottomWidth) > 0 || parseFloat(s.borderLeftWidth) > 0;
+    };
+    const all = [...document.querySelectorAll("body *")].filter(drawn).map((e) => e.getBoundingClientRect());
+    if (side === "bottom") {
+      const next = all.filter((b) => b.top >= r.bottom - 1).map((b) => b.top);
+      return Math.min(r.bottom + want, ...next.map((t) => t - 4));
+    }
+    const prev = all.filter((b) => b.bottom <= r.top + 1).map((b) => b.bottom);
+    return Math.max(r.top - want, ...prev.map((t) => t + 4));
+  },
   /** The focused pane's session title. */
   front() {
     return document.querySelector(".panehost .panel[data-focused] .panel-title")?.textContent.trim() ?? null;
@@ -618,7 +647,7 @@ function makeContext(page, rpc) {
     return { x: Math.round(x), y: Math.round(y), width: Math.round(right - x), height: Math.round(bottom - y) }; })()`)
 
   /**
-   * Write one capture — but only once the screen has proved it is the subject.
+   * Prove the screen is the subject before anything is written.
    *
    * `expect` is not optional, and that is the point. Four slides once shipped as the same photograph
    * of the code editor: a scene that failed to change screens left the app wherever the last one had
@@ -626,12 +655,10 @@ function makeContext(page, rpc) {
    * around — and photographed somebody else's subject. A capture asserts the thing its caption will
    * claim, in the same frame it is taken, and a scene that cannot get there fails loudly and drops out
    * of the manifest rather than overwriting a good file with a wrong one.
-   *
-   * `clip` makes it a crop for a changelog figure, written beside the scenes in `details/`.
    */
-  const shot = async (name, expect, { clip = null } = {}) => {
+  const prove = async (name, expect) => {
     if (typeof expect !== "string" || !expect.trim()) {
-      throw new Error(`shot("${name}") was given no expectation — every capture must prove its subject`)
+      throw new Error(`"${name}" was given no expectation — every capture must prove its subject`)
     }
     await settle()
     await evaluate(`window.__realmScrub?.(); true`)
@@ -639,19 +666,86 @@ function makeContext(page, rpc) {
     if (!(await evaluate(expect))) {
       throw new Error(`${name}: expected ${expect} — on screen instead: ${await evaluate(`__capture.onScreen()`)}`)
     }
+  }
+
+  /** A stylesheet held for the length of one capture, and taken away after it. */
+  const withStyle = async (css, take) => {
+    if (css) await evaluate(`(() => { const s = document.createElement("style"); s.id = "capture-style"; s.textContent = ${JSON.stringify(css)}; document.head.append(s); return true; })()`)
+    try {
+      return await take()
+    } finally {
+      if (css) await evaluate(`(() => { document.getElementById("capture-style")?.remove(); return true; })()`)
+    }
+  }
+
+  /**
+   * Write one capture of the window, once it has proved its subject.
+   *
+   * `clip` makes it a crop for a changelog figure, written beside the scenes in `details/`. `hide`
+   * takes things out of the crop that are not about it — the transcript a floating card is drawn
+   * over — leaving the ground they stand on.
+   */
+  const shot = async (name, expect, { clip = null, hide = [] } = {}) => {
+    await prove(name, expect)
     await evaluate(`(() => { document.documentElement.style.background = ${JSON.stringify(PAGE)}; return true; })()`)
     try {
-      // A clip's scale multiplies the density the window is drawn at, so 1 keeps a crop at the scenes'.
-      const result = await page.send("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { ...clip, scale: 1 } } : {}) })
-      const dir = clip ? detailRawDir : sceneRawDir
-      fs.mkdirSync(dir, { recursive: true })
-      fs.writeFileSync(path.join(dir, `${name}.png`), Buffer.from(result.data, "base64"))
+      await withStyle(hide.length ? `${hide.join(", ")} { visibility: hidden !important; }` : null, async () => {
+        await sleep(hide.length ? 200 : 0)
+        // A clip's scale multiplies the density the window is drawn at, so 1 keeps a crop at the scenes'.
+        const result = await page.send("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { ...clip, scale: 1 } } : {}) })
+        const dir = clip ? detailRawDir : sceneRawDir
+        fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(path.join(dir, `${name}.png`), Buffer.from(result.data, "base64"))
+      })
     } finally {
       await evaluate(`(() => { document.documentElement.style.background = ""; return true; })()`)
     }
   }
 
-  return { evaluate, press, mouse, click, park, settle, home, rail, openSession, sidePanel, sideTool, settings, command, reveal, boxOf, shot, rpc, sleep, until }
+  /**
+   * The window laid out at another size for one picture; `viewport()` puts the scenes' size back. A
+   * column ends where its last row does in a shorter window, where the scenes' 900 points leave it a
+   * tail of empty ground, and a whole turn of a transcript only fits clear of its dissolves in a
+   * taller one.
+   */
+  const viewport = async (width = VIEWPORT.width, height = VIEWPORT.height) => {
+    await page.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: CAPTURE_DENSITY, mobile: false })
+    await sleep(800)
+    await settle()
+  }
+
+  /**
+   * Write one part of the window for the landing page: a surface photographed on its own, at the
+   * scenes' density, with the corner radius it has in the app, which the page draws it with.
+   *
+   * `box` is the region in CSS px, rounded out to whole points so the file and the page agree on its
+   * size. `lift` names a floating surface (the model picker) to photograph alone, on transparency:
+   * everything else is hidden for the shot and so is its own shadow, because the page draws one, and
+   * a copy of this one cut off at the file's edge would ring it. Without `lift`, the part is the
+   * window's own pixels on the page colour, and the page rounds its corners.
+   */
+  const part = async (name, expect, { box, radius, lift = null }) => {
+    await prove(name, expect)
+    const x = Math.floor(box.x), y = Math.floor(box.y)
+    const clip = { x, y, width: Math.ceil(box.x + box.width) - x, height: Math.ceil(box.y + box.height) - y }
+    if (lift) await page.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } })
+    else await evaluate(`(() => { document.documentElement.style.background = ${JSON.stringify(PAGE)}; return true; })()`)
+    const isolate = lift && `html, body { background: transparent !important; } body * { visibility: hidden !important; } ${lift}, ${lift} * { visibility: visible !important; } ${lift} { box-shadow: none !important; }`
+    try {
+      await withStyle(isolate, async () => {
+        await sleep(lift ? 200 : 0)
+        const result = await page.send("Page.captureScreenshot", { format: "png", clip: { ...clip, scale: 1 } })
+        fs.mkdirSync(partRawDir, { recursive: true })
+        fs.writeFileSync(path.join(partRawDir, `${name}.png`), Buffer.from(result.data, "base64"))
+        fs.writeFileSync(path.join(partRawDir, `${name}.json`), JSON.stringify({ width: clip.width, height: clip.height, radius, cutout: Boolean(lift) }))
+      })
+    } finally {
+      if (lift) await page.send("Emulation.setDefaultBackgroundColorOverride", {})
+      else await evaluate(`(() => { document.documentElement.style.background = ""; return true; })()`)
+    }
+  }
+
+  return { evaluate, press, mouse, click, park, settle, home, rail, openSession, sidePanel, sideTool, settings, command, reveal, boxOf, shot, part, viewport, rpc, sleep, until }
 }
 
 /** The sessions the staging makes, by the title the scenes open them with. */
@@ -775,19 +869,34 @@ async function stage(ctx) {
  */
 const scenes = [
   {
-    // Every space at once, under Needs you: questions from this profile and another, a sub-agent
-    // stopped on a permission, a lecture being worked on and a session with news.
+    // Every space at once, under Needs you: questions from this profile and another, a lead whose
+    // sub-agent is stopped on a permission (a count on its row since 2.1, answered in its Agents
+    // tab), a lecture being worked on and a session with news. The changelog's figure of this
+    // sidebar is 2.0's, when a sub-agent's request was a row of its own, and stays as it was shot.
     name: "sidebar",
-    async run({ evaluate, openSession, park, shot, rpc, until, boxOf }, staged) {
+    async run({ evaluate, openSession, park, shot, part, viewport, rpc, until, boxOf }, staged) {
       const lecture = (await rpc.call("sessions.listAll", { profileId: null })).find((s) => s.title === TITLES.lecture)
       if (lecture) await rpc.call("sessions.send", { id: lecture.id, text: "keep working", attachments: [], mentions: [] }).catch(() => null)
       await openSession(TITLES.fix)
-      await until(() => evaluate(`document.querySelectorAll('.sb-needs .item-row').length >= 3`), 15_000, "three rows under Needs you")
+      await until(() => evaluate(`document.querySelectorAll('.sb-needs .item-row').length >= 2`), 15_000, "two rows under Needs you")
       await until(() => evaluate(`!!document.querySelector('.sb-section .status-dot[data-status="running"]')`), 15_000, "a session working").catch(() => null)
       await park()
-      const expect = `document.querySelectorAll('.sb-needs .item-row').length >= 3 && document.querySelectorAll('.sb-section').length >= 4 && !!document.querySelector('.transcript')`
+      const expect = `document.querySelectorAll('.sb-needs .item-row').length >= 2 && document.querySelectorAll('.sb-section').length >= 4 && !!document.querySelector('.transcript')`
       await shot("sidebar", expect)
-      await shot("sidebar", expect, { clip: { x: 0, y: 0, width: 700, height: 600 } })
+      // The column on its own, from the profile to New space, in a window short enough that the last
+      // space's sessions are its last rows. Its box is the shade's, which is the column's own shape:
+      // below the head row, with the rim's corner.
+      try {
+        await viewport(VIEWPORT.width, 740)
+        const column = await boxOf([".sidebar-shade"], 0)
+        // Every row on screen and none under a dissolve: the list does not scroll at this height.
+        const fits = `${expect} && (() => { const rows = [...document.querySelectorAll('.sb-sections .item-row')]; const last = rows.at(-1); const add = document.querySelector('.sb-new-space')?.getBoundingClientRect();
+          let s = last?.parentElement; while (s && !/(auto|scroll)/.test(getComputedStyle(s).overflowY)) s = s.parentElement;
+          return !!last && !!add && last.getBoundingClientRect().bottom <= add.top && (!s || s.scrollHeight - s.clientHeight < 2); })()`
+        await part("sidebar", fits, { box: column, radius: 12 })
+      } finally {
+        await viewport()
+      }
     },
   },
   {
@@ -795,7 +904,7 @@ const scenes = [
     // card with Review and Undo, and the track down the pane's left edge, a tick per prompt. The
     // sidebar is folded away (⌘B), so the transcript is the subject rather than a repeat of the last.
     name: "session",
-    async run({ evaluate, openSession, sidePanel, press, reveal, park, shot, boxOf, mouse, until, sleep }) {
+    async run({ evaluate, openSession, sidePanel, press, reveal, park, shot, part, viewport, boxOf, mouse, until, sleep }) {
       await openSession(TITLES.fix)
       await sidePanel(false)
       await evaluate(`document.activeElement?.blur?.(); true`)
@@ -806,6 +915,25 @@ const scenes = [
       await park()
       const expect = `!!document.querySelector('.session-pane .edit-summary') && document.querySelector('.session-pane .edit-summary-title')?.textContent.startsWith('Edited 2 files') && !!document.querySelector('.sidebar[data-collapsed]')`
       await shot("session", expect)
+      // The second turn on its own, from the ask to its card: the folded row of tool calls, the answer
+      // and the files it edited. A taller window holds all of it in the middle of the transcript, clear
+      // of the dissolves at both its ends; the crop keeps to the gaps either side of the turn.
+      try {
+        await viewport(VIEWPORT.width, 1100)
+        const turn = `(() => { const col = document.querySelector('.session-pane .transcript-col'); const ask = [...col.querySelectorAll(':scope > .msg-user-row')].at(-1); const card = col.querySelector(':scope > .edit-summary'); return { col, ask, card }; })()`
+        await evaluate(`(() => { const { col, ask, card } = ${turn}; let s = col.parentElement; while (s && !(/(auto|scroll)/.test(getComputedStyle(s).overflowY) && s.scrollHeight > s.clientHeight)) s = s.parentElement;
+          const sr = s.getBoundingClientRect(); s.scrollTop += (ask.getBoundingClientRect().top + card.getBoundingClientRect().bottom) / 2 - (sr.top + sr.height / 2); return true; })()`)
+        await sleep(600)
+        await park()
+        // Down to the turn's own last line, its time, and short of the session's recap under it.
+        const box = await evaluate(`(() => { const { col, ask, card } = ${turn}; const c = col.getBoundingClientRect(); const end = card.nextElementSibling?.classList.contains('msg-run') ? card.nextElementSibling : card;
+          const top = __capture.room(ask, "top", 22), bottom = __capture.room(end, "bottom", 22);
+          return { x: c.left - 22, y: top, width: c.width + 44, height: bottom - top }; })()`)
+        await part("turn", `${expect} && (() => { const { ask } = ${turn}; return ask.textContent.includes('fix the org access crash'); })()`, { box, radius: 12 })
+      } finally {
+        await viewport()
+      }
+      await reveal(".session-pane .edit-summary", "end", 40)
       // The track's card, for the changelog: what was asked, how the answer began, what the turn edited.
       const tick = await evaluate(`(() => { const ticks = [...document.querySelectorAll('.view-main .panel .scroll-track .track-tick')]; const t = ticks.at(-1);
         if (!t) return null; const r = t.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`)
@@ -813,10 +941,11 @@ const scenes = [
         await mouse("mouseMoved", tick[0], tick[1])
         await sleep(900)
         const card = await boxOf([".track-card[data-open]"], 0)
-        // The card and its tick, close: the card floats over the transcript, and any more room round
-        // it is lines of the answer cut off at the crop's edge.
-        const left = Math.max(0, Math.round(tick[0]) - 36)
-        if (card) await shot("track", `!!document.querySelector('.track-card[data-open]')`, { clip: { x: left, y: Math.max(0, card.y - 24), width: card.x + card.width + 2 - left, height: card.height + 48 } })
+        // The card and its tick, on the pane's ground. The card floats over the transcript, and the
+        // lines of the answer round it are hidden for the shot: any of them at the crop's edge is a
+        // fragment of another sentence (a stray "67" once sat over the card's corner).
+        const left = Math.max(0, Math.round(tick[0]) - 28)
+        if (card) await shot("track", `!!document.querySelector('.track-card[data-open]')`, { clip: { x: left, y: Math.max(0, card.y - 24), width: card.x + card.width + 24 - left, height: card.height + 48 }, hide: [".view-main .transcript-col"] })
       }
       await park()
       await press("b", { code: "KeyB", vk: 66, meta: true })
@@ -828,7 +957,7 @@ const scenes = [
     // The picker on a session that has not started, so every harness's models are offered: Opus 5.5
     // picked, the level at Max — which lights the track — and fast mode on.
     name: "models",
-    async run({ evaluate, openSession, click, press, park, shot, boxOf, until, sleep }) {
+    async run({ evaluate, openSession, click, press, park, shot, part, boxOf, until, sleep }) {
       await openSession("New session")
       await click('.composer button[aria-label="Model"]')
       await until(() => evaluate(`(() => { const p = document.querySelector('.model-picker'); return !!p && getComputedStyle(p).visibility === 'visible'; })()`), 8_000, "the model picker")
@@ -846,6 +975,9 @@ const scenes = [
       await shot("models", expect)
       const box = await boxOf([".model-picker", '.composer button[aria-label="Model"]'], 20)
       if (box) await shot("model-picker", expect, { clip: box })
+      // The picker alone, lifted off the window as the floating surface it is.
+      const picker = await evaluate(`(() => { const p = document.querySelector('.model-picker'); const r = p.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, radius: parseFloat(getComputedStyle(p).borderTopLeftRadius) }; })()`)
+      await part("models", expect, { box: picker, radius: picker.radius, lift: ".model-picker" })
       await press("Escape", { vk: 27 })
       await sleep(400)
     },
@@ -886,20 +1018,26 @@ const scenes = [
     // Work handed to other models: the lead's sub-agents in its Agents tab, one finished with its
     // report and one waiting on you, and the quiet line each is in the lead's transcript.
     name: "delegation",
-    async run({ evaluate, openSession, sidePanel, sideTool, park, shot, boxOf, until }) {
+    async run({ evaluate, openSession, sidePanel, sideTool, park, shot, part, boxOf, until }) {
       await openSession(TITLES.lead)
       await sidePanel(true)
       const shown = await evaluate(`[...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.trim() === 'Agents')`)
       if (shown) await evaluate(`(() => { [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].find((t) => t.textContent.trim() === 'Agents').click(); return true; })()`)
       else await sideTool("Agents")
       await until(() => evaluate(`(() => { const s = [...document.querySelectorAll('.subagent')].map((li) => li.dataset.state); return s.includes('done') && s.includes('waiting'); })()`), 40_000, "one sub-agent done and one waiting")
-      await until(() => evaluate(`[...document.querySelectorAll('.delegation-line .tool-row')].some((r) => r.textContent.startsWith('Subagent finished'))`), 15_000, "the lead's line for the finished one")
+      await until(() => evaluate(`[...document.querySelectorAll('.delegation-line .tool-row')].some((r) => /^Sub-?agent finished/.test(r.textContent))`), 15_000, "the lead's line for the finished one")
       await park()
-      const expect = `document.querySelectorAll('.view-panel:not([hidden]) .subagent').length === 2 && [...document.querySelectorAll('.delegation-line .tool-row')].some((r) => r.textContent.startsWith('Subagent finished'))`
+      const expect = `document.querySelectorAll('.view-panel:not([hidden]) .subagent').length === 2 && [...document.querySelectorAll('.delegation-line .tool-row')].some((r) => /^Sub-?agent finished/.test(r.textContent))`
       await shot("delegation", expect)
       // The cards and the count over them.
       const box = await boxOf([".view-panel:not([hidden]) .subagent"], 20)
       if (box) await shot("sub-agents", expect, { clip: { ...box, y: Math.max(0, box.y - 32), height: box.height + 32 } })
+      // The side panel from its tab down to the last sub-agent: the Agents tab, the count, the one
+      // waiting with its permission open, and the one done with its report. It starts a point inside
+      // the divider and ends in the gap before Build with; its top right is the window's own corner.
+      const panel = await evaluate(`(() => { const p = document.querySelector('.view-panel:not([hidden])'); const r = p.getBoundingClientRect(); const last = [...p.querySelectorAll('.subagent')].at(-1).getBoundingClientRect();
+        return { x: r.x + 1, y: 0, width: r.right - r.x - 1, height: last.bottom + 22 }; })()`)
+      await part("delegation", `${expect} && !!document.querySelector('.view-panel:not([hidden]) .subagent[data-state="waiting"]')`, { box: panel, radius: 16 })
     },
   },
   {
@@ -940,8 +1078,10 @@ const scenes = [
       // No vimrc and no viminfo, so nothing of anybody's is read or written; the function the turn
       // rewrote in the middle of the screen. Coloured as JavaScript: vim's TypeScript syntax blew its
       // redraw budget on this file's `async function` line even at ten seconds, and switched the
-      // highlighting off halfway down the screen with a message across its foot.
-      await rpc.call("terminals.write", { terminalId: terminal.refId, data: "clear; vim -u NONE -i NONE -N -n --cmd 'set bg=dark' --cmd 'syntax on' -c 'set ft=javascript number laststatus=2 ruler linebreak breakindent' -c 'normal! 62Gzt81G' web/lib/orgs.ts\r" })
+      // highlighting off halfway down the screen with a message across its foot. The status line keeps
+      // the file's name and the cursor's place, in a quiet grey rather than vim's default of inverse
+      // video, which drew a white bar across the foot of the picture.
+      await rpc.call("terminals.write", { terminalId: terminal.refId, data: "clear; vim -u NONE -i NONE -N -n --cmd 'set bg=dark' --cmd 'syntax on' -c 'set ft=javascript number laststatus=2 ruler linebreak breakindent' -c 'hi StatusLine cterm=NONE ctermbg=236 ctermfg=250' -c 'hi StatusLineNC cterm=NONE ctermbg=236 ctermfg=244' -c 'normal! 62Gzt81G' web/lib/orgs.ts\r" })
       await until(async () => (await rpc.call("terminals.programs", {}).catch(() => ({})))[terminal.refId]?.id === "editor", 15_000, "vim in the foreground")
       await until(async () => (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live.includes("withInviteDefaults"), 30_000, "vim's screen drawn")
       await sleep(1200)
@@ -985,7 +1125,7 @@ const scenes = [
     // A pull request read and reviewed in Realm: its summary, and the findings of a reviewer run on
     // the model chosen — none of which reaches GitHub until Submit review.
     name: "review",
-    async run({ evaluate, home, rail, park, shot, boxOf, until, sleep }) {
+    async run({ evaluate, home, rail, park, shot, part, boxOf, until, sleep }) {
       await home()
       await rail("Code review")
       await until(() => evaluate(`document.querySelectorAll('.cr-row').length >= 6`), 15_000, "the pull requests")
@@ -1001,6 +1141,13 @@ const scenes = [
       await shot("review", expect)
       const box = await boxOf([".cr-review"], 16)
       if (box) await shot("review-findings", expect, { clip: box })
+      // The request and the reviewer's findings under it, as one column: its state, repository and
+      // title, then the review with its three findings and what to do with them.
+      const column = await evaluate(`(() => { const head = document.querySelector('.cr-head'), review = document.querySelector('.cr-review'); const h = head.getBoundingClientRect(), v = review.getBoundingClientRect();
+        const last = [...review.children].filter((e) => e.getBoundingClientRect().height > 0).at(-1);
+        const left = Math.min(h.left, v.left) - 22, right = Math.max(h.right, v.right) + 22, top = __capture.room(head, "top", 22), bottom = __capture.room(last, "bottom", 22);
+        return { x: left, y: top, width: right - left, height: bottom - top }; })()`)
+      await part("review", expect, { box: column, radius: 12 })
       await home()
     },
   },
@@ -1008,7 +1155,7 @@ const scenes = [
     // Scheduled tasks as a page: the column of tasks with their models, a run open as its own session,
     // and the task's card at the top right.
     name: "schedules",
-    async run({ evaluate, home, rail, park, shot, until, sleep }) {
+    async run({ evaluate, home, rail, park, shot, part, boxOf, until, sleep }) {
       await home()
       await rail("Scheduled tasks")
       await until(() => evaluate(`document.querySelectorAll('.sched-task').length >= 3`), 15_000, "the tasks")
@@ -1019,7 +1166,14 @@ const scenes = [
       await evaluate(`(() => { for (const s of document.querySelectorAll('.sched-view [data-dissolve], .sched-view .transcript-wrap')) s.scrollTop = 0; return true; })()`)
       await sleep(600)
       await park()
-      await shot("schedules", `!!document.querySelector('.schedules-page') && !!document.querySelector('.sched-card') && document.querySelectorAll('.sched-task').length >= 3`)
+      const expect = `!!document.querySelector('.schedules-page') && !!document.querySelector('.sched-card') && document.querySelectorAll('.sched-task').length >= 3`
+      await shot("schedules", expect)
+      // The column of tasks, from its head to the last one on the clock: each task's next time and
+      // model, and under Weekly numbers the run it made today. Its box is the column's own, below the
+      // head row and with the rim's corner, cut off in the gap before the suggestions.
+      const column = await evaluate(`(() => { const c = document.querySelector('.sched-col').getBoundingClientRect(); const last = [...document.querySelectorAll('.sched-tasks .sched-task')].at(-1);
+        return { x: c.x, y: c.y, width: c.width, height: __capture.room(last, "bottom", 22) - c.y }; })()`)
+      await part("schedules", `${expect} && !!document.querySelector('.sched-run')`, { box: column, radius: 12 })
       await home()
     },
   },
@@ -1052,13 +1206,20 @@ const scenes = [
   {
     // Connections takes the whole width right of the rail: it has no use for the spaces beside it.
     name: "connections",
-    async run({ evaluate, home, rail, park, shot, until, sleep }) {
+    async run({ evaluate, home, rail, park, shot, part, boxOf, until, sleep }) {
       await home()
       await rail("Connections")
       await until(() => evaluate(`!!document.querySelector('.connections-page-pane')`), 10_000, "Connections")
       await sleep(900)
       await park()
-      await shot("connections", `!!document.querySelector('.connections-page-pane') && !!document.querySelector('.page-overlay')`)
+      const expect = `!!document.querySelector('.connections-page-pane') && !!document.querySelector('.page-overlay')`
+      await shot("connections", expect)
+      // The page's head and every app it can connect, all seven cards, ending in the gap before the
+      // MCP servers.
+      const market = await evaluate(`(() => { const h1 = document.querySelector('.connections-page-pane h1'), market = document.querySelector('.connections-page-pane .market'); const m = market.getBoundingClientRect();
+        const top = __capture.room(h1, "top", 22), bottom = __capture.room(market, "bottom", 22);
+        return { x: m.left - 22, y: top, width: m.width + 44, height: bottom - top }; })()`)
+      await part("connections", `${expect} && document.querySelectorAll('.connections-page-pane .market-grid > li').length >= 7`, { box: market, radius: 12 })
       await home()
     },
   },
@@ -1106,7 +1267,7 @@ const scenes = [
   {
     // A space's settings, at its sandbox: the three postures it can take, on the one it ships with.
     name: "sandbox",
-    async run({ evaluate, home, park, shot, until, sleep }, staged) {
+    async run({ evaluate, home, park, shot, part, until, sleep }, staged) {
       await home()
       await evaluate(`(() => { __capture.store().getState().openSpacePage(${JSON.stringify(staged.realm.id)}, "sandbox"); return true; })()`)
       await until(() => evaluate(`!!document.querySelector('.space-page-pane')`), 10_000, "the space's page")
@@ -1114,7 +1275,18 @@ const scenes = [
       await until(() => evaluate(`!!document.querySelector('.sandbox-choice')`), 10_000, "the sandbox postures")
       await sleep(700)
       await park()
-      await shot("sandbox", `!!document.querySelector('.space-page-pane') && !!document.querySelector('.sandbox-choice')`)
+      const expect = `!!document.querySelector('.space-page-pane') && !!document.querySelector('.sandbox-choice')`
+      await shot("sandbox", expect)
+      // The three postures under their label, and the note under them saying which one this space
+      // has and why: inherited, because new spaces start with none.
+      const box = await evaluate(`(() => { const pane = document.querySelector('.space-page-pane'); const choice = pane.querySelector('.sandbox-choice').getBoundingClientRect();
+        const label = [...pane.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent.trim() === 'Posture');
+        const note = [...pane.querySelectorAll('p')].find((p) => p.textContent.trim().startsWith('Inherited from the default'));
+        if (!label || !note) return null;
+        const top = __capture.room(label, "top", 22), bottom = __capture.room(note, "bottom", 22);
+        return { x: choice.x - 22, y: top, width: choice.width + 44, height: bottom - top }; })()`)
+      if (!box) throw new Error("No Posture label or inherited note on the sandbox page")
+      await part("sandbox", `${expect} && !!document.querySelector('.sandbox-choice [aria-checked="true"], .sandbox-choice input:checked')`, { box, radius: 12 })
     },
   },
   {
@@ -1232,23 +1404,47 @@ async function main() {
       : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron")
 
   // The terminals' shell is a clean zsh: its dotfiles are this run's, so the captures show nobody's
-  // prompt and nothing typed into them reaches anybody's history.
+  // prompt and nothing typed into them reaches anybody's history. It is also the login shell the app
+  // asks for its PATH, so that PATH is the system's and nobody's own.
   const zdot = path.join(scratch, "zsh")
   fs.mkdirSync(zdot, { recursive: true })
   fs.writeFileSync(path.join(zdot, ".zshrc"), "PS1='%1~ %# '\nunset HISTFILE\n")
+  // Where the server looks for the person's skills, commands, Claude and Codex files: empty folders of
+  // this run's. HOME itself stays the real one, because macOS finds the login Keychain through it and
+  // the app's sealed store asks for it at boot; with no default keychain, the system puts up a dialog.
+  const userHome = path.join(scratch, "user")
+  for (const dir of [".claude", ".codex", "meetings"]) fs.mkdirSync(path.join(userHome, dir), { recursive: true })
 
-  // The window opens behind whatever has the person's attention, and Chromium stops laying out a
-  // covered window; the first three switches keep it drawing. The last renders in sRGB whatever
-  // display the window lands on: left to the display, a capture carries that display's own profile,
-  // and the same scene came out vivid from one screen and washed out from the Mac's P3 panel.
+  /*
+   * The app's environment is an allowlist, never this shell's. The script is usually run from inside a
+   * Realm session or an agent's terminal, whose variables name the developer's own Realm (REALM_HOME,
+   * its ports and environment), the running agent's session, and a PATH of agent CLIs that a probe
+   * would start on the developer's own accounts. The PATH here is the system's: the scripted agent
+   * stands in for Claude and Codex, and every other harness probes as not installed.
+   */
+  const passed = Object.fromEntries(["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "__CF_USER_TEXT_ENCODING"]
+    .filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]))
+
+  // The window is the harness's capture window (main/live-scratch.ts): never shown, never focused,
+  // never in the way of the person at the Mac. Chromium stops laying out a window it thinks is
+  // covered, and the first three switches keep it drawing. The last renders in sRGB whatever display
+  // the window belongs to: left to the display, a capture carries that display's own profile, and the
+  // same scene came out vivid from one screen and washed out from the Mac's P3 panel.
   electron = spawn(electronBinary, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--force-color-profile=srgb"], {
     env: {
-      ...process.env,
+      ...passed,
+      PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
       SHELL: "/bin/zsh",
       ZDOTDIR: zdot,
+      CLAUDE_CONFIG_DIR: path.join(userHome, ".claude"),
+      CODEX_HOME: path.join(userHome, ".codex"),
       REALM_HOME: home,
+      REALM_USER_HOME: userHome,
+      REALM_PLYNN_MEETINGS_DIR: path.join(userHome, "meetings"),
+      REALM_MEMORY_FALLBACK_DIR: path.join(userHome, "memory-repos"),
       REALM_ENABLE_FAKE_AGENT: "1",
       REALM_FAKE_STANDS_IN: "claude,codex",
+      REALM_LIVE_SCRATCH: "capture",
       REALM_HTML_MENUS: "1",
       REALM_GH_BIN: ghBin,
       REALM_PORT: String(serverPort),
@@ -1310,6 +1506,7 @@ async function main() {
   const system = await rpc.call("system.info", {}).catch(() => null)
   const swaps = [
     [home, "~/Realm"],
+    [path.join(scratch, "user"), "~"],
     [os.homedir(), "~"],
     ...(system?.machineName ? [[system.machineName, "MacBook Pro"]] : []),
   ]
@@ -1401,6 +1598,16 @@ async function main() {
       await ctx.press("Escape", { vk: 27 }).catch(() => {})
       await ctx.home().catch(() => {})
     }
+  }
+
+  /* REALM_CAPTURE_HOLD=<minutes> keeps the staged app up after the scenes, so a new scene's selectors
+     can be tried against it over CDP before they are written down. Touching <scratch>/release ends it
+     early; either way the run then tears down as usual. */
+  const hold = Number(process.env.REALM_CAPTURE_HOLD ?? 0)
+  if (hold > 0) {
+    const release = path.join(scratch, "release")
+    console.log(`  holding for ${hold} min with DevTools on ${cdpPort}; touch ${release} to finish`)
+    await until(() => fs.existsSync(release), hold * 60_000, "the hold").catch(() => null)
   }
 
   /**
