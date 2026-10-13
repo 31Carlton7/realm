@@ -52,13 +52,6 @@ export const DOOR = {
 /** The point on the ground just in front of a realm's doorway: where its screen stands. */
 export const doorFoot = (cx: number, cy: number): [number, number, number] => [cx - 0.5 + (DOOR.across[0] + DOOR.across[1]) / 2, cy - 0.5 - 0.1, 0]
 
-/** The middle of a realm's doorway, at the wall. */
-export const doorMiddle = (cx: number, cy: number): [number, number, number] => [
-  cx - 0.5 + (DOOR.across[0] + DOOR.across[1]) / 2,
-  cy - 0.5,
-  1 - (DOOR.down[0] + DOOR.down[1]) / 2,
-]
-
 /** The planet, in cube edges: big enough that from a few edges up the ground is flat to the fog. */
 export const PLANET_RADIUS = 2400
 

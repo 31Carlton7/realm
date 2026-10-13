@@ -339,6 +339,10 @@ export const createRealms: StageFactory = async (gpu, output) => {
   await Promise.all([realms.compile(world), sky.compile(world)])
 
   const follow = new Follow(9)
+  // What the last drawn frame was drawn from: when none of it has moved, the field only needs its
+  // slow doorways redrawn, so it is redrawn a third as often.
+  let drawn = ""
+  let quietFrames = 0
   const lamp = { x: 0, y: 0, presence: 0 }
   let sway = 0
   let lastSeconds = -1
@@ -384,11 +388,6 @@ export const createRealms: StageFactory = async (gpu, output) => {
 
       const list = stands(input, scrollY, mode!)
       if (list.length === 0) return
-      if (process.env.NODE_ENV !== "production") {
-        const debug = window as unknown as { __realmsKeys?: [string, number][]; __realmsLamp?: number[] }
-        debug.__realmsKeys = list.map((s) => [s.key.id, Math.round(s.key.y)])
-        debug.__realmsLamp = scene.lamp
-      }
 
       // ---- the camera ------------------------------------------------------------------------
       const now = moment(list, scrollY, mode!)
@@ -562,6 +561,10 @@ export const createRealms: StageFactory = async (gpu, output) => {
         )
       }
 
+      // The working sample is a lit screen too: the same breath of light at its edge as every chapter's.
+      const portal = input.anchors.portal
+      if (portal && visible(portal) && panels.length < PANELS * 2) panels.push([...portal], [0, 20, 0.85, 0])
+
       // ---- the words the field keeps clear of ----------------------------------------------
       for (const [name, rect] of Object.entries(input.anchors)) {
         if ((name === "copy" || name.startsWith("k:") || name.startsWith("c:")) && visible(rect)) clears.push(rect)
@@ -646,7 +649,6 @@ export const createRealms: StageFactory = async (gpu, output) => {
       while (plazas.length < PLAZAS) plazas.push([0, 0, 0, 0, 0, 0])
       const plazaPairs = plazas.flatMap((q) => [[q[0]!, q[1]!, q[2]!, q[3]!], [q[4] ?? q[0]!, q[5] ?? q[1]!, 0, 0]])
       while (lit.length < LIT) lit.push([0, 0, -1, 0])
-      if (process.env.NODE_ENV !== "production" && location.search.includes("nopanel")) panels.length = 0
       while (panels.length < PANELS * 2) panels.push([...zero])
       const clearList = clears.slice(0, CLEAR)
 
@@ -655,7 +657,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
       scene.right = [...b.right, RENDER_SCALE]
       scene.up = [...b.up, 0]
       scene.view = [width, height, view.px, view.py]
-      scene.clock = [input.seconds, night, input.still ? 1 : 0, lerp(0.03, 0.065, night)]
+      scene.clock = [input.seconds, night, input.still ? 1 : 0, lerp(0.03, 0.05, night)]
       scene.fog = [fogStart, fogDensity, 0, 0]
       scene.planet = [view.eye[0], view.eye[1], PLANET_RADIUS, orbitAmount]
       scene.sun = [...sun, risen]
@@ -680,6 +682,11 @@ export const createRealms: StageFactory = async (gpu, output) => {
         world.resize(size)
         composite.set({ sceneTex: world })
       }
+
+      const state = `${scrollY}|${width}x${height}|${view.eye.map((v) => v.toFixed(4)).join(",")}|${view.yaw.toFixed(5)}|${lamp.x.toFixed(1)},${lamp.y.toFixed(1)},${lamp.presence.toFixed(3)}|${mode}`
+      if (state === drawn && !input.still && quietFrames++ % 3 !== 0) return
+      if (state !== drawn) quietFrames = 0
+      drawn = state
 
       realms.set({ scene })
       sky.set({ scene })
