@@ -66,8 +66,7 @@ const LIT_AHEAD = 0.45
  * Arriving by the landing page's warp (components/passage), the walk's camera starts this far back
  * down the route and comes up it to the opening, fastest first, over this many seconds from the field's
  * first frame: the flight the veil's stars began, carried on in the world until it settles. The field
- * starts as the passage ends (React holds a new page's effects until then), so its own clock is the one
- * to count from.
+ * starts a moment after its page arrives, so its own clock is the one to count from.
  */
 const WARP_DEPTH = 36
 const WARP_SETTLE = 1.1

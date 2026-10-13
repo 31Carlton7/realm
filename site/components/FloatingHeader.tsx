@@ -38,8 +38,8 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
   const path = usePathname()
   const onChangelog = path?.startsWith("/changelog") ?? false
 
-  // Measured before the bar is first painted: on a page a passage arrives at, the view transition holds
-  // passive effects until it ends, and the bar would cross the view at its unmeasured width.
+  // Measured before the bar is first painted: a view transition captures a page arriving before its
+  // passive effects run, and the bar would cross the view at its unmeasured width.
   useLayoutEffect(() => {
     const root = rootRef.current
     const frame = frameRef.current
