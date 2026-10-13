@@ -17,7 +17,7 @@ export function Ground() {
   return (
     <>
       <section aria-labelledby="where-title" className="mx-auto w-full max-w-[1680px] px-6 pt-20 sm:px-10 sm:pt-28 lg:px-14">
-        <div className="grid gap-10 border-t border-line pt-14 lg:grid-cols-[clamp(360px,30vw,452px)_minmax(0,1fr)] lg:gap-[132px] lg:pt-20">
+        <div className="grid gap-10 border-t border-line pt-14 lg:grid-cols-[clamp(360px,30vw,488px)_minmax(0,1fr)] lg:gap-[132px] lg:pt-20">
           <div>
             <h2 id="where-title" className="text-[clamp(1.9rem,3.2vw,2.75rem)] leading-[1.04] font-[580] tracking-[-0.04em] text-balance text-ink">
               Where the work lives.
@@ -36,7 +36,7 @@ export function Ground() {
       </section>
 
       <section aria-labelledby="faq-title" className="mx-auto w-full max-w-[1680px] px-6 pt-24 pb-8 sm:px-10 sm:pt-32 lg:px-14">
-        <div className="grid gap-8 lg:grid-cols-[clamp(360px,30vw,452px)_minmax(0,1fr)] lg:gap-[132px]">
+        <div className="grid gap-8 lg:grid-cols-[clamp(360px,30vw,488px)_minmax(0,1fr)] lg:gap-[132px]">
           <h2 id="faq-title" className="text-[clamp(1.9rem,3.2vw,2.75rem)] leading-[1.04] font-[580] tracking-[-0.04em] text-ink">
             Questions
           </h2>

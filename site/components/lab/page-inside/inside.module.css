@@ -123,8 +123,8 @@
 
 /* The words' column every section on a wide screen lines up with: the stage's, the close's. */
 .page {
-  --col-x: max(48px, calc((100vw - 1680px) / 2 + 56px));
-  --col-w: clamp(360px, 30vw, 452px);
+  --col-x: max(56px, calc((100vw - 1680px) / 2 + 56px));
+  --col-w: clamp(360px, 30vw, 488px);
 }
 
 @media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {

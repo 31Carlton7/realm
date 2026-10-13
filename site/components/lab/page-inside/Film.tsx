@@ -313,10 +313,12 @@ export function Film({ download, claims }: { download: MacDownload; claims: Prov
         img.style.opacity = o.toFixed(3)
       })
 
-      // The strip of stills, in the same light, the window first among them.
+      // The strip of stills, in the same light, the window first among them. Past the last still the
+      // lights go down with the scroll, so the stage ends dark before it gives way to the page.
       const stripOn = place.phase === "join" || place.phase === "strip"
+      const lights = 1 - ramp(PLAN.strip.end, PLAN.length, p)
       const keyX = set.x + set.w / 2
-      const litOf = (cx: number) => Math.exp(-(((cx - keyX) / (g.F * 0.95)) ** 2))
+      const litOf = (cx: number) => Math.exp(-(((cx - keyX) / (g.F * 0.95)) ** 2)) * lights
       stillRefs.current.forEach((node, i) => {
         if (!node) return
         if (!stripOn) {
@@ -338,7 +340,7 @@ export function Film({ download, claims }: { download: MacDownload; claims: Prov
 
       // The key light hangs above the set, fixed to the studio rather than to the window, so the window
       // moves under it as the camera does; the floor is wherever the window (or the strip) stands.
-      studioScene.key = stripOn ? [keyX, -g.vh * 0.3, g.vh * 1.15, 1] : [set.x + set.w * 0.62, -g.vh * 0.32, g.vh * 1.2, 1]
+      studioScene.key = stripOn ? [keyX, -g.vh * 0.3, g.vh * 1.15, lights] : [set.x + set.w * 0.62, -g.vh * 0.32, g.vh * 1.2, 1]
       studioScene.floor = stripOn ? g.cy + g.Fh / 2 : pose.ty + pose.s * WINDOW.height
       studioScene.dark = g.dark
 
@@ -566,7 +568,7 @@ export function Film({ download, claims }: { download: MacDownload; claims: Prov
                   <div key={s.slug} data-shown={still === i} className={css.line}>
                     <h3 className="text-[16px] leading-[1.4] font-[560] text-ink">{s.title}</h3>
                     <p className="mt-1.5 text-[15px] leading-[1.55] text-ink-2">{s.blurb}</p>
-                    <p className="mt-3 font-mono text-[12px] text-ink-3">
+                    <p className="mt-3 font-mono text-[12px] text-ink-2">
                       {i + 1} of {stills.length}
                     </p>
                   </div>
@@ -676,7 +678,7 @@ function Opening({ download, shown }: { download: MacDownload; shown: boolean })
           Source
         </QuietButton>
       </div>
-      <p className="mt-3.5 font-mono text-[12px] text-ink-3">
+      <p className="mt-3.5 font-mono text-[12px] text-ink-2">
         {download.version ? `${download.version} · ` : ""}macOS on Apple silicon · in active development
       </p>
       <p className="mt-8 flex items-center gap-2 text-[13px] text-ink-2">

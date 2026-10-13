@@ -27,13 +27,13 @@ export function Footer({ download }: { download: MacDownload }) {
   ]
   return (
     <footer data-light-words data-light-pad="40" className={`${css.footer} mx-auto w-full max-w-[1680px] px-6 pt-16 pb-28 sm:px-10 lg:px-14`}>
-      <div className="grid gap-12 border-t border-line pt-12 lg:grid-cols-[clamp(360px,30vw,452px)_minmax(0,1fr)] lg:gap-[132px]">
+      <div className="grid gap-12 border-t border-line pt-12 lg:grid-cols-[clamp(360px,30vw,488px)_minmax(0,1fr)] lg:gap-[132px]">
         <div>
           <Link href="/" className="inline-block text-ink transition-opacity duration-150 hover:opacity-75">
             <Wordmark />
           </Link>
           <p className="mt-4 max-w-[34ch] text-[15px] leading-[1.55] text-ink-2">{site.tagline}</p>
-          <p className="mt-6 font-mono text-[12px] leading-[1.7] text-ink-3">
+          <p className="mt-6 font-mono text-[12px] leading-[1.7] text-ink-2">
             © {new Date().getFullYear()} {author.name}
             <br />
             Realm is in active development

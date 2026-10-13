@@ -64,7 +64,7 @@ export function Relay() {
 
   return (
     <section aria-labelledby="team-title" className="mx-auto w-full max-w-[1680px] px-6 pt-28 pb-24 sm:px-10 sm:pt-36 lg:px-14">
-      <div className="grid gap-12 lg:grid-cols-[clamp(360px,30vw,452px)_minmax(0,1fr)] lg:gap-[132px]">
+      <div className="grid gap-12 lg:grid-cols-[clamp(360px,30vw,488px)_minmax(0,1fr)] lg:gap-[132px]">
         <div>
           <p className="flex items-center gap-2.5 text-[13.5px] text-ink-2">
             <span className="font-mono text-[12px] text-accent-ink">2.1</span>
@@ -151,7 +151,7 @@ export function Relay() {
                   {waiting.length} waiting on you
                 </span>
               ) : (
-                <span className="text-[13px] text-ink-3">Nothing waiting</span>
+                <span className="text-[13px] text-ink-2">Nothing waiting</span>
               )}
             </h3>
             <ul className="mt-3 divide-y divide-line">
@@ -163,7 +163,7 @@ export function Relay() {
                     <Realmite spec={specs[from.id]!} size={28} state={outcome ? "idle" : "needs-you"} />
                     <div className="min-w-0 flex-1 basis-[14rem]">
                       <p className="truncate text-[15px] text-ink">{item.title}</p>
-                      <p className="truncate text-[13px] text-ink-3">
+                      <p className="truncate text-[13px] text-ink-2">
                         {from.name} · {item.detail}
                       </p>
                     </div>
@@ -174,7 +174,7 @@ export function Relay() {
                         <button
                           type="button"
                           onClick={() => setDecided(({ [item.id]: _, ...rest }) => rest)}
-                          className="ml-2 text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-ink"
+                          className="ml-2 text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-ink"
                         >
                           Undo
                         </button>
@@ -209,4 +209,4 @@ export function Relay() {
 }
 
 const label = (s: RealmiteState) => (s === "needs-you" ? "Needs you" : s === "working" ? "Working" : s === "sleeping" ? "Done for today" : "Idle")
-const tone = (s: RealmiteState) => (s === "needs-you" ? "text-orange" : s === "working" ? "text-green" : "text-ink-3")
+const tone = (s: RealmiteState) => (s === "needs-you" ? "text-orange" : s === "working" ? "text-green" : "text-ink-2")

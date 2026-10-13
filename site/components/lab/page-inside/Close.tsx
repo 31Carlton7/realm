@@ -110,7 +110,7 @@ export function Close({ download }: { download: MacDownload }) {
               Read the source
             </QuietButton>
           </div>
-          <p className="mt-4 font-mono text-[12px] text-ink-3">{download.version ? `${download.version} · ` : ""}macOS on Apple silicon</p>
+          <p className="mt-4 font-mono text-[12px] text-ink-2">{download.version ? `${download.version} · ` : ""}macOS on Apple silicon</p>
         </div>
 
         <div ref={setRef} className={css.closeSet}>
