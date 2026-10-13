@@ -593,7 +593,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
 
       // The working sample is a lit screen too: the same breath of light at its edge as every chapter's.
       const portal = input.anchors.portal
-      if (portal && visible(portal) && panels.length < PANELS * 2) panels.push([...portal], [0, 20, 0.85, 0])
+      if (portal && visible(portal) && panels.length < PANELS * 2) panels.push([...portal], [0, 16, 0.85, 0])
 
       // ---- the words the field keeps clear of ----------------------------------------------
       for (const [name, rect] of Object.entries(input.anchors)) {
