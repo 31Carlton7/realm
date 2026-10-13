@@ -74,6 +74,7 @@ export function Gateway() {
   const anchors = useAnchors(drawing, [which])
   const progress = useScrollProgress(drawing, { from: 0.85, to: 0.3 })
   const replay = useTrips<"run">()
+  const sent = useTrips<"gate">()
   const [log, setLog] = useState(1)
 
   const steps = scenario.steps
@@ -86,10 +87,23 @@ export function Gateway() {
 
   // Scroll draws the call step by step the first time through; Call again replays it in time.
   const run = replay.trips[0]
+  // The steps scroll draws, and a gate the reader opens: until Submit review, the review's last
+  // arrow is drawn dashed and waits; pressing it sends that arrow on its own.
   const t = run && replay.started(run) ? replay.progress(run) : progress
-  const per = 1 / steps.length
-  const shownSteps = steps.filter((s, i) => !(s.gate && !submitted) && t >= i * per + per * 0.15).length
-  const activeIndex = Math.min(steps.length - 1, Math.floor(t / per))
+  const flowing = steps.filter((st) => !st.gate)
+  const per = 1 / flowing.length
+  const shownSteps = flowing.filter((_, i) => t >= i * per + per * 0.15).length
+  const activeIndex = Math.min(flowing.length - 1, Math.floor(t / per))
+  const gate = steps.findIndex((st) => st.gate)
+  const gateTrip = sent.trips[0]
+  const gateK = gateTrip && sent.started(gateTrip) ? sent.progress(gateTrip) : submitted ? 1 : 0
+  const shown = (i: number) => (steps[i]!.gate ? shownSteps >= flowing.length : i < shownSteps)
+
+  const submit = () => {
+    setSubmitted(true)
+    sent.clear()
+    sent.fire("gate", 900)
+  }
 
   const again = () => {
     replay.clear()
@@ -121,8 +135,46 @@ export function Gateway() {
         </div>
       }
     >
-      <div ref={drawing} className="relative overflow-x-auto [scrollbar-width:none]">
-        <div className="relative min-w-[34rem]" style={{ height }}>
+      {/* A phone has no room for lanes side by side, so the same call is a list of its steps. */}
+      <ol className="space-y-3 sm:hidden">
+        {steps.map((s, i) => {
+          const lane = (id: Lane) => scenario.lanes.find((l) => l.id === id)!
+          const pending = s.gate && !submitted
+          return (
+            <li key={i} className={`rounded-[12px] bg-canvas px-4 py-3 ${pending ? "opacity-70" : ""}`}>
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink">
+                <span className="text-ink-2">{lane(s.from).name}</span>
+                <svg aria-hidden width="18" height="8" viewBox="0 0 18 8" fill="none">
+                  <path d="M1 4h15M12 1l4 3-4 3" stroke="oklch(1 0 0 / 0.55)" />
+                </svg>
+                <span className="text-ink-2">{lane(s.to).name}</span>
+                <span className="ml-auto flex items-center gap-1.5 text-[12.5px] text-ink-2">
+                  {s.label}
+                  {s.key ? (
+                    <span className="inline-flex items-center gap-1 rounded-[6px] bg-[oklch(0.68_0.173_253.301/0.14)] px-1.5 py-0.5 text-[11.5px] text-accent-ink">
+                      <KeyGlyph /> token
+                    </span>
+                  ) : null}
+                </span>
+              </p>
+              {s.note ? <p className="mt-1.5 text-[12.5px] leading-[1.5] text-ink-3">{s.note}</p> : null}
+              {pending ? (
+                <button
+                  type="button"
+                  onClick={submit}
+                  className="app-corner mt-2.5 rounded-[9px] bg-accent-fill px-3 py-1.5 text-[12.5px] text-white transition-[background-color,scale] hover:bg-accent-fill-hover active:scale-[0.97]"
+                >
+                  Submit review
+                </button>
+              ) : null}
+            </li>
+          )
+        })}
+        {scenario.id === "linear" ? <li className="px-1 text-[12.5px] text-accent-ink">The credential never reaches the agent.</li> : null}
+      </ol>
+
+      <div ref={drawing} className="relative hidden sm:block">
+        <div className="relative" style={{ height }}>
           <svg aria-hidden className="absolute inset-0 h-full w-full overflow-visible" fill="none">
             <SignalDefs id="gate" />
             {scenario.lanes.map((lane) => (
@@ -132,25 +184,26 @@ export function Gateway() {
             {anchors.width ? (
               <g>
                 <path
-                  d={`M${(x("agent") + x("realm")) / 2} ${HEAD - 6}V${height}`}
+                  d={`M${x("realm") - 26} ${HEAD - 6}V${height}`}
                   stroke="oklch(0.788 0.113 248.33 / 0.45)"
                   strokeWidth={1}
                 />
               </g>
             ) : null}
             {steps.map((s, i) => {
-              if (i >= shownSteps && !(s.gate && submitted)) return null
+              if (!shown(i)) return null
               const a = x(s.from)
               const b = x(s.to)
               const yy = y(i)
               const dir = Math.sign(b - a)
               const r = route([[a + dir * 6, yy], [b - dir * 8, yy]])
-              const active = i === activeIndex && t < 1 && !(s.gate && !submitted)
-              const k = active ? (t - i * per) / per : 1
+              const waiting = s.gate && !submitted
+              const active = s.gate ? gateK > 0 && gateK < 1 : i === activeIndex && t < 1
+              const k = s.gate ? gateK : active ? (t - i * per) / per : 1
               return (
                 <g key={i}>
-                  <path d={r.d} stroke="oklch(1 0 0 / 0.5)" />
-                  <path d={`M${b - dir * 8} ${yy - 4}L${b - dir * 2} ${yy}L${b - dir * 8} ${yy + 4}`} stroke="oklch(1 0 0 / 0.6)" strokeLinejoin="round" />
+                  <path d={r.d} stroke={waiting ? "oklch(1 0 0 / 0.25)" : "oklch(1 0 0 / 0.5)"} strokeDasharray={waiting ? "3 4" : undefined} />
+                  <path d={`M${b - dir * 8} ${yy - 4}L${b - dir * 2} ${yy}L${b - dir * 8} ${yy + 4}`} stroke={waiting ? "oklch(1 0 0 / 0.3)" : "oklch(1 0 0 / 0.6)"} strokeLinejoin="round" />
                   {active && k > 0 && k < 1 ? <Signal defs="gate" route={r} s={r.length * span(k, 0.1, 0.9)} dir={dir > 0 ? 1 : -1} /> : null}
                 </g>
               )
@@ -172,8 +225,8 @@ export function Gateway() {
             ))}
           </div>
           <p
-            style={{ left: (x("agent") + x("realm")) / 2 + 8, top: height - 22 }}
-            className="absolute text-[12px] whitespace-nowrap text-accent-ink"
+            style={{ left: x("realm") - 34, top: height - 22 }}
+            className="absolute -translate-x-full text-[12px] whitespace-nowrap text-accent-ink"
           >
             The credential never crosses this line
           </p>
@@ -182,7 +235,7 @@ export function Gateway() {
           {steps.map((s, i) => {
             const a = x(s.from)
             const b = x(s.to)
-            const hidden = i >= shownSteps && !(s.gate && submitted)
+            const hidden = !shown(i)
             return (
               <div key={i} style={{ top: y(i) - 26, left: Math.min(a, b), width: Math.abs(b - a) }} className={`absolute flex flex-col items-center transition-opacity duration-300 ${hidden ? "opacity-0" : "opacity-100"}`}>
                 <span className="flex items-center gap-1.5 text-[12.5px] whitespace-nowrap text-ink-2">
@@ -193,24 +246,21 @@ export function Gateway() {
                     </span>
                   ) : null}
                 </span>
-                {s.note ? <span className="absolute top-[34px] text-[12px] whitespace-nowrap text-ink-3">{s.note}</span> : null}
+                {s.gate && !submitted ? (
+                  <button
+                    type="button"
+                    onClick={submit}
+                    className="app-corner absolute top-[32px] rounded-[9px] bg-accent-fill px-3 py-1.5 text-[12.5px] whitespace-nowrap text-white transition-[background-color,scale] hover:bg-accent-fill-hover active:scale-[0.97]"
+                  >
+                    Submit review
+                  </button>
+                ) : s.note ? (
+                  <span className="absolute top-[34px] text-[12px] whitespace-nowrap text-ink-3">{s.note}</span>
+                ) : null}
               </div>
             )
           })}
 
-          {scenario.id === "github" ? (
-            <div style={{ top: y(steps.length - 1) - 16, left: x("realm") - 64 }} className="absolute">
-              {!submitted ? (
-                <button
-                  type="button"
-                  onClick={() => setSubmitted(true)}
-                  className="app-corner rounded-[9px] bg-accent-fill px-3 py-1.5 text-[12.5px] text-white transition-[background-color,scale] hover:bg-accent-fill-hover active:scale-[0.97]"
-                >
-                  Submit review
-                </button>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
 

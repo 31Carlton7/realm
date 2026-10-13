@@ -535,7 +535,7 @@ function MapDrawing({
               d={id === "realm" ? `${line.route.d}${g.branches.luna.route.d}${g.branches.fable.route.d}` : line.route.d}
               stroke="transparent"
               strokeWidth={18}
-              className="pointer-events-[stroke]"
+              pointerEvents="stroke"
               onPointerEnter={() => store.hover(id)}
               onPointerLeave={() => store.hover(null)}
             />

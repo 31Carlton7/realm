@@ -301,6 +301,7 @@ export function Sample({ store }: { store: SampleStore }) {
               const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0
               if (!step || !session.tabs.length) return
               event.preventDefault()
+              event.stopPropagation()
               const at = session.tabs.findIndex((t) => t.id === activeTab?.id)
               const next = session.tabs[(at + step + session.tabs.length) % session.tabs.length]!
               openTab(session.id, next.id)

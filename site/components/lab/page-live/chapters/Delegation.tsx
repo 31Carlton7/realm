@@ -176,6 +176,9 @@ function Tree({ progress: p }: { progress: number }) {
           return (
             <g key={n.id}>
               <circle cx={x} cy={y} r={13} fill="var(--color-page)" stroke={s === "working" ? "var(--color-green)" : "oklch(1 0 0 / 0.35)"} />
+              {s === "working" ? (
+                <circle cx={x} cy={y} r={13} stroke="var(--color-green)" strokeWidth={1.6} strokeLinecap="round" strokeDasharray={`${(Math.PI * 26) / 5} ${Math.PI * 26}`} className="live-spin" />
+              ) : null}
               {n.level === 0 && reported ? (
                 <circle cx={x} cy={y} r={17.5} stroke="var(--color-accent)" strokeDasharray={`${(Math.PI * 35 * reported) / 3 - 3} 999`} transform={`rotate(-90 ${x} ${y})`} />
               ) : null}

@@ -89,7 +89,9 @@ export function Timeline() {
   const onKey = (event: KeyboardEvent) => {
     const next = event.key === "ArrowRight" || event.key === "ArrowUp" ? picked + 1 : event.key === "ArrowLeft" || event.key === "ArrowDown" ? picked - 1 : event.key === "Home" ? 0 : event.key === "End" ? count - 1 : null
     if (next === null) return
+    // The keys move this playhead and nothing else on the page.
     event.preventDefault()
+    event.stopPropagation()
     setPicked(Math.min(count - 1, Math.max(0, next)))
   }
   const undo = () => {
@@ -163,6 +165,8 @@ export function Timeline() {
           })}
           {/* The last checkpoint, after the newest turn. */}
           <path d={`M${checkX(count) - 4} 36H${checkX(count)}V56H${checkX(count) - 4}`} stroke="oklch(1 0 0 / 0.38)" />
+          {/* The turn under the playhead, lit between the two checkpoints that bracket it. */}
+          <path d={`M${checkX(picked) + 1} 46H${checkX(picked + 1) - 1}`} stroke="var(--color-accent)" strokeWidth={2} className="transition-[d] duration-200" />
           {/* The playhead. */}
           <path d={`M${tickX(picked)} 14V92`} stroke="var(--color-accent)" strokeWidth={1} className="transition-[d] duration-200" />
           <circle cx={tickX(picked)} cy={46} r={5} fill="var(--color-page)" stroke="var(--color-accent)" strokeWidth={1.5} />
@@ -177,6 +181,22 @@ export function Timeline() {
             {t.at}
           </span>
         ))}
+      </div>
+
+      <div aria-hidden className="mt-1 flex flex-wrap justify-end gap-x-4 gap-y-1 text-[12px] text-ink-3">
+        <span className="flex items-center gap-1.5">
+          <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
+            <path d="M6 1H2V13H6" stroke="oklch(1 0 0 / 0.5)" />
+          </svg>
+          checkpoint
+        </span>
+        <span className="flex items-center gap-1.5">
+          <svg width="8" height="14" viewBox="0 0 8 14" fill="none">
+            <path d="M4 3V13" stroke="oklch(1 0 0 / 0.6)" strokeWidth="1.25" />
+            <circle cx="4" cy="2.5" r="2" fill="oklch(1 0 0 / 0.6)" />
+          </svg>
+          a turn that changed files
+        </span>
       </div>
 
       {/* What the tick under the playhead holds: the card the app shows for it. */}

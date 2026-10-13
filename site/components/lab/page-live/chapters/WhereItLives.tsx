@@ -60,7 +60,7 @@ export function WhereItLives() {
   const hover = (part: Part) => ({ onPointerEnter: () => setHot(part), onPointerLeave: () => setHot(null) })
 
   return (
-    <Instrument kind="Diagram" caption="What stays on your Mac, and the only lines that leave it. Point at a part to see its lines.">
+    <Instrument kind="Diagram" caption="What stays on your Mac, and the only lines that leave it.">
       <div ref={ref} className="relative">
         <svg aria-hidden className="pointer-events-none absolute inset-0 hidden h-full w-full overflow-visible md:block" fill="none">
           <SignalDefs id="local" />
@@ -84,7 +84,6 @@ export function WhereItLives() {
             Your Mac
             <span className="text-[12px] text-ink-3">no account, nothing uploaded</span>
           </p>
-          <p className="hidden text-[13px] text-ink-2 md:col-start-4 md:row-start-1 md:block">Outside it</p>
 
           <Block part="realm" hot={hot} hover={hover("realm")} title="~/Realm" mono note="Files and a SQLite database on disk. Nothing here leaves." className="md:col-start-1 md:row-span-2 md:row-start-2">
             <ul className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[12.5px] text-ink-2">
@@ -109,6 +108,7 @@ export function WhereItLives() {
           <span aria-hidden data-anchor="row-2" className="pointer-events-none hidden md:col-start-3 md:row-start-3 md:block" />
           <span aria-hidden data-anchor="row-3" className="pointer-events-none hidden md:col-start-3 md:row-start-4 md:block" />
 
+          <p className="mt-6 text-[13px] text-ink-2 md:col-start-4 md:row-start-1 md:mt-0">Outside it</p>
           <Block part="apps" hot={hot} hover={hover("apps")} title="Apps you connect" note="Realm calls them for your agents, which never get the credential." outside className="md:col-start-4 md:row-start-2">
             <span className="mt-2.5 flex gap-2 text-ink-2">
               {(["linear", "github", "notion", "slack", "figma"] as const).map((id) => (

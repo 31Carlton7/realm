@@ -15,6 +15,7 @@ import { Header } from "@/components/lab/page-live/Header"
 import { Hero } from "@/components/lab/page-live/hero/Hero"
 import { Chapter, Detail, Evidence } from "@/components/lab/page-live/kit/Chapter"
 import { LiveStyles } from "@/components/lab/page-live/kit/LiveStyles"
+import { Spine } from "@/components/lab/page-live/kit/Spine"
 import { delegation, facets, type Claim } from "@/content/home"
 import { site } from "@/lib/site"
 import track from "@/public/product/details/track.webp"
@@ -51,6 +52,9 @@ export default function Live({ download, claims }: PageDesignProps) {
       <main>
         <Hero download={download} />
 
+        {/* Everything after the hero hangs on one line down the gutter, a station at each heading. */}
+        <div className="relative">
+        <Spine />
         <SpaceLegend facets={facets} claim={claim("spaces")} />
 
         <Chapter id="agents" title="Bring the agent you already use." instrument={<Switchboard />} evidence={<Evidence claim={claim("agents")} />}>
@@ -172,6 +176,7 @@ export default function Live({ download, claims }: PageDesignProps) {
 
         <Questions />
         <Close download={download} repo={site.repo} />
+        </div>
       </main>
       <Footer href={download.href} />
     </div>

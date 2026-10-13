@@ -58,7 +58,7 @@ export function SpaceLegend({ facets, claim }: { facets: Facet[]; claim: Claim }
   return (
     <section aria-labelledby="spaces-title" className="mx-auto w-full max-w-[85rem] px-5 pt-24 pb-16 sm:px-10 sm:pt-32 sm:pb-24">
       <div className="max-w-[44rem]">
-        <h2 id="spaces-title" className="text-[clamp(1.9rem,3.2vw,2.75rem)] leading-[1.04] font-[580] tracking-[-0.042em] text-balance text-ink">
+        <h2 id="spaces-title" data-station className="text-[clamp(1.9rem,3.2vw,2.75rem)] leading-[1.04] font-[580] tracking-[-0.042em] text-balance text-ink">
           Every line is a space.
         </h2>
         <p className="mt-5 text-[16.5px] leading-[1.6] text-ink-2">

@@ -30,7 +30,8 @@ export function Close({ download, repo }: { download: MacDownload; repo: string 
       const row = 30 + i * 9
       const y = ty + (i - 1.5) * 7
       const turn = tx - 70 - (3 - i) * 9
-      const pts: Pt[] = [[-40, row], [turn, row], [turn, y], [tx, y]]
+      // They leave from the gutter, where the page's own line runs (kit/Spine), and turn in together.
+      const pts: Pt[] = [[-26, row], [turn, row], [turn, y], [tx, y]]
       return route(pts, 12)
     })
   })()
@@ -38,7 +39,7 @@ export function Close({ download, repo }: { download: MacDownload; repo: string 
 
   return (
     <section aria-labelledby="close-title" className="mx-auto w-full max-w-[85rem] px-5 pt-16 pb-28 sm:px-10 sm:pt-24 sm:pb-36">
-      <div ref={ref} className="relative overflow-hidden pt-24 sm:pt-28">
+      <div ref={ref} className="relative pt-24 sm:pt-28">
         <svg aria-hidden className="pointer-events-none absolute inset-0 hidden h-full w-full overflow-visible sm:block" fill="none">
           <SignalDefs id="close" />
           {lines.map((r, i) => (
@@ -48,7 +49,7 @@ export function Close({ download, repo }: { download: MacDownload; repo: string 
         </svg>
         <div className="relative grid gap-10 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <div className="max-w-[40rem]">
-            <h2 id="close-title" className="text-[clamp(2.4rem,5vw,4.25rem)] leading-[0.98] font-[580] tracking-[-0.05em] text-balance text-ink">
+            <h2 id="close-title" data-station className="text-[clamp(2.4rem,5vw,4.25rem)] leading-[0.98] font-[580] tracking-[-0.05em] text-balance text-ink">
               Open your first realm.
             </h2>
             <p className="mt-5 max-w-[46ch] text-[17px] leading-[1.55] text-ink-2">

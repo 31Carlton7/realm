@@ -10,7 +10,7 @@ export function Questions() {
     <section aria-labelledby="faq-title" className="mx-auto w-full max-w-[85rem] px-5 py-20 sm:px-10 sm:py-28">
       <div className="grid gap-x-12 gap-y-8 lg:grid-cols-12">
         <div className="lg:col-span-4">
-          <h2 id="faq-title" className="text-[clamp(1.9rem,3.2vw,2.75rem)] leading-[1.04] font-[580] tracking-[-0.042em] text-ink">
+          <h2 id="faq-title" data-station className="text-[clamp(1.9rem,3.2vw,2.75rem)] leading-[1.04] font-[580] tracking-[-0.042em] text-ink">
             Questions
           </h2>
           <p className="mt-4 max-w-[34ch] text-[16.5px] leading-[1.6] text-ink-2">The ones people ask first, with the limits stated.</p>

@@ -81,6 +81,7 @@ export function Orbit() {
             const step = e.key === "ArrowRight" || e.key === "ArrowUp" ? 3 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -3 : 0
             if (!step) return
             e.preventDefault()
+            e.stopPropagation()
             setManual(Math.min(WEEK - 0.01, Math.max(0, hours + step)))
           }}
           onPointerDown={(e) => {
@@ -90,7 +91,7 @@ export function Orbit() {
           onPointerMove={(e) => {
             if (e.currentTarget.hasPointerCapture(e.pointerId)) setFromPointer(e)
           }}
-          className="relative mx-auto aspect-square w-full max-w-[30rem] cursor-grab touch-none rounded-full outline-offset-4 select-none active:cursor-grabbing"
+          className="relative mx-auto mb-14 aspect-square w-full max-w-[30rem] cursor-grab touch-none rounded-full outline-offset-4 select-none active:cursor-grabbing sm:mb-12"
         >
           <svg aria-hidden viewBox="0 0 100 100" className="absolute inset-0 h-full w-full overflow-visible" fill="none">
             {/* The week: a tick for each day, a finer one every six hours. */}

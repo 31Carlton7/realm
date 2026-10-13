@@ -30,7 +30,7 @@ export function Chapter({
     <section aria-labelledby={`${id}-title`} className="mx-auto w-full max-w-[85rem] px-5 py-16 sm:px-10 sm:py-24">
       <div className={wide ? "" : `grid gap-x-12 gap-y-10 lg:grid-cols-12 lg:items-start ${flip ? "lg:[&>*:first-child]:order-2" : ""}`}>
         <div className={wide ? "max-w-[44rem]" : "lg:sticky lg:top-28 lg:col-span-4"}>
-          <h2 id={`${id}-title`} className="text-[clamp(1.9rem,3.2vw,2.75rem)] leading-[1.04] font-[580] tracking-[-0.042em] text-balance text-ink">
+          <h2 id={`${id}-title`} data-station className="text-[clamp(1.9rem,3.2vw,2.75rem)] leading-[1.04] font-[580] tracking-[-0.042em] text-balance text-ink">
             {title}
           </h2>
           <div className="mt-5 space-y-4 text-[16.5px] leading-[1.6] text-ink-2 [&_strong]:font-[520] [&_strong]:text-ink">{children}</div>
