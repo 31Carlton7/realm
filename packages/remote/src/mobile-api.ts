@@ -3,7 +3,8 @@ import { z } from "zod";
 /**
  * mobile.v1 — the phone's own API (PROTOCOL.md §8). It is deliberately not the desktop's RPC: a call the
  * phone has no reason to make does not exist here, so the allowlist is the API itself rather than a
- * filter over a list of 200 methods that keeps growing. Phase 1 carries the subset the spike needs.
+ * filter over a list of 200 methods that keeps growing. Phase 1 carried the subset the spike needed;
+ * what came after carries what the desktop shows.
  *
  * Readers ignore fields they do not know (zod strips them), so the Mac can add a field without breaking
  * an older phone, and a newer phone's extra param reaches an older Mac harmlessly. Every field added

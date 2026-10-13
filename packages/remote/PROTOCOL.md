@@ -488,4 +488,8 @@ a setting or a key.
   sending cipher, created with `key` and starting at nonce 0, encrypting every message in order. One
   message is over 150 KB, to cover fragmentation.
 - **Links.** `ts-links.json` is `[{url, fields}]`, including an expired link and an unknown version.
+- **The API.** `ts-api.json` holds `mobile.v1`'s answers as the Mac's own projector and `MobileApi`
+  make them, every row kind included, with the answer the phone's card must send for one question.
+  The server's suite fails when the committed file is not what the code produces, or when a row kind
+  has no example in it; RealmKit decodes every answer in it.
 - **The relay.** Its own tests drive §3 against the Worker in workerd.
