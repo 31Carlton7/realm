@@ -130,7 +130,7 @@ export function Cards({ claims }: { claims: ProvenClaim[] }) {
           </p>
         </div>
         <ul className="mt-8 flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [scrollbar-width:none] sm:gap-6 sm:px-10">
-          {stills.map((s) => (
+          {stills.filter((s) => !s.claim).map((s) => (
             <li key={s.slug} className="w-[min(82vw,520px)] shrink-0 snap-start">
               <figure>
                 <div className="relative aspect-[16/10] overflow-hidden rounded-[12px] bg-page">

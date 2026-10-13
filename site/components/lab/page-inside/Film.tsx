@@ -17,8 +17,12 @@ import css from "./inside.module.css"
 import { onScrollFrame, requestScrollFrame } from "./frames"
 import { studioScene } from "./scene"
 
-/** Wide enough for the window and the words side by side, and motion allowed: the film runs. */
-export const FILM_QUERY = "(min-width: 1024px) and (prefers-reduced-motion: no-preference)"
+/**
+ * Wide enough for the words beside a window that shows all three of its columns, and motion allowed:
+ * the film runs. The sample lays itself out by the viewport, and only from 1280px does it show the
+ * sidebar, the session and the side panel at once, which every chapter's framing assumes.
+ */
+export const FILM_QUERY = "(min-width: 1280px) and (prefers-reduced-motion: no-preference)"
 
 /* How far the reader scrolls for each part of the tour, in viewport heights. */
 const INTRO = 0.18

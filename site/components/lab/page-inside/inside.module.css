@@ -2,9 +2,9 @@
  * The Inside page's structure. Two layouts from one tree, chosen by the stylesheet so the first paint
  * is already the right one:
  *
- *   film   a wide screen that allows motion: the window pinned on a stage for the whole tour, the
- *          camera framing it, the words in a column beside it
- *   cards  a phone, a narrow window, or reduced motion: the window in the flow of the page, and each
+ *   film   a window 1280px wide or more that allows motion: the window pinned on a stage for the
+ *          whole tour, the camera framing it, the words in a column beside it
+ *   cards  a phone, a narrower window, or reduced motion: the window in the flow of the page, and each
  *          chapter as its own card with a capture of what it says
  *
  * The camera (Film.tsx) runs only where `film` applies and leaves everything else to this file.
@@ -127,7 +127,7 @@
   --col-w: clamp(360px, 30vw, 488px);
 }
 
-@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+@media (min-width: 1280px) and (prefers-reduced-motion: no-preference) {
   .track {
     height: calc(var(--film) * 100vh + 100vh);
   }
@@ -380,7 +380,7 @@
   }
 }
 
-@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+@media (min-width: 1280px) and (prefers-reduced-motion: no-preference) {
   .closeTrack {
     --foot: 232px;
     height: 240vh;

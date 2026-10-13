@@ -206,23 +206,29 @@ export const chapters: Chapter[] = [
  * The rest of the evidence, run past the camera once the chapters are done: each capture cut to what
  * its caption is about, the centre of the cut and how much of the window's width it shows. The frame
  * is the window's own 16:10, so the cut shows the same share of its height.
+ *
+ * The first three are the captures of what the chapters showed in the working sample — the sidebar,
+ * a turn, two sub-agents — so every claim the tour makes is also seen in the shipped app. The chapter
+ * cards carry those three already, so they leave them out of their own strip.
  */
-const STRIP: [slug: string, cx: number, cy: number, span: number][] = [
+const STRIP: [slug: string, cx: number, cy: number, span: number, claim?: boolean][] = [
+  ["sidebar", 0.16, 0.3, 0.42, true],
+  ["session", 0.5, 0.44, 0.62, true],
+  ["delegation", 0.69, 0.38, 0.62, true],
   ["splits", 0.62, 0.36, 0.62],
   ["questions", 0.6, 0.36, 0.52],
   ["blocks", 0.6, 0.33, 0.5],
   ["palette", 0.5, 0.39, 0.44],
   ["library", 0.62, 0.48, 0.74],
   ["memory", 0.61, 0.3, 0.52],
-  ["profiles", 0.16, 0.22, 0.4],
   ["onboarding", 0.5, 0.5, 0.5],
 ]
 
-export type Still = { slug: string; title: string; blurb: string; cut: readonly [number, number, number] }
+export type Still = { slug: string; title: string; blurb: string; cut: readonly [number, number, number]; claim: boolean }
 
-export const stills: Still[] = STRIP.flatMap(([slug, cx, cy, span]) => {
+export const stills: Still[] = STRIP.flatMap(([slug, cx, cy, span, claim = false]) => {
   const feature = features.find((f) => f.slug === slug)
-  return feature ? [{ slug, title: feature.title, blurb: feature.blurb, cut: [cx, cy, span] as const }] : []
+  return feature ? [{ slug, title: feature.title, blurb: feature.blurb, cut: [cx, cy, span] as const, claim }] : []
 })
 
 /** Where a cut's picture sits in its frame: its size and offset, as fractions of the frame. */
