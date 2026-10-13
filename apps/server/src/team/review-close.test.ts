@@ -23,7 +23,7 @@ function setup() {
   mkdirSync(folder, { recursive: true });
   for (const s of ["S1", "S2"])
     db.prepare("INSERT INTO spaces (id, profile_id, name, icon, sort_order, folder_path, created_at, updated_at) VALUES (?, 'p', ?, 'f', 0, ?, 1, 1)").run(s, s, folder);
-  for (const [id, space, name] of [["R1", "S1", "Writer"], ["R2", "S1", "Editor"], ["R3", "S2", "Writer"]])
+  for (const [id, space, name] of [["R1", "S1", "Writer"], ["R2", "S1", "Editor"], ["R3", "S2", "Writer"]] as const)
     db.prepare("INSERT INTO team_roles (id, space_id, name, brief, realmite_json, agent_kind, created_at, updated_at) VALUES (?, ?, ?, 'Write.', '{}', 'fake', 1, 1)").run(id, space, name);
   let now = 1_000;
   const live: { id: string; sessionId: string; roleId: string; dedupeKey: null }[] = [];
