@@ -1,0 +1,20 @@
+name: Dead code
+# Managed by CodexSkills bootstrap-code-quality.py
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  dead-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Fallow audits source directly; the private icon package is not needed.
+      - run: bash scripts/check-dead-code.sh
+        env:
+          QUALITY_BASE_REF: origin/${{ github.base_ref }}
