@@ -332,7 +332,7 @@ fn ridged(p0: vec3f) -> f32 {
   var sum = 0.0;
   var amp = 0.5;
   var norm = 0.0;
-  for (var i = 0; i < 4; i++) {
+  for (var i = 0; i < 3; i++) {
     let n = 1.0 - abs(noise3(p) * 2.0 - 1.0);
     sum += amp * n * n;
     norm += amp;
@@ -351,7 +351,7 @@ fn nebula(k: i32, o: vec3f, d: vec3f, t: f32, jitter: f32) -> vec4f {
   let m = NEB[k * 3 + 2];
   let hit = sphere(o, d, n.xyz, n.w);
   if (hit.y <= 0.0) { return vec4f(0.0, 0.0, 0.0, 1.0); }
-  let steps = 8;
+  let steps = 6;
   let dt = (hit.y - hit.x) / f32(steps);
   let core = n.xyz + CORE[k].xyz * n.w;
   // The flare the page sets off now and then, when it is in this one.
@@ -375,7 +375,7 @@ fn nebula(k: i32, o: vec3f, d: vec3f, t: f32, jitter: f32) -> vec4f {
     let turned = vec3f(rel.x * cs - rel.y * sn, rel.x * sn + rel.y * cs, rel.z) * n.w;
     let q = turned * m.z + drift * m.z + vec3f(f32(k) * 17.3);
     let w = vec3f(noise3(q * 0.45 + vec3f(0.0, 0.0, t * 0.03)), noise3(q * 0.45 + vec3f(5.2, 1.3, -t * 0.025)), 0.5) - 0.5;
-    let body = fbm3(q * 0.6 + w, 3);
+    let body = fbm3(q * 0.6 + w, 2);
     // Most of a nebula's light is near its heart: the envelope falls away steeply, and what is left
     // out at its edges is a few threads.
     let edge = pow(smoothstep(1.0, 0.0, r + (body - 0.5) * 0.8), 1.6);
@@ -893,9 +893,9 @@ struct Comp {
   cam: array<vec4f, 4>,   // eye xyz + focal; forward + principal x; right + principal y; up + unused
   clear: array<vec4f, ${CLEAR * 2}>,     // per block of words: rect x, y, w, h; its pane's corner radius (< 0: no pane), field left inside, unused, unused
   panels: array<vec4f, ${PANELS * 2}>,   // per panel: rect x, y, w, h; fill, corner radius, picture, light
-  beams: array<vec4f, ${BEAMS * 6}>,     // per beam (see beam())
+  beams: array<vec4f, ${BEAMS * 7}>,     // per beam (see beam())
   pulses: array<vec4f, ${PULSES * 5}>,   // per hand-off: five points along its trail, head first: page x, y, depth, light
-  fence: array<vec4f, 9>,                // a confined realm's boundary: its eight corners on the page (x, y, depth), then how drawn
+  fence: array<vec4f, 10>,               // a confined realm's boundary: its eight corners on the page (x, y, depth), how drawn, its rect
 }
 @group(0) @binding(0) var<uniform> comp: Comp;
 @group(0) @binding(1) var sceneTex: texture_2d<f32>;
@@ -950,15 +950,18 @@ fn rayAt(p: vec2f) -> vec3f {
 // screen, or the doorway's own light thrown out ahead of it), marched where the ray passes through it
 // and stopped at whatever the scene shows nearer. Six vec4s:
 //   origin xyz, length; axis xyz, light; across xyz, half width at the door; up xyz, half height at the door;
-//   half width and height at the far end, kind (0 to a screen, 1 a doorway thrown open), its moment; and its rect on the page.
+//   half width and height at the far end, kind (0 to a screen, 1 a doorway thrown open), its moment; its
+//   rect on the page; and the rect of the screen it lands on, where the picture hides it (left, top, right, bottom).
 fn beam(k: i32, p: vec2f, rd: vec3f, far: f32, t: f32) -> vec3f {
-  let o = comp.beams[k * 6];
-  let a = comp.beams[k * 6 + 1];
-  let u = comp.beams[k * 6 + 2];
-  let v = comp.beams[k * 6 + 3];
-  let e = comp.beams[k * 6 + 4];
-  let box = comp.beams[k * 6 + 5];
+  let o = comp.beams[k * 7];
+  let a = comp.beams[k * 7 + 1];
+  let u = comp.beams[k * 7 + 2];
+  let v = comp.beams[k * 7 + 3];
+  let e = comp.beams[k * 7 + 4];
+  let box = comp.beams[k * 7 + 5];
+  let hid = comp.beams[k * 7 + 6];
   if (a.w <= 0.0 || p.x < box.x || p.y < box.y || p.x > box.z || p.y > box.w) { return vec3f(0.0); }
+  if (p.x > hid.x && p.y > hid.y && p.x < hid.z && p.y < hid.w) { return vec3f(0.0); }
   let rel = comp.cam[0].xyz - o.xyz;
   // The ray in the beam's own frame: across, up, along.
   let ro = vec3f(dot(rel, u.xyz), dot(rel, v.xyz), dot(rel, a.xyz));
@@ -1045,7 +1048,8 @@ var<private> EDGES: array<vec2u, 12> = array<vec2u, 12>(
 
 fn fence(p: vec2f, depthHere: f32, dpr: f32) -> vec3f {
   let amount = comp.fence[8].x;
-  if (amount <= 0.0) { return vec3f(0.0); }
+  let box = comp.fence[9];
+  if (amount <= 0.0 || p.x < box.x || p.y < box.y || p.x > box.z || p.y > box.w) { return vec3f(0.0); }
   var light = 0.0;
   for (var i = 0; i < 12; i++) {
     let a = comp.fence[EDGES[i].x];

@@ -330,9 +330,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
     cam: Array.from({ length: 4 }, () => [...zero]),
     clear: Array.from({ length: CLEAR * 2 }, () => [...zero]),
     panels: Array.from({ length: PANELS * 2 }, () => [...zero]),
-    beams: Array.from({ length: BEAMS * 6 }, () => [...zero]),
+    beams: Array.from({ length: BEAMS * 7 }, () => [...zero]),
     pulses: Array.from({ length: PULSES * 5 }, () => [...zero]),
-    fence: Array.from({ length: 9 }, () => [...zero]),
+    fence: Array.from({ length: 10 }, () => [...zero]),
   }
 
   const population = populate()
@@ -560,6 +560,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     light: number,
     kind: number,
     moment: number,
+    hidden: Rect | null,
   ) => {
     const doorMid = mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25)
     const across0 = sub3(door[1], door[0])
@@ -567,7 +568,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     const axisRaw = sub3(farMid, doorMid)
     const L = length3(axisRaw)
     if (L < 1e-3 || light <= 0.001) {
-      comp.beams[k * 6 + 1] = [0, 0, 1, 0]
+      comp.beams[k * 7 + 1] = [0, 0, 1, 0]
       return
     }
     const axis = mul(axisRaw, 1 / L)
@@ -606,12 +607,14 @@ export const createRealms: StageFactory = async (gpu, output) => {
         y1 = Math.max(y1, y)
       }
     }
-    comp.beams[k * 6] = [...doorMid, L]
-    comp.beams[k * 6 + 1] = [...axis, light]
-    comp.beams[k * 6 + 2] = [...u, hu0]
-    comp.beams[k * 6 + 3] = [...vUp, hv0]
-    comp.beams[k * 6 + 4] = [farHalf[0], farHalf[1], kind, moment]
-    comp.beams[k * 6 + 5] = [Math.max(x0 - 6, 0), Math.max(y0 - 6, 0), Math.min(x1 + 6, width), Math.min(y1 + 6, height)]
+    comp.beams[k * 7] = [...doorMid, L]
+    comp.beams[k * 7 + 1] = [...axis, light]
+    comp.beams[k * 7 + 2] = [...u, hu0]
+    comp.beams[k * 7 + 3] = [...vUp, hv0]
+    comp.beams[k * 7 + 4] = [farHalf[0], farHalf[1], kind, moment]
+    comp.beams[k * 7 + 5] = [Math.max(x0 - 6, 0), Math.max(y0 - 6, 0), Math.min(x1 + 6, width), Math.min(y1 + 6, height)]
+    // Inside the screen it lands on, the picture hides it: a hair inside the edge, so its rim still shows.
+    comp.beams[k * 7 + 6] = hidden ? [hidden[0] + 2, hidden[1] + 2, hidden[0] + hidden[2] - 2, hidden[1] + hidden[3] - 2] : [0, 0, 0, 0]
   }
 
   return {
@@ -681,7 +684,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const visible = (r: Rect) => r[2] > 0 && r[1] < height + 160 && r[1] + r[3] > -160 && r[0] < width + 160 && r[0] + r[2] > -160
       const progress = now.at.from + now.at.u
       const teams = list.findIndex((s) => s.team)
-      const beamsNow: { door: [Vec3, Vec3, Vec3, Vec3]; mid: Vec3; half: [number, number]; light: number; kind: number; moment: number; reach: number }[] = []
+      const beamsNow: { door: [Vec3, Vec3, Vec3, Vec3]; mid: Vec3; half: [number, number]; light: number; kind: number; moment: number; reach: number; hidden: Rect | null }[] = []
       let fence: { pose: Pose; amount: number } | null = null
       let pageCount = 0
       const pageIndex = new Map<string, number>()
@@ -778,7 +781,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
             const e = smoother(opening / 0.6)
             const mid = mix3(mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25), screenMid, Math.max(e, 0.04))
             const half: [number, number] = [lerp(0.2, W * 0.48, e), lerp(0.4, H * 0.48, e)]
-            beamsNow.push({ door, mid, half, light: 0.55 + 0.7 * (1 - pictureOn) * smooth(opening), kind: 0, moment: index * 0.37, reach })
+            beamsNow.push({ door, mid, half, light: 0.55 + 0.7 * (1 - pictureOn) * smooth(opening), kind: 0, moment: index * 0.37, reach, hidden: pictureOn > 0.995 ? [left, top, w, h] : null })
           }
         } else {
           // In the slot: the screen is where the layout put it, and its light is read from there.
@@ -995,7 +998,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
         const out = normalize(mul(pose.y, -1))
         const s = Math.hypot(...pose.z)
         const mid = add(mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25), mul(out, 5 * s))
-        beamsNow.unshift({ door, mid, half: [1.1 * s, 1.5 * s], light: 1.1 * touch.open, kind: 1, moment: index * 0.13, reach: touch.open })
+        beamsNow.unshift({ door, mid, half: [1.1 * s, 1.5 * s], light: 1.1 * touch.open, kind: 1, moment: index * 0.13, reach: touch.open, hidden: null })
       }
 
       // The hand-offs in flight: a point of light from one doorway to the other.
@@ -1081,10 +1084,10 @@ export const createRealms: StageFactory = async (gpu, output) => {
       for (let k = 0; k < BEAMS; k++) {
         const beam = beamsNow[k]
         if (!beam) {
-          comp.beams[k * 6 + 1] = [0, 0, 1, 0]
+          comp.beams[k * 7 + 1] = [0, 0, 1, 0]
           continue
         }
-        writeBeam(k, view, b, width, height, beam.door, beam.mid, beam.half, beam.light * (beam.kind === 0 ? smooth(beam.reach) : 1), beam.kind, beam.moment)
+        writeBeam(k, view, b, width, height, beam.door, beam.mid, beam.half, beam.light * (beam.kind === 0 ? smooth(beam.reach) : 1), beam.kind, beam.moment, beam.hidden)
       }
 
       // The confined realm's boundary.
@@ -1093,11 +1096,20 @@ export const createRealms: StageFactory = async (gpu, output) => {
         const r = 1.3
         const corners: Vec3[] = []
         for (const zz of [-1, 1]) for (const [xx, yy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) corners.push(inWorld(pose, [xx * r, yy * r, zz * r]))
+        let x0 = Infinity
+        let y0 = Infinity
+        let x1 = -Infinity
+        let y1 = -Infinity
         corners.forEach((p, i) => {
           const [x, y, depth] = project(view, b, p)
           comp.fence[i] = depth > 0.3 ? [x, y, length3(sub3(p, view.eye)), 0] : [0, 0, 0, 0]
+          x0 = Math.min(x0, x)
+          y0 = Math.min(y0, y)
+          x1 = Math.max(x1, x)
+          y1 = Math.max(y1, y)
         })
         comp.fence[8] = [amount, 0, 0, 0]
+        comp.fence[9] = [x0 - 8, y0 - 8, x1 + 8, y1 + 8]
       } else comp.fence[8] = [0, 0, 0, 0]
 
       const clearList = clears.slice(0, CLEAR)
