@@ -9,10 +9,11 @@ import { DOOR_BLUE, DOOR_LIGHT, DUSK, OPEN_SKY, POINTER_LIGHT, SPACING, SPILL_LI
  * Nothing is marched. The camera looks down the cube's own diagonal, which is the angle the mark is
  * drawn from, so every cube's outline is the mark's hexagon and the cubes' outlines tile the way the
  * mark's hexagon tiles. A pixel's ray therefore has one cube to ask — the one whose cell it crosses at
- * half height — plus the two in front of it, which reach up into this cell when they rise. Each cube
- * is six planes (the mark's six faces): the ray meets each plane exactly, and the distance from that
- * point to the face's edge, turned into device pixels by the ray's own derivatives, is its coverage.
- * So every edge is anti-aliased like vector art, at every size, while the cubes move.
+ * half height — plus the two in front of it, which reach up into this cell when they rise, and the two
+ * beside it, which lean in when they rise near the edges of the lens. Each cube is six planes (the
+ * mark's six faces): the ray meets each plane exactly, and the distance from that point to the face's
+ * edge, turned into device pixels by the ray's own derivatives, is its coverage. So every edge is
+ * anti-aliased like vector art, at every size, while the cubes move.
  *
  * World: x, y on the ground, z up, a cube's edge is 1. Its left wall faces -x, its right wall -y with
  * the doorway in it, its top +z — the mark's a, b and -c.
@@ -396,6 +397,10 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
   return Layer(finish(sum / max(weight, 1e-4), depth), alpha);
 }
 
+var<private> NEAREST_FIRST: array<vec2f, 5> = array<vec2f, 5>(
+  vec2f(0.0, -1.0), vec2f(1.0, -1.0), vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(-1.0, 0.0),
+);
+
 var<private> AROUND: array<vec2f, 7> = array<vec2f, 7>(
   vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(-1.0, 0.0), vec2f(0.0, 1.0),
   vec2f(0.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
@@ -513,15 +518,13 @@ fn clearance(p: vec2f) -> f32 {
     return vec4f(dither(PAGE, px, t), 1.0);
   }
 
-  // The cell the ray crosses at half height, and the two in front of it, nearest first.
+  // The cell the ray crosses at half height, the two in front of it first, then it, then the two
+  // beside it, whose risen tops lean into it near the edges of a wide lens.
   let home = cellAt(o + d * ((0.5 - o.z) / d.z), 0.5);
   var color = vec3f(0.0);
   var cover = 0.0;
-  for (var k = 0; k < 3; k++) {
-    var offset = vec2f(0.0, 0.0);
-    if (k == 0) { offset = vec2f(0.0, -1.0); }
-    if (k == 1) { offset = vec2f(1.0, -1.0); }
-    let layer = realm(o, d, home + offset, t);
+  for (var k = 0; k < 5; k++) {
+    let layer = realm(o, d, home + NEAREST_FIRST[k], t);
     color += (1.0 - cover) * layer.alpha * layer.color;
     cover += (1.0 - cover) * layer.alpha;
   }
