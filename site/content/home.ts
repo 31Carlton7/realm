@@ -75,7 +75,7 @@ export const claims: Claim[] = [
       "Linear, Notion, Slack, GitHub, Jira, Figma and Sentry connect to a space in one click. Agents reach them through Realm and never get the credential, and every call is logged.",
     capture: "connections",
     part: "connections",
-    caption: "The apps a space can connect, each with what it lets an agent do and one Connect button.",
+    caption: "Six of the apps a space can connect, each with what it lets an agent do.",
   },
   {
     id: "review",

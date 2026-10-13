@@ -1,7 +1,7 @@
 {
   "connections": {
     "width": 754,
-    "height": 730,
+    "height": 568,
     "radius": 12,
     "cutout": false
   },
@@ -18,8 +18,8 @@
     "cutout": true
   },
   "realm": {
-    "width": 1200,
-    "height": 760,
+    "width": 1280,
+    "height": 820,
     "radius": 16,
     "cutout": false
   },
@@ -31,7 +31,7 @@
   },
   "sandbox": {
     "width": 765,
-    "height": 450,
+    "height": 419,
     "radius": 12,
     "cutout": false
   },

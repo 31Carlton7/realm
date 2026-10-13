@@ -722,18 +722,23 @@ function makeContext(page, rpc) {
    * size. `lift` names a floating surface (the model picker) to photograph alone, on transparency:
    * everything else is hidden for the shot and so is its own shadow, because the page draws one, and
    * a copy of this one cut off at the file's edge would ring it. Without `lift`, the part is the
-   * window's own pixels on the page colour, and the page rounds its corners.
+   * window's own pixels on the page colour, and the page rounds its corners. `hide`, as for `shot`,
+   * takes out of the frame what is not about it and would only show at its edge as a sliver — the
+   * top of the next row past the one a crop ends on — leaving the ground it stands on.
    */
-  const part = async (name, expect, { box, radius, lift = null }) => {
+  const part = async (name, expect, { box, radius, lift = null, hide = [] }) => {
     await prove(name, expect)
     const x = Math.floor(box.x), y = Math.floor(box.y)
     const clip = { x, y, width: Math.ceil(box.x + box.width) - x, height: Math.ceil(box.y + box.height) - y }
     if (lift) await page.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } })
     else await evaluate(`(() => { document.documentElement.style.background = ${JSON.stringify(PAGE)}; return true; })()`)
-    const isolate = lift && `html, body { background: transparent !important; } body * { visibility: hidden !important; } ${lift}, ${lift} * { visibility: visible !important; } ${lift} { box-shadow: none !important; }`
+    const isolate = [
+      lift && `html, body { background: transparent !important; } body * { visibility: hidden !important; } ${lift}, ${lift} * { visibility: visible !important; } ${lift} { box-shadow: none !important; }`,
+      hide.length && `${hide.join(", ")} { visibility: hidden !important; }`,
+    ].filter(Boolean).join(" ") || null
     try {
       await withStyle(isolate, async () => {
-        await sleep(lift ? 200 : 0)
+        await sleep(isolate ? 200 : 0)
         const result = await page.send("Page.captureScreenshot", { format: "png", clip: { ...clip, scale: 1 } })
         fs.mkdirSync(partRawDir, { recursive: true })
         fs.writeFileSync(path.join(partRawDir, `${name}.png`), Buffer.from(result.data, "base64"))
@@ -1159,18 +1164,34 @@ const scenes = [
       const expect = `!!document.querySelector('.view-panel:not([hidden]) .xterm') && [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.includes('vim'))`
       await shot("terminal", expect)
       // The same realm at work as one picture the landing page can draw near its own size: a window of
-      // 1200 by 760 with the sidebar folded (the session's bar still names its space), so the session's
+      // 1280 by 820 with the sidebar folded (the session's bar still names its space), so the session's
       // turn and the terminal beside it take the room. vim redraws for the new size before it is taken.
       try {
         await evaluate(`document.activeElement?.blur?.(); true`)
         await press("b", { code: "KeyB", vk: 66, meta: true })
         await until(() => evaluate(`!!document.querySelector('.sidebar[data-collapsed]')`), 5_000, "the sidebar folded")
-        await viewport(1200, 760)
-        await reveal(".session-pane .edit-summary", "end", 40)
+        await viewport(1280, 820)
+        // The turn whole, from its ask to its card: the ask at the head of the transcript, so the
+        // dissolve along the top falls on the gap above it rather than across a sentence. Where the
+        // turn is too tall for that, its card at the foot as before.
+        const whole = await evaluate(`(() => { const col = document.querySelector('.view-main .session-pane .transcript-col'); const ask = [...col.querySelectorAll(':scope > .msg-user-row')].at(-1); const card = col.querySelector(':scope > .edit-summary');
+          let s = col.parentElement; while (s && !(/(auto|scroll)/.test(getComputedStyle(s).overflowY) && s.scrollHeight > s.clientHeight)) s = s.parentElement;
+          const sr = s.getBoundingClientRect(); s.scrollTop += ask.getBoundingClientRect().top - sr.top - 20;
+          const composer = document.querySelector('.view-main .composer')?.getBoundingClientRect();
+          return card.getBoundingClientRect().bottom <= Math.min(sr.bottom, composer ? composer.top : sr.bottom) - 30; })()`)
+        if (!whole) await reveal(".session-pane .edit-summary", "end", 40)
         await sleep(1200)
         await until(async () => (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live.includes("withInviteDefaults"), 15_000, "vim redrawn")
+        // A line too long for the rows left at the foot of the screen is drawn there as "@", vim's mark
+        // for a line it could not fit. Scrolled down a line at a time until the foot ends on a line.
+        for (let i = 0; i < 6; i++) {
+          const live = (await rpc.call("terminals.read", { terminalId: terminal.refId, cursor: null }).catch(() => null))?.live ?? ""
+          if (!live.split("\n").filter((row) => row.trim() !== "").slice(-3).some((row) => /^\s*@+\s*$/.test(row))) break
+          await rpc.call("terminals.write", { terminalId: terminal.refId, data: "\x05" })
+          await sleep(500)
+        }
         await park()
-        await part("realm", `${expect} && !!document.querySelector('.sidebar[data-collapsed]') && !!document.querySelector('.session-pane .edit-summary')`, { box: { x: 0, y: 0, width: 1200, height: 760 }, radius: 16 })
+        await part("realm", `${expect} && !!document.querySelector('.sidebar[data-collapsed]') && !!document.querySelector('.session-pane .edit-summary')`, { box: { x: 0, y: 0, width: 1280, height: 820 }, radius: 16 })
       } finally {
         await viewport()
         await press("b", { code: "KeyB", vk: 66, meta: true })
@@ -1315,12 +1336,15 @@ const scenes = [
       await park()
       const expect = `!!document.querySelector('.connections-page-pane') && !!document.querySelector('.page-overlay')`
       await shot("connections", expect)
-      // The page's head and every app it can connect, all seven cards, ending in the gap before the
-      // MCP servers.
+      // The page's head and its first six apps, two rows of three: a grid that ends where it is full,
+      // rather than seven cards with the last alone on a row of its own. The crop ends the gap a margin
+      // takes under the second row, where the top of the seventh card would be a sliver; it is hidden
+      // for the shot, and the caption says six.
       const market = await evaluate(`(() => { const h1 = document.querySelector('.connections-page-pane h1'), market = document.querySelector('.connections-page-pane .market'); const m = market.getBoundingClientRect();
-        const top = __capture.room(h1, "top", 22), bottom = __capture.room(market, "bottom", 22);
-        return { x: m.left - 22, y: top, width: m.width + 44, height: bottom - top }; })()`)
-      await part("connections", `${expect} && document.querySelectorAll('.connections-page-pane .market-grid > li').length >= 7`, { box: market, radius: 12 })
+        const sixth = document.querySelectorAll('.connections-page-pane .market-grid > li')[5].getBoundingClientRect();
+        const top = __capture.room(h1, "top", 22);
+        return { x: m.left - 22, y: top, width: m.width + 44, height: sixth.bottom + 22 - top }; })()`)
+      await part("connections", `${expect} && document.querySelectorAll('.connections-page-pane .market-grid > li').length >= 7`, { box: market, radius: 12, hide: [".connections-page-pane .market-grid > li:nth-child(n+7)"] })
       await home()
     },
   },
@@ -1379,15 +1403,17 @@ const scenes = [
       const expect = `!!document.querySelector('.space-page-pane') && !!document.querySelector('.sandbox-choice')`
       await shot("sandbox", expect)
       // The three postures under their label, and the note under them saying which one this space
-      // has and why: inherited, because new spaces start with none.
+      // has and why: inherited, because new spaces start with none. The margin over the label is the
+      // one round the rest; the last line of the section's introduction ends inside it, and is hidden
+      // for the shot rather than left there as a sliver.
       const box = await evaluate(`(() => { const pane = document.querySelector('.space-page-pane'); const choice = pane.querySelector('.sandbox-choice').getBoundingClientRect();
         const label = [...pane.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent.trim() === 'Posture');
         const note = [...pane.querySelectorAll('p')].find((p) => p.textContent.trim().startsWith('Inherited from the default'));
         if (!label || !note) return null;
-        const top = __capture.room(label, "top", 22), bottom = __capture.room(note, "bottom", 22);
+        const top = label.getBoundingClientRect().top - 22, bottom = __capture.room(note, "bottom", 22);
         return { x: choice.x - 22, y: top, width: choice.width + 44, height: bottom - top }; })()`)
       if (!box) throw new Error("No Posture label or inherited note on the sandbox page")
-      await part("sandbox", `${expect} && !!document.querySelector('.sandbox-choice [aria-checked="true"], .sandbox-choice input:checked')`, { box, radius: 12 })
+      await part("sandbox", `${expect} && !!document.querySelector('.sandbox-choice [aria-checked="true"], .sandbox-choice input:checked')`, { box, radius: 12, hide: [".space-page-pane :is(h3, p):has(~ .field .sandbox-choice)"] })
     },
   },
   {
