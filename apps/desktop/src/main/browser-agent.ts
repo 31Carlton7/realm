@@ -10,7 +10,7 @@ import {
   PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX,
   UPLOAD_CHOOSER_TIMEOUT_MS, UPLOAD_DROP_MAX_BYTES, UPLOAD_MAX_FILES,
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
-  type BrowserSnapshotElement, type BrowserSnapshotResult, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult,
+  type BrowserSnapshotElement, type BrowserSnapshotResult, type BrowserSnapshotScope, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult,
 } from "@realm/contracts";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
 
@@ -22,9 +22,12 @@ export type CdpSend = (method: string, params?: Record<string, unknown>) => Prom
  *  diff marks an element whose ref was absent last time OR whose identity/geometry changed. */
 export type SnapshotIndex = Map<number, string>;
 
-/** How many elements a snapshot lists before cutting off — beyond this a page is better served by
- *  browser_read + scrolling than by a five-thousand-line tree. */
-const MAX_ELEMENTS = 400;
+/** How many elements one snapshot lists — beyond this a page is better served by a narrower read
+ *  than by a five-thousand-line tree. What does not fit is reachable, never dropped: the list is
+ *  ranked (`rankForBudget`) and the note says how to ask for the rest. */
+export const MAX_ELEMENTS = 400;
+/** How many regions the cut-off note names for `within`. */
+const REGIONS_LISTED = 12;
 const NAME_MAX = 80;
 const VALUE_MAX = 120;
 /** getEventListeners sweep budget: candidates beyond this are included on the cursor:pointer signal
@@ -46,6 +49,15 @@ const INTERACTIVE_ARIA_ROLES = new Set([
   "button", "link", "textbox", "searchbox", "checkbox", "radio", "combobox", "listbox", "option",
   "menuitem", "menuitemcheckbox", "menuitemradio", "slider", "spinbutton", "switch", "tab",
 ]);
+/** Controls a person fills in — ranked ahead of offscreen links and buttons, because a long feed
+ *  above a form is exactly what used to spend the whole budget before the form's first field. */
+const FIELD_AX_ROLES = new Set([
+  "textfield", "textbox", "searchbox", "combobox", "textfieldwithcombobox", "checkbox", "radio", "radiobutton",
+  "listbox", "slider", "spinbutton", "switch",
+]);
+/** Regions a snapshot can be narrowed to with `within`, by AX/ARIA role or by tag. */
+const LANDMARK_ROLES = new Set(["banner", "complementary", "contentinfo", "dialog", "alertdialog", "form", "main", "navigation", "region", "search"]);
+const LANDMARK_TAGS: Record<string, string> = { NAV: "navigation", MAIN: "main", ASIDE: "complementary", FORM: "form", DIALOG: "dialog" };
 const CLICK_LISTENER_TYPES = new Set(["click", "mousedown", "mouseup", "pointerdown", "pointerup", "touchstart", "keydown"]);
 
 /** The computed styles `captureSnapshot` is asked for — order matters, layout.styles indexes into it. */
@@ -71,7 +83,9 @@ type Candidate = {
   interactive: boolean;
   sweepCandidate: boolean;
   offscreen: boolean;
+  field: boolean;
 };
+type Landmark = { backendNodeId: number; nodeIndex: number; docIndex: number; role: string; name: string };
 
 /* Minimal shapes of the CDP payloads this module reads — not the full protocol. */
 type RareBool = { index: number[] };
@@ -98,7 +112,7 @@ const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n -
  * one bounded `getEventListeners` sweep for div-soup candidates. Returns the formatted element list
  * plus the fingerprint index the next snapshot diffs against.
  */
-export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | null): Promise<BrowserSnapshotResult & { index: SnapshotIndex }> {
+export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | null, scope: BrowserSnapshotScope = {}): Promise<BrowserSnapshotResult & { index: SnapshotIndex }> {
   // Any lingering action RING is removed BEFORE the capture (belt to the filter's braces): the ring
   // is the watcher's, and an agent that sees it — even as a phantom layout box — is an agent chasing
   // its own tail. Rings only, deliberately: the cursor and the frame last the whole drive, and a
@@ -129,15 +143,24 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   };
 
   const all: Candidate[] = [];
+  const landmarks: Landmark[] = [];
   const layoutByDoc: LayoutInfo[] = [];
   for (const [docIndex, doc] of (snap.documents ?? []).entries()) {
     const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport);
     all.push(...collected.candidates);
+    landmarks.push(...collected.landmarks);
     layoutByDoc.push(collected.layoutInfo);
   }
 
   // The getEventListeners sweep: cursor:pointer nodes that nothing else marked interactive. Batched.
-  const sweepList = all.filter((c) => c.sweepCandidate && !c.interactive);
+  // `cursor` is inherited, so every span, icon and pseudo-element inside a button or link is a
+  // pointer node of its own — that control's content, and clicking the control is the click. They
+  // are swept last and never included on the style signal alone: a long chat's worth of them is what
+  // used to fill the whole budget before a control past the sidebar was listed.
+  const controls = new Set(all.filter((c) => c.interactive).map((c) => nodeKey(c.docIndex, c.nodeIndex)));
+  const sweepAll = all.filter((c) => c.sweepCandidate && !c.interactive);
+  const nested = new Set(sweepAll.filter((c) => ancestorsOf(c, layoutByDoc).some((ni) => controls.has(nodeKey(c.docIndex, ni)))));
+  const sweepList = [...sweepAll].sort((a, b) => Number(nested.has(a)) - Number(nested.has(b)) || Number(a.offscreen) - Number(b.offscreen));
   for (let i = 0; i < sweepList.length && i < SWEEP_MAX; i += SWEEP_BATCH) {
     const batch = sweepList.slice(i, i + SWEEP_BATCH);
     await Promise.all(batch.map(async (c) => {
@@ -145,26 +168,41 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
     }));
   }
   // Over budget: include on the style signal alone rather than silently dropping.
-  for (const c of sweepList.slice(SWEEP_MAX)) c.interactive = true;
+  for (const c of sweepList.slice(SWEEP_MAX)) if (!nested.has(c)) c.interactive = true;
 
   const interactive = all.filter((c) => c.interactive);
 
   // Paint-order occlusion — the check naive implementations miss. An element whose center is under a
   // later-painted, opaque, non-related box is NOT actionable and must not be listed as if it were.
-  const visible = interactive.filter((c) => c.offscreen || !isCovered(c, layoutByDoc[c.docIndex]!));
-  const coveredCount = interactive.length - visible.length;
+  const uncovered = interactive.filter((c) => c.offscreen || !isCovered(c, layoutByDoc[c.docIndex]!));
+  const coveredCount = interactive.length - uncovered.length;
+  // One node, one line: a pseudo-element comes back carrying its host's backendNodeId.
+  const seen = new Set<number>();
+  const visible = uncovered.filter((c) => !seen.has(c.backendNodeId) && Boolean(seen.add(c.backendNodeId)));
+
+  const ancestry = new Map(visible.map((c) => [c, ancestorsOf(c, layoutByDoc)]));
+  const { matched, withinFound } = applyScope(visible, scope, ancestry, layoutByDoc);
+  const ranked = rankForBudget(matched, ancestry, landmarks);
+  const offset = scope.offset ?? 0;
+  const page = new Set(ranked.slice(offset, offset + MAX_ELEMENTS));
+  // Listed in page order, whatever order they were chosen in: a list that read top-down is still
+  // the easiest one to find a field in.
+  const listed = matched.filter((c) => page.has(c));
 
   // A file input's `value` is not in the DOMSnapshot: `inputValue` carries the value ATTRIBUTE, which
   // for `type=file` is the empty string however many files are attached — the names live on
   // `input.files`, a property only script can read. So they are fetched here, bounded, for the
-  // visible file inputs only. It is what makes "did the upload land" answerable from the tree, the
+  // listed file inputs only. It is what makes "did the upload land" answerable from the tree, the
   // way a textbox's `value=` answers "did the typing land".
-  await fillFileInputValues(send, visible.filter(isFileInput).slice(0, FILE_INPUT_READ_MAX));
+  await fillFileInputValues(send, listed.filter(isFileInput).slice(0, FILE_INPUT_READ_MAX));
 
-  const index: SnapshotIndex = new Map();
+  // A narrowed snapshot sees part of the page, so it adds to the fingerprints rather than replacing
+  // them — otherwise the next full snapshot would mark everything it left out as [new].
+  const narrowed = offset > 0 || scope.query !== undefined || scope.within !== undefined;
+  const index: SnapshotIndex = narrowed ? new Map(previous ?? []) : new Map();
   const lines: string[] = [];
   const elements: BrowserSnapshotElement[] = [];
-  for (const c of visible.slice(0, MAX_ELEMENTS)) {
+  for (const c of listed) {
     const fingerprint = `${c.role}|${c.name}|${c.value ?? ""}|${Math.round(c.rect.x / 8)},${Math.round(c.rect.y / 8)}`;
     index.set(c.backendNodeId, fingerprint);
     const isNew = previous !== null && previous.get(c.backendNodeId) !== fingerprint;
@@ -174,8 +212,7 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
       checked: c.checked, disabled: c.disabled, password: c.password, focused: c.focused, offscreen: c.offscreen,
     });
   }
-  const notes: string[] = [];
-  if (visible.length > MAX_ELEMENTS) notes.push(`(${visible.length - MAX_ELEMENTS} more elements not listed — scroll or read instead)`);
+  const notes = budgetNotes({ scope, withinFound, ranked, listed: listed.length, ancestry, landmarks });
   if (coveredCount > 0) notes.push(`(${coveredCount} interactive element(s) hidden behind overlays — not actionable, not listed)`);
 
   const doc0 = snap.documents?.[0];
@@ -184,11 +221,92 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
     url: doc0 ? s(snap.strings, doc0.documentURL) : "",
     title: doc0 ? s(snap.strings, doc0.title) : "",
     text: [...lines, ...notes].join("\n"),
-    elementCount: Math.min(visible.length, MAX_ELEMENTS),
+    elementCount: listed.length,
     elements,
     ...(measured ? { viewport: { width: viewport.w, height: viewport.h } } : {}),
     index,
   };
+}
+
+const nodeKey = (docIndex: number, nodeIndex: number): string => `${docIndex}:${nodeIndex}`;
+
+/** A candidate's ancestors' node indexes, nearest first, within its own document. */
+function ancestorsOf(c: Candidate, layoutByDoc: LayoutInfo[]): number[] {
+  const parents = layoutByDoc[c.docIndex]?.parentIndex ?? [];
+  const out: number[] = [];
+  for (let cur = parents[c.nodeIndex] ?? -1; cur >= 0 && out.length < 500; cur = parents[cur] ?? -1) out.push(cur);
+  return out;
+}
+
+/** `query` keeps elements whose role, name or value holds every word; `within` keeps the element with
+ *  that ref and its descendants. `withinFound` is false when no node on the page has the ref. */
+function applyScope(visible: Candidate[], scope: BrowserSnapshotScope, ancestry: Map<Candidate, number[]>, layoutByDoc: LayoutInfo[]): { matched: Candidate[]; withinFound: boolean } {
+  let matched = visible;
+  let withinFound = true;
+  if (scope.within !== undefined) {
+    const roots = new Set<string>();
+    layoutByDoc.forEach((info, docIndex) => info.backendIds.forEach((id, ni) => { if (id === scope.within) roots.add(nodeKey(docIndex, ni)); }));
+    withinFound = roots.size > 0;
+    matched = matched.filter((c) => roots.has(nodeKey(c.docIndex, c.nodeIndex)) || ancestry.get(c)!.some((ni) => roots.has(nodeKey(c.docIndex, ni))));
+  }
+  if (scope.query !== undefined) {
+    const words = scope.query.toLowerCase().split(/\s+/).filter(Boolean);
+    matched = matched.filter((c) => {
+      const hay = `${c.role} ${c.name} ${c.value ?? ""}`.toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+  }
+  return { matched, withinFound };
+}
+
+/**
+ * The order the budget is spent in: what is on screen, then offscreen form fields and anything inside
+ * a form or dialog, then everything else — each tier in page order. Page order alone is the failure
+ * this replaces: a long chat transcript sits between a sidebar and the panes after it, and it filled
+ * every slot before one control past the sidebar was reached.
+ */
+function rankForBudget(matched: Candidate[], ancestry: Map<Candidate, number[]>, landmarks: Landmark[]): Candidate[] {
+  const formish = new Set(landmarks.filter((l) => ["form", "dialog", "alertdialog", "search"].includes(l.role)).map((l) => nodeKey(l.docIndex, l.nodeIndex)));
+  const tier = (c: Candidate): number => {
+    if (!c.offscreen) return 0;
+    if (c.field || ancestry.get(c)!.some((ni) => formish.has(nodeKey(c.docIndex, ni)))) return 1;
+    return 2;
+  };
+  return matched.map((c, i) => ({ c, i, t: tier(c) })).sort((a, b) => a.t - b.t || a.i - b.i).map((x) => x.c);
+}
+
+/** The notes that say what a snapshot left out and the exact arguments that get it. */
+function budgetNotes(o: { scope: BrowserSnapshotScope; withinFound: boolean; ranked: Candidate[]; listed: number; ancestry: Map<Candidate, number[]>; landmarks: Landmark[] }): string[] {
+  const { scope, ranked } = o;
+  const offset = scope.offset ?? 0;
+  const narrowedBy = [
+    scope.query !== undefined ? `query "${scope.query}"` : null,
+    scope.within !== undefined ? `within ref ${scope.within}` : null,
+  ].filter(Boolean).join(", ");
+  const of = narrowedBy ? ` matching ${narrowedBy}` : "";
+  const notes: string[] = [];
+  if (!o.withinFound) notes.push(`(no element with ref ${scope.within} is on the page now — snapshot without within and pick a region from that snapshot's note)`);
+  else if (ranked.length === 0 && narrowedBy) notes.push(`(no interactive element${of} — loosen the query, or snapshot without it)`);
+  if (offset > 0 && ranked.length > 0) {
+    notes.push(offset >= ranked.length
+      ? `(offset ${offset} is past the end: there are ${ranked.length} element(s)${of})`
+      : `(elements ${offset + 1}–${offset + o.listed} of ${ranked.length}${of}, ranked on screen first, then form fields, then the rest)`);
+  }
+  const rest = ranked.length - offset - o.listed;
+  if (rest <= 0) return notes;
+  notes.push(
+    `(${rest} more element(s)${of} not listed — this list puts what is on screen first, then form fields, then the rest in page order. ` +
+    `Snapshot again with offset: ${offset + MAX_ELEMENTS} for the next ${Math.min(rest, MAX_ELEMENTS)}, or narrow it: ` +
+    `query: "<words>" lists only elements whose role, name or value contains them; within: <ref> lists only what is inside that element.)`,
+  );
+  const counts = new Map<string, number>();
+  for (const c of ranked) for (const ni of o.ancestry.get(c)!) { const k = nodeKey(c.docIndex, ni); counts.set(k, (counts.get(k) ?? 0) + 1); }
+  const regions = o.landmarks
+    .filter((l) => l.backendNodeId !== scope.within && (counts.get(nodeKey(l.docIndex, l.nodeIndex)) ?? 0) > 0)
+    .slice(0, REGIONS_LISTED)
+    .map((l) => `[ref=${l.backendNodeId}] ${l.role}${l.name ? ` "${l.name}"` : ""} (${counts.get(nodeKey(l.docIndex, l.nodeIndex))})`);
+  if (regions.length > 0) notes.push(`(regions to pass as within — element counts in brackets: ${regions.join(", ")})`);
+  return notes;
 }
 
 /** A visible `<input type="file">` among the snapshot's candidates. */
@@ -213,7 +331,7 @@ async function fillFileInputValues(send: CdpSend, candidates: Candidate[]): Prom
 
 /** What occlusion needs about every layout box in a document — rects, paint order, the tree shape
  *  for the ancestor exemption, and the two styles that decide whether a box actually hides things. */
-type LayoutInfo = { rects: Rect[]; paint: number[]; nodeIndexes: number[]; parentIndex: number[]; nodeType: number[]; bg: string[]; boxOpacity: string[] };
+type LayoutInfo = { rects: Rect[]; paint: number[]; nodeIndexes: number[]; parentIndex: number[]; nodeType: number[]; backendIds: number[]; bg: string[]; boxOpacity: string[] };
 
 function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByBackendId: Map<number, AxNode>, viewport: { w: number; h: number }) {
   const nodes = doc.nodes;
@@ -248,6 +366,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
   };
 
   const candidates: Candidate[] = [];
+  const landmarks: Landmark[] = [];
   layout.nodeIndex.forEach((ni, li) => {
     if (nodeType[ni] !== 1) return; // elements only
     const bounds = layout.bounds[li] ?? [0, 0, 0, 0];
@@ -276,6 +395,10 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     const ariaRole = (attrs.role ?? "").toLowerCase();
     const password = tag === "INPUT" && (attrs.type ?? "").toLowerCase() === "password"
       || axNode?.properties?.some((p) => p.name === "protected" && p.value?.value === true) === true;
+    const axName = String(axNode?.name?.value ?? "").trim();
+
+    const landmarkRole = LANDMARK_ROLES.has(axRole) ? axRole : LANDMARK_ROLES.has(ariaRole) ? ariaRole : LANDMARK_TAGS[tag];
+    if (landmarkRole) landmarks.push({ backendNodeId, nodeIndex: ni, docIndex, role: landmarkRole, name: clip(axName || attrs["aria-label"] || "", NAME_MAX) });
 
     const interactive =
       INTERACTIVE_TAGS.has(tag)
@@ -288,7 +411,6 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     const sweepCandidate = !interactive && styles.cursor === "pointer";
     if (!interactive && !sweepCandidate) return;
 
-    const axName = String(axNode?.name?.value ?? "").trim();
     const name = clip(axName || attrs["aria-label"] || attrs.placeholder || attrs.alt || attrs.title || textOf(ni) || attrs.name || "", NAME_MAX);
     // The password hard line: a password field's value NEVER enters a snapshot, from any source.
     const rawValue = password ? null : inputValues.get(ni) ?? (axNode?.value?.value !== undefined && axNode.value.value !== null ? String(axNode.value.value) : null);
@@ -304,6 +426,8 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
       disabled: attrs.disabled !== undefined || axNode?.properties?.some((p) => p.name === "disabled" && p.value?.value === true) === true,
       focused: axNode?.properties?.some((p) => p.name === "focused" && p.value?.value === true) === true,
       password, interactive, sweepCandidate, offscreen,
+      field: ["INPUT", "TEXTAREA", "SELECT"].includes(tag) || attrs.contenteditable === "" || attrs.contenteditable === "true"
+        || FIELD_AX_ROLES.has(axRole) || FIELD_AX_ROLES.has(ariaRole),
     });
   });
 
@@ -315,10 +439,11 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     nodeIndexes: [...layout.nodeIndex],
     parentIndex: [...parentIndex],
     nodeType: [...nodeType],
+    backendIds: [...backendIds],
     bg: layout.nodeIndex.map((_, li) => s(strings, layout.styles?.[li]?.[bgIdx])),
     boxOpacity: layout.nodeIndex.map((_, li) => s(strings, layout.styles?.[li]?.[opIdx])),
   };
-  return { candidates, layoutInfo };
+  return { candidates, landmarks, layoutInfo };
 }
 
 /**

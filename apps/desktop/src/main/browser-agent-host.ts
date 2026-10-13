@@ -512,7 +512,7 @@ export class BrowserAgentHost {
         // is Realm's statement, and the text is the site's.
         const failed = this.d.pageState(browserId)?.error ?? null;
         if (failed) return { url: failed.url, title: "", text: "", elementCount: 0, elements: [], page, loadError: failed } satisfies BrowserSnapshotResult;
-        const result = await buildSnapshot(entry.binding.send, entry.lastSnapshot);
+        const result = await buildSnapshot(entry.binding.send, entry.lastSnapshot, (params.scope ?? {}) as Parameters<typeof buildSnapshot>[2]);
         entry.lastSnapshot = result.index;
         const { index: _index, ...rest } = result;
         const wire: BrowserSnapshotResult = { ...rest, page };

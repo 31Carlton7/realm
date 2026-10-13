@@ -160,6 +160,26 @@ export type BrowserDescribeResult = {
   loadError?: BrowserLoadError | null;
 };
 
+/**
+ * Which part of a page a snapshot lists. A snapshot lists a bounded number of elements, ranked
+ * on-screen first, then form fields, then the rest in page order; these reach whatever that budget
+ * left out — the next page of the ranking, the elements whose text matches, or one region's subtree.
+ * Shared by `browser_snapshot` and `app_snapshot`, which read through the same executor.
+ */
+export const BrowserSnapshotScopeSchema = z.object({
+  offset: z.number().int().min(0).optional(),
+  query: z.string().trim().min(1).max(200).optional(),
+  within: z.number().int().positive().optional(),
+});
+export type BrowserSnapshotScope = z.infer<typeof BrowserSnapshotScopeSchema>;
+
+/** The JSON-schema properties the two snapshot tools advertise for `BrowserSnapshotScope`. */
+export const SNAPSHOT_SCOPE_PROPERTIES = {
+  offset: { type: "number", description: "skip this many elements of the ranked list — the snapshot's note gives the offset of the next page when it is cut off" },
+  query: { type: "string", description: "list only elements whose role, name or value contains every one of these words (case-insensitive), e.g. \"save\" or \"email address\"" },
+  within: { type: "number", description: "list only elements inside the element with this ref — a region ref from the snapshot's note, or any ref" },
+} as const;
+
 export type BrowserSnapshotResult = {
   url: string; title: string; text: string; elementCount: number;
   /** The page did not load, so there is nothing of the site's to read: what the pane shows in its

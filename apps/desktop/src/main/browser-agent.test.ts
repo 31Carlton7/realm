@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UPLOAD_DROP_MAX_BYTES, type BrowserAction, type BrowserRefusal } from "@realm/contracts";
-import { buildSnapshot, performAct, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
+import { buildSnapshot, MAX_ELEMENTS, performAct, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS } from "./agent-cursor";
 import { tickStylesFor } from "./browser-agent";
 
@@ -307,6 +307,134 @@ describe("buildSnapshot", () => {
     const snap = await buildSnapshot(send, null);
     expect(snap.text).not.toContain("x".repeat(200));
     expect(snap.text).toContain("…");
+  });
+});
+
+/**
+ * The budget. A snapshot lists at most MAX_ELEMENTS, and a long chat transcript sits in page order
+ * between a sidebar and everything after it — so a plain slice of page order filled every slot with
+ * chat and left a sign-in form unreachable (the reported failure: Realm's own window in a long
+ * session). The mutant that must die here is that plain slice coming back.
+ */
+describe("buildSnapshot — a page longer than the budget", () => {
+  /** A sidebar, a 1000-message chat, then a sign-in form — in that page order. `chatY` places the
+   *  chat (Realm's own window scrolls its history far above the viewport); `formY` places the form. */
+  function longSession(o: { chatY: (i: number) => number; formY: number }) {
+    const doc = makeSnapshotDoc();
+    const nav = doc.addNode({ tag: "NAV", attrs: { "aria-label": "Sidebar" } });
+    doc.addLayout(nav, [0, 0, 200, 800]);
+    for (const label of ["Home", "Library", "Settings"]) {
+      const b = doc.addNode({ tag: "BUTTON", parent: nav, attrs: { "aria-label": label } });
+      doc.addLayout(b, [10, 10 + 40 * ["Home", "Library", "Settings"].indexOf(label), 180, 30]);
+    }
+    const chat = doc.addNode({ tag: "SECTION", attrs: { "aria-label": "Transcript" } });
+    doc.addLayout(chat, [200, 0, 500, 800]);
+    for (let i = 0; i < 1000; i++) {
+      const b = doc.addNode({ tag: "BUTTON", parent: chat, attrs: { "aria-label": `Copy message ${i}` } });
+      doc.addLayout(b, [220, o.chatY(i), 80, 20]);
+    }
+    const form = doc.addNode({ tag: "FORM", attrs: { "aria-label": "Add a sign-in" } });
+    doc.addLayout(form, [700, o.formY, 300, 200]);
+    const email = doc.addNode({ tag: "INPUT", parent: form, attrs: { type: "email", "aria-label": "Username" } });
+    doc.addLayout(email, [710, o.formY + 10, 280, 30]);
+    const password = doc.addNode({ tag: "INPUT", parent: form, attrs: { type: "password", "aria-label": "Password" } });
+    doc.addLayout(password, [710, o.formY + 50, 280, 30]);
+    const save = doc.addNode({ tag: "BUTTON", parent: form, attrs: { "aria-label": "Save sign-in" } });
+    doc.addLayout(save, [710, o.formY + 90, 100, 30]);
+    // The fake's backendNodeId is 1000 + the node's index.
+    return { payload: doc.payload(), ref: (ni: number) => 1000 + ni, nav, chat, form, email, password, save };
+  }
+  const refs = (snap: { elements?: { ref: number }[] }) => (snap.elements ?? []).map((e) => e.ref);
+
+  it("Realm's own window: a long chat scrolled above the viewport does not crowd out the pane after it", async () => {
+    const page = longSession({ chatY: (i) => -40_000 + i * 30, formY: 100 });
+    const snap = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, null);
+    expect(snap.elementCount).toBe(MAX_ELEMENTS);
+    for (const ni of [page.email, page.password, page.save]) expect(refs(snap)).toContain(page.ref(ni));
+    expect(snap.text).toContain('button "Save sign-in"');
+    expect(snap.text).toContain('button "Settings"');
+    // The rest is reachable, and the note says exactly how.
+    expect(snap.text).toContain(`${1003 + 3 - MAX_ELEMENTS} more element(s) not listed`);
+    expect(snap.text).toContain(`offset: ${MAX_ELEMENTS}`);
+  });
+
+  it("a web page: the form below a long chat is listed — its fields and its submit — and named as a region", async () => {
+    const page = longSession({ chatY: (i) => i * 30, formY: 31_000 });
+    const snap = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, null);
+    for (const ni of [page.email, page.password, page.save]) expect(refs(snap)).toContain(page.ref(ni));
+    // Listed in page order: the form comes after the chat lines that made the cut, not before them.
+    const order = refs(snap);
+    expect(order.indexOf(page.ref(page.save))).toBeGreaterThan(order.indexOf(page.ref(page.email)));
+    expect(order.at(-1)).toBe(page.ref(page.save));
+    expect(snap.text).toContain(`[ref=${page.ref(page.form)}] form "Add a sign-in" (3)`);
+    expect(snap.text).toContain(`[ref=${page.ref(page.nav)}] navigation "Sidebar" (3)`);
+  });
+
+  it("offset pages through the rest: every element exactly once across the pages", async () => {
+    const page = longSession({ chatY: (i) => i * 30, formY: 31_000 });
+    const seen: number[] = [];
+    let index = null;
+    for (let offset = 0; offset < 1006; offset += MAX_ELEMENTS) {
+      const snap = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, index, { offset });
+      index = snap.index;
+      seen.push(...refs(snap));
+      if (offset > 0) expect(snap.text).toContain(`(elements ${offset + 1}–${Math.min(offset + MAX_ELEMENTS, 1006)} of 1006`);
+    }
+    expect(seen).toHaveLength(1006);
+    expect(new Set(seen).size).toBe(1006);
+    const past = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, null, { offset: 5000 });
+    expect(past.elementCount).toBe(0);
+    expect(past.text).toContain("offset 5000 is past the end: there are 1006 element(s)");
+  });
+
+  it("query and within narrow the list to what the agent is after", async () => {
+    const page = longSession({ chatY: (i) => i * 30, formY: 31_000 });
+    const byQuery = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, null, { query: "SAVE sign" });
+    expect(refs(byQuery)).toEqual([page.ref(page.save)]);
+    const byRegion = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, null, { within: page.ref(page.form) });
+    expect(refs(byRegion)).toEqual([page.ref(page.email), page.ref(page.password), page.ref(page.save)]);
+    expect(byRegion.text).not.toContain("not listed");
+    const message = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, null, { query: "message 999" });
+    expect(message.text).toContain('"Copy message 999"');
+    const none = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, null, { query: "checkout" });
+    expect(none.text).toContain('no interactive element matching query "checkout"');
+    const gone = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, null, { within: 999_999 });
+    expect(gone.elementCount).toBe(0);
+    expect(gone.text).toContain("no element with ref 999999 is on the page now");
+  });
+
+  it("a narrowed snapshot adds to the [new] fingerprints instead of replacing them", async () => {
+    const page = longSession({ chatY: (i) => i * 30, formY: 31_000 });
+    const full = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, null);
+    const narrowed = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, full.index, { query: "save" });
+    const again = await buildSnapshot(fakeSend({ snapshot: page.payload }).send, narrowed.index);
+    expect(again.text).not.toContain("[new]");
+  });
+
+  it("a control's pointer-cursor content is not listed beside it, even past the sweep budget", async () => {
+    // `cursor` is inherited: every span and icon inside a button is a pointer node of its own. Past
+    // the sweep budget they used to be listed on the style signal alone — once per message.
+    const doc = makeSnapshotDoc();
+    const buttons: number[] = [];
+    const spans: number[] = [];
+    for (let i = 0; i < 150; i++) {
+      const b = doc.addNode({ tag: "BUTTON", attrs: { "aria-label": `Tool call ${i}` } });
+      doc.addLayout(b, [0, i * 40, 200, 30], { styles: { cursor: "pointer" } });
+      const label = doc.addNode({ tag: "SPAN", parent: b });
+      doc.addLayout(label, [10, i * 40 + 5, 100, 20], { styles: { cursor: "pointer" } });
+      buttons.push(1000 + b); spans.push(1000 + label);
+    }
+    // Two free-standing pointer divs after all of that in page order. They are swept ahead of the
+    // nested content, so the listener check decides them rather than the style signal alone.
+    const card = doc.addNode({ tag: "DIV", attrs: { "aria-label": "Open card" } });
+    doc.addLayout(card, [300, 0, 200, 30], { styles: { cursor: "pointer" } });
+    const inert = doc.addNode({ tag: "DIV", attrs: { "aria-label": "Inert card" } });
+    doc.addLayout(inert, [300, 40, 200, 30], { styles: { cursor: "pointer" } });
+    const snap = await buildSnapshot(fakeSend({ snapshot: doc.payload(), listeners: { [1000 + card]: ["click"] } }).send, null);
+    expect(refs(snap)).toEqual(expect.arrayContaining(buttons));
+    for (const ref of spans) expect(refs(snap)).not.toContain(ref);
+    expect(snap.text).toContain('"Open card"');
+    expect(snap.text).not.toContain('"Inert card"');
   });
 });
 
