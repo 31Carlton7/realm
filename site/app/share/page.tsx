@@ -1,8 +1,10 @@
 import type { Metadata } from "next"
+import type { CSSProperties } from "react"
 
-import { DimensionField } from "@/components/dimension/DimensionField"
+import { Flight } from "@/components/realms/Flight"
 import { Wordmark } from "@/components/Wordmark"
-import { sceneFile, WINDOW } from "@/lib/frames"
+import { partImage, sceneImage } from "@/lib/pictures"
+import { site } from "@/lib/site"
 
 export const metadata: Metadata = {
   title: "Share image",
@@ -13,28 +15,29 @@ export const metadata: Metadata = {
  * The source for the site's share images. scripts/capture-share-images.mjs opens this at 1200 × 630
  * and saves the frame as app/opengraph-image.png and app/twitter-image.png; nothing links here.
  *
- * It is the landing page's hero at card size: the headline, and the workspace rising in its portal
- * under the same dimension field, so a shared link looks like the page it opens. The wordmark stands
- * in for the header, which a card does not have. The prose and the buttons are left out: a card
- * cannot be clicked, and at thumbnail size they would only be clutter.
+ * It is the landing page's opening at card size: the field of realms drawn by the same flight, the
+ * headline over it, and Realm's window rising under the words, framed as the page frames its
+ * pictures. The window is a capture of the app rather than the working sample, which a card cannot
+ * click. The wordmark stands in for the header, which a card does not have; the prose and the buttons
+ * are left out, since at thumbnail size they would only be clutter.
  */
 export default function SharePage() {
+  const image = partImage("realm") ?? sceneImage("terminal")
   return (
-    <main data-dim-stage="hero" className="relative h-[100dvh] overflow-hidden">
-      <DimensionField />
-      <div className="px-14 pt-12">
+    <main className="relative h-[100dvh] overflow-hidden">
+      <Flight />
+      <div data-field-anchor="copy" className="relative z-[2] flex flex-col items-center px-14 pt-11 text-center">
         <Wordmark size="display" className="text-ink" />
-        <h1 className="mt-9 max-w-[15ch] text-[80px] leading-[0.98] font-[560] tracking-[-0.047em] text-ink">
-          Give your agents a world to work in.
-        </h1>
+        <h1 className="mt-6 max-w-[20ch] text-[60px] leading-[1] font-[580] tracking-[-0.05em] text-balance text-ink">{site.tagline}</h1>
       </div>
-      {/* The rect is fixed before the capture loads, because the field reads it once: under reduced
-          motion it paints a single frame. */}
+      {/* Fixed before the picture loads: under reduced motion the field reads the rect for one frame. */}
       <div
-        data-dim="portal"
-        className="app-corner absolute inset-x-14 top-[392px] aspect-[1.6] overflow-hidden rounded-[20px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.09)]"
+        data-field-anchor="portal"
+        className="absolute inset-x-[110px] top-[318px] overflow-hidden rounded-[16px] bg-page shadow-[0_0_0_1px_oklch(0_0_0/0.5),0_30px_70px_-20px_oklch(0_0_0/0.65)]"
+        style={{ aspectRatio: `${image.width} / ${image.height}` }}
       >
-        <img src={sceneFile("workspace", 1440)} alt="" width={WINDOW.width * 2} height={WINDOW.height * 2} className="h-auto w-full" />
+        <img src={image.src} alt="" width={image.width} height={image.height} className="block h-full w-full" />
+        <span aria-hidden className="screen-light" style={{ "--screen-radius": "16px" } as CSSProperties} />
       </div>
     </main>
   )

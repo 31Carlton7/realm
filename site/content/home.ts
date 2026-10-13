@@ -109,9 +109,8 @@ export const claims: Claim[] = [
 export type Facet = { title: string; body: string }
 
 /**
- * What a realm is made of: the six faces of the mark, in the order they arrive (`ORDER` in
- * lib/dimension/faces.ts), so the sentence beside a face is about the face that is landing. The walls
- * come first, and the agent last, as the doorway's lit back.
+ * What a realm is made of: the six faces of the mark, the walls first and the agent last, as the
+ * doorway's lit back.
  *
  * A realm is a place rather than a stack of layers, so these are what the place contains, each one
  * something the shipped app does, with the limit stated wherever there is one.
@@ -156,10 +155,9 @@ export const facetsCoda: Facet = {
 }
 
 /**
- * The interlude between the claims: delegation, told in the order the tree draws it
- * (lib/dimension/tree.ts). Every sentence is the delegation code's own behaviour (`agent_run` and
- * `agent_start`, `MAX_DELEGATION_DEPTH`, the fenced final report), and `realm-agent` is on by
- * default, so "an agent can" is true of a fresh install rather than of a setting.
+ * Delegation, beat by beat, beside its chapter's picture. Every sentence is the delegation code's own
+ * behaviour (`agent_run` and `agent_start`, `MAX_DELEGATION_DEPTH`, the fenced final report), and
+ * `realm-agent` is on by default, so "an agent can" is true of a fresh install rather than of a setting.
  */
 export const delegation: Facet[] = [
   {
