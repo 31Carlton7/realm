@@ -397,7 +397,8 @@ pre {
   pointer-events: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='24.249'%3E%3Cg fill='white' fill-opacity='0.14'%3E%3Ccircle cx='0' cy='0' r='0.9'/%3E%3Ccircle cx='14' cy='0' r='0.9'/%3E%3Ccircle cx='7' cy='12.124' r='0.9'/%3E%3Ccircle cx='0' cy='24.249' r='0.9'/%3E%3Ccircle cx='14' cy='24.249' r='0.9'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 14px 24.249px;
-  background-position: center 2px;
+  /* The first row in the middle of the margin, clear of the rim and of a tab standing on the edge. */
+  background-position: center calc(var(--pad) / 2 - 1px);
   -webkit-mask-image: linear-gradient(180deg, #000, rgb(0 0 0 / 0.45) 45%, transparent 82%);
   mask-image: linear-gradient(180deg, #000, rgb(0 0 0 / 0.45) 45%, transparent 82%);
 }
