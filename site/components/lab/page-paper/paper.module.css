@@ -121,10 +121,10 @@
 
 /* The one display statement: Inter at its display optical size, set tight. */
 .display {
-  font-size: clamp(3rem, 7.1vw, 8.25rem);
+  font-size: clamp(3rem, 6.6vw, 8rem);
   line-height: 0.9;
   font-weight: 640;
-  letter-spacing: -0.052em;
+  letter-spacing: -0.046em;
   font-variation-settings: "opsz" 32;
   text-wrap: balance;
 }
@@ -149,7 +149,7 @@
 }
 
 .lede {
-  font-size: clamp(1.0625rem, 1.25vw, 1.25rem);
+  font-size: clamp(1.0625rem, 1.2vw, 1.1875rem);
   line-height: 1.55;
   letter-spacing: -0.011em;
   color: var(--color-ink-2);
@@ -598,10 +598,9 @@
     }
 
     .strip {
-      grid-template-columns: none;
-      grid-auto-flow: column;
-      grid-template-rows: repeat(2, auto);
-      grid-auto-columns: clamp(240px, 22vw, 330px);
+      --frame: clamp(240px, 22vw, 330px);
+      grid-template-columns: repeat(var(--half), var(--frame));
+      grid-auto-flow: row;
       width: max-content;
       max-width: none;
       margin-inline: 0;
@@ -613,9 +612,14 @@
 
     @media (max-height: 820px), (max-width: 640px) {
       .strip {
-        grid-template-rows: auto;
-        grid-auto-columns: clamp(250px, 70vw, 360px);
+        --frame: clamp(250px, 70vw, 360px);
+        grid-template-columns: repeat(var(--count), var(--frame));
       }
     }
   }
+}
+
+/* The assembled mark's outline, a ghost under the parts. */
+.ghost {
+  opacity: 0.32;
 }

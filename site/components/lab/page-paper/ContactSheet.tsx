@@ -30,7 +30,11 @@ export function ContactSheet() {
             </a>
           </div>
         </div>
-        <ol className={s.strip} aria-label="Captures">
+        <ol
+          className={s.strip}
+          aria-label="Captures"
+          style={{ ["--count" as string]: frames.length, ["--half" as string]: Math.ceil(frames.length / 2) }}
+        >
           {frames.map((frame, i) => (
             <li key={frame.slug} className={s.frame}>
               <figure>

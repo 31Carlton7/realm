@@ -25,26 +25,27 @@ const times = (p: Point, k: number): Point => [p[0] * k, p[1] * k]
  * apart, each along the wall it is parallel to.
  */
 const FLIGHT: Record<string, Point> = {
-  top: times(UP, 8),
-  left: times(DOWN, 8),
-  right: times(OUT, 8),
-  floor: add(times(OUT, 21), times(UP, 3.2)),
-  jamb: add(times(OUT, 21), times(DOWN, 3.2)),
-  lit: times(OUT, 27),
+  top: times(UP, 5.5),
+  left: times(DOWN, 5.5),
+  right: times(OUT, 5.5),
+  floor: add(times(OUT, 15), times(UP, 2.4)),
+  jamb: add(times(OUT, 15), times(DOWN, 2.4)),
+  lit: times(OUT, 19.5),
 }
 
 /** How much further a face lifts, along the same line, when its label is pointed at. */
 const LIFT = 2.6
 
-/** The paper tones the faces are printed in: the top lightest, the dark wall darkest, and the
- *  doorway's back — the agent — in the accent, lit. */
+/** The mark's own three planes (public/realm-mark.svg): the top lightest, the dark wall darkest. The
+ *  doorway's parts take the plane each is parallel to, a step lighter for being inside, and its back
+ *  — the agent — is the lit one. */
 const FILL: Record<string, string> = {
-  top: "oklch(0.995 0.002 264)",
-  left: "oklch(0.925 0.005 264)",
-  right: "oklch(0.83 0.008 264)",
-  floor: "oklch(0.97 0.003 264)",
-  jamb: "oklch(0.885 0.006 264)",
-  lit: "oklch(0.86 0.075 256)",
+  top: "#9cc1ff",
+  left: "#4f8cf5",
+  right: "#2457c4",
+  floor: "#b8d2ff",
+  jamb: "#6a9ef7",
+  lit: "#f4f8ff",
 }
 
 /** The face's names as a drawing would letter them, beside what each one holds. */
@@ -62,12 +63,12 @@ const centroid = (points: readonly Point[]): Point =>
 
 /** Which way each label stands off from its face, and how far (mark units). */
 const STANDOFF: Record<string, Point> = {
-  top: [-11, -13],
-  left: [-11, 13],
-  right: [9, -17],
-  floor: [10, 12],
-  jamb: [12, 2],
-  lit: [9, -12],
+  top: [-12, -10],
+  left: [-12, 12],
+  right: [6, -19],
+  floor: [9, 13],
+  jamb: [11, 3],
+  lit: [8, -11],
 }
 
 /** Where each leader line meets its face (the face's middle, after its flight), and where its label is. */
@@ -79,7 +80,7 @@ const LABELS = Object.fromEntries(
 ) as Record<string, { tip: Point; at: Point }>
 
 /** The drawing's window onto the mark's units: room for the flight and the labels. */
-const VIEW = { x: -14, y: -14, w: 98, h: 76 }
+const VIEW = { x: -16, y: -12, w: 94, h: 72 }
 const pct = ([x, y]: Point) => ({ left: `${((x - VIEW.x) / VIEW.w) * 100}%`, top: `${((y - VIEW.y) / VIEW.h) * 100}%` })
 
 const path = (points: readonly Point[]) => `M${points.map(([x, y]) => `${x} ${y}`).join("L")}Z`
@@ -143,6 +144,12 @@ export function Anatomy({ facets, coda }: { facets: Facet[]; coda: Facet }) {
         <figure className="col-span-12 lg:col-span-7 lg:pl-6">
           <div className="relative" style={{ aspectRatio: `${VIEW.w} / ${VIEW.h}` }}>
             <svg viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`} className="absolute inset-0 h-full w-full overflow-visible" aria-hidden>
+              {/* Where each face was: the whole mark, drawn as a ghost the parts are read against. */}
+              <g className={s.ghost} fill="none" stroke="var(--color-ink)" strokeWidth={1} strokeDasharray="3 3" vectorEffect="non-scaling-stroke">
+                {FACES.map((face) => (
+                  <path key={face.name} d={path(face.polygon)} vectorEffect="non-scaling-stroke" />
+                ))}
+              </g>
               {FACES.map((face, i) => {
                 const [fx, fy] = FLIGHT[face.name]!
                 const lifted = shown === i
@@ -163,8 +170,8 @@ export function Anatomy({ facets, coda }: { facets: Facet[]; coda: Facet }) {
                       <path
                         d={path(face.polygon)}
                         fill={FILL[face.name]}
-                        stroke={lifted ? "var(--color-accent-ink)" : "var(--color-ink)"}
-                        strokeWidth={lifted ? 0.32 : 0.22}
+                        stroke={lifted ? "var(--color-ink)" : "oklch(0.235 0.006 264 / 0.55)"}
+                        strokeWidth={lifted ? 1.5 : 1}
                         strokeLinejoin="round"
                         vectorEffect="non-scaling-stroke"
                         className="transition-[stroke] duration-200"

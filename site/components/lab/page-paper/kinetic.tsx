@@ -2,13 +2,15 @@ import { Fragment, type CSSProperties, type ElementType, type ReactNode } from "
 
 import s from "./paper.module.css"
 
-/** How far each word starts from its place, in em: alternating sides, never the same twice running. */
-const OFFSETS = [-0.42, 0.3, -0.18, 0.5, -0.34, 0.22, -0.48, 0.14]
+/** How far apart the words start, per word from the middle of the line, in em. */
+const SPREAD = 0.15
 
 /**
- * A line of type whose words slide into register as it rises to where it is read: set slightly off,
- * each word to its own side, and in place by the time the line is a little above the middle of the
- * screen. The words are separate inline boxes, so the line wraps exactly as the plain text would.
+ * A line of type whose words slide into register as it rises to where it is read: the words start
+ * spaced out from the middle of the line and close up to the set line by the time it is a little
+ * above the middle of the screen. Each word only ever moves away from its neighbours, never over
+ * them, so the line reads at every point of the scroll. The words are separate inline boxes with
+ * real spaces between them, so the line wraps exactly as the plain text would.
  */
 export function Register({
   as: Tag = "h2",
@@ -22,11 +24,12 @@ export function Register({
   id?: string
 }) {
   const words = text.split(" ")
+  const middle = (words.length - 1) / 2
   return (
     <Tag id={id} className={`${s.register} ${className}`}>
       {words.map((word, i) => (
         <Fragment key={`${word}-${i}`}>
-          <span style={{ "--dx": `${OFFSETS[i % OFFSETS.length]}em` } as CSSProperties}>{word}</span>
+          <span style={{ "--dx": `${((i - middle) * SPREAD).toFixed(3)}em` } as CSSProperties}>{word}</span>
           {i < words.length - 1 ? " " : null}
         </Fragment>
       ))}

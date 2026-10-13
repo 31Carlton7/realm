@@ -8,14 +8,14 @@ const face = (name: string) => FACES.find((f) => f.name === name)!.polygon
 /**
  * The glass mark drawn plainly, for a browser without WebGPU and for the moment before the light is
  * ready: the same block, lit from the upper left, with its shadow on the paper and the light it bends
- * gathered at the shadow's near edge. Laid in the canvas's own geometry (the mark half the square's
- * width, centred), so the live drawing fades in over it without a jump.
+ * gathered at the shadow's near edge. Laid in the canvas's own geometry (the mark 0.46 of the region's
+ * width, centred, in a 6 : 5 region), so the live drawing fades in over it without a jump.
  */
 export function GlassStill() {
   const silhouette = [face("top"), face("left"), face("right")]
   return (
     <svg
-      viewBox="-20 -16 80 80"
+      viewBox="-23.478 -12.232 86.957 72.464"
       preserveAspectRatio="xMidYMid meet"
       className="absolute inset-0 h-full w-full [html[data-lab-field=on]_&]:hidden"
       aria-hidden

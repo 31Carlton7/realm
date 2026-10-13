@@ -260,16 +260,20 @@ fn underLight(p: vec2f) -> vec3f {
   return vec3f(scene.light.x * 0.92) + scene.light.z * scene.light.y * causticAt(p);
 }
 
-// The room the block reflects and looks out at: a bright ceiling, dark walls (the flags a glass
-// photograph is lit against, which draw its edges), the paper below, and the lamp.
+// The room the block reflects and looks out at, lit the way glass is photographed: a large soft
+// source on the lamp's side (which is what gives the lit edges their line), dark flags low on the
+// other sides (which give the far edges theirs), a bright ceiling, the paper below, and the lamp.
 fn room(r: vec3f, at: vec3f) -> vec3f {
-  var c = mix(0.14, 1.06, smoothstep(0.04, 0.8, r.z));
+  var c = mix(0.16, 0.98, smoothstep(0.08, 0.85, r.z));
   let toLamp = normalize(scene.lamp.xyz - at);
+  let side = normalize(vec3f(toLamp.xy, 0.0) + vec3f(1e-5, 0.0, 0.0));
+  let facing = dot(normalize(vec3f(r.xy, 0.0) + vec3f(1e-5, 0.0, 0.0)), side);
+  // The softbox: the half of the room toward the lamp, from just above the paper to well up the wall.
+  c += 1.35 * smoothstep(0.1, 0.75, facing) * smoothstep(-0.12, 0.08, r.z) * (1.0 - smoothstep(0.55, 0.9, r.z));
   let a = dot(r, toLamp);
-  // A broad soft glow on the lamp's side of the room, and the lamp itself.
-  c += 0.35 * smoothstep(0.55, 0.98, a) * smoothstep(-0.1, 0.4, r.z);
-  c += 18.0 * smoothstep(cos(scene.lamp.w * 1.7), cos(scene.lamp.w * 0.6), a);
-  if (r.z < -0.02) { c = 0.86; }
+  // The lamp's own disc, smaller than its penumbra suggests: the shade glows, its bulb is small.
+  c += 18.0 * smoothstep(cos(scene.lamp.w * 0.8), cos(scene.lamp.w * 0.3), a);
+  if (r.z < -0.12) { c = 0.86; }
   return vec3f(c);
 }
 

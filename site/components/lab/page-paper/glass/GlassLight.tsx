@@ -18,8 +18,8 @@ declare global {
 const GRID = 150
 /** The caustic map's texels per side. */
 const MAP = 640
-/** The mark's width as a share of the canvas's width. */
-const MARK_SHARE = 0.5
+/** The mark's width as a share of the canvas's width. GlassStill draws to the same share. */
+export const MARK_SHARE = 0.46
 /** The lamp's height over the paper, and the nearest and farthest it may stand off from the mark,
  *  in mark units: overhead enough that the shadow stays inside the canvas, low enough to have one. */
 const LAMP_HEIGHT = 52
@@ -27,8 +27,10 @@ const LAMP_NEAR = 30
 const LAMP_FAR = 64
 /** Where the lamp rests with no pointer: up and to the left of the mark, as a window would be. */
 const REST = { angle: (-128 * Math.PI) / 180, reach: 46 }
-/** The lamp's angular radius: a small shade at arm's length. */
-const LAMP_SIZE = 0.028
+/** The lamp's angular radius: a shade at arm's length, which sets the shadow's penumbra. */
+const LAMP_SIZE = 0.06
+/** The room's share of the paper's light; the lamp gives the rest. */
+const AMBIENT = 0.62
 /** Seconds for the lamp to follow the pointer: slow, a hand moving a lamp rather than a cursor. */
 const FOLLOW = 0.42
 
@@ -113,7 +115,8 @@ export function GlassLight({ className = "" }: { className?: string }) {
               view: [1, 1, 1, 1],
               centre: [0, 0, half, 22],
               lamp: [0, 0, 1, LAMP_SIZE],
-              light: [tune.amb ?? 0.5, tune.dir ?? 0.5, tune.gain ?? 1, 0.37],
+              // The room's share and the lamp's always make 1, which is the paper's own colour.
+              light: [tune.amb ?? AMBIENT, 1 - (tune.amb ?? AMBIENT), tune.gain ?? 1, 0.37],
               paper: [...PAPER_LINEAR, new URLSearchParams(window.location.search).get("paper-debug") === "caustic" ? 2 : 1],
             },
             causticMap: map,
@@ -160,7 +163,7 @@ export function GlassLight({ className = "" }: { className?: string }) {
             scene: {
               view: [rect.width, rect.height, s, output.dpr],
               centre: [cx, cy, half, 22],
-              lamp: [lamp.x, lamp.y, lamp.z, LAMP_SIZE],
+              lamp: [lamp.x, lamp.y, lamp.z, tune.size ?? LAMP_SIZE],
             },
           })
           frame(gpu, (f) => {

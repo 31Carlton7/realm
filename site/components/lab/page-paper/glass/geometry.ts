@@ -41,7 +41,7 @@ const f = (n: number) => n.toFixed(6)
 
 /** The block's proportions, in mark units (see the WGSL below for what each one is). */
 export type Shape = { t0: number; k: number; pocket: number; rim: number; zp: number; taper: number; lift: number }
-export const SHAPE: Shape = { t0: 5.5, k: 4.2, pocket: 1.7, rim: 2.1, zp: 3.0, taper: 0.78, lift: 0 }
+export const SHAPE: Shape = { t0: 5.5, k: 4.2, pocket: 1.7, rim: 1.3, zp: 0, taper: 0.78, lift: 0 }
 
 /**
  * The solid, as WGSL both passes paste in: the silhouette's distance, the cube's depth and the

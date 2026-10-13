@@ -16,9 +16,9 @@ import s from "./paper.module.css"
  */
 export function Hero({ download }: { download: MacDownload }) {
   return (
-    <section aria-labelledby="paper-title" className="relative pt-10 sm:pt-14 lg:pt-12">
+    <section aria-labelledby="paper-title" className="relative pt-8 sm:pt-10 lg:pt-2">
       <div className={`${s.measure} ${s.grid} relative`}>
-        <div className="col-span-12 lg:col-span-8 lg:pt-10">
+        <div className="col-span-12 lg:col-span-7 lg:pt-5">
           <Link
             href="/changelog/v2-1-0"
             className={`${s.note} group inline-flex items-baseline gap-3 text-ink-2 transition-colors duration-150 hover:text-ink`}
@@ -28,31 +28,31 @@ export function Hero({ download }: { download: MacDownload }) {
             <ArrowIcon className="h-3 w-3 translate-y-[1px] transition-transform duration-200 ease-[var(--ease-out-strong)] group-hover:translate-x-0.5" />
           </Link>
 
-          <h1 id="paper-title" className={`${s.display} mt-7 max-w-[10.5ch] text-ink sm:mt-9`}>
+          <h1 id="paper-title" className={`${s.display} mt-5 max-w-[10.5ch] text-ink sm:mt-6`}>
             Give your agents a world to work in.
           </h1>
 
-          <div className="mt-9 grid gap-8 sm:mt-11 md:grid-cols-[minmax(0,26rem)_auto] md:items-end md:gap-10">
-            <p className={s.lede}>
-              Bring the coding agent you already use. Each space holds a checkout, the agents working on it, and the
-              terminals, browsers and documents they open. Every space sits in one sidebar on your Mac, and it&rsquo;s all
-              still there tomorrow.
-            </p>
-            <div className="md:pb-1">
-              <div className="flex flex-wrap items-center gap-3">
-                <a href={download.href} className={s.download}>
-                  <AppleIcon className="h-4 w-4 -translate-y-px" />
-                  Download for Mac
-                </a>
-                <a href={site.repo} target="_blank" rel="noreferrer noopener" className={s.quiet}>
-                  <GitHubIcon className="h-4 w-4" />
-                  Source
-                </a>
-              </div>
-              <p className={`${s.note} mt-4 text-ink-2`}>
-                {download.version ? `${download.version} · ` : ""}macOS on Apple silicon · in active development
-              </p>
+          <p className={`${s.lede} mt-7 max-w-[35rem] sm:mt-8`}>
+            Bring the coding agent you already use. Each space holds a checkout, the agents working on it, and the
+            terminals, browsers and documents they open. Every space sits in one sidebar on your Mac, and it&rsquo;s all
+            still there tomorrow.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <a href={download.href} className={s.download}>
+                <AppleIcon className="h-4 w-4 -translate-y-px" />
+                Download for Mac
+              </a>
+              <a href={site.repo} target="_blank" rel="noreferrer noopener" className={s.quiet}>
+                <GitHubIcon className="h-4 w-4" />
+                Source
+              </a>
             </div>
+            <p className={`${s.note} text-ink-2`}>
+              {download.version ? `${download.version} · ` : ""}macOS on Apple silicon
+              <br />
+              in active development
+            </p>
           </div>
         </div>
 
@@ -61,14 +61,14 @@ export function Hero({ download }: { download: MacDownload }) {
         <div
           aria-hidden
           data-paper-glass
-          className="relative col-span-12 mt-6 aspect-square w-full max-w-[34rem] justify-self-center sm:mt-2 lg:col-span-4 lg:mt-0 lg:mr-[calc(-1*var(--margin))] lg:max-w-none lg:self-start lg:justify-self-stretch"
+          className="relative col-span-12 mt-4 aspect-[6/5] w-full max-w-[36rem] justify-self-center sm:mt-2 lg:col-span-5 lg:col-start-8 lg:mt-0 lg:mr-[calc(-1*var(--margin))] lg:w-auto lg:max-w-none lg:self-start lg:justify-self-stretch"
         >
           <GlassStill />
           <GlassLight />
         </div>
       </div>
 
-      <figure className={`${s.measure} mt-14 sm:mt-16 lg:mt-14`}>
+      <figure className={`${s.measure} mt-12 lg:mt-9`}>
         <div className={`${s.dark} ${s.plate} h-[620px] sm:h-[640px] lg:h-[min(700px,calc(100dvh-6rem))] lg:min-h-[560px]`}>
           <MiniRealm />
         </div>
