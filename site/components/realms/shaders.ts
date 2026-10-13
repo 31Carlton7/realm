@@ -342,31 +342,38 @@ fn ridged(p0: vec3f) -> f32 {
   return sum / norm;
 }
 
-// One nebula seen along a ray: the light it adds, and how much of what is behind it still shows. It is
-// marched as a volume, so its threads overlap with depth, its dust darkens what is behind it, and the
-// star inside lights the gas round it.
-fn nebula(k: i32, o: vec3f, d: vec3f, t: f32, jitter: f32) -> vec4f {
+// One nebula seen along a ray: the light it adds, and how much of what is behind it still shows.
+//
+// Its body is marched as a volume in a few steps, so it has depth, the star inside lights the gas
+// round it, and its dust darkens what is behind; the fine threads of gas are worked out once per pixel,
+// at the point of the ray the body's light came from, so they stay crisp and never break up into the
+// grain a coarse march leaves.
+fn nebula(k: i32, o: vec3f, d: vec3f, t: f32) -> vec4f {
   let n = NEB[k * 3];
   let axis = NEB[k * 3 + 1];
   let m = NEB[k * 3 + 2];
   let hit = sphere(o, d, n.xyz, n.w);
   if (hit.y <= 0.0) { return vec4f(0.0, 0.0, 0.0, 1.0); }
-  let steps = 6;
+  // A fixed number of steps, so no seam runs across the sky where a count would change.
+  let steps = 5;
   let dt = (hit.y - hit.x) / f32(steps);
   let core = n.xyz + CORE[k].xyz * n.w;
   // The flare the page sets off now and then, when it is in this one.
   let flareIn = select(0.0, scene.flare.w, distance(scene.flare.xyz, n.xyz) < 1.0);
   let coreLight = CORE[k].w * (1.0 + 3.0 * flareIn);
   let along = normalize(axis.xyz);
-  var light = vec3f(0.0);
-  var through = 1.0;
   // The gas drifts and turns slowly about the middle, and billows as it goes.
   let drift = vec3f(0.6, -0.35, 0.25) * t * m.w * 2.2;
   let swirl = t * 0.005 * m.w;
   let cs = cos(swirl);
   let sn = sin(swirl);
+  var glow = 0.0;
+  var lit = 0.0;
+  var depth = 0.0;
+  var centre = vec3f(0.0);
+  var weight = 0.0;
   for (var i = 0; i < steps; i++) {
-    let p = o + d * (hit.x + (f32(i) + jitter) * dt);
+    let p = o + d * (hit.x + (f32(i) + 0.5) * dt);
     var rel = (p - n.xyz) / n.w;
     // Drawn out along its axis: a nebula is a cloud with a grain, not a ball.
     rel += along * dot(rel, along) * (1.0 / axis.w - 1.0);
@@ -374,30 +381,41 @@ fn nebula(k: i32, o: vec3f, d: vec3f, t: f32, jitter: f32) -> vec4f {
     if (r >= 1.0) { continue; }
     let turned = vec3f(rel.x * cs - rel.y * sn, rel.x * sn + rel.y * cs, rel.z) * n.w;
     let q = turned * m.z + drift * m.z + vec3f(f32(k) * 17.3);
-    let w = vec3f(noise3(q * 0.45 + vec3f(0.0, 0.0, t * 0.03)), noise3(q * 0.45 + vec3f(5.2, 1.3, -t * 0.025)), 0.5) - 0.5;
-    let body = fbm3(q * 0.6 + w, 2);
-    // Most of a nebula's light is near its heart: the envelope falls away steeply, and what is left
-    // out at its edges is a few threads.
-    let edge = pow(smoothstep(1.0, 0.0, r + (body - 0.5) * 0.8), 1.6);
-    if (edge <= 0.002) { continue; }
-    let threads = smoothstep(0.6, 0.98, ridged(q + w * 2.4));
-    let glow = edge * (threads * 1.1 + smoothstep(0.55, 0.9, body) * 0.25 * edge);
-    let dust = edge * smoothstep(0.5, 0.75, fbm3(q * 1.15 + vec3f(31.0) + w, 2)) * m.y;
-    // Light from the star inside it, falling off with distance through the gas.
-    let toCore = distance(p, core) / n.w;
-    let lit = coreLight / (1.0 + toCore * toCore * 40.0);
-    let heat = glow * (0.45 + 4.0 * lit);
-    var e = mix(NEB_CLOUD, NEB_BLUE, smoothstep(0.0, 0.35, heat));
-    e = mix(e, mix(NEB_BLUE, NEB_CYAN, m.x), smoothstep(0.3, 1.1, heat));
-    e = mix(e, NEB_WHITE, smoothstep(1.1, 2.6, heat));
+    let body = fbm3(q * 0.6 + vec3f(0.0, 0.0, t * 0.02), 3);
+    // Most of a nebula's light is near its heart: the envelope falls away steeply.
+    let edge = pow(smoothstep(1.0, 0.0, r + (body - 0.5) * 0.9), 1.5);
+    let g = edge * smoothstep(0.3, 0.75, body);
     let step = dt / n.w;
-    light += through * e * heat * step * 2.4;
-    // The star's own light, scattered in the gas close round it.
-    light += through * mix(NEB_CYAN, NEB_WHITE, 0.45) * lit * lit * edge * step * 1.6;
-    through *= exp(-(glow * 0.8 + dust * 8.0) * step);
-    if (through < 0.02) { break; }
+    let toCore = distance(p, core) / n.w;
+    let near = coreLight / (1.0 + toCore * toCore * 40.0);
+    let w = g * step * exp(-depth);
+    glow += w;
+    lit += w * near;
+    centre += p * w;
+    weight += w;
+    depth += g * step * 1.4;
   }
-  return vec4f(light, through);
+  if (weight <= 1e-5) { return vec4f(0.0, 0.0, 0.0, 1.0); }
+  // The threads, where the light came from.
+  let p = centre / weight;
+  var rel = (p - n.xyz) / n.w;
+  rel += along * dot(rel, along) * (1.0 / axis.w - 1.0);
+  let turned = vec3f(rel.x * cs - rel.y * sn, rel.x * sn + rel.y * cs, rel.z) * n.w;
+  let q = turned * m.z + drift * m.z + vec3f(f32(k) * 17.3);
+  let w = vec3f(noise3(q * 0.45 + vec3f(0.0, 0.0, t * 0.03)), noise3(q * 0.45 + vec3f(5.2, 1.3, -t * 0.025)), 0.5) - 0.5;
+  // Threads of gas, softened by the billows they run through, so they read as gas rather than as arcs.
+  let threads = mix(smoothstep(0.5, 1.0, ridged(q * 1.4 + w * 2.4)), smoothstep(0.4, 0.8, fbm3(q * 2.1 + w, 2)), 0.3);
+  let dust = smoothstep(0.48, 0.72, fbm3(q * 1.15 + vec3f(31.0) + w, 3)) * m.y;
+  let light = lit / max(glow, 1e-5);
+  let heat = glow * (0.3 + 1.9 * threads) * (0.45 + 4.0 * light);
+  var e = mix(NEB_CLOUD, NEB_BLUE, smoothstep(0.0, 0.3, heat));
+  e = mix(e, mix(NEB_BLUE, NEB_CYAN, m.x), smoothstep(0.25, 0.9, heat));
+  e = mix(e, NEB_WHITE, smoothstep(0.9, 2.2, heat));
+  var color = e * heat * 1.7 * (1.0 - dust * 0.85);
+  // The star's own light, scattered in the gas close round it.
+  color += mix(NEB_CYAN, NEB_WHITE, 0.45) * lit * light * 1.6;
+  let through = exp(-(glow * (0.6 + 0.8 * threads) + glow * dust * 6.0));
+  return vec4f(color, through);
 }
 
 // A far galaxy: a disc of stars wound into two arms, seen at a slant, turning very slowly.
@@ -442,13 +460,9 @@ fn farSky(rd: vec3f, t: f32) -> vec3f {
   let rd = normalize(scene.fwd.xyz + scene.right.xyz * ((page.x - scene.view.z) / f) - scene.up.xyz * ((page.y - scene.view.w) / f));
   let t = scene.clock.x;
   var c = farSky(skyTurn(rd, scene.haze.z), t);
-  // The nebulae, the far ones first, each over what is behind it. Each texel of a 2x2 block marches
-  // from its own quarter of a step, and the sky pass reads the block back as one: four times the
-  // steps for the price of one, and no grain.
-  let cell = vec2u(floor(page * 0.5)) % vec2u(2u);
-  let jitter = (f32(cell.x * 2u + cell.y) + 0.5) * 0.25;
+  // The nebulae, the far ones first, each over what is behind it.
   for (var k = 0; k < NEBULAE; k++) {
-    let n = nebula(k, scene.eye.xyz, rd, t, jitter);
+    let n = nebula(k, scene.eye.xyz, rd, t);
     c = c * n.w + n.rgb;
   }
   return vec4f(vec3f(1.0) - exp(-c * EXPOSURE), 1.0);
@@ -499,10 +513,10 @@ const LIT_LOW = ${lin3(TONES.lit[1])};
 fn backdrop(css: vec2f) -> vec3f {
   let uv = css / scene.view.xy;
   let texel = 1.0 / vec2f(textureDimensions(spaceTex));
-  let a = textureSampleLevel(spaceTex, spaceSampler, saturate(uv + texel * vec2f(-0.5, -0.5)), 0.0).rgb;
-  let b = textureSampleLevel(spaceTex, spaceSampler, saturate(uv + texel * vec2f(0.5, -0.5)), 0.0).rgb;
-  let c = textureSampleLevel(spaceTex, spaceSampler, saturate(uv + texel * vec2f(-0.5, 0.5)), 0.0).rgb;
-  let d = textureSampleLevel(spaceTex, spaceSampler, saturate(uv + texel * vec2f(0.5, 0.5)), 0.0).rgb;
+  let a = textureSampleLevel(spaceTex, spaceSampler, saturate(uv + texel * vec2f(-0.75, -0.75)), 0.0).rgb;
+  let b = textureSampleLevel(spaceTex, spaceSampler, saturate(uv + texel * vec2f(0.75, -0.75)), 0.0).rgb;
+  let c = textureSampleLevel(spaceTex, spaceSampler, saturate(uv + texel * vec2f(-0.75, 0.75)), 0.0).rgb;
+  let d = textureSampleLevel(spaceTex, spaceSampler, saturate(uv + texel * vec2f(0.75, 0.75)), 0.0).rgb;
   return (a + b + c + d) * 0.25;
 }
 
