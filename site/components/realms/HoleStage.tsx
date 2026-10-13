@@ -157,21 +157,29 @@ function grown(grow: number, from: readonly number[], sweep: 0 | 1, closed = fal
 /** The far side bent over the cube's top and under it, as how far out, opacity and width. */
 const HAT = [5, 10, 16, 23].map((grow, i) => [grow, round(0.85 * Math.exp(-i / 1.5)), round(1.9 - i * 0.2)] as const)
 const UNDER = [5, 11].map((grow, i) => [grow, round(0.42 * Math.exp(-i / 1.2)), 1.2] as const)
-/** Sparks out of the doorway, as where they are and how long a streak. */
+/** The doorway's light streaming out to the right as the shader's jet does: threads from across the
+ *  opening, as where each starts, how far it runs and how it climbs, its opacity and width (the last
+ *  is the jet's soft core); then a few sparks riding it, as where they are and how long a streak. */
+const JET = [
+  [46, -20, 230, -10, 0.85, 1.1],
+  [54, -6, 290, -3, 0.95, 1.2],
+  [60, 9, 250, 6, 0.8, 1.1],
+  [50, 24, 200, 12, 0.6, 1],
+  [64, -30, 180, -16, 0.5, 1],
+  [52, 0, 320, 0, 0.3, 9],
+] as const
 const SPARKS = [
-  [138, -6, 18, 0.9],
-  [168, 14, 24, 0.7],
-  [205, -18, 30, 0.55],
-  [246, 6, 34, 0.4],
-  [292, -10, 38, 0.25],
+  [150, -8, 14, 0.9],
+  [196, 4, 18, 0.7],
+  [252, -5, 22, 0.45],
 ] as const
 
 /**
  * The hole without WebGPU: the shader's composition drawn once. The cube is the mark's silhouette in
  * black with its doorway's lit back, jamb and floor from lib/mark.ts; a fine rim traces it; the
- * inflow's strands run round it on the tilted plane, the far side's bent over the top and under the
+ * inflow's threads spiral in on the tilted plane, the far side's bent over the top and under the
  * bottom along the hexagon's own outline, the near side's crossing in front and dimming over the faces;
- * and a few sparks leave the doorway. A drawing, not a simulation.
+ * and the doorway's light streams out to the right with a few sparks on it. A drawing, not a simulation.
  */
 function FallbackHole() {
   const silhouette = grown(0, [0, 1, 2, 3, 4, 5], 0, true)
@@ -188,6 +196,11 @@ function FallbackHole() {
           <stop offset="0" stopColor="oklch(0.96 0.025 250)" />
           <stop offset="0.55" stopColor="oklch(0.8 0.08 252)" />
           <stop offset="1" stopColor="oklch(0.64 0.12 255)" />
+        </linearGradient>
+        <linearGradient id="hole-jet" gradientUnits="userSpaceOnUse" x1="40" x2="360" y1="0" y2="0">
+          <stop offset="0" stopColor="oklch(0.97 0.02 250)" />
+          <stop offset="0.35" stopColor="oklch(0.84 0.07 251)" stopOpacity="0.6" />
+          <stop offset="1" stopColor="oklch(0.7 0.11 254)" stopOpacity="0" />
         </linearGradient>
         <linearGradient id="hole-lit" gradientUnits="userSpaceOnUse" x1="0" y1="-60" x2="0" y2="60">
           <stop offset="0" stopColor="oklch(0.99 0.01 250)" />
@@ -240,8 +253,13 @@ function FallbackHole() {
           ))}
         </g>
       </g>
-      {/* What comes back out of the doorway. */}
-      <g stroke="oklch(0.93 0.035 250)" strokeLinecap="round" filter="url(#hole-soft)">
+      {/* What comes back out of the doorway: its light, and the sparks riding it. */}
+      <g fill="none" stroke="url(#hole-jet)" strokeLinecap="round">
+        {JET.map(([x, y, length, climb, o, w]) => (
+          <path key={`${x} ${y}`} d={`M${x} ${y}L${x + length} ${y + climb}`} strokeWidth={w} strokeOpacity={o} filter={w > 2 ? "url(#hole-glow)" : undefined} />
+        ))}
+      </g>
+      <g stroke="oklch(0.95 0.03 250)" strokeLinecap="round" filter="url(#hole-soft)">
         {SPARKS.map(([x, y, length, o]) => (
           <path key={x} d={`M${x - length} ${y}L${x} ${y}`} strokeWidth={2.2} strokeOpacity={o} />
         ))}

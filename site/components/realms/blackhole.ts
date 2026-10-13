@@ -22,8 +22,9 @@ import { basis as basisOf, clamp, dot, lerp, rayThrough, smooth, type Basis, typ
  *                 follows, met where a ray crosses their plane: whiter and brighter as they near the
  *                 cube, beamed on the side coming at the camera, and gone where they meet a face. The
  *                 far side is bent over the top of the cube and under it.
- *   the doorway   the one light the cube gives back: its lit back, jamb and floor, a shaft of it out
- *                 into the space in front, and what was taken in coming out along it
+ *   the doorway   the one light the cube gives back: its lit back, jamb and floor, a jet of threads of
+ *                 its light streaming out into the space in front, and what was taken in coming back
+ *                 out along it
  *
  * The hole answers the pointer: the view turns a few degrees about the cube toward it, and every ray
  * is retraced, so the outline, the doorway's depth and the lensing all follow. A click (or Enter on
@@ -84,7 +85,6 @@ export type HoleUniforms = {
 const f = (n: number) => n.toFixed(6)
 
 export const holeWgsl = /* wgsl */ `
-const HOLE_PI = 3.14159265;
 const HOLE_TAU = 6.2831853;
 // The cube's edges, rounded so its silhouette has the mark's soft corners.
 const HOLE_RC = 0.1;
@@ -232,7 +232,8 @@ fn holeDrops(q: vec3f, r: f32, phi: f32) -> vec3f {
     let reach = max(min(hole.drops[k * 3 + 1].x, 2.4), 0.05);
     let path = d.x * exp(back / HOLE_WIND);
     let width = 0.014 * path + 0.012;
-    let streak = exp(-back / 0.7) * exp(-pow((r - path) / width, 2.0)) * (1.0 - smoothstep(reach * 0.5, reach, back));
+    let across = (r - path) / width;
+    let streak = exp(-back / 0.7) * exp(-across * across) * (1.0 - smoothstep(reach * 0.5, reach, back));
     light += mix(HOLE_WHITE, HOLE_DOOR_BLUE, 0.25) * d.z * (realm * 2.6 + streak * 1.4);
   }
   return light;
@@ -336,7 +337,8 @@ fn holeTaken(p: vec3f) -> vec3f {
     let strength = hole.drops[k * 3].w;
     let dist = length(p - e.xyz);
     let radius = 0.05 + 0.95 * pow(e.w, 0.7);
-    let ring = exp(-pow((dist - radius) / (0.025 + 0.03 * e.w), 2.0)) * pow(1.0 - e.w / 1.6, 2.5);
+    let off = (dist - radius) / (0.025 + 0.03 * e.w);
+    let ring = exp(-off * off) * pow(1.0 - e.w / 1.6, 2.5);
     let flash = exp(-dist * dist / 0.012) * exp(-e.w / 0.15);
     light += (HOLE_DOOR_BLUE * ring * 0.5 + HOLE_WHITE * flash * 3.0) * strength;
   }
@@ -363,7 +365,7 @@ fn holeSpark(eye: vec3f, d: vec3f, c: vec3f, way: vec3f, size: f32, stretch: f32
 fn holeOut(eye: vec3f, d: vec3f, tEnd: f32) -> vec3f {
   let t = hole.az.w;
   var light = vec3f(0.0);
-  let reach = 3.2;
+  let reach = 4.5;
   let pad = 0.9;
   let lo = vec3f(HOLE_DX0 - pad, 1.0, HOLE_DZ0 - pad);
   let hi = vec3f(HOLE_DX1 + pad, 1.0 + reach, HOLE_DZ1 + pad);
@@ -723,9 +725,7 @@ export class BlackHole {
     const onPlane = (rr: number, phi: number): Vec3 => mix3(de, e2, rr * Math.cos(phi), rr * Math.sin(phi))
 
     // Realms the reader dropped in since the last frame: onto the plane where the click's ray meets it,
-    // or at its outer edge on that side. A key carries no point, so its realm goes in where it is easiest
-    // to follow: from the far side, over the cube's top, round past the side coming at the camera and
-    // across the front, to be taken in by the wall under the cube's near corner.
+    // or at its outer edge on that side. A key carries no point, so its realm goes in from the far side.
     while (clicks.length > 0) {
       const click = clicks.shift()!
       if (still) continue
@@ -762,7 +762,7 @@ export class BlackHole {
     const drops: number[][] = []
     let flare = 0
     this.pulse *= Math.exp(-dt / 0.35)
-    this.drops = this.drops.filter((drop) => drop.taken < 0 || drop.taken < 3)
+    this.drops = this.drops.filter((drop) => drop.taken < 3)
     for (const drop of this.drops) {
       drop.age += dt
       if (drop.taken < 0) {
