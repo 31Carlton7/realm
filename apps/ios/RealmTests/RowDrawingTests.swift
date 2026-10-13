@@ -664,6 +664,7 @@ struct ComposerButtonsTests {
     /// Stop stays while a turn runs, whatever is typed: a draft never hides it.
     @Test func stopStaysUpWhileATurnRunsWhateverIsTyped() {
         #expect(ComposerButtons(working: true, draft: "").stop)
+        #expect(ComposerButtons(working: true, draft: "Ship it").stop)
         #expect(ComposerButtons(working: true, draft: "Ship it") == ComposerButtons(working: true, draft: "Also this"))
         #expect(ComposerButtons(working: true, draft: "Ship it").send)
         #expect(!ComposerButtons(working: false, draft: "Ship it").stop)
