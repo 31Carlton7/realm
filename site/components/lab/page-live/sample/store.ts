@@ -67,10 +67,11 @@ export function restingState(epoch = 0): SampleState {
   }
 }
 
-/** Where a live hero starts: the lead has just handed out its two tasks and both sub-agents are at work. */
+/** Where a live hero starts: every session at work — Dark mode's lead has just handed out its two
+ *  tasks — and nothing yet waiting on you. */
 export function openingState(epoch = 0): SampleState {
   const rest = restingState(epoch)
-  return { ...rest, status: { ...rest.status, luna: "working", fable: "working" }, reports: [] }
+  return { ...rest, status: { ...rest.status, tests: "working", settings: "working", luna: "working", fable: "working" }, reports: [] }
 }
 
 type Listener = () => void
@@ -165,17 +166,23 @@ export function createSampleStore(initial: SampleState) {
     },
     /**
      * The opening of a live hero, from `openingState`: Dark mode's lead has just started its two
-     * sub-agents. Fable finishes and reports; then Luna reaches its tests, which the session's mode
-     * (Ask each time) says need your permission, and its request lands in Needs you beside the two
-     * already there. From then on, nothing moves until the reader answers something.
+     * sub-agents, and the other sessions are at work. One by one, from three spaces, they reach
+     * something only you can answer — a question about the settings page, then permission to run the
+     * invite tests, then the sub-agent's permission to run its own, which the session's mode (Ask each
+     * time) requires — and each request lands in Needs you. Fable finishes and reports on the way.
+     * From then on nothing moves until the reader answers something.
      */
     play() {
+      const ask = (id: string, at: number) =>
+        later(at, () => {
+          emit({ type: "request", id })
+          later(TRAVEL.request, () => setStatus(id, "waiting"))
+        })
       emit({ type: "delegated", id: "dark" })
-      later(4300, () => finishSubAgent("fable"))
-      later(6800, () => {
-        emit({ type: "request", id: "luna" })
-        later(TRAVEL.request, () => setStatus("luna", "waiting"))
-      })
+      ask("settings", 2400)
+      later(4200, () => finishSubAgent("fable"))
+      ask("tests", 5400)
+      ask("luna", 7800)
     },
     reset(next: SampleState) {
       for (const t of timers) window.clearTimeout(t)

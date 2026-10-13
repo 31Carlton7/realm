@@ -8,7 +8,9 @@ import { Icon } from "@/components/home/mini/icons"
 import { rightMid, useAnchors, type Anchors } from "../kit/anchors"
 import { Instrument } from "../kit/Chapter"
 import { route, type Pt, type Route } from "../kit/route"
-import { Signal, SignalDefs, useTrips } from "../kit/signal"
+import { useFrames } from "../kit/hooks"
+import { easeInOut } from "../kit/math"
+import { Signal, SignalDefs } from "../kit/signal"
 
 type Harness = "claude" | "codex" | "acp"
 
@@ -47,16 +49,17 @@ export function Switchboard() {
   const [picked, setPicked] = useState<AgentId>("claude")
   const boardRef = useRef<HTMLDivElement>(null)
   const anchors = useAnchors(boardRef)
-  const pulses = useTrips<"in" | "out">()
   const agent = AGENTS.find((a) => a.id === picked)!
   const harness = HARNESS[agent.harness]
+  // The patched agent at work: its traffic runs through the adapter into the workspace, now and
+  // then, for as long as the board is on screen. Picking an agent sends the first run at once.
+  const [clock, setClock] = useState(0)
+  useFrames(boardRef, (_, dt) => setClock((c) => c + dt))
 
   const pick = (id: AgentId) => {
     if (id === picked) return
     setPicked(id)
-    pulses.clear()
-    pulses.fire("in", 420)
-    pulses.fire("out", 620, 420)
+    setClock(0)
   }
 
   const wires = layoutWires(anchors)
@@ -80,13 +83,16 @@ export function Switchboard() {
               const lit = h === agent.harness
               return <path key={h} d={w.d} stroke={lit ? "oklch(1 0 0 / 0.85)" : "oklch(1 0 0 / 0.2)"} strokeWidth={lit ? 1.25 : 1} className="transition-[stroke] duration-300" />
             })}
-            {pulses.trips.map((trip) => {
-              if (!pulses.started(trip)) return null
-              const r = trip.key === "in" ? wires.jack[picked] : wires.harness[agent.harness]
+            {(() => {
+              const run = (clock % 3.4) / 1.25
+              if (run >= 1) return null
+              const first = run < 0.4
+              const r = first ? wires.jack[picked] : wires.harness[agent.harness]
               if (!r) return null
-              const k = pulses.progress(trip)
-              return <Signal key={trip.id} defs="switch" route={r} s={k * r.length} alpha={Math.min(1, (1 - k) / 0.1, k / 0.08)} />
-            })}
+              const k = first ? run / 0.4 : (run - 0.4) / 0.6
+              const alpha = first ? Math.min(1, k / 0.15) : Math.min(1, (1 - k) / 0.12)
+              return <Signal defs="switch" route={r} s={easeInOut(k) * r.length} alpha={alpha} />
+            })()}
           </svg>
         ) : null}
 

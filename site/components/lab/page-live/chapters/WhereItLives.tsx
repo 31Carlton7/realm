@@ -57,7 +57,7 @@ export function WhereItLives() {
     }
   }
   const lit = (id: string) => hot !== null && TOUCHES[hot].includes(id)
-  const hover = (part: Part) => ({ onPointerEnter: () => setHot(part), onPointerLeave: () => setHot(null), onFocus: () => setHot(part), onBlur: () => setHot(null) })
+  const hover = (part: Part) => ({ onPointerEnter: () => setHot(part), onPointerLeave: () => setHot(null) })
 
   return (
     <Instrument kind="Diagram" caption="What stays on your Mac, and the only lines that leave it. Point at a part to see its lines.">
@@ -160,7 +160,6 @@ function Block({
   return (
     <div
       data-anchor={`part-${part}`}
-      tabIndex={0}
       {...hover}
       className={`rounded-[14px] px-4 py-3.5 outline-offset-2 transition-[box-shadow,background-color] duration-200 ${
         lit ? "bg-raised shadow-[inset_0_0_0_1px_oklch(1_0_0/0.3)]" : outside ? "shadow-[inset_0_0_0_1px_oklch(1_0_0/0.14)]" : "bg-canvas"

@@ -102,19 +102,18 @@ export function Gateway() {
       kind="Diagram"
       caption={which === "linear" ? "One tool call, as a sequence. Scroll through it, or make it again." : "A review, as a sequence. Nothing goes out until you submit it."}
       controls={
-        <div role="tablist" aria-label="Which call" className="inline-flex gap-1 rounded-[12px] bg-canvas p-1 shadow-[inset_0_0_0_1px_var(--color-line)]">
+        <div role="group" aria-label="Which call" className="inline-flex gap-1 rounded-[12px] bg-canvas p-1">
           {SCENARIOS.map((s) => (
             <button
               key={s.id}
               type="button"
-              role="tab"
-              aria-selected={which === s.id}
+              aria-pressed={which === s.id}
               onClick={() => {
                 setWhich(s.id)
                 setSubmitted(false)
                 replay.clear()
               }}
-              className="app-corner h-8 rounded-[8px] px-3 text-[13px] text-ink-2 transition-colors hover:text-ink aria-selected:bg-raised aria-selected:text-ink"
+              className="app-corner h-8 rounded-[8px] px-3 text-[13px] text-ink-2 transition-colors hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink"
             >
               {s.name}
             </button>

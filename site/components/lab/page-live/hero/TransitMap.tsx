@@ -19,16 +19,18 @@ type TripKind = "delegate" | "report" | "final" | "request" | "answer" | "work"
 type Trip = { id: number; kind: TripKind; target: string; start: number; duration: number }
 type Landing = { id: number; at: Pt; start: number }
 
-/** What moves this frame: pulses with their lit stretch, marks between stations, landings at the window. */
+/** What moves this frame: pulses with their lit stretch, marks between stations, landings at the window,
+ *  and the trickle of a working session's output running into the window. */
 type Movers = {
   pulses: { id: number; head: Pt; tail: string; kind: TripKind; alpha: number; route: Route; s: number; dir: number }[]
+  trickles: { id: string; at: Pt; alpha: number }[]
   marks: { id: string; at: Pt; agent: AgentId }[]
   landings: { id: number; at: Pt; age: number }[]
   /** Sub-agents whose marks are on their way out and not yet in their rings. */
   away: Set<string>
 }
 
-const NO_MOVERS: Movers = { pulses: [], marks: [], landings: [], away: new Set() }
+const NO_MOVERS: Movers = { pulses: [], trickles: [], marks: [], landings: [], away: new Set() }
 const LINES: LineId[] = ["needs", ...SPACE_ORDER]
 const TAIL = 56
 const LANDING_MS = 1100
@@ -206,8 +208,8 @@ export function TransitMap({
         setGeometry(g)
         setAlpha({ ...L.alpha })
       }
-      const m = frameMovers(g, L, now)
-      const any = m.pulses.length > 0 || m.marks.length > 0 || m.landings.length > 0 || m.away.size > 0
+      const m = frameMovers(g, L, now, store.get())
+      const any = m.pulses.length > 0 || m.trickles.length > 0 || m.marks.length > 0 || m.landings.length > 0 || m.away.size > 0
       if (any || L.hadMovers) setMovers(m)
       L.hadMovers = any
       publishLight(lightOf(g, store.get(), m))
@@ -256,8 +258,45 @@ export function TransitMap({
   )
 }
 
+/** How often a working session's output runs into the window, and how long each run takes, seconds. */
+const TRICKLE = { every: 2.4, run: 1.5 }
+
+/**
+ * A working agent's output arriving in its session: a faint dot now and then along the station's line
+ * into the window (a sub-agent's, into the merge where its lead reads it). Only sessions that are
+ * working have one, so a waiting line falls still. The lead waiting on its sub-agents has none of its
+ * own — it is waiting, not producing — until both reports are in.
+ */
+function trickles(g: MapGeometry, s: SampleState, now: number): Movers["trickles"] {
+  const out: Movers["trickles"] = []
+  g.stations.forEach((st, i) => {
+    if (s.status[st.id] !== "working") return
+    if (st.id === "dark" && s.reports.length < 2) return
+    let r: Route
+    let from: number
+    let to: number
+    if (st.sub) {
+      const b = g.branches[st.sub]
+      r = b.route
+      from = b.stationS + 13
+      to = r.length
+    } else {
+      const line = g.lines[st.line]
+      if (!line) return
+      r = line.route
+      from = sAtX(r, st.at[0]) + 13
+      to = r.length
+    }
+    const t = ((now / 1000 + i * 0.83) % TRICKLE.every) / TRICKLE.run
+    if (t >= 1) return
+    const k = easeInOut(t)
+    out.push({ id: st.id, at: pointAt(r, from + (to - from) * k).p, alpha: Math.min(1, t / 0.15, (1 - t) / 0.2) })
+  })
+  return out
+}
+
 /** Where every trip is this frame. Finished trips are dropped; arrivals at the window leave a landing. */
-function frameMovers(g: MapGeometry, L: { trips: Trip[]; landings: Landing[]; nextId: number }, now: number): Movers {
+function frameMovers(g: MapGeometry, L: { trips: Trip[]; landings: Landing[]; nextId: number }, now: number, s: SampleState): Movers {
   const pulses: Movers["pulses"] = []
   const marks: Movers["marks"] = []
   const away = new Set<string>()
@@ -294,7 +333,7 @@ function frameMovers(g: MapGeometry, L: { trips: Trip[]; landings: Landing[]; ne
   }
   L.trips = keep
   L.landings = L.landings.filter((l) => now - l.start < LANDING_MS)
-  return { pulses, marks, landings: L.landings.map((l) => ({ id: l.id, at: l.at, age: (now - l.start) / LANDING_MS })), away }
+  return { pulses, trickles: trickles(g, s, now), marks, landings: L.landings.map((l) => ({ id: l.id, at: l.at, age: (now - l.start) / LANDING_MS })), away }
 }
 
 /** The route a trip travels and its ends along it, from the geometry as it is now. */
@@ -380,6 +419,7 @@ function lightOf(g: MapGeometry, s: SampleState, m: Movers) {
     points.push({ at: p.head, reach: 6.5, i: 0.85 * p.alpha })
   }
   for (const mk of m.marks) points.push({ at: mk.at, reach: 9, i: 0.35 })
+  for (const tr of m.trickles) points.push({ at: tr.at, reach: 4.5, i: 0.3 * tr.alpha })
 
   // Where the lines meet the window, its rim holds a little light; a landing flares there and runs.
   const along = (p: Pt) => (g.mode === "side" ? p[1] : p[0])
@@ -534,6 +574,9 @@ function MapDrawing({
             <circle cx={p.head[0]} cy={p.head[1]} r={9} fill="url(#live-pulse-glow)" />
             <circle cx={p.head[0]} cy={p.head[1]} r={2.3} fill="oklch(0.95 0.03 250)" />
           </g>
+        ))}
+        {movers.trickles.map((tr) => (
+          <circle key={tr.id} cx={tr.at[0]} cy={tr.at[1]} r={1.7} fill="var(--color-accent-ink)" opacity={tr.alpha * 0.75} />
         ))}
         {movers.landings.map((l) => (
           <circle key={l.id} cx={l.at[0]} cy={l.at[1]} r={3 + l.age * 9} stroke="var(--color-accent-ink)" strokeWidth={1} opacity={(1 - l.age) * 0.8} />

@@ -470,7 +470,9 @@ function SessionBody({
           <UserTurn>Write tests for the invite flow, and run them.</UserTurn>
           <p>I added twelve cases to web/lib/invites.test.ts: expired links, a second accept, an invite to an org you already belong to, and the role an invite grants.</p>
           <ToolRow icon="doc" label="Edited web/lib/invites.test.ts" detail="+148" />
-          {status === "waiting" ? (
+          {status === "working" && !answer ? (
+            <p className="text-ink-3">Working…</p>
+          ) : status === "waiting" ? (
             <WaitingCard need={{ id: session.id, title: session.title, space: session.space, session, agent: null }} onAnswer={onAnswer} />
           ) : answer === "Deny" ? (
             <ToolRow icon="close" label="You denied pnpm vitest run" detail="Denied" tone="red" />
@@ -487,7 +489,9 @@ function SessionBody({
         <>
           <UserTurn>The settings page is one long column. Pick a better look, and show me before you build it.</UserTurn>
           <p>I sketched three layouts against the real settings in the dev server, which is open in the browser tab.</p>
-          {status === "waiting" ? (
+          {status === "working" && !answer ? (
+            <p className="text-ink-3">Working…</p>
+          ) : status === "waiting" ? (
             <WaitingCard need={{ id: session.id, title: session.title, space: session.space, session, agent: null }} onAnswer={onAnswer} />
           ) : (
             <>
@@ -737,7 +741,7 @@ function BrowserView({ status, answer }: { status: Status; answer?: string }) {
         </span>
       </div>
       <div className="m-2.5 mt-0 min-h-0 flex-1 overflow-hidden rounded-[10px] bg-[oklch(0.97_0.003_264)] p-3 text-[oklch(0.3_0.01_264)]">
-        <SettingsSketch layout={layout} working={status === "working"} />
+        <SettingsSketch layout={layout} working={status === "working" && Boolean(answer)} />
       </div>
     </div>
   )

@@ -6,6 +6,7 @@ import { AgentMark } from "@/components/AgentMark"
 import { Icon } from "@/components/home/mini/icons"
 
 import { useAnchors } from "../kit/anchors"
+import { useScrollProgress } from "../kit/hooks"
 import { Instrument } from "../kit/Chapter"
 
 type Edit = { path: string; file: string; plus: number; minus: number }
@@ -52,10 +53,15 @@ const undoable = (turns: Turn[], i: number) => turns[i]!.edits.length > 0 && tur
 
 export function Timeline() {
   const [count, setCount] = useState(TURNS.length)
-  const [picked, setPicked] = useState(TURNS.length - 2)
+  const [held, setHeld] = useState<number | null>(null)
   const [rewound, setRewound] = useState<number | null>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const { width } = useAnchors(trackRef)
+  // Until the reader takes the playhead, scrolling walks it from the first turn to the fifth, so the
+  // card under it shows Undo arriving only where the rule allows it.
+  const scrolled = useScrollProgress(trackRef, { from: 0.8, to: 0.3 })
+  const picked = held ?? Math.min(count - 1, Math.round(scrolled * 4))
+  const setPicked = (i: number) => setHeld(i)
   const turns = TURNS.slice(0, count)
   const turn = turns[picked]!
   const canUndo = undoable(turns, picked)
@@ -94,13 +100,13 @@ export function Timeline() {
   const reset = () => {
     setRewound(null)
     setCount(TURNS.length)
-    setPicked(TURNS.length - 2)
+    setHeld(TURNS.length - 2)
   }
 
   return (
     <Instrument
       kind="Sample"
-      caption="One session's turns, left to right. Drag along them, or use the arrow keys."
+      caption="One session's turns, left to right. Scroll, or drag along them, or use the arrow keys."
       controls={
         rewound !== null ? (
           <button type="button" onClick={reset} className="text-[12.5px] text-accent-ink underline decoration-accent-ink/40 underline-offset-[3px] hover:decoration-accent-ink">

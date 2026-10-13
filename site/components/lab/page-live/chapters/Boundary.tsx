@@ -94,7 +94,7 @@ export function Boundary() {
 
   return (
     <Instrument kind="Sample" caption="Pick a posture, then try something. The drawing shows where the policy stops it.">
-      <div role="radiogroup" aria-label="The space's sandbox" className="mb-6 inline-flex flex-wrap gap-1 rounded-[12px] bg-canvas p-1 shadow-[inset_0_0_0_1px_var(--color-line)]">
+      <div role="radiogroup" aria-label="The space's sandbox" className="mb-6 inline-flex flex-wrap gap-1 rounded-[12px] bg-canvas p-1">
         {POSTURES.map((p) => (
           <button
             key={p.id}
