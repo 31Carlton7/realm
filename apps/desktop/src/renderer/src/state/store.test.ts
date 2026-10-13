@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
+import { createAppStore, hasLeafIn, patchKey, spaceIsPlainFolder, worktreeTitleFrom, BROWSER_ACTIONS_MAX, COMPUTER_ACCESS_POLL_MS, COMPUTER_ACCESS_WATCH_MS, PERSIST_DEBOUNCE_MS, SETTING_FILES_VIEW, type DropEdge } from "./store";
 import { PANE_DIVIDER, PANE_MIN, allItems, findLeaf, findLeafOfItem, findSidePane, firstLeaf, itemIdOfLeaf, primaryLeaves, ElementChipSchema, MAX_ELEMENT_CHIPS, scanElementChips, sessionEvent, PAGE_REF_IDS, type BrowserPickedElement, type DevicePickedElement, type Environment, type Item, type Layout, type StoredSessionEvent } from "@realm/contracts";
 import { fakeApi, iconAsset, item, mcpServer, profile, session, skillRow, space, type FakeApi } from "./store.test-fakes";
 import { DEFAULT_GROUND_ALPHA } from "@realm/ui";
@@ -3475,12 +3475,66 @@ describe("computer access", () => {
     expect(row).toMatchObject({ state: "granted", canPrompt: false });
   });
 
-  it("never asks for a row that cannot be prompted", async () => {
+  it("never asks for a grant already held", async () => {
     const store = createAppStore(api);
     await store.getState().refreshComputerAccess();
     // Screen Recording is already granted in the fixture, so there is nothing to ask for.
     await store.getState().requestComputerAccess("screenRecording");
     expect(api.calls).not.toContain("computerAccessRequest:screenRecording");
+  });
+
+  /** Under fake timers the fake api's own zero-delay wait is a timer too: advance while it settles. */
+  const settle = async (p: Promise<unknown>) => { await vi.advanceTimersByTimeAsync(0); await p; };
+
+  it("watches a row sent to System Settings until the user switches it on, then stops", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createAppStore(api);
+      await settle(store.getState().refreshComputerAccess());
+      await settle(store.getState().requestComputerAccess("accessibility"));
+      expect(store.getState().computerAwaiting).toBe("accessibility");
+      const reads = () => api.calls.filter((c) => c === "computerAccessStatus").length;
+      const before = reads();
+      await vi.advanceTimersByTimeAsync(COMPUTER_ACCESS_POLL_MS);
+      expect(reads()).toBe(before + 1);
+      // The user flips the switch in System Settings: the next read sees it, and the row flips by itself.
+      api.data.computerAccess = { ...api.data.computerAccess, rows: api.data.computerAccess.rows.map((r) => (r.id === "accessibility" ? { ...r, state: "granted" as const } : r)) };
+      await vi.advanceTimersByTimeAsync(COMPUTER_ACCESS_POLL_MS);
+      expect(store.getState().computerAccess?.rows.find((r) => r.id === "accessibility")?.state).toBe("granted");
+      expect(store.getState().computerAwaiting).toBeNull();
+      // And no more reads once it is granted.
+      const settled = reads();
+      await vi.advanceTimersByTimeAsync(COMPUTER_ACCESS_POLL_MS * 3);
+      expect(reads()).toBe(settled);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("gives the watch up after a few minutes rather than polling forever", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createAppStore(api);
+      await settle(store.getState().refreshComputerAccess());
+      await settle(store.getState().requestComputerAccess("accessibility"));
+      await vi.advanceTimersByTimeAsync(COMPUTER_ACCESS_WATCH_MS + COMPUTER_ACCESS_POLL_MS);
+      expect(store.getState().computerAwaiting).toBeNull();
+      const reads = api.calls.filter((c) => c === "computerAccessStatus").length;
+      await vi.advanceTimersByTimeAsync(COMPUTER_ACCESS_POLL_MS * 3);
+      expect(api.calls.filter((c) => c === "computerAccessStatus").length).toBe(reads);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("repairs only a row that offers it, and watches it afterwards", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createAppStore(api);
+      await settle(store.getState().refreshComputerAccess());
+      // Screen Recording works in the fixture: a reset there would only take away a working grant.
+      await settle(store.getState().repairComputerAccess("screenRecording"));
+      expect(api.calls).not.toContain("computerAccessRepair:screenRecording");
+      await settle(store.getState().repairComputerAccess("accessibility"));
+      expect(api.calls).toContain("computerAccessRepair:accessibility");
+      expect(store.getState().computerAwaiting).toBe("accessibility");
+    } finally { vi.useRealTimers(); }
   });
 
   it("does not put up a second dialog while one is still open", async () => {

@@ -2194,6 +2194,8 @@ function AppIcon({ id }: { id: string }) {
 }
 
 const TCC_STATE_LABEL = { granted: "Granted", denied: "Not granted", unknown: "Can't be checked until used" } as const;
+/** The grants Computer control asks for and repairs itself. */
+const COMPUTER_GRANT_IDS: ReadonlySet<string> = new Set(["accessibility", "screenRecording"]);
 
 function PermissionsTab() {
   return (
@@ -2290,19 +2292,23 @@ function ComputerSpaceRows({ spaceId, name, icon, profile }: { spaceId: string; 
  * page whose buttons can raise a prompt for Realm ITSELF (the "Apps on this Mac" rows prompt on the
  * `mac` CLI's behalf; "Realm's own access" only ever reads).
  *
- * The button says "Ask macOS", not "Grant", because that is all it can do: for both of these macOS
- * shows a dialog that only deep-links to System Settings, and the state does not change until the
- * user flips the switch there. Saying otherwise would make the page look broken when the row stays
- * red after a click.
+ * One button per row does the whole trip: it asks macOS and opens the pane where the switch is, then
+ * the row re-reads until the switch is on — so it turns Granted by itself when the user comes back.
+ * It says "Allow in System Settings", not "Grant", because the switch is there: a row that stayed red
+ * after "Grant" would look broken.
+ *
+ * A grant macOS stopped honouring after an update (made while Realm was unsigned, so pinned to one
+ * build) looks exactly like a refusal, while System Settings still shows Realm switched on. Where the
+ * row KNOWS that happened it leads with Repair; everywhere else Repair waits behind "Already on?",
+ * which is the question the user is asking at that moment.
  */
 function ComputerAccessSection() {
   const status = useApp((s) => s.computerAccess);
   const requesting = useApp((s) => s.computerRequesting);
+  const awaiting = useApp((s) => s.computerAwaiting);
   const refreshComputerAccess = useApp((s) => s.refreshComputerAccess);
-  const requestComputerAccess = useApp((s) => s.requestComputerAccess);
-  const openComputerAccessPane = useApp((s) => s.openComputerAccessPane);
   const run = useApp((s) => s.run);
-  useEffect(() => { void run(() => refreshComputerAccess()); }, [run, refreshComputerAccess]);
+  useComputerAccessFresh(refreshComputerAccess, run);
 
   return (
     <div className="computer-access-field" data-setting="computer-control">
@@ -2321,44 +2327,81 @@ function ComputerAccessSection() {
           {!status.packaged && (
             <p className="settings-hint">Running from source: macOS will attribute these grants to “{status.hostName}”, not to Realm.app — they will not carry into a packaged build.</p>
           )}
+          {status.packaged && !status.signed && (
+            <p className="settings-hint" title="A signed Realm's grants are tied to its bundle id and team, and survive updates.">
+              This copy of Realm is unsigned, so macOS ties these grants to this exact build and the next update will ask for them again.
+            </p>
+          )}
           <ul className="settings-list">
             {status.rows.map((r) => (
-              <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`} title={r.detail}>
-                <AppIcon id={r.id} />
-                <div className="settings-row-main">
-                  <span className="settings-row-name">{r.label}</span>
-                  <span className="tcc-state" data-state={r.state}>
-                    {r.state === "granted" && <Icon name="check" size={12} />}
-                    {TCC_STATE_LABEL[r.state]}
-                  </span>
-                  {/* What a grant BUYS is worth a sentence while you are deciding, and worth nothing
-                      once you have decided: a granted row's chip already says the only thing left to
-                      know. The sentence stays on the row's title either way. */}
-                  {r.state !== "granted" && <span className="settings-row-desc">{r.detail}</span>}
-                </div>
-                <div className="mac-row-actions">
-                  {r.canPrompt && (
-                    /* `askExplanation` rides the BUTTON now instead of stacking a second paragraph
-                       under the row. It was always a sentence about what clicking does — that the
-                       dialog's only button opens System Settings, and that nothing is granted until
-                       you switch Realm on there — which is a thing to read at the button, not two
-                       lines above it and again for every row on the page. */
-                    <button type="button" className="btn-quiet" disabled={requesting !== null}
-                      title={r.askExplanation ?? undefined}
-                      onClick={() => run(() => requestComputerAccess(r.id))}>
-                      {requesting === r.id ? "Waiting for macOS…" : "Ask macOS"}
-                    </button>
-                  )}
-                  {r.needsSettings && (
-                    <button type="button" className="btn-quiet" onClick={() => run(() => openComputerAccessPane(r.id))}>Open System Settings</button>
-                  )}
-                </div>
-              </li>
+              <ComputerAccessRowView key={r.id} row={r} hostName={status.hostName}
+                requesting={requesting} awaiting={awaiting === r.id} />
             ))}
           </ul>
         </>
       )}
     </div>
+  );
+}
+
+/** Re-read on mount and whenever the window comes back to the front — which is the moment someone
+ *  returns from System Settings, and after a watch has given up the only one left. */
+function useComputerAccessFresh(refresh: () => Promise<void>, run: (fn: () => Promise<unknown>) => void) {
+  useEffect(() => {
+    run(() => refresh());
+    const onFocus = () => run(() => refresh());
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [run, refresh]);
+}
+
+function ComputerAccessRowView({ row: r, hostName, requesting, awaiting }: {
+  row: ComputerAccessRow; hostName: string; requesting: string | null; awaiting: boolean;
+}) {
+  const requestComputerAccess = useApp((s) => s.requestComputerAccess);
+  const repairComputerAccess = useApp((s) => s.repairComputerAccess);
+  const run = useApp((s) => s.run);
+  const granted = r.state === "granted";
+  const chip = granted ? TCC_STATE_LABEL.granted : r.stale ? "Not honoured" : TCC_STATE_LABEL[r.state];
+  const busy = requesting !== null;
+  const mine = requesting === r.id;
+  // While the user is off in System Settings, the row's line is the one instruction that matters:
+  // where the switch is, on this macOS, by the name System Settings itself uses.
+  const desc = awaiting ? `Switch ${hostName} on in System Settings ▸ ${r.settingsPlace}. This row changes when you do.` : r.detail;
+  const repair = (
+    <button type="button" className="btn-quiet" disabled={busy} title={r.repairExplanation ?? undefined}
+      onClick={() => run(() => repairComputerAccess(r.id))}>
+      {mine ? "Waiting for macOS…" : r.stale ? "Repair" : "Already on?"}
+    </button>
+  );
+  return (
+    <li className="settings-row tcc-row" aria-label={`${r.label}: ${chip}`} title={r.detail}>
+      <AppIcon id={r.id} />
+      <div className="settings-row-main">
+        <span className="settings-row-name">{r.label}</span>
+        <span className="tcc-state" data-state={r.state}>
+          {granted && <Icon name="check" size={12} />}
+          {chip}
+        </span>
+        {/* What a grant BUYS is worth a sentence while you are deciding, and worth nothing once you
+            have decided: a granted row's chip already says the only thing left to know. The sentence
+            stays on the row's title either way. */}
+        {!granted && <span className="settings-row-desc" aria-live="polite">{desc}</span>}
+      </div>
+      {!granted && (
+        <div className="mac-row-actions">
+          {r.stale && r.canRepair ? repair : (
+            /* `askExplanation` rides the BUTTON: it is a sentence about what clicking does, which is
+               a thing to read at the button, not two lines above it and again for every row. */
+            <button type="button" className="btn-quiet" disabled={busy} title={r.askExplanation ?? undefined}
+              onClick={() => run(() => requestComputerAccess(r.id))}>
+              {mine ? "Waiting for macOS…" : "Allow in System Settings"}
+            </button>
+          )}
+          {!r.stale && r.canRepair && repair}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -2528,6 +2571,7 @@ function RealmAccessSection() {
   const rows = useApp((s) => s.tccRows);
   const refreshTcc = useApp((s) => s.refreshTcc);
   const openTccPane = useApp((s) => s.openTccPane);
+  const openSettingsPage = useApp((s) => s.openSettingsPage);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshTcc()); }, [run, refreshTcc]);
   return (
@@ -2547,7 +2591,13 @@ function RealmAccessSection() {
                 </span>
                 {r.state !== "granted" && <span className="settings-row-desc">{r.detail}</span>}
               </div>
-              <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane(r.id))}>Open System Settings</button>
+              {/* Accessibility and Screen Recording are asked for, repaired and watched under Computer
+                  use; a second button here that only deep-linked would be a weaker copy of that one. */}
+              {COMPUTER_GRANT_IDS.has(r.id) ? (
+                <button type="button" className="btn-quiet" onClick={() => openSettingsPage("computer-use")}>Set up in Computer use</button>
+              ) : (
+                <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane(r.id))}>Open System Settings</button>
+              )}
             </li>
           ))}
         </ul>

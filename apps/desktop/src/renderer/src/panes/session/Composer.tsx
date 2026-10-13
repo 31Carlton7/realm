@@ -1213,7 +1213,15 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             <Icon name="alert" size={12} className="attach-note-glyph" />
             {/* The apps by name, in the sentence: an app's name is a name, not an identifier to set
                 in mono after a colon. */}
-            <span>Computer use cannot drive {listNames(refs.flatMap((r) => (r.kind === "app" ? [r.name] : [])))} until macOS gives Realm Accessibility — grant it in Settings ▸ Computer use.</span>
+            <span>Computer use cannot drive {listNames(refs.flatMap((r) => (r.kind === "app" ? [r.name] : [])))} until macOS gives Realm Accessibility.</span>
+            {/* The grant is one click from where it was missed: the same Allow the Settings row
+                carries, which asks, opens the pane and watches for the switch. */}
+            {mentions?.accessibilityAction && (
+              <button type="button" className="btn-quiet composer-mention-allow" disabled={mentions.accessibilityAction.busy}
+                title={mentions.accessibilityAction.title ?? undefined} onClick={mentions.accessibilityAction.run}>
+                {mentions.accessibilityAction.label}
+              </button>
+            )}
           </p>
         )}
         {/* The mirror and the textarea are one control in two layers, so they share a positioned box.

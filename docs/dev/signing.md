@@ -67,6 +67,15 @@ signature. An unsigned build is a different app to TCC, and installing one over 
 all of them at once. `scripts/install-local.mjs` refuses that swap unless
 `REALM_ALLOW_PERMISSION_RESET=1`.
 
+Every signed build checks this before it is notarized or installed: `notarize.cjs`'s `afterSign`
+reads the signatures back and fails the build when Realm.app's designated requirement would not name
+`co.charmtechnologies.realm` and its team (macOS would pin grants to the cdhash), or when a helper in
+`Contents/Resources` (axhelper above all) is signed by another team or without the hardened runtime.
+
+A grant made while Realm was unsigned stays pinned to that build. After an update System Settings
+still shows Realm switched on while macOS refuses it; Settings ▸ Computer use says so on the row and
+its Repair runs `tccutil reset <service> co.charmtechnologies.realm`, asks again, and opens the pane.
+
 ## Verify the artifact
 
 ```sh

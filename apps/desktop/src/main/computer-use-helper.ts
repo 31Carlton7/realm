@@ -48,7 +48,7 @@ export class ComputerUseHelper {
   /** Last line the helper wrote to stderr, surfaced in the error when it dies during a call. */
   private lastStderr = "";
 
-  constructor(private readonly d: { helperPath: () => string | null; onLog?: (line: string) => void }) {}
+  constructor(private readonly d: { helperPath: () => string | null; onLog?: (line: string) => void; timeoutMs?: number }) {}
 
   get available(): boolean {
     return this.d.helperPath() !== null;
@@ -60,14 +60,30 @@ export class ComputerUseHelper {
    * Errors carry the helper's own `code` on `.cause` so the executor can turn them into the
    * `refused` tags the agent branches on, rather than re-deriving intent from message text.
    */
-  request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  async request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    const running = this.child !== null;
+    try {
+      return await this.send<T>(method, params);
+    } catch (e) {
+      // The helper reads trust once and keeps the answer, so one started before the user switched
+      // Realm on refuses every call for as long as it runs. A refusal from a helper that was ALREADY
+      // running is retried once in a fresh one; the refusal comes before anything is done, so the
+      // retry cannot act twice. A fresh helper's refusal is the real answer and goes straight back.
+      if (!running || (e as Error).cause !== "no_accessibility") throw e;
+      this.stop();
+      return this.send<T>(method, params);
+    }
+  }
+
+  private send<T>(method: string, params: Record<string, unknown>): Promise<T> {
     const child = this.ensure();
     if (!child) return Promise.reject(new Error("computer control is unavailable in this build — the native accessibility helper was not compiled"));
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
+      const timeout = this.d.timeoutMs ?? CALL_TIMEOUT_MS;
       const timer = setTimeout(() => {
-        if (this.pending.delete(id)) reject(new Error(`the accessibility helper did not answer "${method}" within ${CALL_TIMEOUT_MS / 1000}s`));
-      }, CALL_TIMEOUT_MS);
+        if (this.pending.delete(id)) reject(new Error(`the accessibility helper did not answer "${method}" within ${timeout / 1000}s`));
+      }, timeout);
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
       try {
         child.stdin!.write(`${JSON.stringify({ id, method, params })}\n`);
@@ -165,5 +181,20 @@ export class ComputerUseHelper {
       entry.reject(new Error(reason));
     }
     this.pending.clear();
+  }
+}
+
+/**
+ * Both grants as macOS answers them NOW, from a helper started for this one read and stopped after it.
+ * The long-lived helper cannot answer this: it keeps the trust it saw at launch. Spawned by Realm, the
+ * fresh one is attributed to Realm, so it reads Realm's grants and not its own.
+ */
+export async function probeGrantsOnce(helperPath: () => string | null, timeoutMs = 5_000): Promise<{ accessibility: boolean; screenRecording: boolean }> {
+  const helper = new ComputerUseHelper({ helperPath, timeoutMs });
+  try {
+    const r = await helper.request<{ accessibility?: unknown; screenRecording?: unknown }>("ping");
+    return { accessibility: r?.accessibility === true, screenRecording: r?.screenRecording === true };
+  } finally {
+    helper.stop();
   }
 }

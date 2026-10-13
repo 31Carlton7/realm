@@ -185,6 +185,7 @@ interface Window {
     computerAccess: {
       status(): Promise<ComputerAccessStatus>;
       request(id: string): Promise<ComputerAccessStatus>;
+      repair(id: string): Promise<ComputerAccessStatus>;
       openSettings(id: string): Promise<void>;
     };
     /** Settings→App Updates row (Plan 15 W1). The gate lives in main: on a gated build `check`
@@ -346,14 +347,23 @@ interface ComputerAccessRow {
   canPrompt: boolean;
   /** The switch that actually grants it lives in System Settings — true whenever it is missing. */
   needsSettings: boolean;
-  /** What pressing "Ask macOS" will really do; null when there is nothing to ask for. */
+  /** What pressing Allow will really do; null when there is nothing to ask for. */
   askExplanation: string | null;
+  /** macOS refuses a grant an earlier build held — System Settings likely still shows it on. */
+  stale: boolean;
+  /** Repair (tccutil reset for this service, then ask again) can run for this row. */
+  canRepair: boolean;
+  repairExplanation: string | null;
+  /** Where the switch is on this macOS, e.g. "Privacy & Security ▸ Device Control and Data Access". */
+  settingsPlace: string;
 }
 interface ComputerAccessStatus {
   rows: ComputerAccessRow[];
   /** The app macOS attributes the grants to — "Electron" under `pnpm dev`. */
   hostName: string;
   packaged: boolean;
+  /** Signed with a Developer ID. Unsigned, macOS pins each grant to this exact build. */
+  signed: boolean;
   /** False when this build has no compiled accessibility helper: computer control is unavailable
    *  whatever macOS has granted. */
   helperAvailable: boolean;

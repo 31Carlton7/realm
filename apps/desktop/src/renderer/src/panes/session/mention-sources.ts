@@ -203,6 +203,9 @@ export type MentionSources = {
   appIcons: Readonly<Record<string, string | null>>;
   /** Whether macOS lets Realm drive other apps: null until asked. */
   accessibility: boolean | null;
+  /** The one click that gets Accessibility from where it was missed — Allow (or Repair, for a grant
+   *  macOS stopped honouring) — with its label and what it will do. Absent where nothing can ask. */
+  accessibilityAction?: { label: string; title: string | null; busy: boolean; run(): void } | null;
   /** The checkout's files ranked against `query` (the server's `mentions.files`). */
   files(query: string): Promise<FileHit[]>;
   /** The Library's files whose names contain `query`, newest first. */
