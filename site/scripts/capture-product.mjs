@@ -759,6 +759,60 @@ const TITLES = {
   quarterly: "Plan the quarterly report",
 }
 
+/** The ask the fix answers: the landing page's working sample asks it in the same words. */
+const FIX_ASK = "Please fix the org access crash. It only happens on staging."
+
+/**
+ * How long the fix's first edit waits on its answer. Realm's folded row counts its tool calls' whole
+ * span, the wait included, and the turn's footer counts only the agent's own working time, which is
+ * the answer streamed at FIX_PACE_MS a word: a minute or so each, a fix's length rather than the
+ * scripted agent's fraction of a second.
+ */
+const FIX_TAKES_MS = 64_000
+const FIX_PACE_MS = 300
+
+/**
+ * The scripted agent's fix for FIX_ASK, read ahead of its built-in script (REALM_FAKE_SCRIPT): the
+ * built-in "fix the org access" turn, step for step, with its first edit asking first. The edits are
+ * applied to the files `seedWebApp` wrote, so they fail if either drifts from what they replace.
+ */
+const FIX_SCRIPT = [{
+  on: "It only happens on staging",
+  emit: [
+    { kind: "tool", name: "Read", input: { file_path: "web/lib/orgs.ts" }, result: "export async function getOrgMembership(…)" },
+    { kind: "tool", name: "Edit", apply: true, needsPermission: true, result: "The file web/lib/orgs.ts has been updated.", input: { file_path: "web/lib/orgs.ts",
+      old_string: "  const rows = await db.select().from(organizationMember)\n    .where(and(eq(organizationMember.organizationId, orgId), eq(organizationMember.userId, userId)));\n",
+      new_string: "  // Only the stable columns access checks read. The invite metadata beside them\n"
+        + "  // drifts between environments, and selecting it is what crashed the layout.\n"
+        + "  const rows = await db\n    .select({\n      id: organizationMember.id,\n      organizationId: organizationMember.organizationId,\n"
+        + "      userId: organizationMember.userId,\n      role: organizationMember.role,\n    })\n    .from(organizationMember)\n"
+        + "    .where(and(\n      eq(organizationMember.organizationId, orgId),\n      eq(organizationMember.userId, userId),\n    ));\n"
+        + "  // The invite fields are filled in memory, where an older row cannot crash the read.\n"
+        + "  for (const row of rows) withInviteDefaults(row);\n  if (rows.length === 0) return null;\n" } },
+    { kind: "tool", name: "Edit", apply: true, result: "The file has been updated.", input: { file_path: "web/lib/agent/chat-runtime/compaction/auto-compact.ts",
+      old_string: "export function shouldCompact(tokens: number, limit: number) {\n",
+      new_string: "export function shouldCompact(tokens: number, limit: number): boolean {\n  // Kept total for the tests that pass a zero limit.\n  if (limit <= 0) return false;\n" } },
+    { kind: "tool", name: "Bash", input: { command: "npx tsc --noEmit --pretty false" }, result: "" },
+    { kind: "text", paceMs: FIX_PACE_MS, text: "Fixed the org access crash on staging.\n\n"
+      + "The important change is in web/lib/orgs.ts (line 83): `getOrgMembership()` now selects only the stable fields it actually needs for access checks: `id`, `organizationId`, `userId`, and `role`. "
+      + "It then normalizes the unused invite metadata fields in memory. That avoids the layout crashing on environments where `organization_member` invite columns are out of sync, which is what staging's are.\n\n"
+      + "I also kept the earlier compaction helper type-compatible with its tests in `auto-compact.ts:67`, since full TypeScript caught that while verifying.\n\n"
+      + "Verified:\n\n- Reproduced `getOrgMembership()` / `canAccessProject()` with the exact org, user, and project IDs from your error: passes\n"
+      + "- `npx eslint lib/orgs.ts lib/agent/chat-runtime/compaction/auto-compact.ts --max-warnings=0`: passes\n"
+      + "- `npx tsc --noEmit --pretty false`: passes\n- `npm run build`: passes" },
+  ],
+}]
+
+/**
+ * The time zone the run's clock reads in: the one where it is mid-morning now, so every time the
+ * pictures show — a turn's, a run's, a card's — is a working hour whenever the run happens.
+ */
+function morningZone(hour = 11) {
+  let offset = (((hour - new Date().getUTCHours()) % 24) + 24) % 24
+  if (offset > 12) offset -= 24
+  return offset >= 0 ? `Etc/GMT-${offset}` : `Etc/GMT+${-offset}`
+}
+
 /** The brief the Agents tab's Build with sends — an ordinary message, in the person's words. */
 const BUILD_BRIEF = [
   "Build this with sub-agents, one per task below. Start each with agent_start and set constraints.model to the model named for it. Start every one before you wait on any, collect their reports with agent_wait, and then tell me what each one did and anything left to do.",
@@ -804,13 +858,16 @@ async function stage(ctx) {
   const settled = (session, label) => until(async () => (await rpc.call("sessions.get", { id: session.id })).status === "idle", 60_000, label)
 
   // A session that read before it changed anything: two turns, so its track has more than one tick,
-  // and the second really edits the checkout, so the turn has a card with Review and Undo.
+  // and the second really edits the checkout, so the turn has a card with Review and Undo. The fix
+  // asks before its first edit, as a session on Ask each time does, and is answered once a real
+  // turn's time has gone by (FIX_TAKES_MS, the rest of the staging running meanwhile), so its folded
+  // row and its footer give a fix's length rather than the scripted agent's fraction of a second.
   const fix = await make(dashboard, TITLES.fix, { model: "claude-opus-5-5" })
   await send(fix, "Walk me through how the mapper works, and stream slowly")
   await settled(fix, "the first turn")
-  await send(fix, "Please fix the org access crash path")
-  await until(async () => (await events(fix)).some((e) => e.event.type === "turn_changes"), 60_000, "the fix's edits")
-  await settled(fix, "the fix")
+  const fixAsked = Date.now()
+  await send(fix, FIX_ASK)
+  const fixEdit = await until(async () => (await events(fix)).find((e) => e.event.type === "permission_request")?.event.payload.requestId, 30_000, "the fix's first edit to ask")
   const firstAsk = (await events(fix)).find((e) => e.event.type === "user_message")
   if (firstAsk) await rpc.call("sessions.setSaved", { id: fix.id, seq: firstAsk.seq, saved: true }).catch((error) => console.warn(`    sessions.setSaved: ${error.message}`))
 
@@ -853,6 +910,11 @@ async function stage(ctx) {
     { id: null, name: "Dev server", command: "pnpm dev --port 3100", cwd: null },
   ]) await rpc.call("scripts.save", { spaceId: realm.id, script }).catch((error) => console.warn(`    scripts.save ${script.name}: ${error.message}`))
 
+  await sleep(Math.max(0, FIX_TAKES_MS - (Date.now() - fixAsked)))
+  await rpc.call("sessions.respondPermission", { id: fix.id, requestId: fixEdit, decision: "allow_always" })
+  await until(async () => (await events(fix)).some((e) => e.event.type === "turn_changes"), 150_000, "the fix's edits")
+  await settled(fix, "the fix")
+
   await until(async () => {
     const all = await rpc.call("sessions.listAll", { profileId: null })
     const waiting = all.filter((s) => s.status === "waiting_permission").length
@@ -888,6 +950,9 @@ const scenes = [
       // below the head row, with the rim's corner.
       try {
         await viewport(VIEWPORT.width, 740)
+        // Then shorter by whatever ground lies between the last session and New space, past a row's gap.
+        const slack = await evaluate(`(() => { const last = [...document.querySelectorAll('.sb-sections .item-row')].at(-1).getBoundingClientRect(); const add = document.querySelector('.sb-new-space').getBoundingClientRect(); return Math.floor(add.top - last.bottom); })()`)
+        if (slack > 20) await viewport(VIEWPORT.width, 740 - (slack - 20))
         const column = await boxOf([".sidebar-shade"], 0)
         // Every row on screen and none under a dissolve: the list does not scroll at this height.
         const fits = `${expect} && (() => { const rows = [...document.querySelectorAll('.sb-sections .item-row')]; const last = rows.at(-1); const add = document.querySelector('.sb-new-space')?.getBoundingClientRect();
@@ -1155,7 +1220,7 @@ const scenes = [
     // Scheduled tasks as a page: the column of tasks with their models, a run open as its own session,
     // and the task's card at the top right.
     name: "schedules",
-    async run({ evaluate, home, rail, park, shot, part, boxOf, until, sleep }) {
+    async run({ evaluate, home, rail, park, shot, part, viewport, until, sleep }) {
       await home()
       await rail("Scheduled tasks")
       await until(() => evaluate(`document.querySelectorAll('.sched-task').length >= 3`), 15_000, "the tasks")
@@ -1171,9 +1236,21 @@ const scenes = [
       // The column of tasks, from its head to the last one on the clock: each task's next time and
       // model, and under Weekly numbers the run it made today. Its box is the column's own, below the
       // head row and with the rim's corner, cut off in the gap before the suggestions.
-      const column = await evaluate(`(() => { const c = document.querySelector('.sched-col').getBoundingClientRect(); const last = [...document.querySelectorAll('.sched-tasks .sched-task')].at(-1);
-        return { x: c.x, y: c.y, width: c.width, height: __capture.room(last, "bottom", 22) - c.y }; })()`)
-      await part("schedules", `${expect} && !!document.querySelector('.sched-run')`, { box: column, radius: 12 })
+      // The page in a window a third narrower, where the task's card folds behind its button: the
+      // column of tasks, each with when it runs next and on which model, and today's run of Weekly
+      // numbers open as the session it is — the prompt, the chart its agent drew, and a prompter to
+      // carry on from. Everything right of the rail and under the head row.
+      try {
+        await viewport(1000, 720)
+        await evaluate(`(() => { for (const s of document.querySelectorAll('.sched-view [data-dissolve], .sched-view .transcript-wrap, .sched-view .transcript')) s.scrollTop = 0; return true; })()`)
+        await sleep(500)
+        await park()
+        const page = await evaluate(`(() => { const c = document.querySelector('.sched-col').getBoundingClientRect(); const v = document.querySelector('.sched-view-session').getBoundingClientRect();
+          return { x: c.x, y: c.y, width: v.right - c.x, height: v.bottom - c.y }; })()`)
+        await part("schedules", `${expect} && !!document.querySelector('.sched-run') && document.querySelector('.sched-view-session')?.textContent.includes('Scheduled run')`, { box: page, radius: 12 })
+      } finally {
+        await viewport()
+      }
       await home()
     },
   },
@@ -1414,6 +1491,8 @@ async function main() {
   // the app's sealed store asks for it at boot; with no default keychain, the system puts up a dialog.
   const userHome = path.join(scratch, "user")
   for (const dir of [".claude", ".codex", "meetings"]) fs.mkdirSync(path.join(userHome, dir), { recursive: true })
+  const fakeScript = path.join(scratch, "fake-script.json")
+  fs.writeFileSync(fakeScript, JSON.stringify(FIX_SCRIPT))
 
   /*
    * The app's environment is an allowlist, never this shell's. The script is usually run from inside a
@@ -1434,6 +1513,7 @@ async function main() {
     env: {
       ...passed,
       PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+      TZ: morningZone(),
       SHELL: "/bin/zsh",
       ZDOTDIR: zdot,
       CLAUDE_CONFIG_DIR: path.join(userHome, ".claude"),
@@ -1444,6 +1524,7 @@ async function main() {
       REALM_MEMORY_FALLBACK_DIR: path.join(userHome, "memory-repos"),
       REALM_ENABLE_FAKE_AGENT: "1",
       REALM_FAKE_STANDS_IN: "claude,codex",
+      REALM_FAKE_SCRIPT: fakeScript,
       REALM_LIVE_SCRATCH: "capture",
       REALM_HTML_MENUS: "1",
       REALM_GH_BIN: ghBin,
