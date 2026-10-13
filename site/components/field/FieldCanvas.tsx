@@ -70,7 +70,11 @@ export function FieldCanvas({ create }: { create: StageFactory }) {
       pointer.y += (pointer.ty - pointer.y) * k
       pointer.presence += (pointer.target - pointer.presence) * k * 0.6
       return {
-        width: window.innerWidth,
+        // The canvas is fixed to the view, which a classic scroll bar narrows, and `innerWidth`
+        // counts the bar: a field drawn to it squeezed the page into a canvas 15px narrower, so the
+        // dark it lays under a screen landed up to a bar's width left of the picture, a band down its
+        // left edge (Realm's own browser pane draws the bar; so does a Mac with a mouse plugged in).
+        width: document.documentElement.clientWidth || window.innerWidth,
         height: window.innerHeight,
         seconds,
         still,
