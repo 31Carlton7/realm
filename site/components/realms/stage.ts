@@ -1144,7 +1144,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const lifted = finaleIndex < 0 ? 0 : mode === "still" ? (now.nearest >= finaleIndex ? 1 : 0) : smooth(clamp(progress - (finaleIndex - 1), 0, 1))
 
       // ---- the uniforms ----------------------------------------------------------------------------
-      const last = prev ?? { view, b, seconds: t }
+      // The last frame's camera streaks the near stars by how far it has moved; a still frame has not
+      // moved, however far the reader scrolled since the last one.
+      const last = prev && !input.still ? prev : { view, b, seconds: t }
       scene.eye = [...view.eye, view.focal]
       scene.fwd = [...b.fwd, 0.05]
       scene.right = [...b.right, RENDER_SCALE]
