@@ -177,11 +177,14 @@ const SPARKS = [
 ] as const
 
 /**
- * The hole without WebGPU: the shader's composition drawn once. The cube is the mark's silhouette in
- * black with its doorway's lit back, jamb and floor from lib/mark.ts; a fine rim traces it; the
- * inflow's threads spiral in on the tilted plane, the far side's bent over the top and under the
- * bottom along the hexagon's own outline, the near side's crossing in front and dimming over the faces;
- * and the doorway's light streams out to the right with a few sparks on it. A drawing, not a simulation.
+ * The hole without WebGPU: the shader's composition drawn once, on the page's still of the field's sky
+ * (Flight, public/realms/space.webp). The realms round it in that still are swept off its disk, as the
+ * field sweeps them, by the still's own darkest navy laid softly under the disk and gone well before
+ * the drawing's edge. The cube is the mark's silhouette in black with its doorway's lit back, jamb and
+ * floor from lib/mark.ts; a fine rim traces it; the inflow's threads spiral in on the tilted plane, the
+ * far side's bent over the top and under the bottom along the hexagon's own outline, the near side's
+ * crossing in front and dimming over the faces; and the doorway's light streams out to the right with
+ * a few sparks on it. A drawing, not a simulation.
  */
 function FallbackHole() {
   const silhouette = grown(0, [0, 1, 2, 3, 4, 5], 0, true)
@@ -194,6 +197,12 @@ function FallbackHole() {
       className="pointer-events-none absolute inset-x-0 top-1/2 mx-auto hidden h-[min(100%,72vw)] w-full max-w-[1100px] -translate-y-1/2 [html[data-field=off]_&]:block"
     >
       <defs>
+        <radialGradient id="hole-clear" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(0 -8) scale(505 222)">
+          <stop offset="0" stopColor="#03050b" stopOpacity="0.92" />
+          <stop offset="0.5" stopColor="#03050b" stopOpacity="0.8" />
+          <stop offset="0.8" stopColor="#03050b" stopOpacity="0.35" />
+          <stop offset="1" stopColor="#03050b" stopOpacity="0" />
+        </radialGradient>
         <linearGradient id="hole-hat" gradientUnits="userSpaceOnUse" x1="-160" x2="160" y1="0" y2="0">
           <stop offset="0" stopColor="oklch(0.96 0.025 250)" />
           <stop offset="0.55" stopColor="oklch(0.8 0.08 252)" />
@@ -220,6 +229,8 @@ function FallbackHole() {
           <path d={silhouette} fill="oklch(0.32 0 0)" />
         </mask>
       </defs>
+      {/* The still's sky, swept clear under the disk. */}
+      <ellipse cx="0" cy="-8" rx="505" ry="222" fill="url(#hole-clear)" />
       {/* The far side of the inflow, behind the cube. */}
       <g fill="none" stroke="oklch(0.84 0.07 251)" strokeLinecap="round" transform={`rotate(${HOLE.roll})`} filter="url(#hole-soft)">
         {THREADS.filter((piece) => !piece.near).map((piece) => (
