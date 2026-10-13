@@ -130,6 +130,14 @@ export function ipaProblems(facts, expected) {
   return problems;
 }
 
+/** What `asc xcode-cloud run --wait --output json` printed: the run, and whether it built. */
+export function cloudRunOutcome(json) {
+  const run = json?.data;
+  const status = run?.attributes?.completionStatus ?? null;
+  if (typeof run?.id !== "string") throw new Error("asc did not say which Xcode Cloud run it started");
+  return { runId: run.id, number: run.attributes?.number ?? null, status, succeeded: status === "SUCCEEDED" };
+}
+
 // ---------- the run ----------
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -204,9 +212,24 @@ async function cloud(args) {
   sh("git", ["fetch", "--quiet", "origin", branch]);
   const [here, pushed] = [sh("git", ["rev-parse", "HEAD"]), sh("git", ["rev-parse", `origin/${branch}`])];
   if (here !== pushed) throw new Error(`${branch} here (${here.slice(0, 8)}) is not what GitHub has (${pushed.slice(0, 8)}): Xcode Cloud builds what is pushed, so push first`);
+  const uncommitted = sh("git", ["status", "--porcelain", "--", "apps/ios"]);
+  if (uncommitted) throw new Error(`apps/ios has changes that are not committed, so the cloud build would not have them:\n${uncommitted}`);
   console.log(`Realm on ${branch} at ${here.slice(0, 8)} → Xcode Cloud's "${CLOUD_WORKFLOW}" workflow, then TestFlight's "${GROUP}"`);
-  await step("Build in Xcode Cloud", asc, ["xcode-cloud", "run", "--app", APP_ID, "--workflow", CLOUD_WORKFLOW, "--branch", branch, "--wait", "--timeout", "90m", "--output", "table"], { dryRun: args.dryRun });
-  if (!args.dryRun) console.log(`\nXcode Cloud built and uploaded ${branch}. Once App Store Connect has processed it, it is on TestFlight for "${GROUP}".`);
+  const start = ["xcode-cloud", "run", "--app", APP_ID, "--workflow", CLOUD_WORKFLOW, "--branch", branch, "--wait", "--timeout", "90m", "--output", "json"];
+  console.log(`\n▸ Build in Xcode Cloud\n  ${asc} ${start.join(" ")}`);
+  if (args.dryRun) return;
+  // Its progress goes to stderr, shown as it comes; the run itself is the JSON on stdout.
+  const run = cloudRunOutcome(JSON.parse(sh(asc, start, { stdio: ["ignore", "pipe", "inherit"] })));
+  if (!run.succeeded) throw new Error(`Xcode Cloud run ${run.number ?? "?"} ended ${run.status}: asc xcode-cloud issues list --run-id ${run.runId}`);
+  const builds = JSON.parse(sh(asc, ["xcode-cloud", "build-runs", "builds", "--run-id", run.runId, "--output", "json"])).data ?? [];
+  if (builds.length === 0) throw new Error(`Xcode Cloud run ${run.number} succeeded but uploaded no build`);
+  for (const build of builds) {
+    // The group has every build on paper, but App Store Connect does not always hand it over itself.
+    console.log(`\n▸ Build ${build.attributes?.version}: wait for App Store Connect, then give it to "${GROUP}"`);
+    sh(asc, ["builds", "wait", "--build-id", build.id, "--fail-on-invalid", "--output", "json"]);
+    sh(asc, ["builds", "add-groups", "--build-id", build.id, "--group", GROUP, "--output", "json"]);
+  }
+  console.log(`\nRealm build ${builds.map((b) => b.attributes?.version).join(", ")} from ${branch} is on TestFlight for "${GROUP}". Open TestFlight on the iPhone to install it.`);
 }
 
 async function main() {

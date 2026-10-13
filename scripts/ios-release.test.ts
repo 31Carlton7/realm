@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { exportOptionsPlist, ipaProblems, isBetaXcode, marketingVersion, nextBuildNumber, parseIosReleaseArgs } from "./ios-release.mjs";
+import { cloudRunOutcome, exportOptionsPlist, ipaProblems, isBetaXcode, marketingVersion, nextBuildNumber, parseIosReleaseArgs } from "./ios-release.mjs";
 
 describe("parseIosReleaseArgs", () => {
   it("defaults to asking App Store Connect, uploading, for real, with the selected Xcode", () => {
@@ -100,5 +100,18 @@ describe("ipaProblems", () => {
       expect(problems).toHaveLength(1);
       expect(problems[0]).toMatch(problem);
     }
+  });
+});
+
+describe("cloudRunOutcome", () => {
+  const run = (status: string | undefined) => ({ data: { id: "4400c480", attributes: { number: 1, completionStatus: status } } });
+  it("reads the run asc started, and that it built", () => {
+    expect(cloudRunOutcome(run("SUCCEEDED"))).toEqual({ runId: "4400c480", number: 1, status: "SUCCEEDED", succeeded: true });
+  });
+  it("calls anything but SUCCEEDED a failure, including no answer yet", () => {
+    for (const status of ["FAILED", "ERRORED", "CANCELED", "SKIPPED", undefined]) expect(cloudRunOutcome(run(status)).succeeded).toBe(false);
+  });
+  it("refuses output that names no run", () => {
+    expect(() => cloudRunOutcome({})).toThrow(/did not say which Xcode Cloud run/);
   });
 });
