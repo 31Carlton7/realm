@@ -1,8 +1,9 @@
 /**
  * The mark beside the name. The app icon has a tile; the wordmark does not.
  *
- * Two sizes: `nav` for the landing page and header, `display` for the share card, where the whole
- * image is read at thumbnail size and a nav-sized mark would be a smudge.
+ * Sizes: `nav` for the landing page and header, `display` for the share card, where the whole image is
+ * read at thumbnail size and a nav-sized mark would be a smudge, and `title` and `end` for the launch
+ * film (components/film), which sets it over its world and then alone on its end card.
  *
  * In the header and footer the mark is one colour, drawn inline so it takes the text's colour. The
  * share card stands in for the app, so it carries the app icon's three flat planes instead.
@@ -11,6 +12,8 @@
 const sizes = {
   nav: { mark: "h-[26px]", name: "text-[17px]", gap: "gap-3" },
   display: { mark: "h-[64px]", name: "text-[42px]", gap: "gap-5" },
+  title: { mark: "h-[78px]", name: "text-[84px] leading-none", gap: "gap-[22px]" },
+  end: { mark: "h-[100px]", name: "text-[108px] leading-none", gap: "gap-[28px]" },
 } as const
 
 const MARK =
