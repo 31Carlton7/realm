@@ -70,7 +70,7 @@ const LIT_AHEAD = 0.45
  * to count from.
  */
 const WARP_DEPTH = 36
-const WARP_SETTLE = 1.4
+const WARP_SETTLE = 1.1
 /** A doorway being dived through opens over this long from the click, in ms, on the page being left. */
 const DIVE_OPEN = 260
 /** Arriving by a dive, the entry's doorway is still thrown open for this many seconds of its field's
