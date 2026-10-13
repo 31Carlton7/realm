@@ -1,8 +1,8 @@
-import { draw, effect, sampler, target } from "vgpu"
+import { draw, effect, sampler, target, type Frame, type Gpu, type Surface } from "vgpu"
 
-import type { Rect, StageFactory, StageInput } from "@/components/field/stage"
+import type { Rect, Stage, StageFactory, StageInput } from "@/components/field/stage"
 
-import { BlackHole, HOLE, holeMiddle, holeOff, holeOnset, shadowRadius } from "./blackhole"
+import { BlackHole, HOLE, holeMiddle, holeOff, holeOnset, shadowRadius, type HoleDirection, type HoleUniforms } from "./blackhole"
 import { basis, blend, clamp, dot, Follow, lerp, orbit, place, project, ramp, smooth, smoother, type Basis, type Key, type Place, type Vec3, type View } from "./camera"
 import { CHAPTERS, CLIMB, FINALE, OPENING, TEAM } from "./route"
 import {
@@ -304,7 +304,7 @@ function chapterRealm(stand: Stand, slot: Rect, height: number, t: number, index
  * A realm turned to an eye as the mark is drawn for it: the doorway a little to the right of the eye,
  * the left wall beside it, and pitched toward the eye so its top shows.
  */
-function presented(at: Vec3, eye: Vec3, size: number, aside = 0.5, down = 0.42): Pose {
+export function presented(at: Vec3, eye: Vec3, size: number, aside = 0.5, down = 0.42): Pose {
   const toEye = normalize(sub3(eye, at))
   const heading = Math.atan2(toEye[1], toEye[0]) + aside
   const pitch = Math.asin(clamp(toEye[2], -1, 1)) - down
@@ -331,7 +331,102 @@ type Pulse = { from: number; to: number; start: number; duration: number }
  *  open (`soft`). */
 type Beam = { door: [Vec3, Vec3, Vec3, Vec3]; mid: Vec3; half: [number, number]; light: number; moment: number; reach: number; hidden: Rect | null; soft: number }
 
-export const createRealms: StageFactory = async (gpu, output) => {
+/** A doorway thrown open, as the eye takes its light (the composite's glare). */
+type Glare = { mid: [number, number]; corners: [number, number][]; distance: number; light: number; px: number; size: number }
+
+/**
+ * The light pouring out of a doorway thrown open `open` (0..1): as the eye takes it at the opening (its
+ * glare, only from in front), and hanging in the space before it (a shaft of the opening's own shape,
+ * seen from any side but behind).
+ */
+function pour(view: View, b: Basis, pose: Pose, open: number, moment: number, glares: Glare[], shafts: Beam[]) {
+  const door = doorCorners(pose)
+  const corners = door.map((c) => project(view, b, c))
+  if (corners.some(([, , z]) => z < 0.5)) return
+  const mid = mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25)
+  const size = Math.hypot(...pose.z)
+  const out = normalize(mul(pose.y, -1))
+  const toEye = sub3(view.eye, mid)
+  const distance = length3(toEye)
+  const facingEye = dot(out, mul(toEye, 1 / Math.max(distance, 1e-6)))
+  if (facingEye > 0) {
+    const [x, y, z] = project(view, b, mid)
+    glares.push({ mid: [x, y], corners: corners.map(([cx, cy]) => [cx, cy]), distance, light: open * smooth(facingEye / 0.35) * GLARE, px: (view.focal * size) / z, size })
+  }
+  if (facingEye > -0.6) {
+    // The doorway's own shape, widening a little as it goes, its edges soft.
+    const reach = 3 * size
+    const half: [number, number] = [length3(sub3(door[1], door[0])) * 0.9 + reach * 0.08, length3(sub3(door[3], door[0])) * 0.9 + reach * 0.08]
+    // Seen end on it is all in front of the opening, and the glare is that light: less of it then.
+    const light = (open * SHAFT * (1 - 0.5 * Math.max(facingEye, 0) ** 2)) / size
+    shafts.push({ door, mid: add(mid, mul(out, reach)), half, light, moment, reach: 1, hidden: null, soft: 1 })
+  }
+}
+
+/**
+ * A film's direction of the world for one frame (components/film). The stage draws exactly this and
+ * reads nothing off the page, the scroll or the pointer; every number in it is a function of the film's
+ * time, so any frame can be drawn on its own and comes out the same.
+ */
+export type Direction = {
+  /** The sky's clock (s): the film's time, or held where the film stops it. */
+  seconds: number
+  view: View
+  /** The camera a shutter earlier, and the clock then: the near stars streak by how far it moved. */
+  before: { view: View; seconds: number }
+  /** Where the haze into the sky starts, and how thick it is. */
+  haze: readonly [number, number]
+  /** How far the camera has lifted its eyes to the night: the far stars brighten by it (0..1). */
+  night: number
+  /** The share of the sky's doorways lit by agents at work (DOOR_SHARE when unsaid). Each doorway's
+   *  rhythm is timed by it, so a film keeps it constant: a share that changes moves every rhythm. */
+  doors?: number
+  /** The film's own realms, in the page's slots (at most PAGE_REALMS). */
+  realms: readonly DirectedRealm[]
+  /** Pictures that came out of those realms' doorways (at most PANELS at once). */
+  screens: readonly DirectedScreen[]
+  /** Blocks of words over the field: the field is held off each as much as it is present (0..1). */
+  words: readonly { rect: Rect; shown: number }[]
+  hole: HoleDirection | null
+}
+
+/** One of a film's realms: where it hangs, its doorway's light, and how far it is thrown open. */
+export type DirectedRealm = { pose: Pose; glow: number; open: number; blue?: number }
+
+/**
+ * A picture out of a doorway: its rect on the page and its corner (px); how far it has come up (0..1);
+ * the realm (an index into `realms`) whose doorway it came out of; its middle and half size in the
+ * world; how far that doorway's light has reached out to it (0..1); and whether it is on its way back
+ * in, when the light goes back with it.
+ */
+export type DirectedScreen = {
+  rect: Rect
+  corner: number
+  shown: number
+  realm: number
+  mid: Vec3
+  half: readonly [number, number]
+  reach: number
+  leaving: boolean
+}
+
+/** A film: what the world is at a moment, and which realms of the sky stand in its way. */
+export type Director = {
+  at(seconds: number): Direction
+  /** False for a realm of the sky the film clears away. Asked once for each. */
+  keep(at: Vec3, size: number): boolean
+}
+
+/** The landing page's flight: drawn from the page as it is laid out, its scroll and the pointer. */
+export const createRealms: StageFactory = (gpu, output) => build(gpu, output)
+
+/** The same world drawn for a film (components/film): from its director, frame by frame, and nothing else. */
+export const directedRealms =
+  (director: Director): StageFactory =>
+  (gpu, output) =>
+    build(gpu, output, director)
+
+async function build(gpu: Gpu, output: Surface, director?: Director): Promise<Stage> {
   const zero = [0, 0, 0, 0]
   const special = () => Array.from({ length: 5 }, () => [0, 0, 0, 0])
   const scene: SceneUniforms = {
@@ -669,8 +764,200 @@ export const createRealms: StageFactory = async (gpu, output) => {
     comp.beams[k * 7 + 6] = hidden ? [hidden[0] + 2, hidden[1] + 2, hidden[0] + hidden[2] - 2, hidden[1] + hidden[3] - 2] : [0, 0, 0, 0]
   }
 
+  /** The doorways thrown open, the brightest first, as the composite's glare draws them. */
+  const writeBursts = (glares: Glare[]) => {
+    glares.sort((a, z) => z.light - a.light)
+    for (let k = 0; k < BURSTS; k++) {
+      const glare = glares[k]
+      comp.bursts[k * 2] = glare ? [...glare.mid, glare.distance, glare.light] : [0, 0, 0, 0]
+      comp.bursts[k * 2 + 1] = glare ? [glare.px, 0, glare.size, 0] : [0, 0, 0, 0]
+      doors[k * 2] = glare ? [...glare.corners[0]!, ...glare.corners[1]!] : [0, 0, 0, 0]
+      doors[k * 2 + 1] = glare ? [...glare.corners[2]!, ...glare.corners[3]!] : [0, 0, 0, 0]
+    }
+  }
+
+  /** The camera and the clock as every pass of the world reads them, and the near stars' block round
+   *  the eye; `last` is the camera the near stars streak from. */
+  const aim = (view: View, b: Basis, t: number, last: { view: View; b: Basis; seconds: number }, width: number, height: number, still: boolean) => {
+    scene.eye = [...view.eye, view.focal]
+    scene.fwd = [...b.fwd, 0.05]
+    scene.right = [...b.right, RENDER_SCALE]
+    scene.up = [...b.up, 0]
+    scene.view = [width, height, view.px, view.py]
+    scene.clock = [t, still ? 1 : 0, DOOR_SHARE, last.seconds]
+    scene.prevEye = [...last.view.eye, last.view.focal]
+    scene.prevFwd = [...last.b.fwd, last.view.px]
+    scene.prevRight = [...last.b.right, last.view.py]
+    scene.prevUp = [...last.b.up, 0]
+    const drifted = sub3(view.eye, mul(STAR_DRIFT, t))
+    scene.stars = [
+      Math.floor(drifted[0] / STAR_CELL) - STAR_BLOCK / 2,
+      Math.floor(drifted[1] / STAR_CELL) - STAR_BLOCK / 2,
+      Math.floor(drifted[2] / STAR_CELL) - STAR_BLOCK / 2,
+      (STAR_BLOCK / 2 - 1) * STAR_CELL,
+    ]
+  }
+
+  /** The beams: the light of the doorways thrown open, then those of the screens in view, the
+   *  strongest first. */
+  const writeBeams = (shafts: Beam[], toScreens: Beam[], view: View, b: Basis, width: number, height: number) => {
+    toScreens.sort((a, z) => z.reach * z.light - a.reach * a.light)
+    const beams = [...shafts.sort((a, z) => z.light - a.light), ...toScreens]
+    for (let k = 0; k < BEAMS; k++) {
+      const beam = beams[k]
+      if (!beam) {
+        comp.beams[k * 7 + 1] = [0, 0, 1, 0]
+        continue
+      }
+      writeBeam(k, view, b, width, height, beam.door, beam.mid, beam.half, beam.light * smooth(beam.reach), beam.moment, beam.hidden, beam.soft)
+    }
+  }
+
+  /** The composite's view of the frame: the camera, the words it keeps clear of, and the screens'
+   *  breath of light and plates. */
+  const compose = (view: View, b: Basis, width: number, height: number, t: number, still: boolean, clears: [Rect, number, number][], panels: number[][], plates: number[][]) => {
+    const clearList = clears.slice(0, CLEAR)
+    while (panels.length < PANELS * 2) panels.push([...zero])
+    const dpr = output.size[0] / Math.max(width, 1)
+    comp.view = [width, height, dpr, t]
+    comp.look = [still ? 1 : 0, clearList.length, 0, 0]
+    comp.cam = [
+      [...view.eye, view.focal],
+      [...b.fwd, view.px],
+      [...b.right, view.py],
+      [...b.up, 0],
+    ]
+    comp.clear = [
+      ...clearList.flatMap(([r, radius, inside]) => [[...r], [radius, inside, 0, 0]]),
+      ...Array.from({ length: (CLEAR - clearList.length) * 2 }, () => [...zero]),
+    ]
+    comp.panels = panels.slice(0, PANELS * 2)
+    while (plates.length < PANELS * 2) plates.push([...zero])
+    comp.plates = plates.slice(0, PANELS * 2)
+  }
+
+  /** The offscreen targets at the sizes asked for. */
+  const fit = (wanted: [number, number], wantedSpace: [number, number]) => {
+    if (wanted[0] !== size[0] || wanted[1] !== size[1]) {
+      size = wanted
+      world.resize(size)
+      composite.set({ sceneTex: world })
+    }
+    if (wantedSpace[0] !== spaceSize[0] || wantedSpace[1] !== spaceSize[1]) {
+      spaceSize = wantedSpace
+      space.resize(spaceSize)
+      realms.set({ spaceTex: space })
+      backdrop.set({ spaceTex: space })
+      spaceDrawn = ""
+    }
+  }
+
+  /** The uniforms handed over and the frame's passes: the deep sky (when it is redrawn), the world over
+   *  it, and the composite onto the canvas. */
+  const render = (frame: Frame, hole: HoleUniforms, redrawSpace: boolean) => {
+    sky.set({ scene })
+    realms.set({ scene })
+    backdrop.set({ scene, hole })
+    glows.set({ scene })
+    stars.set({ scene })
+    composite.set({ comp })
+    if (redrawSpace) frame.pass({ target: space, clear: [0, 0, 0, 1] }, (pass) => pass.draw(sky))
+    frame.pass({ target: world, clear: [0, 0, 0, 0], clearDepth: 0 }, (pass) => {
+      pass.draw(realms, { vertices: REALM_VERTICES, instances: MAX_REALMS + PAGE_REALMS })
+      pass.draw(backdrop, { vertices: 3 })
+      pass.draw(glows, { vertices: 6, instances: MAX_REALMS + PAGE_REALMS })
+      pass.draw(stars, { vertices: 6, instances: STAR_BLOCK * STAR_BLOCK * STAR_BLOCK })
+    })
+    frame.pass(output, composite)
+  }
+
+  /**
+   * A film's frame, all of it from its director: the sky cleared out of the film's way once, the film's
+   * realms in the page's slots, its pictures lit from their doorways as a chapter's screen is, and the
+   * deep sky redrawn every frame, since a film's frames may be drawn in any order.
+   */
+  const drawDirected = (frame: Frame, input: StageInput, film: Director) => {
+    const { width, height } = input
+    if (cleared !== "film") {
+      cleared = "film"
+      realmsNow = clearOff(population, (at, size) => film.keep(at, size))
+      realmData.items = packRealms(realmsNow)
+      realms.set({ realms: realmData })
+      glows.set({ realms: realmData })
+    }
+    const shot = film.at(input.seconds)
+    const t = shot.seconds
+    const view = shot.view
+    const b = basis(view)
+
+    for (let k = 0; k < PAGE_REALMS; k++) {
+      const realm = shot.realms[k]
+      pagePoses[k] = realm ? realm.pose : null
+      if (realm) writeSpecial(scene.page, k, realm.pose, realm.glow, realm.blue ?? 0, realm.open, -1, 0)
+      else scene.page[k * 5] = [0, 0, 0, 0]
+    }
+    // No hand is on any realm of the sky.
+    for (let j = 0; j < TOUCHED; j++) {
+      scene.touched[j * 5] = [0, 0, 0, 0]
+      scene.touched[j * 5 + 4] = [-1, 0, 0, 0]
+    }
+
+    // Each picture's breath of light and plate, and the light from its doorway reaching out to it as it
+    // comes up and going back in with it as it leaves.
+    const panels: number[][] = []
+    const plates: number[][] = []
+    const toScreens: Beam[] = []
+    shot.screens.forEach((screen, index) => {
+      const [left, top, w, h] = screen.rect
+      if (screen.shown > 0.001 && panels.length < PANELS * 2) {
+        panels.push([left, top, w, h], [1, screen.corner, screen.shown, 0])
+        plates.push([left, top, w, h], [screen.corner, smooth(screen.shown / 0.35), 0, 0])
+      }
+      const realm = shot.realms[screen.realm]
+      const reach = screen.leaving ? screen.shown : Math.max(screen.reach, screen.shown)
+      if (!realm || reach <= 0.001) return
+      const door = doorCorners(realm.pose)
+      const e = smoother((screen.leaving ? screen.shown : screen.reach) / 0.6)
+      const mid = mix3(mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25), screen.mid, Math.max(e, 0.04))
+      const half: [number, number] = [lerp(0.2, screen.half[0] * 0.96, e), lerp(0.4, screen.half[1] * 0.96, e)]
+      // A little brighter while it is reaching out for a picture that has not arrived yet.
+      const ahead = screen.leaving ? 0 : 0.7 * (1 - screen.shown) * smooth(screen.reach)
+      toScreens.push({ door, mid, half, light: 0.42 + ahead, moment: index * 0.37, reach, hidden: screen.shown > 0.995 ? screen.rect : null, soft: 0 })
+    })
+
+    const glares: Glare[] = []
+    const shafts: Beam[] = []
+    shot.realms.forEach((realm, k) => {
+      if (realm.open > 0.01) pour(view, b, realm.pose, realm.open, (MAX_REALMS + k) * 0.37, glares, shafts)
+    })
+    writeBursts(glares)
+    for (let k = 0; k < PULSES; k++) comp.pulses[k * 5] = [0, 0, 0, 0]
+    comp.fence[8] = [0, 0, 0, 0]
+
+    aim(view, b, t, { view: shot.before.view, b: basis(shot.before.view), seconds: shot.before.seconds }, width, height, false)
+    if (shot.doors !== undefined) scene.clock[2] = shot.doors
+    scene.haze = [shot.haze[0], shot.haze[1], t * SKY_TURN, 0]
+    scene.flare = [0, 0, 0, 0]
+    writeBeams(shafts, toScreens, view, b, width, height)
+
+    // The field held off the film's words as much as they are there (a corner of -2 says so).
+    const clears: [Rect, number, number][] = shot.words.filter((words) => words.shown > 0.002).map((words) => [words.rect, -2, words.shown])
+    compose(view, b, width, height, t, false, clears, panels, plates)
+    const scaled = (k: number): [number, number] => [Math.max(1, Math.round(width * k)), Math.max(1, Math.round(height * k))]
+    fit(scaled(RENDER_SCALE), scaled(SPACE_SCALE))
+
+    const away: HoleDirection = { at: [0, 0], radius: 1, shown: 0, arrived: 1 }
+    const hole = blackHole.frame({ view, b, rect: undefined, width, height, seconds: t, dt: 0, still: false, pointer: [0, 0, 0], directed: shot.hole ?? away })
+    hole.uniforms.ax[3] = shot.night
+    render(frame, hole.uniforms, true)
+  }
+
   return {
     draw(frame, input) {
+      if (director) {
+        drawDirected(frame, input, director)
+        return
+      }
       const { width, height } = input
       const scrollY = window.scrollY
       const t = input.seconds
@@ -1052,43 +1339,16 @@ export const createRealms: StageFactory = async (gpu, output) => {
       // The doorways thrown open: the light pouring out of each, as the eye takes it at the opening (its
       // glare, only from in front), and hanging in the space before it (a shaft of the opening's own
       // shape, seen from any side but behind).
-      const glares: { mid: [number, number]; corners: [number, number][]; distance: number; light: number; px: number; size: number }[] = []
+      const glares: Glare[] = []
       const shafts: Beam[] = []
       for (const [index, touch] of touches) {
         if (touch.open <= 0.01) continue
         const natural = naturalPose(index, t)
         if (!natural) continue
         const pose = index < MAX_REALMS ? between(natural, presented(natural.at, view.eye, Math.hypot(...natural.z)), smooth(touch.turn)) : natural
-        const door = doorCorners(pose)
-        const corners = door.map((c) => project(view, b, c))
-        if (corners.some(([, , z]) => z < 0.5)) continue
-        const mid = mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25)
-        const size = Math.hypot(...pose.z)
-        const out = normalize(mul(pose.y, -1))
-        const toEye = sub3(view.eye, mid)
-        const distance = length3(toEye)
-        const facingEye = dot(out, mul(toEye, 1 / Math.max(distance, 1e-6)))
-        if (facingEye > 0) {
-          const [x, y, z] = project(view, b, mid)
-          glares.push({ mid: [x, y], corners: corners.map(([cx, cy]) => [cx, cy]), distance, light: touch.open * smooth(facingEye / 0.35) * GLARE, px: (view.focal * size) / z, size })
-        }
-        if (facingEye > -0.6) {
-          // The doorway's own shape, widening a little as it goes, its edges soft.
-          const reach = 3 * size
-          const half: [number, number] = [length3(sub3(door[1], door[0])) * 0.9 + reach * 0.08, length3(sub3(door[3], door[0])) * 0.9 + reach * 0.08]
-          // Seen end on it is all in front of the opening, and the glare is that light: less of it then.
-          const light = (touch.open * SHAFT * (1 - 0.5 * Math.max(facingEye, 0) ** 2)) / size
-          shafts.push({ door, mid: add(mid, mul(out, reach)), half, light, moment: index * 0.37, reach: 1, hidden: null, soft: 1 })
-        }
+        pour(view, b, pose, touch.open, index * 0.37, glares, shafts)
       }
-      glares.sort((a, z) => z.light - a.light)
-      for (let k = 0; k < BURSTS; k++) {
-        const glare = glares[k]
-        comp.bursts[k * 2] = glare ? [...glare.mid, glare.distance, glare.light] : [0, 0, 0, 0]
-        comp.bursts[k * 2 + 1] = glare ? [glare.px, 0, glare.size, 0] : [0, 0, 0, 0]
-        doors[k * 2] = glare ? [...glare.corners[0]!, ...glare.corners[1]!] : [0, 0, 0, 0]
-        doors[k * 2 + 1] = glare ? [...glare.corners[2]!, ...glare.corners[3]!] : [0, 0, 0, 0]
-      }
+      writeBursts(glares)
 
       // The hand-offs in flight: a point of light from one doorway to the other.
       for (let k = 0; k < PULSES; k++) comp.pulses[k * 5] = [0, 0, 0, 0]
@@ -1147,39 +1407,12 @@ export const createRealms: StageFactory = async (gpu, output) => {
       // The last frame's camera streaks the near stars by how far it has moved; a still frame has not
       // moved, however far the reader scrolled since the last one.
       const last = prev && !input.still ? prev : { view, b, seconds: t }
-      scene.eye = [...view.eye, view.focal]
-      scene.fwd = [...b.fwd, 0.05]
-      scene.right = [...b.right, RENDER_SCALE]
-      scene.up = [...b.up, 0]
-      scene.view = [width, height, view.px, view.py]
-      scene.clock = [t, input.still ? 1 : 0, DOOR_SHARE, last.seconds]
-      scene.prevEye = [...last.view.eye, last.view.focal]
-      scene.prevFwd = [...last.b.fwd, last.view.px]
-      scene.prevRight = [...last.b.right, last.view.py]
-      scene.prevUp = [...last.b.up, 0]
-      const drifted = sub3(view.eye, mul(STAR_DRIFT, t))
-      scene.stars = [
-        Math.floor(drifted[0] / STAR_CELL) - STAR_BLOCK / 2,
-        Math.floor(drifted[1] / STAR_CELL) - STAR_BLOCK / 2,
-        Math.floor(drifted[2] / STAR_CELL) - STAR_BLOCK / 2,
-        (STAR_BLOCK / 2 - 1) * STAR_CELL,
-      ]
+      aim(view, b, t, last, width, height, input.still)
       scene.haze = [hazeStart, hazeDensity, t * SKY_TURN, 0]
       scene.flare = [...flare.at, flareLight]
       prev = { view, b, seconds: t }
 
-      // The beams: the light of the doorways thrown open, then those of the screens in view, the
-      // strongest first.
-      beamsNow.sort((a, z) => z.reach * z.light - a.reach * a.light)
-      const beams = [...shafts.sort((a, z) => z.light - a.light), ...beamsNow]
-      for (let k = 0; k < BEAMS; k++) {
-        const beam = beams[k]
-        if (!beam) {
-          comp.beams[k * 7 + 1] = [0, 0, 1, 0]
-          continue
-        }
-        writeBeam(k, view, b, width, height, beam.door, beam.mid, beam.half, beam.light * smooth(beam.reach), beam.moment, beam.hidden, beam.soft)
-      }
+      writeBeams(shafts, beamsNow, view, b, width, height)
 
       // The confined realm's boundary.
       if (fence) {
@@ -1203,63 +1436,18 @@ export const createRealms: StageFactory = async (gpu, output) => {
         comp.fence[9] = [x0 - 8, y0 - 8, x1 + 8, y1 + 8]
       } else comp.fence[8] = [0, 0, 0, 0]
 
-      const clearList = clears.slice(0, CLEAR)
-      while (panels.length < PANELS * 2) panels.push([...zero])
-      const dpr = output.size[0] / Math.max(width, 1)
-      comp.view = [width, height, dpr, t]
-      comp.look = [input.still ? 1 : 0, clearList.length, 0, 0]
-      comp.cam = [
-        [...view.eye, view.focal],
-        [...b.fwd, view.px],
-        [...b.right, view.py],
-        [...b.up, 0],
-      ]
-      comp.clear = [
-        ...clearList.flatMap(([r, radius, inside]) => [[...r], [radius, inside, 0, 0]]),
-        ...Array.from({ length: (CLEAR - clearList.length) * 2 }, () => [...zero]),
-      ]
-      comp.panels = panels.slice(0, PANELS * 2)
-      while (plates.length < PANELS * 2) plates.push([...zero])
-      comp.plates = plates.slice(0, PANELS * 2)
-
-      const wanted = sizeOf(RENDER_SCALE)
-      if (wanted[0] !== size[0] || wanted[1] !== size[1]) {
-        size = wanted
-        world.resize(size)
-        composite.set({ sceneTex: world })
-      }
-      const wantedSpace = sizeOf(SPACE_SCALE)
-      if (wantedSpace[0] !== spaceSize[0] || wantedSpace[1] !== spaceSize[1]) {
-        spaceSize = wantedSpace
-        space.resize(spaceSize)
-        realms.set({ spaceTex: space })
-        backdrop.set({ spaceTex: space })
-        spaceDrawn = ""
-      }
+      compose(view, b, width, height, t, input.still, clears, panels, plates)
+      fit(sizeOf(RENDER_SCALE), sizeOf(SPACE_SCALE))
 
       // The black hole under the footer: retraced every frame it is on screen, since its disk turns.
       const holeNow = blackHole.frame({ view, b, rect: input.anchors.hole, width, height, seconds: t, dt, still: input.still, pointer: input.pointer })
       holeNow.uniforms.ax[3] = lifted
 
-      sky.set({ scene })
-      realms.set({ scene })
-      backdrop.set({ scene, hole: holeNow.uniforms })
-      glows.set({ scene })
-      stars.set({ scene })
-      composite.set({ comp })
-
       // The deep sky moves slowly: while the camera holds still it is redrawn every other frame.
       const camera = `${view.eye.map((v) => v.toFixed(3)).join(",")}|${b.fwd.map((v) => v.toFixed(4)).join(",")}|${view.px.toFixed(1)},${view.py.toFixed(1)}|${width}x${height}`
       const redrawSpace = camera !== spaceDrawn || spaceFrame++ % 2 === 0 || input.still
       spaceDrawn = camera
-      if (redrawSpace) frame.pass({ target: space, clear: [0, 0, 0, 1] }, (pass) => pass.draw(sky))
-      frame.pass({ target: world, clear: [0, 0, 0, 0], clearDepth: 0 }, (pass) => {
-        pass.draw(realms, { vertices: REALM_VERTICES, instances: MAX_REALMS + PAGE_REALMS })
-        pass.draw(backdrop, { vertices: 3 })
-        pass.draw(glows, { vertices: 6, instances: MAX_REALMS + PAGE_REALMS })
-        pass.draw(stars, { vertices: 6, instances: STAR_BLOCK * STAR_BLOCK * STAR_BLOCK })
-      })
-      frame.pass(output, composite)
+      render(frame, holeNow.uniforms, redrawSpace)
     },
     dispose() {
       window.removeEventListener("pointermove", onMove)

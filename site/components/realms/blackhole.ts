@@ -426,7 +426,9 @@ fn holeOut(eye: vec3f, d: vec3f, tEnd: f32) -> vec3f {
     let v = c - eye;
     let off = (v - d * dot(v, d)) * hole.eye.w / max(dot(v, d), 1e-3);
     let o = abs(vec2f(dot(off, hole.sr.xyz), dot(off, hole.su.xyz)) * hole.de.w);
-    let hex = max(o.y, dot(o, vec2f(0.866, 0.5))) - 3.4;
+    // Its size on the page: the page's own, or as many times that as a film asks (its first row's x,
+    // which nothing else reads once a face has taken it).
+    let hex = max(o.y, dot(o, vec2f(0.866, 0.5))) - 3.4 * max(hole.drops[k * 3].x, 1.0);
     let realm = smoothstep(0.8, -0.8, hex) + 0.5 * exp(-max(hex, 0.0) / 2.5);
     let trail = holeSpark(eye, d, c, vec3f(0.0, 1.0, 0.0), 0.035, 7.0);
     light += mix(HOLE_WHITE, HOLE_DOOR_BLUE, 0.15) * (realm * 2.6 + trail * 1.4) * e.z;
@@ -644,6 +646,28 @@ export const holeOnset = (rect: Rect | undefined, height: number) => {
   return smooth((height * 1.5 - holeMiddle(rect)[1]) / (height * 0.45))
 }
 
+/** A realm a film drops in at `start` (s): where on the inflow's plane it sets out (its radius in
+ *  half-edges and its angle), how bright it is, and the seed that places it in the doorway coming out. */
+export type ScriptedDrop = { start: number; r: number; phi: number; strength: number; seed: number }
+
+/**
+ * The hole as a film sets it (components/film), frame by frame, rather than reading it off the page and
+ * the pointer: its middle on the page and its hexagon's radius (CSS px), how far it has come up (0..1),
+ * how far the cube has turned into the mark's pose, the view's lean about it (-1..1 across and up),
+ * and the realms dropped in. Every number is a function of the film's time, so any frame can be drawn
+ * on its own and comes out the same.
+ */
+export type HoleDirection = {
+  at: readonly [number, number]
+  radius: number
+  shown: number
+  arrived: number
+  lean?: readonly [number, number]
+  drops?: readonly ScriptedDrop[]
+  /** How many times the page's own size a dropped realm is drawn at, falling and coming out (1). */
+  realm?: number
+}
+
 export type HoleFrame = {
   view: View
   b?: Basis
@@ -655,7 +679,12 @@ export type HoleFrame = {
   still: boolean
   /** x, y in CSS px and presence 0..1, as the field reads the mouse. */
   pointer: readonly [number, number, number]
+  /** A film's direction, which takes the place of the rect, the pointer and the drops. */
+  directed?: HoleDirection
 }
+
+/** The step a scripted drop's fall is followed in (s): fine enough that no frame can tell. */
+const SCRIPT_STEP = 1 / 240
 
 /**
  * The hole's state across frames: the lean easing after the pointer, and the realms dropped in.
@@ -669,8 +698,9 @@ export class BlackHole {
   private busy = Number.NEGATIVE_INFINITY
 
   frame(input: HoleFrame): { uniforms: HoleUniforms; live: boolean } {
-    const { view, rect, width, height, seconds, still } = input
+    const { view, rect, width, height, seconds, still, directed } = input
     const b = input.b ?? basisOf(view)
+    if (directed) return this.directed(view, b, directed, seconds)
     const shown = holeOnset(rect, height)
     if (!rect || shown <= 0) {
       clicks.length = 0
@@ -691,36 +721,7 @@ export class BlackHole {
     this.lean[0] += (tx - this.lean[0]) * k
     this.lean[1] += (ty - this.lean[1]) * k
 
-    // The view at the hole: toward the camera, and the page's right and up there.
-    const centre = rayThrough(view, b, cx, cy)
-    const toward: Vec3 = [-centre[0], -centre[1], -centre[2]]
-    const up = norm(mix3(b.up, centre, 1, -dot(b.up, centre)))
-    const right = cross(centre, up)
-
-    // The camera's place about the cube: the mark's view, turned toward the pointer (and, until the
-    // reader has arrived, a little off the mark's pose), across and then up and down.
-    const yaw = (this.lean[0] * HOLE.lean[0] + (1 - arrived) * HOLE.arrive) * DEG
-    const pitch = this.lean[1] * HOLE.lean[1] * DEG
-    let n = mix3(TOWARD, RIGHT, Math.cos(yaw), Math.sin(yaw))
-    const r = mix3(RIGHT, TOWARD, Math.cos(yaw), -Math.sin(yaw))
-    const u = mix3(UP, n, Math.cos(pitch), Math.sin(pitch))
-    n = mix3(n, UP, Math.cos(pitch), -Math.sin(pitch))
-    // The cube's axes in the world: a world direction's cube coordinates are its parts along toward,
-    // right and up, weighed by n, r and u.
-    const axis = (i: 0 | 1 | 2): Vec3 => mix3(mix3(toward, right, n[i], r[i]), up, 1, u[i])
-    const ax = axis(0)
-    const ay = axis(1)
-    const az = axis(2)
-    const distance = (HOLE.hexagon * view.focal) / radius
-    const eye: Vec3 = [n[0] * distance, n[1] * distance, n[2] * distance]
-
-    // The inflow's plane, fixed to the cube: its normal tipped from the page's up toward the camera.
-    const inclination = lerp(HOLE.inclination[0], HOLE.inclination[1], arrived) * DEG
-    const rolled = mix3(UP, RIGHT, Math.cos(HOLE.roll * DEG), Math.sin(HOLE.roll * DEG))
-    const dn = mix3(rolled, TOWARD, Math.sin(inclination), Math.cos(inclination))
-    const de = mix3(TOWARD, rolled, Math.sin(inclination), -Math.cos(inclination))
-    const e2 = cross(dn, de)
-    const onPlane = (rr: number, phi: number): Vec3 => mix3(de, e2, rr * Math.cos(phi), rr * Math.sin(phi))
+    const { ax, ay, az, eye, distance, dn, de, e2, r, u, onPlane } = placeHole(view, b, cx, cy, radius, arrived, this.lean)
 
     // Realms the reader dropped in since the last frame: onto the plane where the click's ray meets it,
     // or at its outer edge on that side. A key carries no point, so its realm goes in from the far side.
@@ -764,26 +765,18 @@ export class BlackHole {
     for (const drop of this.drops) {
       drop.age += dt
       if (drop.taken < 0) {
-        const fall = 0.9 + 3 / (drop.r * drop.r)
-        const turn = (HOLE.wind * fall) / drop.r
-        drop.r -= fall * dt
-        drop.phi += turn * dt
-        drop.travelled += turn * dt
+        fallStep(drop, dt)
         const meets = surfaceAlong(onPlane(1, drop.phi))
         if (drop.r <= meets + 0.03) {
           drop.taken = 0
           drop.entry = onPlane(meets, drop.phi)
           this.pulse = 1
         }
-        const glow = smooth(drop.age / 0.25) * smooth((drop.r - meets) / 0.6) * drop.strength
-        drops.push([Math.max(drop.r, meets), drop.phi, glow, 0.55 + 0.45 * smooth((drop.r - meets) / 1.2)], [drop.travelled, 0, 0, 0], [0, 0, 0, 0])
+        drops.push(...falling(drop, meets))
       } else {
         drop.taken += dt
-        const out = drop.taken - 0.9
-        const glow = out > 0 ? smooth(out / 0.12) * Math.exp(-out / 0.9) * drop.strength : 0
-        flare = Math.max(flare, out > 0 ? Math.exp(-out / 0.5) * smooth(out / 0.08) * drop.strength : 0)
-        const along = out > 0 ? 0.1 + 0.9 * out + 0.55 * out * out : 0
-        drops.push([0, 0, 0, drop.strength], [drop.travelled, along, glow, drop.seed], [...drop.entry, Math.max(drop.taken, 1e-3)])
+        flare = Math.max(flare, flareOf(drop))
+        drops.push(...comingOut(drop))
       }
     }
     while (drops.length < HOLE.drops * 3) drops.push([0, 0, 0, 0])
@@ -804,4 +797,138 @@ export class BlackHole {
       live: !still,
     }
   }
+
+  /**
+   * The hole as a film directs it: placed, arrived and leaning as it says, and every realm it drops in
+   * followed down from its start to this moment in fixed steps, so the frame depends on nothing but the
+   * time it is asked for. No clicks and none of the field's own drops.
+   */
+  private directed(view: View, b: Basis, hole: HoleDirection, seconds: number): { uniforms: HoleUniforms; live: boolean } {
+    clicks.length = 0
+    if (hole.shown <= 0) return { uniforms: holeOff(), live: false }
+    const [cx, cy] = hole.at
+    const lean = hole.lean ?? [0, 0]
+    const { ax, ay, az, eye, distance, dn, de, r, u, onPlane } = placeHole(view, b, cx, cy, hole.radius, hole.arrived, lean)
+
+    const drops: number[][] = []
+    let flare = 0
+    let pulse = 0
+    for (const script of hole.drops ?? []) {
+      if (seconds < script.start || drops.length >= HOLE.drops * 3) continue
+      const drop: Drop = { r: script.r, phi: script.phi, age: 0, travelled: 0, taken: -1, seed: script.seed, entry: [0, 0, 0], strength: script.strength }
+      let at = script.start
+      let takenAt = -1
+      while (at < seconds) {
+        const step = Math.min(SCRIPT_STEP, seconds - at)
+        fallStep(drop, step)
+        at += step
+        const meets = surfaceAlong(onPlane(1, drop.phi))
+        if (drop.r <= meets + 0.03) {
+          takenAt = at
+          drop.entry = onPlane(meets, drop.phi)
+          break
+        }
+      }
+      drop.age = seconds - script.start
+      const grow = hole.realm ?? 1
+      if (takenAt < 0) {
+        drops.push(...falling(drop, surfaceAlong(onPlane(1, drop.phi)), grow))
+        continue
+      }
+      drop.taken = seconds - takenAt
+      if (drop.taken >= 3) continue
+      pulse = Math.max(pulse, Math.exp(-drop.taken / 0.35))
+      flare = Math.max(flare, flareOf(drop))
+      drops.push(...comingOut(drop, grow))
+    }
+    while (drops.length < HOLE.drops * 3) drops.push([0, 0, 0, 0])
+
+    return {
+      uniforms: {
+        at: [cx, cy, hole.radius, hole.shown],
+        eye: [...eye, distance],
+        ax: [...ax, 0],
+        ay: [...ay, flare],
+        az: [...az, seconds],
+        dn: [...dn, pulse],
+        de: [...de, hole.radius / HOLE.hexagon],
+        sr: [...r, view.focal],
+        su: [...u, (HOLE.ring * HOLE.ring) / (2 * distance)],
+        drops,
+      },
+      live: true,
+    }
+  }
+}
+
+/**
+ * Where the hole is for a view: the cube's axes in the world, the camera's place in the cube's space and
+ * its distance, the inflow's plane, and the view's right and up about it. The hole's middle on the page
+ * is (cx, cy) and its hexagon is `radius` px; `arrived` turns the cube into the mark's pose and `lean`
+ * turns the view about it (-1..1 across, then up and down).
+ */
+function placeHole(view: View, b: Basis, cx: number, cy: number, radius: number, arrived: number, lean: readonly number[]) {
+  // The view at the hole: toward the camera, and the page's right and up there.
+  const centre = rayThrough(view, b, cx, cy)
+  const toward: Vec3 = [-centre[0], -centre[1], -centre[2]]
+  const up = norm(mix3(b.up, centre, 1, -dot(b.up, centre)))
+  const right = cross(centre, up)
+
+  // The camera's place about the cube: the mark's view, turned toward the pointer (and, until the
+  // reader has arrived, a little off the mark's pose), across and then up and down.
+  const yaw = (lean[0] * HOLE.lean[0] + (1 - arrived) * HOLE.arrive) * DEG
+  const pitch = lean[1] * HOLE.lean[1] * DEG
+  let n = mix3(TOWARD, RIGHT, Math.cos(yaw), Math.sin(yaw))
+  const r = mix3(RIGHT, TOWARD, Math.cos(yaw), -Math.sin(yaw))
+  const u = mix3(UP, n, Math.cos(pitch), Math.sin(pitch))
+  n = mix3(n, UP, Math.cos(pitch), -Math.sin(pitch))
+  // The cube's axes in the world: a world direction's cube coordinates are its parts along toward,
+  // right and up, weighed by n, r and u.
+  const axis = (i: 0 | 1 | 2): Vec3 => mix3(mix3(toward, right, n[i], r[i]), up, 1, u[i])
+  const ax = axis(0)
+  const ay = axis(1)
+  const az = axis(2)
+  const distance = (HOLE.hexagon * view.focal) / radius
+  const eye: Vec3 = [n[0] * distance, n[1] * distance, n[2] * distance]
+
+  // The inflow's plane, fixed to the cube: its normal tipped from the page's up toward the camera.
+  const inclination = lerp(HOLE.inclination[0], HOLE.inclination[1], arrived) * DEG
+  const rolled = mix3(UP, RIGHT, Math.cos(HOLE.roll * DEG), Math.sin(HOLE.roll * DEG))
+  const dn = mix3(rolled, TOWARD, Math.sin(inclination), Math.cos(inclination))
+  const de = mix3(TOWARD, rolled, Math.sin(inclination), -Math.cos(inclination))
+  const e2 = cross(dn, de)
+  const onPlane = (rr: number, phi: number): Vec3 => mix3(de, e2, rr * Math.cos(phi), rr * Math.sin(phi))
+
+  return { ax, ay, az, eye, distance, dn, de, e2, r, u, onPlane }
+}
+
+/** A falling realm carried `dt` down its stream: faster the deeper it goes. */
+function fallStep(drop: Drop, dt: number) {
+  const fall = 0.9 + 3 / (drop.r * drop.r)
+  const turn = (HOLE.wind * fall) / drop.r
+  drop.r -= fall * dt
+  drop.phi += turn * dt
+  drop.travelled += turn * dt
+}
+
+/** A realm still falling, as its three rows of the uniform: where it is on the plane and how lit, how
+ *  far it has come. `meets` is where the cube's surface is along its angle; `grow` its size. */
+const falling = (drop: Drop, meets: number, grow = 1): number[][] => {
+  const glow = smooth(drop.age / 0.25) * smooth((drop.r - meets) / 0.6) * drop.strength
+  return [[Math.max(drop.r, meets), drop.phi, glow, (0.55 + 0.45 * smooth((drop.r - meets) / 1.2)) * grow], [drop.travelled, 0, 0, 0], [0, 0, 0, 0]]
+}
+
+/** A realm a face has taken, as its rows: back out of the doorway 0.9 s later, and away. A size other
+ *  than the page's own rides in the first row's x (0 is the page's). */
+const comingOut = (drop: Drop, grow = 0): number[][] => {
+  const out = drop.taken - 0.9
+  const glow = out > 0 ? smooth(out / 0.12) * Math.exp(-out / 0.9) * drop.strength : 0
+  const along = out > 0 ? 0.1 + 0.9 * out + 0.55 * out * out : 0
+  return [[grow, 0, 0, drop.strength], [drop.travelled, along, glow, drop.seed], [...drop.entry, Math.max(drop.taken, 1e-3)]]
+}
+
+/** How much a realm coming out flares the doorway it comes through. */
+const flareOf = (drop: Drop) => {
+  const out = drop.taken - 0.9
+  return out > 0 ? Math.exp(-out / 0.5) * smooth(out / 0.08) * drop.strength : 0
 }

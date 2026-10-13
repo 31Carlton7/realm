@@ -1002,7 +1002,10 @@ fn clearance(p: vec2f, dpr: f32) -> f32 {
     let h = r.zw * 0.5;
     if (pane.x < 0.0) {
       let d = sdRoundRect(p - r.xy - h, h + vec2f(14.0), 60.0);
-      k *= mix(0.32, 1.0, smoothstep(0.0, 160.0, d));
+      // A film's words come and go (a corner of -2), and the field is held off them only as much as
+      // they are there; the page's own (-1) always are.
+      let present = select(1.0, pane.y, pane.x < -1.5);
+      k *= mix(mix(1.0, 0.32, present), 1.0, smoothstep(0.0, 160.0, d));
     } else {
       let d = sdRoundRect(p - r.xy - h, h, pane.x);
       k *= mix(1.0, pane.y, saturate(0.5 - d * dpr));
