@@ -45,8 +45,11 @@ them, a hairline edge, and the blur carried a little past it. The composite pass
 exactly the pane's rounded rect and nowhere else.
 
 A picture is `realms/Screen`: a capture at its own size and shape, never cropped by the page, with the
-surface's own corner, the one-device-pixel inset outline and, in the flight, the pointer's lamp on its
-rim. A part of the window floats under the app's raised shadow; the whole window stands on the field.
+surface's own corner and the one-device-pixel inset outline, set on a plate of the field's dark lit
+from above — a rim of the doorways' light, the lattice in its margin, the pointer's lamp on the rim in
+the flight. Its caption hangs from the middle of the plate's foot on a tab cut from it, and the hero's
+working sample wears the same plate with its label on the top edge. A claim can name a narrower
+capture for phones (`phone` in `content/home.ts`), taken in a window a phone's width.
 
 The rules it keeps: every effect argues something the copy also says, motion follows the reader
 rather than looping, `prefers-reduced-motion` drops the transitions, and a picture is either a real
@@ -103,8 +106,9 @@ uses — five spaces across two profiles, sessions waiting, working and finished
 scheduled tasks and a run, a Library — and screenshots a list of scenes at 1440×900 and 3× density
 into `.captures/` (not in git). `scripts/encode-product.mjs` then writes what the site serves, all of
 it lossless WebP: every scene at 1× and as shot (`public/product/<scene>-1440.webp`, `-4320.webp`),
-each part of the window the landing page shows on its own (`public/product/parts/`, with each one's
-size and corner in `parts.json`), and the crops the changelog's figures import
+each part of the window the landing page shows on its own, and its phone cut where it has one
+(`public/product/parts/`, with each one's size and corner in `parts.json`), and the crops the
+changelog's figures import
 (`public/product/details/`). `pnpm capture:encode` re-runs that step alone.
 
 ```sh
