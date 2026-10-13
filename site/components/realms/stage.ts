@@ -211,9 +211,7 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
     }
     if (id === "finale") {
       // The finale: lifted over the swarm, the camera looks up and out into the deep sky, and the black
-      // hole the page ends on comes up into it from below.
-      // It turns a little off the route as it lifts, so the hole hangs in dark sky with only the end of
-      // the ribbon nebula for it to bend.
+      // hole the page ends on comes up into it from below, the camera lowering its eyes to it (lowered).
       const last = out[out.length - 1]?.key.view
       const yaw = (last ? last.yaw : 90 * DEG) + FINALE.turn * DEG
       const ahead: Vec3 = last ? [last.eye[0] + Math.cos(yaw) * 40, last.eye[1] + Math.sin(yaw) * 40, FINALE.height] : [0, 0, FINALE.height]

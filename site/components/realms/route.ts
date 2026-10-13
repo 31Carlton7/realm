@@ -56,5 +56,7 @@ export const CLIMB: Record<string, { at: readonly [number, number]; yaw: number;
 }
 
 /** The finale: lifted over the climb's last stop and looking up and out, away from the swarm, into the
- *  deep sky the black hole hangs in, turned this far (degrees) off the route as it lifts. */
-export const FINALE = { height: 64, pitch: 14, focal: 1500, turn: 22 }
+ *  deep sky, turned this far (degrees) off the route as it lifts. Lowering its eyes from there to the
+ *  black hole at the foot of the page, the camera finds it hanging in front of the nebula ahead and low,
+ *  whose gas it bends round itself. */
+export const FINALE = { height: 64, pitch: 14, focal: 1500, turn: 2 }
