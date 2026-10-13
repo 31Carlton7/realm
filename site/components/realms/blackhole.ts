@@ -59,8 +59,8 @@ const HOLE_TAU = 6.2831853;
 // How fast the plasma turns at the inner edge (rad/s); everything further out at Kepler's rate.
 const HOLE_SPIN = 0.32;
 // The realms: rings of them in log radius, each ring turning rigidly and the whole stream drifting in.
-const HOLE_RINGS = 10.0;
-const HOLE_AROUND = 34.0;
+const HOLE_RINGS = 8.0;
+const HOLE_AROUND = 26.0;
 const HOLE_FLOW = 0.11;
 // Doorway light (the field's), and the plasma's ramp from its cool outer edge to white.
 const HOLE_DOOR = vec3f(0.82, 0.9, 1.0);
@@ -144,15 +144,13 @@ fn holeRealms(p: vec2f, r: f32, phi: f32, t: f32, cosI: f32) -> vec4f {
   let spin = fract(wind * pow(HOLE_IN / rr, 1.5) / HOLE_TAU + hash21(vec2f(ring, 3.7))) * HOLE_TAU;
   let a = (phi - spin) / HOLE_TAU * HOLE_AROUND;
   let stretch = 1.0 + 10.0 * pow(saturate(1.0 - here / 0.45), 2.0);
-  let size = mix(0.032, 0.05, here);
+  let size = mix(0.03, 0.05, here);
   var light = vec3f(0.0);
   var cover = 0.0;
   for (var dj = -1; dj <= 1; dj++) {
     let j = floor(a) + f32(dj);
     let id = vec2f(j - HOLE_AROUND * floor(j / HOLE_AROUND), ring);
     let g = hash22(id * 2.11 + 5.3);
-    // Some realms have no agent at work: no light at all.
-    if (g.x > 0.42) { continue; }
     let angle = spin + (j + 0.5) / HOLE_AROUND * HOLE_TAU;
     let centre = rr * vec2f(cos(angle), sin(angle));
     let along = vec2f(-sin(angle), cos(angle));
@@ -160,8 +158,8 @@ fn holeRealms(p: vec2f, r: f32, phi: f32, t: f32, cosI: f32) -> vec4f {
     delta -= along * dot(delta, along) * (1.0 - 1.0 / stretch);
     delta.x *= cosI / 1.9;
     let e = exp(-dot(delta, delta) / (size * size));
-    let tint = mix(HOLE_DOOR, HOLE_DOOR_BLUE, step(0.7, fract(g.y * 7.31)));
-    light += tint * mix(0.9, 2.0, g.y) * e;
+    let tint = mix(HOLE_DOOR, HOLE_DOOR_BLUE, step(0.85, g.y));
+    light += tint * mix(0.8, 1.3, g.x) * e;
     cover += e * 0.4;
   }
   let fade = smoothstep(1.0, 0.84, s) * smoothstep(0.16, 0.34, s);
@@ -211,7 +209,7 @@ fn holeDisk(p: vec3f, dir: vec3f) -> vec4f {
   // plunging and goes dark fast.
   let edge = smoothstep(HOLE_IN - 1.6, HOLE_IN + 0.3, r);
   let profile = edge * pow(HOLE_IN / max(r, HOLE_IN), 2.6) * (1.0 - smoothstep(12.0, 21.0, r));
-  let grain = holePlasma(r, phi, t);
+  let grain = select(0.0, holePlasma(r, phi, t), profile > 1e-3);
   let density = profile * (0.45 + 1.1 * grain * grain);
   let heat = density * g * 1.35;
   var light = holeTint(heat) * density * beam * 2.6;
@@ -259,6 +257,17 @@ fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
   let b = far * sa * inverseSqrt(1.0 - 2.0 / far);
   let perPx = HOLE_B / max(hole.at.z, 1.0);
   let outside = smoothstep(HOLE_B - 0.6 * perPx, HOLE_B + 0.6 * perPx, b);
+
+  // A ray that never comes within the disk's reach only bends, by the weak-field series to third order
+  // (less the share it would have bent behind the camera), held to the steps' own answer where the two
+  // meet so the stars do not tear along that circle: no steps needed.
+  if (b > HOLE_OUT + 2.0) {
+    let sweep = HOLE_PI - asin(min(b / far, 1.0)) + (2.0 / b) * (1.0 + sqrt(max(1.0 - b * b / (far * far), 0.0))) + 11.781 / (b * b) + 42.667 / (b * b * b) - 0.0032;
+    let exit = cos(sweep) * e1 + sin(sweep) * e2;
+    let world = normalize(exit.x * hole.ax.xyz + exit.y * hole.ay.xyz + exit.z * hole.az.xyz);
+    out.dir = normalize(mix(rd, world, bend));
+    return out;
+  }
 
   var u = 1.0 / far;
   var w = sqrt(max(1.0 / (b * b) - u * u * (1.0 - 2.0 * u), 0.0));
@@ -349,8 +358,8 @@ const norm = (a: Vec3): Vec3 => {
 }
 const mix3 = (a: Vec3, b: Vec3, ka: number, kb: number): Vec3 => [a[0] * ka + b[0] * kb, a[1] * ka + b[1] * kb, a[2] * ka + b[2] * kb]
 
-/** The shadow's radius on the page for a viewport: a little under a twelfth of the shorter side. */
-export const shadowRadius = (width: number, height: number) => clamp(Math.min(width * 0.056, height * 0.088), 30, 84)
+/** The shadow's radius on the page for a viewport: a tenth of its height, held to its width on a phone. */
+export const shadowRadius = (width: number, height: number) => clamp(Math.min(width * 0.064, height * 0.1), 32, 96)
 
 export type HoleFrame = {
   view: View

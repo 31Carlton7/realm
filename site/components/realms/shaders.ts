@@ -671,7 +671,7 @@ fn atmosphere(o: vec3f, rd: vec3f, sun: vec3f, toGround: bool) -> vec4f {
 
   // Stars by night, never on the planet; brighter over the hole, where the air has been left behind.
   let starry = scene.clock.y * smoothstep(0.0, 0.08, rd.z + dip);
-  light += INK * stars(rd) * starry * (0.06 + 0.14 * hole.ax.w) * (1.0 - cover);
+  light += INK * stars(rd) * starry * (0.06 + 0.08 * hole.ax.w) * (1.0 - cover);
 
   // From orbit: the air along the limb, lit from a sun just under it, and the camera's glare there.
   if (orbit > 0.001) {
