@@ -77,7 +77,8 @@ struct Hole {
   ax: vec4f,     // the hole's axes in the world: x in the disk toward the camera,
   ay: vec4f,     //   y across the disk,
   az: vec4f,     //   z the disk's normal; az.w the hole's clock (s)
-  drops: array<vec4f, ${HOLE.drops}>,  // realms dropped in: radius (M), angle, glow, the spiral's dr/dphi
+  drops: array<vec4f, ${HOLE.drops * 2}>,  // per realm dropped in: radius (M), angle, glow, the spiral's dr/dphi;
+                                           // then how far round it has come so far (rad)
 }
 
 struct HoleRay {
@@ -170,18 +171,20 @@ fn holeRealms(p: vec2f, r: f32, phi: f32, t: f32, cosI: f32) -> vec4f {
 fn holeDrops(p: vec2f, r: f32, phi: f32, cosI: f32) -> vec3f {
   var light = vec3f(0.0);
   for (var k = 0; k < ${HOLE.drops}; k++) {
-    let d = hole.drops[k];
+    let d = hole.drops[k * 2];
     if (d.z <= 0.0) { continue; }
     let at = d.x * vec2f(cos(d.y), sin(d.y));
     var delta = p - at;
     delta.x *= cosI;
-    let point = exp(-dot(delta, delta) / 0.03);
-    // Behind it along its spiral: the angle back from it, and the radius its path had there.
+    let point = exp(-dot(delta, delta) / 0.05);
+    // Behind it along its spiral, as far as it has come: the angle back from it, and the radius its
+    // path had there.
     let back = fract((d.y - phi) / HOLE_TAU) * HOLE_TAU;
+    let reach = min(hole.drops[k * 2 + 1].x, 3.2);
     let path = d.x + back * d.w;
     let width = 0.03 * path;
-    let streak = exp(-back / 0.8) * exp(-pow((r - path) / width, 2.0)) * smoothstep(3.2, 1.6, back);
-    light += mix(HOLE_WHITE, HOLE_DOOR_BLUE, 0.35) * d.z * (point * 10.0 + streak * 2.4);
+    let streak = exp(-back / 1.3) * exp(-pow((r - path) / width, 2.0)) * (1.0 - smoothstep(reach * 0.6, reach, back));
+    light += mix(HOLE_WHITE, HOLE_DOOR_BLUE, 0.35) * d.z * (point * 10.0 + streak * 3.6);
   }
   return light;
 }
@@ -347,7 +350,7 @@ export function dropRealm(x?: number, y?: number) {
   if (clicks.length > HOLE.drops) clicks.shift()
 }
 
-type Drop = { r: number; phi: number; age: number }
+type Drop = { r: number; phi: number; age: number; travelled: number }
 
 const DEG = Math.PI / 180
 
@@ -392,7 +395,7 @@ export class BlackHole {
       ax: [1, 0, 0, 0],
       ay: [0, 1, 0, 0],
       az: [0, 0, 1, 0],
-      drops: Array.from({ length: HOLE.drops }, () => [0, 0, 0, 0]),
+      drops: Array.from({ length: HOLE.drops * 2 }, () => [0, 0, 0, 0]),
     }
     if (!rect || rect[2] <= 0 || rect[1] > height || rect[1] + rect[3] < 0) {
       clicks.length = 0
@@ -446,26 +449,28 @@ export class BlackHole {
         r = clamp(Math.hypot(hit[0], hit[1]), HOLE.inner + 3, HOLE.outer)
         phi = Math.atan2(hit[1], hit[0])
       }
-      this.drops.push({ r, phi, age: 0 })
+      this.drops.push({ r, phi, age: 0, travelled: 0 })
       if (this.drops.length > HOLE.drops) this.drops.shift()
     }
 
     // A dropped realm falls slowly at first and then plunges, turning faster the deeper it goes, and
-    // dims into the well before it reaches the horizon.
+    // dims into the well before it reaches the horizon: about four seconds and a turn from the middle
+    // of the disk, nine and a turn and a half from its edge.
     const dt = Math.min(Math.max(input.dt, 0), 0.1)
     const drops: number[][] = []
     this.drops = this.drops.filter((drop) => drop.r > 2.02)
     for (const drop of this.drops) {
-      const fall = 1.4 + 70 * drop.r ** -1.5
-      const turn = 2.6 * (HOLE.inner / drop.r) ** 1.5
+      const fall = 0.62 * Math.sqrt(drop.r) + 14 * drop.r ** -1.5
+      const turn = 1.8 * (HOLE.inner / Math.max(drop.r, 2)) ** 1.5
       drop.r -= fall * dt
       drop.phi += turn * dt
+      drop.travelled += turn * dt
       drop.age += dt
       const r = Math.max(drop.r, 2.02)
       const glow = smooth(drop.age / 0.25) * (1 - 2 / r) ** 1.5
-      drops.push([r, drop.phi, glow, fall / turn])
+      drops.push([r, drop.phi, glow, fall / turn], [drop.travelled, 0, 0, 0])
     }
-    while (drops.length < HOLE.drops) drops.push([0, 0, 0, 0])
+    while (drops.length < HOLE.drops * 2) drops.push([0, 0, 0, 0])
 
     return {
       uniforms: {
