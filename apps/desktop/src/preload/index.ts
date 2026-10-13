@@ -5,6 +5,7 @@ import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
 import type { UpdateStatus } from "../main/updater";
+import type { WhatsNew } from "../main/whats-new";
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
 const port = arg("realm-port");
 export type PickedFile = { path: string; mime: string; name: string; size: number };
@@ -159,6 +160,13 @@ contextBridge.exposeInMainWorld("realm", {
    *  which it puts on the Dock and keeps for the next launch; false when main refused them. */
   /** Realm's theme preference, for the window's native appearance (main/appearance.ts). */
   setAppearance: (pref: string): void => ipcRenderer.send("appearance:set", pref),
+  /** What's new (main/whats-new.ts): this version's notes; whether this window should open them
+   *  unasked (true once, after an update); and that they were seen. */
+  whatsNew: {
+    notes: (): Promise<WhatsNew> => ipcRenderer.invoke("whats-new:notes"),
+    claim: (): Promise<boolean> => ipcRenderer.invoke("whats-new:claim"),
+    seen: (): Promise<void> => ipcRenderer.invoke("whats-new:seen"),
+  },
   appIcon: {
     get: (): Promise<string> => ipcRenderer.invoke("app-icon:get"),
     set: (id: string, png: Uint8Array): Promise<boolean> => ipcRenderer.invoke("app-icon:set", id, png),

@@ -964,6 +964,8 @@ export type Sheet =
    *  writes. From the team's page and the sidebar's Team fold alike. */
   | { kind: "add-teammates"; spaceId: string }
   /** Plan 22: start a lecture (title prompt), wrap one up (pick which), import Plynn recordings. */
+  /** This version's notes: opened once after an update, and from the rail or Help (WhatsNewSheet). */
+  | { kind: "whats-new" }
   | { kind: "new-lecture" }
   | { kind: "wrap-up-lecture" }
   | { kind: "plynn-import" }

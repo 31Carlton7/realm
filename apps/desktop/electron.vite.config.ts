@@ -1,11 +1,13 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { scaleTextSizes } from "./src/renderer/src/theme/text-scale";
+import { releaseNotes } from "./src/main/whats-new-notes";
 
 /** KaTeX ships each of its 20 faces three times — woff2, woff and truetype — and Vite emits every
  *  file the stylesheet names, so importing it unchanged puts 60 font files and ~1.1MB in the bundle
@@ -60,11 +62,19 @@ const pdfjsAssets = (): Plugin => ({
     for (const f of pdfjsFiles()) this.emitFile({ type: "asset", fileName: f.name, source: readFileSync(f.file) });
   },
 });
+/** The version this build is and its part of CHANGELOG.md, for the What's new sheet (main/whats-new.ts).
+ *  Read here so the sheet is the build's own notes and needs no network. */
+const here = dirname(fileURLToPath(import.meta.url));
+const appVersion = (JSON.parse(readFileSync(join(here, "package.json"), "utf8")) as { version: string }).version;
+const whatsNew = { version: appVersion, notes: releaseNotes(readFileSync(join(here, "../../CHANGELOG.md"), "utf8"), appVersion) };
 export default defineConfig({
   // __REALM_SIGNED_BUILD__ feeds the updater gate (src/main/updater.ts): true only when the build
   // env carries signing credentials — the same CSC_* vars electron-builder signs from — so a signed
   // `pnpm dist` flips the gate's `signed` input with zero code changes (Plan 15 W1/W3).
-  main: { define: { __REALM_SIGNED_BUILD__: JSON.stringify(Boolean(process.env.CSC_LINK || process.env.CSC_NAME)) } },
+  main: { define: {
+    __REALM_SIGNED_BUILD__: JSON.stringify(Boolean(process.env.CSC_LINK || process.env.CSC_NAME)),
+    __REALM_WHATS_NEW__: JSON.stringify(whatsNew),
+  } },
   preload: {},
   // host 127.0.0.1 so the dev-server / HMR socket matches the renderer CSP (connect-src 127.0.0.1 only)
   // Tailwind v4 runs in the renderer only (Plan 9 W1): electron-vite composes vite plugins per target.
