@@ -32,13 +32,15 @@ export default function Doorway({ download }: ConceptProps) {
         className="relative mx-auto mt-9 w-full max-w-[72rem] px-6 sm:mt-12 sm:px-10 lg:mt-8"
         frameClassName="h-[540px] sm:h-[600px] lg:h-[clamp(420px,calc(100dvh-460px),600px)] [html[data-lab-field=on]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.2)] [html[data-lab-field=off]_&]:shadow-[0_0_0_1px_oklch(1_0_0/0.16),0_0_60px_-12px_oklch(0.86_0.04_250/0.55),0_30px_140px_-40px_oklch(0.8_0.05_250/0.45)]"
       />
-      {/* Without WebGPU there is no room to light, so the floor's pool is drawn plainly: a soft ellipse of
-          the same cool light, widening toward the reader, under the window it comes from. */}
-      <div
-        aria-hidden
-        className="pointer-events-none mx-auto hidden h-[300px] w-full max-w-[72rem] px-5 sm:px-10 [html[data-lab-field=off]_&]:block"
-      >
-        <div className="h-full w-full bg-[radial-gradient(70%_100%_at_50%_0%,oklch(0.8_0.04_250/0.16),transparent_70%)] [clip-path:polygon(4%_0,96%_0,100%_100%,0_100%)]" />
+      {/* Without WebGPU there is no room to light, so the floor's pool is drawn plainly: a trapezoid of the
+          same cool light that starts at the window's sill, widens toward the reader and fades out. */}
+      <div aria-hidden className="pointer-events-none mx-auto hidden w-full max-w-[72rem] px-6 sm:px-10 [html[data-lab-field=off]_&]:block">
+        <div className="relative h-[min(36vh,320px)]">
+          {/* The blur is on a wrapper because a clip applies after a filter: on one element the cut edges stay hard. */}
+          <div className="absolute inset-y-0 -inset-x-[12%] blur-[10px]">
+            <div className="h-full w-full bg-[linear-gradient(to_bottom,oklch(0.8_0.03_250/0.2),oklch(0.8_0.03_250/0.06)_45%,transparent_90%)] [clip-path:polygon(9.7%_0,90.3%_0,100%_100%,0_100%)]" />
+          </div>
+        </div>
       </div>
     </section>
   )
