@@ -5,8 +5,11 @@ import { FACES, MARK_CENTER, MARK_RADIUS, WALLS } from "@/lib/mark"
 import { dropRealm, HOLE } from "./blackhole"
 
 /**
- * Where the flight ends: the rect the field draws the black hole into, at the foot of the page under
- * the footer. The cube is centred across it, a little below its middle.
+ * Where the flight ends: the black hole's place at the foot of the page, under the footer. It is a
+ * viewport tall with the cube at its middle, so the page ends with the hole in the middle of the view
+ * (the large viewport: a phone's browser has put its bars away by the time the reader reaches the end);
+ * the field hangs the hole in its own sky there and lowers the camera's eyes to it as the reader comes
+ * down (stage.ts), so the hole and its sky come up the page together.
  *
  * Clicking the hole drops a realm in at the point clicked; its button does the same from the keyboard
  * (a key's click carries no pointer, so the realm goes in where it is easiest to follow), and while it
@@ -21,19 +24,19 @@ export function HoleStage() {
   return (
     <div
       data-field-anchor="hole"
-      className="relative h-[clamp(300px,40vh,380px)] w-full [--hex:clamp(34px,min(11vw,11vh),104px)] sm:h-[clamp(400px,56vh,540px)] sm:[--hex:clamp(34px,min(7vw,11vh),104px)]"
+      className="relative h-lvh w-full [--hex:clamp(34px,min(11vw,11vh),104px)] sm:[--hex:clamp(34px,min(7vw,11vh),104px)]"
     >
       <FallbackHole />
       <button
         type="button"
         aria-label="Drop a realm into the black hole"
         onClick={(event) => (event.detail === 0 ? dropRealm() : dropRealm(event.clientX, event.clientY))}
-        className="peer absolute top-[56%] left-1/2 h-[calc(var(--hex)*3.2)] w-[min(calc(var(--hex)*8.4),100%)] -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full focus-visible:outline-none! motion-reduce:hidden [html[data-field=off]_&]:hidden [html[data-field=pending]_&]:hidden"
+        className="peer absolute top-1/2 left-1/2 h-[calc(var(--hex)*3.2)] w-[min(calc(var(--hex)*8.4),100%)] -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full focus-visible:outline-none! motion-reduce:hidden [html[data-field=off]_&]:hidden [html[data-field=pending]_&]:hidden"
       />
       <FocusRing />
       <p
         aria-hidden
-        className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 text-[13px] whitespace-nowrap text-ink-2 opacity-0 transition-opacity duration-200 peer-hover:opacity-100 peer-focus-visible:opacity-100 motion-reduce:hidden"
+        className="pointer-events-none absolute top-[calc(50%+var(--hex)*2.3)] left-1/2 -translate-x-1/2 text-[13px] whitespace-nowrap text-ink-2 opacity-0 transition-opacity duration-200 peer-hover:opacity-100 peer-focus-visible:opacity-100 motion-reduce:hidden"
       >
         Drop a realm in
       </p>
@@ -62,7 +65,7 @@ function FocusRing() {
     <svg
       aria-hidden
       viewBox={`${-r - 2} ${-r - 2} ${2 * r + 4} ${2 * r + 4}`}
-      className="pointer-events-none absolute top-[56%] left-1/2 h-[calc(var(--hex)*2.85)] w-[calc(var(--hex)*2.85)] -translate-x-1/2 -translate-y-1/2 overflow-visible opacity-0 peer-focus-visible:opacity-100"
+      className="pointer-events-none absolute top-1/2 left-1/2 h-[calc(var(--hex)*2.85)] w-[calc(var(--hex)*2.85)] -translate-x-1/2 -translate-y-1/2 overflow-visible opacity-0 peer-focus-visible:opacity-100"
     >
       <path
         d={through([0, 1, 2, 3, 4, 5].map((i) => corner(r, i)), true)}
@@ -175,11 +178,14 @@ const SPARKS = [
 ] as const
 
 /**
- * The hole without WebGPU: the shader's composition drawn once. The cube is the mark's silhouette in
- * black with its doorway's lit back, jamb and floor from lib/mark.ts; a fine rim traces it; the
- * inflow's threads spiral in on the tilted plane, the far side's bent over the top and under the
- * bottom along the hexagon's own outline, the near side's crossing in front and dimming over the faces;
- * and the doorway's light streams out to the right with a few sparks on it. A drawing, not a simulation.
+ * The hole without WebGPU: the shader's composition drawn once, on the page's still of the field's sky
+ * (Flight, public/realms/space.webp). The realms round it in that still are swept off its disk, as the
+ * field sweeps them, by the still's own darkest navy laid softly under the disk and gone well before
+ * the drawing's edge. The cube is the mark's silhouette in black with its doorway's lit back, jamb and
+ * floor from lib/mark.ts; a fine rim traces it; the inflow's threads spiral in on the tilted plane, the
+ * far side's bent over the top and under the bottom along the hexagon's own outline, the near side's
+ * crossing in front and dimming over the faces; and the doorway's light streams out to the right with
+ * a few sparks on it. A drawing, not a simulation.
  */
 function FallbackHole() {
   const silhouette = grown(0, [0, 1, 2, 3, 4, 5], 0, true)
@@ -187,11 +193,17 @@ function FallbackHole() {
   return (
     <svg
       aria-hidden
-      viewBox="-520 -250 1040 480"
+      viewBox="-520 -240 1040 480"
       preserveAspectRatio="xMidYMid meet"
-      className="pointer-events-none absolute inset-x-0 top-[56%] mx-auto hidden h-[min(100%,72vw)] w-full max-w-[1100px] -translate-y-[52%] [html[data-field=off]_&]:block"
+      className="pointer-events-none absolute inset-x-0 top-1/2 mx-auto hidden h-[min(100%,72vw)] w-full max-w-[1100px] -translate-y-1/2 [html[data-field=off]_&]:block"
     >
       <defs>
+        <radialGradient id="hole-clear" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(0 -8) scale(505 222)">
+          <stop offset="0" stopColor="#03050b" stopOpacity="0.92" />
+          <stop offset="0.5" stopColor="#03050b" stopOpacity="0.8" />
+          <stop offset="0.8" stopColor="#03050b" stopOpacity="0.35" />
+          <stop offset="1" stopColor="#03050b" stopOpacity="0" />
+        </radialGradient>
         <linearGradient id="hole-hat" gradientUnits="userSpaceOnUse" x1="-160" x2="160" y1="0" y2="0">
           <stop offset="0" stopColor="oklch(0.96 0.025 250)" />
           <stop offset="0.55" stopColor="oklch(0.8 0.08 252)" />
@@ -213,11 +225,13 @@ function FallbackHole() {
           <feGaussianBlur stdDeviation="7" />
         </filter>
         {/* Over the cube's faces the near threads are mostly taken in. */}
-        <mask id="hole-faces" maskUnits="userSpaceOnUse" x="-520" y="-250" width="1040" height="480">
-          <rect x="-520" y="-250" width="1040" height="480" fill="white" />
+        <mask id="hole-faces" maskUnits="userSpaceOnUse" x="-520" y="-240" width="1040" height="480">
+          <rect x="-520" y="-240" width="1040" height="480" fill="white" />
           <path d={silhouette} fill="oklch(0.32 0 0)" />
         </mask>
       </defs>
+      {/* The still's sky, swept clear under the disk. */}
+      <ellipse cx="0" cy="-8" rx="505" ry="222" fill="url(#hole-clear)" />
       {/* The far side of the inflow, behind the cube. */}
       <g fill="none" stroke="oklch(0.84 0.07 251)" strokeLinecap="round" transform={`rotate(${HOLE.roll})`} filter="url(#hole-soft)">
         {THREADS.filter((piece) => !piece.near).map((piece) => (

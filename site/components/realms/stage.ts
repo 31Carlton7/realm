@@ -2,7 +2,7 @@ import { draw, effect, sampler, target } from "vgpu"
 
 import type { Rect, StageFactory, StageInput } from "@/components/field/stage"
 
-import { BlackHole, holeOff } from "./blackhole"
+import { BlackHole, HOLE, holeMiddle, holeOff, holeOnset, shadowRadius } from "./blackhole"
 import { basis, blend, clamp, dot, Follow, lerp, orbit, place, project, ramp, smooth, smoother, type Basis, type Key, type Place, type Vec3, type View } from "./camera"
 import { CHAPTERS, CLIMB, FINALE, OPENING, TEAM } from "./route"
 import {
@@ -42,6 +42,10 @@ const KEY_LIGHT: Vec3 = normalize([-0.45, -0.62, 0.64])
 const KEY_STRENGTH = 1.15
 /** The share of the sky's doorways lit by agents at work. */
 const DOOR_SHARE = 0.36
+/** A doorway thrown open: how bright the eye takes its light to be at the opening (its glare), and the
+ *  shaft of its light hanging in the space in front of it. */
+const GLARE = 1.4
+const SHAFT = 4.4
 /** The far sky's turn, in radians a second: a full turn in about forty minutes. */
 const SKY_TURN = 0.0026
 /** The near stars drift through the world at this rate (world units a second), as shaders.ts has it. */
@@ -96,6 +100,18 @@ const centred = (r: Rect, scrollY: number, height: number) => scrollY + r[1] + r
 
 /** A level view from `eye` facing `yaw`, its axis meeting the page at (x, y). */
 const level = (eye: Vec3, yaw: number, focal: number, x: number, y: number, pitch = 0): View => ({ eye, yaw, pitch, focal, px: x, py: y })
+
+/**
+ * At the foot of the page the camera lowers its eyes to the black hole as the reader comes down to it,
+ * so the hole and the sky it hangs in come up the page together: the hole's direction in the world
+ * holds still while the page carries it from below the view (`from`) to `y`, and to the middle of the
+ * view as the page ends.
+ */
+function lowered(view: View, y: number, from: number): View {
+  if (!(y < from)) return view
+  const tilt = Math.atan((from - view.py) / view.focal) - Math.atan((y - view.py) / view.focal)
+  return { ...view, pitch: view.pitch - tilt }
+}
 
 /** The direction from the eye through a point of the page. */
 function rayAt(view: View, b: Basis, x: number, y: number): Vec3 {
@@ -195,9 +211,7 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
     }
     if (id === "finale") {
       // The finale: lifted over the swarm, the camera looks up and out into the deep sky, and the black
-      // hole the page ends on comes up into it from below.
-      // It turns a little off the route as it lifts, so the hole hangs in dark sky with only the end of
-      // the ribbon nebula for it to bend.
+      // hole the page ends on comes up into it from below, the camera lowering its eyes to it (lowered).
       const last = out[out.length - 1]?.key.view
       const yaw = (last ? last.yaw : 90 * DEG) + FINALE.turn * DEG
       const ahead: Vec3 = last ? [last.eye[0] + Math.cos(yaw) * 40, last.eye[1] + Math.sin(yaw) * 40, FINALE.height] : [0, 0, FINALE.height]
@@ -313,6 +327,10 @@ type Touch = { hover: number; turn: number; open: number; opened: number; glow: 
 /** A hand-off between two realms of the sky: from one doorway to the other, over `duration` seconds. */
 type Pulse = { from: number; to: number; start: number; duration: number }
 
+/** Light leaving a doorway (writeBeam): to its screen, or poured out in front of it when it is thrown
+ *  open (`soft`). */
+type Beam = { door: [Vec3, Vec3, Vec3, Vec3]; mid: Vec3; half: [number, number]; light: number; moment: number; reach: number; hidden: Rect | null; soft: number }
+
 export const createRealms: StageFactory = async (gpu, output) => {
   const zero = [0, 0, 0, 0]
   const special = () => Array.from({ length: 5 }, () => [0, 0, 0, 0])
@@ -330,11 +348,12 @@ export const createRealms: StageFactory = async (gpu, output) => {
     stars: [0, 0, 0, 60],
     haze: [30, 0.004, 0, 0],
     light: [...KEY_LIGHT, KEY_STRENGTH],
-    holeBox: [0, 0, 0, 0],
     flare: [0, 0, 0, 0],
     touched: Array.from({ length: TOUCHED }, () => [...special().slice(0, 4), [-1, 0, 0, 0]]).flat(),
     page: Array.from({ length: PAGE_REALMS }, special).flat(),
   }
+  /** The openings of the doorways thrown open, as the composite's glare reads them. */
+  const doors = Array.from({ length: BURSTS * 2 }, () => [...zero])
   const comp: CompositeUniforms = {
     view: [1, 1, 1, 0],
     look: [0, 0, 0, 0],
@@ -345,6 +364,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     beams: Array.from({ length: BEAMS * 7 }, () => [...zero]),
     pulses: Array.from({ length: PULSES * 5 }, () => [...zero]),
     bursts: Array.from({ length: BURSTS * 2 }, () => [...zero]),
+    doors,
     fence: Array.from({ length: 10 }, () => [...zero]),
   }
 
@@ -531,8 +551,21 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const open = list[0].key.view
       for (let i = 0; i <= 60; i++) path.push([open.eye[0] + Math.cos(open.yaw) * i * 5, open.eye[1] + Math.sin(open.yaw) * i * 5, open.eye[2]])
     }
+    // Where the page ends, the black hole hangs in the middle of the view, and no realm hangs over its
+    // disk: the realms that were near it are the ones falling in.
+    const finale = list.find((s) => s.key.kind === "finale")?.key.view
+    const end = finale ? lowered(finale, finale.py, height * 1.5) : null
+    const endBasis = end ? basis(end) : null
+    const disk = (HOLE.outer * shadowRadius(width, height)) / HOLE.hexagon
     realmsNow = clearOff(population, (at, size) => {
       for (const p of path) if (length3(sub3(at, p)) < 3 + size * 0.9) return false
+      if (end && endBasis) {
+        const [x, y, z] = project(end, endBasis, at)
+        const across = z > 0.3 ? (end.focal * size) / z : 0
+        const dx = (x - end.px) / (disk * 1.08 + across)
+        const dy = (y - end.py) / (disk * 0.45 + across)
+        if (z > 0.3 && dx * dx + dy * dy < 1) return false
+      }
       for (const { view, b, keep, words, largest } of views) {
         const [x, y, z] = project(view, b, at)
         if (z <= 0.3) continue
@@ -566,7 +599,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     list[k * 5 + 4] = [index, hover, 0, 0]
   }
 
-  /** A beam from a doorway to a far rect: the screen that came out of it. */
+  /** A beam from a doorway to a far rect: the screen that came out of it, or the light poured out ahead. */
   const writeBeam = (
     k: number,
     view: View,
@@ -579,6 +612,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     light: number,
     moment: number,
     hidden: Rect | null,
+    soft: number,
   ) => {
     const doorMid = mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25)
     const across0 = sub3(door[1], door[0])
@@ -629,7 +663,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     comp.beams[k * 7 + 1] = [...axis, light]
     comp.beams[k * 7 + 2] = [...u, hu0]
     comp.beams[k * 7 + 3] = [...vUp, hv0]
-    comp.beams[k * 7 + 4] = [farHalf[0], farHalf[1], 0, moment]
+    comp.beams[k * 7 + 4] = [farHalf[0], farHalf[1], soft, moment]
     comp.beams[k * 7 + 5] = [Math.max(x0 - 6, 0), Math.max(y0 - 6, 0), Math.min(x1 + 6, width), Math.min(y1 + 6, height)]
     // Inside the screen it lands on, the picture hides it: a hair inside the edge, so its rim still shows.
     comp.beams[k * 7 + 6] = hidden ? [hidden[0] + 2, hidden[1] + 2, hidden[0] + hidden[2] - 2, hidden[1] + hidden[3] - 2] : [0, 0, 0, 0]
@@ -656,6 +690,10 @@ export const createRealms: StageFactory = async (gpu, output) => {
       }
 
       // ---- the camera ------------------------------------------------------------------------
+      // The black hole under the footer: where its middle is on the page, and how far it has come up.
+      const holeRect = input.anchors.hole
+      const holeY = holeRect ? holeMiddle(holeRect)[1] : Infinity
+      const foot = holeOnset(holeRect, height)
       const now = moment(list, scrollY, mode!)
       let view: View = now.view
       if (mode === "drift") {
@@ -686,12 +724,15 @@ export const createRealms: StageFactory = async (gpu, output) => {
       lamp.x += (pointerX - lamp.x) * k
       lamp.y += (pointerY - lamp.y) * k
       lamp.presence += ((input.still ? 0 : presence) - lamp.presence) * k
-      sway += ((pointerX / Math.max(width, 1) - 0.5) * presence - sway) * k
+      // The sway goes as the black hole comes up, so the hole and its sky stay as one.
+      sway += ((pointerX / Math.max(width, 1) - 0.5) * presence * (1 - foot) - sway) * k
 
       if (mode === "flight") {
         view = follow.step(view, dt)
         view = orbit(view, list[now.nearest]!.key.pivot, -sway * 0.9 * DEG)
       }
+      // Past the spring, so the sky keeps exact step with the page the hole is laid out on.
+      view = lowered(view, holeY, height * 1.5)
       const b = basis(view)
 
       // ---- the page's own realms: each chapter's, over its screen, and the team's ----------------
@@ -703,7 +744,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const visible = (r: Rect) => r[2] > 0 && r[1] < height + 160 && r[1] + r[3] > -160 && r[0] < width + 160 && r[0] + r[2] > -160
       const progress = now.at.from + now.at.u
       const teams = list.findIndex((s) => s.team)
-      const beamsNow: { door: [Vec3, Vec3, Vec3, Vec3]; mid: Vec3; half: [number, number]; light: number; moment: number; reach: number; hidden: Rect | null }[] = []
+      const beamsNow: Beam[] = []
       let fence: { pose: Pose; amount: number } | null = null
       let pageCount = 0
       const pageIndex = new Map<string, number>()
@@ -793,7 +834,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
             const half: [number, number] = [lerp(0.2, W * 0.48, e), lerp(0.4, H * 0.48, e)]
             // A little brighter while it is reaching out for a picture that has not arrived yet.
             const ahead = leaving ? 0 : 0.7 * (1 - pictureOn) * smooth(opening)
-            beamsNow.push({ door, mid, half, light: 0.42 + ahead, moment: index * 0.37, reach, hidden: pictureOn > 0.995 ? [left, top, w, h] : null })
+            beamsNow.push({ door, mid, half, light: 0.42 + ahead, moment: index * 0.37, reach, hidden: pictureOn > 0.995 ? [left, top, w, h] : null, soft: 0 })
           }
         } else {
           // In the slot: the screen is where the layout put it, and its light is read from there.
@@ -806,7 +847,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
           if (mode === "still" && pose && index === now.nearest && slotRect) {
             const W = (stand.slot[0] * stand.depth) / stand.key.view.focal
             const H = (stand.slot[1] * stand.depth) / stand.key.view.focal
-            beamsNow.push({ door: doorCorners(pose), mid: add(stand.foot, [0, 0, H / 2]), half: [W * 0.48, H * 0.48], light: 0.42, moment: index * 0.37, reach: 1, hidden: slotRect })
+            beamsNow.push({ door: doorCorners(pose), mid: add(stand.foot, [0, 0, H / 2]), half: [W * 0.48, H * 0.48], light: 0.42, moment: index * 0.37, reach: 1, hidden: slotRect, soft: 0 })
           }
         }
       })
@@ -981,7 +1022,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
         touch.hover += (over - touch.hover) * ease
         touch.turn += (Math.max(over, smooth(1 - (t - touch.opened) / 5)) - touch.turn) * (1 - Math.exp(-Math.max(dt, 0) / 0.45))
         const since = t - touch.opened
-        touch.open = since < 0 ? 0 : smooth(since / 0.35) * (1 - smooth((since - 1.2) / 2.8))
+        // Up in a third of a second, held a moment, and settling over nearly three.
+        touch.open = since < 0 ? 0 : smooth(since / 0.3) * (1 - smoother((since - 0.6) / 2.8))
         // A realm receiving a hand-off stays lit a while after it arrives.
         const sending = t < touch.until ? 1 : 0
         touch.glow += (Math.max(sending, touch.hover * 0.8) - touch.glow) * (1 - Math.exp(-Math.max(dt, 0) / 0.3))
@@ -1007,28 +1049,45 @@ export const createRealms: StageFactory = async (gpu, output) => {
         writeSpecial(scene.touched, j, turned, touch.glow, 0, touch.open, index, touch.hover)
       }
 
-      // The doorways thrown open: light pouring out of them, as rays fanning out round the doorway.
-      const bursts: { at: [number, number]; distance: number; light: number; px: number; seed: number }[] = []
+      // The doorways thrown open: the light pouring out of each, as the eye takes it at the opening (its
+      // glare, only from in front), and hanging in the space before it (a shaft of the opening's own
+      // shape, seen from any side but behind).
+      const glares: { mid: [number, number]; corners: [number, number][]; distance: number; light: number; px: number; size: number }[] = []
+      const shafts: Beam[] = []
       for (const [index, touch] of touches) {
         if (touch.open <= 0.01) continue
         const natural = naturalPose(index, t)
         if (!natural) continue
         const pose = index < MAX_REALMS ? between(natural, presented(natural.at, view.eye, Math.hypot(...natural.z)), smooth(touch.turn)) : natural
         const door = doorCorners(pose)
+        const corners = door.map((c) => project(view, b, c))
+        if (corners.some(([, , z]) => z < 0.5)) continue
         const mid = mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25)
-        const [x, y, z] = project(view, b, mid)
-        if (z < 1) continue
-        // Only from in front of it: a doorway turned away pours its light the other way.
-        const facingEye = dot(normalize(mul(pose.y, -1)), normalize(sub3(view.eye, mid)))
-        if (facingEye <= 0) continue
-        const px = (view.focal * Math.hypot(...pose.z)) / z
-        bursts.push({ at: [x, y], distance: length3(sub3(mid, view.eye)), light: touch.open * (0.4 + 0.6 * facingEye), px, seed: index * 0.61 })
+        const size = Math.hypot(...pose.z)
+        const out = normalize(mul(pose.y, -1))
+        const toEye = sub3(view.eye, mid)
+        const distance = length3(toEye)
+        const facingEye = dot(out, mul(toEye, 1 / Math.max(distance, 1e-6)))
+        if (facingEye > 0) {
+          const [x, y, z] = project(view, b, mid)
+          glares.push({ mid: [x, y], corners: corners.map(([cx, cy]) => [cx, cy]), distance, light: touch.open * smooth(facingEye / 0.35) * GLARE, px: (view.focal * size) / z, size })
+        }
+        if (facingEye > -0.6) {
+          // The doorway's own shape, widening a little as it goes, its edges soft.
+          const reach = 3 * size
+          const half: [number, number] = [length3(sub3(door[1], door[0])) * 0.9 + reach * 0.08, length3(sub3(door[3], door[0])) * 0.9 + reach * 0.08]
+          // Seen end on it is all in front of the opening, and the glare is that light: less of it then.
+          const light = (touch.open * SHAFT * (1 - 0.5 * Math.max(facingEye, 0) ** 2)) / size
+          shafts.push({ door, mid: add(mid, mul(out, reach)), half, light, moment: index * 0.37, reach: 1, hidden: null, soft: 1 })
+        }
       }
-      bursts.sort((a, z) => z.light - a.light)
+      glares.sort((a, z) => z.light - a.light)
       for (let k = 0; k < BURSTS; k++) {
-        const burst = bursts[k]
-        comp.bursts[k * 2] = burst ? [...burst.at, burst.distance, burst.light] : [0, 0, 0, 0]
-        comp.bursts[k * 2 + 1] = burst ? [burst.px, burst.seed, 0, 0] : [0, 0, 0, 0]
+        const glare = glares[k]
+        comp.bursts[k * 2] = glare ? [...glare.mid, glare.distance, glare.light] : [0, 0, 0, 0]
+        comp.bursts[k * 2 + 1] = glare ? [glare.px, 0, glare.size, 0] : [0, 0, 0, 0]
+        doors[k * 2] = glare ? [...glare.corners[0]!, ...glare.corners[1]!] : [0, 0, 0, 0]
+        doors[k * 2 + 1] = glare ? [...glare.corners[2]!, ...glare.corners[3]!] : [0, 0, 0, 0]
       }
 
       // The hand-offs in flight: a point of light from one doorway to the other.
@@ -1085,7 +1144,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const lifted = finaleIndex < 0 ? 0 : mode === "still" ? (now.nearest >= finaleIndex ? 1 : 0) : smooth(clamp(progress - (finaleIndex - 1), 0, 1))
 
       // ---- the uniforms ----------------------------------------------------------------------------
-      const last = prev ?? { view, b, seconds: t }
+      // The last frame's camera streaks the near stars by how far it has moved; a still frame has not
+      // moved, however far the reader scrolled since the last one.
+      const last = prev && !input.still ? prev : { view, b, seconds: t }
       scene.eye = [...view.eye, view.focal]
       scene.fwd = [...b.fwd, 0.05]
       scene.right = [...b.right, RENDER_SCALE]
@@ -1105,19 +1166,19 @@ export const createRealms: StageFactory = async (gpu, output) => {
       ]
       scene.haze = [hazeStart, hazeDensity, t * SKY_TURN, 0]
       scene.flare = [...flare.at, flareLight]
-      const holeRect = input.anchors.hole
-      scene.holeBox = holeRect && holeRect[1] < height && holeRect[1] + holeRect[3] > 0 ? [holeRect[0], holeRect[1], holeRect[0] + holeRect[2], holeRect[1] + holeRect[3]] : [0, 0, 0, 0]
       prev = { view, b, seconds: t }
 
-      // The beams: those of the screens in view and the doorways thrown open, the strongest first.
+      // The beams: the light of the doorways thrown open, then those of the screens in view, the
+      // strongest first.
       beamsNow.sort((a, z) => z.reach * z.light - a.reach * a.light)
+      const beams = [...shafts.sort((a, z) => z.light - a.light), ...beamsNow]
       for (let k = 0; k < BEAMS; k++) {
-        const beam = beamsNow[k]
+        const beam = beams[k]
         if (!beam) {
           comp.beams[k * 7 + 1] = [0, 0, 1, 0]
           continue
         }
-        writeBeam(k, view, b, width, height, beam.door, beam.mid, beam.half, beam.light * smooth(beam.reach), beam.moment, beam.hidden)
+        writeBeam(k, view, b, width, height, beam.door, beam.mid, beam.half, beam.light * smooth(beam.reach), beam.moment, beam.hidden, beam.soft)
       }
 
       // The confined realm's boundary.

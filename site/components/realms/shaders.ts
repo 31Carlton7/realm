@@ -14,7 +14,7 @@ export const PAGE_REALMS = 14
 export const TOUCHED = 8
 export const CLEAR = 12
 export const PANELS = 2
-export const BEAMS = 3
+export const BEAMS = 4
 export const PULSES = 2
 export const BURSTS = 2
 /** Near stars: cells per side of the block round the camera, and a cell's edge in world units. */
@@ -37,7 +37,8 @@ export type SceneUniforms = {
   stars: number[]
   haze: number[]
   light: number[]
-  holeBox: number[]
+  /** Nothing reads it now: the black hole keeps no rect of its own in the sky. A page that still sets it is ignored. */
+  holeBox?: number[]
   flare: number[]
   touched: number[][]
   page: number[][]
@@ -64,7 +65,6 @@ struct Scene {
   stars: vec4f,     // the near stars' block: origin cell x, y, z, and how far they are drawn
   haze: vec4f,      // distance the haze into the sky starts, its density, the sky's turn (rad), unused
   light: vec4f,     // the key light: direction toward it, strength
-  holeBox: vec4f,   // the black hole's rect on the page, kept clear of realms: left, top, right, bottom
   flare: vec4f,     // a light flaring inside a nebula: where (world), how bright
   touched: array<vec4f, ${TOUCHED * 5}>,    // realms the page has a hand on (see Special)
   page: array<vec4f, ${PAGE_REALMS * 5}>,   // the page's own realms: the chapters' and the team's
@@ -200,11 +200,6 @@ fn toClip(p: vec3f) -> vec4f {
   let ndc = vec2f(sx / scene.view.x * 2.0 - 1.0, 1.0 - sy / scene.view.y * 2.0);
   return vec4f(ndc * z, scene.fwd.w, z);
 }
-
-fn inHoleBox(p: vec2f, r: f32) -> bool {
-  let b = scene.holeBox;
-  return b.z > b.x && p.x > b.x - r && p.x < b.z + r && p.y > b.y - r && p.y < b.w + r;
-}
 `
 
 /** Noise the space pass and the sky share. */
@@ -277,20 +272,17 @@ const EXPOSURE = 1.6;
 `
 
 /**
- * The deep sky, at half the page's resolution: a band of the galaxy's light across it, a few far
- * galaxies, and nebulae hanging at real distances, marched as volumes so they have depth, light from
- * the stars inside them, and dust that dims what is behind. They are near enough that the flight
- * moves past them, far enough that they move slowly; and they move on their own, the gas billowing
- * and drifting and the far sky turning, so the sky is never still unless the reader asks for stillness.
+ * The deep sky along a ray from the eye: a band of the galaxy's light across it, a few far galaxies,
+ * and nebulae hanging at real distances, marched as volumes so they have depth, light from the stars
+ * inside them, and dust that dims what is behind. They are near enough that the flight moves past
+ * them, far enough that they move slowly; and they move on their own, the gas billowing and drifting
+ * and the far sky turning, so the sky is never still unless the reader asks for stillness.
+ *
+ * Shared by the space pass, which draws it for the view, and the black hole, which looks along its own
+ * bent rays where they leave the page: one sky, wherever the light that shows it has come from.
+ * Needs `scene`, the palette and the noise.
  */
-export const spaceShader = /* wgsl */ `
-${sceneStruct}
-@group(0) @binding(0) var<uniform> scene: Scene;
-
-${fieldWgsl}
-${paletteWgsl}
-${noiseWgsl}
-
+const deepSkyWgsl = /* wgsl */ `
 // Each nebula, three vec4s: its middle (world) and radius; the axis it is drawn out along and by how
 // much; and its character: how far its light leans to cyan, how much dust it carries, its grain's
 // scale, and how fast its gas moves.
@@ -455,10 +447,8 @@ fn farSky(rd: vec3f, t: f32) -> vec3f {
   return c;
 }
 
-@fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
-  let page = uv * scene.view.xy;
-  let f = scene.eye.w;
-  let rd = normalize(scene.fwd.xyz + scene.right.xyz * ((page.x - scene.view.z) / f) - scene.up.xyz * ((page.y - scene.view.w) / f));
+// The deep sky along a ray from the eye, exposed as the scene target holds it.
+fn deepSky(rd: vec3f) -> vec3f {
   let t = scene.clock.x;
   var c = farSky(skyTurn(rd, scene.haze.z), t);
   // The nebulae, the far ones first, each over what is behind it.
@@ -466,7 +456,26 @@ fn farSky(rd: vec3f, t: f32) -> vec3f {
     let n = nebula(k, scene.eye.xyz, rd, t);
     c = c * n.w + n.rgb;
   }
-  return vec4f(vec3f(1.0) - exp(-c * EXPOSURE), 1.0);
+  return vec3f(1.0) - exp(-c * EXPOSURE);
+}
+`
+
+/** The deep sky for the view, at half the page's resolution: it is soft everywhere, and the costliest
+ *  thing on the page per pixel. */
+export const spaceShader = /* wgsl */ `
+${sceneStruct}
+@group(0) @binding(0) var<uniform> scene: Scene;
+
+${fieldWgsl}
+${paletteWgsl}
+${noiseWgsl}
+${deepSkyWgsl}
+
+@fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
+  let page = uv * scene.view.xy;
+  let f = scene.eye.w;
+  let rd = normalize(scene.fwd.xyz + scene.right.xyz * ((page.x - scene.view.z) / f) - scene.up.xyz * ((page.y - scene.view.w) / f));
+  return vec4f(deepSky(rd), 1.0);
 }
 `
 
@@ -498,6 +507,7 @@ ${holeWgsl}
 ${paletteWgsl}
 ${realmWgsl}
 ${noiseWgsl}
+${deepSkyWgsl}
 
 // The mark's tones, linear.
 const TOP_FAR = ${lin3(TONES.top[0])};
@@ -580,11 +590,10 @@ const NOTHING = vec4f(2.0, 2.0, 2.0, 1.0);
     out.clip = NOTHING;
     return out;
   }
-  // Too far, behind the camera, too small to draw as a solid (it is a point of light then, vs_glow),
-  // or over the black hole, whose sky is bent and whose realms are its own.
+  // Too far, behind the camera, or too small to draw as a solid (it is a point of light then, vs_glow).
   let c = toPage(pose.at);
   let px = scene.eye.w * pose.size / max(c.z, 1e-3);
-  if (c.z < -pose.size * 1.5 || px < 2.2 || inHoleBox(c.xy, px)) {
+  if (c.z < -pose.size * 1.5 || px < 2.2) {
     out.clip = NOTHING;
     return out;
   }
@@ -638,6 +647,9 @@ fn edgeOf(face: u32, l: vec3f) -> f32 {
   var emit = vec3f(0.0);
   var inside = 1.0;
   let k = saturate((l.z + 0.5 - Z0) / (Z1 - Z0));
+  // Thrown open, the doorway's back burns brighter, and lights the doorway's floor, jambs and lintel,
+  // most where they meet it: the whole opening is the light, not a lit card at the end of a dark slot.
+  let within = open * (0.4 + 0.6 * saturate((l.y + 0.5) / (YB + 0.5)));
   switch (face) {
     case 0u: { tone = mix(TOP_NEAR, TOP_FAR, saturate((l.x + l.y + 1.0) * 0.5)); }
     case 1u: { tone = mix(LEFT_LOW, LEFT_HIGH, saturate(l.z + 0.5)); }
@@ -648,12 +660,12 @@ fn edgeOf(face: u32, l: vec3f) -> f32 {
       // The doorway's back: the light itself when an agent is at work, brightest under the lintel.
       tone = mix(LIT_LOW, LIT_HIGH, k);
       inside = 0.12;
-      emit = tone * tint * glow * mix(1.25, 1.75, k) * (1.0 + 1.6 * open);
+      emit = tone * tint * (glow * mix(1.25, 1.75, k) + open * mix(2.0, 2.6, k));
     }
-    case 6u: { tone = TOP_NEAR; inside = 0.4; emit = tone * tint * glow * 0.6 * (1.0 + open); }
-    case 7u: { tone = RIGHT_LOW; inside = 0.25; emit = tone * tint * glow * 0.4 * (1.0 + open); }
+    case 6u: { tone = TOP_NEAR; inside = 0.4; emit = (tone * glow * 0.6 + LIT_LOW * within * 1.3) * tint; }
+    case 7u: { tone = RIGHT_LOW; inside = 0.25; emit = (tone * glow * 0.4 + LIT_LOW * within * 0.75) * tint; }
     case 10u: { tone = mix(RIGHT_LOW, LEFT_LOW, 0.5) * 0.8; }
-    default: { tone = LEFT_LOW; inside = 0.4; emit = tone * tint * glow * 0.5 * (1.0 + open); }
+    default: { tone = LEFT_LOW; inside = 0.4; emit = (tone * glow * 0.5 + LIT_LOW * within) * tint; }
   }
 
   // Lit by a far cluster of stars, and from the other side by the sky's own blue; the edge turned away
@@ -667,11 +679,28 @@ fn edgeOf(face: u32, l: vec3f) -> f32 {
   var radiance = tone * light + (NEB_CYAN * rim * 0.09 + STARLIGHT * sheen * 0.22) * inside + emit;
   // The pointer's light: the realm it is near is lit a step brighter, its edges in Realm's blue.
   radiance += tone * NEB_BLUE * hover * 0.09 * inside;
+  // Thrown open, the light pouring out lights the realm itself, and never flatly: the wall the doorway
+  // is cut in takes the light hanging in front of it, falling off away from the opening, and glows at
+  // the opening's lip; the outside's edges nearest that wall catch it as a rim. Only the doorway is lit
+  // to white.
+  let outside = face < 5u || face == 10u;
+  let front = smoothstep(0.3, -0.5, l.y) * open;
+  if (open > 0.0 && outside) {
+    let lamp = vec3f((X0 + X1) * 0.5, -0.82, DOOR_MID) - l;
+    let far = length(lamp);
+    let bounce = max(dot(Q_N[face], lamp / far), 0.0) / (1.0 + far * far * 7.0);
+    var lip = 0.0;
+    if (face == 2u) {
+      let q = abs(l.xz - vec2f((X0 + X1) * 0.5, DOOR_MID)) - vec2f((X1 - X0) * 0.5, (Z1 - Z0) * 0.5);
+      lip = exp(-length(max(q, vec2f(0.0))) / 0.035);
+    }
+    radiance += tint * (open * (tone * bounce * 1.6 + lip * 0.55) + rim * front * 0.3);
+  }
   // The cube's edges, a hairline of light where they catch it, so a realm holds its shape in the dark.
   let e = edgeOf(face, l);
   let px = fwidth(e);
-  let line = (1.0 - smoothstep(0.0, px * 1.4, e)) * select(1.0, 0.0, face >= 5u && face != 10u);
-  radiance += (STARLIGHT * 0.05 * (0.4 + lambert) + NEB_BLUE * hover * 0.12) * line;
+  let line = (1.0 - smoothstep(0.0, px * 1.4, e)) * select(0.0, 1.0, outside);
+  radiance += (STARLIGHT * 0.05 * (0.4 + lambert) + NEB_BLUE * hover * 0.12 + tint * front * 0.2) * line;
 
   var color = vec3f(1.0) - exp(-radiance);
   // Far off, a realm dims toward the dark and takes a little of the sky's colour: it recedes, and it
@@ -715,8 +744,9 @@ struct GlowOut {
     let fade = smoothstep(2.6, 2.2, px);
     radius = max(px * 0.75, 0.9);
     color = (STARLIGHT * 0.16 * scene.light.w + tint * pose.glow * 0.9) * (1.0 - haze) * min(px / 1.2, 1.0) * fade;
-  } else if (pose.glow > 0.01 || pose.open > 0.01) {
-    // A lit doorway's glow, only from in front of it.
+  } else if (pose.glow > 0.01) {
+    // A lit doorway's glow, only from in front of it. A doorway thrown open is the composite's: its
+    // glare and the shaft of light in front of it (bursts).
     let doorAt = pose.at + pose.ax * vec3f((X0 + X1) * 0.5, -0.56, DOOR_MID);
     let facingEye = dot(normalize(-pose.ax[1]), normalize(scene.eye.xyz - doorAt));
     if (facingEye <= 0.0) {
@@ -726,13 +756,9 @@ struct GlowOut {
     let dp = toPage(doorAt);
     centre = dp.xy;
     depth = dp.z;
-    radius = max(px * (0.42 + 1.2 * pose.open), 4.0);
-    color = tint * (pose.glow + 2.0 * pose.open) * (0.1 + 0.25 * facingEye) * (1.0 - haze * 0.8);
+    radius = max(px * 0.42, 4.0);
+    color = tint * pose.glow * (0.1 + 0.25 * facingEye) * (1.0 - haze * 0.8);
   } else {
-    out.clip = NOTHING;
-    return out;
-  }
-  if (inHoleBox(centre, radius)) {
     out.clip = NOTHING;
     return out;
   }
@@ -862,20 +888,35 @@ fn stars(rd: vec3f) -> vec3f {
   let f = scene.eye.w;
   let ray = normalize(scene.fwd.xyz + scene.right.xyz * ((page.x - scene.view.z) / f) - scene.up.xyz * ((page.y - scene.view.w) / f));
 
-  // The black hole at the foot of the page: in its rect the ray is bent round it, and its disk is
-  // put in front. A bent ray reads the sky where its new direction would meet the page.
-  let bent = holeTrace(page, ray);
+  // The black hole at the foot of the page bends every ray of the sky toward it, and puts its disk and
+  // its doorway's light in front. A bent ray reads the deep sky drawn for this view where its new
+  // direction meets the page; one bent off the page or behind the camera, as only light that grazed the
+  // hole can be, is looked along itself. Either way it is the page's own sky the hole bends.
+  let bent = holeTrace(ray);
   let rd = bent.dir;
   let ahead = dot(rd, scene.fwd.xyz);
-  let css = select(page, scene.view.zw + vec2f(dot(rd, scene.right.xyz), -dot(rd, scene.up.xyz)) * f / max(ahead, 1e-4), ahead > 0.05);
-  let base = select(SPACE_DEEP * EXPOSURE, backdrop(clamp(css, vec2f(0.0), scene.view.xy)), ahead > 0.05);
+  let css = scene.view.zw + vec2f(dot(rd, scene.right.xyz), -dot(rd, scene.up.xyz)) * f / max(ahead, 1e-4);
+  let past = select(1e4, max(max(-css.x, css.x - scene.view.x), max(-css.y, css.y - scene.view.y)), ahead > 0.05);
+  let onPage = 1.0 - smoothstep(0.0, 40.0, past);
+  var base = vec3f(0.0);
+  if (onPage > 0.0) { base = backdrop(clamp(css, vec2f(0.0), scene.view.xy)) * onPage; }
+  if (onPage < 1.0) { base += deepSky(rd) * (1.0 - onPage); }
 
-  // The far stars, on the turning sky; brighter over the hole, once the camera has lifted its eyes.
+  // The far stars, on the turning sky; brighter once the camera has lifted its eyes to the night. Where
+  // the hole squeezes a stretch of sky into one pixel, a star is a share of that pixel and never all of
+  // it, so the ring round the shadow is starlight rather than salt.
+  let stretch = length(fwidth(rd)) * f * scene.right.w * 0.7071;
   let far = skyTurn(rd, scene.haze.z);
-  let light = vec3f(1.0) - exp(-stars(far) * (1.0 + 0.6 * hole.ax.w));
+  let light = vec3f(1.0) - exp(-stars(far) * (1.0 + 0.6 * hole.ax.w) / max(stretch, 1.0));
 
-  let behind = (base + light * (vec3f(1.0) - base)) * bent.through;
-  let front = vec3f(1.0) - exp(-bent.light * 1.15);
+  // The shadow's edge, soft outward, and the rim of light tracing it, a thin line: drawn as wide as a
+  // pixel is where the hole squeezes them, so the line stays unbroken and the edge stays smooth.
+  let w = clamp(fwidth(bent.edge), 1.0, 4.0);
+  let through = bent.through * mix(1.0, smoothstep(0.0, 1.6 * w, bent.edge), hole.at.w);
+  let rim = exp(-bent.edge / (2.2 * w)) * smoothstep(0.0, 1.4 * w, bent.edge) * 2.6 * bent.rim;
+
+  let behind = (base + light * (vec3f(1.0) - base)) * through;
+  let front = vec3f(1.0) - exp(-(bent.light + HOLE_WHITE * rim) * 1.15);
   return vec4f(behind + front * (vec3f(1.0) - behind), 0.0);
 }
 `
@@ -891,6 +932,9 @@ export type CompositeUniforms = {
   pulses: number[][]
   fence: number[][]
   bursts: number[][]
+  /** The opening of each doorway thrown open, as its four corners on the page; without them a burst's
+   *  opening is drawn upright, in the mark's proportions, round its middle. */
+  doors?: number[][]
 }
 
 /**
@@ -914,7 +958,8 @@ struct Comp {
   beams: array<vec4f, ${BEAMS * 7}>,     // per beam (see beam())
   pulses: array<vec4f, ${PULSES * 5}>,   // per hand-off: five points along its trail, head first: page x, y, depth, light
   fence: array<vec4f, 10>,               // a confined realm's boundary: its eight corners on the page (x, y, depth), how drawn, its rect
-  bursts: array<vec4f, ${BURSTS * 2}>,   // per doorway thrown open: its middle on the page, its distance, light; its size (px), a seed
+  bursts: array<vec4f, ${BURSTS * 2}>,   // per doorway thrown open: its middle on the page, its distance, light; its realm's size (px), unused, its edge (world)
+  doors: array<vec4f, ${BURSTS * 2}>,    // and its opening's four corners on the page, two to a vec4 (see glare())
 }
 @group(0) @binding(0) var<uniform> comp: Comp;
 @group(0) @binding(1) var sceneTex: texture_2d<f32>;
@@ -932,6 +977,13 @@ fn toSrgb(c: vec3f) -> vec3f {
 
 fn toLinear(c: vec3f) -> vec3f {
   return select(pow((c + 0.055) / 1.055, vec3f(2.4)), c / 12.92, c <= vec3f(0.04045));
+}
+
+// The scene's glows are added over what is already exposed and can carry it past white. Past 0.9 it
+// rolls off toward white rather than stopping there, so a lit face under a glow stays a lit face.
+fn shoulder(c: vec3f) -> vec3f {
+  let over = max(c - vec3f(0.9), vec3f(0.0));
+  return min(c, vec3f(0.9)) + 0.1 * (vec3f(1.0) - exp(-over * 10.0));
 }
 
 // How much of the field shows at p, given the words over it. Words on a pane (FieldPanel) dim it
@@ -966,11 +1018,12 @@ fn rayAt(p: vec2f) -> vec3f {
 }
 
 // A beam of light leaving a doorway: a frustum from the doorway's rect to a far rect (a chapter's
-// screen, or the doorway's own light thrown out ahead of it), marched where the ray passes through it
-// and stopped at whatever the scene shows nearer. Six vec4s:
+// screen, or the doorway's own light pouring out in front of it when it is thrown open), marched where
+// the ray passes through it and stopped at whatever the scene shows nearer. Seven vec4s:
 //   origin xyz, length; axis xyz, light; across xyz, half width at the door; up xyz, half height at the door;
-//   half width and height at the far end, unused, its moment; its rect on the page; and the rect of the
-//   screen it lands on, where the picture hides it (left, top, right, bottom).
+//   half width and height at the far end, soft (1: light pouring out, 0: a projector's beam), its moment;
+//   its rect on the page; and the rect of the screen it lands on, where the picture hides it (left, top,
+//   right, bottom).
 fn beam(k: i32, p: vec2f, rd: vec3f, far: f32, t: f32) -> vec3f {
   let o = comp.beams[k * 7];
   let a = comp.beams[k * 7 + 1];
@@ -1017,12 +1070,21 @@ fn beam(k: i32, p: vec2f, rd: vec3f, far: f32, t: f32) -> vec3f {
     let hv = v.w + kv * q.z;
     let cu = abs(q.x) / max(hu, 1e-3);
     let cv = abs(q.y) / max(hv, 1e-3);
-    // Soft across, with its four edges a little brighter, as a projector's beam shows them in dust.
-    let walls = (1.0 - pow(cu, 6.0)) * (1.0 - pow(cv, 6.0)) + 1.4 * pow(max(cu, cv), 14.0) * step(max(cu, cv), 1.0);
     let spread = (u.w * v.w) / max(hu * hv, 1e-4);
-    let motes = 0.8 + 0.45 * smoothstep(0.5, 1.0, noise(vec2f(q.z * 1.1 - t * 1.2, atan2(q.y / hv, q.x / hu) * 1.6 + e.w * 13.0)));
-    let near = 1.0 - smoothstep(0.75, 1.0, along);
-    sum += max(walls, 0.0) * pow(spread, 0.75) * motes * near * dt;
+    if (e.z > 0.5) {
+      // Light pouring out of a doorway: soft across, with no edge to it, densest at the opening and
+      // thinning as it spreads and goes, and a few faint rays in it, each running straight out from
+      // the opening.
+      let across = max(1.0 - cu * cu, 0.0) * max(1.0 - cv * cv, 0.0);
+      let rays = 0.6 + 0.8 * smoothstep(0.25, 0.85, noise(vec2f(q.x / hu * 1.6 + e.w * 7.0, q.y / hv * 0.8 - e.w * 3.0)));
+      sum += across * across * pow(spread, 0.6) * rays * exp(-along * 1.8) * (1.0 - smoothstep(0.55, 1.0, along)) * dt;
+    } else {
+      // Soft across, with its four edges a little brighter, as a projector's beam shows them in dust.
+      let walls = (1.0 - pow(cu, 6.0)) * (1.0 - pow(cv, 6.0)) + 1.4 * pow(max(cu, cv), 14.0) * step(max(cu, cv), 1.0);
+      let motes = 0.8 + 0.45 * smoothstep(0.5, 1.0, noise(vec2f(q.z * 1.1 - t * 1.2, atan2(q.y / hv, q.x / hu) * 1.6 + e.w * 13.0)));
+      let near = 1.0 - smoothstep(0.75, 1.0, along);
+      sum += max(walls, 0.0) * pow(spread, 0.75) * motes * near * dt;
+    }
   }
   return mix(DOOR_LIGHT_C, vec3f(0.62, 0.8, 1.0), 0.35) * sum * a.w;
 }
@@ -1058,22 +1120,64 @@ fn pulse(k: i32, p: vec2f, depthHere: f32) -> vec3f {
   return light;
 }
 
-// A doorway thrown open: light pouring out of it, a bright bloom at the doorway and rays fanning out
-// from it, turning slowly, behind anything that stands nearer than the doorway.
-fn burst(k: i32, p: vec2f, depthHere: f32, t: f32) -> vec3f {
+// How far p is from a four-sided shape on the page, in px: negative inside it.
+fn sdQuad(p: vec2f, a: vec2f, b: vec2f, c: vec2f, d: vec2f) -> f32 {
+  var v = array<vec2f, 4>(a, b, c, d);
+  var far = dot(p - a, p - a);
+  var side = 1.0;
+  for (var i = 0; i < 4; i++) {
+    let vi = v[i];
+    let vj = v[(i + 3) % 4];
+    let e = vj - vi;
+    let w = p - vi;
+    let gap = w - e * saturate(dot(w, e) / max(dot(e, e), 1e-6));
+    far = min(far, dot(gap, gap));
+    let up = p.y >= vi.y;
+    let down = p.y < vj.y;
+    let turn = e.x * w.y > e.y * w.x;
+    if ((up && down && turn) || (!up && !down && !turn)) { side = -side; }
+  }
+  return side * sqrt(far);
+}
+
+// A doorway thrown open, as the eye takes its light: spread round the opening as a lens spreads any
+// small bright source, hugging the opening's own shape and falling off steeply, and a faint wide veil
+// past that. Only as much of it as is in sight: the scene's depth at five points of the opening says
+// whether something nearer hides it.
+fn glare(k: i32, p: vec2f) -> vec3f {
   let a = comp.bursts[k * 2];
-  let b = comp.bursts[k * 2 + 1];
   if (a.w <= 0.0) { return vec3f(0.0); }
-  // Something nearer than the doorway's own realm stands in front of the light.
-  if (depthHere > 1.0 / max(a.z - 0.8, 0.5)) { return vec3f(0.0); }
-  let d = p - a.xy;
-  let r = length(d) / max(b.x, 8.0);
-  if (r > 6.0) { return vec3f(0.0); }
-  let angle = atan2(d.y, d.x);
-  let spokes = noise(vec2f(angle * 5.0 + b.y * 7.0, t * 0.35 + b.y)) * 0.6 + noise(vec2f(angle * 13.0 - b.y, t * 0.6)) * 0.4;
-  let rays = pow(smoothstep(0.35, 0.9, spokes), 2.0) * exp(-r * 0.75) * smoothstep(0.15, 0.6, r) * smoothstep(6.0, 3.5, r);
-  let bloom = exp(-r * r * 2.4) * 0.9 + exp(-r * 1.3) * 0.22;
-  return vec3f(0.82, 0.9, 1.0) * a.w * (bloom + rays * 0.55);
+  let b = comp.bursts[k * 2 + 1];
+  var c0 = comp.doors[k * 2];
+  var c1 = comp.doors[k * 2 + 1];
+  if (all(c0 == vec4f(0.0)) && all(c1 == vec4f(0.0))) {
+    // Given only the doorway's middle and its realm's size: an upright opening of the mark's proportions.
+    let h = vec2f(0.19, 0.385) * b.x;
+    c0 = vec4f(a.xy + vec2f(-h.x, h.y), a.xy + h);
+    c1 = vec4f(a.xy + vec2f(h.x, -h.y), a.xy - h);
+  }
+  // How far its light reaches: the veil is faded out well before that, so it ends nowhere.
+  let reach = distance(c1.xy, c0.xy) + 240.0;
+  let r = distance(p, a.xy);
+  if (r > reach) { return vec3f(0.0); }
+  let nearest = 1.0 / max(a.z - select(0.8, 0.3 * b.z, b.z > 0.0), 0.05);
+  var seen = 0.0;
+  for (var i = 0; i < 5; i++) {
+    var at = a.xy;
+    if (i == 1) { at = mix(a.xy, c0.xy, 0.6); }
+    if (i == 2) { at = mix(a.xy, c0.zw, 0.6); }
+    if (i == 3) { at = mix(a.xy, c1.xy, 0.6); }
+    if (i == 4) { at = mix(a.xy, c1.zw, 0.6); }
+    let depth = textureSampleLevel(sceneTex, sceneSampler, saturate(at / comp.view.xy), 0.0).a;
+    seen += select(0.2, 0.0, depth > nearest);
+  }
+  // The spread is the eye's, not the doorway's: the same few px of halo and the same veil round any
+  // opening, so a large doorway's light stays at its edge rather than lying over its walls.
+  let out = max(sdQuad(p, c0.xy, c0.zw, c1.xy, c1.zw), 0.0);
+  let core = exp(-out / 5.0);
+  let x = out / 36.0;
+  let veil = 0.1 / pow(1.0 + x * x, 1.25) * (1.0 - smoothstep(reach * 0.5, reach, r));
+  return (vec3f(0.85, 0.92, 1.0) * core * 0.9 + vec3f(0.58, 0.76, 1.0) * veil) * a.w * seen;
 }
 
 // The boundary round a confined realm: the twelve edges of a box of light, a hairline wide.
@@ -1108,9 +1212,7 @@ fn fence(p: vec2f, depthHere: f32, dpr: f32) -> vec3f {
   let t = comp.view.w;
   let page = toLinear(PAGE);
   let scene = textureSampleLevel(sceneTex, sceneSampler, uv, 0.0);
-  // The glows are added into the scene and can carry it past white; held there, so the light laid over
-  // it below brightens and never turns a channel back down.
-  let field = min(scene.rgb, vec3f(1.0));
+  let field = shoulder(scene.rgb);
   let clear = clearance(p, dpr);
   var color = mix(SPACE_DEEP, field, clear);
 
@@ -1125,11 +1227,15 @@ fn fence(p: vec2f, depthHere: f32, dpr: f32) -> vec3f {
   for (var k = 0; k < ${PULSES}; k++) {
     light += pulse(k, p, depthHere);
   }
-  for (var k = 0; k < ${BURSTS}; k++) {
-    light += burst(k, p, depthHere, t);
-  }
   light += fence(p, depthHere, dpr);
   color += light * clear * (vec3f(1.0) - color);
+  // A doorway thrown open is the brightest light on the page: its glare is exposed with what it falls
+  // on, so it brightens it toward white and never clips it there.
+  var glow = vec3f(0.0);
+  for (var k = 0; k < ${BURSTS}; k++) {
+    glow += glare(k, p);
+  }
+  color += (vec3f(1.0) - exp(-glow)) * clear * (vec3f(1.0) - color);
 
   // A plate on its way in or out of the flight is part-transparent: under it the field goes to the
   // deep sky's dark, so no star, realm or lit doorway is seen through a picture still arriving.
