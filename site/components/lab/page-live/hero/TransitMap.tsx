@@ -650,7 +650,7 @@ function MapDrawing({
               onBlur={() => store.hover(null)}
               aria-label={`${st.label}, in ${SPACES.find((s) => s.id === space)!.name}: ${st.id === "weekly" ? "scheduled every Monday at 9:00 AM" : STATE_WORD[status]}. Open it in the sample.`}
               style={{ left: st.at[0], top: st.at[1] }}
-              className={`pointer-events-auto absolute grid size-[26px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full transition-colors duration-200 focus-visible:outline-offset-1 ${lit ? "text-ink" : "text-ink-2"}`}
+              className={`pointer-events-auto absolute grid size-[26px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full transition-colors duration-200 focus-visible:outline-offset-[5px] ${lit ? "text-ink" : "text-ink-2"}`}
             >
               <span className={`transition-opacity duration-300 ${away ? "opacity-0" : "opacity-100"}`}>
                 <AgentMark id={st.agent} className="size-3" />

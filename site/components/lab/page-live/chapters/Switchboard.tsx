@@ -138,7 +138,7 @@ export function Switchboard() {
                     {h === "acp" ? (
                       <span>
                         Agent Client Protocol
-                        <span className="mt-1.5 block text-[12px] text-ink-3">one adapter, seven agents</span>
+                        <span className="mt-1.5 block text-[12px] text-ink-2">one adapter, seven agents</span>
                       </span>
                     ) : (
                       HARNESS[h].short
@@ -166,15 +166,15 @@ export function Switchboard() {
               </div>
             </div>
             <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[12.5px] leading-[1.45]">
-              <dt className="text-ink-3">Through</dt>
-              <dd className="text-ink-2">{harness.name}</dd>
-              <dt className="text-ink-3">Signs in</dt>
-              <dd className="text-ink-2">with its own login</dd>
-              <dt className="text-ink-3">Models</dt>
-              <dd className="text-ink-2">its own, in one picker</dd>
-              <dt className="text-ink-3">Modes</dt>
-              <dd className="text-ink-2">its own permission modes</dd>
-              <dt className="text-ink-3">API key</dt>
+              <dt className="text-ink-2">Through</dt>
+              <dd className="text-ink">{harness.name}</dd>
+              <dt className="text-ink-2">Signs in</dt>
+              <dd className="text-ink">with its own login</dd>
+              <dt className="text-ink-2">Models</dt>
+              <dd className="text-ink">its own, in one picker</dd>
+              <dt className="text-ink-2">Modes</dt>
+              <dd className="text-ink">its own permission modes</dd>
+              <dt className="text-ink-2">API key</dt>
               <dd className="text-ink">none, ever</dd>
             </dl>
             <p className="mt-3 text-[12.5px] leading-[1.5] text-ink-2">{harness.install}</p>

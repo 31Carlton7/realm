@@ -92,13 +92,15 @@ export function Hero({ download }: { download: MacDownload }) {
               <Legend settled={settled} waiting={waiting} onReplay={replay} />
             </div>
           </div>
+          {/* The map comes before the window in the reading and tab order, as it does on the page:
+              its stations open their sessions in the window. */}
+          <TransitMap store={store} plateRef={plateRef} windowRef={windowRef} />
           <div
             ref={windowRef}
             className="app-corner relative h-[620px] w-full overflow-hidden rounded-[20px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.1)] lg:h-[640px]"
           >
             <Sample store={store} />
           </div>
-          <TransitMap store={store} plateRef={plateRef} windowRef={windowRef} />
         </div>
         <div className="mt-4 px-2 lg:hidden">
           <Legend settled={settled} waiting={waiting} onReplay={replay} />

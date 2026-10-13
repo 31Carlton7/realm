@@ -164,7 +164,7 @@ export function Orbit() {
           })}
           <span aria-live="polite" className="absolute top-full left-1/2 mt-6 flex -translate-x-1/2 items-center gap-3 font-mono text-[12px] whitespace-nowrap text-ink-2">
             {stamp(hours)}
-            <span className={`flex items-center gap-1.5 font-sans text-[12.5px] ${closed ? "text-ink-3" : "text-ink-2"}`}>
+            <span className="flex items-center gap-1.5 font-sans text-[12.5px] text-ink-2">
               <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${closed ? "bg-ink-3/60" : "bg-green"}`} />
               {closed ? "Window closed" : "Window open"}
             </span>
@@ -180,7 +180,7 @@ export function Orbit() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="text-ink">{t.name}</span>
-                  <span className="block text-[12px] text-ink-3">
+                  <span className="block text-[12px] text-ink-2">
                     {t.when} · {t.model}
                   </span>
                 </span>
@@ -200,7 +200,7 @@ export function Orbit() {
                   <span className="shrink-0 font-mono text-[11.5px] text-ink-3">{stamp(h)}</span>
                 </li>
               ))}
-              {!runs.length ? <li className="px-2 py-1.5 text-[12.5px] text-ink-3">Nothing has run yet this week.</li> : null}
+              {!runs.length ? <li className="px-2 py-1.5 text-[12.5px] text-ink-2">Nothing has run yet this week.</li> : null}
             </ul>
             <p className="mt-3 text-[12.5px] leading-[1.5] text-ink-2">
               {closed ? "The window is closed, and the runs still happen: realm-server keeps going without it." : "Every run is a real session you can open, read and pick up from."}

@@ -219,7 +219,7 @@ export function Gateway() {
                     <span className="text-ink-2">{lane.glyph}</span>
                     {lane.name}
                   </span>
-                  <span className="text-[12px] text-ink-3">{lane.sub}</span>
+                  <span className="text-[12px] text-ink-2">{lane.sub}</span>
                 </div>
               </div>
             ))}
@@ -266,7 +266,7 @@ export function Gateway() {
 
       {scenario.id === "linear" ? (
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="font-mono text-[12px] text-ink-3">
+          <p className="font-mono text-[12px] text-ink-2">
             Realm&rsquo;s log · {log} {log === 1 ? "call" : "calls"} · each with its arguments and what came back
           </p>
           <button

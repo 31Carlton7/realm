@@ -107,7 +107,7 @@ export function Boundary() {
             className="app-corner flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-[13px] text-ink-2 transition-colors duration-150 hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink"
           >
             {p.name}
-            {p.note ? <span className="text-[12px] text-ink-3">· {p.note}</span> : null}
+            {p.note ? <span className="text-[12px] text-ink-2">· {p.note}</span> : null}
           </button>
         ))}
       </div>
@@ -176,7 +176,7 @@ export function Boundary() {
       </div>
 
       <div className="mt-7">
-        <p className="mb-2.5 text-[12.5px] text-ink-3">Try</p>
+        <p className="mb-2.5 text-[12.5px] text-ink-2">Try</p>
         <div className="flex flex-wrap gap-1.5">
           {TRIES.map((t) => (
             <button
