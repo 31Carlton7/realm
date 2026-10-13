@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS } from "@realm/contracts";
 import { describe, expect, it } from "vitest";
-import { computerAccessRows, computerGrantExplanation, isComputerAccessId } from "./computer-access";
+import {
+  ComputerAccess, computerAccessRows, computerGrantExplanation, isComputerAccessId, isResettableBundleId, isStaleGrant, nextGrantHistory, settingsPlace,
+  type ComputerAccessDeps, type ComputerGrantHistory, type ComputerGrantState,
+} from "./computer-access";
 
 const rows = (grants: { accessibility: boolean; screenRecording: boolean }, helperAvailable = true) =>
   Object.fromEntries(computerAccessRows(grants, { helperAvailable }).map((r) => [r.id, r]));
@@ -69,6 +72,174 @@ describe("computerGrantExplanation", () => {
     // Nothing to explain where there is nothing to ask for.
     expect(rows({ accessibility: true, screenRecording: true }).accessibility!.askExplanation).toBeNull();
     expect(rows({ accessibility: false, screenRecording: false }, false).screenRecording!.askExplanation).toBeNull();
+  });
+});
+
+describe("where the switch is", () => {
+  it("names the pane as this macOS labels it — Device Control and Data Access from macOS 27", () => {
+    expect(settingsPlace("accessibility", 27)).toBe("Privacy & Security ▸ Device Control and Data Access");
+    expect(settingsPlace("accessibility", 15)).toBe("Privacy & Security ▸ Accessibility");
+    expect(settingsPlace("screenRecording", 15)).toBe("Privacy & Security ▸ Screen & System Audio Recording");
+    expect(settingsPlace("screenRecording", 14)).toBe("Privacy & Security ▸ Screen Recording");
+  });
+
+  it("rides into the Allow button's explanation", () => {
+    const r = Object.fromEntries(computerAccessRows({ accessibility: false, screenRecording: false }, { helperAvailable: true, macosMajor: 27 }).map((x) => [x.id, x]));
+    expect(r.accessibility!.askExplanation).toContain("Device Control and Data Access");
+    expect(r.accessibility!.settingsPlace).toContain("Device Control and Data Access");
+  });
+});
+
+describe("a grant that outlived its build", () => {
+  const none = { accessibility: false, screenRecording: false };
+
+  it("is stale only when refused under a DIFFERENT build than the one that held it", () => {
+    const history: ComputerGrantHistory = { accessibility: { build: "2.1.0+1" } };
+    expect(isStaleGrant("accessibility", false, history, "2.1.1+2")).toBe(true);
+    // Same build: switched off on purpose, not stale.
+    expect(isStaleGrant("accessibility", false, history, "2.1.0+1")).toBe(false);
+    // Held: nothing to repair.
+    expect(isStaleGrant("accessibility", true, history, "2.1.1+2")).toBe(false);
+    // Never seen held: an ordinary refusal.
+    expect(isStaleGrant("screenRecording", false, history, "2.1.1+2")).toBe(false);
+  });
+
+  it("records the build that holds a grant, keeps a stale record, and forgets a deliberate refusal", () => {
+    let h = nextGrantHistory({}, { accessibility: true, screenRecording: false }, "A");
+    expect(h).toEqual({ accessibility: { build: "A" } });
+    // An update to build B that macOS refuses keeps the record: that IS the stale grant.
+    h = nextGrantHistory(h, none, "B");
+    expect(h).toEqual({ accessibility: { build: "A" } });
+    // Back on build A and refused: the user switched it off. Forget it, or the next update calls it stale.
+    expect(nextGrantHistory({ accessibility: { build: "A" } }, none, "A")).toEqual({});
+  });
+
+  it("leads with Repair and says what happened", () => {
+    const [a11y] = computerAccessRows(none, { helperAvailable: true, history: { accessibility: { build: "A" } }, build: "B", canReset: true });
+    expect(a11y).toMatchObject({ stale: true, canRepair: true, state: "denied" });
+    expect(a11y!.detail).toMatch(/stopped honouring/);
+    expect(a11y!.repairExplanation).toMatch(/tccutil reset/);
+  });
+
+  it("offers Repair on any refusal it can reset, and never on a grant that works", () => {
+    const rows = computerAccessRows({ accessibility: false, screenRecording: true }, { helperAvailable: true, canReset: true });
+    expect(rows.find((r) => r.id === "accessibility")!.canRepair).toBe(true);
+    expect(rows.find((r) => r.id === "screenRecording")!.canRepair).toBe(false);
+    // No bundle id to reset: nothing offered.
+    expect(computerAccessRows(none, { helperAvailable: true, canReset: false }).every((r) => !r.canRepair)).toBe(true);
+  });
+
+  it("hands tccutil only a reverse-DNS bundle id", () => {
+    expect(isResettableBundleId("co.charmtechnologies.realm")).toBe(true);
+    expect(isResettableBundleId("com.github.Electron")).toBe(true);
+    for (const bad of [null, "", "realm", "co.realm; rm -rf ~", "-all", "co..realm", "All"]) expect(isResettableBundleId(bad as string | null), String(bad)).toBe(false);
+  });
+});
+
+/**
+ * The controller against a scripted helper bridge: `probe` answers from a script of grant states, as a
+ * fresh helper would, and every other leg is recorded. The TCC grant itself cannot be flipped from a
+ * test, so the script stands in for the user flipping the switch.
+ */
+function scripted(grants: ComputerGrantState[], over: Partial<ComputerAccessDeps> = {}) {
+  const calls: string[] = [];
+  let history: ComputerGrantHistory = {};
+  let i = 0;
+  const deps: ComputerAccessDeps = {
+    helperAvailable: () => true,
+    probe: async () => { calls.push("probe"); return grants[Math.min(i++, grants.length - 1)]!; },
+    request: async (id) => { calls.push(`request:${id}`); },
+    reset: async (service, bundleId) => { calls.push(`reset:${service}:${bundleId}`); },
+    openSettings: (id) => { calls.push(`open:${id}`); },
+    restartHelper: () => { calls.push("restart"); },
+    loadHistory: () => history,
+    saveHistory: (h) => { history = h; calls.push(`save:${JSON.stringify(h)}`); },
+    build: "B",
+    bundleId: () => "co.charmtechnologies.realm",
+    macosMajor: 27,
+    hostName: "Realm",
+    packaged: true,
+    signed: true,
+    ...over,
+  };
+  return { access: new ComputerAccess(deps), calls, history: () => history, setHistory: (h: ComputerGrantHistory) => { history = h; } };
+}
+
+const NONE: ComputerGrantState = { accessibility: false, screenRecording: false };
+const A11Y: ComputerGrantState = { accessibility: true, screenRecording: false };
+
+describe("ComputerAccess — the section's loop", () => {
+  it("Allow asks macOS and opens the pane in one click, and claims nothing it did not see", async () => {
+    const { access, calls } = scripted([NONE]);
+    const status = await access.allow("accessibility");
+    expect(calls.filter((c) => !c.startsWith("probe") && !c.startsWith("save"))).toEqual(["request:accessibility", "open:accessibility"]);
+    expect(status.rows.find((r) => r.id === "accessibility")!.state).toBe("denied");
+  });
+
+  it("Allow on a grant already held does nothing", async () => {
+    const { access, calls } = scripted([A11Y]);
+    await access.allow("accessibility");
+    expect(calls.some((c) => c.startsWith("request") || c.startsWith("open"))).toBe(false);
+  });
+
+  it("drops the cached helper when the answer moves, so the next op reads the grant afresh", async () => {
+    const { access, calls } = scripted([NONE, NONE, A11Y, A11Y]);
+    await access.status();
+    await access.status();
+    expect(calls).not.toContain("restart");
+    const flipped = await access.status();
+    expect(flipped.rows.find((r) => r.id === "accessibility")!.state).toBe("granted");
+    expect(calls.filter((c) => c === "restart")).toHaveLength(1);
+    await access.status();
+    expect(calls.filter((c) => c === "restart")).toHaveLength(1);
+  });
+
+  it("shares one probe between callers that ask at once", async () => {
+    const { access, calls } = scripted([NONE]);
+    await Promise.all([access.status(), access.status(), access.status()]);
+    expect(calls.filter((c) => c === "probe")).toHaveLength(1);
+  });
+
+  it("remembers the build that held a grant, and calls it stale after an update macOS refuses", async () => {
+    const first = scripted([A11Y], { build: "A" });
+    await first.access.status();
+    expect(first.history()).toEqual({ accessibility: { build: "A" } });
+
+    const updated = scripted([NONE], { build: "B" });
+    updated.setHistory(first.history());
+    const row = (await updated.access.status()).rows.find((r) => r.id === "accessibility")!;
+    expect(row.stale).toBe(true);
+  });
+
+  it("Repair resets ONE service for Realm's bundle id, restarts the helper, forgets the stale record, asks and opens", async () => {
+    const { access, calls, setHistory, history } = scripted([NONE]);
+    setHistory({ accessibility: { build: "A" } });
+    await access.repair("accessibility");
+    const legs = calls.filter((c) => !c.startsWith("probe") && !c.startsWith("save"));
+    expect(legs).toEqual(["reset:Accessibility:co.charmtechnologies.realm", "restart", "request:accessibility", "open:accessibility"]);
+    expect(history()).toEqual({});
+  });
+
+  it("names Screen Recording's service as tccutil does", async () => {
+    const { access, calls } = scripted([NONE]);
+    await access.repair("screenRecording");
+    expect(calls).toContain("reset:ScreenCapture:co.charmtechnologies.realm");
+  });
+
+  it("refuses to reset a grant that works — it would only take away something that was fine", async () => {
+    const { access, calls } = scripted([A11Y]);
+    await access.repair("accessibility");
+    expect(calls.some((c) => c.startsWith("reset"))).toBe(false);
+  });
+
+  it("refuses to reset without a bundle id it can trust", async () => {
+    const { access, calls } = scripted([NONE], { bundleId: () => null });
+    await access.repair("accessibility");
+    expect(calls.some((c) => c.startsWith("reset"))).toBe(false);
+  });
+
+  it("reports whether this build is signed, which is what decides if a grant survives the next update", async () => {
+    expect((await scripted([NONE], { signed: false }).access.status()).signed).toBe(false);
   });
 });
 

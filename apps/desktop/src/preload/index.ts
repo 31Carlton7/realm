@@ -222,6 +222,7 @@ contextBridge.exposeInMainWorld("realm", {
   computerAccess: {
     status: (): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:status"),
     request: (id: string): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:request", id),
+    repair: (id: string): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:repair", id),
     openSettings: (id: string): Promise<void> => ipcRenderer.invoke("computer:open-settings", id),
   },
   /** Settings→App "Updates" row (Plan 15 W1). The gate lives in main (updater.ts): `check` on a

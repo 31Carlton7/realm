@@ -539,6 +539,8 @@ export type Api = TeamApi & LabApi & {
   /** Raise ONE grant's macOS prompt, then re-read. Like `macAccessGrant` this may sit pending while
    *  the dialog is up. Takes a ROW id; main owns what is asked. */
   computerAccessRequest(id: string): Promise<ComputerAccessStatus>;
+  /** Clear Realm's stale entry for ONE grant (tccutil reset in main), ask again, open its pane. */
+  computerAccessRepair(id: string): Promise<ComputerAccessStatus>;
   computerAccessOpenSettings(id: string): Promise<void>;
   /** The Updates row's state (Plan 15 W1) — main-process IPC. The gate lives in main (updater.ts):
    *  a gated build answers `disabled` with its reason, and `checkUpdates` on such a build returns
@@ -801,6 +803,9 @@ export type SubmitKey = "enter" | "cmdEnter";
 export type FilesView = "list" | "grid";
 
 export const PERSIST_DEBOUNCE_MS = 300;
+/** How often a row sent to System Settings re-reads its grant, and for how long. */
+export const COMPUTER_ACCESS_POLL_MS = 2_000;
+export const COMPUTER_ACCESS_WATCH_MS = 180_000;
 /** Where a pane a person opened goes when no pane was named: in place (false), beside the focused
  *  pane (true), or into the side pane of the session whose bar asked for it. */
 export type Beside = boolean | { sessionId: string };
@@ -1428,6 +1433,9 @@ export type AppState = TeamSlice & LabSlice & {
   /** The row whose macOS dialog is up right now, or null — the same one-dialog-at-a-time interlock
    *  the mac rows need, for the same reason. */
   computerRequesting: string | null;
+  /** The row sent to System Settings and not yet switched on: the page polls while it is set, so the
+   *  row turns to Granted by itself when the user comes back. */
+  computerAwaiting: string | null;
   /** The ids a "Grant all" run still has to reach, so the page can say "3 of 11" honestly rather
    *  than showing an unattributed spinner. Empty when no run is in flight. */
   macGrantQueue: string[];
@@ -2746,9 +2754,12 @@ export type AppState = TeamSlice & LabSlice & {
   openMacAccessPane(id: string): Promise<void>;
   revealRealmApp(): Promise<void>;
   refreshComputerAccess(): Promise<void>;
-  /** Raise ONE computer-control grant's macOS prompt. A no-op while another prompt is up, and on any
-   *  row that cannot be prompted. */
+  /** Raise ONE computer-control grant's macOS prompt and open the pane its switch is in, then watch
+   *  for the switch. A no-op while another prompt is up, and on a row already granted. */
   requestComputerAccess(id: string): Promise<void>;
+  /** Repair ONE grant macOS no longer honours (tccutil reset, ask again), then watch for the switch.
+   *  A no-op while another prompt is up, and on any row that does not offer it. */
+  repairComputerAccess(id: string): Promise<void>;
   openComputerAccessPane(id: string): Promise<void>;
   /** Fetch the Updates row's current state from main's gated updater into `updateStatus`. */
   refreshUpdateStatus(): Promise<void>;
@@ -3238,6 +3249,30 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     const nextItemsSeq = (sid: string): number => { const n = (itemsFetchSeq.get(sid) ?? 0) + 1; itemsFetchSeq.set(sid, n); return n; };
     /** Bumped by every profile switch, so a response for the profile being left can never land. */
     let profileEpoch = 0;
+    /** Bumped by every new watch, so only the newest one polls. */
+    let computerWatch = 0;
+    /**
+     * After Allow or Repair the switch is flipped in System Settings, out of Realm's sight, so the row
+     * re-reads until it shows the grant — every couple of seconds for a few minutes, which is how long
+     * someone spends finding a row in System Settings. A focused window re-reads too (the page listens),
+     * so the row is right the moment they come back even after the watch has given up.
+     */
+    const watchComputerAccess = async (id: string): Promise<void> => {
+      const mine = ++computerWatch;
+      set({ computerAwaiting: id });
+      const until = Date.now() + COMPUTER_ACCESS_WATCH_MS;
+      try {
+        while (mine === computerWatch && Date.now() < until) {
+          await new Promise((r) => setTimeout(r, COMPUTER_ACCESS_POLL_MS));
+          if (mine !== computerWatch) return;
+          const status = await api.computerAccessStatus();
+          if (mine !== computerWatch) return;
+          set({ computerAccess: status });
+          if (status.rows.find((r) => r.id === id)?.state === "granted") break;
+        }
+      } catch { /* a failed read ends the watch; focus still re-reads */ }
+      if (mine === computerWatch) set({ computerAwaiting: null });
+    };
     /** A repo the server answered with, where its rows read it: a profile's under the profile, a
      *  space's in that space's list, in front of the profile repo it sits beside. */
     const putRepo = (r: MemoryRepoState): void => {
@@ -4319,7 +4354,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
       spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
@@ -7610,10 +7645,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async requestComputerAccess(id) {
         // Same interlock as the mac rows: macOS shows one consent dialog at a time.
         if (get().computerRequesting !== null) return;
-        if (!get().computerAccess?.rows.find((r) => r.id === id)?.canPrompt) return;
+        const row = get().computerAccess?.rows.find((r) => r.id === id);
+        if (!row || row.state === "granted") return;
         set({ computerRequesting: id });
         try { set({ computerAccess: await api.computerAccessRequest(id) }); }
         finally { set({ computerRequesting: null }); }
+        void watchComputerAccess(id);
+      },
+      async repairComputerAccess(id) {
+        if (get().computerRequesting !== null) return;
+        if (!get().computerAccess?.rows.find((r) => r.id === id)?.canRepair) return;
+        set({ computerRequesting: id });
+        try { set({ computerAccess: await api.computerAccessRepair(id) }); }
+        finally { set({ computerRequesting: null }); }
+        void watchComputerAccess(id);
       },
       async openComputerAccessPane(id) { await api.computerAccessOpenSettings(id); },
       async refreshUpdateStatus() { set({ updateStatus: await api.updateStatus() }); },

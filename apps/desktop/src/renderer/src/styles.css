@@ -5385,6 +5385,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-attach-note { display: flex; align-items: baseline; margin: 6px 0 0; padding: 0 12px; font-size: 11px; line-height: 1.45; color: var(--rl-text-faint); }
 .composer-attach-note[data-disposition="ignored"] { color: var(--rl-warning); }
 .composer-attach-note .attach-note-glyph { flex: none; align-self: center; margin-right: 5px; }
+/* The one click that fixes what the note reports — Allow (or Repair) for Accessibility. It keeps the
+   note's line: a quiet button whose label is the next step, after the sentence that says why. */
+.composer-attach-note .composer-mention-allow { flex: none; align-self: center; margin-left: 8px; white-space: nowrap; }
 .composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 11px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
