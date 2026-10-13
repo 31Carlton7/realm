@@ -299,7 +299,7 @@ export function Film({ download, claims }: { download: MacDownload; claims: Prov
       // What the frame shows: the sample, or a capture laid over it, crossfading as the camera moves.
       const k = place.phase === "move" || place.phase === "hold" ? place.k : place.phase === "intro" ? -1 : K
       const fade = place.phase === "move" ? ramp(0.12, 0.62, place.t) : place.phase === "join" ? ramp(0.05, 0.5, place.t) : 1
-      BEATS.forEach((beat, j) => {
+      BEATS.forEach((_, j) => {
         const img = captureRefs.current[j]
         if (!img) return
         let o = 0
