@@ -1,38 +1,35 @@
 import { DOORWAY, TONES } from "./cube"
-import { DOOR_BLUE, DOOR_LIGHT, DUSK, OPEN_SKY, SPACING, toLinear, toSrgb } from "./light"
+import { DOOR_BLUE, DOOR_LIGHT, SPACE, toLinear, toSrgb } from "./light"
 
 /**
- * The hive without WebGPU: the same field drawn once as a repeating picture. Seen straight down the
- * cube's diagonal with no perspective, the field IS a flat pattern — the mark's hexagon tiling the
- * page with streets between — so this is the shader's own view, less the fog, the lens and the hour
- * passing. Faces are shaded with the shader's light, and a few doorways are lit.
+ * The team's realms without WebGPU: the four of them drawn once, hanging together as the live field
+ * hangs them, each seen down the mark's own diagonal, so each is the logo, in the starlight the field
+ * lights them with. The doorways say what the board's roles start out doing: the Researcher at work,
+ * the Producer and the Editor waiting on you in Realm's blue, Ops dark for the day.
+ *
+ * The rest of the page's sky without WebGPU is the field's opening photographed (Flight.tsx).
  */
 
-/** The lattice's spacing on the page, in CSS px: 41 makes two rows 71.01 px, close enough to whole
- *  pixels that the tile repeats without a seam. */
-const LATTICE = 41
-const SCALE = LATTICE / (Math.SQRT2 * SPACING)
-const ROW = (LATTICE * Math.sqrt(3)) / 2
-const COLUMNS = 15
-const ROWS = 6
-export const TILE = { width: LATTICE * COLUMNS, height: Math.round(ROW * ROWS) } as const
+/** px per cube edge in the drawing. */
+const SCALE = 58
+export const TILE = { width: 660, height: 440 } as const
 
 type Vec3 = readonly [number, number, number]
 
-/** A point of a cube whose foot is centred at the origin, on the page. */
+/** A point of a cube whose foot is centred at the origin, on the page, seen down its diagonal. */
 const at = ([x, y, z]: Vec3) =>
   [SCALE * (x - y) * Math.SQRT1_2, -SCALE * ((x + y) * Math.sqrt(1 / 6) + z * Math.sqrt(2 / 3))] as const
 
 const path = (points: readonly Vec3[]) => `M${points.map((p) => at(p).map((n) => n.toFixed(2)).join(" ")).join("L")}Z`
 
-/** A face's colour as the shader would light it, as #rrggbb. */
+/** A face's colour as the field would light it, as #rrggbb. */
 const shade = (tone: readonly number[], light: readonly number[]) =>
   `#${tone
-    .map((c, i) => toSrgb(1 - Math.exp(-toLinear(c) * light[i])))
+    .map((c, i) => toSrgb(1 - Math.exp(-toLinear(c) * light[i]!)))
     .map((c) => Math.round(Math.min(1, c) * 255).toString(16).padStart(2, "0"))
     .join("")}`
 
-const mean = (pair: readonly (readonly number[])[]) => pair[0].map((c, i) => (c + pair[1][i]) / 2)
+const mean = (pair: readonly (readonly number[])[]) => pair[0]!.map((c, i) => (c + pair[1]![i]!) / 2)
 const times = (light: readonly number[], k: number) => light.map((c) => c * k)
 
 const [a0, a1] = DOORWAY.across
@@ -54,11 +51,12 @@ const faces = {
   sill: path([[x0, front, zLow], [x1, front, zLow], [x1, front + depth, zLow], [x0, front + depth, zLow]]),
 }
 
+const KEY = SPACE.key
 const colours = {
-  top: shade(mean(TONES.top), times(DUSK, OPEN_SKY)),
-  left: shade(mean(TONES.left), DUSK),
-  right: shade(mean(TONES.right), DUSK),
-  dark: { back: shade(TONES.right[1], times(DUSK, 0.25)), jamb: shade(TONES.left[1], times(DUSK, 0.4)), sill: shade(TONES.top[1], times(DUSK, 0.5)) },
+  top: shade(mean(TONES.top), times(KEY, 1.1)),
+  left: shade(mean(TONES.left), times(KEY, 0.8)),
+  right: shade(mean(TONES.right), times(KEY, 0.6)),
+  dark: { back: shade(TONES.right[1], times(KEY, 0.12)), jamb: shade(TONES.left[1], times(KEY, 0.25)), sill: shade(TONES.top[1], times(KEY, 0.3)) },
   lit: (tint: readonly number[]) => ({
     back: shade(TONES.lit[0], times(tint, 2.1)),
     jamb: shade(TONES.left[1], times(tint, 0.45)),
@@ -78,41 +76,29 @@ const realm = (id: string, inside: { back: string; jamb: string; sill: string })
 </g>
 </g>`
 
-/** Which realms of the tile have an agent at work, by row and column, and whose light is blue: three
- *  in ninety, as few as the live field has lit at once. */
-const LIT: readonly (readonly [number, number, "white" | "blue"])[] = [
-  [1, 3, "white"],
-  [3, 11, "blue"],
-  [5, 6, "white"],
+/** Where a doorway's middle is drawn, relative to its realm's foot. */
+const doorMid = at([(x0 + x1) / 2, front, (zLow + zHigh) / 2])
+
+/** The four, two in front and two behind and between them, with their doorways' states. */
+const TEAM: readonly (readonly [number, number, "white" | "blue" | "idle"])[] = [
+  [300, 205, "blue"],
+  [452, 222, "idle"],
+  [225, 318, "white"],
+  [390, 336, "blue"],
 ]
 
 function tileSvg() {
-  const uses: string[] = []
-  for (let row = 0; row < ROWS; row++) {
-    for (let column = 0; column < COLUMNS; column++) {
-      const lit = LIT.find(([r, c]) => r === row && c === column)
-      const id = lit ? (lit[2] === "blue" ? "blue" : "white") : "idle"
-      const x = column * LATTICE + (row % 2) * (LATTICE / 2)
-      const y = row * ROW
-      // Every copy that reaches into the tile, so the pattern meets itself at the edges.
-      for (const dx of [-TILE.width, 0, TILE.width]) {
-        for (const dy of [-TILE.height, 0, TILE.height]) {
-          uses.push(`<use href="#${id}" x="${(x + dx).toFixed(2)}" y="${(y + dy).toFixed(2)}"/>`)
-        }
-      }
-    }
-  }
-  // Seen down the diagonal the cubes' outlines never overlap, so the order they are drawn in is free.
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${TILE.width}" height="${TILE.height}" viewBox="0 0 ${TILE.width} ${TILE.height}">
 <defs>
 <clipPath id="door"><path d="${faces.door}"/></clipPath>
+<radialGradient id="glow"><stop offset="0" stop-color="#cfe2ff" stop-opacity="0.32"/><stop offset="1" stop-color="#cfe2ff" stop-opacity="0"/></radialGradient>
 ${realm("idle", colours.dark)}
 ${realm("white", colours.lit(DOOR_LIGHT))}
 ${realm("blue", colours.lit(DOOR_BLUE))}
 </defs>
-${uses.join("\n")}
+${TEAM.map(([x, y, state]) => `<use href="#${state}" x="${x}" y="${y}"/>${state === "idle" ? "" : `<circle cx="${(x + doorMid[0]).toFixed(1)}" cy="${(y + doorMid[1]).toFixed(1)}" r="40" fill="url(#glow)"/>`}`).join("\n")}
 </svg>`
 }
 
-/** The tile as a CSS image. */
+/** The drawing as a CSS image. */
 export const FIELD_PATTERN = `url("data:image/svg+xml,${encodeURIComponent(tileSvg())}")`

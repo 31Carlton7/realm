@@ -158,7 +158,7 @@ export function MiniRealm({ scene: driven, onSceneChange, sceneRow = true }: Min
   }, [drivenKey])
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="mini-realm flex h-full flex-col">
       <div
         role="region"
         aria-label="A working sample of Realm's window"
@@ -620,7 +620,7 @@ function CodeView({ flash }: { flash: number }) {
               data-named={named || undefined}
               className={`flex pr-4 whitespace-pre ${named ? "bg-accent/12" : ""}`}
             >
-              <span className={`w-11 shrink-0 pr-3 text-right select-none ${named ? "text-ink" : "text-ink-3/70"}`}>{n}</span>
+              <span className={`w-11 shrink-0 pr-3 text-right select-none ${named ? "text-ink" : "text-ink-3"}`}>{n}</span>
               <span className="text-ink-2">{highlight(line)}</span>
             </div>
           )

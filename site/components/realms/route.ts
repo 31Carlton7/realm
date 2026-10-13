@@ -1,59 +1,60 @@
 import type { Stop } from "./world"
 
 /**
- * The flight's route. The opening looks down on the field from high above, down the mark's own
- * diagonal, so every realm is the logo; each chapter is a realm further up the field, the camera
- * low and level in front of its door; the team's realms stand together near the end; then the camera
- * climbs until the field is a planet.
+ * The flight's route through the realms. The opening looks up the route into the thick of them; each
+ * chapter is a screen hung in space a little further up it, with its realm beside it, the camera
+ * level and a few edges back; the team's realms hang together near the end; then the camera climbs
+ * out over the whole swarm and lifts its eyes to the deep sky, where the page ends on the black hole.
  *
- * The chapters swing left and right of the route in step with their screens, so the camera turns a
- * little toward each one, and the yaw keeps a little of the realm's side wall in view, as the mark does.
+ * The chapters swing left and right of the route and up and down it in step with their screens, so
+ * the camera turns a little toward each one and the sky behind it changes as it goes.
  */
 export const OPENING = {
-  /** The point of the field under the product window's top edge. */
-  focus: [0, 0] as const,
-  yaw: 45,
-  pitch: -35.264,
-  focal: 2300,
-  /** A realm's edge, in CSS px, at the window's top edge. */
-  edge: 21,
+  /** Where the camera hangs, and which way it looks. */
+  eye: [0, -58, 3.5] as const,
+  yaw: 90,
+  pitch: 6,
+  focal: 1500,
+  /** On a phone, a longer lens on the same view. */
+  phoneFocal: 1250,
 }
 
 export const CHAPTERS: Record<string, Stop> = {
-  space: { at: [6, 30], yaw: 82, height: 4.4, distance: 10.6, focal: 1700, orbit: 7 },
-  spaces: { at: [-2, 47], yaw: 99, height: 5.4, distance: 11.5, focal: 1700, orbit: -8 },
-  transcript: { at: [8, 64], yaw: 81, height: 4.6, distance: 10.8, focal: 1700, orbit: 7 },
-  agents: { at: [0, 81], yaw: 100, height: 5.2, distance: 11.4, focal: 1700, orbit: -7 },
-  delegation: { at: [10, 98], yaw: 82, height: 4.5, distance: 10.6, focal: 1700, orbit: 7 },
-  gateway: { at: [2, 115], yaw: 98, height: 5.0, distance: 11.2, focal: 1700, orbit: -7 },
-  review: { at: [12, 132], yaw: 81, height: 4.6, distance: 10.8, focal: 1700, orbit: 7 },
-  sandbox: { at: [4, 149], yaw: 99, height: 5.6, distance: 11.8, focal: 1700, orbit: -6 },
-  durable: { at: [14, 166], yaw: 83, height: 4.8, distance: 11.4, focal: 1700, orbit: 7 },
+  space: { at: [3, 6, -0.4], yaw: 90, height: 2.3, distance: 11.4, focal: 1700, orbit: 6 },
+  spaces: { at: [-5, 31, 1.6], yaw: 100, height: 2.1, distance: 11.5, focal: 1700, orbit: -8 },
+  transcript: { at: [8, 55, -2.2], yaw: 81, height: 2.2, distance: 10.8, focal: 1700, orbit: 7 },
+  agents: { at: [-3, 79, 2.8], yaw: 99, height: 2.1, distance: 11.4, focal: 1700, orbit: -7 },
+  delegation: { at: [10, 103, -1.2], yaw: 82, height: 2.2, distance: 10.6, focal: 1700, orbit: 7 },
+  gateway: { at: [0, 127, 2.0], yaw: 98, height: 2.2, distance: 11.2, focal: 1700, orbit: -7 },
+  review: { at: [12, 151, -0.4], yaw: 81, height: 2.0, distance: 10.8, focal: 1700, orbit: 7 },
+  sandbox: { at: [1, 175, 3.0], yaw: 99, height: 2.0, distance: 11.8, focal: 1700, orbit: -6 },
+  durable: { at: [14, 199, -1.0], yaw: 83, height: 2.1, distance: 11.4, focal: 1700, orbit: 7 },
 }
 
-/** The team's four realms, as lattice steps from the cell nearest `at`: two in front, two behind
- *  and between them, so every doorway faces the camera with nothing in front of it. */
+/** The team's four realms, hung together where `at` is: two in front, two behind and between them,
+ *  every doorway turned to the camera with nothing in front of it. Offsets are across, back, up. */
 export const TEAM = {
-  at: [8, 184] as const,
-  cells: [
-    [0, 0],
-    [1, 1],
-    [-1, 0],
-    [0, 1],
+  at: [7, 224, 0] as const,
+  realms: [
+    [-1.55, 0, 0],
+    [1.65, 0.4, 0.15],
+    [-0.1, 2.4, 0.9],
+    [3.1, 2.8, 1.05],
   ] as const,
   yaw: 92,
-  height: 3.6,
-  /** How much wider than the four realms the camera frames the slot. */
-  frame: 1.04,
+  height: 2.6,
+  /** How far back the camera stands from the front pair. */
+  distance: 9.5,
   focal: 1500,
   orbit: 6,
 }
 
-/** The climb: two calm stops over the field, higher each time, before the planet. */
+/** The climb: two calm stops over the swarm, higher each time, looking down into it. */
 export const CLIMB: Record<string, { at: readonly [number, number]; yaw: number; height: number; pitch: number; focal: number }> = {
-  facts: { at: [9, 196], yaw: 92, height: 15, pitch: -22, focal: 1500 },
-  faq: { at: [10, 206], yaw: 92, height: 46, pitch: -38, focal: 1500 },
+  facts: { at: [9, 228], yaw: 92, height: 16, pitch: -20, focal: 1500 },
+  faq: { at: [10, 238], yaw: 92, height: 44, pitch: -34, focal: 1500 },
 }
 
-/** Orbit, at a third of the planet's radius up. */
-export const FINALE = { altitude: 0.3, focal: 1500 }
+/** The finale: lifted over the climb's last stop and looking up and out, away from the swarm, into the
+ *  deep sky the black hole hangs in, turned this far (degrees) off the route as it lifts. */
+export const FINALE = { height: 64, pitch: 14, focal: 1500, turn: 22 }

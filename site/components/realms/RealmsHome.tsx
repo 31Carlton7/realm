@@ -2,13 +2,15 @@ import { AgentMark, type AgentId } from "@/components/AgentMark"
 import { DownloadButton, QuietButton } from "@/components/Buttons"
 import { Actions, Announcement, Lede, ProductWindow } from "@/components/realms/HeroParts"
 import { GitHubIcon } from "@/components/icons"
-import { FIELD_PATTERN, TILE } from "@/components/realms/hive/fallback"
-import { Chapter } from "@/components/realms/Chapter"
+import { Chapter, type ChapterPicture } from "@/components/realms/Chapter"
+import { FieldPanel } from "@/components/realms/FieldPanel"
 import { Flight } from "@/components/realms/Flight"
+import { HoleStage } from "@/components/realms/HoleStage"
 import { Team } from "@/components/realms/Team"
 import { SiteFooter } from "@/components/SiteFooter"
 import { SiteHeader } from "@/components/SiteHeader"
 import { delegation, facets, facetsCoda, faq, type Claim } from "@/content/home"
+import { partImage, sceneImage } from "@/lib/pictures"
 import type { MacDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 
@@ -29,11 +31,31 @@ const AGENTS: { id: AgentId; name: string }[] = [
 ]
 
 const FACTS: { title: string; body: string }[] = [
-  { title: "On your Mac", body: "Transcripts, documents, skills and checkpoints are files and a SQLite database under ~/Realm." },
-  { title: "No account", body: "There is nothing to sign up for, and nothing you make in Realm is uploaded." },
-  { title: "No API key", body: "Realm drives the agent CLIs you already have, on the plan you already pay for." },
-  { title: "Signed and notarized", body: "Builds for Apple silicon, updated from a public release feed. The source is on GitHub." },
+  { title: "On your Mac", body: "Transcripts, documents and checkpoints live under ~/Realm." },
+  { title: "No account", body: "Nothing to sign up for, and nothing you make is uploaded." },
+  { title: "No API key", body: "Realm drives the agent CLIs you have, on your own plan." },
+  { title: "Signed and notarized", body: "Built for Apple silicon. The source is on GitHub." },
 ]
+
+/**
+ * A claim's evidence: the part of the window it is about, photographed on its own, or its whole scene
+ * where no part was taken; nothing when neither was (design.md: a claim whose capture does not exist
+ * reads as prose).
+ */
+function evidence(claim: Claim): ChapterPicture | null {
+  const alt = claim.caption ?? claim.title
+  const part = claim.part ? partImage(claim.part) : null
+  const phone = claim.phone ? partImage(claim.phone.part) : null
+  if (part) return { image: part, alt, caption: claim.caption ?? "", phone: phone ? { image: phone, caption: claim.phone?.caption } : undefined, kind: "part" }
+  if (claim.capture) return { image: sceneImage(claim.capture), alt, caption: claim.caption ?? "", kind: "window" }
+  return null
+}
+
+/** On a phone, the realm's terminal on its own: its two halves side by side would be a quarter size. */
+function phoneRealm(): ChapterPicture["phone"] {
+  const image = partImage("realm-phone")
+  return image ? { image, caption: "The file a session's turn edited, open in vim in its terminal." } : undefined
+}
 
 /** The order the flight visits the claims in, and which side each one's screen stands on. */
 const ROUTE: { id: string; side: "left" | "right" }[] = [
@@ -48,24 +70,28 @@ const ROUTE: { id: string; side: "left" | "right" }[] = [
 ]
 
 /**
- * Realms: the whole page is one flight across a world built from Realm's mark, drawn live behind it.
+ * Realms: the whole page is one flight through deep space among realms built from Realm's mark, drawn
+ * live behind it.
  *
- *   opening    dusk over a field of realms, the working sample of Realm floating over it
- *   a realm    the camera comes down to one realm; its doorway opens into a capture of a space
- *   chapters   one realm per claim, further up the field: the doorway lights, opens into the claim's
- *              real capture as a lit screen standing on the ground, and the claim sits beside it on
- *              clean ground; between them the camera lifts over the realm it leaves and turns
+ *   opening    a sky of nebulae and far galaxies, the realms hanging in it at every depth, turning and
+ *              drifting, some with an agent at work in the doorway; the working sample of Realm over it
+ *   chapters   one realm per claim, hung over its screen: the doorway lights, the claim's real capture
+ *              opens out of it as a lit screen, and the doorway's light keeps running to the screen's
+ *              frame while the claim sits beside it; between them the camera flies on through the realms
  *   teams      a team's four realms together, a Realmite at each door, the board beside them
- *   the climb  where the work lives, and the questions, as the camera rises off the field
- *   finale     the field curves away into a planet seen from orbit, the sun coming up at its edge
+ *   the climb  where the work lives, and the questions, as the camera rises out of the swarm
+ *   finale     the camera lifts its eyes to the deep sky, and the page ends on a black hole under the
+ *              footer, drawing a disk of realms in (blackhole.ts)
  *
  * Every picture is a capture of the shipped app or the working sample, labelled as one. The flight is
- * scrubbed by the scroll and nothing else; the pointer is a lamp over the field.
+ * scrubbed by the scroll and nothing else; the sky moves slowly on its own, and the realms answer the
+ * pointer: the one it is near turns to the reader with its doorway lit, and a click (or the chapter's
+ * key) throws the doorway open.
  */
 export async function RealmsHome({ download, claims }: HomeProps) {
   const byId = new Map(claims.map((claim) => [claim.id, claim]))
   const chapters = ROUTE.map((stop) => ({ ...stop, claim: byId.get(stop.id) })).filter(
-    (stop): stop is { id: string; side: "left" | "right"; claim: Claim } => Boolean(stop.claim?.capture),
+    (stop): stop is { id: string; side: "left" | "right"; claim: Claim } => Boolean(stop.claim),
   )
 
   return (
@@ -89,32 +115,27 @@ export async function RealmsHome({ download, claims }: HomeProps) {
               <Actions download={download} className="mt-7" center />
             </div>
           </div>
+          {/* Without WebGPU, the sky behind the whole page is the field's own opening held still (Flight). */}
           <div className="relative mt-[clamp(3.5rem,calc(100dvh-50rem),7rem)]">
-            {/* Without WebGPU, the field as the Hive draws it still: the same realms in the same light,
-                hazing out toward the words and gone before the section ends. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-x-0 -top-28 bottom-[-4rem] -z-10 hidden [mask-image:linear-gradient(to_bottom,transparent,rgb(0_0_0/0.55)_8rem,black_18rem,black_calc(100%-10rem),transparent)] [html[data-field=off]_&]:block"
-              style={{ backgroundImage: FIELD_PATTERN, backgroundSize: `${TILE.width}px ${TILE.height}px`, backgroundPosition: "center top" }}
-            />
-            <ProductWindow className="mx-auto w-full max-w-[76rem] px-4 sm:px-10 [html[data-field=off]_&]:bg-page [html[data-field=off]_&]:shadow-[0_0_40px_24px_var(--color-page)]" />
+            <ProductWindow className="mx-auto w-full max-w-[76rem] px-4 sm:px-10" />
           </div>
         </section>
 
         <Chapter
           id="space"
           side="right"
-          tall
+          stacked
           title="What a realm holds."
-          caption="A session in the Dashboard space, and the file its turn edited open in vim in a terminal beside it."
           picture={{
-            kind: "scene",
-            slug: "terminal",
-            alt: "Realm's window: the sidebar with every space, a session in the Dashboard space that edited two files, and a terminal beside it with vim open on web/lib/orgs.ts.",
+            image: partImage("realm") ?? sceneImage("terminal"),
+            phone: phoneRealm(),
+            kind: "window",
+            caption: "A session in the Dashboard space, and the file its turn edited open in vim beside it.",
+            alt: "Realm's window with the sidebar folded: a session in the Dashboard space whose turn edited two files, and beside it a terminal with vim open on web/lib/orgs.ts at the function the turn rewrote.",
           }}
         >
-          <p>A realm is one space in Realm: a project, with everything its work needs kept beside it.</p>
-          <dl className="space-y-3.5 pt-1">
+          <p className="max-w-[60ch]">A realm is one space in Realm: a project, with everything its work needs kept beside it.</p>
+          <dl className="grid gap-x-10 gap-y-5 pt-2 sm:grid-cols-2 lg:grid-cols-3">
             {facets.map((facet) => (
               <div key={facet.title}>
                 <dt className="text-[16px] font-[560] text-ink">{facet.title}</dt>
@@ -132,32 +153,22 @@ export async function RealmsHome({ download, claims }: HomeProps) {
             key={id}
             id={id}
             side={side}
-            tall={id === "delegation"}
             title={claim.title}
-            caption={claim.caption ?? ""}
-            picture={{ kind: "claim", id: claim.id, focus: claim.focus, alt: claim.caption ?? claim.title }}
+            picture={evidence(claim)}
           >
+            <p>{claim.body}</p>
             {id === "delegation" ? (
-              <>
-                <p>
-                  Ask in plain words (&ldquo;have GPT-6 Luna build this&rdquo;) or pick models in a session&rsquo;s Agents tab and
-                  say what to build. The session&rsquo;s agent splits up the work, starts a sub-agent on each model through
-                  whichever harness runs it, and waits for the reports.
-                </p>
-                <dl className="space-y-3 pt-1">
-                  {delegation.map((beat) => (
-                    <div key={beat.title}>
-                      <dt className="text-[16px] font-[560] text-ink">{beat.title}</dt>
-                      <dd className="mt-0.5 text-[16px] leading-[1.55]">{beat.body}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </>
-            ) : (
-              <p>{claim.body}</p>
-            )}
+              <dl className="space-y-3 pt-1">
+                {delegation.map((beat) => (
+                  <div key={beat.title}>
+                    <dt className="text-[16px] font-[560] text-ink">{beat.title}</dt>
+                    <dd className="mt-0.5 text-[16px] leading-[1.55]">{beat.body}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
             {id === "agents" ? (
-              <ul aria-label="Agents Realm runs" className="grid grid-cols-3 gap-x-4 gap-y-3 pt-2">
+              <ul aria-label="Agents Realm runs" className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2 sm:grid-cols-3">
                 {AGENTS.map(({ id: agent, name }) => (
                   <li key={agent} className="flex items-center gap-2.5 text-[14px] text-ink">
                     <AgentMark id={agent} className="h-[18px] w-[18px] shrink-0 text-ink-2" />
@@ -174,11 +185,11 @@ export async function RealmsHome({ download, claims }: HomeProps) {
         {/* The climb: the field falls away under where the work lives and the questions. */}
         <section aria-labelledby="facts-title" className="relative">
           <div className="mx-auto flex w-full max-w-[92rem] flex-col justify-center px-6 py-24 sm:px-10 lg:min-h-[110vh]">
-            <div data-field-anchor="k:facts" className="relative z-[2]">
+            <FieldPanel anchor="k:facts" wrapClassName="z-[2]" className="px-6 pt-8 sm:px-9 sm:pt-9">
               <h2 id="facts-title" className="text-[clamp(1.6rem,2.4vw,2.1rem)] leading-[1.1] font-[580] tracking-[-0.035em] text-ink">
                 Where the work lives.
               </h2>
-              <dl className="mt-8 grid border-y border-line sm:grid-cols-2 lg:grid-cols-4">
+              <dl className="mt-8 grid border-t border-line sm:grid-cols-2 lg:grid-cols-4">
                 {FACTS.map((fact, i) => (
                   <div
                     key={fact.title}
@@ -189,19 +200,19 @@ export async function RealmsHome({ download, claims }: HomeProps) {
                   </div>
                 ))}
               </dl>
-            </div>
+            </FieldPanel>
           </div>
         </section>
 
         <section aria-labelledby="faq-title" className="relative">
           <div className="mx-auto w-full max-w-[52rem] px-6 py-24 sm:px-10 lg:min-h-[120vh] lg:py-40">
-            <div data-field-anchor="k:faq" className="relative z-[2]">
+            <FieldPanel anchor="k:faq" wrapClassName="z-[2]" className="px-6 pt-8 pb-3 sm:px-9 sm:pt-9 sm:pb-4">
               <h2 id="faq-title" className="text-[clamp(1.6rem,2.4vw,2.1rem)] leading-[1.1] font-[580] tracking-[-0.035em] text-ink">
                 Questions
               </h2>
               <div className="mt-8">
                 {faq.map((item, i) => (
-                  <details key={item.q} name="realms-faq" open={i === 0} className="group border-t border-line py-4 last:border-b">
+                  <details key={item.q} name="realms-faq" open={i === 0} className="group border-t border-line py-4">
                     <summary className="flex cursor-pointer list-none items-start justify-between gap-6 text-[16px] leading-[1.45] font-[500] text-ink [&::-webkit-details-marker]:hidden">
                       <span>{item.q}</span>
                       <span aria-hidden className="mt-1 shrink-0 text-ink-2 transition-transform duration-200 ease-[var(--ease-out-strong)] group-open:rotate-45">
@@ -214,15 +225,14 @@ export async function RealmsHome({ download, claims }: HomeProps) {
                   </details>
                 ))}
               </div>
-            </div>
+            </FieldPanel>
           </div>
         </section>
 
-        {/* Orbit: the planet's edge low in the view and the sun coming up on it, under the call. */}
-        <section aria-labelledby="finale-title" className="relative overflow-x-clip">
-          <FallbackPlanet />
-          <div className="mx-auto flex w-full max-w-[92rem] flex-col items-center px-6 pt-40 pb-[46vh] text-center sm:px-10 lg:min-h-[150vh] lg:justify-center lg:pt-0">
-            <div data-field-anchor="k:finale" className="relative z-[2] flex flex-col items-center">
+        {/* The night over the field, under the call; the black hole comes up under the footer. */}
+        <section aria-labelledby="finale-title" className="relative">
+          <div className="mx-auto flex w-full max-w-[92rem] flex-col items-center px-6 pt-40 pb-16 text-center sm:px-10 lg:min-h-[115vh] lg:justify-center lg:pt-0 lg:pb-0">
+            <FieldPanel anchor="k:finale" wrapClassName="z-[2]" className="flex flex-col items-center px-8 py-10 sm:px-14 sm:py-12">
               <h2 id="finale-title" className="max-w-[16ch] text-[clamp(2.4rem,5vw,4.25rem)] leading-[1] font-[580] tracking-[-0.05em] text-balance text-ink">
                 Give your agents a world to work in.
               </h2>
@@ -239,27 +249,12 @@ export async function RealmsHome({ download, claims }: HomeProps) {
               <p className="mt-4 font-mono text-[12px] text-ink-2">
                 {download.version ? `${download.version} · ` : ""}macOS on Apple silicon · in active development
               </p>
-            </div>
+            </FieldPanel>
           </div>
         </section>
       </main>
 
-      <SiteFooter />
-    </div>
-  )
-}
-
-/**
- * Without WebGPU: the planet's edge drawn by the stylesheet, as the World concept draws it — a
- * planet-sized circle of the night side's colour with the air as a blue edge and the sunrise a short
- * white stretch of it, placed under the call.
- */
-function FallbackPlanet() {
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[62%] bottom-0 hidden overflow-hidden [html[data-field=off]_&]:block">
-      <div className="absolute top-10 left-1/2 aspect-square w-[300vw] -translate-x-1/2 rounded-full bg-[oklch(0.165_0.004_264)] shadow-[0_0_0_1px_oklch(0.79_0.11_248/0.5),0_-3px_16px_-2px_oklch(0.68_0.173_253.3/0.5),0_-12px_60px_-8px_oklch(0.68_0.173_253.3/0.22)]">
-        <div className="absolute top-0 left-[52%] h-[3px] w-[4%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,oklch(0.99_0.01_250),oklch(0.86_0.07_250/0.7)_45%,transparent)]" />
-      </div>
+      <SiteFooter world={<HoleStage />} />
     </div>
   )
 }
