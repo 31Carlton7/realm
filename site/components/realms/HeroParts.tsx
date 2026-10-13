@@ -57,7 +57,7 @@ export function Actions({ download, className = "", center = false }: ConceptPro
         </QuietButton>
       </div>
       {/* The qualifiers stay on the page rather than in the small print of a store listing. */}
-      <p className={`mt-3.5 font-mono text-[12px] text-ink-3 ${center ? "text-center" : ""}`}>
+      <p className={`mt-3.5 font-mono text-[12px] text-ink-2 ${center ? "text-center" : ""}`}>
         {download.version ? `${download.version} · ` : ""}macOS on Apple silicon · in active development
       </p>
     </div>
