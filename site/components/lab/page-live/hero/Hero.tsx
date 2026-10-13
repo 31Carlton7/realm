@@ -76,20 +76,37 @@ export function Hero({ download }: { download: MacDownload }) {
       </div>
 
       <div role="group" aria-labelledby="hero-map-title" className="mx-auto mt-8 w-full max-w-[85rem] px-3 sm:px-10 lg:mt-10">
-        <p className="mb-4 px-2 text-[13px] leading-[1.5] text-ink-2 sm:px-0">
-          <span id="hero-map-title" className="text-ink">
-            A sample of a day in Realm.
-          </span>{" "}
-          The map is a diagram of the window <span className="lg:hidden">under</span>
-          <span className="hidden lg:inline">beside</span> it, and the window is a working sample: click anything.
-        </p>
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-1.5 px-2 text-[13px] leading-[1.5] text-ink-2 sm:px-0">
+          <p>
+            <span id="hero-map-title" className="text-ink">
+              A sample of a day in Realm.
+            </span>{" "}
+            The map is a diagram of the window <span className="lg:hidden">under</span>
+            <span className="hidden lg:inline">beside</span> it, and the window is a working sample: click anything.
+          </p>
+          {/* What the sample is waiting for, said where the reader is already looking. */}
+          <p aria-live="polite">
+            {waiting ? (
+              <span className="text-orange">
+                {waiting === 1 ? "One request waits" : `${waiting === 2 ? "Two" : "Three"} requests wait`} on you in Needs you.
+              </span>
+            ) : settled ? (
+              <span>
+                Everything came back.{" "}
+                <button type="button" onClick={replay} className="text-accent-ink underline decoration-accent-ink/40 underline-offset-[3px] hover:decoration-accent-ink">
+                  Play the day again
+                </button>
+              </span>
+            ) : null}
+          </p>
+        </div>
         <div ref={plateRef} className="relative isolate lg:grid lg:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
           <HeroLight />
           {/* The map's own room: beside the window on a wide screen, with its key at the foot; above
               it on a phone, where the lines turn down into its top edge. */}
           <div className="h-[350px] lg:flex lg:h-auto lg:flex-col lg:justify-end lg:pb-1">
             <div className="hidden lg:block">
-              <Legend settled={settled} waiting={waiting} onReplay={replay} />
+              <Legend />
             </div>
           </div>
           {/* The map comes before the window in the reading and tab order, as it does on the page:
@@ -103,27 +120,16 @@ export function Hero({ download }: { download: MacDownload }) {
           </div>
         </div>
         <div className="mt-4 px-2 lg:hidden">
-          <Legend settled={settled} waiting={waiting} onReplay={replay} />
+          <Legend />
         </div>
       </div>
     </section>
   )
 }
 
-function Legend({ settled, waiting, onReplay }: { settled: boolean; waiting: number; onReplay: () => void }) {
+/** The map's key: what a station's ring and a moving light mean. */
+function Legend() {
   return (
-    <div>
-      {/* What the map is waiting for, said once, where the key is read. */}
-      <p aria-live="polite" className="mb-3 min-h-[1.5em] text-[13px] text-ink-2">
-        {waiting ? (
-          <>
-            <span className="text-orange">{waiting === 1 ? "One request waits" : `${waiting === 2 ? "Two" : "Three"} requests wait`} on you.</span>{" "}
-            Answer {waiting === 1 ? "it" : "them"} in the window&rsquo;s Needs you.
-          </>
-        ) : settled ? (
-          "Everything came back."
-        ) : null}
-      </p>
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-ink-2">
       <span className="flex items-center gap-1.5">
         <svg aria-hidden width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -150,12 +156,6 @@ function Legend({ settled, waiting, onReplay }: { settled: boolean; waiting: num
         </svg>
         Work handed over
       </span>
-      {settled ? (
-        <button type="button" onClick={onReplay} className="text-accent-ink underline decoration-accent-ink/40 underline-offset-[3px] hover:decoration-accent-ink">
-          Play the day again
-        </button>
-      ) : null}
-    </div>
     </div>
   )
 }
