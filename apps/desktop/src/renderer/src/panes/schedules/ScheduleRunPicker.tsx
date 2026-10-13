@@ -1,12 +1,12 @@
 import { useEffect, useMemo } from "react";
-import { AGENT_SUPPORTS_PERMISSION_MODES, PERMISSION_MODES, type AgentKind, type ModelInfo, type Schedule } from "@realm/contracts";
+import { PERMISSION_MODES, type AgentKind, type ModelInfo, type Schedule } from "@realm/contracts";
 import { FALLBACK_AGENT, useApp } from "../../state/store";
 import { ModelChipText, ModelPicker, type OverflowGroup } from "../session/ModelPicker";
 import {
   chipLabel, chipTitle, effortCurrent, effortOptions, fastModeAvailability, fastModeTip, modelRows,
   type EffortControl, type EffortOptions, type FastAvailability, type FastMode, type ModelRow,
 } from "../session/model-catalog";
-import type { Draft, RunPermission } from "./schedule-model";
+import type { Draft } from "./schedule-model";
 
 /**
  * What a scheduled task's runs could start on and how, read as the prompter reads it for a session:
@@ -31,17 +31,12 @@ export function useRunCatalog(kind: AgentKind, model: string | null): RunCatalog
   }, [kind, model, agentProbe, favorites, info, effortSupport, fastSupport]);
 }
 
-/** The permissions a run can start in, in the prompter's words. Full access is not among them: a run
- *  is unattended, and its vocabulary refuses `bypassPermissions` outright (contracts/runs.ts). Plan is
- *  listed only for a task that already holds it, so a setting is never shown as a blank. */
-function permissionItems(held: RunPermission | null, set: (id: RunPermission) => void): OverflowGroup["items"] {
-  const current = held ?? "default";
-  const ids: RunPermission[] = [...(current === "plan" ? ["plan" as const] : []), "default", "acceptEdits"];
-  return ids.map((id) => ({
-    label: id === "plan" ? "Plan" : PERMISSION_MODES.find((m) => m.id === id)!.label,
-    checked: current === id, onSelect: () => set(id),
-  }));
-}
+/** The permission every scheduled run starts in, in the prompter's words, and the only one: Realm
+ *  puts a run a schedule fires in Full access itself (`runPermissionMode`), on every agent. Shown
+ *  where the choice used to be, so the picker says what will run rather than leaving it to be guessed. */
+const PERMISSIONS: OverflowGroup[] = [{ label: "Permissions", items: [
+  { label: PERMISSION_MODES.find((m) => m.id === "bypassPermissions")!.label, checked: true, onSelect: () => {} },
+] }];
 
 /**
  * The Schedule a task modal's Model row: the prompter's own chip and picker over the task's draft —
@@ -50,7 +45,7 @@ function permissionItems(held: RunPermission | null, set: (id: RunPermission) =>
  * prompter; a draft holds all of it until the task is saved (`constraintsOf`).
  */
 export function ScheduleRunPicker({ draft, catalog, onChange }: {
-  draft: Pick<Draft, "agentKind" | "model" | "effort" | "fastMode" | "permissionMode">;
+  draft: Pick<Draft, "agentKind" | "model" | "effort" | "fastMode">;
   catalog: RunCatalog;
   onChange: (patch: Partial<Draft>) => void;
 }) {
@@ -76,13 +71,10 @@ export function ScheduleRunPicker({ draft, catalog, onChange }: {
   const fast: FastMode | undefined = catalog.fast.state === "none" ? undefined
     : { on: draft.fastMode, state: null, reason: null, requested: null, onChange: (on) => onChange({ fastMode: on }),
         availability: catalog.fast, tip: catalog.tip };
-  const overflow = AGENT_SUPPORTS_PERMISSION_MODES[kind]
-    ? [{ label: "Permissions", items: permissionItems(draft.permissionMode, (permissionMode) => onChange({ permissionMode })) }]
-    : undefined;
   return (
     <ModelPicker kind={kind} model={draft.model} effort={effort} rows={catalog.rows} info={catalog.info}
       onToggleFavorite={(key) => run(() => toggleModelFavorite(key))}
-      onPick={(agentKind, model) => onChange({ agentKind, model })} fast={fast} overflow={overflow} eggs={eggs} />
+      onPick={(agentKind, model) => onChange({ agentKind, model })} fast={fast} overflow={PERMISSIONS} eggs={eggs} />
   );
 }
 

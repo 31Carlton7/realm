@@ -269,6 +269,11 @@ export class AcpAdapter implements AgentAdapter {
     let effortDefault: string | null = null;
     /** `modes.currentModeId` at boot — `acpBuildMode`'s fallback when the agent has no `agent` id. */
     let bootModeId: string | null = null;
+    /** Full access, answered on Realm's side. ACP has no mode for it — mode ids are the agent's own —
+     *  so the lever Realm has is the permission request itself: under `bypassPermissions` each one is
+     *  allowed as it arrives and never becomes a card. Nothing in Realm offers an ACP session this
+     *  mode (`AGENT_SUPPORTS_PERMISSION_MODES`); a scheduled task's run is the one that gets it. */
+    let fullAccess = opts.permissionMode === "bypassPermissions";
     /** True only for the duration of `session/load`, whose replay Realm has already persisted. */
     let replaying = false;
     let disposed = false;
@@ -400,6 +405,12 @@ export class AcpAdapter implements AgentAdapter {
       const toolName = str(patch.title) || merged?.title || toolCallId;
       const input = { ...(merged?.input ?? {}), ...obj(patch.rawInput) };
       const options = Array.isArray(p.options) ? p.options : [];
+      if (fullAccess) {
+        const optionId = pickAcpOption("allow", options);
+        // An agent that offered no allow option still gets a card: picking anything else would be a
+        // guess at what its options mean.
+        if (optionId !== null) { log(`full access: allowed ${toolName}`); rpc?.respond(id, { outcome: { outcome: "selected", optionId } }); return; }
+      }
       const requestId = String(id);
       if (pending.size === 0 && questions.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
       pending.set(requestId, { id, options });
@@ -634,6 +645,7 @@ export class AcpAdapter implements AgentAdapter {
           catch (e) { log(`${method} failed: ${message(e)}`); }
         };
         if (o.permissionMode !== undefined) {
+          fullAccess = o.permissionMode === "bypassPermissions";
           // The mode axis, translated (Plan 14 W3): Realm's plan wire value maps onto the agent's own
           // plan-equivalent, anything else onto its Build mode. NEVER `o.permissionMode` itself — ACP
           // mode ids are agent-defined, and `session/set_mode` with a Realm id ("plan" and "ask"

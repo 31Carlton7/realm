@@ -12,8 +12,10 @@ import { RunConstraintsSchema } from "./runs";
  * disagree the first time a machine slept through a firing.
  *
  * So this file is only about WHEN. `runs.create` is what happens next, and everything a run's
- * vocabulary refuses — `bypassPermissions` above all — a schedule refuses too, by construction:
- * `RunConstraintsSchema` is reused verbatim rather than mirrored.
+ * vocabulary refuses a schedule refuses too, by construction: `RunConstraintsSchema` is reused
+ * verbatim rather than mirrored. The permission is the exception that is not a constraint at all —
+ * every run a schedule fires works in Full access, which `RunService` sets (`runPermissionMode`), so
+ * a `permissionMode` stored here is never read for one.
  *
  * WHEN has two spellings, and `nextFireOf` is the single gate in front of both: a cron expression for
  * work that recurs, and `once:<epoch ms>` for a single moment. They share one field because they
@@ -425,7 +427,7 @@ export const ScheduleSchema = z.object({
   cron: z.string(),
   enabled: z.boolean(),
   /** Narrowing for the runs this creates. Same schema a run takes, so a schedule can never ask for
-   *  something a run would refuse — `bypassPermissions` is not in its vocabulary at either level. */
+   *  something a run would refuse. Its `permissionMode` is not read: a scheduled run is Full access. */
   constraints: RunConstraintsSchema.nullable(),
   /** When this will next fire, as the server last computed it. Persisted rather than derived at read
    *  time so a schedule the runner has already claimed cannot be claimed twice by a concurrent tick. */

@@ -167,9 +167,6 @@ export function runState(run: Pick<Run, "state">): { label: string; mark: "runni
 
 /* ────────────────────────────── the modal's draft ────────────────────────────── */
 
-/** The permission a task's runs start in. `bypassPermissions` is not in a run's vocabulary at all. */
-export type RunPermission = NonNullable<RunConstraints["permissionMode"]>;
-
 /** Everything the Schedule a task modal holds, in its own terms. The expression is derived from it
  *  (`exprOf`) rather than stored beside it, so the two can never disagree. */
 export type Draft = {
@@ -200,8 +197,6 @@ export type Draft = {
   effort: string | null;
   /** Fast mode, asked of every run's session. */
   fastMode: boolean;
-  /** Null is the run's own, Ask each time. */
-  permissionMode: RunPermission | null;
 };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -217,7 +212,7 @@ export function blankDraft(spaceId: string, agentKind: AgentKind, now = Date.now
     title: "", goal: "", repeat: true, every: "daily", time: "09:00", minute: 0,
     weekday: new Date(now).getDay(), monthDay: 1, cron: "0 9 * * *",
     date: momentInputValue(tomorrow.getTime()).slice(0, 10),
-    newSessionPerRun: true, archiveSucceeded: false, spaceId, agentKind, model: null, effort: null, fastMode: false, permissionMode: null,
+    newSessionPerRun: true, archiveSucceeded: false, spaceId, agentKind, model: null, effort: null, fastMode: false,
   };
 }
 
@@ -227,7 +222,6 @@ export function draftOf(s: Schedule, fallbackKind: AgentKind, now = Date.now()):
   const shared = {
     ...base, title: s.title, goal: s.goal, cron: s.cron, newSessionPerRun: s.newSessionPerRun, archiveSucceeded: s.archiveSucceeded,
     model: s.constraints?.model ?? null, effort: s.constraints?.effort ?? null, fastMode: s.constraints?.fastMode === true,
-    permissionMode: s.constraints?.permissionMode ?? null,
   };
   const once = parseOnce(s.cron);
   if (once !== null) {
@@ -270,9 +264,10 @@ export const draftValid = (d: Draft, now = Date.now()): boolean =>
 
 /**
  * The run constraints a draft asks for, laid over what the task already carried: the modal owns the
- * agent, the model, the level, fast mode and the permission, and anything else a task was given
- * through `runs`' vocabulary — a skill subset, a worktree — is kept rather than dropped by an edit that
- * never showed it.
+ * agent, the model, the level and fast mode, and anything else a task was given through `runs`'
+ * vocabulary — a skill subset, a worktree — is kept rather than dropped by an edit that never showed
+ * it. A permission is the exception, and is dropped: every scheduled run is Full access, so one a task
+ * still holds from before is never read, and keeping it would leave the row saying otherwise.
  *
  * Only what the chosen model's harness can be asked is written. A level is one of `levels`, the
  * model's own as the card drew them — a level set under another model is not what runs, the card
@@ -288,8 +283,6 @@ export function constraintsOf(d: Draft, before: RunConstraints | null, levels: r
     ...(d.model ? { model: d.model } : {}),
     ...(effort ? { effort } : {}),
     ...(d.fastMode && AGENT_FAST_MODE[d.agentKind] ? { fastMode: true } : {}),
-    // Ask each time is what a run starts in when it names none, so it is not written down.
-    ...(d.permissionMode && d.permissionMode !== "default" ? { permissionMode: d.permissionMode } : {}),
   };
 }
 

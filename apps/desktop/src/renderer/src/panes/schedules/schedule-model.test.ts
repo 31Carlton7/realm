@@ -136,20 +136,22 @@ describe("the modal's draft", () => {
     expect(firstRun(d, now)).toBe(new Date(2026, 8, 8, 9).getTime());
   });
 
-  it("asks for the agent, the model, its level, fast mode and the permission, and keeps whatever else the task was given", () => {
+  it("asks for the agent, the model, its level and fast mode, drops a permission, and keeps whatever else the task was given", () => {
+    /* A scheduled run is Full access whatever the task holds, so a permission left from before is not
+       written back. THE MUTANT: a row still saying Plan about runs that work in Full access. */
     const before = { permissionMode: "plan" as const, skills: ["triage"], model: "old", fastMode: true };
     const d = { ...draftOf(schedule({ constraints: before }), "codex", now), model: "gpt-5.6-terra", effort: "medium" };
     expect(constraintsOf(d, before, ["low", "medium", "high"]))
-      .toEqual({ permissionMode: "plan", skills: ["triage"], agentKind: "codex", model: "gpt-5.6-terra", effort: "medium", fastMode: true });
-    // What the modal turned off is off: no level, no bolt, Ask each time — none of them written down.
-    expect(constraintsOf({ ...d, model: null, effort: null, fastMode: false, permissionMode: "default" }, before))
+      .toEqual({ skills: ["triage"], agentKind: "codex", model: "gpt-5.6-terra", effort: "medium", fastMode: true });
+    // What the modal turned off is off: no level, no bolt — neither written down.
+    expect(constraintsOf({ ...d, model: null, effort: null, fastMode: false }, before))
       .toEqual({ skills: ["triage"], agentKind: "codex" });
   });
 
-  it("opens a task's level, bolt and permission back onto the draft", () => {
+  it("opens a task's level and bolt back onto the draft", () => {
     expect(draftOf(schedule({ constraints: { agentKind: "claude", effort: "xhigh", fastMode: true, permissionMode: "acceptEdits" } }), "codex", now))
-      .toMatchObject({ agentKind: "claude", effort: "xhigh", fastMode: true, permissionMode: "acceptEdits" });
-    expect(draftOf(schedule(), "codex", now)).toMatchObject({ agentKind: "codex", effort: null, fastMode: false, permissionMode: null });
+      .toMatchObject({ agentKind: "claude", effort: "xhigh", fastMode: true });
+    expect(draftOf(schedule(), "codex", now)).toMatchObject({ agentKind: "codex", effort: null, fastMode: false });
   });
 
   it("saves a level only where the chosen model takes it, and a bolt only where its harness can be asked", () => {

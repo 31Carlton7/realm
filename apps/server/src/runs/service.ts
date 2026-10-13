@@ -65,8 +65,9 @@ export type CreateRunInput = {
  *
  * **The human gate.** A run stops at `blocked` when its worker asks for a person, and only
  * `approve` moves it on. Unattended automation that can never stop and ask is the failure mode this
- * state exists to make impossible — the same reason `bypassPermissions` is not in a run's vocabulary
- * at all (contracts/runs.ts).
+ * state exists to make impossible. `bypassPermissions` is not in a run's vocabulary (contracts/runs.ts),
+ * and the one run that gets it is a scheduled task's, which Realm puts there itself
+ * (`runPermissionMode`).
  */
 export class RunService {
   /** Shutdown latch. A dispatch is an async chain of DB writes that can outlive `close()`; without
@@ -393,8 +394,7 @@ export class RunService {
       if (sessionId && !this.sessionRuns(sessionId, run.agentKind)) sessionId = null;
       const model = run.constraints?.model ?? null, effort = run.constraints?.effort ?? null;
       const fastMode = run.constraints?.fastMode === true;
-      // Never `bypassPermissions` — it is not in a run's vocabulary at all (contracts/runs.ts).
-      const permissionMode = run.constraints?.permissionMode ?? "default";
+      const permissionMode = runPermissionMode(run);
       if (!sessionId) {
         try {
           const created = this.d.sessions.create({
@@ -628,6 +628,17 @@ export class RunService {
 const OUTCOME_WORD: Record<string, string> = {
   succeeded: "finished", failed: "failed", cancelled: "was cancelled", expired: "expired",
 };
+
+/**
+ * The permission a run's session works in. A scheduled task's run is always Full access, whatever
+ * its constraints say. It fires while nobody is at the Mac, and a permission prompt it stopped on
+ * would wait for someone to come back — the task not done on the day it was set for. Every other run — started by hand, or a team role's, which has its own
+ * permission setting — gets what it asked for, and Full access is not among what it can ask.
+ */
+export function runPermissionMode(run: Pick<Run, "scheduleId" | "roleId" | "constraints">): string {
+  if (run.scheduleId !== null && run.roleId === null) return "bypassPermissions";
+  return run.constraints?.permissionMode ?? "default";
+}
 
 /** The unattended-run posture, stated once as the worker's standing context. */
 export function workerPreamble(goal: string): string {
