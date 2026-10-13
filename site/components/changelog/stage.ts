@@ -380,7 +380,9 @@ export function walkStage(releases: AvenueRelease[]): StageFactory {
 
         // The sky cleared out of the way: of the walk, of each release, of the list's side of the page,
         // and, where the last release is read, of the footer coming up under it.
-        const side: Rect[] = banded ? [] : [[-W, -H, columnRight + W + 40, H * 3]]
+        // On a phone the band holds the opening and its words, which move with it.
+        const hero = input.anchors["c:hero"] ? local(input.anchors["c:hero"]) : null
+        const side: Rect[] = banded ? (hero ? [hero] : []) : [[-W, -H, columnRight + W + 40, H * 3]]
         const footer = input.anchors["c:footer"]
         const end = document.documentElement.scrollHeight - input.height
         const foot: Rect[] = footer && !banded ? [[-W, local(footer)[1] + scrollY - end - 60, W * 3, H * 2]] : []
@@ -471,13 +473,13 @@ export function arrivalStage(release: number, total: number, dark: boolean): Sta
         // Up to the door, from the moment the band starts to leave until it has gone.
         const travelled = clamp(-canvas[1] / Math.max(H * 0.8, 1), 0, 1)
         const u = input.still ? 0 : travelled
-        const near = viewAt(release, sx, sy, edge * 2.3, 1.2, 0.35)
+        const near = viewAt(release, sx, sy, edge * 1.7, 1.5, 0.45)
         let view = blend(far, near, smoother(u), 0)
         if (!input.still) view = orbit(view, realmOf(release), -sway(input, canvas, dt) * 0.8 * DEG)
 
         // The release's own realm, and the older ones going away behind it.
         const pose = poseOf(release, far.eye, t, input.still)
-        const open = dark || input.still ? 0 : smooth((u - 0.15) / 0.55)
+        const open = dark || input.still ? 0 : 0.7 * smooth((u - 0.25) / 0.6)
         const page: { pose: Pose; glow: number; open: number }[] = [{ pose, glow: dark ? 0 : 1, open }]
         for (let r = release + 1; r < total && page.length < 6; r++) page.push({ pose: poseOf(r, viewAt(r, sx, sy, edge).eye, t, input.still), glow: LIT_AHEAD, open: 0 })
         s.page(page)
@@ -487,7 +489,9 @@ export function arrivalStage(release: number, total: number, dark: boolean): Sta
         // Nothing but points behind the title, nor anywhere on its side of the band where the realm
         // hangs beside it rather than over it.
         const title = input.anchors["c:title"] ? local(input.anchors["c:title"]) : null
-        const words: Rect[] = !title ? [] : slot[0] > title[0] + title[2] ? [[-W, -H, title[0] + title[2] + W + 40, H * 3]] : [title]
+        // The band starts at the top of the page, under the header's bar.
+        const bar: Rect = [-W, -H, W * 3, H + 80]
+        const words: Rect[] = !title ? [bar] : slot[0] > title[0] + title[2] ? [[-W, -H, title[0] + title[2] + W + 40, H * 3], bar] : [title, bar]
         s.clearFor([{ view: far, keep: 9, words }], path, W, H)
 
         const corners = panes()
