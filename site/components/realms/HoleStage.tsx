@@ -212,7 +212,7 @@ function FallbackHole() {
         <filter id="hole-glow" x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur stdDeviation="7" />
         </filter>
-        {/* Over the cube's faces the near strands are mostly taken in. */}
+        {/* Over the cube's faces the near threads are mostly taken in. */}
         <mask id="hole-faces" maskUnits="userSpaceOnUse" x="-520" y="-250" width="1040" height="480">
           <rect x="-520" y="-250" width="1040" height="480" fill="white" />
           <path d={silhouette} fill="oklch(0.32 0 0)" />

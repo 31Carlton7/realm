@@ -327,7 +327,7 @@ fn holeTaken(p: vec3f) -> vec3f {
   var light = vec3f(0.0);
   for (var k = 0; k < ${HOLE.drops}; k++) {
     let e = hole.drops[k * 3 + 2];
-    if (e.w <= 0.0 || e.w > 1.6) { continue; }
+    if (e.w <= 0.0 || e.w > 1.2) { continue; }
     // Only across the face that took it: a ripple stops at the face's edges, as water does at a shore.
     let face = abs(e.xyz);
     let here = abs(p);
@@ -336,11 +336,11 @@ fn holeTaken(p: vec3f) -> vec3f {
     if (axis != mine || sign(e[axis]) != sign(p[axis])) { continue; }
     let strength = hole.drops[k * 3].w;
     let dist = length(p - e.xyz);
-    let radius = 0.05 + 0.95 * pow(e.w, 0.7);
-    let off = (dist - radius) / (0.025 + 0.03 * e.w);
-    let ring = exp(-off * off) * pow(1.0 - e.w / 1.6, 2.5);
+    let radius = 0.05 + 0.8 * pow(e.w, 0.7);
+    let off = (dist - radius) / (0.018 + 0.02 * e.w);
+    let ring = exp(-off * off) * pow(1.0 - e.w / 1.2, 2.5);
     let flash = exp(-dist * dist / 0.012) * exp(-e.w / 0.15);
-    light += (HOLE_DOOR_BLUE * ring * 0.5 + HOLE_WHITE * flash * 3.0) * strength;
+    light += (HOLE_DOOR_BLUE * ring * 0.35 + HOLE_WHITE * flash * 2.4) * strength;
   }
   return light;
 }
