@@ -28,8 +28,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
-import { bootServer, freePort, removeHome, repoRoot } from "../../server/scripts/lib/mobile-rig";
-import { RemoteGateway } from "../../server/src/remote/gateway";
+import { bootServer, freePort, removeHome, repoRoot, scratchGateway } from "../../server/scripts/lib/mobile-rig";
 import { loopbackRpc } from "../../server/src/remote/rpc-port";
 
 const arg = (name: string): string | undefined => { const i = process.argv.indexOf(`--${name}`); return i >= 0 ? process.argv[i + 1] : undefined; };
@@ -70,7 +69,7 @@ const rpc = await loopbackRpc({ port: server.port, token: server.token });
 const ui = process.argv.includes("--ui");
 // In UI runs the Mac holds its answer long enough for the phone to be seen asking for it.
 const confirmMs = Number(arg("confirm-ms") ?? (ui ? 6_000 : 0));
-const gw = new RemoteGateway({
+const gw = scratchGateway({
   home: server.home, relay: relay.url, rpc, macName: arg("mac") ?? "MacBook Pro", version: "2.0.3", dev: true,
   confirm: async () => { await new Promise((r) => setTimeout(r, confirmMs)); return true; },
 });
