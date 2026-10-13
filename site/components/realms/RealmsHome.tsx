@@ -5,12 +5,13 @@ import { DownloadButton, QuietButton } from "@/components/Buttons"
 import { Actions, Announcement, Lede, ProductWindow } from "@/components/realms/HeroParts"
 import { GitHubIcon, GlobeIcon, LinkedInIcon, XIcon } from "@/components/icons"
 import { FIELD_PATTERN, TILE } from "@/components/realms/hive/fallback"
-import { Chapter } from "@/components/realms/Chapter"
+import { Chapter, type ChapterPicture } from "@/components/realms/Chapter"
 import { Flight } from "@/components/realms/Flight"
 import { Team } from "@/components/realms/Team"
 import { SiteHeader } from "@/components/SiteHeader"
 import { Wordmark } from "@/components/Wordmark"
 import { delegation, facets, facetsCoda, faq, type Claim } from "@/content/home"
+import { partImage, sceneImage } from "@/lib/pictures"
 import type { MacDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 
@@ -36,6 +37,19 @@ const FACTS: { title: string; body: string }[] = [
   { title: "No API key", body: "Realm drives the agent CLIs you already have, on the plan you already pay for." },
   { title: "Signed and notarized", body: "Builds for Apple silicon, updated from a public release feed. The source is on GitHub." },
 ]
+
+/**
+ * A claim's evidence: the part of the window it is about, photographed on its own, or its whole scene
+ * where no part was taken; nothing when neither was (design.md: a claim whose capture does not exist
+ * reads as prose).
+ */
+function evidence(claim: Claim): ChapterPicture | null {
+  const alt = claim.caption ?? claim.title
+  const part = claim.part ? partImage(claim.part) : null
+  if (part) return { image: part, alt, caption: claim.caption ?? "", kind: "part" }
+  if (claim.capture) return { image: sceneImage(claim.capture), alt, caption: claim.caption ?? "", kind: "window" }
+  return null
+}
 
 /** The order the flight visits the claims in, and which side each one's screen stands on. */
 const ROUTE: { id: string; side: "left" | "right" }[] = [
@@ -67,7 +81,7 @@ const ROUTE: { id: string; side: "left" | "right" }[] = [
 export async function RealmsHome({ download, claims }: HomeProps) {
   const byId = new Map(claims.map((claim) => [claim.id, claim]))
   const chapters = ROUTE.map((stop) => ({ ...stop, claim: byId.get(stop.id) })).filter(
-    (stop): stop is { id: string; side: "left" | "right"; claim: Claim } => Boolean(stop.claim?.capture),
+    (stop): stop is { id: string; side: "left" | "right"; claim: Claim } => Boolean(stop.claim),
   )
 
   return (
@@ -108,10 +122,10 @@ export async function RealmsHome({ download, claims }: HomeProps) {
           side="right"
           tall
           title="What a realm holds."
-          caption="A session in the Dashboard space, and the file its turn edited open in vim in a terminal beside it."
           picture={{
-            kind: "scene",
-            slug: "terminal",
+            image: sceneImage("terminal"),
+            kind: "window",
+            caption: "A session in the Dashboard space, and the file its turn edited open in vim in a terminal beside it.",
             alt: "Realm's window: the sidebar with every space, a session in the Dashboard space that edited two files, and a terminal beside it with vim open on web/lib/orgs.ts.",
           }}
         >
@@ -136,8 +150,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
             side={side}
             tall={id === "delegation"}
             title={claim.title}
-            caption={claim.caption ?? ""}
-            picture={{ kind: "claim", id: claim.id, focus: claim.focus, alt: claim.caption ?? claim.title }}
+            picture={evidence(claim)}
           >
             {id === "delegation" ? (
               <>

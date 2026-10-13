@@ -368,6 +368,14 @@ export const createRealms: StageFactory = async (gpu, output) => {
     node.el.style.cssText = css
   }
 
+  /**
+   * The pointer's lamp on a picture's rim (Screen's `.screen-light`): where the lamp is in the
+   * picture's own unscaled box, and how present it is. Only the rim takes it, so nothing is laid over
+   * the picture; under reduced motion the lamp is out and the rim is its resting outline.
+   */
+  const rimLamp = (x: number, y: number) =>
+    lamp.presence < 0.002 ? "" : `--lx:${x.toFixed(1)}px;--ly:${y.toFixed(1)}px;--lamp:${lamp.presence.toFixed(3)}`
+
   const setMode = (next: Mode) => {
     if (next === mode) return
     mode = next
@@ -477,6 +485,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
         const node = screens.get(id)
         if (!node || !stand.slot || !stand.foot || stand.depth === undefined) return
         const pictureOn = now.picture[index]!
+        // The picture's own corner (Screen's `data-radius`, a share of its width), so the light drawn
+        // round it follows the surface it shows: a window's corner, a picker's, a column's.
+        const corner = Number(node.el.dataset.radius ?? 0)
         if (mode === "flight") {
           const [bx, by, z] = project(view, b, stand.foot)
           const shown = z > 0.6 && pictureOn > 0.001
@@ -488,7 +499,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
           write(
             node,
             shown
-              ? `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;transform:translate3d(${left.toFixed(2)}px,${top.toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${pictureOn.toFixed(3)}`
+              ? `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;transform:translate3d(${left.toFixed(2)}px,${top.toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${pictureOn.toFixed(3)};${rimLamp((lamp.x - left) / s, (lamp.y - top) / s)}`
               : `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;opacity:0;pointer-events:none`,
           )
           if (z > 0.6 && (opening > 0.001 || pictureOn > 0.001) && panels.length < PANELS * 2 && stand.realm) {
@@ -512,18 +523,17 @@ export const createRealms: StageFactory = async (gpu, output) => {
             // goes with the picture, so no dark rect is left behind it.
             const leaving = now.at.from === index && now.at.to !== index
             const fill = leaving ? pictureOn : smooth(Math.min(1, opening * 2.4))
-            panels.push([...rect], [fill, lerp(1.5, 12 * s, e), pictureOn, (0.35 + 0.65 * spread) * (1 - pictureOn) * smooth(opening)])
+            panels.push([...rect], [fill, lerp(1.5, corner * w, e), pictureOn, (0.35 + 0.65 * spread) * (1 - pictureOn) * smooth(opening)])
             if (lights.length < SCREENS * 2) {
               const W = (stand.slot[0] * stand.depth) / stand.key.view.focal
               const H = (stand.slot[1] * stand.depth) / stand.key.view.focal
               lights.push([...stand.foot, W], [H, stand.key.view.yaw, Math.max(opening, pictureOn), 0])
             }
-            if (pictureOn > 0.05) clears.push([left, top + h + 4, Math.min(w, 600), 52])
           }
         } else {
           // In the slot: the screen is where the layout put it, and its light is read from there.
-          write(node, "")
           const slot = input.anchors[`s:${id}`]
+          write(node, slot ? rimLamp(lamp.x - slot[0], lamp.y - slot[1]) : "")
           if (slot && visible(slot) && lights.length < SCREENS * 2) {
             const ray = rayThrough(view, b, slot[0] + slot[2] / 2, slot[1] + slot[3])
             if (ray[2] < -1e-3) {
@@ -532,9 +542,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
               const depth = dot(sub(foot, view.eye), b.fwd)
               lights.push([...foot, (slot[2] * depth) / view.focal], [(slot[3] * depth) / view.focal, view.yaw, 0.85, 0])
             }
-            if (panels.length < PANELS * 2) panels.push([...slot], [0, 12, 1, 0])
+            if (panels.length < PANELS * 2) panels.push([...slot], [0, corner * slot[2], 1, 0])
           }
-          if (slot && visible(slot)) clears.push([slot[0], slot[1] + slot[3] + 4, Math.min(slot[2], 600), 52])
         }
       })
 

@@ -332,3 +332,132 @@ pre {
     animation: none;
   }
 }
+
+/* One device pixel, whatever the screen: the inset outline every picture keeps (design.md, Surfaces). */
+:root {
+  --hairline: 1px;
+}
+
+@media (min-resolution: 2dppx) {
+  :root {
+    --hairline: 0.5px;
+  }
+}
+
+/* A picture of the app (components/realms/Screen.tsx). Its corner is the surface's own, carried as
+   a percentage of its box (`--screen-radius`), so it scales with the picture at any width. */
+.screen {
+  position: relative;
+  width: 100%;
+}
+
+.screen-slot {
+  position: relative;
+  width: 100%;
+}
+
+.screen-figure {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  transform-origin: top left;
+}
+
+/* In the flight the field moves it, from the realm whose doorway it opens out of. */
+html[data-realms-flight="on"] .screen-figure[data-screen] {
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
+  opacity: 0;
+}
+
+.screen-frame {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--screen-radius);
+  box-shadow: var(--screen-shadow);
+}
+
+/* A window stands in the page under a window's shadow; a part lifted off it floats under the app's
+   own raised shadow (`--shadow-raised`, the picker's and the track card's), with a dark rim so its
+   edge holds against whatever the field draws behind it. */
+.screen[data-kind="window"] {
+  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.5), 0 30px 70px -20px oklch(0 0 0 / 0.65), 0 80px 140px -60px oklch(0 0 0 / 0.5);
+}
+
+.screen[data-kind="part"] {
+  --screen-shadow: 0 0 0 1px oklch(0 0 0 / 0.42), 0 8px 16px oklch(0 0 0 / 0.22), 0 24px 117px oklch(0 0 0 / 0.24);
+}
+
+.screen-image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--screen-radius);
+}
+
+/* What lies on the picture's edge and nowhere else: the outline, the light from above catching its
+   top edge, and in the flight the pointer's lamp on the rim nearest it (`--lx`, `--ly`, `--lamp`,
+   written by the field). Each is a ring one hairline wide, so none of it is over the picture. */
+.screen-light {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--screen-radius);
+  pointer-events: none;
+  box-shadow: inset 0 0 0 var(--hairline) oklch(1 0 0 / 0.1);
+}
+
+.screen-light::before,
+.screen-light::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: var(--hairline);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+.screen-light::before {
+  background: linear-gradient(to bottom, oklch(1 0 0 / 0.2), oklch(1 0 0 / 0) 40%);
+}
+
+.screen-light::after {
+  background: radial-gradient(320px circle at var(--lx, -999px) var(--ly, -999px), oklch(0.84 0.08 250 / calc(var(--lamp, 0) * 0.7)), transparent 70%);
+}
+
+/* Where it meets the ground, only where there is a field to stand in. A window stands on it: a tight
+   dark contact where its foot meets the ground. A part floats a little above it: a wider, softer
+   shade a little below, as an object held over a surface casts. */
+.screen-ground {
+  position: absolute;
+  top: 100%;
+  z-index: -1;
+  display: none;
+  pointer-events: none;
+}
+
+html[data-field="on"] .screen-ground {
+  display: block;
+}
+
+.screen[data-kind="window"] .screen-ground {
+  left: 3%;
+  right: 3%;
+  height: 22px;
+  margin-top: -11px;
+  background: radial-gradient(closest-side, oklch(0 0 0 / 0.75), oklch(0 0 0 / 0));
+}
+
+.screen[data-kind="part"] .screen-ground {
+  left: 10%;
+  right: 10%;
+  height: 40px;
+  margin-top: 6px;
+  background: radial-gradient(closest-side, oklch(0 0 0 / 0.5), oklch(0 0 0 / 0));
+  filter: blur(4px);
+}
