@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { tempDir } from "@realm/test-utils";
 import { ComputerUseHelper, probeGrantsOnce } from "./computer-use-helper";
 
 /**
@@ -41,13 +41,12 @@ const setTrust = (name: "accessibility" | "screenRecording", on: boolean) => wri
 const spawns = (): number => { try { return readFileSync(join(dir, "spawns"), "utf8").length; } catch { return 0; } };
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "realm-axhelper-"));
+  dir = tempDir("realm-axhelper-");
   writeFileSync(join(dir, "helper.cjs"), FAKE_HELPER);
   bin = join(dir, "axhelper");
   writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "helper.cjs")}" "${dir}"\n`);
   chmodSync(bin, 0o755);
 });
-afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 describe("the helper bridge against a scripted helper", () => {
   it("a running helper keeps the trust it saw at launch — the cache this work routes around", async () => {
