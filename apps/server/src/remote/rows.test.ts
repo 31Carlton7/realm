@@ -80,6 +80,90 @@ describe("the phone's rows", () => {
     for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
   });
 
+  it("draws a question from Realm's own card: several picks, words of your own, a secret, and an answer key that is not the prompt", () => {
+    const p = new SessionProjector();
+    const ask = {
+      asker: { kind: "server" as const, name: "Linear" }, mode: "form" as const, message: "To file the issue",
+      questions: [
+        { id: "team", prompt: "Which team?", kind: "choice" as const, options: [{ value: "eng", label: "Engineering", description: "Builds it" }, { value: "ops", label: "Operations" }], allowOther: true },
+        { id: "labels", prompt: "Which labels?", header: "Labels", kind: "multi" as const, options: [{ value: "bug", label: "bug" }, { value: "p1", label: "p1" }] },
+        { id: "token", prompt: "Paste the deploy token", kind: "text" as const, secret: true, required: true, placeholder: "tok_…" },
+        { id: "ship", prompt: "Ship it now?", kind: "confirm" as const, default: "no" },
+      ],
+    };
+    p.apply(persisted(sessionEvent("permission_request", { requestId: "q1", toolName: "mcp__linear__create", input: {}, title: "Linear asks", suggestions: [], ask })));
+    const [row] = p.all();
+    expect(RowSchema.safeParse(row).success).toBe(true);
+    expect(row).toMatchObject({ kind: "request", asker: "Linear's MCP server", message: "To file the issue" });
+    // THE MUTANTS: read questions off the tool's name (an MCP form is no `AskUserQuestion`), or drop
+    // the card's id, multi-select, words-of-your-own or secret, and the phone answers it wrongly.
+    expect(row?.kind === "request" && row.questions).toEqual([
+      { question: "Which team?", header: "", multiSelect: false, id: "team", kind: "choice", allowOther: true, secret: false,
+        options: [{ label: "Engineering", description: "Builds it", value: "eng" }, { label: "Operations", value: "ops" }] },
+      { question: "Which labels?", header: "Labels", multiSelect: true, id: "labels", kind: "multi", allowOther: false, secret: false,
+        options: [{ label: "bug" }, { label: "p1" }] },
+      { question: "Paste the deploy token", header: "", multiSelect: false, id: "token", kind: "text", allowOther: false, secret: true, required: true, placeholder: "tok_…", options: [] },
+      // A yes-or-no carries no options on its card; the phone is given the two the desktop draws.
+      { question: "Ship it now?", header: "", multiSelect: false, id: "ship", kind: "confirm", allowOther: false, secret: false, default: "no",
+        options: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }] },
+    ]);
+  });
+
+  it("reads an AskUserQuestion that predates the card off its input, and leaves a request Realm declined as no question", () => {
+    const p = new SessionProjector();
+    const input = { questions: [{ question: "Which regions?", header: "Regions", multiSelect: true, options: [{ label: "us-east" }, { label: "eu-west" }] }] };
+    p.apply(persisted(sessionEvent("permission_request", { requestId: "old", toolName: "AskUserQuestion", input, title: "Question", suggestions: [] })));
+    const refused = { asker: { kind: "server" as const, name: "Shady" }, mode: "form" as const, refused: "It asked for a password.", questions: [{ id: "_", prompt: "Password?", kind: "text" as const }] };
+    p.apply(persisted(sessionEvent("permission_request", { requestId: "no", toolName: "mcp__shady__ask", input: {}, title: "Shady asks", suggestions: [], ask: refused })));
+    const [old, declined] = p.all();
+    expect(old).toMatchObject({ asker: "Claude", questions: [{ id: "Which regions?", question: "Which regions?", multiSelect: true, allowOther: true, options: [{ label: "us-east" }, { label: "eu-west" }] }] });
+    expect(declined).toMatchObject({ kind: "request", questions: null });
+  });
+
+  it("keeps the answers a request was given, a secret one only as its mark", () => {
+    const p = new SessionProjector();
+    const input = { questions: [{ question: "Which?", header: "", multiSelect: true, options: [{ label: "A" }, { label: "B" }] }] };
+    p.apply(persisted(sessionEvent("permission_request", { requestId: "r1", toolName: "AskUserQuestion", input, title: "Question", suggestions: [] })));
+    p.apply(persisted(sessionEvent("permission_response", { requestId: "r1", decision: "allow", answers: { "Which?": ["A", "mine"], token: "••••••" } })));
+    expect(p.all()[0]).toMatchObject({ state: "allowed", answers: { "Which?": ["A", "mine"], token: "••••••" } });
+  });
+
+  it("puts the plan's text and steps on the request that asks to approve it", () => {
+    const p = new SessionProjector();
+    p.apply(persisted(sessionEvent("plan", { planId: "p1", steps: [{ text: "Write the migration", status: "pending" }, { text: "Test it", status: "pending" }] })));
+    p.apply(persisted(sessionEvent("permission_request", { requestId: "x1", toolName: "ExitPlanMode", input: { plan: "## Plan\n\nAdd a column." }, title: "Approve the plan?", suggestions: [] })));
+    const request = p.all().find((r) => r.kind === "request");
+    // THE MUTANT: carry no plan, and the phone approves something it was never shown.
+    expect(request).toMatchObject({ kind: "request", questions: null, plan: { text: "## Plan\n\nAdd a column.", steps: [{ text: "Write the migration", status: "pending" }, { text: "Test it", status: "pending" }] } });
+    expect(RowSchema.safeParse(request).success).toBe(true);
+    // A plan with no prose of its own takes the latest plan's.
+    const q = new SessionProjector();
+    q.apply(persisted(sessionEvent("plan", { planId: "p2", text: "Do the thing" })));
+    q.apply(persisted(sessionEvent("permission_request", { requestId: "x2", toolName: "ExitPlanMode", input: {}, title: "Approve the plan?", suggestions: [] })));
+    expect(q.all().find((r) => r.kind === "request")).toMatchObject({ plan: { text: "Do the thing", steps: null } });
+  });
+
+  it("holds the suggested next message until something is sent, and never lets an older one replace a newer", () => {
+    const p = new SessionProjector();
+    expect(p.hint).toBeNull();
+    p.apply(persisted(sessionEvent("prompt_hint", { text: "Run the tests", throughSeq: 5 })));
+    expect(p.hint).toBe("Run the tests");
+    p.apply(persisted(sessionEvent("prompt_hint", { text: "Ship it", throughSeq: 9 })));
+    p.apply(persisted(sessionEvent("prompt_hint", { text: "An older thought", throughSeq: 7 })));
+    // THE MUTANT: last-arrived wins, and a slow hint for an earlier turn replaces the current one.
+    expect(p.hint).toBe("Ship it");
+    p.apply(persisted(sessionEvent("user_message", { text: "ship it", attachments: [] })));
+    expect(p.hint).toBeNull();
+  });
+
+  it("names a turn's checkpoint on its changes, and the files a turn made by their paths", () => {
+    const p = new SessionProjector();
+    p.apply(persisted(sessionEvent("turn_changes", { checkpointId: "cp1", settledAt: 1, root: "/r", afterTree: "abc", files: [{ path: "a.ts", oldPath: null, status: "modified", additions: 1, deletions: 1 }], totalFiles: 1 })));
+    p.apply(persisted(sessionEvent("files_made", { settledAt: 7, files: [{ path: "/Users/me/shot.png", size: 1024 }], totalFiles: 1 })));
+    expect(p.all()).toMatchObject([{ kind: "notice", checkpointId: "cp1" }, { kind: "notice", files: [{ path: "/Users/me/shot.png", size: 1024 }] }]);
+    for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
+  });
+
   it("names a tool call by what it touches", () => {
     expect(summarize("Read", { file_path: "/a/b.ts" })).toBe("/a/b.ts");
     expect(summarize("WebSearch", { query: "noise protocol" })).toBe("noise protocol");
