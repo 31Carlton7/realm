@@ -477,8 +477,9 @@ fn toLinear3(c: vec3f) -> vec3f {
 
 // The ground between the realms: the page's own colour, darker close in to every realm's foot, and
 // lit where a doorway or a screen throws its light out onto it. \`detail\` is how much of that a pixel
-// can still resolve (1 close in, 0 from high up), and \`spot\` is the pixel's own size on the page, so
-// a lit doorway seen from far enough up is drawn as the point of light it has become.
+// can still resolve (1 close in, 0 from high up), \`here\` is the pixel on the page and \`spot\` how
+// much ground it covers, in edges, so a lit doorway seen from far enough up is drawn as the point of
+// light it has become.
 fn ground(p: vec3f, detail: f32, here: vec2f, spot: f32) -> vec3f {
   let base = round(latticeOf(p.xy));
   // A doorway is a point of light while its cell is several pixels across; smaller, it would only salt
@@ -760,7 +761,7 @@ fn clearance(p: vec2f) -> f32 {
     // The doorway's light opening out into the screen: the rect goes dark as it grows, with the light
     // gathered at its edges like a frame being drawn open, and the picture fades in over the dark.
     let depth = clamp(d, -400.0, 0.0);
-    let rim = exp(depth / 10.0) * 0.55 + exp(depth / 46.0) * 0.12 + 0.03;
+    let rim = exp(depth / 5.0) * 0.7 + exp(depth / 22.0) * 0.07 + 0.02;
     let panel = page + vec3f(0.74, 0.84, 1.0) * s.w * rim;
     color = mix(color, panel, inside * s.x);
     let out = max(d, 0.0);
