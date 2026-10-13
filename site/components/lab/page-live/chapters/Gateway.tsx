@@ -238,7 +238,7 @@ export function Gateway() {
             const hidden = !shown(i)
             return (
               <div key={i} style={{ top: y(i) - 26, left: Math.min(a, b), width: Math.abs(b - a) }} className={`absolute flex flex-col items-center transition-opacity duration-300 ${hidden ? "opacity-0" : "opacity-100"}`}>
-                <span className="flex items-center gap-1.5 text-[12.5px] whitespace-nowrap text-ink-2">
+                <span className="flex items-center gap-1.5 bg-page px-1.5 text-[12.5px] whitespace-nowrap text-ink-2">
                   {s.label}
                   {s.key ? (
                     <span title="The token" className="inline-flex items-center gap-1 rounded-[6px] bg-[oklch(0.68_0.173_253.301/0.14)] px-1.5 py-0.5 text-[11.5px] text-accent-ink">
@@ -255,7 +255,7 @@ export function Gateway() {
                     Submit review
                   </button>
                 ) : s.note ? (
-                  <span className="absolute top-[34px] text-[12px] whitespace-nowrap text-ink-2">{s.note}</span>
+                  <span className="absolute top-[34px] bg-page px-1.5 text-[12px] whitespace-nowrap text-ink-2">{s.note}</span>
                 ) : null}
               </div>
             )

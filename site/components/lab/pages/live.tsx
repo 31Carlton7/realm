@@ -76,21 +76,7 @@ export default function Live({ download, claims }: PageDesignProps) {
           title="A transcript you can read."
           flip
           instrument={<Timeline />}
-          evidence={
-            <div className="grid gap-10 lg:grid-cols-12 lg:items-end">
-              <div className="lg:col-span-9">
-                <Evidence claim={claim("transcript")} />
-              </div>
-              <Detail
-                className="lg:col-span-3"
-                src={track.src}
-                width={track.width}
-                height={track.height}
-                alt="The card for a tick on a session's track: the prompt, how the answer began, the time, and Edited 2 files."
-                caption="Hover a tick in the app and its card says what was asked, how the answer began, and what the turn edited."
-              />
-            </div>
-          }
+          evidence={<Evidence claim={claim("transcript")} flip />}
         >
           <p>
             A turn isn&rsquo;t a wall of log. Tool calls fold into rows you can open, a plan shows up as a plan, and a turn
@@ -101,6 +87,14 @@ export default function Live({ download, claims }: PageDesignProps) {
             checkpoint. <strong>Undo is there only when a checkpoint can take back exactly that turn</strong>, and restoring
             one puts the files back. For Claude, it rewinds the conversation too.
           </p>
+          <Detail
+            className="pt-4"
+            src={track.src}
+            width={track.width}
+            height={track.height}
+            alt="The card for a tick on a session's track: the prompt, how the answer began, the time, and Edited 2 files."
+            caption="A tick's card in the app: what was asked, how the answer began, and what the turn edited."
+          />
         </Chapter>
 
         <Chapter id="sandbox" title="Confine what an agent can touch." instrument={<Boundary />} evidence={<Evidence claim={claim("sandbox")} />}>
@@ -123,8 +117,8 @@ export default function Live({ download, claims }: PageDesignProps) {
           instrument={<Gateway />}
           evidence={
             <div className="space-y-14">
-              <Evidence claim={claim("gateway")} />
-              <Evidence claim={claim("review")} />
+              <Evidence claim={claim("gateway")} flip />
+              <Evidence claim={claim("review")} flip />
             </div>
           }
         >

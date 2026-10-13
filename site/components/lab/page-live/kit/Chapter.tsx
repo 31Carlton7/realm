@@ -80,12 +80,12 @@ const WHOLE = { x: 0.5, y: 0, span: 1 }
  * A claim's real capture, cut to the part of the window the claim is about (lib/frames.ts carries the
  * arithmetic, shared with the encoder that cut the file), with the caption that says what is in it.
  */
-export function Evidence({ claim, label = "In the app" }: { claim: Claim; label?: string }) {
+export function Evidence({ claim, label = "In the app", flip = false }: { claim: Claim; label?: string; flip?: boolean }) {
   if (!claim.capture) return null
   const focus = claim.focus ?? WHOLE
   const crop = cropPixels(focus)
   return (
-    <figure className="grid gap-x-12 gap-y-4 lg:grid-cols-12 lg:items-end">
+    <figure className={`grid gap-x-12 gap-y-4 lg:grid-cols-12 lg:items-end ${flip ? "lg:[&>figcaption]:order-first lg:[&>figcaption]:text-right" : ""}`}>
       <div className="relative aspect-4/3 w-full overflow-hidden rounded-[16px] bg-page sm:aspect-[15/8] lg:col-span-9">
         <img
           src={claimFile(claim.id)}

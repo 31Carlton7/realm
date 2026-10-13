@@ -119,13 +119,10 @@ export function TeamRelay() {
 
         <div className="relative grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,17.5rem)] sm:items-start">
           <div>
-            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {ROLES.filter((r) => r.id !== "ops").map((r) => (
-                <RoleStation key={r.id} role={r} spec={specs[r.id]!} state={states[r.id]} picked={picked === r.id} onPick={() => setPicked(r.id)} />
-              ))}
-            </ul>
-            <ul className="mt-14 grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {ROLES.filter((r) => r.id === "ops").map((r) => (
+            {/* One row of four on a phone; on a wide screen the relay runs along the top and Ops, who
+                hands to the Researcher, sits under the start of it. */}
+            <ul className="grid grid-cols-4 gap-2 sm:grid-cols-3 sm:gap-x-3 sm:gap-y-14">
+              {ROLES.map((r) => (
                 <RoleStation key={r.id} role={r} spec={specs[r.id]!} state={states[r.id]} picked={picked === r.id} onPick={() => setPicked(r.id)} />
               ))}
             </ul>
@@ -216,7 +213,7 @@ function RoleStation({
 }) {
   const word = state === "needs-you" ? "Needs you" : state === "working" ? "Working" : state === "sleeping" ? "Done for today" : "Idle"
   return (
-    <li>
+    <li className={role.id === "ops" ? "sm:col-start-1 sm:row-start-2" : ""}>
       <button
         type="button"
         aria-pressed={picked}
@@ -225,12 +222,12 @@ function RoleStation({
       >
         <span
           data-anchor={`role-${role.id}`}
-          className={`grid size-[60px] place-items-center rounded-full bg-page transition-[box-shadow] duration-200 ${picked ? "shadow-[inset_0_0_0_1px_var(--color-accent)]" : "shadow-[inset_0_0_0_1px_oklch(1_0_0/0.22)]"}`}
+          className={`grid size-[56px] place-items-center rounded-full bg-page transition-[box-shadow] duration-200 ${picked ? "shadow-[inset_0_0_0_1px_var(--color-accent)]" : "shadow-[inset_0_0_0_1px_oklch(1_0_0/0.22)]"}`}
         >
-          <Realmite spec={spec} size={44} state={state} />
+          <Realmite spec={spec} size={40} state={state} />
         </span>
-        <span className="text-[13px] font-[520] text-ink">{role.name}</span>
-        <span className={`flex items-center gap-1.5 text-[12px] ${state === "needs-you" ? "text-orange" : state === "working" ? "text-green" : "text-ink-3"}`}>
+        <span className="text-[12.5px] leading-[1.3] font-[520] text-balance text-ink sm:text-[13px]">{role.name}</span>
+        <span className={`flex items-center gap-1.5 text-[12px] max-sm:text-center ${state === "needs-you" ? "text-orange" : state === "working" ? "text-green" : "text-ink-3"}`}>
           {state === "needs-you" || state === "working" ? <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${state === "needs-you" ? "bg-orange" : "bg-green"}`} /> : null}
           {word}
         </span>
