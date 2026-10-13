@@ -48,7 +48,7 @@ export function canPass(): boolean {
 }
 
 /** Set a passage off as its link is followed. */
-export function begin(passage: Omit<Passage, "at" | "landed">) {
+export function begin(passage: Omit<Passage, "at" | "landed" | "arrive">) {
   current = { ...passage, at: performance.now() }
   setPoint("--passage", passage.x, passage.y)
   for (const watch of watchers) watch(current)
