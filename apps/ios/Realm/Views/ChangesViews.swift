@@ -108,7 +108,7 @@ struct ChangedFileRow: View {
         case "added": "plus.square.fill"
         case "deleted": "minus.square.fill"
         case "renamed": "arrow.right.square.fill"
-        default: "pencil.and.outline"
+        default: "dot.square.fill"
         }
     }
 
@@ -193,6 +193,8 @@ struct DiffView: View {
     @State private var page: DiffPage?
     @State private var problem: String?
     @State private var loading = false
+    @ScaledMetric(relativeTo: .caption) private var advance: CGFloat = DiffLines.baseAdvance
+    @ScaledMetric(relativeTo: .caption) private var gutter: CGFloat = DiffLines.baseGutter
 
     var body: some View {
         Group {
@@ -205,9 +207,11 @@ struct DiffView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                // The title already names the file, so its two header lines are left out.
+                let shown = lines.filter { $0.kind != .fileHeader }
                 ScrollView([.vertical, .horizontal]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        DiffLines(lines: lines)
+                        DiffLines(lines: shown)
                         if page?.next != nil {
                             ProgressView()
                                 .padding(16)
@@ -220,6 +224,10 @@ struct DiffView: View {
                         }
                     }
                     .padding(.vertical, 8)
+                    // As wide as the longest line, or the screen: every line's wash runs the same length.
+                    .containerRelativeFrame(.horizontal, alignment: .leading) { length, _ in
+                        max(length, DiffLines.width(of: shown, advance: advance, gutter: gutter))
+                    }
                 }
             }
         }
@@ -228,10 +236,12 @@ struct DiffView: View {
         .navigationSubtitle(ChangesWords.folder(file.path) ?? ChangedFileRow.word(file.status))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Words, not a press: no glass behind them.
             ToolbarItem(placement: .topBarTrailing) {
                 LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
                     .padding(.horizontal, 8)
             }
+            .sharedBackgroundVisibility(.hidden)
         }
         .task { if lines.isEmpty { await loadMore() } }
     }
@@ -254,7 +264,18 @@ struct DiffView: View {
 /// wash. Long lines run on to the right rather than wrap: code is read as written.
 struct DiffLines: View {
     let lines: [NumberedLine]
-    @ScaledMetric(relativeTo: .caption) private var gutter: CGFloat = 38
+    @ScaledMetric(relativeTo: .caption) private var gutter: CGFloat = DiffLines.baseGutter
+
+    /// The numbers' column, at the caption size before Dynamic Type scales it.
+    static let baseGutter: CGFloat = 38
+    /// JetBrains Mono draws every glyph 0.6 em wide: its advance at the caption size.
+    static let baseAdvance: CGFloat = RealmType.baseSize(.caption) * 0.6
+
+    /// How wide the longest of these lines is drawn: the numbers, the gap, the text, the margin.
+    static func width(of lines: [NumberedLine], advance: CGFloat, gutter: CGFloat) -> CGFloat {
+        let longest = lines.lazy.map { body($0).count }.max() ?? 0
+        return gutter + 10 + CGFloat(longest) * advance + 16
+    }
 
     var body: some View {
         ForEach(lines) { line in
@@ -412,6 +433,7 @@ struct FilePreviewSheet: View {
                     switch preview.preview {
                     case .image(_, let data):
                         if let image = UIImage(data: data) {
+                            // Centred in the sheet, as Quick Look shows a picture.
                             ScrollView {
                                 Image(uiImage: image)
                                     .resizable()
@@ -425,6 +447,7 @@ struct FilePreviewSheet: View {
                                     .padding(16)
                                     .accessibilityLabel(file.name)
                             }
+                            .defaultScrollAnchor(.center, for: .alignment)
                         } else {
                             unavailable("The picture did not arrive whole.")
                         }

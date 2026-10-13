@@ -40,10 +40,10 @@ final class AppModel {
     /// Settings, in its sheet over Home.
     var settingsShown = false
     var pairing: PairingStatus = .idle
-    /// Goes up with every Mac paired, for the one moment worth a haptic.
-    private(set) var pairings = 0
     /// Spaces' own pictures, by space, once fetched: `space.icon` is asked once per space a run.
     private(set) var spacePictures: [String: UIImage] = [:]
+    /// Small copies of the pictures turns made, for their tiles, by session and path.
+    private(set) var thumbnails: [String: UIImage] = [:]
     /// What each turn changed, by its checkpoint, once asked.
     private(set) var turnChanges: [String: TurnChanges] = [:]
     /// When each session's turn began, where this phone saw it begin: a turn already running when the
@@ -84,6 +84,10 @@ final class AppModel {
     /// Pictures and changes asked for, so a redraw does not ask again while the first is on its way.
     @ObservationIgnored private var askedPictures: Set<String> = []
     @ObservationIgnored private var askedChanges: Set<String> = []
+    /// The previews the Mac made of files turns made, the newest few kept so a tile and its sheet ask once.
+    @ObservationIgnored private var previews: [String: FilePreview] = [:]
+    @ObservationIgnored private var previewOrder: [String] = []
+    @ObservationIgnored private var askedThumbnails: Set<String> = []
 
     init() {
         let store = RealmStore()
@@ -228,7 +232,6 @@ final class AppModel {
             settingsShown = false
             pairing = .idle
             pairingRequested = false
-            pairings += 1
             connect()
             registerForPushes()
         } catch {
@@ -545,11 +548,38 @@ final class AppModel {
         return try await api.diff(id: sessionId, checkpointId: checkpointId, path: path, from: from)
     }
 
-    /// What the phone may see of a file a turn made.
+    /// What the phone may see of a file a turn made, asked of the Mac once while it is kept.
     func preview(_ path: String, in sessionId: String) async throws -> FilePreview {
+        let key = Self.previewKey(path, sessionId)
+        if let kept = previews[key] { return kept }
         guard let api, isConnected else { throw ChannelError.notConnected }
-        return try await api.file(id: sessionId, path: path)
+        let preview = try await api.file(id: sessionId, path: path)
+        previews[key] = preview
+        previewOrder.removeAll { $0 == key }
+        previewOrder.append(key)
+        while previewOrder.count > Self.previewsKept { previews[previewOrder.removeFirst()] = nil }
+        return preview
     }
+
+    /// A picture a turn made, small enough for its tile.
+    func loadThumbnail(_ path: String, in sessionId: String, side: CGFloat) async {
+        let key = Self.previewKey(path, sessionId)
+        guard thumbnails[key] == nil, !askedThumbnails.contains(key), isConnected else { return }
+        askedThumbnails.insert(key)
+        guard let preview = try? await preview(path, in: sessionId), case .image(_, let data) = preview.preview,
+              let image = UIImage(data: data) else {
+            askedThumbnails.remove(key)
+            return
+        }
+        thumbnails[key] = await image.byPreparingThumbnail(ofSize: CGSize(width: side, height: side)) ?? image
+    }
+
+    func thumbnail(_ path: String, in sessionId: String) -> UIImage? {
+        thumbnails[Self.previewKey(path, sessionId)]
+    }
+
+    private static func previewKey(_ path: String, _ sessionId: String) -> String { "\(sessionId)\u{0}\(path)" }
+    private static let previewsKept = 12
 
     /// A space's own picture, asked of the Mac once.
     func loadSpacePicture(_ spaceId: String) async {
@@ -612,6 +642,10 @@ final class AppModel {
     private func forgetFetched() {
         everConnected = false
         spacePictures = [:]
+        thumbnails = [:]
+        previews = [:]
+        previewOrder = []
+        askedThumbnails = []
         turnChanges = [:]
         workingSince = [:]
         rowBirths = [:]
