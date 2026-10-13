@@ -1,0 +1,621 @@
+/*
+ * The Paper page: Realm's light face, set as a printed monograph.
+ *
+ * Every colour the site's utilities read (`bg-page`, `text-ink-2`, `border-line`…) is redefined on the
+ * page's wrapper with the light theme's values (apps/desktop/src/renderer/src/theme/tokens.css,
+ * `:root[data-mode="light"]`), so the site's own classes draw the light face without a second set of
+ * names. The live sample and the plates carry the dark face back, because they are the app as it is.
+ */
+
+.root {
+  color-scheme: light;
+
+  --color-page: oklch(0.968 0.004 264);
+  --color-canvas: oklch(0.985 0.002 264);
+  --color-surface: oklch(1 0 0);
+  --color-raised: oklch(0.938 0.004 264);
+  --color-raised-2: oklch(0.91 0.005 264);
+  --color-inset: oklch(0.955 0.004 264);
+
+  /* 15.2, 6.5 and 4.8 : 1 on the paper. */
+  --color-ink: oklch(0.235 0.006 264);
+  --color-ink-2: oklch(0.459 0.01 264);
+  --color-ink-3: oklch(0.531 0.01 264);
+
+  /* Rules are ink, thinned: a printed hairline rather than a border. */
+  --color-line: oklch(0.235 0.006 264 / 0.13);
+  --color-line-strong: oklch(0.235 0.006 264 / 0.24);
+
+  --color-accent: oklch(0.6 0.2 256);
+  /* Links and accent words: 5.1 : 1 on the paper. */
+  --color-accent-ink: oklch(0.52 0.19 257);
+  /* The ground under a white word: 5.6 : 1, then deeper on hover and press. */
+  --color-accent-fill: oklch(0.52 0.19 257);
+  --color-accent-fill-hover: oklch(0.48 0.19 257);
+  --color-accent-fill-press: oklch(0.44 0.19 257);
+
+  --color-green: oklch(0.51 0.14 152);
+  --color-orange: oklch(0.535 0.155 52);
+  --color-red: oklch(0.545 0.19 25);
+
+  /* The page's measure: wide margins, twelve columns between them. */
+  --margin: clamp(20px, 6.25vw, 112px);
+  --gutter: clamp(16px, 1.7vw, 24px);
+  --page-max: 1600px;
+
+  position: relative;
+  isolation: isolate;
+  min-height: 100dvh;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-paper), var(--font-sans);
+  font-optical-sizing: auto;
+  font-synthesis: none;
+}
+
+/* The page under the paper is the site's dark ground; past either end of a scroll it would show. */
+:global(html):has(.root) {
+  background: oklch(0.968 0.004 264);
+  color-scheme: light;
+}
+
+:global(html):has(.root) body {
+  background: oklch(0.968 0.004 264);
+}
+
+.root ::selection {
+  background: oklch(0.6 0.2 256 / 0.22);
+}
+
+.root :focus-visible {
+  outline: 2px solid var(--color-accent-ink);
+  outline-offset: 3px;
+}
+
+/* The app as it is: the dark face, for the live sample and the plates. */
+.dark {
+  color-scheme: dark;
+  --color-page: oklch(0.209 0.004 264.477);
+  --color-canvas: oklch(0.231 0.004 264.487);
+  --color-surface: oklch(0.26 0.006 271.191);
+  --color-raised: oklch(0.289 0.006 271.22);
+  --color-raised-2: oklch(0.318 0.007 274.747);
+  --color-inset: oklch(0.243 0.004 264.492);
+  --color-ink: oklch(0.964 0.002 247.839);
+  --color-ink-2: oklch(0.731 0.008 260.731);
+  --color-ink-3: oklch(0.541 0.01 264.484);
+  --color-line: oklch(1 0 0 / 0.08);
+  --color-line-strong: oklch(1 0 0 / 0.12);
+  --color-accent: oklch(0.68 0.173 253.301);
+  --color-accent-ink: oklch(0.788 0.113 248.33);
+  --color-accent-fill: oklch(0.544 0.173 253.301);
+  --color-accent-fill-hover: oklch(0.504 0.173 253.301);
+  --color-accent-fill-press: oklch(0.454 0.173 253.301);
+  --color-green: oklch(0.705 0.154 153.814);
+  --color-orange: oklch(0.746 0.156 55.642);
+  --color-red: oklch(0.666 0.18 21.433);
+  color: var(--color-ink);
+}
+
+.dark :focus-visible {
+  outline-color: var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* ---------------------------------------------------------------- the grid */
+
+.measure {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding-inline: var(--margin);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--gutter);
+}
+
+/* ---------------------------------------------------------------- type */
+
+/* The one display statement: Inter at its display optical size, set tight. */
+.display {
+  font-size: clamp(3rem, 7.1vw, 8.25rem);
+  line-height: 0.9;
+  font-weight: 640;
+  letter-spacing: -0.052em;
+  font-variation-settings: "opsz" 32;
+  text-wrap: balance;
+}
+
+/* Section statements, a rung under it. */
+.statement {
+  font-size: clamp(2.125rem, 4.3vw, 4.5rem);
+  line-height: 0.98;
+  font-weight: 620;
+  letter-spacing: -0.045em;
+  font-variation-settings: "opsz" 32;
+  text-wrap: balance;
+}
+
+.title {
+  font-size: clamp(1.375rem, 1.9vw, 1.75rem);
+  line-height: 1.12;
+  font-weight: 580;
+  letter-spacing: -0.024em;
+  font-variation-settings: "opsz" 28;
+  text-wrap: balance;
+}
+
+.lede {
+  font-size: clamp(1.0625rem, 1.25vw, 1.25rem);
+  line-height: 1.55;
+  letter-spacing: -0.011em;
+  color: var(--color-ink-2);
+  text-wrap: pretty;
+}
+
+.body {
+  font-size: 17px;
+  line-height: 1.6;
+  letter-spacing: -0.008em;
+  color: var(--color-ink-2);
+  text-wrap: pretty;
+}
+
+/* Marginal notes: JetBrains Mono, for the machine's facts beside the prose. */
+.note {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  letter-spacing: 0;
+  color: var(--color-ink-2);
+  font-variant-ligatures: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.caption {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-ink-2);
+  text-wrap: pretty;
+}
+
+/* ---------------------------------------------------------------- the one action */
+
+.download {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 0 18px;
+  border-radius: 12px;
+  corner-shape: squircle;
+  background: var(--color-accent-fill);
+  color: white;
+  font-size: 15px;
+  font-weight: 540;
+  letter-spacing: -0.006em;
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.22),
+    0 1px 1px oklch(0.3 0.1 257 / 0.25),
+    0 6px 16px -6px oklch(0.45 0.18 257 / 0.45);
+  transition:
+    background-color 150ms ease-out,
+    scale 150ms ease-out;
+}
+
+.download:hover {
+  background: var(--color-accent-fill-hover);
+}
+
+.download:active {
+  background: var(--color-accent-fill-press);
+  scale: 0.97;
+}
+
+.quiet {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 18px;
+  border-radius: 12px;
+  corner-shape: squircle;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 480;
+  box-shadow: inset 0 0 0 1px var(--color-line-strong);
+  transition: background-color 150ms ease-out;
+}
+
+.quiet:hover {
+  background: oklch(0.235 0.006 264 / 0.05);
+}
+
+/* ---------------------------------------------------------------- plates */
+
+/* A capture as a plate: the dark window laid on the paper, its edge one device pixel of light. */
+.plate {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: oklch(0.209 0.004 264.477);
+}
+
+.plate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.1);
+}
+
+/* ---------------------------------------------------------------- sections */
+
+.section {
+  position: relative;
+  padding-block: clamp(96px, 13vw, 200px) 0;
+}
+
+/* A rule across the measure, the page's seam between sections. */
+.rule {
+  height: 1px;
+  background: var(--color-line-strong);
+}
+
+/* ---------------------------------------------------------------- motion
+ *
+ * Everything below is scrubbed by the reader's scroll, through CSS scroll-driven animations: nothing
+ * runs on its own, and where the browser has no scroll timelines, or the reader has asked for less
+ * motion, none of it applies and the page is simply set at its resting state.
+ */
+
+/* Words that slide into register: each word set a little off its place, settling as the line rises
+   to where it is read. */
+.register > span {
+  display: inline-block;
+}
+
+/* Ink settling: a word arrives light and loosely spaced and sets at its weight. Each word reserves the
+   wider of its two states (two hidden copies in the same cell), so the line never re-wraps. */
+.ink {
+  display: inline-grid;
+  vertical-align: top;
+}
+
+.ink > * {
+  grid-area: 1 / 1;
+}
+
+.ink > [data-reserve] {
+  visibility: hidden;
+}
+
+.ink > [data-reserve="light"] {
+  font-weight: 300;
+  letter-spacing: 0.01em;
+}
+
+.ink > [data-word] {
+  font-weight: var(--set-weight, 640);
+  letter-spacing: var(--set-tracking, -0.045em);
+}
+
+@keyframes register {
+  from {
+    translate: var(--dx, 0) 0;
+  }
+  to {
+    translate: 0 0;
+  }
+}
+
+@keyframes inkset {
+  from {
+    font-weight: 300;
+    letter-spacing: 0.01em;
+    color: var(--color-ink-2);
+  }
+  to {
+    font-weight: var(--set-weight, 640);
+    letter-spacing: var(--set-tracking, -0.045em);
+    color: var(--color-ink);
+  }
+}
+
+/* A plate uncovered from its leading edge, the rule along its top drawn ahead of it. */
+@keyframes wipe {
+  from {
+    clip-path: inset(0 100% 0 0 round 12px);
+  }
+  to {
+    clip-path: inset(0 0 0 0 round 12px);
+  }
+}
+
+@keyframes wipe-reverse {
+  from {
+    clip-path: inset(0 0 0 100% round 12px);
+  }
+  to {
+    clip-path: inset(0 0 0 0 round 12px);
+  }
+}
+
+@keyframes settle {
+  from {
+    scale: 1.06;
+  }
+  to {
+    scale: 1;
+  }
+}
+
+@keyframes draw-rule {
+  from {
+    scale: 0 1;
+  }
+  to {
+    scale: 1 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .register > span {
+      animation: register linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 44%;
+    }
+
+    .inkScope {
+      view-timeline: --ink block;
+    }
+
+    .inkScope .ink > [data-word] {
+      animation: inkset linear both;
+      animation-timeline: --ink;
+      animation-range: cover calc(14% + var(--i, 0) * var(--step, 3%)) cover calc(26% + var(--i, 0) * var(--step, 3%));
+    }
+
+    .wipe {
+      animation: wipe linear both;
+      animation-timeline: view();
+      animation-range: entry 8% cover 38%;
+    }
+
+    .wipe[data-from="right"] {
+      animation-name: wipe-reverse;
+    }
+
+    .wipe > img,
+    .wipe > [data-settle] {
+      animation: settle linear both;
+      animation-timeline: view();
+      animation-range: entry 8% cover 50%;
+    }
+
+    .drawRule {
+      transform-origin: left center;
+      animation: draw-rule linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 30%;
+    }
+
+    .drawRule[data-from="right"] {
+      transform-origin: right center;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- the anatomy */
+
+/* At rest the mark is drawn apart; with scroll timelines it starts whole and comes apart as the
+   section rises, and its labels arrive once the faces have reached them. */
+.explode {
+  translate: var(--fx) var(--fy);
+  cursor: pointer;
+}
+
+/* The lift is its own group, so the pointer's lift and the scroll's flight never fight over one
+   property: a critically damped spring out along the face's line, and its shadow on the paper. */
+.lift {
+  transition:
+    translate 520ms linear(0, 0.01 2%, 0.036 4%, 0.074 6%, 0.12 8%, 0.171 10%, 0.252 13%, 0.333 16%, 0.437 20%, 0.532 24%,
+      0.615 28%, 0.703 33%, 0.773 38%, 0.838 44%, 0.885 50%, 0.924 57%, 0.953 65%, 0.973 74%, 0.987 85%, 1),
+    filter 420ms ease-out;
+  filter: drop-shadow(0 0 0 oklch(0.235 0.006 264 / 0));
+}
+
+.lift[data-lifted] {
+  translate: var(--lx) var(--ly);
+  filter: drop-shadow(0.9px 1.4px 1.1px oklch(0.235 0.006 264 / 0.22));
+}
+
+@keyframes explode {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: var(--fx) var(--fy);
+  }
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lift {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .anatomy {
+      view-timeline: --anatomy block;
+    }
+
+    .explode {
+      animation: explode linear both;
+      animation-timeline: --anatomy;
+      animation-range: cover 10% cover 38%;
+    }
+
+    .leaders,
+    .leaderLabel {
+      animation: arrive linear both;
+      animation-timeline: --anatomy;
+      animation-range: cover 32% cover 40%;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- the family tree */
+
+@keyframes drop {
+  from {
+    scale: 1 0;
+  }
+  to {
+    scale: 1 1;
+  }
+}
+
+@keyframes span {
+  from {
+    scale: 0 1;
+  }
+  to {
+    scale: 1 1;
+  }
+}
+
+@keyframes member {
+  from {
+    opacity: 0.18;
+    translate: 0 10px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+.drop {
+  transform-origin: top center;
+}
+
+.span {
+  transform-origin: left center;
+}
+
+.returnLine {
+  transform-origin: bottom center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .drop {
+      animation: drop linear both;
+      animation-timeline: view();
+      animation-range: entry 60% cover 52%;
+    }
+
+    .span {
+      animation: span linear both;
+      animation-timeline: view();
+      animation-range: entry 100% cover 54%;
+    }
+
+    .member {
+      animation: member linear both;
+      animation-timeline: view();
+      animation-range: entry 40% cover 40%;
+    }
+
+    .returnLine {
+      animation: drop linear both;
+      animation-timeline: view();
+      animation-range: entry 80% cover 60%;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- the contact sheet */
+
+/* At rest: a sheet, every frame in a grid. */
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 248px), 1fr));
+  gap: 36px var(--gutter);
+  margin-top: 48px;
+  padding-inline: var(--margin);
+  max-width: var(--page-max);
+  margin-inline: auto;
+}
+
+.frame figure {
+  margin: 0;
+}
+
+@keyframes sheet {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: calc(-100% + 100vw) 0;
+  }
+}
+
+/* With scroll timelines the sheet is pinned and the reader's scroll carries it past, two strips of
+   film side by side; on a short screen, one. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .sheet {
+      height: 340vh;
+      view-timeline: --sheet block;
+    }
+
+    .sheetPin {
+      position: sticky;
+      top: 0;
+      display: flex;
+      height: 100dvh;
+      flex-direction: column;
+      justify-content: center;
+      overflow: hidden;
+      padding-top: 56px;
+    }
+
+    .strip {
+      grid-template-columns: none;
+      grid-auto-flow: column;
+      grid-template-rows: repeat(2, auto);
+      grid-auto-columns: clamp(240px, 22vw, 330px);
+      width: max-content;
+      max-width: none;
+      margin-inline: 0;
+      gap: 28px 24px;
+      animation: sheet linear both;
+      animation-timeline: --sheet;
+      animation-range: contain 4% contain 96%;
+    }
+
+    @media (max-height: 820px), (max-width: 640px) {
+      .strip {
+        grid-template-rows: auto;
+        grid-auto-columns: clamp(250px, 70vw, 360px);
+      }
+    }
+  }
+}
