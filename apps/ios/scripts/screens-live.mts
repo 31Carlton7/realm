@@ -29,7 +29,7 @@
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
  */
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { bootServer, freePort, removeHome, repoRoot, scratchGateway } from "../../server/scripts/lib/mobile-rig";
@@ -138,28 +138,39 @@ sessions.error = await session(laya.id, "codex", "gpt-6-astra", "Train the socia
 await send(sessions.error, "hit the limit");
 sessions.markdown = await session(realm.id, "claude", "claude-sonnet-5", "Explain the relay");
 await send(sessions.markdown, MARKDOWN);
-// A turn that changes a file the space's checkout already holds, and leaves a picture behind: the Mac
-// records the first as the turn's changes (it needs git) and the second as a file made.
+// A turn that really edits two files of the space's checkout, and leaves a picture behind: the Mac
+// records the edits as the turn's changes (it needs git) and the picture as a file made. The scripted
+// turn ("fix the org access") edits the two files transcript-live.mjs seeds, so they are seeded here
+// the same way; anywhere else its edits fail, as a real edit would.
 {
   const folder = (realm as { folderPath: string }).folderPath;
-  const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=Realm", "-c", "user.email=staging@realm.computer", ...args], { cwd: folder, stdio: "pipe" });
-  mkdirSync(join(folder, "apps/server/src/db"), { recursive: true });
-  writeFileSync(join(folder, "README.md"), "# Realm\n");
-  writeFileSync(join(folder, "apps/server/src/db/migrations.ts"), [
-    "-- The spaces table, as the first release made it.",
-    "CREATE TABLE spaces (id TEXT PRIMARY KEY, name TEXT NOT NULL);",
-    "CREATE INDEX spaces_name ON spaces (name);",
-    "",
-  ].join("\n"));
-  git("init", "-q");
+  const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=Realm", "-c", "user.email=staging@realm.computer", "-c", "commit.gpgsign=false", ...args], { cwd: folder, stdio: "pipe" });
+  const helpers = (n: number, stem: string) => Array.from({ length: n }, (_, i) => [
+    `export function ${stem}${i}(name: string): string {`, `  return name.trim().toLowerCase().replace(/\\s+/g, "-${i}");`, "}", "",
+  ]).flat();
+  const orgs = [
+    'import { and, eq } from "drizzle-orm";', 'import { db } from "./db";', 'import { organizationMember, withInviteDefaults } from "./schema";', "",
+    ...helpers(19, "orgSlug"),
+    "/** The caller's membership in an organisation, or null. */",
+    "export async function getOrgMembership(orgId: string, userId: string) {",
+    "  const rows = await db.select().from(organizationMember)",
+    "    .where(and(eq(organizationMember.organizationId, orgId), eq(organizationMember.userId, userId)));",
+    "  return rows[0] ?? null;", "}", "", ...helpers(6, "orgLabel"),
+  ];
+  const compact = [...helpers(16, "chunkName"), "", "", "export function shouldCompact(tokens: number, limit: number) {", "  return tokens > limit * 0.85;", "}", ""];
+  mkdirSync(join(folder, "web/lib/agent/chat-runtime/compaction"), { recursive: true });
+  writeFileSync(join(folder, "web/lib/orgs.ts"), `${orgs.join("\n")}\n`);
+  writeFileSync(join(folder, "web/lib/agent/chat-runtime/compaction/auto-compact.ts"), `${compact.join("\n")}\n`);
+  git("init", "-q", "-b", "main");
   git("add", "-A");
   git("commit", "-qm", "Start");
-  sessions.changes = await session(realm.id, "claude", "claude-opus-5-5", "Store the theme choice");
-  await rpc.call("sessions.send", { id: sessions.changes, text: "Write the migration that stores the theme choice" });
+  sessions.changes = await session(realm.id, "claude", "claude-opus-5-5", "Fix the org access crash");
+  await rpc.call("sessions.send", { id: sessions.changes, text: "fix the org access crash on the connections page" });
+  // The page, as the turn left it: a picture made while the turn ran.
   mkdirSync(join(folder, "renders"), { recursive: true });
-  copyFileSync(join(repoRoot, "resources/icon.png"), join(folder, "renders/theme-preview.png"));
-  await new Promise((r) => setTimeout(r, 300));
+  execFileSync("sips", ["-s", "format", "png", join(repoRoot, "site/public/product/connections-1440.webp"), "--out", join(folder, "renders/connections-page.png")], { stdio: "pipe" });
   await settled(sessions.changes);
+  if (!readFileSync(join(folder, "web/lib/orgs.ts"), "utf8").includes("withInviteDefaults(row)")) say("warning: the staged turn did not edit web/lib/orgs.ts");
 }
 sessions.plan = await session(realm.id, "claude", "claude-opus-5-5", "Rework the transcript mapper");
 await send(sessions.plan, "Make a plan for the mapper");

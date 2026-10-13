@@ -622,7 +622,7 @@ struct ChangesCard: View {
                         .foregroundStyle(Palette.ink)
                         .lineLimit(2)
                     Spacer(minLength: 8)
-                    if let changes {
+                    if let changes, changes.countsLines {
                         LineCounts(additions: changes.additions, deletions: changes.deletions)
                     }
                     Image(systemName: "chevron.right")
@@ -656,7 +656,7 @@ struct ChangesCard: View {
             .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
         .buttonStyle(CardButtonStyle())
-        .accessibilityLabel(changes.map { "\(ChangesWords.files($0)), \($0.additions) lines added, \($0.deletions) taken away" } ?? summary)
+        .accessibilityLabel(changes?.spoken ?? summary)
         .task(id: checkpointId) { await model.loadChanges(checkpointId, in: sessionId) }
         .sheet(isPresented: $reviewing) {
             ChangesSheet(checkpointId: checkpointId, sessionId: sessionId)
@@ -720,6 +720,13 @@ enum ChangesWords {
 extension TurnChanges {
     var additions: Int { files.compactMap(\.additions).reduce(0, +) }
     var deletions: Int { files.compactMap(\.deletions).reduce(0, +) }
+    /// Whether any of it has lines to count: a turn that changed only pictures has none, and "+0 −0"
+    /// beside it would say it changed nothing.
+    var countsLines: Bool { files.contains { $0.additions != nil } }
+    /// What it comes to, said: "Changed 2 files, 20 lines added, 3 taken away".
+    var spoken: String {
+        countsLines ? "\(ChangesWords.files(self)), \(additions) lines added, \(deletions) taken away" : ChangesWords.files(self)
+    }
 }
 
 /// The files a turn made — a picture rendered, a file written for the person — as tiles that open a

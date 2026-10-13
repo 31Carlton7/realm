@@ -347,7 +347,7 @@ private struct FootChips: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "plusminus")
                                 Text("Review changes")
-                                if let changes = model.turnChanges[checkpointId] {
+                                if let changes = model.turnChanges[checkpointId], changes.countsLines {
                                     LineCounts(additions: changes.additions, deletions: changes.deletions)
                                 }
                             }

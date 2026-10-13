@@ -92,10 +92,11 @@ final class LiveTests: XCTestCase {
         let token = app.secureTextFields["Your answer"].exists ? app.secureTextFields["Your answer"] : app.textFields["Your answer"]
         token.tap()
         token.typeText("staging-token")
-        XCTAssert(app.navigationBars["Codex asks"].buttons["Send"].isEnabled, "the answers are complete")
+        // The sheet is headed by who asks, as the Mac names the asker.
+        let sheet = app.navigationBars.matching(NSPredicate(format: "identifier ENDSWITH %@", " asks")).firstMatch
+        XCTAssert(sheet.buttons["Send"].isEnabled, "the answers are complete")
         shot("question-sheet")
         // Dragging the sheet away is a way out, never an answer.
-        let sheet = app.navigationBars["Codex asks"]
         sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
         XCTAssert(sheet.waitForNonExistence(timeout: 5), "the sheet did not go away")
@@ -120,36 +121,35 @@ final class LiveTests: XCTestCase {
         shot("session-sent")
         back()
 
-        open("Store the theme choice")
-        let changed = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Changed")).firstMatch
+        open("Fix the org access crash")
+        let changed = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Changed 2 files")).firstMatch
         XCTAssert(changed.waitForExistence(timeout: 10), "the turn's changes are not drawn")
         shot("session-changes")
+        // The finished turn's work folds under one line; an edit in it opens onto its own diff.
         let fold = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Worked")).firstMatch
-        if fold.waitForExistence(timeout: 3) {
-            fold.tap()
-            let wrote = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Wrote")).firstMatch
-            if wrote.waitForExistence(timeout: 3) {
-                wrote.tap()
-                XCTAssert(element(containing: "Open the diff").waitForExistence(timeout: 10), "the edit's diff did not open in its line")
-                shot("session-inline-diff")
-            }
-        }
+        XCTAssert(fold.waitForExistence(timeout: 5), "the turn's work did not fold")
+        fold.tap()
+        let edited = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Edited web/lib/orgs.ts")).firstMatch
+        XCTAssert(edited.waitForExistence(timeout: 5), "the fold did not open onto the edits")
+        edited.tap()
+        XCTAssert(element(containing: "Open the diff").waitForExistence(timeout: 10), "the edit's diff did not open in its line")
+        shot("session-inline-diff")
         changed.tap()
-        let migrations = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "migrations.ts")).firstMatch
-        XCTAssert(migrations.waitForExistence(timeout: 10), "the changed files did not load")
+        let orgs = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "orgs.ts")).firstMatch
+        XCTAssert(orgs.waitForExistence(timeout: 10), "the changed files did not load")
         shot("changes-sheet")
-        migrations.tap()
-        XCTAssert(element(containing: "theme").waitForExistence(timeout: 10), "the diff did not load")
+        orgs.tap()
+        XCTAssert(element(containing: "withInviteDefaults").waitForExistence(timeout: 10), "the diff did not load")
         shot("diff")
         back()
         app.navigationBars.buttons["Done"].firstMatch.tap()
-        let picture = app.buttons["theme-preview.png"]
-        if picture.waitForExistence(timeout: 5) {
-            picture.tap()
-            XCTAssert(app.images["theme-preview.png"].waitForExistence(timeout: 10), "the picture did not arrive")
-            shot("file-preview")
-            app.navigationBars.buttons["Done"].firstMatch.tap()
-        }
+        let picture = app.buttons["connections-page.png"]
+        for _ in 0..<4 where !picture.isHittable { app.swipeUp(velocity: .slow) }
+        XCTAssert(picture.exists, "the picture the turn made is not drawn")
+        picture.tap()
+        XCTAssert(app.images["connections-page.png"].waitForExistence(timeout: 10), "the picture did not arrive")
+        shot("file-preview")
+        app.navigationBars.buttons["Done"].firstMatch.tap()
         back()
 
         open("Rework the transcript mapper")
@@ -211,11 +211,14 @@ final class LiveTests: XCTestCase {
         shot("ax-session-question")
         back()
         open("Explain the relay")
-        // A long session opens at its newest message, whatever the text size.
-        let newest = element(containing: "echo: Ship it on Friday")
-        let arrived = newest.waitForExistence(timeout: 10)
+        // A long session opens at its newest message, whatever the text size: the reply to what the
+        // awake phase sent, or the prose's last line where that phase did not run.
+        let echo = element(containing: "echo: Ship it on Friday"), last = element(containing: "for the rest")
+        _ = echo.waitForExistence(timeout: 10) || last.waitForExistence(timeout: 5)
+        sleep(1)
         shot("ax-session-markdown")
-        XCTAssert(arrived && newest.isHittable, "the session did not open at its newest message")
+        XCTAssert((echo.exists && echo.isHittable) || (!echo.exists && last.exists && last.isHittable),
+                  "the session did not open at its newest message")
     }
 
     /// Reduce Transparency, set on the Simulator by the script: the glass the composer and the bars

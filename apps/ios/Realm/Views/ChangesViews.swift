@@ -30,7 +30,7 @@ struct ChangesSheet: View {
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
-                    .navigationSubtitle(Text("\(Text("+\(changes.additions)").foregroundStyle(Palette.green))  \(Text("−\(changes.deletions)").foregroundStyle(Palette.red))"))
+                    .modifier(LineTotals(changes: changes))
                 } else if model.isConnected {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -51,6 +51,20 @@ struct ChangesSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+/// The lines a turn added and took away, under the sheet's title: said only where there are lines to
+/// count, since a turn that changed only pictures has none.
+private struct LineTotals: ViewModifier {
+    let changes: TurnChanges
+
+    func body(content: Content) -> some View {
+        if changes.countsLines {
+            content.navigationSubtitle(Text("\(Text("+\(changes.additions)").foregroundStyle(Palette.green))  \(Text("−\(changes.deletions)").foregroundStyle(Palette.red))"))
+        } else {
+            content
         }
     }
 }
