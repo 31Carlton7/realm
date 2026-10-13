@@ -122,12 +122,14 @@ final class LiveTests: XCTestCase {
         back()
 
         open("Fix the org access crash")
-        let changed = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Changed 2 files")).firstMatch
+        let changed = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Changed 3 files")).firstMatch
         XCTAssert(changed.waitForExistence(timeout: 10), "the turn's changes are not drawn")
         shot("session-changes")
         // The finished turn's work folds under one line; an edit in it opens onto its own diff.
         let fold = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Worked")).firstMatch
         XCTAssert(fold.waitForExistence(timeout: 5), "the turn's work did not fold")
+        // The session opens at its newest row; the fold is above the answer.
+        for _ in 0..<6 where !fold.isHittable { app.swipeDown(velocity: .slow) }
         fold.tap()
         let edited = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Edited web/lib/orgs.ts")).firstMatch
         XCTAssert(edited.waitForExistence(timeout: 5), "the fold did not open onto the edits")
@@ -150,6 +152,24 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.images["connections-page.png"].waitForExistence(timeout: 10), "the picture did not arrive")
         shot("file-preview")
         app.navigationBars.buttons["Done"].firstMatch.tap()
+        // A turn under way: the pill says how long it has worked, and the way back to the newest row
+        // slides out of the same glass once the reader scrolls away.
+        let field = app.textViews["Message"].exists ? app.textViews["Message"] : app.textFields["Message"]
+        field.tap()
+        field.typeText("keep working on the review")
+        app.buttons["Send"].tap()
+        let pill = element(containing: "Working, ")
+        XCTAssert(pill.waitForExistence(timeout: 15), "the pill did not say the turn is working")
+        sleep(2)
+        app.swipeDown(velocity: .slow)
+        XCTAssert(app.buttons["Latest"].waitForExistence(timeout: 5), "scrolled away, there was no way back to the newest row")
+        sleep(1)
+        shot("session-working-latest")
+        app.buttons["Latest"].tap()
+        sleep(3)
+        shot("session-working")
+        app.buttons["Stop"].firstMatch.tap()
+        XCTAssert(pill.waitForNonExistence(timeout: 15), "Stop did not end the turn")
         back()
 
         open("Rework the transcript mapper")

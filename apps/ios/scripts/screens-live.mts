@@ -198,10 +198,22 @@ const simctl = (args: string[]): Promise<number> => new Promise((done) => {
  *  gateway in this process answers the phone while the test runs. */
 const xcodebuild = (args: string[], env: Record<string, string> = {}): Promise<number> => new Promise((done) => {
   const child = spawn("xcodebuild", args, { cwd: join(repoRoot, "apps/ios"), env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
-  const keep = (b: Buffer) => { for (const line of b.toString().split("\n")) if (/(Test Case|error:|failed|passed|\*\* TEST)/.test(line)) say(line.trim()); };
+  // What it said last, for a run that fails before any test does.
+  let tail: string[] = [];
+  let tested = false;
+  const keep = (b: Buffer) => {
+    for (const line of b.toString().split("\n")) {
+      if (line.trim()) tail = [...tail.slice(-24), line.trim()];
+      if (/Test Case/.test(line)) tested = true;
+      if (/(Test Case|error:|failed|passed|\*\* TEST)/.test(line)) say(line.trim().slice(0, 600));
+    }
+  };
   child.stdout!.on("data", keep);
   child.stderr!.on("data", keep);
-  child.on("exit", (code) => done(code ?? 1));
+  child.on("exit", (code) => {
+    if (code !== 0 && !tested) say(`xcodebuild ended ${code} before any test ran:\n${tail.map((l) => `  ${l.slice(0, 400)}`).join("\n")}`);
+    done(code ?? 1);
+  });
 });
 
 async function runUiTests(): Promise<boolean> {
