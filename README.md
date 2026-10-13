@@ -12,7 +12,7 @@ macOS · Apple silicon · in active development
 
 </div>
 
-![Realm 2.0: every space in the sidebar under Needs you, a session that fixed a crash with the card for the two files it edited, and the file its answer named open in the side panel at the line it named.](docs/images/workspace.png)
+![Realm's window floating beside a lit realm in deep space: every space in the sidebar under Needs you, a session that fixed a crash with the card for the two files it edited, and the file its answer named open in the side panel at the line it named.](docs/images/workspace.png)
 
 *Every space in the sidebar, a session and the two files its turn edited, and the file its answer named, open beside it at the line it named.*
 
@@ -203,17 +203,17 @@ Two scripts, from `apps/server`:
 
 ## Screens
 
-Real captures of a real space, taken against the built app by `site/scripts/capture-product.mjs`.
-These are the site's frames with Realm's page colour painted in behind them — the window is made of
-translucent material, so a capture laid straight onto GitHub's white theme washes its sidebar out.
-`node scripts/readme-images.mjs` repaints them after a re-capture.
+Real captures of a real space, taken against the built app by `site/scripts/capture-product.mjs`,
+then framed as the site frames them and laid on an opaque ground by `site/scripts/capture-brand.mjs` —
+the window is made of translucent material, so a capture laid straight onto GitHub's white theme
+washes its sidebar out.
 
 **Every space, in one sidebar.** Each space is a section of one list, and Needs you heads it with
 every session waiting on a permission or a question, from every space and every profile.
 
-![The sidebar: Needs you lists two questions and a sub-agent's permission, one from another profile, above the Realm, Dashboard, Site and School spaces and their sessions.](docs/images/sidebar.png)
+![The sidebar: Needs you lists two questions, one from another profile, above the Realm, Dashboard, Site and School spaces and their sessions.](docs/images/sidebar.png)
 
-*Three sessions waiting on you, above every space's sessions.*
+*Two questions waiting on you, one from another profile, above every space's sessions.*
 
 **Bring the agent you already use.** Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot,
 goose, Qwen Code and Grok all run here, each keeping its own login, models and permission modes.
@@ -225,7 +225,7 @@ goose, Qwen Code and Grok all run here, each keeping its own login, models and p
 **Your tools, without your credentials.** Connections belong to the space rather than to an agent,
 so a session is handed the tools and never the token — it calls Realm, and Realm calls the server.
 
-![The Connections page, showing Linear, Notion, Slack, GitHub, Jira & Confluence, Figma and Sentry as cards, each with what it grants and a Connect button.](docs/images/connections.png)
+![The Connections page, showing Linear, Notion, Slack, GitHub, Jira & Confluence and Figma as cards, each with what it grants and a Connect button.](docs/images/connections.png)
 
 *Connecting an app to a space. One click each, and every session in the space can use them.*
 
