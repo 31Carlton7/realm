@@ -373,6 +373,29 @@ fn holeOut(eye: vec3f, d: vec3f, tEnd: f32) -> vec3f {
   let near = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), min(t0.z, t1.z));
   let far = min(min(min(max(t0.x, t1.x), max(t0.y, t1.y)), max(t0.z, t1.z)), tEnd);
   if (far <= max(near, 0.0)) { return light; }
+  // The doorway's light streaming out: threads of it, as the inflow's are, from across the opening
+  // and out along the wall's normal, spreading a little, with the light running out along them.
+  let mid0 = vec2f(HOLE_DX1 + HOLE_DX0, HOLE_DZ1 + HOLE_DZ0) * 0.5;
+  let half0 = vec2f(HOLE_DX1 - HOLE_DX0, HOLE_DZ1 - HOLE_DZ0) * 0.5;
+  for (var k = 0; k < 7; k++) {
+    let h = hash22(vec2f(f32(k) * 3.7 + 1.0, 2.9));
+    let spread = 1.0 - select(0.0, 1.0, k == 0);
+    let a = vec3f(mid0.x + (h.x - 0.5) * half0.x * 1.5 * spread, 1.0, mid0.y + (h.y - 0.5) * half0.y * 1.6 * spread);
+    let w = normalize(vec3f((h.x - 0.5) * 0.24 * spread, 1.0, (h.y - 0.5) * 0.2 * spread));
+    let r0 = eye - a;
+    let b = dot(d, w);
+    let tr = (b * dot(w, r0) - dot(d, r0)) / max(1.0 - b * b, 1e-4);
+    let u = max(b * tr + dot(w, r0), 0.0);
+    let miss = r0 + d * tr - w * u;
+    // How far the ray misses the thread, in pixels at the thread's own depth.
+    let px = length(miss) * hole.de.w * hole.eye.w / max(tr, 1e-3);
+    // The first thread is the jet's core: wider and fainter, the light the others are drawn out of.
+    let core = select(0.0, 1.0, k == 0);
+    let line = mix(exp(-px * px / 0.9), exp(-px * px / 60.0) * 0.16, core);
+    let run = noise(vec2f(u * 2.6 - t * 1.1, f32(k) * 5.3));
+    let fall = exp(-u / (0.7 + 0.8 * h.y + 0.6 * core)) * (1.0 - exp(-u * 18.0));
+    light += mix(HOLE_DOOR, HOLE_DOOR_BLUE, 0.35 + 0.3 * h.y) * line * fall * (0.35 + 1.4 * run * run) * (0.7 + 0.6 * h.x) * 0.9 * (1.0 + hole.ay.w);
+  }
   // Sparks: what was taken in, coming back out, a few at a time, always.
   let mid = vec2f(HOLE_DX1 + HOLE_DX0, HOLE_DZ1 + HOLE_DZ0) * 0.5;
   let half = vec2f(HOLE_DX1 - HOLE_DX0, HOLE_DZ1 - HOLE_DZ0) * 0.5;
