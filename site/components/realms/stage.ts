@@ -40,7 +40,7 @@ const PANE_FIELD = 0.45
 const KEY_LIGHT: Vec3 = normalize([-0.45, -0.62, 0.64])
 const KEY_STRENGTH = 1.15
 /** The share of the sky's doorways lit by agents at work. */
-const DOOR_SHARE = 0.3
+const DOOR_SHARE = 0.36
 /** The far sky's turn, in radians a second: a full turn in about forty minutes. */
 const SKY_TURN = 0.0026
 /** The near stars drift through the world at this rate (world units a second), as shaders.ts has it. */
@@ -195,8 +195,10 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
     if (id === "finale") {
       // The finale: lifted over the swarm, the camera looks up and out into the deep sky, and the black
       // hole the page ends on comes up into it from below.
+      // It turns a little off the route as it lifts, so the hole hangs in dark sky with only the end of
+      // the ribbon nebula for it to bend.
       const last = out[out.length - 1]?.key.view
-      const yaw = last ? last.yaw : 90 * DEG
+      const yaw = (last ? last.yaw : 90 * DEG) + FINALE.turn * DEG
       const ahead: Vec3 = last ? [last.eye[0] + Math.cos(yaw) * 40, last.eye[1] + Math.sin(yaw) * 40, FINALE.height] : [0, 0, FINALE.height]
       const view = level(ahead, yaw, FINALE.focal, width / 2, height * 0.5, FINALE.pitch * DEG)
       out.push({

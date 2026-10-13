@@ -56,5 +56,5 @@ export const CLIMB: Record<string, { at: readonly [number, number]; yaw: number;
 }
 
 /** The finale: lifted over the climb's last stop and looking up and out, away from the swarm, into the
- *  deep sky the black hole hangs in. */
-export const FINALE = { height: 64, pitch: 14, focal: 1500 }
+ *  deep sky the black hole hangs in, turned this far (degrees) off the route as it lifts. */
+export const FINALE = { height: 64, pitch: 14, focal: 1500, turn: 22 }
