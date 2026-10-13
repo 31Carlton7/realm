@@ -341,6 +341,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     cam: Array.from({ length: 4 }, () => [...zero]),
     clear: Array.from({ length: CLEAR * 2 }, () => [...zero]),
     panels: Array.from({ length: PANELS * 2 }, () => [...zero]),
+    plates: Array.from({ length: PANELS * 2 }, () => [...zero]),
     beams: Array.from({ length: BEAMS * 7 }, () => [...zero]),
     pulses: Array.from({ length: PULSES * 5 }, () => [...zero]),
     bursts: Array.from({ length: BURSTS * 2 }, () => [...zero]),
@@ -695,6 +696,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
 
       // ---- the page's own realms: each chapter's, over its screen, and the team's ----------------
       const panels: number[][] = []
+      const plates: number[][] = []
       const clears: [Rect, number, number][] = []
       /** How present each screen's caption is: a caption has its pane only while it can be seen. */
       const captions = new Map<string, number>()
@@ -774,23 +776,12 @@ export const createRealms: StageFactory = async (gpu, output) => {
           const W = (stand.slot[0] * stand.depth) / stand.key.view.focal
           const H = (stand.slot[1] * stand.depth) / stand.key.view.focal
           const screenMid = add(stand.foot, [0, 0, H / 2])
-          if (z > 0.6 && (opening > 0.001 || pictureOn > 0.001) && panels.length < PANELS * 2) {
-            // The doorway's own rect on the page, opening out into the screen's.
-            const corners = door.map((p) => project(view, b, p))
-            const xs = corners.map((c) => c[0])
-            const ys = corners.map((c) => c[1])
-            const doorRect: Rect = [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)]
-            // It has reached the screen's rect by the time the picture starts to fade in over it.
-            const e = smoother(opening / 0.6)
-            const rect: Rect = [lerp(doorRect[0], left, e), lerp(doorRect[1], top, e), lerp(doorRect[2], w, e), lerp(doorRect[3], h, e)]
-            // The doorway's light, spread over the rect as it grows: bright while it is the doorway, dim
-            // by the time it is the screen, and gone under the picture.
-            const spread = Math.min(1, ((doorRect[2] * doorRect[3]) / Math.max(rect[2] * rect[3], 1)) ** 0.55)
-            // Opaque while it opens (nothing shows through a picture still arriving); on the way out it
-            // goes with the picture, so no dark rect is left behind it.
-            const leaving = now.at.from === index && now.at.to !== index
-            const fill = leaving ? pictureOn : smooth(Math.min(1, opening * 2.4))
-            panels.push([...rect], [fill, lerp(1.5, corner * w, e), pictureOn, (0.35 + 0.65 * spread) * (1 - pictureOn) * smooth(opening)])
+          if (z > 0.6 && pictureOn > 0.001 && panels.length < PANELS * 2) {
+            // The plate where it is: its breath of light round it, and the field kept from showing
+            // through it while it is still coming up, so nothing of the sky or of its realm's doorway
+            // is seen through a picture on its way in or out.
+            panels.push([left, top, w, h], [1, corner * w, pictureOn, 0])
+            plates.push([left, top, w, h], [corner * w, smooth(pictureOn / 0.35), 0, 0])
           }
           // The light from the doorway to the screen, as it opens out and while it is there.
           const reach = Math.max(opening, pictureOn)
@@ -1163,6 +1154,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
         ...Array.from({ length: (CLEAR - clearList.length) * 2 }, () => [...zero]),
       ]
       comp.panels = panels.slice(0, PANELS * 2)
+      while (plates.length < PANELS * 2) plates.push([...zero])
+      comp.plates = plates.slice(0, PANELS * 2)
 
       const wanted = sizeOf(RENDER_SCALE)
       if (wanted[0] !== size[0] || wanted[1] !== size[1]) {

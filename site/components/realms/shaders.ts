@@ -886,6 +886,7 @@ export type CompositeUniforms = {
   cam: number[][]
   clear: number[][]
   panels: number[][]
+  plates: number[][]
   beams: number[][]
   pulses: number[][]
   fence: number[][]
@@ -909,6 +910,7 @@ struct Comp {
   cam: array<vec4f, 4>,   // eye xyz + focal; forward + principal x; right + principal y; up + unused
   clear: array<vec4f, ${CLEAR * 2}>,     // per block of words: rect x, y, w, h; its pane's corner radius (< 0: no pane), field left inside, unused, unused
   panels: array<vec4f, ${PANELS * 2}>,   // per panel: rect x, y, w, h; fill, corner radius, picture, light
+  plates: array<vec4f, ${PANELS * 2}>,   // per screen's plate in the flight: its rect x, y, w, h; its corner radius, how far it keeps the field out
   beams: array<vec4f, ${BEAMS * 7}>,     // per beam (see beam())
   pulses: array<vec4f, ${PULSES * 5}>,   // per hand-off: five points along its trail, head first: page x, y, depth, light
   fence: array<vec4f, 10>,               // a confined realm's boundary: its eight corners on the page (x, y, depth), how drawn, its rect
@@ -1128,6 +1130,17 @@ fn fence(p: vec2f, depthHere: f32, dpr: f32) -> vec3f {
   }
   light += fence(p, depthHere, dpr);
   color += light * clear * (vec3f(1.0) - color);
+
+  // A plate on its way in or out of the flight is part-transparent: under it the field goes to the
+  // deep sky's dark, so no star, realm or lit doorway is seen through a picture still arriving.
+  for (var k = 0; k < ${PANELS}; k++) {
+    let r = comp.plates[k * 2];
+    let s = comp.plates[k * 2 + 1];
+    if (r.z <= 0.0 || s.y <= 0.0) { continue; }
+    let h = r.zw * 0.5;
+    let d = sdRoundRect(p - r.xy - h, h, s.x);
+    color = mix(color, SPACE_DEEP, saturate(0.5 - d * dpr) * s.y);
+  }
 
   for (var k = 0; k < ${PANELS}; k++) {
     let r = comp.panels[k * 2];
