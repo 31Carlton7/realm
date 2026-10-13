@@ -154,9 +154,9 @@ final class LiveTests: XCTestCase {
         app.navigationBars.buttons["Done"].firstMatch.tap()
         // A turn under way: the pill says how long it has worked, and the way back to the newest row
         // slides out of the same glass once the reader scrolls away.
-        let field = app.textViews["Message"].exists ? app.textViews["Message"] : app.textFields["Message"]
-        field.tap()
-        field.typeText("keep working on the review")
+        let message = app.textViews["Message"].exists ? app.textViews["Message"] : app.textFields["Message"]
+        message.tap()
+        message.typeText("keep working on the review")
         app.buttons["Send"].tap()
         let pill = element(containing: "Working, ")
         XCTAssert(pill.waitForExistence(timeout: 15), "the pill did not say the turn is working")
