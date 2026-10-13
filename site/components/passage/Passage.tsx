@@ -19,10 +19,10 @@ type Navigation = EventTarget & { currentEntry?: { key?: string } | null }
  * page and the changelog warp and unwarp between them, whichever button it was.
  *
  * The router answers `popstate` itself, and React finishes a navigation started inside that event at
- * once, in the same task, which leaves no room for a view transition. So where a passage is to run, this
+ * once, in the same task, which leaves no room for a view transition. So for a change of page this
  * listener, heard first, keeps the event from the router and makes the same navigation a frame later as
  * an ordinary one: a `replace` to the address the browser has moved to, which leaves the history as it
- * is, and which React runs in a view transition like any other. The router would have left the scroll
+ * is, and which React runs in a view transition like any other, the passage's or the plain crossfade. The router would have left the scroll
  * to the browser, which puts it onto the page still on show and cuts it short on a shorter one; so each
  * page's scroll is kept as the reader leaves it, by the Navigation API's key for its place in the
  * history, and given back to it as it arrives, after the page being left has been pictured where it was.
@@ -55,14 +55,19 @@ export function Passage() {
     const onPop = (event: PopStateEvent) => {
       const leftAt = leaving ?? window.scrollY
       leaving = null
+      const from = shownPath()
       const to = window.location.pathname
-      const kind = passageBetween(shownPath(), to)
-      // Only the router's own entries: anything else it reloads or leaves alone, and so do we.
-      if (!kind || !canPass() || !(event.state as { __NA?: boolean } | null)?.__NA) return
+      // A change of page among the router's own entries, where there are view transitions: anything
+      // else (a fragment on the same page, an entry the router did not make) goes on as it would.
+      if (to === from || !("startViewTransition" in document) || !(event.state as { __NA?: boolean } | null)?.__NA) return
       event.stopImmediatePropagation()
-      const release = kind === "surface" ? releaseLeft() : kind === "dive" ? releaseOf(to) : undefined
-      const link = kind === "dive" ? document.querySelector(`a[href="${to}"]`) : null
-      begin({ kind, release, ...startPoint(kind, release, link) }, leftAt)
+      // The passage between the two, where motion is welcome; otherwise the plain crossfade.
+      const kind = passageBetween(from, to)
+      if (kind && canPass()) {
+        const release = kind === "surface" ? releaseLeft() : kind === "dive" ? releaseOf(to) : undefined
+        const link = kind === "dive" ? document.querySelector(`a[href="${to}"]`) : null
+        begin({ kind, release, ...startPoint(kind, release, link) }, leftAt)
+      }
       const kept = scrollOf(navigation?.currentEntry?.key)
       const address = `${window.location.pathname}${window.location.search}${window.location.hash}`
       requestAnimationFrame(() => {
