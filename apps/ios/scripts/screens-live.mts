@@ -20,7 +20,8 @@
  * runs one test per phase on the iPhone 17 Simulator — pair (the Mac holds its answer a few seconds),
  * awake, asleep, awake again, the relay down — moving the Mac between them, and leaves each test's
  * screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any
- * phase fails. --phases test0_forgetThenPair,test1_awake runs only those.
+ * phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id> picks the
+ * Simulator, and --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData).
  *
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
  */
@@ -164,7 +165,7 @@ async function runUiTests(): Promise<boolean> {
   const udid = arg("udid") ?? "CDA45F4D-4FDD-40A9-8259-D58BE3BEF20C";
   const shots = arg("shots") ?? join(repoRoot, "apps/ios/.build/screenshots");
   mkdirSync(shots, { recursive: true });
-  const common = ["-project", "Realm.xcodeproj", "-scheme", "RealmLive", "-destination", `id=${udid}`, "-derivedDataPath", ".build/DerivedData"];
+  const common = ["-project", "Realm.xcodeproj", "-scheme", "RealmLive", "-destination", `id=${udid}`, "-derivedDataPath", arg("derived-data") ?? ".build/DerivedData"];
   if (await xcodebuild(["build-for-testing", ...common]) !== 0) { say("the UI tests did not build"); return false; }
   const results: [string, boolean][] = [];
   const only = arg("phases")?.split(",");
