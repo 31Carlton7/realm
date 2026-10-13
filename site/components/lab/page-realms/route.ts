@@ -20,15 +20,15 @@ export const OPENING = {
 }
 
 export const CHAPTERS: Record<string, Stop> = {
-  space: { at: [6, 30], yaw: 82, height: 3.0, distance: 9.2, focal: 1700, orbit: 7 },
+  space: { at: [6, 30], yaw: 82, height: 4.4, distance: 10.6, focal: 1700, orbit: 7 },
   spaces: { at: [-2, 47], yaw: 99, height: 5.4, distance: 11.5, focal: 1700, orbit: -8 },
-  transcript: { at: [8, 64], yaw: 81, height: 2.9, distance: 9.0, focal: 1700, orbit: 7 },
-  agents: { at: [0, 81], yaw: 100, height: 3.4, distance: 9.4, focal: 1700, orbit: -7 },
-  delegation: { at: [10, 98], yaw: 82, height: 3.0, distance: 9.2, focal: 1700, orbit: 7 },
-  gateway: { at: [2, 115], yaw: 98, height: 3.2, distance: 9.2, focal: 1700, orbit: -7 },
-  review: { at: [12, 132], yaw: 81, height: 3.0, distance: 9.0, focal: 1700, orbit: 7 },
-  sandbox: { at: [4, 149], yaw: 99, height: 3.6, distance: 9.8, focal: 1700, orbit: -6 },
-  durable: { at: [14, 166], yaw: 83, height: 4.2, distance: 11, focal: 1700, orbit: 7 },
+  transcript: { at: [8, 64], yaw: 81, height: 4.6, distance: 10.8, focal: 1700, orbit: 7 },
+  agents: { at: [0, 81], yaw: 100, height: 5.2, distance: 11.4, focal: 1700, orbit: -7 },
+  delegation: { at: [10, 98], yaw: 82, height: 4.5, distance: 10.6, focal: 1700, orbit: 7 },
+  gateway: { at: [2, 115], yaw: 98, height: 5.0, distance: 11.2, focal: 1700, orbit: -7 },
+  review: { at: [12, 132], yaw: 81, height: 4.6, distance: 10.8, focal: 1700, orbit: 7 },
+  sandbox: { at: [4, 149], yaw: 99, height: 5.6, distance: 11.8, focal: 1700, orbit: -6 },
+  durable: { at: [14, 166], yaw: 83, height: 4.8, distance: 11.4, focal: 1700, orbit: 7 },
 }
 
 /** The team's four realms, as lattice steps from the cell nearest `at`: two in front, two behind

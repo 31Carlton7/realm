@@ -449,8 +449,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
           // aside: their plazas stay clear and the screens' light falls on them from where they are.
           if (mode !== "still") lit.push([stand.realm[0], stand.realm[1], Math.max(now.door[index]!, 0), 0])
           const eye = stand.key.view.eye
-          const reach = 0.72
-          plazas.push([stand.realm[0], stand.realm[1], 3.4, 11, lerp(stand.realm[0], eye[0], reach), lerp(stand.realm[1], eye[1], reach)])
+          const reach = 1
+          plazas.push([stand.realm[0], stand.realm[1], 3.4, 7, lerp(stand.realm[0], eye[0], reach), lerp(stand.realm[1], eye[1], reach)])
           // A space can be confined: its realm gets a boundary drawn on the ground round it.
           if (stand.key.id === "sandbox" && mode !== "drift") fence = [stand.realm[0], stand.realm[1], 2.4, opening]
         }
@@ -534,6 +534,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
             }
             if (panels.length < PANELS * 2) panels.push([...slot], [0, 12, 1, 0])
           }
+          if (slot && visible(slot)) clears.push([slot[0], slot[1] + slot[3] + 4, Math.min(slot[2], 600), 52])
         }
       })
 

@@ -80,7 +80,7 @@ export function Team({ side }: { side: "left" | "right" }) {
             Review, and nothing is posted, sent or published until you approve it.
           </p>
 
-          <div data-lab-anchor="c:board" className="spot mt-8 rounded-[22px] p-4 sm:p-5">
+          <div data-lab-anchor="c:board" className="spot mt-8 rounded-[28px] p-4">
             <div className="flex items-center justify-between px-1">
               <p className="text-[13px] text-ink-2">
                 <span className="text-ink">Newsletter</span> · 4 roles
@@ -88,7 +88,7 @@ export function Team({ side }: { side: "left" | "right" }) {
               <button
                 type="button"
                 onClick={shuffle}
-                className="app-corner flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[13px] text-ink-2 transition-colors duration-150 hover:bg-raised hover:text-ink"
+                className="app-corner flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-[13px] text-ink-2 transition-colors duration-150 hover:bg-raised hover:text-ink"
               >
                 <Icon name="reload" className="h-3.5 w-3.5" /> Shuffle
               </button>
@@ -101,7 +101,7 @@ export function Team({ side }: { side: "left" | "right" }) {
                     type="button"
                     aria-pressed={picked === r.id}
                     onClick={() => setPicked(r.id)}
-                    className="flex w-full flex-col items-center gap-1.5 rounded-[14px] bg-page px-2 pt-4 pb-3 shadow-[inset_0_0_0_1px_var(--color-line)] transition-[box-shadow,background-color] duration-200 hover:bg-surface aria-pressed:bg-surface aria-pressed:shadow-[inset_0_0_0_1px_oklch(0.68_0.173_253.301/0.55)]"
+                    className="flex w-full flex-col items-center gap-1.5 rounded-[12px] bg-page px-2 pt-4 pb-3 shadow-[inset_0_0_0_1px_var(--color-line)] transition-[box-shadow,background-color] duration-200 hover:bg-surface aria-pressed:bg-surface aria-pressed:shadow-[inset_0_0_0_1px_oklch(0.68_0.173_253.301/0.55)]"
                   >
                     <Realmite spec={specs[r.id]!} size={48} state={states[r.id]} />
                     <span className="text-[13px] font-[520] text-ink">{r.name}</span>
@@ -158,14 +158,14 @@ export function Team({ side }: { side: "left" | "right" }) {
                           <button
                             type="button"
                             onClick={() => setDecided((d) => ({ ...d, [item.id]: "returned" }))}
-                            className="app-corner rounded-[9px] px-2.5 py-1.5 text-[12.5px] text-ink-2 transition-colors hover:bg-raised hover:text-ink"
+                            className="app-corner rounded-[8px] px-2.5 py-1.5 text-[12.5px] text-ink-2 transition-colors hover:bg-raised hover:text-ink"
                           >
                             Send back
                           </button>
                           <button
                             type="button"
                             onClick={() => setDecided((d) => ({ ...d, [item.id]: "approved" }))}
-                            className="app-corner rounded-[9px] bg-accent-fill px-2.5 py-1.5 text-[12.5px] text-white transition-[background-color,scale] hover:bg-accent-fill-hover active:scale-[0.97] active:bg-accent-fill-press"
+                            className="app-corner rounded-[8px] bg-accent-fill px-2.5 py-1.5 text-[12.5px] text-white transition-[background-color,scale] hover:bg-accent-fill-hover active:scale-[0.97] active:bg-accent-fill-press"
                           >
                             Approve
                           </button>
