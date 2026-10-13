@@ -65,6 +65,9 @@ type Stand = {
   keepClear: number
   /** The words this stop is read at, where they stand then: nothing of the sky hangs behind them. */
   words?: Rect
+  /** The largest a realm of the sky may be drawn at this stop's own view, in px across: past that it is
+   *  a wall beside the screen, not a realm. */
+  largest: number
   /** A chapter's screen: its foot, its size at rest in CSS px, its depth then, which side it is on. */
   foot?: Vec3
   slot?: [number, number]
@@ -123,6 +126,7 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
       key: { id: "open", kind: "open", y: 0, view, hold: [0, 0.1], turn: 3 * DEG, pivot: ahead, lift: 0 },
       haze: [40, 1 / 220],
       keepClear: 7,
+      largest: 150,
       words: copy ? rest(copy, scrollY, 0) : undefined,
     })
   }
@@ -145,6 +149,7 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
         key: { id, kind: "chapter", y, view, hold: [0.24, 0.24], turn: stop.orbit * DEG, pivot: foot, lift: 1.2 },
         haze: [stop.distance + 26, 1 / 150],
         keepClear: stop.distance + 9,
+        largest: 80,
         words: rest(rect, scrollY, y),
         foot,
         slot: [slot[2], slot[3]],
@@ -167,6 +172,7 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
         key: { id, kind: "teams", y, view, hold: [0.24, 0.24], turn: TEAM.orbit * DEG, pivot: at, lift: 1.2 },
         haze: [TEAM.distance + 26, 1 / 150],
         keepClear: TEAM.distance + 7,
+        largest: 70,
         words: rest(rect, scrollY, y),
         team,
       })
@@ -182,6 +188,7 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
         key: { id, kind: "calm", y, view, hold: [0.2, 0.2], turn: 3 * DEG, pivot: [climb.at[0] + Math.cos(yaw) * reach, climb.at[1] + Math.sin(yaw) * reach, 0], lift: 0 },
         haze: [climb.height * 1.2, 1 / (climb.height * 9)],
         keepClear: 12,
+        largest: 120,
       })
       continue
     }
@@ -196,6 +203,7 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
         key: { id, kind: "finale", y, view, hold: [0.12, 0.3], turn: 0, pivot: ahead, lift: 0 },
         haze: [60, 1 / 500],
         keepClear: 24,
+        largest: 110,
       })
     }
   }
@@ -260,7 +268,7 @@ function chapterRealm(stand: Stand, slot: Rect, height: number, t: number, index
   const size = 1
   const z = (view.focal * size) / px
   const x = side > 0 ? slot[0] + slot[2] - extent * 0.6 : slot[0] + extent * 0.6
-  const y = clamp(slot[1] - extent * 0.42, extent * 0.5 + 8, height * 0.4)
+  const y = clamp(slot[1] - extent * 0.42, extent * 0.62 + 8, height * 0.4)
   const ray = rayAt(view, b, x, y)
   const along = z / Math.max(dot(ray, b.fwd), 1e-3)
   const sway: Vec3 = [Math.sin(t * 0.31 + index) * 0.08, Math.cos(t * 0.23 + index * 2) * 0.06, Math.sin(t * 0.27 + index * 3) * 0.1]
@@ -503,7 +511,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
    * hang where the camera passes between stops. Worked out again whenever the stops move.
    */
   const clearSky = (list: Stand[], width: number, height: number) => {
-    const views = list.map((s) => ({ view: s.key.view, b: basis(s.key.view), keep: s.keepClear, words: s.words }))
+    const views = list.map((s) => ({ view: s.key.view, b: basis(s.key.view), keep: s.keepClear, words: s.words, largest: s.largest }))
     const path: Vec3[] = []
     for (let k = 0; k + 1 < list.length; k++) {
       const a = list[k]!.key
@@ -516,11 +524,13 @@ export const createRealms: StageFactory = async (gpu, output) => {
     }
     realmsNow = clearOff(population, (at, size) => {
       for (const p of path) if (length3(sub3(at, p)) < 3 + size * 0.9) return false
-      for (const { view, b, keep, words } of views) {
+      for (const { view, b, keep, words, largest } of views) {
         const [x, y, z] = project(view, b, at)
         if (z <= 0.3) continue
-        const r = (view.focal * size) / z + 40
-        if (z <= keep + size && x > -r && x < width + r && y > -r && y < height + r) return false
+        const across = (view.focal * size) / z
+        const r = across + 40
+        const seen = x > -r && x < width + r && y > -r && y < height + r
+        if (seen && (z <= keep + size || across > largest)) return false
         // Behind the words a stop is read at, nothing near enough to be more than a point.
         if (words && z < 140 && x > words[0] - r && x < words[0] + words[2] + r && y > words[1] - r && y < words[1] + words[3] + r) return false
       }
@@ -781,7 +791,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
             const e = smoother(opening / 0.6)
             const mid = mix3(mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25), screenMid, Math.max(e, 0.04))
             const half: [number, number] = [lerp(0.2, W * 0.48, e), lerp(0.4, H * 0.48, e)]
-            beamsNow.push({ door, mid, half, light: 0.55 + 0.7 * (1 - pictureOn) * smooth(opening), kind: 0, moment: index * 0.37, reach, hidden: pictureOn > 0.995 ? [left, top, w, h] : null })
+            beamsNow.push({ door, mid, half, light: 0.42 + 0.7 * (1 - pictureOn) * smooth(opening), kind: 0, moment: index * 0.37, reach, hidden: pictureOn > 0.995 ? [left, top, w, h] : null })
           }
         } else {
           // In the slot: the screen is where the layout put it, and its light is read from there.
