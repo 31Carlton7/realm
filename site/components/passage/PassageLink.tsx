@@ -10,7 +10,7 @@ type Props<T extends string> = Omit<ComponentProps<typeof Link>, "href"> & {
   href: Route<T>
   /** The passage this link takes (state.ts); none, and it is a plain link. */
   passage?: PassageKind
-  /** The release whose doorway a dive goes through, or a surface comes back out of. */
+  /** The release whose doorway a dive goes through. */
   release?: number
 }
 

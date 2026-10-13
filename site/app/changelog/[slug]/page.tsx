@@ -76,7 +76,6 @@ export default async function ChangelogEntryPage({ params }: Params) {
                 <PassageLink
                   href="/changelog"
                   passage="surface"
-                  release={index}
                   className="-ml-1 inline-flex min-h-10 items-center gap-2 rounded-[8px] px-1 text-[14px] text-ink-2 transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring"
                 >
                   <ArrowIcon className="nudge h-3.5 w-3.5 rotate-180 [--nudge:-3px]" />
