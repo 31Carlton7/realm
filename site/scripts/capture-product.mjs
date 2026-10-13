@@ -1121,9 +1121,14 @@ const scenes = [
       const expect = `!!document.querySelector('.view-panel:not([hidden]) .documents-code .cm-content') && !!document.querySelector('.view-main .transcript') && !document.querySelector('.page-overlay')`
       await shot("workspace", expect)
       // The turn's card for the changelog, from this narrower pane, where the card and the answer
-      // above it fit a reading column.
-      const card = await boxOf([".view-main .session-pane .edit-summary"], 0)
-      if (card) await shot("edited-files", expect, { clip: { x: Math.max(0, card.x - 24), y: Math.max(0, card.y - 330), width: card.width + 48, height: Math.min(VIEWPORT.height - Math.max(0, card.y - 330), card.height + 354) } })
+      // above it fit a reading column: from the start of the paragraph that names the file as a link,
+      // down to the card's foot, short of the turn's time under it. The track down the pane's edge is
+      // hidden for the shot; a crop this narrow cut its ticks off from the turns they mark.
+      const box = await evaluate(`(() => { const card = document.querySelector('.view-main .session-pane .edit-summary'); if (!card) return null; const c = card.getBoundingClientRect();
+        const link = [...document.querySelectorAll('.view-main .session-pane .md-file')].filter((a) => a.getBoundingClientRect().bottom < c.top).at(-1);
+        const from = link?.closest('p, li') ?? card; const top = __capture.room(from, "top", 22), bottom = __capture.room(card, "bottom", 22);
+        return { x: c.left - 24, y: top, width: c.width + 48, height: bottom - top }; })()`)
+      if (box) await shot("edited-files", expect, { clip: box, hide: [".view-main .scroll-track"] })
     },
   },
   {
