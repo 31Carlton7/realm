@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { registerWhatsNew, WhatsNewState, WHATS_NEW_FILE, type WhatsNewFs } from "./whats-new";
 
@@ -20,6 +23,18 @@ describe("what's new after an update", () => {
     expect(first.claim()).toBe(false);
     expect(first.lastSeen()).toBe("2.1.1");
     expect(launch("2.1.1").claim()).toBe(false);
+  });
+
+  it("records a new install even before userData exists, so its second launch is quiet", () => {
+    const root = mkdtempSync(join(tmpdir(), "realm-whats-new-"));
+    try {
+      const dir = join(root, "userData");
+      expect(new WhatsNewState({ dir, version: "2.1.1", ranBefore: false }).claim()).toBe(false);
+      // The second launch finds the window's saved place, as any install that has run once does.
+      expect(new WhatsNewState({ dir, version: "2.1.1", ranBefore: true }).claim()).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("shows once after an update — to the first window that asks, not a second", () => {

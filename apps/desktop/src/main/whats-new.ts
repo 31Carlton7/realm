@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { ReleaseNotes } from "./whats-new-notes";
 
 /**
@@ -20,7 +20,13 @@ export type WhatsNewFs = {
   read: (path: string) => string;
   write: (path: string, data: string) => void;
 };
-const realFs: WhatsNewFs = { read: (p) => readFileSync(p, "utf8"), write: (p, d) => writeFileSync(p, d) };
+/* The folder is made first: a new install's userData does not exist yet when main loads, and the
+   silent record was lost there — so its second launch took the window's saved place for an earlier
+   Realm and showed the sheet to someone who had just installed it. */
+const realFs: WhatsNewFs = {
+  read: (p) => readFileSync(p, "utf8"),
+  write: (p, d) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, d); },
+};
 
 /** What the build bakes in: the running version and its notes (null when the changelog has none). */
 export type WhatsNewBuild = { version: string; notes: ReleaseNotes | null };
