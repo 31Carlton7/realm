@@ -109,6 +109,14 @@ export class SessionProjector {
         const more = totalFiles > 3 ? ", …" : "";
         return put({ key: `c:${ev.payload.checkpointId}`, seq, kind: "notice", text: `Changed ${totalFiles} ${totalFiles === 1 ? "file" : "files"}: ${names}${more}` });
       }
+      // The media a turn left behind (screenshots, renders, downloads), one notice per turn. The files
+      // stay on the Mac: the row says what was made, by name.
+      case "files_made": {
+        const { files, totalFiles } = ev.payload;
+        const names = files.slice(0, 3).map((f) => f.path.split("/").pop()).join(", ");
+        const more = totalFiles > 3 ? ", …" : "";
+        return put({ key: `m:${ev.payload.settledAt}`, seq, kind: "notice", text: `Made ${totalFiles} ${totalFiles === 1 ? "file" : "files"}: ${names}${more}` });
+      }
       // Carried elsewhere, or not drawn on the phone in Phase 1: status travels as `session.status`;
       // usage, init, feedback and the account's rate limits are desktop detail; the summary and the
       // suggested reply arrive with the Phase 2 composer.

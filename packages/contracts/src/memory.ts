@@ -133,6 +133,9 @@ export const MemorySourcesSchema = z.object({
   note: z.string(),
   /** Whether this space's Realm memory document is non-empty and travels to this agent's sessions. */
   realmMemoryInjected: z.boolean(),
+  /** Whether the memory repo's `MEMORY.md` travels into this agent's sessions. False for an agent with
+   *  no context channel even where the space has a repo: those reach it through the memory tools. */
+  repoIndexInjected: z.boolean(),
   sources: z.array(MemorySourceSchema),
 });
 export type MemorySources = z.infer<typeof MemorySourcesSchema>;
@@ -146,6 +149,278 @@ export function memorySupportNote(kind: AgentKind): string {
     case "developerInstructions":
       return `${label} sessions receive this space's Realm memory per session, and ${label} itself reports the exact instruction files it loaded once the session starts.`;
     default:
-      return `${label} takes no per-session context parameter, so neither Realm's memory nor any managed file reaches it.`;
+      return `${label} takes no per-session context parameter, so neither Realm's memory documents nor any managed file reaches it; a memory repo, where one is attached, reaches it through Realm's memory tools.`;
   }
+}
+
+/*
+ * ─── Memory repos ─────────────────────────────────────────────────────────────────────────────────
+ *
+ * The memory an AGENT writes, kept in its own git repository in the Agent Memory Repo format
+ * (github.com/AgentMemoryRepo/agentmemoryrepo). The documents above stay the user's standing
+ * instructions; a memory repo is what agents save facts into and read back across sessions, engines
+ * and machines. Every rule of the format Realm implements lives in this block and nowhere else: the
+ * spec is young, and a change to it should be a change to one file.
+ */
+
+/** The spec commit this block was written against. */
+export const AMR_SPEC_COMMIT = "8798cb2";
+
+/** The entry point every session loads (spec: "Agents load it at the start of every session"). */
+export const MEMORY_REPO_INDEX_FILE = "MEMORY.md";
+
+/** What a new repo's `MEMORY.md` starts as — the spec skill's own seed, byte for byte. */
+export const MEMORY_REPO_INITIAL_INDEX = "# Memory\n\n## Index\n";
+
+/** Cap on the `MEMORY.md` content injected into one session. The spec asks for a short file; a long one
+ *  is cut here, with a pointer to `memory_read`, so it can never crowd the space's own document out. */
+export const MEMORY_REPO_INDEX_MAX = 20_000;
+
+/** Cap on one entry. An entry is one line of one fact, and a paragraph is a topic file. */
+export const MEMORY_REPO_ENTRY_MAX = 2_000;
+
+/** Whose a memory repo is: a profile's (the user's own memory, inherited by its spaces) or one
+ *  space's (a team's, shared by everyone who works in that space). */
+export const MemoryRepoScopeSchema = z.enum(["profile", "space"]);
+export type MemoryRepoScope = z.infer<typeof MemoryRepoScopeSchema>;
+
+/**
+ * Where a repo stands against the remote it syncs with. `off`: no sync (no remote, or the user has
+ * not turned it on). `synced`: nothing waiting. `queued`: commits made here are not on the remote
+ * yet — the network was down, or no push has run since the save; the next save or boot retries.
+ * `diverged`: both sides have commits the other lacks, so saving is paused until the user merges
+ * by hand — Realm never merges, rebases or forces memory.
+ */
+export const MemoryRepoSyncSchema = z.enum(["off", "synced", "queued", "diverged"]);
+export type MemoryRepoSync = z.infer<typeof MemoryRepoSyncSchema>;
+
+/**
+ * A memory repo as one scope sees it. `scope`/`ownerId` say whose it is; a space reads a LIST of
+ * these — its own repo, if it has one, then its profile's.
+ *
+ * `valid` is the spec's own test: `git rev-parse --show-toplevel` is the path itself and `MEMORY.md`
+ * sits at the top. `reason` is why Realm will not write to it right now (not a repo, uncommitted
+ * changes), or null when it will.
+ */
+export const MemoryRepoStateSchema = z.object({
+  path: z.string(),
+  scope: MemoryRepoScopeSchema,
+  ownerId: z.string(),
+  exists: z.boolean(),
+  valid: z.boolean(),
+  clean: z.boolean(),
+  /** `git status --porcelain` paths, at most 20 — what the user has to commit or remove first. */
+  uncommitted: z.array(z.string()),
+  head: z.string().nullable(),
+  lastCommitAt: z.number().nullable(),
+  lastCommitSubject: z.string().nullable(),
+  remote: z.string().nullable(),
+  /** Whether Realm pulls and pushes this repo. On only after the user turned it on for a remote
+   *  Realm checked, or the user confirmed, is private. */
+  pushEnabled: z.boolean(),
+  sync: MemoryRepoSyncSchema,
+  /** Commits here the remote lacks, and the other way round, as of the last fetch. */
+  ahead: z.number(),
+  behind: z.number(),
+  /** Why the last pull or push did not go through (offline, refused), or null. */
+  syncError: z.string().nullable(),
+  lastSyncAt: z.number().nullable(),
+  indexChars: z.number(),
+  /** Whether the space asked about uses this repo; null when no space was asked about. */
+  inheritedHere: z.boolean().nullable(),
+  reason: z.string().nullable(),
+});
+export type MemoryRepoState = z.infer<typeof MemoryRepoStateSchema>;
+
+/**
+ * What Realm knows about whether a repo's remote is private, before it pushes anything there.
+ * `private`/`public` come from GitHub itself (`gh api repos/:owner/:repo`); `unknown` is every other
+ * remote, or a GitHub one `gh` could not answer for — then only the user's own word turns sync on.
+ */
+export const MemoryRemoteCheckSchema = z.object({
+  remote: z.string().nullable(),
+  verdict: z.enum(["private", "public", "unknown"]),
+  detail: z.string(),
+});
+export type MemoryRemoteCheck = z.infer<typeof MemoryRemoteCheckSchema>;
+
+/** What importing the Claude memory Realm already copied would add to a repo — or, after an import,
+ *  what it did add. `entries` is the count the user is shown before anything is written. */
+export const MemoryClaudeImportSchema = z.object({
+  projects: z.number(),
+  files: z.number(),
+  entries: z.number(),
+  skipped: z.array(z.object({ file: z.string(), reason: z.string() })),
+  sha: z.string().nullable(),
+});
+export type MemoryClaudeImport = z.infer<typeof MemoryClaudeImportSchema>;
+
+/**
+ * The GitHub repository a remote URL names, or null for any other host. Covers the three spellings
+ * git accepts for GitHub — `https://github.com/o/r(.git)`, `git@github.com:o/r(.git)` and
+ * `ssh://git@github.com/o/r(.git)` — and nothing looser: a URL this does not recognize is checked by
+ * the user, never guessed at.
+ */
+export function githubRepoOf(url: string): { owner: string; repo: string } | null {
+  const m = /^(?:https?:\/\/(?:[^@/\s]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com(?::\d+)?\/)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(url.trim());
+  return m ? { owner: m[1]!, repo: m[2]! } : null;
+}
+
+/** One commit of a memory repo — what an agent remembered, and when. */
+export const MemoryRepoCommitSchema = z.object({ sha: z.string(), subject: z.string(), at: z.number() });
+export type MemoryRepoCommit = z.infer<typeof MemoryRepoCommitSchema>;
+
+/** One entry: the fact, and its trailing `[key: value; key: value]` metadata. Keys are open. */
+export type MemoryEntry = { text: string; meta: Record<string, string> };
+
+const ENTRY_LINE = /^\s*[-*+]\s+(.*)$/;
+const META_TAIL = /\s*\[([^[\]\n]*)\]$/;
+const META_PAIR = /^([A-Za-z][\w-]*):\s+(.*)$/;
+/** A pair boundary is a `;` followed by the next `key: `, so a `;` inside a URL stays in its value. */
+const META_SPLIT = /;\s*(?=[A-Za-z][\w-]*:\s)/;
+
+/**
+ * Reads one bullet line as an entry, or null for a line that is not a bullet. A trailing bracket is
+ * metadata only when every part of it is a `key: value` pair — `[see notes]` is part of the fact. The
+ * `: ` (with its space) is what keeps `https://…` from reading as a key.
+ */
+export function parseMemoryEntry(line: string): MemoryEntry | null {
+  const m = ENTRY_LINE.exec(line);
+  if (!m) return null;
+  const body = m[1]!.trimEnd();
+  const tail = META_TAIL.exec(body);
+  if (tail) {
+    const meta: Record<string, string> = {};
+    const pairs = tail[1]!.split(META_SPLIT).map((p) => META_PAIR.exec(p.trim()));
+    if (pairs.length > 0 && pairs.every((p) => p !== null)) {
+      for (const p of pairs) meta[p![1]!] = p![2]!.trim();
+      return { text: body.slice(0, tail.index).trimEnd(), meta };
+    }
+  }
+  return { text: body, meta: {} };
+}
+
+/** One entry as its bullet line. */
+export function formatMemoryEntry(e: MemoryEntry): string {
+  const pairs = Object.entries(e.meta).map(([k, v]) => `${k}: ${v}`);
+  return `- ${e.text}${pairs.length > 0 ? ` [${pairs.join("; ")}]` : ""}`;
+}
+
+/**
+ * Why an entry cannot be written, or null. The test that matters is the last one: an entry that
+ * would not read back as itself — a fact that ends in something shaped like metadata, a value with a
+ * bracket in it — is refused rather than saved as a different entry.
+ */
+export function memoryEntryProblem(e: MemoryEntry): string | null {
+  if (e.text.trim() === "") return "the entry is empty";
+  if (/[\r\n]/.test(e.text)) return "an entry is one line — put a longer note in a topic file with memory_write_file";
+  if (formatMemoryEntry(e).length > MEMORY_REPO_ENTRY_MAX) return `an entry is capped at ${MEMORY_REPO_ENTRY_MAX} characters — put a longer note in a topic file`;
+  for (const [k, v] of Object.entries(e.meta)) {
+    if (!/^[A-Za-z][\w-]*$/.test(k)) return `"${k}" is not a metadata key (letters, digits, - and _)`;
+    if (v.trim() === "" || /[[\]\r\n]/.test(v)) return `the "${k}" value must be one line with no square brackets`;
+  }
+  const back = parseMemoryEntry(formatMemoryEntry(e));
+  if (!back || back.text !== e.text || JSON.stringify(back.meta) !== JSON.stringify(e.meta))
+    return "the entry would not read back as written — it ends in something shaped like [key: value] metadata";
+  return null;
+}
+
+/**
+ * The file a cross-link points at, from the repo root: `[[projects/payments]]` is
+ * `projects/payments.md`, and a name with an extension keeps it (`[[metrics/keep_rate.sql]]`). A bare
+ * path is taken as the inside of a link, so a tool can accept either.
+ */
+export function wikiLinkTarget(link: string): string | null {
+  const m = /^\[\[([^[\]]*)\]\]$/.exec(link.trim());
+  const p = (m ? m[1]! : link).trim().replace(/^\/+/, "");
+  if (p === "" || /[[\]]/.test(p)) return null;
+  return /\.[A-Za-z0-9]+$/.test(p.split("/").at(-1)!) ? p : `${p}.md`;
+}
+
+/** The cross-link for a repo path: `.md` dropped, any other extension kept. */
+export function wikiLinkFor(path: string): string {
+  return `[[${path.replace(/\.md$/i, "")}]]`;
+}
+
+const INDEX_HEADING = /^##\s+Index\s*$/i;
+const HEADING = /^#{1,6}\s/;
+
+/** `MEMORY.md` with a link to `path` under `## Index` (the heading added if it is missing). A link
+ *  already there anywhere in the file leaves it as it was. */
+export function withIndexLink(index: string, path: string): string {
+  const link = wikiLinkFor(path);
+  if (index.includes(link)) return index;
+  if (index.trim() === "") return `## Index\n- ${link}\n`;
+  const lines = index.replace(/\n+$/, "").split("\n");
+  const at = lines.findIndex((l) => INDEX_HEADING.test(l));
+  if (at === -1) return `${lines.join("\n")}\n\n## Index\n- ${link}\n`;
+  let end = at + 1;
+  for (let i = at + 1; i < lines.length; i++) {
+    if (HEADING.test(lines[i]!)) break;
+    if (lines[i]!.trim() !== "") end = i + 1;
+  }
+  lines.splice(end, 0, `- ${link}`);
+  return `${lines.join("\n")}\n`;
+}
+
+/** The `source` an agent's save is stamped with. AMR keys are open and Realm registers no URL scheme,
+ *  so this names the session in Realm's own terms rather than pretending to be a link. */
+export function amrRepoSourceLink(sessionId: string): string {
+  return `realm:session/${sessionId}`;
+}
+
+export type MemoryEdit =
+  | { op: "add"; entry: MemoryEntry }
+  | { op: "replace"; match: string; entry: MemoryEntry }
+  | { op: "remove"; match: string };
+
+export type MemoryEditResult =
+  | { ok: true; content: string; changed: boolean }
+  | { ok: false; error: string };
+
+/**
+ * One edit to one Markdown file of a memory repo, as text in and text out — the spec's "edit in
+ * place" rule, kept apart from git so it can be tested line by line.
+ *
+ * - `add` puts a fact in `MEMORY.md` ABOVE `## Index` (the spec's place for what every session
+ *   needs) and at the end of any other file. A fact already there word for word is not added twice.
+ * - `replace` and `remove` find the ONE entry whose text is `match` exactly, or failing that the one
+ *   whose text contains it. None, or more than one, is an error that says which, so the agent can
+ *   quote more rather than change the wrong line.
+ */
+export function applyMemoryEdit(content: string, edit: MemoryEdit, o: { isIndex: boolean; title: string }): MemoryEditResult {
+  const lines = content === "" ? [] : content.replace(/\n$/, "").split("\n");
+  if (edit.op === "add") {
+    if (lines.some((l) => parseMemoryEntry(l)?.text === edit.entry.text)) return { ok: true, content, changed: false };
+    const line = formatMemoryEntry(edit.entry);
+    if (lines.length === 0) return { ok: true, content: o.isIndex ? `${line}\n` : `# ${o.title}\n\n${line}\n`, changed: true };
+    const at = o.isIndex ? lines.findIndex((l) => INDEX_HEADING.test(l)) : -1;
+    if (at === -1) {
+      while (lines.length > 0 && lines.at(-1)!.trim() === "") lines.pop();
+      // A heading wants a blank line under it; a run of bullets does not.
+      if (lines.length > 0 && HEADING.test(lines.at(-1)!)) lines.push("");
+      lines.push(line);
+      return { ok: true, content: `${lines.join("\n")}\n`, changed: true };
+    }
+    let k = at;
+    while (k > 0 && lines[k - 1]!.trim() === "") k--;
+    const block = [line, ""];
+    if (k > 0 && HEADING.test(lines[k - 1]!)) block.unshift("");
+    lines.splice(k, at - k, ...block);
+    return { ok: true, content: `${lines.join("\n")}\n`, changed: true };
+  }
+  const wanted = (parseMemoryEntry(edit.match)?.text ?? edit.match).trim();
+  if (wanted === "") return { ok: false, error: "say which entry: give its text" };
+  const entries = lines.map((l, i) => ({ i, e: parseMemoryEntry(l) })).filter((x) => x.e !== null);
+  let hits = entries.filter((x) => x.e!.text === wanted);
+  if (hits.length === 0) hits = entries.filter((x) => x.e!.text.toLowerCase().includes(wanted.toLowerCase()));
+  if (hits.length === 0) return { ok: false, error: `no entry matches "${wanted}"` };
+  if (hits.length > 1) return { ok: false, error: `${hits.length} entries match "${wanted}" — quote more of the one you mean:\n${hits.map((h) => lines[h.i]).join("\n")}` };
+  const i = hits[0]!.i;
+  if (edit.op === "remove") {
+    lines.splice(i, 1);
+    // The last fact of a run leaves the blank lines that framed it; keep one.
+    if (i > 0 && lines[i - 1]?.trim() === "" && lines[i]?.trim() === "") lines.splice(i, 1);
+  } else lines[i] = formatMemoryEntry(edit.entry);
+  return { ok: true, content: lines.length > 0 ? `${lines.join("\n")}\n` : "", changed: true };
 }

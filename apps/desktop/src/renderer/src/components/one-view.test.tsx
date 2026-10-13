@@ -4,7 +4,7 @@ import { allItems, findLeafOfItem, findPanel, sideTabsOf } from "@realm/contract
 import { Main } from "../App";
 import { Sidebar } from "./sidebar/Sidebar";
 import { CommandPalette } from "./CommandPalette";
-import { useGlobalHotkeys } from "../hotkeys";
+import { useKeybindings } from "../keys";
 import { StoreContext, createAppStore } from "../state/store";
 import { fakeApi, item, session, space } from "../state/store.test-fakes";
 import { setBrowserBridgesForTests } from "../panes/browser/browser-client";
@@ -34,7 +34,7 @@ async function mount(render_: "main" | "sidebar" | "both" = "both", over: Parame
   const store = createAppStore(api);
   await store.getState().boot();
   const Shell = () => {
-    useGlobalHotkeys(store);
+    useKeybindings(store);
     return (
       <StoreContext.Provider value={store}>
         {render_ !== "main" && <Sidebar />}

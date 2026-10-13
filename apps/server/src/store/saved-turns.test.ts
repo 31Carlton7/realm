@@ -8,6 +8,7 @@ import { SpacesStore } from "./spaces";
 import { SessionsStore, SessionEventsStore } from "./sessions";
 import { EnvironmentsStore } from "./environments";
 import { SavedTurnsStore } from "./saved-turns";
+import { deflateEveryPayload } from "./event-payload.test-fakes";
 
 /** A home with two profiles, a space in each and a session in each space, and a log to save from. */
 function fresh() {
@@ -31,6 +32,17 @@ function fresh() {
 }
 
 describe("SavedTurnsStore", () => {
+  it("lists a saved turn's prompt and reply the same when their payloads are compressed (v56)", () => {
+    const { db, saved, work, ask, say } = fresh();
+    const a = ask(work.session.id, "Fix the crash", 10);
+    say(work.session.id, "Fixed it.", 11);
+    saved.set(work.session.id, a, true);
+    const plain = saved.list(work.profile.id);
+    expect(plain.entries[0]).toMatchObject({ text: "Fix the crash", reply: "Fixed it." });
+    deflateEveryPayload(db);
+    expect(saved.list(work.profile.id)).toEqual(plain);
+  });
+
   it("keeps a saved prompt by its event, per session, in the log's order", () => {
     const { saved, work, ask, say } = fresh();
     const a = ask(work.session.id, "Fix the crash", 10);

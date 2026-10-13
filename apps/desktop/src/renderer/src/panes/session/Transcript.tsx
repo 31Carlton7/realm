@@ -13,10 +13,10 @@ import { sourcesFor, type Source } from "./message-sources";
 import { PendingRequest } from "./PendingRequest";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion } from "./QuestionCard";
-import { ToolCard, ToolCwd, ToolGroup } from "./ToolCard";
+import { ToolCard, ToolCwd, ToolGroup, ToolWaiting } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
-import { blockKey, goalTurnLabel, lastUserMessage, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
+import { blockKey, goalTurnLabel, lastUserMessage, waitingToolIds, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
 import { EditSummary } from "./EditSummary";
@@ -25,6 +25,7 @@ import { useDissolve } from "../../components/ScrollFades";
 import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
 import { useEnterTracker } from "./transcript-enter";
+import { SubagentStrip } from "./SubagentStrip";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
@@ -68,11 +69,14 @@ const inCardOrder = (c: TurnChanges, card: TurnEdits): TurnChanges => {
   return { ...c, files: card.files.map((f) => byPath.get(f.shown)).filter((f): f is TurnChanges["files"][number] => f !== undefined) };
 };
 
-function Thinking({ text, enter }: { text: string; enter?: boolean }) {
+/** `live` is a block the agent may still be writing: the last thing in a turn that is running. Any
+ *  other says it in the past tense — an interrupted turn's open block read "Thinking…" between two
+ *  finished runs, an ellipsis promising more from a turn that had long since stopped. */
+function Thinking({ text, enter, live }: { text: string; enter?: boolean; live: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="msg-thinking" data-enter={enter || undefined}>
-      <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={12} /><span>Thinking…</span></button>
+      <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Icon name="idea" size={12} /><span>{live ? "Thinking…" : "Thought"}</span></button>
       {open && <Markdown text={text} className="thinking-body" />}
     </div>
   );
@@ -99,6 +103,7 @@ const NO_APP_ICONS: Readonly<Record<string, string | null>> = {};
 const NO_SOURCES: readonly Source[] = [];
 const NO_PROMPTS: readonly TrackPrompt[] = [];
 const NO_SAVED: readonly number[] = [];
+const NO_WAITING: ReadonlySet<string> = new Set();
 
 const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
@@ -148,6 +153,7 @@ function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: strin
 
 /** What a named thing's chip says under the pointer: where the file is, what the app mention did. */
 function refTitle(ref: MentionRef): string {
+  if (ref.kind === "role") return ref.childId ? `${ref.label} — started as this session's sub-agent` : `${ref.label} — not started${ref.refused ? `: ${ref.refused}` : ""}`;
   return ref.kind === "app" ? `${ref.name} — computer use for this session (${ref.bundleId})` : ref.path;
 }
 
@@ -162,7 +168,7 @@ function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionI
         const ref = r.chip.kind === "element" ? byLabel.get(r.chip.label) ?? null : null;
         const appIcon = ref?.kind === "app" ? appIcons[ref.path] : null;
         const icon = r.chip.kind === "link" && r.chip.service ? LINK_SERVICE_META[r.chip.service].icon
-          : ref ? (ref.kind === "app" ? "pointer" : fileMark(ref.path))
+          : ref ? (ref.kind === "app" ? "pointer" : ref.kind === "role" ? "team" : fileMark(ref.path))
           : r.chip.kind === "element" ? "target"
           : r.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles";
         return (
@@ -253,8 +259,11 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
+  /** Read the log further back than the transcript holds (`transcript.earlier`): the stretch before it,
+   *  or back to `throughSeq` — a prompt asked for by its seq. Absent leaves the log where it starts. */
+  onEarlier?: (throughSeq?: number) => Promise<void> | void;
   /** Draw the scroll track down the log's left edge (ScrollTrack.tsx) — every session pane's. Off in the
    *  quick chat, whose 380px window is one short exchange with no scrollback to find a place in. */
   track?: boolean;
@@ -347,11 +356,17 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      live session has the oldest rows drop away above them as new ones arrive. A number holds it — set
      the moment the reader scrolls up, so what they are reading never moves, and moved back each time
      they reach for more. A remount puts back the window the remembered offset was measured in. */
+  /* Held in the transcript's own numbering (index + `base`), not as an index: when an earlier stretch
+     is read in front, every index moves and the block the window starts on does not. */
   const [floor, setFloor] = useState<number | null>(() => (mark && !mark.atEnd ? mark.from ?? null : null));
+  const base = transcript.base ?? 0;
   const auto = windowStart(transcript.blocks);
-  const start = floor === null ? auto : Math.min(floor, auto);
+  const start = floor === null ? auto : Math.max(0, Math.min(floor - base, auto));
   const startRef = useRef(start);
   startRef.current = start;
+  const baseRef = useRef(base);
+  baseRef.current = base;
+  const more = transcript.earlier !== undefined && onEarlier !== undefined;
   const shown = useMemo(() => (start === 0 ? transcript.blocks : transcript.blocks.slice(start)), [transcript.blocks, start]);
   const [pill, setPill] = useState(false);
   const count = transcript.blocks.length;
@@ -360,6 +375,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   const lastLen = lastText && "text" in lastText ? lastText.text?.length ?? 0 : 0;
   // Permission cards only make sense while the adapter is actually waiting; stale requests (crash, restart) are closed server-side.
   const permissions = sessionStatus === "waiting_permission" ? transcript.pendingPermissions : [];
+  /* The calls those requests are about, so each one's row says "Waiting for you" rather than spinning
+     like work in progress. Kept as the SAME set while the ids hold, because every streaming delta
+     rebuilds the blocks and a fresh set would re-render every card in the transcript with it. */
+  const waitingKey = permissions.length ? waitingToolIds(transcript.blocks, permissions).join("\n") : "";
+  const waiting = useMemo(() => (waitingKey ? new Set(waitingKey.split("\n")) : NO_WAITING), [waitingKey]);
   /* The newest answer in the transcript — the only message that wears an action bar.
      A bar under every finished message meant forty of them in a long session, all but one of which
      acted on something the reader had scrolled past; the copy the reader actually reaches for is
@@ -368,10 +388,10 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   const lastAssistantKey = useMemo(() => {
     for (let i = transcript.blocks.length - 1; i >= 0; i--) {
       const b = transcript.blocks[i]!;
-      if (b.kind === "assistant") return blockKey(b, i);
+      if (b.kind === "assistant") return blockKey(b, i + base);
     }
     return null;
-  }, [transcript.blocks]);
+  }, [transcript.blocks, base]);
   // Retry rides that same message, and only when there is something to ask again — a session whose
   // only messages came from a peer has nothing of the user's to re-send.
   const retryKey = onRetry && lastUserMessage(transcript) ? lastAssistantKey : null;
@@ -389,24 +409,26 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
       const b = transcript.blocks[i]!;
       if (b.kind !== "assistant" || b.streaming) continue;
       const found = sourcesFor(transcript.blocks, i);
-      if (found.length > 0) out.set(blockKey(b, i), found);
+      if (found.length > 0) out.set(blockKey(b, i + base), found);
     }
     return out;
-  }, [transcript.blocks, start]);
+  }, [transcript.blocks, start, base]);
   // §6: 180ms enter, new items only. Everything on screen at mount is seeded as already-seen, so
   // re-rendering, scrolling, or coming back to this session never replays an entrance.
   /* Each settled turn's edits, and every turn as Undo weighs it (turn-edits.ts). The card is its own
      entry in the enter tracker: it lands a beat after its run line, when git's account arrives. */
   const edits = useMemo(() => (turnEditing
-    ? turnEdits(transcript.blocks, { changes: transcript.changes, checkpoints: turnEditing.checkpoints, sessionId: turnEditing.sessionId, cwd, root: checkout?.root ?? null })
-    : null), [transcript.blocks, transcript.changes, turnEditing, cwd, checkout?.root]);
+    ? turnEdits(transcript.blocks, { changes: transcript.changes, checkpoints: turnEditing.checkpoints, sessionId: turnEditing.sessionId, cwd, root: checkout?.root ?? null,
+      base, ...(transcript.earlier ? { settledAt: transcript.earlier.settledAt } : {}) })
+    : null), [transcript.blocks, transcript.changes, transcript.earlier, base, turnEditing, cwd, checkout?.root]);
   /* What the window has just drawn further back is history, not news: it is told to the tracker as
      seen so it does not play the entrance new blocks get. */
-  const drawnFrom = useRef(start);
-  const quiet = start < drawnFrom.current ? transcript.blocks.slice(start, drawnFrom.current).map((b, j) => blockKey(b, start + j)) : undefined;
-  drawnFrom.current = Math.min(drawnFrom.current, start);
+  const startKey = start + base;
+  const drawnFrom = useRef(startKey);
+  const quiet = startKey < drawnFrom.current ? transcript.blocks.slice(start, drawnFrom.current - base).map((b, j) => blockKey(b, startKey + j)) : undefined;
+  drawnFrom.current = Math.min(drawnFrom.current, startKey);
   const isEntering = useEnterTracker([
-    ...shown.map((b, j) => blockKey(b, start + j)),
+    ...shown.map((b, j) => blockKey(b, startKey + j)),
     ...permissions.map((p) => permKey(p.requestId)),
     ...[...(edits?.cards.keys() ?? [])].map(editKey),
   ], quiet);
@@ -420,15 +442,15 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     const next = trackPrompts(transcript.blocks, (i) => {
       const b = transcript.blocks[i]!;
       if (b.kind !== "run") return 0;
-      if (edits) return edits.cards.get(blockKey(b, i))?.totalFiles ?? 0;
+      if (edits) return edits.cards.get(blockKey(b, i + base))?.totalFiles ?? 0;
       const measured = transcript.changes?.[b.ts];
       return measured && measured.files.length > 0 ? measured.totalFiles : 0;
-    }, new Set(saved));
+    }, new Set(saved), base);
     // Only the prompts the window draws: a tick is placed on its row, and a row that is not drawn has
     // nowhere to be measured.
-    const drawn = start === 0 ? next : next.filter((p) => Number(p.key.slice(p.key.indexOf(":") + 1)) >= start);
+    const drawn = start === 0 ? next : next.filter((p) => Number(p.key.slice(p.key.indexOf(":") + 1)) >= startKey);
     return samePrompts(promptsRef.current, drawn) ? promptsRef.current : (promptsRef.current = drawn);
-  }, [track, transcript.blocks, transcript.changes, edits, saved, start]);
+  }, [track, transcript.blocks, transcript.changes, edits, saved, start, startKey, base]);
 
   /* The ONE place the pin is written, so the pin and the remembered mark can never disagree — and
      so a programmatic jump is remembered too. Only `onScroll` would otherwise record anything, and
@@ -436,7 +458,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      be put back halfway up a log they had already asked to be at the bottom of. */
   const pin = (m: ScrollMark) => {
     atBottom.current = m.atEnd;
-    if (scrollKey) rememberScroll(scrollKey, { ...m, from: startRef.current });
+    if (scrollKey) rememberScroll(scrollKey, { ...m, from: startRef.current + baseRef.current });
   };
   /** Follow the content down, and record that this is where the reader chose to be. */
   const stick = (el: HTMLElement) => { el.scrollTop = el.scrollHeight; pin({ top: el.scrollTop, atEnd: true }); };
@@ -447,23 +469,45 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     if (atBottom.current) setPill(false);
     // Leaving the bottom holds the window where it is, so the rows being read stay put while more
     // arrive below them.
-    else if (floor === null && startRef.current > 0) setFloor(startRef.current);
+    else if (floor === null && startRef.current > 0) setFloor(startRef.current + baseRef.current);
   };
   /* Draw further back, keeping the reader's view where it is: the column grows ABOVE them, so the
      distance to the bottom is what is held, not the offset from the top. */
   const holdFromEnd = useRef<number | null>(null);
+  /* At the top of what the store holds, the next stretch is read from the server (`onEarlier`), and
+     drawn when it lands: the window is pinned where it is first, so the read itself moves nothing on
+     screen, and the effect below then draws further back exactly as it does from memory. */
+  /** The key the window started on when the read was asked for, while it is in flight. */
+  const awaitingEarlier = useRef<number | null>(null);
+  const [earlierReads, setEarlierReads] = useState(0);
   const showEarlier = useCallback(() => {
     const el = ref.current, from = startRef.current;
-    if (from === 0) return;
     if (el) holdFromEnd.current = el.scrollHeight - el.scrollTop;
-    setFloor(windowStart(transcript.blocks, EARLIER_BLOCKS, from));
-  }, [transcript.blocks]);
+    if (from === 0) {
+      if (!more || awaitingEarlier.current !== null) return;
+      awaitingEarlier.current = baseRef.current;
+      setFloor(baseRef.current);
+      void Promise.resolve(onEarlier()).catch(() => {}).finally(() => setEarlierReads((n) => n + 1));
+      return;
+    }
+    setFloor(windowStart(transcript.blocks, EARLIER_BLOCKS, from) + baseRef.current);
+  }, [transcript.blocks, more, onEarlier]);
+  useEffect(() => {
+    const asked = awaitingEarlier.current;
+    if (asked === null || startRef.current === 0) return;
+    awaitingEarlier.current = null;
+    // A window that was shorter than its size has already grown into what landed; one that was full
+    // is drawn further back now, as it would have been from memory.
+    if (startRef.current + baseRef.current >= asked) showEarlier();
+  }, [base]);
+  // A read that put nothing in front (it failed, or the transcript was replaced) frees the next one.
+  useEffect(() => { awaitingEarlier.current = null; }, [earlierReads]);
   useLayoutEffect(() => {
     const el = ref.current, held = holdFromEnd.current;
     if (!el || held === null) return;
     holdFromEnd.current = null;
     el.scrollTop = el.scrollHeight - held;
-  }, [start]);
+  }, [start, base]);
   /* Reaching the top of what is drawn draws more, before the reader gets there: the sentinel is the
      "Show earlier" control itself, watched with a margin of most of a screen. */
   const earlierRef = useRef<HTMLButtonElement>(null);
@@ -480,8 +524,10 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   useLayoutEffect(() => {
     if (!reveal) return;
     const at = transcript.blocks.findIndex((b) => b.kind === "user" && b.seq === reveal.seq);
-    if (at >= 0 && at < startRef.current) setFloor(at);
-  }, [reveal?.n]);
+    if (at >= 0 && at < startRef.current) setFloor(at + baseRef.current);
+    // Further back than the store holds: read back to it, and this runs again when it lands.
+    else if (at < 0 && transcript.earlier && reveal.seq < transcript.earlier.from) onEarlier?.(reveal.seq);
+  }, [reveal?.n, base]);
   const scrollToBottom = () => { const el = ref.current; if (el) stick(el); else atBottom.current = true; setPill(false); };
   /* A prompt picked on the scroll track. The reader has chosen where to be, so it is recorded as their
      own scroll would be — and recorded FIRST: a smooth scroll reports itself a frame at a time, and a
@@ -586,15 +632,21 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         <LeadSessionContext.Provider value={sessionId}>
         <div className="transcript-col">
         <ToolCwd.Provider value={cwd}>
-        {start > 0 && (
+        <ToolWaiting.Provider value={waiting}>
+        {(start > 0 || more) && (
           <button ref={earlierRef} type="button" className="btn-quiet transcript-earlier" onClick={showEarlier}>Show earlier messages</button>
         )}
-        {groupTranscript(shown, start).map((it) => {
-          if (it.kind === "group")
+        {groupTranscript(shown, startKey).map((it, i, items) => {
+          if (it.kind === "group") {
+            /* The turn ended on this run when nothing but its closing line (or the error that ended
+               it) follows — no word from the agent, no further call. */
+            const next = items[i + 1];
+            const endsTurn = !next || (next.kind === "block" && (next.block.kind === "run" || next.block.kind === "error"));
             // The group container itself never animates in: when a run crosses the grouping
             // threshold the cards it swallows are already on screen, and wrapping them in a fresh
             // entrance would replay motion for items the reader has been watching.
-            return <ToolGroup key={it.key} sessionStatus={sessionStatus} steps={withEnter(it.steps, isEntering)} />;
+            return <ToolGroup key={it.key} sessionStatus={sessionStatus} steps={withEnter(it.steps, isEntering)} endsTurn={endsTurn} />;
+          }
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
             case "user": return (
@@ -632,7 +684,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               rating={transcript.feedback[b.messageId] ?? null}
               onRate={onRate && ((r) => onRate(b.messageId, r))}
               sources={sourcesByKey.get(key)} />;
-            case "thinking": return <Thinking key={key} text={b.text} enter={enter} />;
+            case "thinking": return <Thinking key={key} text={b.text} enter={enter} live={busy && i === items.length - 1} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
               onExpand={onExpandPlan && (() => onExpandPlan(b.planId))} onImplementWith={onImplementWith} />;
@@ -730,10 +782,14 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
             anything that moves would re-roll the verb on every streaming delta. */}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0, mode, eggs, packLabels).present}…</span></div>}
+        {/* The sub-agents this session has out — and, once they are back, how they ended — under the
+            last thing said, which is where a turn that left them working used to just stop. */}
+        {sessionId && <SubagentStrip sessionId={sessionId} blocks={transcript.blocks} />}
         {/* Last in the column, so it reads as the closing line of the session rather than as another
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
         <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} />
+        </ToolWaiting.Provider>
         </ToolCwd.Provider>
         </div>
         </LeadSessionContext.Provider>

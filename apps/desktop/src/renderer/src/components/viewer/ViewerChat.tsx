@@ -108,7 +108,7 @@ export function ViewerChat({ viewer, file, size, onSettled }: {
   const start = thread && entry ? exchangeStart(entry.t.blocks, thread.from, thread.at) : -1;
   const exchange = useMemo(() => (entry && start >= 0
     // The session's written account is of the whole session, not of this exchange, so it stays out.
-    ? { ...entry.t, blocks: entry.t.blocks.slice(start), summary: null, promptHint: null }
+    ? { ...entry.t, blocks: entry.t.blocks.slice(start), base: (entry.t.base ?? 0) + start, summary: null, promptHint: null }
     : null), [entry, start]);
 
   /* What the exchange produced, confirmed on disk: media through main's media gate, which the stage

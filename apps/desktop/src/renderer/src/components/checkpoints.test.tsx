@@ -249,8 +249,10 @@ describe("a rewound restore repairs the transcript this window is holding", () =
     await store.getState().askRestoreCheckpoint("cp1");
     await store.getState().confirmRestoreCheckpoint("cp1");
     /* THE MUTANT: reopen without clearing. `sessionEvents` would be asked for everything after seq
-       99 — nothing — and the stale tail would survive the restore that was supposed to undo it. */
-    expect(api.calls).toContain("sessionEvents:se1:0");
+       99 — nothing — and the stale tail would survive the restore that was supposed to undo it.
+       Cleared, the reopen is a first open again, which reads from the end. */
+    expect(api.calls).toContain("sessionEventsBefore:se1:end");
+    expect(api.calls).not.toContain("sessionEvents:se1:99");
   });
 
   it("leaves the transcript alone when only the files were restored", async () => {
@@ -260,7 +262,7 @@ describe("a rewound restore repairs the transcript this window is holding", () =
     await store.getState().confirmRestoreCheckpoint("cp1");
     // Proof the restore really ran, so the assertion below is about the rewind and not about nothing.
     expect(store.getState().restoreResult?.conversationRewound).toBe(false);
-    expect(api.calls.some((c) => c.startsWith("sessionEvents:se1"))).toBe(false);
+    expect(api.calls.some((c) => /^sessionEvents(Before)?:se1:/.test(c))).toBe(false);
     expect(store.getState().transcripts.se1?.lastSeq).toBe(99);
   });
 });

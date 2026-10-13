@@ -195,6 +195,9 @@ importers:
       papaparse:
         specifier: ^5.7.0
         version: 5.7.0
+      pdfjs-dist:
+        specifier: ^5.7.284
+        version: 5.7.284
       prosemirror-markdown:
         specifier: ^1.13.7
         version: 1.13.7

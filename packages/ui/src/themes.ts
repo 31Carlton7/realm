@@ -2,6 +2,8 @@ import { contrast, css, emitted, hexToOklch, luminance, parseOklch, type Oklch, 
 
 export type { SyntaxSeed, ThemeSeed } from "@realm/contracts";
 import type { Mode } from "./theme";
+import { accentFill } from "./accent-fill";
+import { CODEX_EXTRA_VARS, CODEX_LIGHT_SEED, deriveCodex } from "./codex-theme";
 
 /** Custom themes.
  *
@@ -40,10 +42,18 @@ export type ThemeDef = {
   blurb: string;
   dark: ThemeSeed | null;
   light: ThemeSeed | null;
+  /** A palette that brings its OWN derivation from seed to tokens, instead of Realm's ramp. Only for
+   *  a theme whose upstream defines its palette as a function of a few colours — Codex — where
+   *  Realm's ramp on the same seed would draw a different app. It still receives the seed with the
+   *  user's edits merged in, so the picker's colour fields keep working. */
+  derive?: Derivation;
 };
 
+/** Seed → tokens. Fills every name in `THEME_VARS`, and may fill names in `THEME_EXTRA_VARS`. */
+export type Derivation = (seed: ThemeSeed, mode: Mode, contrastLevel: number) => Record<string, string>;
+
 /** The vendored palettes, named. */
-export type BuiltinThemeName = "realm" | "one" | "monokai" | "dracula" | "nord" | "solarized" | "gruvbox"
+export type BuiltinThemeName = "realm" | "codex" | "one" | "monokai" | "dracula" | "nord" | "solarized" | "gruvbox"
   | "catppuccin" | "github" | "rosepine" | "phosphor";
 
 /** A palette's id. The union is kept for the autocomplete and the exhaustiveness it buys on the
@@ -265,12 +275,24 @@ export const THEME_VARS = [
   "--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2", "--field", "--stripe-bg",
   "--ink", "--ink-2", "--ink-3",
   "--accent", "--accent-ink", "--accent-tint", "--rl-accent-contrast",
+  "--accent-fill", "--accent-fill-hover", "--accent-fill-press",
+  "--danger-fill", "--danger-fill-hover", "--danger-fill-press", "--rl-danger-contrast",
   "--green", "--green-tint", "--orange", "--orange-tint", "--red", "--red-tint",
   "--tooltip-bg", "--tooltip-fg", "--tooltip-muted", "--tooltip-border",
   "--chart-surface",
   "--syn-fg", "--syn-comment", "--syn-keyword", "--syn-string", "--syn-number",
   "--syn-title", "--syn-type", "--syn-attr", "--syn-meta", "--syn-deleted",
 ] as const;
+
+/** The tokens a theme with its own derivation may set beyond `THEME_VARS` — the border, fill and
+ *  scrim ramps, which Realm's own ramp leaves to tokens.css. Cleared on every switch alongside
+ *  `THEME_VARS`, so leaving Codex cannot leave its borders behind on the next palette. */
+export const THEME_EXTRA_VARS: readonly string[] = CODEX_EXTRA_VARS;
+
+/** The derivation a named palette is expanded with: its own, or Realm's ramp. */
+export function derivationFor(name: ThemeName): Derivation {
+  return allThemes().find((t) => t.name === name)?.derive ?? deriveVars;
+}
 
 /** The palette a seed expands to: `THEME_VARS` → CSS colour. `themeVars` is pure and cheap enough to
  *  call on every switch, which is why the derived palette is not precomputed into a stylesheet — a
@@ -279,7 +301,7 @@ export function themeVars(name: ThemeName, mode: Mode,
   { override = {}, contrast = CONTRAST_RANGE.default }: { override?: ThemeOverride; contrast?: number } = {},
 ): Record<string, string> {
   const seed = seedFor(name, mode, override);
-  return seed ? deriveVars(seed, mode, contrast) : {};
+  return seed ? derivationFor(name)(seed, mode, contrast) : {};
 }
 
 /** The derivation itself, on a bare seed. Exported so the guardrail can feed it the seeds tokens.css
@@ -307,24 +329,15 @@ export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = 
   const tint = (o: Oklch): string =>
     "alpha" in r.tint ? css(o, r.tint.alpha) : css({ l: r.tint.lightness, c: o.c * r.tint.chroma, h: o.h });
 
-  /** The label on an accent fill, and the fill it is legible on. Realm writes white on its accent in
-   *  both modes because its accent is a mid blue in both; a theme whose accent is Monokai's pink or
-   *  One Light's blue cannot keep that unchanged, so the pair is SOLVED rather than assumed: try the
-   *  theme's own ink and its own ground as the label, lift the fill away from each until the label
-   *  clears, and keep whichever needed the smaller move. A button is the one place in the app where
-   *  colour is load-bearing for reading a word. */
+  /** The accent as a MARK — a focus ring, a progress run, a lit dot — is the seed, lifted only as far
+   *  as a card needs to see it. A fill that carries a word is a different job, solved apart from it
+   *  (`accentFill`), so a button's label can never cost the theme its own blue. */
   const seedAccent = hexToOklch(seed.accent);
-  const candidates = [ink, bg].map((label) => {
-    const fill = lift(seedAccent, label, CONTRAST_FLOOR.onAccent);
-    return { label, fill, moved: Math.abs(fill.l - seedAccent.l), ok: contrast(fill, surface) >= CONTRAST_FLOOR.chrome };
-  });
-  /* Both floors, not one. Lifting the fill to carry a dark label pushes it TOWARDS a light card, so
-   * satisfying the button can cost the accent its own legibility as a link or a focus ring on that
-   * card — which is exactly what Solarized Light does if the label is chosen on the button alone.
-   * Prefer a label that leaves both true; among those, the one that moved the stated hue least. */
-  const viable = candidates.filter((c) => c.ok);
-  const best = (viable.length ? viable : candidates).reduce((a, b) => (b.moved < a.moved ? b : a));
-  const accent = best.fill, onAccent = best.label;
+  const accent = lift(seedAccent, surface, CONTRAST_FLOOR.chrome);
+  const darkPole = luminance(ink) < luminance(bg) ? ink : bg;
+  const filled = accentFill(seedAccent, { dark: darkPole });
+  /** A destructive button is the same problem in red: white on Realm's dark red is 3.4 : 1. */
+  const danger = accentFill(hexToOklch(seed.red), { dark: darkPole });
 
   /** The eight `--series-*` are a dataviz palette with a documented ΔE and contrast guarantee against
    *  a ground of a specific lightness (tokens.css), so they are NOT themed — a hue swapped for taste
@@ -366,7 +379,14 @@ export function deriveVars(seed: ThemeSeed, mode: Mode, contrastLevel: number = 
     "--accent": css(accent),
     "--accent-ink": css(lift({ l: accent.l + (ink.l - accent.l) * r.accentInk.step, c: accent.c * r.accentInk.chroma, h: accent.h }, surface, CONTRAST_FLOOR.accentInk)),
     "--accent-tint": tint(accent),
-    "--rl-accent-contrast": css(onAccent),
+    "--rl-accent-contrast": css(filled.label),
+    "--accent-fill": css(filled.fill),
+    "--accent-fill-hover": css(filled.hover),
+    "--accent-fill-press": css(filled.press),
+    "--danger-fill": css(danger.fill),
+    "--danger-fill-hover": css(danger.hover),
+    "--danger-fill-press": css(danger.press),
+    "--rl-danger-contrast": css(danger.label),
 
     "--green": css(green),
     "--green-tint": tint(green),
@@ -416,8 +436,9 @@ export type ContrastMiss = { role: string; ratio: number; floor: number };
  *
  *  Measured on the DERIVED palette, so it reports what will be on screen rather than what the seed
  *  asked for — the same predicate the theme suite holds the shipped palettes to. */
-export function contrastMisses(seed: ThemeSeed, mode: Mode, contrastLevel: number = CONTRAST_RANGE.default): ContrastMiss[] {
-  const v = deriveVars(seed, mode, contrastLevel);
+export function contrastMisses(seed: ThemeSeed, mode: Mode, contrastLevel: number = CONTRAST_RANGE.default,
+  derive: Derivation = deriveVars): ContrastMiss[] {
+  const v = derive(seed, mode, contrastLevel);
   const at = (token: string): Oklch => parseOklch(v[token]!);
   const out: ContrastMiss[] = [];
   const check = (role: string, token: string, grounds: readonly string[], floor: number): void => {
@@ -431,7 +452,12 @@ export function contrastMisses(seed: ThemeSeed, mode: Mode, contrastLevel: numbe
     check(role, token, ["--surface"], CONTRAST_FLOOR.chrome);
   }
   check("Link text", "--accent-ink", ["--surface"], CONTRAST_FLOOR.accentInk);
-  check("Button label", "--rl-accent-contrast", ["--accent"], CONTRAST_FLOOR.onAccent);
+  for (const fill of ["--accent-fill", "--accent-fill-hover", "--accent-fill-press"]) {
+    check("Button label", "--rl-accent-contrast", [fill], CONTRAST_FLOOR.onAccent);
+  }
+  for (const fill of ["--danger-fill", "--danger-fill-hover", "--danger-fill-press"]) {
+    check("Destructive button label", "--rl-danger-contrast", [fill], CONTRAST_FLOOR.onAccent);
+  }
   for (const token of THEME_VARS.filter((t) => t.startsWith("--syn-"))) {
     check(`Code (${token.slice(6)})`, token, ["--surface"], CONTRAST_FLOOR.syntax);
   }
@@ -533,7 +559,9 @@ export function resolveMode(name: ThemeName, mode: Mode): Mode {
  *  independent: choosing Monokai for the dark slot cannot pin the window dark at noon. */
 export type ThemeSelection = Record<Mode, ThemeName>;
 
-export const DEFAULT_SELECTION: ThemeSelection = { dark: "realm", light: "realm" };
+/** Light defaults to Codex: a home that has never chosen a light palette wears it. A home that HAS
+ *  chosen one — Realm's own included — keeps it, because the choice is read from its own key. */
+export const DEFAULT_SELECTION: ThemeSelection = { dark: "realm", light: "codex" };
 
 /** The palette a face actually wears. A selection naming a palette with no such face — a hand-edited
  *  setting, or a palette that loses a face in some later version — falls back to `realm`, whose face
@@ -621,10 +649,21 @@ export const THEMES: readonly ThemeDef[] = [
     name: "realm",
     label: "Realm",
     credit: null,
-    blurb: "The cool near-neutral palette Realm ships with.",
+    blurb: "Realm's own cool near-neutral palette — the light default before Codex.",
     // No seeds: theme/tokens.css is this theme, and choosing it writes nothing.
     dark: null,
     light: null,
+  },
+  {
+    /* Codex — the light palette of OpenAI's Codex desktop app, derived by Codex's own engine (see
+     * codex-theme.ts). Light only: this is the palette Realm's light face defaults to. */
+    name: "codex",
+    label: "Codex",
+    credit: "Codex desktop app light palette — © OpenAI",
+    blurb: "The Codex app's white, near-neutral light mode. Light only.",
+    dark: null,
+    light: CODEX_LIGHT_SEED,
+    derive: (seed, mode, level) => (mode === "light" ? deriveCodex(seed, level) : deriveVars(seed, mode, level)),
   },
   {
     /* One — atom/one-dark-syntax and atom/one-light-syntax, MIT © GitHub Inc. Hex values read off

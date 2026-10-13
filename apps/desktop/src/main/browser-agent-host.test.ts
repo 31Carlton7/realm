@@ -28,6 +28,7 @@ function setup(opts: {
   /** The page did not load — main's own record of it, as `BrowserPane.pageState` carries it. */
   loadError?: BrowserLoadError;
   now?: () => number;
+  screenshotTimeoutMs?: number;
   /** Run while the page is being captured — something the page does mid-snapshot. */
   duringCapture?: () => void;
   /** Answers that depend on the params — consulted first, `undefined` falls through to the rest. */
@@ -68,6 +69,7 @@ function setup(opts: {
       ...(opts.loadError ? { error: opts.loadError } : {}),
     } : null),
     ...(opts.now ? { now: opts.now } : {}),
+    ...(opts.screenshotTimeoutMs !== undefined ? { screenshotTimeoutMs: opts.screenshotTimeoutMs } : {}),
     secrets: opts.credentials === undefined ? undefined : {
       listCredentials: (profileId) => opts.credentials!.filter((c) => (c.profileId ?? "pWork") === profileId)
         .map(({ profileId: _p, ...c }) => ({ ...c, generated: c.generated ?? false })),
@@ -205,6 +207,16 @@ describe("BrowserAgentHost", () => {
     expect(await host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "c2NyZWVu", mimeType: "image/jpeg" });
   });
 
+  it("a screenshot of a page that never paints gives up, naming pane_show, instead of waiting out the bridge", async () => {
+    // THE MUTANT: no deadline on the capture. A view that is not on screen never produces a frame,
+    // and the call sat until the server's 60-second bridge timeout (13 times in the call log).
+    const { host } = setup({ screenshotTimeoutMs: 20, respond: (m) => (m === "Page.captureScreenshot" ? new Promise(() => {}) : undefined) });
+    const t0 = Date.now();
+    await expect(host.handleOp("screenshot", { browserId: "b1" })).rejects.toThrow('is not being drawn');
+    expect(Date.now() - t0).toBeLessThan(1_000);
+    await expect(host.handleOp("screenshot", { browserId: "b1" })).rejects.toThrow('realm-workspace__pane_show with {"browserId": "b1"}');
+  });
+
   it("a blocked download lands in the console buffer", async () => {
     const { host } = setup();
     await host.handleOp("read", { browserId: "b1", kind: "text" }); // attach
@@ -228,6 +240,9 @@ describe("BrowserAgentHost", () => {
     await host.handleOp("read", { browserId: "b1", kind: "text" });
     liveViews.delete("b1");
     await expect(host.handleOp("snapshot", { browserId: "b1" })).rejects.toThrow(/pane is not open/);
+    // THE MUTANT: "the user must open (or reopen) the browser pane" — a refusal with nothing in it for
+    // the agent to do. It names the tool that brings the pane back, and the user only as the fallback.
+    await expect(host.handleOp("snapshot", { browserId: "b1" })).rejects.toThrow('Call realm-workspace__pane_show with {"browserId": "b1"}');
   });
 
   it("unknown ops are refused by name", async () => {

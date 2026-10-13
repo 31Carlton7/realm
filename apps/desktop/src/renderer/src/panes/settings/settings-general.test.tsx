@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { FILES_OPEN_IN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY } from "@realm/contracts";
+import { FILES_OPEN_IN_KEY, LINKS_OPEN_IN_KEY, PAGE_REF_IDS, POWER_PREVENT_SLEEP_KEY, TERMINALS_DOCK_KEY } from "@realm/contracts";
 import { SettingsPage } from "./SettingsPage";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
@@ -82,5 +82,29 @@ describe("Open files in", () => {
     await general({ editors: [] });
     expect(screen.queryByRole("combobox", { name: "Open files in" })).toBeNull();
     expect(screen.getByText(/none of Cursor, VS Code, Zed or Xcode/)).toBeInTheDocument();
+  });
+});
+
+describe("Open links in", () => {
+  const choices = () => within(screen.getByRole("group", { name: "Open links in" }));
+
+  it("is the default browser until someone picks, and a pick is written and told to main", async () => {
+    const { api, store } = await general();
+    expect(choices().getByRole("radio", { name: "Default browser" })).toBeChecked();
+    expect(api.calls).toContain("setLinksOpenIn:default");
+    fireEvent.click(choices().getByRole("radio", { name: "Realm Browser" }));
+    await waitFor(() => expect(store.getState().linksOpenIn).toBe("realm"));
+    expect(api.calls).toContain(`setSetting:${LINKS_OPEN_IN_KEY}=realm`);
+    // THE stored-only mutant: main routes the clicks, so main has to hear it now, not at a restart.
+    expect(api.calls).toContain("setLinksOpenIn:realm");
+  });
+
+  it("tells main what was saved when the window boots, and reads a value it does not know as the default", async () => {
+    const { api } = await general({ settings: { [LINKS_OPEN_IN_KEY]: "realm" } });
+    expect(choices().getByRole("radio", { name: "Realm Browser" })).toBeChecked();
+    expect(api.calls).toContain("setLinksOpenIn:realm");
+    const store = createAppStore(fakeApi({ settings: { [LINKS_OPEN_IN_KEY]: "firefox" } }));
+    await store.getState().boot();
+    expect(store.getState().linksOpenIn).toBe("default");
   });
 });

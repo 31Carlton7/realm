@@ -41,6 +41,13 @@ describe("first-run onboarding", () => {
     expect(within(radio("Cursor").closest("label") as HTMLElement).getByText("Signed out")).toBeInTheDocument();
   });
 
+  it("opens on Realm's three-plane mark, decorative beside the welcome", async () => {
+    const { container } = await mountFresh();
+    const mark = container.querySelector(".onboarding-hero img.onboarding-mark")!;
+    expect(mark.getAttribute("src")).toMatch(/realm-mark\.svg$/);
+    expect(mark).toHaveAttribute("alt", "");
+  });
+
   it("says each card is checking until the probe lands, with the app's spinner on it", async () => {
     const api = fakeApi({ spaces: [], items: {} });
     api.delays["probeAgents"] = 50;

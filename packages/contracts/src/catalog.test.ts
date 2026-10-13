@@ -65,6 +65,16 @@ describe("parseModelCatalog", () => {
     expect(row!.priceIn).toBeNull();
     expect(row!.priceOut).toBe(0);
   });
+
+  it("reads the cache prices, per million like the rest, and null where none is quoted", () => {
+    const [row, bare] = parseModelCatalog({ data: [
+      { id: "openai/gpt-5.6", name: "OpenAI: GPT-5.6", pricing: { prompt: "0.000002", completion: "0.00001", input_cache_read: "0.0000002" } },
+      { id: "x/y", name: "X", pricing: { prompt: "0.000001", completion: "0.000002" } },
+    ] });
+    expect(row!.priceCacheRead).toBeCloseTo(0.2, 9);
+    expect(row!.priceCacheWrite).toBeNull();
+    expect(bare!.priceCacheRead).toBeNull();
+  });
 });
 
 describe("splitVendor", () => {

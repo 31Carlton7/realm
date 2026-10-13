@@ -1,4 +1,4 @@
-import { AskCardSchema, askCardFromAskUserQuestion, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges } from "@realm/contracts";
+import { AskCardSchema, askCardFromAskUserQuestion, bareToolName, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -29,7 +29,11 @@ export type Block =
    *  and `paths`) — absent for every other agent, whose tool names say both. */
   /** `view` is the view an MCP server drew for this call (MCP Apps), carried by its result — absent
    *   on every call that drew none, and on every call from before views existed. */
-  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped"; toolKind?: string; paths?: string[]; view?: AppViewRef; ts: number }
+  | { kind: "tool"; toolUseId: string; name: string; input: Record<string, unknown>; parentToolUseId?: string; result: { content: string; isError: boolean } | null; background?: "running" | "stopped";
+      /** When the call stopped working: its result landing, or — for a background agent — the stop
+       *  notification, which comes minutes after the result. What a finished sub-agent's elapsed
+       *  time is measured to. */
+      endedAt?: number; toolKind?: string; paths?: string[]; view?: AppViewRef; ts: number }
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
@@ -136,6 +140,11 @@ export type Usage = { costUsd: number; inputTokens: number; outputTokens: number
   /** Whether the turn this reports ASKED for fast mode. Undefined on transcripts written before it
    *  was stamped, and on engines that do not report fast mode at all. */
   fastModeRequested?: boolean };
+/** Where a transcript read from its end begins: `from`, the seq of the first event it was built from,
+ *  and `settledAt`, when the turn before that one settled — what the first turn's edit card measures
+ *  its checkpoint against (turn-edits.ts) — or null when the read did not reach it. */
+export type Earlier = { from: number; settledAt: number | null };
+
 export type Transcript = {
   blocks: Block[];
   /** Open permission requests, oldest first (an agent may ask for several tools at once). */
@@ -170,11 +179,23 @@ export type Transcript = {
    *  after the settle — sometimes after the next message has already gone — and must still sit with
    *  its own turn. Optional: absent on every transcript nothing has been measured in. */
   changes?: Record<number, TurnChanges>;
+  /** The media each turn left on disk (`files_made`), keyed the same way and for the same reason as
+   *  `changes`. Nothing draws it yet; the documents home counts it to know the index has moved. */
+  made?: Record<number, FilesMade>;
+  /** Set while the log's start is still on the server. A long session opens on its newest turns and
+   *  reads further back as the reader goes there (`prependTranscript`). Absent once — or because — it
+   *  holds everything. */
+  earlier?: Earlier;
+  /** Where `blocks[0]` sits in the transcript's own numbering: 0 for one built from the start, below
+   *  zero once earlier blocks have been put in front. A block's position-based key is its index plus
+   *  this (`blockKey`), so loading earlier turns never renames, remounts or replays the ones on screen. */
+  base?: number;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
  *  state; everything else keys on position, which is stable because blocks are only ever appended or
- *  replaced in place (a streaming assistant block becomes its final self at the same index). */
+ *  replaced in place (a streaming assistant block becomes its final self at the same index) — or put
+ *  in front, which is why callers pass the index plus the transcript's `base`. */
 export const blockKey = (b: Block, i: number): string =>
   b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : b.kind === "question" ? `question:${b.requestId}` : `${b.kind}:${i}`;
 
@@ -192,6 +213,24 @@ const ASKING_TOOL = /^AskUserQuestion$|realm-ui__ui_ask$/;
 const sameInput = (a: unknown, b: unknown): boolean => stable(a) === stable(b);
 const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) =>
   x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) : x);
+
+/** The calls the agent is blocked on, by id: for each open permission, the last call still without a
+ *  result that names the same tool with the same input. The decision itself stays in the request
+ *  card at the column's foot; this only lets the call's own row say it is waiting rather than spin
+ *  as if it were running. A request no visible call matches is left to the foot card alone. Names are
+ *  compared bare as well, because a permission can name a tool without the `mcp__server__` prefix
+ *  its call carries. */
+export function waitingToolIds(blocks: readonly Block[], pending: readonly PendingPermission[]): string[] {
+  const out: string[] = [];
+  for (const p of pending) {
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const b = blocks[i]!;
+      if (b.kind !== "tool" || b.result !== null || out.includes(b.toolUseId)) continue;
+      if ((b.name === p.toolName || bareToolName(b.name) === bareToolName(p.toolName)) && sameInput(b.input, p.input)) { out.push(b.toolUseId); break; }
+    }
+  }
+  return out;
+}
 
 export const emptyTranscript = (): Transcript => ({ blocks: [], pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, run: null, feedback: {}, summary: null, promptHint: null });
 
@@ -319,7 +358,9 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     case "tool_result": {
       const i = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
       const b = i >= 0 ? blocks[i] : undefined;
-      if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError }, ...(e.payload.view ? { view: e.payload.view } : {}) };
+      if (b && b.kind === "tool") blocks[i] = { ...b, result: { content: e.payload.content, isError: e.payload.isError }, ...(e.payload.view ? { view: e.payload.view } : {}),
+        // Never over a background agent's stop, which can land first: that is when it really ended.
+        ...(b.endedAt === undefined ? { endedAt: e.ts } : {}) };
       return { ...t, blocks };
     }
     /* A background sub-agent started or stopped. Folded onto the LAUNCHING call's block, which is
@@ -337,7 +378,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       // those arrive naming a real `tool_use_id` — the Bash call's. Marking that block `stopped`
       // would be recording an agent's end on a call that never had an agent behind it.
       if (e.payload.status === "stopped" && b.background !== "running") return t;
-      blocks[i] = { ...b, background: e.payload.status };
+      blocks[i] = { ...b, background: e.payload.status, ...(e.payload.status === "stopped" ? { endedAt: e.ts } : {}) };
       return { ...t, blocks };
     }
     case "permission_request": {
@@ -415,6 +456,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     // Beside the blocks, not among them: it belongs to a run line that is already on screen.
     case "turn_changes":
       return { ...t, changes: { ...t.changes, [e.payload.settledAt]: e.payload } };
+    case "files_made":
+      return { ...t, made: { ...t.made, [e.payload.settledAt]: e.payload } };
     case "feedback": {
       const { [e.payload.messageId]: _prev, ...rest } = t.feedback;
       return { ...t, feedback: e.payload.rating ? { ...rest, [e.payload.messageId]: e.payload.rating } : rest };
@@ -503,6 +546,31 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       }
     }
   }
+}
+
+/**
+ * An earlier stretch of the log put in front of the transcript already built from what followed it.
+ *
+ * `older` is that stretch reduced on its own, from a turn's first prompt to the prompt `newer` starts
+ * on, so every call and its result are on the same side of the seam. What only the newer side can
+ * know — usage, the model, the run in flight, open permissions, the written summary — is the newer
+ * side's. What is keyed to a turn (verdicts, measured changes, files made) is the union of both. The
+ * last turn of `older` is closed the way `newer`'s first prompt would have closed it, had it been
+ * reduced in one pass.
+ */
+export function prependTranscript(older: Transcript, newer: Transcript, earlier: Earlier | undefined): Transcript {
+  const open = older.run ? null : unsettledTurn(older.blocks);
+  const front = open ? [...older.blocks, derivedRun(open, open.lastTs)] : older.blocks;
+  const { earlier: _loaded, ...rest } = newer;
+  const changes = older.changes || newer.changes ? { changes: { ...older.changes, ...newer.changes } } : {};
+  const made = older.made || newer.made ? { made: { ...older.made, ...newer.made } } : {};
+  return {
+    ...rest, ...changes, ...made,
+    blocks: [...front, ...newer.blocks],
+    base: (newer.base ?? 0) - front.length,
+    feedback: { ...older.feedback, ...newer.feedback },
+    ...(earlier === undefined ? {} : { earlier }),
+  };
 }
 
 // Wrapped rather than passed directly: `reduce` hands its callback an index as the third argument,

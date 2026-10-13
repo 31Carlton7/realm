@@ -63,9 +63,9 @@ describe("the sidebar's head row", () => {
     expect(made.spaceId).toBe("s1");
     expect(store.getState().items.some((i) => i.kind === "session" && i.refId === made.id)).toBe(true);
     // The tooltip names the agent you will get, and follows the last one used.
-    expect(button).toHaveAttribute("title", "New Claude session (⌘N)");
+    expect(button).toHaveAttribute("title", "New session (⌘N)");
     await act(() => store.getState().newSession({ agentKind: "codex" }));
-    expect(button).toHaveAttribute("title", "New Codex session (⌘N)");
+    expect(button).toHaveAttribute("title", "New session (⌘N)");
   });
 
   it("drags a new session onto a pane without making one until it is dropped", async () => {
@@ -101,6 +101,17 @@ describe("the profile switcher", () => {
     expect(button).toHaveAccessibleName("Profile: Work");
     expect(button).toHaveTextContent("Work");
     expect(container.querySelector<HTMLElement>(".sb-title .sb-profile-mark")!.style.color).toBe("rgb(255, 0, 0)");
+  });
+
+  it("wears the profile's chosen icon — an emoji too — on the button and in its menu", async () => {
+    // THE MUTANT: draw `icon` with the glyph set alone — "emoji:🛠️" is no glyph name, so the button
+    // fell back to the folder and the person's chosen mark never showed.
+    const d = data();
+    d.profiles = [profile("p1", "Work", { icon: "emoji:🛠️" }), profile("p2", "School", { icon: "emoji:🏫" })];
+    const { container } = await mount(d);
+    expect(container.querySelector(".sb-title .sb-profile-mark")).toHaveTextContent("🛠️");
+    const menu = await open();
+    expect(menu.getByRole("menuitemcheckbox", { name: /School/ })).toHaveTextContent("🏫");
   });
 
   it("lists every profile, checks the one on screen, and says what waits in the others", async () => {

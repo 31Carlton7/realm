@@ -8,6 +8,9 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
+import { SessionsStore } from "../store/sessions";
+import { ItemsStore } from "../store/items";
+import { legacyTitle } from "../delegation/agent-run";
 import { waitFor } from "../test-utils";
 import { createRealmAgentProvider, RUN_TOOL_NAME } from "./browser-agent";
 
@@ -82,13 +85,43 @@ describe("browser_agent_run — the delegated session", () => {
     expect(result.isError).toBe(false);
     const child = childOf(spaceId, parentId);
     expect(child.spaceId).toBe(spaceId);
-    expect(child.title).toContain("Browser agent");
+    // Named by its task — no "Browser agent:" prefix in a forty-character title.
+    expect(child.title).toBe("Count the buttons on the test page");
     const out = text(result);
     expect(out).toContain(child.id);           // the parent's transcript can link the trace
     expect(out).toContain(child.title);
     expect(out).toContain("FINAL: clicked the button, count is 1");
     expect(out).toMatch(/agent-output-[0-9a-f]{16}/); // fenced, attributed as a subagent's report
     expect(out).toContain("DELEGATED BROWSER AGENT");
+  });
+
+  it("says who it is waiting on, and for how long, while the browse runs", async () => {
+    // THE MUTANT: drain called without its tick — a long browse goes silent and Claude aborts it.
+    const { spaceId, parentId } = await boot({ script: longScript(10), delayMs: 25 });
+    const reports: string[] = [];
+    const result = await app.browserAgents.run({ sessionId: parentId, spaceId, progress: (m) => reports.push(m) }, { goal: "Count the buttons" });
+    expect(result.isError).toBe(false);
+    const child = childOf(spaceId, parentId);
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports[0]).toMatch(/ working, 0:0\d$/);
+    expect(reports[0]!.startsWith(child.title)).toBe(true);
+  });
+
+  it("takes the caller's title, and renames an old \"Browser agent: …\" child once at boot", async () => {
+    // THE MUTANTS: the title argument ignored; the browser agent's children left out of the repair.
+    const { home, spaceId, parentId } = await boot();
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { title: "Pricing page", goal: "Read the pricing page" });
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "You are a careful shopper. Count the buttons on the test page." });
+    const kids = app.sessions.list(spaceId).filter((x) => x.id !== parentId);
+    expect(kids.map((k) => k.title).sort()).toEqual(["Count the buttons on the test page", "Pricing page"]);
+    const old = kids.find((k) => k.title !== "Pricing page")!;
+    const legacy = legacyTitle("Browser agent: ", "You are a careful shopper. Count the buttons on the test page.");
+    new SessionsStore(app.db).update({ id: old.id, title: legacy });
+    const items = new ItemsStore(app.db);
+    items.update({ id: items.findByRefId(old.id)!.id, title: legacy });
+    await app.close();
+    app = await createApp({ home, port: 0, adapters: { fake: new CaptureFake({ script: CHILD_SCRIPT }) }, browserAgent: { fallbackKind: "fake" } });
+    expect(app.sessions.get(old.id).title).toBe("Count the buttons on the test page");
   });
 
   it("holds the settle wait until the turn actually ends — the report is the LAST assistant text and the child is idle", async () => {
@@ -101,10 +134,14 @@ describe("browser_agent_run — the delegated session", () => {
     expect(result.isError).toBe(false);
   });
 
-  it("NEVER inherits bypassPermissions — a bypass parent's child runs default (the safety line)", async () => {
+  it("runs in its lead's mode, Full access included", async () => {
+    // THE MUTANT: the old cap, which turned a Full access lead's browser agent into Ask each time.
+    // What Full access does not reach is the broker's own floor — a credential fill and a password
+    // field still ask in that mode, keyed on the session's mode (permissions.test.ts "PROMPTS under
+    // bypassPermissions"), so the child is held to the same floor its lead is.
     const { spaceId, parentId } = await boot({ parentMode: "bypassPermissions" });
     await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
-    expect(childOf(spaceId, parentId).permissionMode).toBe("default");
+    expect(childOf(spaceId, parentId).permissionMode).toBe("bypassPermissions");
   });
 
   it("carries every other permission mode over unchanged", async () => {

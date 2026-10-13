@@ -1,12 +1,13 @@
 import { basename } from "node:path";
 import {
   AGENT_META, USAGE_BUDGET_KEY, USAGE_RECORDS_TOP, USAGE_REPORTING, canonicalModelKey, dayKey, parseUsageBudget,
-  skillUseName, thresholdsCrossed, usageDeltas, usageStreaks,
+  skillUseName, thresholdsCrossed, totalTokens, usageDeltas, usageSampleFromPayload, usageStreaks,
   type AgentKind, type ModelInfo, type Session, type SessionEvent, type UsageBucketKind,
   type UsageBudget, type UsageDay, type UsageRecords, type UsageSample, type UsageSummary,
 } from "@realm/contracts";
 import type { Db } from "../db/database";
 import type { SettingsStore } from "../store/settings";
+import { payloadSql } from "../store/event-payload";
 import { aggregateUsage, modelKey, sliceSession, turnDurations, type PriceLookup, type SessionFacts, type StatusSample } from "./aggregate";
 
 /**
@@ -29,6 +30,10 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
  *  a day the grid beside it shows as empty would be a contradiction on one screen. */
 const USED = "type = 'user_message'";
 const LOCAL_DAY = "date(ts / 1000, 'unixepoch', 'localtime')";
+/** An event's payload as JSON text for `json_extract`, whether it is stored plain or compressed (v56).
+ *  A compressed tool call's name is read from `event_tool_names`, which spares inflating it. */
+const PAYLOAD = payloadSql("payload_json");
+const EV_PAYLOAD = payloadSql("ev.payload_json");
 
 export type UsageDeps = {
   db: Db;
@@ -145,9 +150,10 @@ export class UsageService {
       const reporting = kind ? USAGE_REPORTING[kind] : undefined;
       if (!reporting) continue; // a kind this build has never heard of reports nothing it can read
       for (const d of usageDeltas(samples, reporting.series)) {
-        input += d.inputTokens; output += d.outputTokens;
+        // Everything the model was sent, cached or not: a cache read is still a token processed.
+        input += d.inputTokens + d.cacheReadTokens + d.cacheWriteTokens; output += d.outputTokens;
         const day = dayKey(d.ts);
-        byDay.set(day, (byDay.get(day) ?? 0) + d.inputTokens + d.outputTokens);
+        byDay.set(day, (byDay.get(day) ?? 0) + totalTokens(d));
       }
     }
     let peakDay: UsageRecords["peakDay"] = null;
@@ -171,7 +177,7 @@ export class UsageService {
   private longestTurn(): UsageRecords["longestTurn"] {
     const bySession = new Map<string, StatusSample[]>();
     for (const r of this.d.db.prepare(
-      "SELECT session_id, ts, json_extract(payload_json, '$.status') AS status FROM session_events WHERE type = 'status' ORDER BY seq",
+      `SELECT session_id, ts, json_extract(${PAYLOAD}, '$.status') AS status FROM session_events WHERE type = 'status' ORDER BY seq`,
     ).all() as Row[]) {
       const id = str(r.session_id);
       const list = bySession.get(id) ?? [];
@@ -246,9 +252,9 @@ export class UsageService {
   private topSkills(): UsageRecords["skills"] {
     const by = new Map<string, number>();
     for (const r of this.d.db.prepare(`
-      SELECT COALESCE(json_extract(payload_json, '$.input.skill'), json_extract(payload_json, '$.input.command')) AS skill, COUNT(*) AS n
-        FROM session_events
-       WHERE type = 'tool_call' AND json_extract(payload_json, '$.name') = 'Skill'
+      SELECT COALESCE(json_extract(${PAYLOAD}, '$.input.skill'), json_extract(${PAYLOAD}, '$.input.command')) AS skill, COUNT(*) AS n
+        FROM session_events ev LEFT JOIN event_tool_names tn ON tn.seq = ev.seq
+       WHERE type = 'tool_call' AND COALESCE(tn.tool, json_extract(${PAYLOAD}, '$.name')) = 'Skill'
        GROUP BY skill
     `).all() as Row[]) {
       const name = skillUseName(str(r.skill));
@@ -356,20 +362,26 @@ export class UsageService {
     // thousands of sessions in a 90-day window.
     for (let i = 0; i < sessionIds.length; i += 400) {
       const chunk = sessionIds.slice(i, i + 400);
+      // The engine is read beside the events because the payload's token vocabulary depends on it
+      // (Codex counts cached input inside `inputTokens`) — see `usageSampleFromPayload`.
       const rows = this.d.db.prepare(`
-        SELECT session_id, ts,
-               json_extract(payload_json, '$.costUsd') AS cost,
-               json_extract(payload_json, '$.inputTokens') AS input,
-               json_extract(payload_json, '$.outputTokens') AS output,
-               json_extract(payload_json, '$.numTurns') AS turns
-          FROM session_events
-         WHERE type = 'usage' AND session_id IN (${chunk.map(() => "?").join(",")})
-         ORDER BY session_id, seq
+        SELECT ev.session_id, ev.ts, s.agent_kind,
+               json_extract(${EV_PAYLOAD}, '$.costUsd') AS costUsd,
+               json_extract(${EV_PAYLOAD}, '$.inputTokens') AS inputTokens,
+               json_extract(${EV_PAYLOAD}, '$.outputTokens') AS outputTokens,
+               json_extract(${EV_PAYLOAD}, '$.numTurns') AS numTurns,
+               json_extract(${EV_PAYLOAD}, '$.cacheReadTokens') AS cacheReadTokens,
+               json_extract(${EV_PAYLOAD}, '$.cacheWriteTokens') AS cacheWriteTokens,
+               json_extract(${EV_PAYLOAD}, '$.cumulativeTokens') AS cumulativeTokens
+          FROM session_events ev JOIN sessions s ON s.id = ev.session_id
+         WHERE ev.type = 'usage' AND ev.session_id IN (${chunk.map(() => "?").join(",")})
+         ORDER BY ev.session_id, ev.seq
       `).all(...chunk) as Row[];
       for (const r of rows) {
         const id = str(r.session_id);
         const list = out.get(id) ?? [];
-        list.push({ ts: num(r.ts), costUsd: num(r.cost), inputTokens: num(r.input), outputTokens: num(r.output), numTurns: num(r.turns) });
+        // SQLite hands a JSON `true` back as 1.
+        list.push(usageSampleFromPayload(str(r.agent_kind) as AgentKind, num(r.ts), { ...r, cumulativeTokens: r.cumulativeTokens === 1 || r.cumulativeTokens === true }));
         out.set(id, list);
       }
     }
@@ -464,8 +476,8 @@ export class UsageService {
    *  ranking, shared with the page about you so the two can never order tools differently. */
   private topTools(scope: string, args: readonly (string | number)[], limit: number): { name: string; calls: number }[] {
     return (this.d.db.prepare(`
-      SELECT json_extract(ev.payload_json, '$.name') AS name, COUNT(*) AS n
-        FROM session_events ev WHERE ${scope} AND ev.type = 'tool_call'
+      SELECT COALESCE(tn.tool, json_extract(${EV_PAYLOAD}, '$.name')) AS name, COUNT(*) AS n
+        FROM session_events ev LEFT JOIN event_tool_names tn ON tn.seq = ev.seq WHERE ${scope} AND ev.type = 'tool_call'
        GROUP BY name ORDER BY n DESC, name ASC LIMIT ?
     `).all(...args, limit) as Row[]).map((r) => ({ name: str(r.name) || "(unnamed)", calls: num(r.n) }));
   }
@@ -485,7 +497,7 @@ export class UsageService {
     const lookup: PriceLookup = (model) => {
       if (!model) return null; // the harness's own default: no id, so nothing to price against
       const hit = byKey.get(canonicalModelKey(model));
-      return hit ? { priceIn: hit.priceIn, priceOut: hit.priceOut } : null;
+      return hit ? { priceIn: hit.priceIn, priceOut: hit.priceOut, priceCacheRead: hit.priceCacheRead ?? null, priceCacheWrite: hit.priceCacheWrite ?? null } : null;
     };
     this.cachedPriceLookup = lookup;
     return lookup;

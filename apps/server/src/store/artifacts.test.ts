@@ -9,6 +9,7 @@ import { SessionsStore, SessionEventsStore } from "./sessions";
 import { EnvironmentsStore } from "./environments";
 import { SettingsStore } from "./settings";
 import { ArtifactsStore, ARTIFACTS_BACKFILL_KEY } from "./artifacts";
+import { deflateEveryPayload } from "./event-payload.test-fakes";
 
 function fresh() {
   const home = tempDir("realm-");
@@ -50,6 +51,25 @@ describe("what counts as an artifact", () => {
       payload: { name: "mcp__files__Write", input: { path: "/tmp/x.md" } },
     });
     expect(rows.map((a) => a.path)).toEqual(["/tmp/x.md"]);
+  });
+
+  it("takes each file a turn left on disk off files_made, as an output", () => {
+    const at = { sessionId: "s1", spaceId: "sp1", seq: 9, ts: 200 };
+    const rows = artifactsFromEvent({
+      ...at, type: "files_made",
+      payload: { settledAt: 200, files: [{ path: "/w/decks/v1/01.png", size: 10 }, { path: "/w/decks/clip.MP4", size: 20 }], totalFiles: 2 },
+    });
+    // THE mutants: no files_made branch (nothing), or one that files them as uploads.
+    expect(rows.map((a) => [a.kind, a.name, a.ext])).toEqual([["output", "01.png", "png"], ["output", "clip.MP4", "mp4"]]);
+    expect(artifactsFromEvent({ ...at, type: "files_made", payload: { settledAt: 1, files: "no", totalFiles: 0 } })).toEqual([]);
+  });
+
+  it("takes Codex's generated image off its saved path, and nothing off a generation that failed", () => {
+    const at = { sessionId: "s1", spaceId: "sp1", seq: 3, ts: 1 };
+    // THE mutant: image_generation left out of WRITE_TOOL_NAMES.
+    expect(artifactsFromEvent({ ...at, type: "tool_call", payload: { name: "image_generation", input: { path: "/g/exec-1.png", prompt: "a logo" } } })
+      .map((a) => a.path)).toEqual(["/g/exec-1.png"]);
+    expect(artifactsFromEvent({ ...at, type: "tool_call", payload: { name: "image_generation", input: { prompt: "a logo" } } })).toEqual([]);
   });
 
   it("survives a payload that is not the shape it expects", () => {
@@ -226,6 +246,16 @@ describe("the artifacts backfill", () => {
     await artifacts.runBackfill(() => false, () => {});
     expect(artifacts.list({})).toHaveLength(2);
     expect(a.seq).toBeLessThan(b.seq);
+  });
+
+  it("indexes a history whose payloads are compressed (v56)", async () => {
+    const { db, session, artifacts, settings } = fresh();
+    const bare = new SessionEventsStore(db);
+    const last = bare.append(session.id, write("/tmp/old/packed.md"));
+    deflateEveryPayload(db);
+    settings.set(ARTIFACTS_BACKFILL_KEY, { done: 0, target: last.seq });
+    await artifacts.runBackfill(() => false, () => {});
+    expect(artifacts.list({}).map((x) => x.name)).toEqual(["packed.md"]);
   });
 
   it("stops when asked, leaving the cursor where the next boot can resume from", async () => {

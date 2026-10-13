@@ -18,10 +18,12 @@ const { registerFileActions } = await import("./file-actions");
 
 /** The gate: only one real file exists. Anything else from the renderer is refused. */
 const gate = async (p: unknown) => (p === "/work/report.pdf" || p === "/work/notes.md" ? p as string : null);
+const opened: [string, string][] = [];
+const openWith = (app: string, file: string) => { opened.push([app, file]); };
 const sender = () => ({ getZoomFactor: () => 1.5, isDestroyed: () => false, startDrag: vi.fn() });
 
 describe("a listed file, the way the Finder treats one", () => {
-  beforeEach(() => { handlers.clear(); listeners.clear(); previewFile.mockClear(); sharePopups.length = 0; getFileIcon.mockClear(); registerFileActions({ gate }); });
+  beforeEach(() => { handlers.clear(); listeners.clear(); previewFile.mockClear(); sharePopups.length = 0; getFileIcon.mockClear(); opened.length = 0; registerFileActions({ gate, openWith }); });
 
   it("opens macOS's Quick Look panel on the gated path, and nothing for a path the gate refuses", async () => {
     await handlers.get("files:quick-look")!({ sender: sender() }, "/work/report.pdf");
@@ -49,5 +51,15 @@ describe("a listed file, the way the Finder treats one", () => {
     expect(getFileIcon).toHaveBeenCalledTimes(2);
     await listeners.get("files:drag-start")!({ sender: s }, "/secret");
     expect(s.startDrag).toHaveBeenCalledTimes(3);
+  });
+
+  /* THE mutant: dropping the extension check. The gate admits any file that exists, and handing a
+     renderer-chosen file to an app by name is only safe while that file is one Preview shows. */
+  it("hands a gated PDF to Preview by name, and nothing else", async () => {
+    await handlers.get("files:open-in-preview")!({ sender: sender() }, "/work/report.pdf");
+    expect(opened).toEqual([["Preview", "/work/report.pdf"]]);
+    await handlers.get("files:open-in-preview")!({ sender: sender() }, "/work/notes.md");
+    await handlers.get("files:open-in-preview")!({ sender: sender() }, "/etc/passwd");
+    expect(opened).toHaveLength(1);
   });
 });

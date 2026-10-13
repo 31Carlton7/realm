@@ -87,6 +87,29 @@ const NAME_TOKEN = /[\w][\w .@+-]*\.[A-Za-z0-9]{1,5}/g;
 const trimEdge = (s: string): string => s.replace(/[.,;:!?)\]}'"`]+$/, "");
 
 /**
+ * Every directory a piece of text names: the folder of each path token, and each token that ends in
+ * `/`. Paths stay as written (`~/` is not expanded), deduped, in order of first mention.
+ *
+ * For the turn-media sweep, which reads it over a tool call's input and a reply to learn where a
+ * turn might have left files — `cd ~/decks && node compose.mjs` and `D=~/decks/photos; … "$D/01.png"`
+ * both name a folder the session's cwd knows nothing about.
+ */
+export function directoriesNamedIn(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of text.matchAll(PATH_TOKEN)) {
+    // A shell command quotes paths for osascript as `\"$D/01.png\"`; the backslash is not the path's.
+    const token = trimEdge(m[0].replace(/\\+$/, ""));
+    if (token.endsWith("/")) { if (token.length > 1) out.add(token.replace(/\/+$/, "")); continue; }
+    // A path without an extension is taken as the folder itself (`cd ~/decks`), not as a file in its
+    // parent: a picture always has an extension, and the sweep only walks what is really a directory.
+    if (!/\.[A-Za-z0-9]{1,5}$/.test(token)) { out.add(token); continue; }
+    const cut = token.lastIndexOf("/");
+    if (cut > 0) out.add(token.slice(0, cut));
+  }
+  return [...out];
+}
+
+/**
  * Media paths an assistant message is POINTING AT, as absolute-ish candidates for main to check.
  *
  * Harvested from the message text and nothing else. A path that merely passed through a tool result

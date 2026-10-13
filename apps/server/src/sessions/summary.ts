@@ -15,10 +15,11 @@ export function transcriptForSummary(events: readonly StoredSessionEvent[]): str
 }
 
 /** Event types that say nothing a summary would repeat: the meter, the session's own state, and the
- *  summaries themselves. `turn_changes` is Realm's measurement of a turn that already happened, and it
- *  lands seconds after the settle — anchoring to it would buy a second recap of the same turn. */
+ *  summaries themselves. `turn_changes` and `files_made` are Realm's measurements of a turn that already
+ *  happened, and they land seconds after the settle — anchoring to one would buy a second recap of the
+ *  same turn. */
 const NOT_SUMMARY_WORTHY = new Set<SessionEvent["type"]>([
-  "status", "usage", "summary", "prompt_hint", "feedback", "assistant_delta", "rate_limit", "turn_changes",
+  "status", "usage", "summary", "prompt_hint", "feedback", "assistant_delta", "rate_limit", "turn_changes", "files_made",
 ]);
 
 /**

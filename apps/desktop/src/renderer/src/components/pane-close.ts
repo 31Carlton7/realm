@@ -11,6 +11,8 @@ import { PAGE_REF_IDS, type Item } from "@realm/contracts";
  */
 export const PAGE_KINDS: ReadonlySet<Item["kind"]> = new Set<Item["kind"]>([
   ...(Object.keys(PAGE_REF_IDS) as Item["kind"][]), "space-page", "agents",
+  // A space's Review is a view of its team's reviews; they outlive it, and opening it again is identical.
+  "review",
 ]);
 
 /**

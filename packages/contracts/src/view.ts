@@ -413,6 +413,16 @@ export const StoredViewSchema = z.object({
 });
 export type StoredView = z.infer<typeof StoredViewSchema>;
 
+/** The setting a profile's window view is stored under — its panes, their side panes, and the side
+ *  panes of the sessions not on screen. Keyed by profile because a profile's spaces are the only ones
+ *  it shows. The renderer writes it; the server reads it to tell an agent what is on screen. */
+export const viewSettingKey = (profileId: string): string => `ui.view:${profileId}`;
+/** The space last made current — where a new session goes when no session has focus. Before Plan 27
+ *  it was the room the window was in, which is why a home upgraded from rooms migrates from it. */
+export const SETTING_ACTIVE_SPACE = "ui.activeSpaceId";
+/** The side panes put away (`toggleSidePanes`): their tabs kept, the panes not drawn. */
+export const SETTING_SIDE_PANES_HIDDEN = "ui.sidePanesHidden";
+
 /** A stored view, or null for anything that is not one — an older build's, or a hand edit gone wrong. */
 export function parseStoredView(raw: unknown): StoredView | null {
   const p = StoredViewSchema.safeParse(raw);

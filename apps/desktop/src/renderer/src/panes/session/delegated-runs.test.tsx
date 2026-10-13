@@ -107,6 +107,21 @@ describe("the delegating session's running-agents control", () => {
   });
 });
 
+describe("a sub-agent waiting on you", () => {
+  it("the chip says how many need you, and goes to the Agents tab on the first of them", async () => {
+    // THE MUTANT: a chip that ignores waiting — it reads "1 working" while the sub-agent sits on a
+    // request, and a click opens the popover's list instead of the card the request is answered on.
+    const { store } = await mount({ se1: [KID, PEER] });
+    store.setState({ sessionStatus: { ...store.getState().sessionStatus, se2: "waiting_permission", se3: "waiting_permission" } });
+    const chip = await screen.findByRole("button", { name: "1 agent working, 1 agent needs you, for Parent" });
+    // The peer it only asked a question of is not its to answer for.
+    expect(chip).toHaveTextContent("1 working·1 needs you");
+    fireEvent.click(chip);
+    await waitFor(() => expect(store.getState().agentsAsk["se1"]).toMatchObject({ childId: "se2" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
 describe("sub-agents the HARNESS is running", () => {
   /* A different animal to a delegated run, and the difference is why these were invisible: an
      `agent_run` creates a real Realm session with a row, a pane and a place in the layout, and the

@@ -4,7 +4,12 @@ import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import { createApp, type App } from "../app";
 import { PLAN_LIMIT_REPORTING, type AgentKind, type PlanLimits, type SessionEventPayload } from "@realm/contracts";
-import { PlanLimitsService } from "./service";
+import { PLAN_LIMITS_KEY, PlanLimitsService } from "./service";
+import { latestCodexRateLimits } from "./codex-rollout";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { openDatabase } from "../db/database";
+import { SettingsStore } from "../store/settings";
 import { waitFor } from "../test-utils";
 
 /** A reading as an adapter reports one. Defaults are the quiet case: quota known, nothing wrong. */
@@ -101,6 +106,74 @@ describe("PlanLimitsService", () => {
     limits.apply("claude", reading(), 1_700_000_000_000);
 
     expect(rowFor(limits.list(), "claude").ts).toBe(1_700_000_000_000);
+  });
+
+  it("keeps the last reading across a restart, with the time it was taken", () => {
+    // After every launch the page's one question — how much is left — had no answer until a session
+    // happened to run. The reading survives, stamped, so the panel can say how old it is.
+    const db = openDatabase(join(tempDir("realm-limits-"), "realm.db"));
+    const settings = new SettingsStore(db);
+    const rpc = { broadcast: () => {} } as never;
+    new PlanLimitsService({ rpc, settings }).apply("claude", reading({ windows: [win("five_hour", 62, 1_700_000_900_000)] }), 1_700_000_000_000);
+    const row = rowFor(new PlanLimitsService({ rpc, settings }).list(), "claude");
+    expect(row.windows).toEqual([win("five_hour", 62, 1_700_000_900_000)]);
+    expect(row.ts).toBe(1_700_000_000_000);
+    expect(row.subscriptionType).toBe("max");
+  });
+
+  it("drops a stored row it cannot read rather than the whole table", () => {
+    const db = openDatabase(join(tempDir("realm-limits-"), "realm.db"));
+    const settings = new SettingsStore(db);
+    settings.set(PLAN_LIMITS_KEY, [{ agentKind: "codex", nonsense: true }, { ...rowFor(serviceWithBroadcasts().limits.list(), "claude"), windows: [win("five_hour", 5)], unavailable: null, ts: 9 }]);
+    const rows = new PlanLimitsService({ rpc: { broadcast: () => {} } as never, settings }).list();
+    expect(rowFor(rows, "claude").windows).toEqual([win("five_hour", 5)]);
+    expect(rowFor(rows, "codex").unavailable).toBe("not-yet-known");
+  });
+});
+
+describe("Codex's plan reading from its own rollouts", () => {
+  /** A rollout as codex-cli writes one: session_meta, then a token_count per round trip. */
+  function rollout(home: string, day: string, name: string, lines: unknown[]) {
+    const [y, m, d] = day.split("-");
+    const dir = join(home, "sessions", y!, m!, d!);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, name), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  }
+  const tokenCount = (timestamp: string, limits: Record<string, unknown>) => ({ timestamp, type: "event_msg", payload: { type: "token_count", info: null, rate_limits: limits } });
+  const CAPTURED = { limit_id: "codex", primary: { used_percent: 17.0, window_minutes: 300, resets_at: 1788601591 }, secondary: { used_percent: 59.0, window_minutes: 10080, resets_at: 1788773217 }, plan_type: "plus", rate_limit_reached_type: null };
+
+  it("reads the newest snapshot off the newest rollout, in the panel's units", async () => {
+    const home = tempDir("realm-codex-");
+    rollout(home, "2026-09-03", "rollout-2026-09-03T10-00-00-a.jsonl", [tokenCount("2026-09-03T10:00:00Z", { ...CAPTURED, primary: { used_percent: 2, window_minutes: 300, resets_at: 1 } })]);
+    rollout(home, "2026-09-04", "rollout-2026-09-04T11-58-25-b.jsonl", [
+      { timestamp: "2026-09-04T11:58:25Z", type: "session_meta", payload: { id: "b" } },
+      tokenCount("2026-09-05T04:40:00Z", { ...CAPTURED, primary: { used_percent: 9, window_minutes: 300, resets_at: 1 } }),
+      tokenCount("2026-09-05T04:48:59.217Z", CAPTURED),
+    ]);
+    const found = await latestCodexRateLimits(home);
+    expect(found?.ts).toBe(Date.parse("2026-09-05T04:48:59.217Z"));
+    const svc = new PlanLimitsService({ rpc: { broadcast: () => {} } as never, codexHome: home });
+    await svc.readLocal();
+    const row = rowFor(svc.list(), "codex");
+    expect(row.windows).toEqual([
+      { id: "primary", label: "5-hour", utilization: 17, resetsAt: 1788601591 * 1000 },
+      { id: "secondary", label: "Weekly", utilization: 59, resetsAt: 1788773217 * 1000 },
+    ]);
+    expect(row.subscriptionType).toBe("plus");
+    expect(row.ts).toBe(Date.parse("2026-09-05T04:48:59.217Z"));
+  });
+
+  it("never rolls a fresher reading back to an older file's", async () => {
+    const home = tempDir("realm-codex-");
+    rollout(home, "2026-09-04", "rollout-2026-09-04T11-58-25-b.jsonl", [tokenCount("2026-09-05T04:48:59Z", CAPTURED)]);
+    const svc = new PlanLimitsService({ rpc: { broadcast: () => {} } as never, codexHome: home });
+    svc.apply("codex", reading({ subscriptionType: "plus", windows: [win("primary", 80)] }), Date.parse("2026-09-06T00:00:00Z"));
+    await svc.readLocal();
+    expect(rowFor(svc.list(), "codex").windows[0]!.utilization).toBe(80);
+  });
+
+  it("finds nothing, quietly, in a home with no rollouts", async () => {
+    expect(await latestCodexRateLimits(tempDir("realm-codex-"))).toBeNull();
   });
 });
 

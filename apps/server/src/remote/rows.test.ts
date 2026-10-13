@@ -71,6 +71,15 @@ describe("the phone's rows", () => {
     expect(p.all().map((r) => r.kind === "notice" && r.text)).toEqual(["Changed 4 files: app.ts, rows.ts, README.md, …", "Changed 1 file: only.ts"]);
   });
 
+  it("says what a turn made in one line, by file name, once per turn", () => {
+    const p = new SessionProjector();
+    const media = (name: string) => ({ path: `/Users/me/Desktop/${name}`, size: 1024 });
+    p.apply(persisted(sessionEvent("files_made", { settledAt: 7, files: ["shot.png", "chart.pdf", "clip.mp4", "more.png"].map(media), totalFiles: 5 })));
+    p.apply(persisted(sessionEvent("files_made", { settledAt: 9, files: [media("icon.png")], totalFiles: 1 })));
+    expect(p.all().map((r) => r.kind === "notice" && r.text)).toEqual(["Made 5 files: shot.png, chart.pdf, clip.mp4, …", "Made 1 file: icon.png"]);
+    for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
+  });
+
   it("names a tool call by what it touches", () => {
     expect(summarize("Read", { file_path: "/a/b.ts" })).toBe("/a/b.ts");
     expect(summarize("WebSearch", { query: "noise protocol" })).toBe("noise protocol");

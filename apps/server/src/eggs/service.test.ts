@@ -111,13 +111,39 @@ describe("remembering", () => {
     expect(service.unlock("alpha-word")).toMatchObject({ group: "Alpha" });
   });
 
-  it("drops a remembered word that no longer opens anything, rather than keeping a broken row", () => {
-    // A pack re-sealed under a new word, or an id that went away. Either way the entry is dead.
+  it("drops a remembered word its pack now refuses, and keeps one naming a pack this build lacks", () => {
+    // A pack re-sealed under a new word: the remembered word is dead for good. A pack id this build
+    // does not ship is not — the build after it may ship it again.
     const { settings } = bring();
     settings.set(EGGS_UNLOCKED_KEY, { a: "the-old-word", gone: "whatever" });
     const service = new EggService({ settings, packs: PACKS });
     expect(service.restore()).toBe(0);
-    expect(settings.get(EGGS_UNLOCKED_KEY)).toEqual({});
+    expect(settings.get(EGGS_UNLOCKED_KEY)).toEqual({ gone: "whatever" });
+  });
+
+  it("survives an update: a word sealed under the app's key is kept until the key arrives, then opens", () => {
+    /* THE bug: the new daemon restores at boot, BEFORE the new app has handed over the key. Every
+       sealed word read as unopenable and the empty map was written back — every update emptied
+       `eggs.unlocked`, which is what the owner's realm.db holds today. */
+    const key = newSecretKey().toString("base64");
+    eggSecretBox.setKey(key);
+    const { service, settings } = bring();
+    service.unlock("alpha-word");
+    service.unlock("beta-word");
+    const remembered = settings.get(EGGS_UNLOCKED_KEY);
+
+    // The next version's daemon: a fresh process, so no key yet.
+    eggSecretBox.setKey(null);
+    const next = new EggService({ settings, packs: PACKS });
+    expect(next.restore()).toBe(0);
+    expect(settings.get(EGGS_UNLOCKED_KEY)).toEqual(remembered);
+
+    // …and the app registers and hands the same key over.
+    eggSecretBox.setKey(key);
+    expect(next.restore()).toBe(2);
+    expect(next.unlocked().map((p) => p.group).sort()).toEqual(["Alpha", "Beta"]);
+    expect(next.restore()).toBe(0); // already open: nothing re-derived, nothing counted twice
+    expect(settings.get(EGGS_UNLOCKED_KEY)).toEqual(remembered);
   });
 
   it("survives junk under the key rather than taking the unlock path down with it", () => {

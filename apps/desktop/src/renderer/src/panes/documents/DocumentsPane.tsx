@@ -13,26 +13,40 @@ import {
   canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected, type Buffer,
 } from "./buffers";
 import { DocumentsHome } from "./DocumentsHome";
-import { folderName } from "./home-model";
+import { folderName, isOutsideTab, tildePath } from "./home-model";
 import { NewMenu, iconFor } from "./NewMenu";
 import { PreviewFrame } from "./PreviewFrame";
+import { publishShownFile } from "./shown-file";
 import { QuickLookView } from "./QuickLookView";
 
 /** How long the editor stays quiet before autosaving. Long enough not to write on every keystroke,
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
 const AUTOSAVE_MS = 700;
 
-/** A PDF is bytes, not text: no buffer is read for it, and its tab can never be dirty. The frame
- *  streams it from the preview server instead (Plan 22). */
 /** Files the pane opens WITHOUT reading their bytes: a PDF, and everything Quick Look renders for
- *  us. Both are shown by pointing a frame at the preview server, so pulling a `.docx` through
- *  `readDocument` would only produce mojibake and a failed open. */
+ *  us. Both are fetched from the preview server — the PDF's bytes by pdf.js, the rest as Quick Look's
+ *  picture — so pulling a `.docx` through `readDocument` would only produce mojibake and a failed open. */
 const isBinaryKind = (path: string): boolean => {
   const k = documentKindFor(path);
   return k === "pdf" || k === "preview";
 };
 
 const baseName = (p: string) => p.split("/").pop() ?? p;
+
+/**
+ * Why a file the pane was asked to open cannot be shown, in a sentence, from the read's refusal. Said
+ * in the pane, where the file was asked for — an empty editor, or a grey stage, says nothing.
+ */
+export function unshownReason(path: string, error: unknown): { says: string; gone: boolean } {
+  const name = baseName(path);
+  const code = (error as { code?: unknown } | null)?.code;
+  const message = error instanceof Error ? error.message : String(error);
+  if (code === "NOT_FOUND" || /ENOENT|no such file/i.test(message)) return { says: `${name} is no longer on disk.`, gone: true };
+  if (code === "TOO_LARGE") return { says: `${name} is too large to show here. The pane opens files up to 2 MB.`, gone: false };
+  if (code === "BINARY") return { says: `${name} is not text, so the pane cannot show it.`, gone: false };
+  if (code === "NOT_UTF8") return { says: `${name} is not UTF-8 text, so the pane cannot show it.`, gone: false };
+  return { says: `${name} could not be read: ${message}`, gone: false };
+}
 
 /**
  * The rich editor is code-split (Plan 17's bundle-weight mitigation): TipTap and ProseMirror are a
@@ -45,6 +59,8 @@ const SheetEditor = lazy(() => import("./SheetEditor").then((m) => ({ default: m
 /** Same treatment again: CodeMirror plus a grammar is a payload a workspace of Markdown must never
  *  pay for, and `code-modes.ts` splits the grammars one chunk further. */
 const CodeEditor = lazy(() => import("./CodeEditor").then((m) => ({ default: m.CodeEditor })));
+/** And pdf.js: a megabyte and a half a workspace with no PDF in it never loads. */
+const PdfView = lazy(() => import("./PdfView").then((m) => ({ default: m.PdfView })));
 
 /**
  * The document workspace pane (Plan 17 W1): a tab strip over open files, one editor per file type,
@@ -76,6 +92,9 @@ export function DocumentsPane({ item }: PaneProps) {
    *  which is the whole point: the file exists first, and naming it is the next optional keystroke. */
   const [renaming, setRenaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Tabs whose file was asked for and could not be read — too large, not text, gone — with why. The
+   *  tab stays, saying so in the pane, rather than an error far from it and nothing where it was. */
+  const [unshown, setUnshown] = useState<Record<string, { says: string; gone: boolean }>>({});
   // "rich" for prose, "source" for the markdown behind it. Per-pane, not per-file: switching
   // documents keeps the mode the user chose.
   const [mode, setMode] = useState<"rich" | "source">("rich");
@@ -88,6 +107,8 @@ export function DocumentsPane({ item }: PaneProps) {
   const [searchAsk, setSearchAsk] = useState(0);
   /** A line asked for from outside (`openDocumentPath(…, { line })`), for the code editor to go to. */
   const [reveal, setReveal] = useState<{ path: string; line: number } | null>(null);
+  /** The head row's slot for a viewer's own controls (a PDF's page and zoom), filled through a portal. */
+  const [headSlot, setHeadSlot] = useState<HTMLElement | null>(null);
   /* The session this pane serves: the one whose tab of the side panel it is. A documents pane of its
      own serves nobody — its home lists no session and offers nothing to add a file to. */
   const sessionId = useApp((s) => {
@@ -177,8 +198,14 @@ export function DocumentsPane({ item }: PaneProps) {
       if (isBinaryKind(path)) {
         setBuffers((prev) => ({ ...prev, [path]: opened(path, "", "") }));
       } else {
-        const { text, hash } = await readDocument(documentsId, path);
-        setBuffers((prev) => ({ ...prev, [path]: opened(path, text, hash) }));
+        try {
+          const { text, hash } = await readDocument(documentsId, path);
+          setBuffers((prev) => ({ ...prev, [path]: opened(path, text, hash) }));
+          setUnshown((prev) => { const { [path]: _was, ...rest } = prev; return rest; });
+        } catch (e) {
+          setBuffers((prev) => ({ ...prev, [path]: opened(path, "", "") }));
+          setUnshown((prev) => ({ ...prev, [path]: unshownReason(path, e) }));
+        }
       }
     }
     setActive(path);
@@ -211,6 +238,7 @@ export function DocumentsPane({ item }: PaneProps) {
 
   const closeTab = useCallback((path: string) => {
     setBuffers((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
+    setUnshown((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
     const remaining = Object.keys(buffersRef.current).filter((p) => p !== path);
     const nextActive = activeRef.current === path ? (remaining[0] ?? null) : activeRef.current;
     setActive(nextActive);
@@ -220,7 +248,8 @@ export function DocumentsPane({ item }: PaneProps) {
   // ---- autosave ----------------------------------------------------------------------------------
   const save = useCallback(async (path: string) => {
     const b = buffersRef.current[path];
-    if (!b || !canSave(b)) return;
+    // A file outside the space is read-only: nothing here writes it, whatever its buffer says.
+    if (!b || !canSave(b) || isOutsideTab(path)) return;
     const res = await writeDocument(documentsId, path, b.text, b.baseHash);
     if (res.ok) setBuffer(path, (cur) => (cur.text === b.text ? saved(cur, res.hash) : cur));
     else setBuffer(path, (cur) => writeRejected(cur, res.currentText, res.currentHash));
@@ -292,6 +321,11 @@ export function DocumentsPane({ item }: PaneProps) {
   }), [run, renameDocumentFile, documentsId]);
 
   const showingHome = home || !buf;
+  /* The file on screen, for the pane's menu (Open in Preview, Share) — which is drawn by the pane's bar,
+     outside this component. Only a PDF has rows there today. */
+  const shownPath = buf && !showingHome && root ? `${root.replace(/\/$/, "")}/${buf.path}` : null;
+  useEffect(() => publishShownFile(item.id, shownPath && kind === "pdf" ? { path: shownPath, kind } : null), [item.id, shownPath, kind]);
+  useEffect(() => () => publishShownFile(item.id, null), [item.id]);
   return (
     <div className="documents-pane">
       {/* The picker hangs off the strip rather than off the pane, so "just below the tabs" is a
@@ -329,10 +363,11 @@ export function DocumentsPane({ item }: PaneProps) {
       {buf && !showingHome && (
         <>
           <DocumentHead
-            buffer={buf} kind={kind} mode={mode} onSetMode={setMode}
+            buffer={buf} kind={unshown[buf.path] ? "unsupported" : kind} mode={mode} onSetMode={setMode}
             renaming={renaming} onRenaming={setRenaming}
-            onRename={(stem) => renameActive(buf.path, stem)}
+            onRename={(stem) => renameActive(buf.path, stem)} onToolsSlot={setHeadSlot}
           />
+          {isOutsideTab(buf.path) && !unshown[buf.path] && <OutsideNote path={buf.path} />}
           {buf.conflict && (
             <ConflictBar
               onKeepMine={() => { setBuffer(buf.path, keepMine); void save(buf.path); }}
@@ -344,15 +379,18 @@ export function DocumentsPane({ item }: PaneProps) {
             // polite status, and a file vanishing under an open editor is not a polite update.
             <div className="documents-bar warn" role="alert">
               <Icon name="alert" size={12} />
-              <span>This file was deleted on disk. Saving will re-create it.</span>
+              <span>{isOutsideTab(buf.path) ? "This file was deleted on disk." : "This file was deleted on disk. Saving will re-create it."}</span>
             </div>
           )}
-          <Editor
-            buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
-            reveal={reveal?.path === buf.path ? reveal : null}
-            onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
-            onSave={() => { void save(buf.path); }}
-          />
+          {unshown[buf.path] ? <Unshown path={buf.path} reason={unshown[buf.path]!} /> : (
+            <Editor
+              buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
+              reveal={reveal?.path === buf.path ? reveal : null} headSlot={headSlot} filePath={shownPath}
+              readOnly={isOutsideTab(buf.path)}
+              onChange={(text) => setBuffer(buf.path, (b) => edited(b, text))}
+              onSave={() => { void save(buf.path); }}
+            />
+          )}
         </>
       )}
     </div>
@@ -392,7 +430,7 @@ function TabStrip({ tabs, active, buffers, home, onHome, onSelect, onClose, menu
               {/* One dot for "not yet on disk", so the tab strip answers "is my work saved?" at a
                   glance. A conflicted tab is marked differently — it needs a decision, not a wait. */}
               {b?.conflict ? <span className="documents-dot conflict" aria-label="Needs attention" />
-                : b?.dirty ? <span className="documents-dot" aria-label="Unsaved" /> : null}
+                : b?.dirty && !isOutsideTab(path) ? <span className="documents-dot" aria-label="Unsaved" /> : null}
             </button>
             <button className="documents-tab-close icon-btn" aria-label={`Close ${baseName(path)}`}
               onClick={() => onClose(path)}><Icon name="close" size={12} /></button>
@@ -411,17 +449,26 @@ function TabStrip({ tabs, active, buffers, home, onHome, onSelect, onClose, menu
  * a third time. What a person actually wants from a document's chrome is the name (and the ability to
  * change it) and the answer to "is my work safe" — so that is what is here, and nothing else.
  */
-function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onRename }: {
+function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onRename, onToolsSlot }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; onSetMode: (m: "rich" | "source") => void;
   renaming: boolean; onRenaming: (v: boolean) => void; onRename: (stem: string) => void;
+  onToolsSlot: (el: HTMLElement | null) => void;
 }) {
   const structured = structuredViewFor(kind);
-  const state = buffer.conflict ? "conflict" : buffer.missing ? "missing" : buffer.dirty ? "dirty" : "clean";
-  const stateLabel = { conflict: "Needs a decision", missing: "Deleted on disk", dirty: "Saving…", clean: "Saved" }[state];
+  /* Realm never writes a PDF, and outside the space nothing is saved, so "Saved" beside either would
+     claim a write nobody did. It still says when the file is gone or needs a decision. */
+  const readOnly = isOutsideTab(buffer.path);
+  const state = buffer.missing ? "missing" : readOnly ? "read-only" : buffer.conflict ? "conflict" : buffer.dirty ? "dirty" : "clean";
+  const stateLabel = { conflict: "Needs a decision", missing: "Deleted on disk", dirty: "Saving…", clean: kind === "pdf" ? "" : "Saved", "read-only": "Read-only" }[state];
   return (
     <div className="documents-head">
       <Icon name={iconFor(buffer.path)} size={14} className="documents-head-glyph" />
-      {renaming
+      {readOnly
+        ? <span className="documents-name" title={buffer.path}>
+            {documentStem(buffer.path)}
+            {kind === "code" && documentExtension(buffer.path) && <span className="documents-name-ext">.{documentExtension(buffer.path)}</span>}
+          </span>
+        : renaming
         // Keyed by PATH. The field seeds its value once, on mount, and the active document can change
         // underneath an open field — creating a second document does exactly that. Unkeyed, the field
         // kept the previous document's name, and the next blur committed it onto the new one: a
@@ -436,6 +483,9 @@ function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onR
             {kind === "code" && documentExtension(buffer.path) && <span className="documents-name-ext">.{documentExtension(buffer.path)}</span>}
           </button>}
       <span className="documents-state t-xs muted" data-state={state} role="status">{stateLabel}</span>
+      {/* A PDF's page, zoom and fit sit here, where other kinds keep their view toggle: the document's
+          own bar, not a second one under it (PdfView.tsx portals them in). */}
+      {structured === "pdf" && <span className="documents-head-tools" ref={onToolsSlot} />}
       {structured && structured !== "pdf" && structured !== "render" && (
         <span className="documents-modes" role="group" aria-label="Editor mode">
           <button type="button" aria-pressed={mode === "rich"} onClick={() => onSetMode("rich")}>{structuredLabel(structured)}</button>
@@ -478,6 +528,41 @@ function structuredViewFor(kind: DocumentKind): "rich" | "grid" | "preview" | "p
 const structuredLabel = (v: "rich" | "grid" | "preview" | "pdf" | "render"): string =>
   v === "grid" ? "Grid" : v === "preview" ? "Preview" : v === "pdf" ? "PDF" : v === "render" ? "Preview" : "Rich";
 
+/**
+ * The quiet line under a file from outside the space: where it is, that the pane only reads it, and
+ * the way to the folder it is in. Read-only because the pane writes only inside the space's folder —
+ * the boundary an agent's own documents tools keep too.
+ */
+function OutsideNote({ path }: { path: string }) {
+  const folder = tildePath(path.slice(0, path.lastIndexOf("/")) || "/");
+  return (
+    <div className="documents-outside" title={path}>
+      <Icon name="padlock" size={12} />
+      <span className="documents-outside-says">Outside this space · read-only</span>
+      <span className="documents-outside-where">{folder}</span>
+      <button type="button" className="btn-quiet" onClick={() => { void window.realm?.files?.reveal?.(path); }}>Show in Finder</button>
+    </div>
+  );
+}
+
+/** A file the pane was asked for and cannot show — too large, not text, gone — said where it was
+ *  asked for, with the ways out the Finder still has. */
+function Unshown({ path, reason }: { path: string; reason: { says: string; gone: boolean } }) {
+  return (
+    <div className="pane-empty documents-unshown" role="status">
+      {/* off-ladder: an empty state's mark, drawn at the 28 the pane's other empty states use. */}
+      <div className="pane-empty-tile" aria-hidden="true"><Icon name="documents" size={28} /></div>
+      <p className="pane-empty-line">{reason.says}</p>
+      {!reason.gone && (
+        <div className="docs-home-empty-actions">
+          <button type="button" className="btn" onClick={() => { void window.realm?.files?.reveal?.(path); }}>Show in Finder</button>
+          <button type="button" className="btn" onClick={() => { void window.realm?.openAttachment?.(path); }}>Open with the default app</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onTakeTheirs: () => void }) {
   return (
     <div className="documents-bar conflict" role="alert">
@@ -493,15 +578,19 @@ function ConflictBar({ onKeepMine, onTakeTheirs }: { onKeepMine: () => void; onT
  * The editor host. W2 adds the rich Markdown editor for `doc` and `slides`; the source view remains for
  * every kind and is the only view for `sheet` and `latex` until W3 and W5 replace it.
  */
-function Editor({ buffer, kind, mode, documentsId, reveal, onChange, onSave }: {
+function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, readOnly, onChange, onSave }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; documentsId: string;
+  /** Where a PDF's controls go, and the file on disk for its Open in Preview. */
+  headSlot: HTMLElement | null; filePath: string | null;
+  /** A file outside the space: drawn by the same editor, which takes no edits. */
+  readOnly: boolean;
   /** A line asked for from outside the pane. The code editor goes to it; the rich views have no lines
    *  to go to, and open where the reader left off. */
   reveal: { line: number } | null;
   onChange: (text: string) => void; onSave: () => void;
 }) {
   // The toggle itself lives in the head bar beside the name — the editor only has to know which view
-  // it is drawing. A PDF has no text, so it is preview-only regardless of the mode (Plan 22).
+  // it is drawing. A PDF has no source to show, so it is the viewer regardless of the mode (Plan 22).
   const structured = structuredViewFor(kind);
   /* Where the reader was in this file, kept across the unmount a space switch causes
      (scroll-memory.ts). Per VIEW as well as per file: the rich column and the source text are two
@@ -516,19 +605,25 @@ function Editor({ buffer, kind, mode, documentsId, reveal, onChange, onSave }: {
         {showStructured && structured === "render" ? (
           <QuickLookView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash}
             scrollKey={`doc:${documentsId}:render:${buffer.path}`} />
-        ) : showStructured && (structured === "preview" || structured === "pdf") ? (
+        ) : showStructured && structured === "pdf" ? (
+          // Read again on the DISK hash, as the guide's frame is: an agent's rewrite lands on the page
+          // the reader was on.
+          <Suspense fallback={<div className="pane-placeholder muted">Loading preview…</div>}>
+            <PdfView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash}
+              scrollKey={`doc:${documentsId}:pdf:${buffer.path}`} head={headSlot} filePath={filePath} />
+          </Suspense>
+        ) : showStructured && structured === "preview" ? (
           // The frame reloads on the DISK hash: while the user edits the source, the preview keeps
           // showing the last saved version, and the autosave tick (or an agent's write) refreshes it.
           <PreviewFrame key={buffer.path} documentsId={documentsId} path={buffer.path}
-            kind={structured === "pdf" ? "pdf" : "html"} version={buffer.baseHash}
-            scrollKey={`doc:${documentsId}:preview:${buffer.path}`} />
+            version={buffer.baseHash} scrollKey={`doc:${documentsId}:preview:${buffer.path}`} />
         ) : showStructured ? (
           <Suspense fallback={<div className="pane-placeholder muted">Loading editor…</div>}>
             {/* Keyed by path so switching documents remounts the editor rather than diffing one
                 document's editor state onto another's. */}
             {structured === "grid"
               ? <SheetEditor key={buffer.path} path={buffer.path} text={buffer.text} onChange={onChange} />
-              : <RichTextEditor key={buffer.path} text={buffer.text} onChange={onChange}
+              : <RichTextEditor key={buffer.path} text={buffer.text} onChange={onChange} readOnly={readOnly}
                   scrollKey={`doc:${documentsId}:rich:${buffer.path}`} />}
           </Suspense>
         ) : kind === "code" ? (
@@ -536,12 +631,12 @@ function Editor({ buffer, kind, mode, documentsId, reveal, onChange, onSave }: {
             {/* Keyed by path for the same reason the rich editor is: a new file gets a new editor
                 rather than one document's undo history diffed onto another's. */}
             <CodeEditor key={buffer.path} path={buffer.path} text={buffer.text}
-              onChange={onChange} onSave={onSave} blinkCaret={blinkCaret} reveal={reveal}
+              onChange={onChange} onSave={onSave} blinkCaret={blinkCaret} reveal={reveal} readOnly={readOnly}
               scrollKey={`doc:${documentsId}:code:${buffer.path}`} />
           </Suspense>
         ) : (
-          <textarea className="documents-source" ref={sourceScroll} value={buffer.text} spellCheck={false}
-            aria-label={`Edit ${baseName(buffer.path)}`} onChange={(e) => onChange(e.target.value)} />
+          <textarea className="documents-source" ref={sourceScroll} value={buffer.text} spellCheck={false} readOnly={readOnly}
+            aria-label={`${readOnly ? "Read" : "Edit"} ${baseName(buffer.path)}`} onChange={(e) => onChange(e.target.value)} />
         )}
       </div>
     </div>

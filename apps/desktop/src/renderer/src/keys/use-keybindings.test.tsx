@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
-import { DEFAULT_KEYBINDINGS, allItems, findSidePane, type Keybinding } from "@realm/contracts";
+import { DEFAULT_KEYBINDINGS, allItems, findSidePane, type Keybinding, type Layout } from "@realm/contracts";
 import { useKeybindings } from "./use-keybindings";
-import { createAppStore } from "../state/store";
+import { createAppStore, neighborLeafId } from "../state/store";
 import { fakeApi, item, session, space } from "../state/store.test-fakes";
 
 /** The real store and the real hook, driven by window KeyboardEvents — what production runs. */
@@ -167,12 +167,41 @@ describe("useKeybindings", () => {
     expect(terminals).toBe(0);
   });
 
-  it("reads the physical key, so ⌘⇧\\ splits down rather than doing nothing", async () => {
-    const { store } = await mount();
+  it("reads the physical key, so ⌘⇧\\ splits down rather than doing nothing — with a new session in the new pane", async () => {
+    // THE MUTANT: the command left on splitFocused, which leaves the new pane empty.
+    const { api, store } = await mount();
     act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i1" }, focusedLeafId: "L1" }));
     // A US layout reports "|" here; the chord is decided by `code`, so the rule can say `mod+shift+\`.
     key({ key: "|", code: "Backslash", metaKey: true, shiftKey: true });
     await waitFor(() => { const l = store.getState().layout!; expect(l.type === "split" && l.dir).toBe("col"); });
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(2));
+    expect(made(api, "createSession")).toBe(true);
+  });
+
+  it("⌘\\ and ⌘⇧\\ split from inside a text field — the caret a split leaves in a prompter", async () => {
+    // THE MUTANT: the splits left on `!inputFocus`: the first split hands the new prompter the
+    // keyboard, and the second keystroke would do nothing.
+    const { api, store } = await mount();
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i1" }, focusedLeafId: "L1" }));
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+    input.focus();
+    key({ key: "\\", code: "Backslash", metaKey: true }, input);
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(2));
+    key({ key: "|", code: "Backslash", metaKey: true, shiftKey: true }, input);
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(3));
+    expect(api.calls.filter((c) => c.startsWith("createSession"))).toHaveLength(2);
+    input.remove();
+  });
+
+  it("⌘\\ splits right with a new session in the new pane, not an empty one", async () => {
+    // THE MUTANT: the command left on splitFocused.
+    const { api, store } = await mount();
+    act(() => store.setState({ layout: { type: "leaf", id: "L1", itemId: "i1" }, focusedLeafId: "L1" }));
+    key({ key: "\\", code: "Backslash", metaKey: true });
+    await waitFor(() => { const l = store.getState().layout!; expect(l.type === "split" && l.dir).toBe("row"); });
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(2));
+    expect(made(api, "createSession")).toBe(true);
   });
 
   it("gates Escape on the session actually running", async () => {
@@ -339,5 +368,91 @@ describe("useKeybindings — project scripts", () => {
     key({ key: "Y", metaKey: true, shiftKey: true });
     await tick();
     expect(made(api, "runScript")).toBe(false);
+  });
+});
+
+//    root (row)
+//   ┌─────┬─────┐
+//   │ L1  │ col │      L2 above L3 in the right column.
+//   │     ├─────┤
+//   │     │ L3  │
+const grid: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+  { type: "leaf", id: "L1", itemId: "A" },
+  { type: "split", id: "c1", dir: "col", sizes: [50, 50], children: [
+    { type: "leaf", id: "L2", itemId: "B" },
+    { type: "leaf", id: "L3", itemId: null },
+  ] },
+] };
+
+describe("neighborLeafId (structural approximation)", () => {
+  it("moves across a row split, descending to the near edge of the sibling subtree", () => {
+    expect(neighborLeafId(grid, "L1", "right")).toBe("L2"); // cross-axis descent takes the first child
+    expect(neighborLeafId(grid, "L2", "left")).toBe("L1");
+    expect(neighborLeafId(grid, "L3", "left")).toBe("L1");
+  });
+  it("moves within a col split and no-ops at the edges", () => {
+    expect(neighborLeafId(grid, "L2", "down")).toBe("L3");
+    expect(neighborLeafId(grid, "L3", "up")).toBe("L2");
+    expect(neighborLeafId(grid, "L1", "left")).toBeNull();
+    expect(neighborLeafId(grid, "L1", "up")).toBeNull();
+    expect(neighborLeafId(grid, "L1", "down")).toBeNull();
+    expect(neighborLeafId(grid, "L2", "right")).toBeNull();
+  });
+  it("moving left into a subtree lands on its far-right leaf (near edge of travel)", () => {
+    const l: Layout = { type: "split", id: "r", dir: "row", sizes: [50, 50], children: [
+      { type: "split", id: "s", dir: "row", sizes: [50, 50], children: [
+        { type: "leaf", id: "a", itemId: null }, { type: "leaf", id: "b", itemId: null },
+      ] },
+      { type: "leaf", id: "c", itemId: null },
+    ] };
+    expect(neighborLeafId(l, "c", "left")).toBe("b");
+    expect(neighborLeafId(l, "a", "right")).toBe("b");
+  });
+});
+
+describe("useKeybindings on panes", () => {
+  it("⌘⌥arrows move pane focus directionally; wrong direction stays put", async () => {
+    const { store } = await mount();
+    act(() => store.setState({ layout: grid, focusedLeafId: "L1" }));
+    key({ key: "ArrowRight", code: "ArrowRight", metaKey: true, altKey: true });
+    expect(store.getState().focusedLeafId).toBe("L2");
+    key({ key: "ArrowDown", code: "ArrowDown", metaKey: true, altKey: true });
+    expect(store.getState().focusedLeafId).toBe("L3");
+    key({ key: "ArrowUp", code: "ArrowUp", metaKey: true, altKey: true });
+    expect(store.getState().focusedLeafId).toBe("L2");
+    key({ key: "ArrowLeft", code: "ArrowLeft", metaKey: true, altKey: true });
+    expect(store.getState().focusedLeafId).toBe("L1");
+    key({ key: "ArrowLeft", code: "ArrowLeft", metaKey: true, altKey: true }); // edge: no neighbor
+    expect(store.getState().focusedLeafId).toBe("L1");
+  });
+
+  it("a focused terminal (xterm helper textarea) does NOT swallow global bindings: ⌘W closes, ⌘\\ splits", async () => {
+    const { api, store } = await mount();
+    const two: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
+      { type: "leaf", id: "L1", itemId: "A" }, { type: "leaf", id: "L2", itemId: "B" }] };
+    act(() => store.setState({ layout: two, focusedLeafId: "L1", items: [item("A", "s1"), item("B", "s1")] }));
+    // xterm's real focus target: a helper <textarea> nested inside the .xterm root element.
+    const host = document.createElement("div"); host.className = "xterm";
+    const ta = document.createElement("textarea"); ta.className = "xterm-helper-textarea";
+    host.appendChild(ta); document.body.appendChild(host); ta.focus();
+    key({ key: "w", code: "KeyW", metaKey: true }, ta);
+    await waitFor(() => expect(store.getState().layout).toEqual({ type: "leaf", id: "L2", itemId: "B" })); // pane closed
+    key({ key: "\\", code: "Backslash", metaKey: true }, ta);
+    await waitFor(() => {
+      const l = store.getState().layout!;
+      expect(l.type === "split" && l.dir === "row" && l.children.length).toBe(2); // split fired
+    });
+    // …with a new session in the new pane (THE MUTANT: the binding left on splitFocused, an empty pane).
+    await waitFor(() => expect(allItems(store.getState().layout!)).toHaveLength(2));
+    expect(api.calls).toContain("createSession:claude");
+    host.remove();
+  });
+
+  it("⌘⇧Space opens the space overview over the palette — one overlay at a time", async () => {
+    const { store } = await mount();
+    act(() => store.getState().setPaletteOpen(true));
+    key({ code: "Space", key: " ", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(store.getState().spacesOpen).toBe(true));
+    expect(store.getState().paletteOpen).toBe(false);
   });
 });

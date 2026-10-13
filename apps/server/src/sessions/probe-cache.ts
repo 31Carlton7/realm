@@ -31,18 +31,35 @@ export class ProbeCache<T = ProbeResult[]> {
   private amendments: { seq: number; fn: (value: T) => T }[] = [];
   private ttlMs: number;
   private now: () => number;
-  constructor(private compute: () => Promise<T>, opts: { ttlMs?: number; now?: () => number } = {}) {
+  private background: boolean;
+  /** `background`: an unforced read past the TTL answers with the old value and refreshes behind it,
+   *  instead of waiting on the refresh. Only the very first read waits. */
+  constructor(private compute: (opts: { force: boolean }) => Promise<T>,
+    opts: { ttlMs?: number; now?: () => number; background?: boolean } = {}) {
     this.ttlMs = opts.ttlMs ?? PROBE_TTL_MS;
     this.now = opts.now ?? Date.now;
+    this.background = opts.background ?? false;
   }
 
   async get({ force = false }: { force?: boolean } = {}): Promise<T> {
-    if (!force && this.cached && this.now() - this.cached.at < this.ttlMs) return this.cached.value;
+    if (!force && this.cached) {
+      if (this.now() - this.cached.at < this.ttlMs) return this.cached.value;
+      // Stale, and the caller would rather have the old answer now than wait on child processes for
+      // a new one: refresh behind it, and the next reader gets what that probe found.
+      if (this.background) {
+        if (!this.inflight) this.start(false).catch(() => {});
+        return this.cached.value;
+      }
+    }
     const pending = this.inflight;
     if (pending && (!force || pending.forced)) return pending.p;
+    return this.start(force);
+  }
+
+  private start(force: boolean): Promise<T> {
     const from = this.seq;
     this.out++;
-    const p = this.compute().then((raw) => {
+    const p = this.compute({ force }).then((raw) => {
       // It read the machine before anything amended since, so those still stand over what it saw.
       const value = this.amendments.filter((a) => a.seq > from).reduce((v, a) => a.fn(v), raw);
       // Only the newest probe owns the cache: an older unforced one landing late must not overwrite

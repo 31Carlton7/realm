@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MODEL_EFFORTS_KEY, PAGE_REF_IDS, type FileDiff, type GhStatus, type PrDetail, type PrFiles, type PrPage, type PrReview, type PrSummary, type ReviewerPick } from "@realm/contracts";
 
@@ -52,6 +52,10 @@ import "../index";
 import { PageNavProvider } from "../../components/page-nav";
 import { PageOverlay } from "../../components/PageOverlay";
 import { Sidebar } from "../../components/sidebar/Sidebar";
+import { loadLazyComponents } from "../../lazy-component";
+
+// The panes and the runner are their own chunks in the app, preloaded once the window is idle.
+beforeAll(loadLazyComponents);
 
 const ref = { owner: "acme", repo: "widgets", number: 42 };
 const T = Date.UTC(2026, 9, 3);

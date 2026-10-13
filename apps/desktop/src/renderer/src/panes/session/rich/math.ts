@@ -1,5 +1,5 @@
-import katex from "katex";
 import type { MarkedExtension, TokenizerAndRendererExtension, Tokens } from "marked";
+import { katexIfLoaded } from "./rich-libs";
 
 /** TeX in assistant prose, rendered by KaTeX (Plan 24 W1).
  *
@@ -18,8 +18,10 @@ import type { MarkedExtension, TokenizerAndRendererExtension, Tokens } from "mar
  *
  *  A failed parse falls back to the raw TeX rather than KaTeX's red error markup: the agent wrote
  *  something, and showing what it wrote is more useful than a red `ParseError` the reader cannot
- *  act on. */
-export function renderTex(tex: string, display: boolean): string | null {
+ *  act on. Undefined while KaTeX itself is still loading (`rich-libs.ts`). */
+export function renderTex(tex: string, display: boolean): string | null | undefined {
+  const katex = katexIfLoaded();
+  if (!katex) return undefined;
   try {
     return katex.renderToString(tex, {
       displayMode: display,
@@ -44,6 +46,8 @@ const escapeHtml = (s: string): string =>
  *  parse. `display` blocks get their own centred row; inline ones flow with the sentence. */
 const render = (tex: string, display: boolean): string => {
   const html = renderTex(tex, display);
+  // KaTeX still loading: the source, in the formula's place, until the re-render that typesets it.
+  if (html === undefined) return `<span class="math-pending">${escapeHtml(display ? `$$${tex}$$` : `$${tex}$`)}</span>`;
   if (html === null) return `<span class="math-raw" title="This expression did not parse as TeX">${escapeHtml(display ? `$$${tex}$$` : `$${tex}$`)}</span>`;
   return display ? `<div class="math-display">${html}</div>` : html;
 };

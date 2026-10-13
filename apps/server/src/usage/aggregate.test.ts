@@ -40,13 +40,52 @@ describe("sliceSession — what one session contributed", () => {
     expect(totals.costUsd).toBeCloseTo(18, 6);
   });
 
+  it("prices cached input at the catalog's cache rate, not the input rate", () => {
+    // A Codex session as it really runs: 98% of its input served from cache. At the input rate this
+    // would be $3.00 of input; it is 20K uncached at $3 plus 980K cached at $0.30.
+    const cached: PriceLookup = () => ({ priceIn: 3, priceOut: 15, priceCacheRead: 0.3, priceCacheWrite: null });
+    const s = facts({ agentKind: "codex", model: "gpt-5.6", samples: [{ ...sample(day(2), 0, 20_000, 0, 1), cacheReadTokens: 980_000 }] });
+    const { totals } = sliceSession(s, FROM, TO, "day", cached);
+    expect(totals.estimatedUsd).toBeCloseTo(0.06 + 0.294, 6);
+    expect(totals.cacheReadTokens).toBe(980_000);
+  });
+
+  it("counts, but never prices, tokens whose cache split was not recorded", () => {
+    // A Codex event from before the split was carried: its 1M input holds an unknown cached part, and
+    // pricing it all as uncached is the eight-fold overstatement this exists to refuse.
+    const s = facts({ agentKind: "codex", model: "gpt-5.6", samples: [{ ...sample(day(2), 0, 1_000_000, 0, 1), cacheSplit: false }] });
+    const out = aggregateUsage({ sessions: [s], from: FROM, to: TO, bucket: "day", priceFor: priced, activity: emptyActivity, budget: noBudget });
+    expect(out.totals.estimatedUsd).toBe(0);
+    expect(out.totals.inputTokens).toBe(1_000_000);
+    expect(out.unsplitTokens).toBe(1_000_000);
+    // Not an unpriced MODEL: the model has a price, it is the tokens that cannot take it.
+    expect(out.unpricedModels).toEqual([]);
+  });
+
+  it("bills a Claude session the cost it reported, whatever its per-turn tokens did", () => {
+    // Shaped on a real session's events (realm.db, 10-11): cost climbs as a running total while
+    // the tokens are each turn's own and fall whenever a turn is lighter than the last. Read as one
+    // running total, every lighter turn was a "restart" that re-billed the whole session.
+    const s = facts({ samples: [
+      sample(day(2, 9), 2.78, 48, 29_996, 38),
+      sample(day(2, 10), 13.66, 76, 44_641, 45),
+      sample(day(2, 11), 36.89, 236, 103_552, 121),
+      sample(day(2, 12), 55.36, 144, 61_674, 72),
+      sample(day(2, 13), 71.48, 110, 44_698, 55),
+    ] });
+    const out = aggregateUsage({ sessions: [s], from: FROM, to: TO, bucket: "day", priceFor: priced, activity: emptyActivity, budget: noBudget });
+    expect(out.totals.costUsd).toBeCloseTo(71.48, 6);
+    expect(out.totals.outputTokens).toBe(29_996 + 44_641 + 103_552 + 61_674 + 44_698);
+    expect(out.mainLoopOnlySessions).toBe(1);
+  });
+
   it("applies the window to the DELTAS, not to the events — the pre-range total is never re-billed", () => {
     // The load-bearing one. This session had already spent $5 in August; the range is September. A
     // filter applied to the events instead of to the deltas would make September's first event look
     // like a $6 turn, and would do it again on every range change.
     const s = facts({ samples: [
-      sample(new Date(2026, 7, 20, 12).getTime(), 5, 500_000, 100_000, 4),
-      sample(day(2), 6, 600_000, 120_000, 5),
+      { ...sample(new Date(2026, 7, 20, 12).getTime(), 5, 500_000, 100_000, 4), cumulativeTokens: true },
+      { ...sample(day(2), 6, 600_000, 120_000, 1), cumulativeTokens: true },
     ] });
     const { totals } = sliceSession(s, FROM, TO, "day", priced);
     expect(totals.costUsd).toBeCloseTo(1, 6);

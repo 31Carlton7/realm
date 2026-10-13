@@ -52,7 +52,7 @@ describe("the sequence", () => {
   });
 
   it("lands while the caret is in a text field, where a hotkey binding would be swallowed", async () => {
-    // hotkeys.ts drops anything typed into an editable target, which is right for ⌘K and wrong here:
+    // The keymap drops anything typed into an editable target, which is right for ⌘K and wrong here:
     // the sequence has to work wherever the person happens to be.
     const { store } = await mount({ settings: { [EGGS]: true } });
     const field = document.createElement("textarea");

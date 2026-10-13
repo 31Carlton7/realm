@@ -49,13 +49,17 @@ export const RUN_LABELS: readonly RunLabel[] = [
  * in the sealed packs (`egg-pack.ts`) and arrive at runtime from a group that typed its own word —
  * Realm is open source, and somebody's friends' nicknames are not Realm's to publish. What is left
  * in the clear is what anyone would find funny without knowing anyone.
+ *
+ * NOR ANYONE ELSE AT WORK. A line under a finished turn is read as what happened in it, so a joke may
+ * not claim a party the turn never had: "Got a second opinion" read as a second model having
+ * reviewed the work, and "Consulted the group chat" as the work having been shown to people.
  */
 export const EGG_RUN_LABELS: readonly RunLabel[] = [
   { present: "Scheming", past: "Schemed" },
   { present: "Plotting", past: "Plotted" },
   { present: "Conspiring", past: "Conspired" },
-  { present: "Getting a second opinion", past: "Got a second opinion" },
-  { present: "Consulting the group chat", past: "Consulted the group chat" },
+  { present: "Overthinking", past: "Overthought" },
+  { present: "Doodling in the margins", past: "Doodled in the margins" },
 ];
 
 /**

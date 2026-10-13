@@ -24,7 +24,7 @@ const schedule = (over: Partial<Schedule> = {}): Schedule => ({
   id: "sch1", spaceId: "s1", title: "Morning triage", goal: "Read the new issues and group them by area.",
   cron: "0 9 * * *", enabled: true, constraints: { agentKind: "fake" },
   nextRunAt: new Date(2026, 8, 8, 9).getTime(), lastRunAt: null, lastRunId: null, lastSkippedAt: null,
-  newSessionPerRun: true, archiveSucceeded: false, createdAt: 1, updatedAt: 1, ...over,
+  newSessionPerRun: true, archiveSucceeded: false, roleId: null, createdAt: 1, updatedAt: 1, ...over,
 });
 const stored = (sessionId: string, seq: number, event: StoredSessionEvent["event"]): StoredSessionEvent => ({ seq, sessionId, event });
 

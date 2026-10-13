@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { documentKindFor } from "@realm/contracts";
 import { codeLanguageFor } from "./code-languages";
 import {
-  CODE_FILE_LANGUAGES, checkoutFileOf, homeFilesOf, identityOf, matchRun, placeFile, planNewFile, sessionDetail,
+  CODE_FILE_LANGUAGES, checkoutFileOf, homeFilesOf, identityOf, matchRun, paneTabOf, placeFile, planNewFile, sessionDetail,
   tildePath, withExtension, withoutShown,
 } from "./home-model";
 
@@ -37,6 +37,24 @@ describe("where a listed file sits, relative to the pane", () => {
     // Where a pasted picture was written is a fact about Realm, not about the file.
     expect(sessionDetail({ kind: "upload" }, at("/Users/ada/Realm/tmp/attachments/a1-shot.png"), "/x")).toBe("Attached");
     expect(tildePath("/Users/ada")).toBe("~");
+  });
+});
+
+describe("which rows the pane opens, and by what tab", () => {
+  it("opens a file inside the root by its relative path, and text from outside it by its absolute one", () => {
+    expect(paneTabOf(placeFile(`${ROOT}/notes/plan.md`, ROOT))).toBe("notes/plan.md");
+    expect(paneTabOf(placeFile(`${ROOT}/shots/hero.png`, ROOT))).toBe("shots/hero.png");
+    // THE MUTANT: outside files back to the viewer — Quick Look's grey picture of a report's source.
+    for (const p of ["/Users/ada/work/other/REPORT.md", "/Users/ada/work/other/live.mjs", "/Users/ada/work/other/a.test.ts", "/tmp/x/config.json", "/tmp/x/paper.tex"]) {
+      expect(paneTabOf(placeFile(p, ROOT))).toBe(p);
+    }
+  });
+
+  it("leaves what it draws through the root's preview server, and what it has no editor for, to the viewer", () => {
+    for (const p of ["/Users/ada/Downloads/brief.pdf", "/tmp/x/hero.png", "/tmp/x/guide.html", "/tmp/x/deck.pptx", "/tmp/x/data.csv", "/tmp/x/a.zip"]) {
+      expect(paneTabOf(placeFile(p, ROOT))).toBeNull();
+    }
+    expect(paneTabOf(placeFile("~/notes.md", ROOT))).toBeNull();
   });
 });
 

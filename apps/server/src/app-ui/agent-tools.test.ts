@@ -81,6 +81,14 @@ describe("acting", () => {
     expect(calls.gates[0]).toEqual({ toolKey: "app_act", title: "Click element 11 in Realm's own window" });
   });
 
+  it("takes a key chord, and refuses one it cannot press before the card", async () => {
+    const { call, calls } = setup();
+    expect((await call("app_act", { action: { kind: "key", key: "Hyper+k" } })).isError).toBe(true);
+    expect(calls.gates).toEqual([]);
+    await call("app_act", { action: { kind: "key", key: "Meta+k" } });
+    expect(calls.gates[0]).toEqual({ toolKey: "app_act", title: "Press Meta+k in Realm's own window" });
+  });
+
   /**
    * THE MUTANT: report `realm_protected` as an ordinary failure. An agent reads a plain error as
    * something to try differently — a different ref, a scroll and another click — and there is no

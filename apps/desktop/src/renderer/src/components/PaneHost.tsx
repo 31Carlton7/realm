@@ -9,6 +9,7 @@ import { PanelEdge } from "./PanelEdge";
 import { OwnerCueContext } from "./owner-cue";
 import { PaneFor } from "../panes/registry";
 import { closeIntent } from "../state/close-intent";
+import { useChord } from "./sidebar/use-sidebar-model";
 import { isRealmPaneDrag, REALM_ITEM_TYPE, REALM_NEW_SESSION_TYPE } from "./drag-types";
 
 export type PaneHostProps = {
@@ -44,6 +45,9 @@ export type PaneHostProps = {
   onClose: (itemId: string) => void;
   /** Drop an EMPTY pane out of the layout. Keyed by leaf, because there is no item to key on. */
   onCloseEmpty?: (leafId: string) => void;
+  /** An EMPTY pane's "New session": a new session made in that pane, by leaf. Absent: the pane only
+   *  says what can be dragged into it. */
+  onNewSessionHere?: (leafId: string) => void;
   /** Take a session out of the split it shares — ⌘W's answer for that pane (`closeIntent`). Keyed by
    *  leaf, because what leaves is decided by where the pane is. */
   onUnsplit?: (leafId: string) => void;
@@ -59,6 +63,19 @@ export type PaneHostProps = {
 
 const EDGES = ["left", "right", "top", "bottom", "center"] as const;
 const EDGE_THRESHOLD = 0.32;
+
+/** What an empty pane offers: the shortest path to work in it — a session made right here — and the
+ *  other way it fills, a drag from the sidebar. */
+function EmptyPane({ onNewSession }: { onNewSession?: () => void }) {
+  const chord = useChord("session.new");
+  if (!onNewSession) return <div className="pane-placeholder muted">Drag something here from the sidebar.</div>;
+  return (
+    <div className="pane-placeholder">
+      <button className="btn" title={chord ? `Start a session in this pane (${chord})` : "Start a session in this pane"} onClick={onNewSession}>New session</button>
+      <div className="muted">or drag something here from the sidebar</div>
+    </div>
+  );
+}
 
 /**
  * Pure pointer→edge mapping: (x, y) relative to a panel-sized rect → the nearest edge zone within
@@ -300,7 +317,7 @@ export function PaneHost(p: PaneHostProps) {
             </div>
           )}
           <div className="panel-body">
-            {!item && <div className="pane-placeholder muted">Open something from the sidebar.</div>}
+            {!item && <EmptyPane onNewSession={p.onNewSessionHere ? () => p.onNewSessionHere!(n.id) : undefined} />}
             {/* Keyed by item.id: openItem's primary gesture replaces a leaf's item in place, and this
                 div is otherwise the same React position across totally different sessions/terminals.
                 Keying forces a remount so component-local state (composer draft, expanded thinking

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ALWAYS_SWALLOWED_CHORDS, CONTEXT_KEYS, KEY_COMMANDS, DEFAULT_KEYBINDINGS, KeybindingSchema,
   chordsForCommand, commandForChord, defaultIsClaimed, displayKeyChord, evaluateWhen, formatKeyChord,
-  matchKeybinding, mergeDefaults, normalizeKeyChord, parseKeyChord, parseWhen, whenHolds,
+  REVISED_DEFAULTS, matchKeybinding, mergeDefaults, normalizeKeyChord, parseKeyChord, parseWhen, whenHolds,
   type Keybinding, type WhenExpr,
 } from "./keybindings";
 
@@ -299,6 +299,15 @@ describe("the shipped table", () => {
     expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+c", { overlayOpen: true })).toBeNull();
   });
 
+  it("splits from a text field — a split hands the keyboard to a prompter, and the next split must still fire", () => {
+    // THE MUTANT: the splits left on `!inputFocus`, which leaves the second of two splits dead.
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+\\", { inputFocus: true, sessionFocus: true })).toBe("pane.splitRight");
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+shift+\\", { inputFocus: true, sessionFocus: true })).toBe("pane.splitDown");
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+\\", { overlayOpen: true, inputFocus: true })).toBeNull();
+    // …and ⌘W, beside them in the table, still does not close a pane from under the caret.
+    expect(commandForChord(DEFAULT_KEYBINDINGS, "mod+w", { inputFocus: true, sessionFocus: true })).toBeNull();
+  });
+
   it("swallows ⌘W in a spelling the resolver agrees with", () => {
     for (const chord of ALWAYS_SWALLOWED_CHORDS) expect(normalizeKeyChord(chord)).toBe(chord);
     expect(ALWAYS_SWALLOWED_CHORDS).toContain("mod+w");
@@ -338,6 +347,19 @@ describe("merging newly shipped defaults", () => {
     const existing: Keybinding[] = [{ key: "mod+t", command: "" }];
     expect(mergeDefaults(existing, shipped).some((r) => r.command === "terminal.new")).toBe(false);
     expect(defaultIsClaimed(existing, { key: "⌘T", command: "terminal.new" })).toBe(true);
+  });
+
+  it("revises a rule still exactly as first shipped, and leaves one the user edited", () => {
+    // THE MUTANT: no revision — a seeded file keeps the old clause, and the change reaches fresh
+    // installs only.
+    const [split, down] = REVISED_DEFAULTS;
+    expect(mergeDefaults([split!.was, down!.was], [])).toEqual([split!.now, down!.now]);
+    // The same rule in the user's spelling of the key is still the shipped one.
+    expect(mergeDefaults([{ ...split!.was, key: "cmd+\\" }], [])).toEqual([split!.now]);
+    const edited: Keybinding = { ...split!.was, when: "!overlayOpen && !inputFocus && !terminalFocus" };
+    expect(mergeDefaults([edited], [])).toEqual([edited]);
+    // Every revision is what ships now: a revision the table disagrees with would fight it each boot.
+    for (const r of REVISED_DEFAULTS) expect(DEFAULT_KEYBINDINGS).toContainEqual(r.now);
   });
 
   it("appends, so the user's own rules keep their precedence", () => {

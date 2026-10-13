@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AgentKindSchema } from "./entities";
 import { AGENT_META } from "./presets";
-import { attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, DEFAULT_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath } from "./attachments";
+import { attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, DEFAULT_MIME, DIRECTORY_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath } from "./attachments";
 
 const KINDS = AgentKindSchema.options;
 
@@ -133,6 +133,11 @@ describe("attachmentSummary", () => {
     expect(attachmentSummary("acp:cursor", files)).toEqual([]);
     expect(attachmentNote("codex", "application/pdf")).toMatch(/file path/);
     expect(attachmentNote("acp:cursor", "application/pdf")).toMatch(/link/);
+  });
+
+  it("calls a folder a folder — what the agent gets is its path, not a file", () => {
+    expect(attachmentNote("claude", DIRECTORY_MIME)).toBe("Claude gets the folder path in your message and opens it itself.");
+    expect(attachmentNote("claude", "text/plain")).toBe("Claude gets the file path in your message and opens it itself.");
   });
 
   it("still warns for the one agent that drops the file on the floor", () => {

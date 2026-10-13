@@ -1,5 +1,73 @@
 # Changelog
 
+## v2.1.0 — 2026-10-12
+
+### Teams
+
+**A space can have a team.** Make team gives a space roles, each with its own Realmite, from seven
+templates or a custom teammate. Run a role now or on a schedule, and its work waits in Review for you
+to approve or send back. Teams can hand work to each other, mention one another, carry goals and
+budgets, and keep their own vault. Posting outside Realm waits for your approval, and the space's
+policies — what never happens, what asks first — bind every session in it, yours included. No agent
+can change a policy.
+
+**Realmites.** Every role gets a small character of its own. Shuffle one, or make it part by part.
+
+### Sessions
+
+- **Unread sessions** show a bold title and a blue dot, and the sidebar keeps the most recently
+  active spaces and sessions at the top without moving the one you have selected.
+- **Queued messages** sit in a tray above the prompter, where each one can be edited or removed.
+- **Sub-agents** show as a strip in the transcript while they run, open in your session's mode, and
+  get their own Agents tab.
+- **Activity cards** are redesigned, and the Usage page is rebuilt around what each agent actually
+  reports.
+- **⌘\\** opens a split with a new session, and a new session uses the model you last sent with.
+- A **Sessions page** lists every session in a space, and a **PDF viewer** opens PDFs in Documents.
+
+### Everywhere else
+
+- **Open in Realm Browser** on any link's right-click menu, and a setting for where links open.
+- **Light mode** takes ChatGPT's palette and has the depth dark mode has; your theme and Easter eggs
+  now survive an update.
+- **A new flat icon**, with a one-colour mark in the menu bar, and eight others to put on the Dock.
+- **The sign-in vault** can unlock with Touch ID, Touch ID or password, once per session, or without
+  asking.
+- A page that can't be reached has a small game on it.
+
+### Faster and lighter
+
+- **Opening a long session** loads its newest part first: the largest session we measured opens in
+  0.2 s instead of 2–2.6 s, and older turns load as you scroll up.
+- **While an agent works** Realm uses about a sixth of the CPU it did: the running animations play a
+  few times and rest, and a window nobody has touched for half a minute goes quiet.
+- **Typing** no longer restyles the whole sidebar on every key, and the cursor settles after a few
+  beats.
+- **Startup** loads less: the app's code is about a third the size, and Settings, terminals, maths
+  and code highlighting load when first needed.
+- **Storage:** session history is stored compressed, compacted in the background after the update.
+  This makes 2.1.0 a one-way upgrade — an older Realm cannot read history written by this one.
+- **Idle agents** are stopped after 30 minutes (Settings can change or turn this off) and pick their
+  conversation back up on your next message. Realm re-checks installed agents every 15 minutes, not
+  every few seconds, and stops retrying one that crashes when checked.
+- Terminal history is saved only when it changes, the browser cache is capped, and the updater's
+  leftover download is removed.
+
+### Scrolling
+
+**Overscroll feels like macOS.** A flick that reaches the end of a list carries past it at its own
+speed, stretches, and springs back, instead of stopping dead. Scroll bar tracks are gone, and the
+sidebar scrolls smoothly.
+
+### Fixes
+
+- After an update, a Realm still running in the menu bar relaunches into the new version instead of
+  showing a page of code.
+- Downloads in a space without a project save into the space's downloads folder.
+- Add folder in the prompter adds the folder you pick.
+- A profile's emoji icon shows in the switcher.
+- Codex sessions no longer reject Realm's tools.
+
 ## v2.0.3 — 2026-10-06
 
 **The sidebar scrolls wherever the pointer is over it.** The sidebar is where the window is dragged

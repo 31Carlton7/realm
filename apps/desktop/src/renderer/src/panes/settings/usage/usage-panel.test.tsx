@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { UsageSummary } from "@realm/contracts";
 import { UsagePanel } from "./UsagePanel";
 import { StoreContext, createAppStore } from "../../../state/store";
@@ -134,6 +134,60 @@ describe("the Usage panel", () => {
     expect(stepper).toHaveAttribute("aria-valuenow", "1");
     fireEvent.keyDown(stepper, { key: "Home" });
     expect(stepper.getAttribute("aria-valuetext")).toMatch(/\$4\.00/);
+  });
+
+  it("lets the reader group by day, week or month whatever the range defaulted to", async () => {
+    const { api } = await mount();
+    await waitFor(() => expect(api.calls).toContain("usageSummary:day:*"));
+    fireEvent.click(screen.getByRole("radio", { name: "Week" }));
+    await waitFor(() => expect(api.calls).toContain("usageSummary:week:*"));
+    // A new range drops the choice and takes that range's own default again.
+    fireEvent.click(screen.getByRole("radio", { name: "All time" }));
+    await waitFor(() => expect(api.calls).toContain("usageSummary:month:*"));
+  });
+
+  it("opens a heaviest session from its row", async () => {
+    const { store } = await mount();
+    const reveal = vi.fn(async () => true);
+    act(() => { store.setState({ revealSession: reveal }); });
+    fireEvent.click(screen.getByRole("button", { name: /^Open Refactor the pane host/ }));
+    await waitFor(() => expect(reveal).toHaveBeenCalledWith("sess-1", "s1"));
+  });
+
+  it("counts cache reads as tokens, and says how much of the input they were", async () => {
+    await mount({ usageSummary: summary({ totals: usageTotals({ costUsd: 5, reportedUsd: 5, inputTokens: 10_000, cacheReadTokens: 950_000, cacheWriteTokens: 30_000, outputTokens: 10_000, sessions: 1 }) }) });
+    expect(screen.getByText("1M")).toBeInTheDocument();
+    expect(screen.getByText(/98% served from cache/)).toBeInTheDocument();
+  });
+
+  it("says a reported dollar on a subscription is API value, not what the plan bills", async () => {
+    const api = fakeApi({ usageSummary: summary() });
+    api.planLimitRows.push({ agentKind: "claude", subscriptionType: "max", organization: null, windows: [], alert: "none", alertWindow: null, unavailable: null, detail: null, ts: Date.now() });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><UsagePanel /></StoreContext.Provider>);
+    expect(await screen.findByText(/On Claude Max that is what the work would have cost, not what you pay/)).toBeInTheDocument();
+  });
+
+  it("says when usage could not be read, and offers to try again", async () => {
+    const api = fakeApi({ usageSummary: summary() });
+    const real = api.usageSummary;
+    api.usageSummary = async () => { throw new Error("socket closed"); };
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><UsagePanel /></StoreContext.Provider>);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Usage could not be read: socket closed/);
+    api.usageSummary = real;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("$12.50")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("names the token counts it cannot vouch for", async () => {
+    await mount({ usageSummary: summary({ unsplitTokens: 1_900_000_000, mainLoopOnlySessions: 12 }) });
+    const caveats = screen.getByLabelText("Why some numbers are missing");
+    expect(within(caveats).getByText("1.9B Codex tokens")).toBeInTheDocument();
+    expect(within(caveats).getByText("12 Claude sessions")).toBeInTheDocument();
   });
 
   it("holds the previous render while refetching instead of flashing a skeleton", async () => {

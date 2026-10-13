@@ -74,7 +74,7 @@ export function PanelBar({ item, leafId, tabs, owners, onSplit, splitRefusal, on
   /* A session's bar names the space it works in before its title — `Homework › Wants a yes` — in
      the space's colour, so the window always says which space a session works in now that the space
      is not a room you switch to (Plan 27). The space's name opens its page. */
-  const space = useApp((s) => (item.kind === "session" ? s.spaces.find((sp) => sp.id === item.spaceId) : undefined));
+  const space = useApp((s) => (item.kind === "session" || item.kind === "review" ? s.spaces.find((sp) => sp.id === item.spaceId) : undefined));
   const tint = useSpaceTint(space?.color);
   const openSpacePage = useOpenSpacePage();
   const Meta = paneMeta[item.kind];

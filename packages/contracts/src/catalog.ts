@@ -38,6 +38,11 @@ export type ModelInfo = {
   priceIn: number | null;
   /** USD per million output tokens. Output is the number that dominates an agent's bill. */
   priceOut: number | null;
+  /** USD per million cached-input tokens read (`input_cache_read`) and written (`input_cache_write`).
+   *  Optional because a catalog cached before these were parsed has neither; a long agent session is
+   *  mostly cache reads, so without them an estimate prices most of its input ten times too high. */
+  priceCacheRead?: number | null;
+  priceCacheWrite?: number | null;
   /** Context window in tokens, or null when the catalog omits it. */
   context: number | null;
   /** Reasoning effort levels this model accepts, in the catalog's own order; `[]` for a model with
@@ -119,6 +124,7 @@ export function parseModelCatalog(raw: unknown): ModelInfo[] {
     byKey.set(key, {
       key, label, vendor,
       priceIn: perMillion(pricing.prompt), priceOut: perMillion(pricing.completion),
+      priceCacheRead: perMillion(pricing.input_cache_read), priceCacheWrite: perMillion(pricing.input_cache_write),
       context: typeof m.context_length === "number" ? m.context_length : null,
       efforts,
       blurb: firstSentence(typeof m.description === "string" ? m.description : ""),

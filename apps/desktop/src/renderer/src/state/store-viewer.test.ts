@@ -35,7 +35,7 @@ describe("opening the viewer", () => {
     store.getState().openViewer({ files: [{ path: "/work/logo/hero.png" }], sessionId: "lead" });
     expect(viewer(store)).toMatchObject({ sessionId: "lead", spaceId: "s1", index: 0, thread: null });
     await settle();
-    expect(api.calls).toContain("sessionEvents:lead:0");
+    expect(api.calls).toContain("sessionEventsBefore:lead:end");
     expect(store.getState().transcripts["lead"]).toBeDefined();
   });
 

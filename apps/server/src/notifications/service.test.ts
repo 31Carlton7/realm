@@ -15,7 +15,7 @@ const session = (extra: Partial<Session> = {}): Session => ({
   id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId: "01BX5ZZKBKACTAV9WEVGEMMVRZ", projectId: null, agentKind: "fake",
   model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FA0", cwd: "/tmp",
   status: "running", providerSessionId: null, title: "Fix the login flow", lastEventSeq: 0, seenSeq: 0, terminalItemId: null,
-  dispatchedBy: null, createdAt: 0, updatedAt: 0, ...extra,
+  dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra,
 });
 
 const feed = () => store.list({ cursor: null, limit: 100 }).notifications;
@@ -34,6 +34,19 @@ describe("NotificationsService — permissions", () => {
     svc.handleSessionEvent(session({ status: "running" }), sessionEvent("permission_request", { requestId: "req-1", toolName: "Bash", input: { command: "ls" }, title: "Run ls", suggestions: [] }));
     const n = feed()[0]!;
     expect(n).toMatchObject({ category: "permission", refId: "req-1", sessionId: session().id, spaceId: session().spaceId, title: "Fix the login flow", body: "Run ls", actedAt: null, readAt: null });
+  });
+
+  it("titles a sub-agent's request by its lead and then it — the person started the lead, not the child", () => {
+    // THE MUTANT: the bare child title — "Dark-mode toggle" in a toast names nothing the person made.
+    const lead = session({ id: "01ARZ3NDEKTSV4RRFFQ69G5FA1", title: "Dark mode" });
+    const child = session({ title: "Dark-mode toggle", dispatchedBy: { kind: "agent_run", sessionId: lead.id } });
+    svc = new NotificationsService({ store, settings, rpc: { broadcast: () => {} } as unknown as RpcServer, sessions: { get: (id) => (id === lead.id ? lead : null) } });
+    svc.handleSessionEvent(child, sessionEvent("permission_request", { requestId: "req-c", toolName: "Bash", input: {}, title: "Run tests", suggestions: [] }));
+    expect(feed()[0]!.title).toBe("Dark mode › Dark-mode toggle");
+    // A fork names the session it came from and is nobody's sub-agent: its own title stands.
+    const fork = session({ title: "Fork", dispatchedBy: { kind: "fork", sessionId: lead.id } });
+    svc.handleSessionEvent(fork, sessionEvent("permission_request", { requestId: "req-f", toolName: "Bash", input: {}, title: "Run tests", suggestions: [] }));
+    expect(feed().find((n) => n.refId === "req-f")!.title).toBe("Fork");
   });
 
   it("THE staleness mutant: a permission_response from ANY surface resolves the row — it never survives as pending", () => {

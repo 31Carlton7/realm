@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { LoggingMessageNotificationSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { McpCallSchema, type EventName, type EventPayload } from "@realm/contracts";
 import type { McpServerConfig } from "@realm/adapters";
@@ -18,7 +18,7 @@ import { RpcServer } from "../rpc/server";
 import { waitFor } from "../test-utils";
 import { McpHub } from "./hub";
 import { McpService } from "./service";
-import { McpGateway } from "./gateway";
+import { McpGateway, type ProviderCallContext } from "./gateway";
 import { makeStubServer, type StubServer, type StubServerOptions } from "./fixtures/stub-server";
 import type { DrawnView } from "../apps/views";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -70,6 +70,8 @@ async function setupApp(opts: {
   sessionToolset?: (sessionId: string) => import("./gateway").SessionToolset;
   /** Where a call that drew a view is reported (MCP Apps) — a recording stand-in for `AppViews`. */
   views?: { drew(sessionId: string, v: DrawnView): void };
+  /** Shrinks the gateway's heartbeat so a test can watch several go by. */
+  heartbeatMs?: number;
 } = {}): Promise<App> {
   const home = tempDir("realm-mcp-gw-");
   const db = openDatabase(join(home, "realm.db"));
@@ -110,7 +112,7 @@ async function setupApp(opts: {
     },
   });
   const rpc = new RecordingRpc();
-  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers, onOauthCallback: opts.onOauthCallback, sessionToolset: opts.sessionToolset, views: opts.views });
+  const gateway = new McpGateway({ hub, mcp, sessions: sessionsStore, calls, rpc, servers, onOauthCallback: opts.onOauthCallback, sessionToolset: opts.sessionToolset, views: opts.views, heartbeatMs: opts.heartbeatMs });
   const port = await gateway.listen();
 
   const app: App = {
@@ -711,7 +713,7 @@ describe("in-process providers (Plan 11 W3)", () => {
   it("routes a provider call with the CALLING session's identity — the permission model's ground truth", async () => {
     const app = await setupApp();
     const seen: { sessionId: string; spaceId: string }[] = [];
-    app.gateway.registerProvider(fakeProvider("realm-browser", { onCall: (ctx) => seen.push(ctx) }));
+    app.gateway.registerProvider(fakeProvider("realm-browser", { onCall: (ctx) => seen.push({ sessionId: ctx.sessionId, spaceId: ctx.spaceId }) }));
     const other = app.createSpaceAndSession("Other");
     const a = await connectClient(app);
     const b = await connectClient(app, other);
@@ -1066,5 +1068,148 @@ describe("MCP Apps: a view's own call, once the user allowed it", () => {
     app.mcp.setEnabled(app.spaceId, row.id, false);
     expect(asText(await app.gateway.callForView(app.sessionId, row.id, "refresh_chart", {}))).toMatch(/turned off in this space/);
     expect(calls).toEqual([]);
+  });
+});
+
+/**
+ * Claude Code aborts a tool call that has sent "no response or progress for 300s" — seen on
+ * `agent_wait` in the user's own transcripts. The gateway keeps every call it is answering audible:
+ * progress on the request's own stream while it runs, and nothing once it has answered.
+ */
+describe("a long call is kept alive", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  /** A provider whose one tool takes `ms` to answer, doing `during` with its call context first. */
+  const slowProvider = (ms: number, during?: (ctx: ProviderCallContext) => Promise<void> | void) => ({
+    name: "realm-agent",
+    tools: async () => [{ name: "agent_wait", description: "waits", inputSchema: { type: "object" as const } }],
+    call: async (ctx: ProviderCallContext): Promise<CallToolResult> => {
+      const t0 = Date.now();
+      await during?.(ctx);
+      await sleep(Math.max(0, ms - (Date.now() - t0)));
+      return { content: [{ type: "text", text: "all done" }], isError: false };
+    },
+  });
+
+  it("sends progress on the request's own stream while a call runs, then the result", async () => {
+    // THE MUTANTS: no heartbeat at all; and a notification sent without the request's id, which goes
+    // to a standalone stream this client never opened and so never arrives.
+    const app = await setupApp({ heartbeatMs: 30 });
+    app.gateway.registerProvider(slowProvider(240, (ctx) => ctx.progress?.("waiting on Dark-mode toggle")));
+    const { client } = await connectClient(app);
+    const seen: { progress: number; message?: string }[] = [];
+    const result = await client.callTool({ name: "realm-agent__agent_wait", arguments: {} }, undefined, { onprogress: (p) => seen.push(p) }) as CallToolResult;
+    expect(asText(result)).toBe("all done");
+    expect(seen.length).toBeGreaterThanOrEqual(3);
+    expect(seen.map((p) => p.progress)).toEqual([...seen.keys()].map((i) => i + 1));
+    // The provider's own words, not a generic ping, once it has said any.
+    expect(seen.every((p) => p.message === "waiting on Dark-mode toggle")).toBe(true);
+    await client.close();
+  });
+
+  it("puts the notices on the call's own response stream, for a client that never opened another", async () => {
+    // A bare POST client, as an agent's CLI may be: it reads the call's own event stream and nothing
+    // else. THE MUTANT: notices sent unattached to the request, which go to the standalone stream
+    // this client never opened — the SDK client above would still hear them, this one cannot.
+    const app = await setupApp({ heartbeatMs: 30 });
+    app.gateway.registerProvider(slowProvider(240));
+    const { url, headers } = asHttp(app.gateway.register(app.sessionId, app.spaceId));
+    let mcpSession: string | null = null;
+    const post = async (body: Record<string, unknown>): Promise<string> => {
+      const res = await fetch(url, { method: "POST", body: JSON.stringify(body), headers: { ...headers, "content-type": "application/json", accept: "application/json, text/event-stream",
+        ...(mcpSession ? { "mcp-session-id": mcpSession, "mcp-protocol-version": "2025-03-26" } : {}) } });
+      mcpSession = res.headers.get("mcp-session-id") ?? mcpSession;
+      return res.text();
+    };
+    await post({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "bare", version: "1" } } });
+    await post({ jsonrpc: "2.0", method: "notifications/initialized" });
+    const raw = await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "realm-agent__agent_wait", arguments: {} } });
+    const messages = raw.split("\n").filter((l) => l.startsWith("data:")).map((l) => JSON.parse(l.slice(5)) as { id?: number; method?: string });
+    expect(messages.filter((m) => m.method === "notifications/message").length).toBeGreaterThanOrEqual(3);
+    expect(messages.at(-1)?.id).toBe(2);
+  });
+
+  it("keeps a call alive with notifications/message when the client asked for no progress", async () => {
+    // THE MUTANT: send nothing without a progress token — the case Claude's idle timer may be in.
+    const app = await setupApp({ heartbeatMs: 30 });
+    app.gateway.registerProvider(slowProvider(240));
+    const { client } = await connectClient(app);
+    const logged: unknown[] = [];
+    client.setNotificationHandler(LoggingMessageNotificationSchema, (n) => { logged.push(n.params); });
+    const result = await client.callTool({ name: "realm-agent__agent_wait", arguments: {} }) as CallToolResult;
+    expect(asText(result)).toBe("all done");
+    expect(logged.length).toBeGreaterThanOrEqual(3);
+    expect(logged[0]).toEqual({ level: "info", logger: "realm", data: "realm-agent__agent_wait is still running" });
+    await client.close();
+  });
+
+  it("goes quiet once the call has answered", async () => {
+    // THE MUTANT: the timer left running after the result — a leaked ping per call, forever.
+    const app = await setupApp({ heartbeatMs: 30 });
+    app.gateway.registerProvider(slowProvider(100));
+    const { client } = await connectClient(app);
+    const seen: unknown[] = [];
+    await client.callTool({ name: "realm-agent__agent_wait", arguments: {} }, undefined, { onprogress: (p) => seen.push(p) });
+    const logged: unknown[] = [];
+    client.setNotificationHandler(LoggingMessageNotificationSchema, (n) => { logged.push(n.params); });
+    const atResult = seen.length;
+    await sleep(200);
+    expect(seen.length).toBe(atResult);
+    expect(logged).toEqual([]);
+    // A ping after the answer has no stream left to go on and is dropped without a word, so the wire
+    // alone cannot show a leaked heartbeat; the process's own timers can. The leak re-arms itself
+    // every 30 ms, so it is always among them.
+    const timers = () => process.getActiveResourcesInfo().filter((r) => r === "Timeout").length;
+    const before = timers();
+    await client.callTool({ name: "realm-agent__agent_wait", arguments: {} });
+    await sleep(100);
+    expect(timers()).toBeLessThanOrEqual(before);
+    await client.close();
+  });
+
+  it("sends a provider's milestone at once and starts the clock again, so it is never pinged twice", async () => {
+    // THE MUTANT: a milestone that does not restart the heartbeat — a third ping lands at 200 ms on
+    // top of the two the provider sent.
+    const app = await setupApp({ heartbeatMs: 200 });
+    app.gateway.registerProvider(slowProvider(270, async (ctx) => {
+      ctx.progress?.("0 of 2 sub-agents finished", 0, 2);
+      await sleep(130);
+      ctx.progress?.("1 of 2 sub-agents finished", 1, 2);
+      // The same milestone again is not news.
+      ctx.progress?.("1 of 2 sub-agents finished", 1, 2);
+    }));
+    const { client } = await connectClient(app);
+    const seen: { progress: number; message?: string }[] = [];
+    await client.callTool({ name: "realm-agent__agent_wait", arguments: {} }, undefined, { onprogress: (p) => seen.push(p) });
+    expect(seen.map((p) => p.message)).toEqual(["0 of 2 sub-agents finished", "1 of 2 sub-agents finished"]);
+    await client.close();
+  });
+
+  it("hands the provider the client's cancellation, and stops the heartbeat with it", async () => {
+    // THE MUTANT: no signal — agent_wait listens on for a client that has gone.
+    const app = await setupApp({ heartbeatMs: 30 });
+    let aborted: Promise<void> | null = null;
+    app.gateway.registerProvider(slowProvider(400, (ctx) => {
+      aborted = new Promise((resolve) => ctx.signal?.addEventListener("abort", () => resolve()));
+    }));
+    const { client } = await connectClient(app);
+    const controller = new AbortController();
+    const call = client.callTool({ name: "realm-agent__agent_wait", arguments: {} }, undefined, { signal: controller.signal, onprogress: () => {} });
+    await sleep(80);
+    controller.abort();
+    await expect(call).rejects.toThrow();
+    await expect(Promise.race([aborted, sleep(500).then(() => "never")])).resolves.toBeUndefined();
+    await client.close();
+  });
+
+  it("keeps a slow third-party server's call alive too, not only Realm's own tools", async () => {
+    // THE MUTANT: the heartbeat wrapped around provider calls only.
+    const app = await setupApp({ heartbeatMs: 30 });
+    const { row } = app.addServer("alpha", { delayMs: 200 });
+    app.mcp.setEnabled(app.spaceId, row.id, true);
+    const { client } = await connectClient(app);
+    const seen: unknown[] = [];
+    await client.callTool({ name: "alpha__echo", arguments: { text: "hi" } }, undefined, { onprogress: (p) => seen.push(p) });
+    expect(seen.length).toBeGreaterThanOrEqual(3);
+    await client.close();
   });
 });
