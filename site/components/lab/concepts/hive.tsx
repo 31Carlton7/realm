@@ -30,14 +30,14 @@ export default function Hive({ download }: ConceptProps) {
           screen allows while a third of the window stays in view (900 tall: 10rem); on a phone and a
           tablet the window waits below the first screen and the field rises into view under the words. */}
       <div className="relative mt-32 sm:mt-36 lg:mt-[clamp(4rem,calc(100dvh-46rem),10rem)]">
-        {/* Without WebGPU, the field as a still drawing: the same cubes, the same light, rising out of
-            the page under the words and fading before the section ends. */}
+        {/* Without WebGPU, the field as a still drawing: the same cubes, the same light, hazing toward
+            the words, a calm plate of the page under the window, and gone before the section ends. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-32 bottom-[-6rem] -z-10 hidden [mask-image:linear-gradient(to_bottom,transparent,black_9rem,black_calc(100%-12rem),transparent)] [html[data-lab-field=off]_&]:block"
+          className="pointer-events-none absolute inset-x-0 -top-32 bottom-[-6rem] -z-10 hidden [mask-image:linear-gradient(to_bottom,transparent,rgb(0_0_0/0.5)_9rem,black_22rem,black_calc(100%-12rem),transparent)] [html[data-lab-field=off]_&]:block"
           style={{ backgroundImage: FIELD_PATTERN, backgroundSize: `${TILE.width}px ${TILE.height}px`, backgroundPosition: "center top" }}
         />
-        <ProductWindow className="mx-auto w-full max-w-[72rem] px-4 sm:px-10" />
+        <ProductWindow className="mx-auto w-full max-w-[72rem] px-4 sm:px-10 [html[data-lab-field=off]_&]:bg-page [html[data-lab-field=off]_&]:shadow-[0_0_48px_28px_var(--color-page)]" />
       </div>
     </section>
   )

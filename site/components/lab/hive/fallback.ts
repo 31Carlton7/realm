@@ -13,7 +13,7 @@ import { DOOR_BLUE, DOOR_LIGHT, DUSK, OPEN_SKY, SPACING, toLinear, toSrgb } from
 const LATTICE = 41
 const SCALE = LATTICE / (Math.SQRT2 * SPACING)
 const ROW = (LATTICE * Math.sqrt(3)) / 2
-const COLUMNS = 9
+const COLUMNS = 15
 const ROWS = 6
 export const TILE = { width: LATTICE * COLUMNS, height: Math.round(ROW * ROWS) } as const
 
@@ -78,14 +78,12 @@ const realm = (id: string, inside: { back: string; jamb: string; sill: string })
 </g>
 </g>`
 
-/** Which realms of the tile have an agent at work, by row and column, and whose light is blue. */
+/** Which realms of the tile have an agent at work, by row and column, and whose light is blue: three
+ *  in ninety, as few as the live field has lit at once. */
 const LIT: readonly (readonly [number, number, "white" | "blue"])[] = [
-  [0, 6, "white"],
-  [1, 2, "white"],
-  [2, 8, "blue"],
-  [3, 4, "white"],
-  [4, 0, "white"],
-  [5, 6, "blue"],
+  [1, 3, "white"],
+  [3, 11, "blue"],
+  [5, 6, "white"],
 ]
 
 function tileSvg() {

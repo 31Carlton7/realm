@@ -32,10 +32,14 @@ const EYE = scale(FORWARD, -DISTANCE)
 
 /** How long the cubes take to follow the pointer up and down, in seconds. */
 const RISE_EASE = 0.32
-/** How much of the field the haze has taken by the window's top edge; it is clear a window's
- *  height below that, near the bottom of the first screen, and the page by the words. */
+/** How much of the field the haze has taken by the window's top edge. It is clear 270 px below that
+ *  edge — the bottom of a laptop's first screen — and the words' own bound takes the rest. */
 const HAZE_AT_WINDOW = 0.24
 const CLEAR_BELOW = 270
+/** The tilt-shift: device px of blur per unit of depth, beyond the depth either side of the focus
+ *  that stays sharp. */
+const BLUR_PER_DEPTH = 0.28
+const SHARP_DEPTH = 2
 
 /** The point of the plane at height `z` that a pixel of the page looks at. */
 function onPlane(x: number, y: number, principal: readonly [number, number], z: number): Vec3 {
@@ -65,7 +69,7 @@ export const createHive: StageFactory = (gpu, output) => {
     pointer: zero,
     copy: zero,
     portal: zero,
-    look: [0, 0.1, 0.1, 3],
+    look: [0, 0.1, BLUR_PER_DEPTH, SHARP_DEPTH],
   }
   const shader = effect(gpu, hiveShader, { label: "realm-hive", set: { hive: uniforms } })
 
@@ -105,7 +109,7 @@ export const createHive: StageFactory = (gpu, output) => {
       uniforms.pointer = [pointer[0], pointer[1], input.still ? 0 : eased.presence, 0]
       uniforms.copy = rect(copy)
       uniforms.portal = rect(portal)
-      uniforms.look = [fogStart, fogScale, 0.28, 2]
+      uniforms.look = [fogStart, fogScale, BLUR_PER_DEPTH, SHARP_DEPTH]
       shader.set({ hive: uniforms })
       frame.pass(output, shader)
     },

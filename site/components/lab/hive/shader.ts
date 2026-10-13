@@ -99,8 +99,6 @@ const MAX_RISE = 0.5;
 
 var<private> RAY_DX: vec3f;
 var<private> RAY_DY: vec3f;
-// The sky this pixel's field gets, less what the floating window keeps off it.
-var<private> SKY: f32;
 // How far this pixel is from the words, 0 at them: a doorway's light, far brighter than the walls
 // around it, would outlast them there as a mark with nothing around it, so it fades on this squared.
 var<private> CLEAR: f32;
@@ -339,7 +337,7 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     let k = saturate((top.p.x - x0 + top.p.y - y0) * 0.5);
     let tone = mix(TOP_NEAR, TOP_FAR, k);
     let lamp = pointerLight(top.p, vec3f(0.0, 0.0, 1.0));
-    sum += tone * (DUSK * OPEN_SKY * SKY + POINTER_LIGHT * lamp * 0.55) * wTop;
+    sum += tone * (DUSK * OPEN_SKY + POINTER_LIGHT * lamp * 0.55) * wTop;
     weight += wTop;
   }
 
@@ -355,7 +353,7 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     let next = door(beside, t);
     let spill = doorSpill(besideCentre, riseAt(besideCentre), next.x, left.p, n);
     let lamp = pointerLight(left.p, n);
-    sum += tone * (DUSK * ao * SKY + mix(SPILL_LIGHT, DOOR_BLUE, next.y) * spill * 0.16 + POINTER_LIGHT * lamp * 0.4) * wLeft;
+    sum += tone * (DUSK * ao + mix(SPILL_LIGHT, DOOR_BLUE, next.y) * spill * 0.16 + POINTER_LIGHT * lamp * 0.4) * wLeft;
     weight += wLeft;
   }
 
@@ -366,7 +364,7 @@ fn realm(o: vec3f, d: vec3f, cell: vec2f, t: f32) -> Layer {
     let tone = mix(RIGHT_LOW, RIGHT_HIGH, k);
     let ao = 1.0 - 0.45 * exp(-right.p.z / 0.22);
     let lamp = pointerLight(right.p, vec3f(0.0, -1.0, 0.0));
-    sum += tone * (DUSK * ao * SKY + POINTER_LIGHT * lamp * 0.4) * wRight;
+    sum += tone * (DUSK * ao + POINTER_LIGHT * lamp * 0.4) * wRight;
     weight += wRight;
   }
 
@@ -403,8 +401,8 @@ var<private> AROUND: array<vec2f, 7> = array<vec2f, 7>(
   vec2f(0.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
 );
 
-// The ground between the realms: dark, darker still close in to every cube, and lit where a doorway
-// throws its light out onto it.
+// The ground between the realms: the page itself, darker close in to every cube, and lit where a
+// doorway throws its light out onto it.
 fn ground(o: vec3f, d: vec3f, t: f32) -> vec3f {
   let p = o + d * (-o.z / d.z);
   let cell = cellAt(p, 0.0);
@@ -425,7 +423,7 @@ fn ground(o: vec3f, d: vec3f, t: f32) -> vec3f {
     }
   }
   let lamp = pointerLight(p, vec3f(0.0, 0.0, 1.0));
-  let light = PAGE_LINEAR * ao * SKY + spill * 0.13 + POINTER_LIGHT * lamp * 0.02;
+  let light = PAGE_LINEAR * ao + spill * 0.13 + POINTER_LIGHT * lamp * 0.02;
   return finish(light, depthOf(p));
 }
 
@@ -458,8 +456,7 @@ fn doorHalo(p: vec2f, home: vec2f, t: f32) -> vec3f {
     if (glow <= 0.001) { continue; }
     let centre = cellCentre(c);
     let lift = riseAt(centre);
-    let door = vec3f(centre.x - 0.5 + (DOOR_A0 + DOOR_A1) * 0.5, centre.y - 0.5, lift + 1.0 - (DOOR_C0 + DOOR_C1) * 0.5);
-    let at = toPage(door);
+    let at = toPage(vec3f(centre.x - 0.5 + (DOOR_A0 + DOOR_A1) * 0.5, centre.y - 0.5, lift + 1.0 - (DOOR_C0 + DOOR_C1) * 0.5));
     // A doorway under the window is behind it, and lights nothing outside it.
     let r = hive.portal;
     if (r.z > 0.0 && sdRoundRect(at.xy - r.xy - r.zw * 0.5, r.zw * 0.5, 20.0) < 0.0) { continue; }
@@ -472,13 +469,16 @@ fn doorHalo(p: vec2f, home: vec2f, t: f32) -> vec3f {
 }
 
 // The words keep the page's own colour: the field is held off them by a hard bound around their
-// rect, and only fades in beyond it.
+// rect, and only fades in beyond it — over at most 160 px, and over less where the gap down to the
+// window is shorter than that, so a phone's band is not all fade.
 fn clearance(p: vec2f) -> f32 {
   let r = hive.copy;
   if (r.z <= 0.0) { return 1.0; }
   let h = r.zw * 0.5;
   let bound = smoothstep(12.0, 150.0, sdRoundRect(p - r.xy - h, h, 16.0));
-  let below = smoothstep(r.y + r.w - 40.0, r.y + r.w + 160.0, p.y);
+  let words = r.y + r.w;
+  let gap = select(400.0, hive.portal.y - words, hive.portal.z > 0.0);
+  let below = smoothstep(words - 40.0, words + clamp(gap * 0.75, 60.0, 160.0), p.y);
   return bound * below;
 }
 
@@ -501,7 +501,6 @@ fn clearance(p: vec2f) -> f32 {
     return vec4f(dither(PAGE, px, t), 1.0);
   }
 
-  SKY = 1.0;
   let focal = hive.eye.w;
   let o = hive.eye.xyz;
   let rel = (p - hive.principal.xy) / focal;
