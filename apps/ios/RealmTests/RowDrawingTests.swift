@@ -290,6 +290,16 @@ struct HomeSectionsTests {
         #expect(HomeSections(home: Self.home, query: "nothing like this").isEmpty)
     }
 
+    @Test func underASpaceIsWhatTheMacHoldsBeyondIt() {
+        let realm = Self.home.spaces[0], site = Self.home.spaces[1]
+        #expect(SpaceFooter.words(realm, searching: false) == "2 more on your Mac")
+        // A search lists what matched, not what the Mac holds besides.
+        #expect(SpaceFooter.words(realm, searching: true) == nil)
+        #expect(SpaceFooter.words(site, searching: false) == nil)
+        let empty = Space(id: "e", name: "Empty", icon: "", color: "", sessions: [], more: 0)
+        #expect(SpaceFooter.words(empty, searching: false) == "No sessions yet")
+    }
+
     @Test func aNeedsYouRowFindsItsSpace() {
         let sections = HomeSections(home: Self.home, query: "")
         #expect(sections.space(of: Self.home.needsYou[0])?.name == "Site")
@@ -382,11 +392,27 @@ struct TranscriptLayoutTests {
         #expect(second == nil)
     }
 
+    /// The request the foot holds is told from every other row by its id.
+    @Test func theHeldRequestIsKnownByItsId() {
+        let request = Self.row("r", .request(TranscriptRow.Request(requestId: "r1", tool: "Bash", title: "", summary: "ls",
+                                                                    state: .pending, questions: nil)))
+        #expect(request.isRequest("r1"))
+        #expect(!request.isRequest("r2"))
+        #expect(!request.isRequest(nil))
+        #expect(!Self.user("u1").isRequest("r1"))
+    }
+
     @Test func reviewChangesIsTheNewestTurnsUntilSomethingIsSaid() {
         let settled = [Self.user("u1"), Self.tool("t1", "Edit"), Self.row("c1", .notice(text: "Changed"), checkpoint: "cp1"), Self.said("a1")]
         #expect(TranscriptLayout.reviewable(settled) == "cp1")
         #expect(TranscriptLayout.reviewable(settled + [Self.user("u2")]) == nil)
         #expect(TranscriptLayout.reviewable([Self.user("u1"), Self.said("a1")]) == nil)
+        // A turn the Mac measured and found nothing in has nothing to review.
+        let nothing = Self.row("c2", .notice(text: "Changed 0 files: "), checkpoint: "cp2")
+        #expect(nothing.changedNothing)
+        #expect(!Self.row("c3", .notice(text: "Changed 0 files: "), checkpoint: nil).changedNothing)
+        #expect(!Self.row("c4", .notice(text: "Changed 10 files: a.ts"), checkpoint: "cp4").changedNothing)
+        #expect(TranscriptLayout.reviewable([Self.user("u1"), nothing, Self.said("a1")]) == nil)
     }
 
     /// What a running turn is doing, where no row on screen already says it.

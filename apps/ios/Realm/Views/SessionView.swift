@@ -31,7 +31,11 @@ struct SessionView: View {
         let transcript = model.store.transcript(sessionId)
         let outgoing = model.store.outbox.items(for: sessionId).filter(\.isMessage)
         let status = transcript.status ?? transcript.session?.status
-        let items = TranscriptLayout.items(transcript.rows, settled: status != .running && status != .waiting)
+        // The request the foot holds is drawn there, not twice: answered, it comes back to where it
+        // was asked, as the record of it.
+        let footRequest = PendingRequest.first(in: transcript, outbox: model.store.outbox)?.request.requestId
+        let items = TranscriptLayout.items(transcript.rows.filter { !$0.isRequest(footRequest) && !$0.changedNothing },
+                                           settled: status != .running && status != .waiting)
         let drawn = items.suffix(shown)
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -61,8 +65,9 @@ struct SessionView: View {
                         .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
                         .id(item.id)
                 }
-                if transcript.isLive, status == .running, let live = LiveActivity.of(transcript.rows) {
-                    LiveLine(thinking: live == .thinking)
+                // Thinking is said at the foot; the turn's work in general is the pill's to say.
+                if transcript.isLive, status == .running, LiveActivity.of(transcript.rows) == .thinking {
+                    LiveLine(word: "Thinking")
                 }
                 ForEach(outgoing) { item in
                     OutgoingMessageView(item: item)
@@ -123,15 +128,11 @@ struct SessionView: View {
         .onChange(of: transcript.isLive) { _, live in
             if live && atBottom { model.markSeen(sessionId) }
         }
-        .overlay(alignment: .bottom) {
-            SessionPill(sessionId: sessionId, showsLatest: !atBottom && !transcript.rows.isEmpty) {
-                scrollToBottom()
-            }
-            .padding(.bottom, 10)
-        }
         .background(Ground.transcript)
         .safeAreaBar(edge: .bottom) {
-            SessionFoot(sessionId: sessionId, composing: $composing)
+            SessionFoot(sessionId: sessionId, composing: $composing, showsLatest: !atBottom && !transcript.rows.isEmpty) {
+                scrollToBottom()
+            }
         }
         .navigationTitle(transcript.session?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
@@ -192,7 +193,8 @@ extension EnvironmentValues {
 }
 
 /// What a running turn is doing where no row on screen says so already: a tool that runs and text
-/// that streams say it themselves.
+/// that streams say it themselves. Thinking gets a line at the foot; anything else is the pill's
+/// "Working" to say.
 enum LiveActivity: Equatable {
     case thinking, working
 
@@ -208,7 +210,7 @@ enum LiveActivity: Equatable {
     }
 }
 
-/// The floating glass pill over the transcript's foot: the turn's clock while it works — only from a
+/// The glass pill at the top of the session's foot: the turn's clock while it works — only from a
 /// start this phone saw — or the link's trouble, with a press to try again, and beside it the way
 /// back to the newest row, which slides out of the same glass.
 private struct SessionPill: View {
@@ -327,6 +329,9 @@ enum PillWords {
 private struct SessionFoot: View {
     let sessionId: String
     var composing: FocusState<Bool>.Binding
+    /// The reader has scrolled away from the newest row.
+    let showsLatest: Bool
+    let toLatest: () -> Void
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var folded: String?
@@ -338,7 +343,13 @@ private struct SessionFoot: View {
         let draft = model.composerDrafts[sessionId] ?? ""
         let hint = draft.isEmpty ? transcript.hint.flatMap { $0.isEmpty ? nil : $0 } : nil
         let docked = pending.map { folded != $0.request.requestId } ?? false
+        // The pill rides in the bar rather than over the transcript, so the newest row is never under it.
+        let pill = showsLatest || !model.shownLinkStatus.isConnected || (transcript.isLive && transcript.status == .running)
         VStack(spacing: 10) {
+            if pill {
+                SessionPill(sessionId: sessionId, showsLatest: showsLatest, toLatest: toLatest)
+                    .transition(.opacity)
+            }
             if let pending, docked {
                 WaitingDock(pending: pending, sessionId: sessionId, fold: { folded = pending.request.requestId })
                     .padding(.horizontal, 12)
@@ -360,6 +371,7 @@ private struct SessionFoot: View {
         }
         .animation(Motion.animation(reduceMotion), value: docked)
         .animation(Motion.animation(reduceMotion), value: pending?.request.requestId)
+        .animation(Motion.animation(reduceMotion), value: pill)
     }
 }
 
@@ -410,7 +422,7 @@ private struct FootChips: View {
         ScrollView(.horizontal) {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
-                    if let checkpointId {
+                    if let checkpointId, model.turnChanges[checkpointId]?.totalFiles != 0 {
                         Button {
                             reviewing = true
                         } label: {
@@ -583,9 +595,24 @@ enum TranscriptLayout {
     static func reviewable(_ rows: [TranscriptRow]) -> String? {
         for row in rows.reversed() {
             if case .user = row.content { return nil }
-            if let id = row.checkpointId { return id }
+            if let id = row.checkpointId, !row.changedNothing { return id }
         }
         return nil
+    }
+}
+
+extension TranscriptRow {
+    /// Whether this is the request with this id.
+    func isRequest(_ requestId: String?) -> Bool {
+        guard let requestId, case .request(let request) = content else { return false }
+        return request.requestId == requestId
+    }
+
+    /// A turn's changes that came to no file at all, as the Mac words them: it records every turn it
+    /// measured, but there is nothing here to review.
+    var changedNothing: Bool {
+        guard checkpointId != nil, case .notice(let text) = content else { return false }
+        return text.hasPrefix("Changed 0 ")
     }
 }
 

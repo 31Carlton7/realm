@@ -19,10 +19,7 @@ struct TranscriptRowView: View {
             VStack(alignment: .leading, spacing: 8) {
                 MarkdownView(text)
                 if streaming {
-                    Label("Writing…", systemImage: "ellipsis")
-                        .font(.footnote)
-                        .foregroundStyle(Palette.ink2)
-                        .restingPulse(when: true)
+                    LiveLine(word: "Writing")
                 }
             }
         case .thinking, .tool:
@@ -235,10 +232,11 @@ struct FoldedWork: View {
     }
 }
 
-/// While a turn runs and nothing else on screen says what it is doing: the one live line, in present
-/// tense, that rests after a few sweeps.
+/// What a running turn is doing at the transcript's foot — thinking, or writing the words above it —
+/// as the one live line, in the present tense, that rests after a few sweeps.
 struct LiveLine: View {
-    let thinking: Bool
+    /// What the turn is doing, in the present tense: "Thinking", "Writing".
+    let word: String
 
     var body: some View {
         HStack(spacing: 8) {
@@ -247,7 +245,7 @@ struct LiveLine: View {
                 .foregroundStyle(Palette.accentInk)
                 .restingPulse(when: true)
                 .frame(width: 20)
-            Text(thinking ? "Thinking" : "Working")
+            Text(word)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Palette.ink2)
                 .shimmer(when: true)
@@ -615,6 +613,13 @@ struct ChangesCard: View {
 
     var body: some View {
         let changes = model.turnChanges[checkpointId]
+        // A turn that changed nothing has no card: the Mac measured it, and found nothing to review.
+        if changes?.totalFiles != 0 {
+            card(changes)
+        }
+    }
+
+    private func card(_ changes: TurnChanges?) -> some View {
         Button {
             reviewing = true
         } label: {
