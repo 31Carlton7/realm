@@ -103,8 +103,8 @@
 }
 
 /* A capture (the landing page's Screen) takes more air than a paragraph: it is something to look at,
-   not the next line, and its caption hangs below its plate on a tab that needs the room. A whole
-   window may run past the reading column into the room the page gives it (`--figure-room`). */
+   not the next line, and its caption hangs below it on a tab that needs the room. A whole window may
+   run past the reading column into the room the page gives it (`--figure-room`). */
 .prose > :global(.screen) {
   width: var(--figure-room, 100%);
   margin-top: 2.5rem;

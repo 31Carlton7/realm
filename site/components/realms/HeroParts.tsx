@@ -65,12 +65,12 @@ export function Actions({ download, className = "", center = false }: ConceptPro
 }
 
 /**
- * The working sample of Realm, on the plate the pictures further down stand on (Screen): Realm's own
- * window corner inside a concentric one, the plate's rim and lattice round it, and on the window's
- * edge the one-device-pixel outline with the light from above catching its top. What it is stands on
- * a tab cut from the plate's top edge, as each picture's caption hangs from its foot. `anchor` names
- * the window's rect for the shader (default "portal"), and `frameClassName` sizes it — the concept
- * decides how much of the first viewport the product takes.
+ * The working sample of Realm, with the edge the pictures further down wear (Screen): Realm's own
+ * window corner, the rim of the doorways' light on it, and the one-device-pixel outline with the
+ * light from above catching its top. What it is stands on a tab cut from the window's top edge, as
+ * each picture's caption hangs from its foot. `anchor` names the window's rect for the shader
+ * (default "portal"), and `frameClassName` sizes it — the concept decides how much of the first
+ * viewport the product takes.
  */
 export function ProductWindow({
   className = "",
@@ -85,7 +85,7 @@ export function ProductWindow({
 }) {
   return (
     <div className={className}>
-      <div className="plate hero-plate">
+      <div className="picture-edge hero-frame">
         {tab ? (
           <p data-edge="top" className="screen-tab flex items-center justify-center gap-2">
             <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green" />

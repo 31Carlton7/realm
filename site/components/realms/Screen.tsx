@@ -16,13 +16,16 @@ export type ScreenImage = {
   width: number
   height: number
   radius: number
+  /** The colour the capture ends on along its foot, where it is not the app's canvas
+   *  (`--picture-foot`): the caption's tab is cut from it. */
+  foot?: string
 }
 
 export type ScreenProps = {
   image: ScreenImage
   alt: string
   /** What is in the frame (design.md: a caption describes what is IN the frame), on a tab that hangs
-   *  from the middle of the plate's foot. */
+   *  from the middle of the picture's foot. */
   caption?: ReactNode
   /**
    * A narrower capture of the same subject for a phone, where the wide one would be drawn at less
@@ -31,14 +34,13 @@ export type ScreenProps = {
   phone?: { image: ScreenImage; caption?: ReactNode }
   /**
    * `window`: the app's whole window (or a scene of it). `part`: a surface lifted off the window — a
-   * picker, a column, a card and its ground. Each sits on the plate under its own shadow. Default
-   * `part`.
+   * picker, a column, a card and its ground. A window casts the wider shade. Default `part`.
    */
   kind?: "window" | "part"
   /** The most it is enlarged past the size it had in the app. Default 1.15: a part is read at about
    *  the size it is used at, so its text stays at the size it was set. */
   zoom?: number
-  /** The tallest the plate may be drawn, as a CSS length: a tall part shrinks to stay in one view
+  /** The tallest the picture may be drawn, as a CSS length: a tall part shrinks to stay in one view
    *  with its caption under it, below the page's header. Default `min(76vh, 760px)`. */
   maxHeight?: string
   /** `sizes` for `srcSet`. Default: the chapter column on a wide screen, the viewport below it. */
@@ -46,31 +48,25 @@ export type ScreenProps = {
   /** Load it eagerly (above the fold). */
   priority?: boolean
   /**
-   * The landing page's flight. Given an id, the plate is the slot the field reads (`s:<id>`), the
-   * figure is what the field moves and lights (`data-screen`, with `data-radius` the plate's corner
-   * as a share of its width), and the caption's tab rides with it.
+   * The landing page's flight. Given an id, the picture's box is the slot the field reads (`s:<id>`),
+   * the figure is what the field moves and lights (`data-screen`, with `data-radius` the picture's
+   * corner as a share of its width), and the caption's tab rides with it.
    */
   fieldId?: string
   className?: string
 }
 
-/** The plate's margin round the picture on a wide screen, in CSS px (globals.css `.screen`). */
-const PLATE = 16
-
 /**
- * A picture of the app: a real capture, drawn the way the app draws the surface it shows, set on a
- * plate of the realm it comes from.
+ * A picture of the app: a real capture, drawn the way the app draws the surface it shows.
  *
- * The plate is a margin of the field's own dark, lit from above: a rim of the doorways' blue-white
- * light along its edge, brightest across the top, and the lattice the realms stand on in its margin,
- * fading down it. Its corner is concentric with the picture's. The caption hangs from the middle of
- * its foot on a tab cut from the same plate, so the words read as coming out of the picture rather
- * than as a card left under it.
+ * The picture's own edge is its frame. On it, a rim of the doorways' blue-white light, brightest
+ * across the top, and the one-device-pixel inset outline (design.md, Surfaces), each a ring on the
+ * picture's own curve, so nothing is laid over the picture itself; under it, a shade on the sky. The
+ * caption hangs from the middle of its foot on a tab cut from the ground the picture ends on, so the
+ * words read as coming out of the picture rather than as a card left under it.
  *
  * The picture's box always has the capture's own aspect, so the page crops nothing; it takes the
- * width it is given up to `zoom` times its own. It keeps the one-device-pixel inset outline
- * (design.md, Surfaces) and the light from above on its top edge, each a ring a hairline wide on its
- * own curve, so nothing is laid over the picture itself.
+ * width it is given up to `zoom` times its own.
  */
 export function Screen({
   image,
@@ -86,15 +82,11 @@ export function Screen({
   className = "",
 }: ScreenProps) {
   const { width, height, radius } = image
-  // The plate is the picture's width and the margin either side, and never so wide that it is
-  // taller than `maxHeight`: the picture's aspect sets its height, and the margin adds to both.
+  // Never so wide that it is taller than `maxHeight`: the picture's aspect sets its height.
   const limit = (picture: ScreenImage) =>
-    `min(${Math.round(picture.width * zoom) + 2 * PLATE}px, calc((${maxHeight} - 2 * var(--pad)) * ${+(picture.width / picture.height).toFixed(5)} + 2 * var(--pad)))`
-  // The plate's corner as a share of its width, at the width it is drawn at on a wide screen: what
-  // the field rounds the screen's light to.
-  const plateWidth = Math.round(width * zoom) + 2 * PLATE
-  const plateRadius = ((radius / width) * (plateWidth - 2 * PLATE) + PLATE) / plateWidth
+    `min(${Math.round(picture.width * zoom)}px, calc(${maxHeight} * ${+(picture.width / picture.height).toFixed(5)}))`
   const shape = {
+    "--foot": image.foot,
     "--share-wide": radius / width,
     "--aspect-wide": `${width} / ${height}`,
     "--max-wide": limit(image),
@@ -106,26 +98,25 @@ export function Screen({
     <div className={`screen ${className}`} data-kind={kind} style={shape}>
       <div data-field-anchor={fieldId ? `s:${fieldId}` : undefined} className="screen-slot">
         <span aria-hidden className="screen-room" />
-        <figure data-screen={fieldId} data-radius={fieldId ? plateRadius.toFixed(5) : undefined} className="screen-figure @container">
-          <div className="plate screen-plate">
-            <div className="screen-frame">
-              <picture>
-                {phone ? <source media="(max-width: 639px)" srcSet={phone.image.src} width={phone.image.width} height={phone.image.height} /> : null}
-                <img
-                  src={image.src}
-                  srcSet={image.srcSet}
-                  sizes={image.srcSet ? sizes : undefined}
-                  alt={alt}
-                  width={width}
-                  height={height}
-                  loading={priority ? "eager" : "lazy"}
-                  fetchPriority={priority ? "high" : undefined}
-                  decoding="async"
-                  className="screen-image"
-                />
-              </picture>
-              <span aria-hidden className="screen-light" />
-            </div>
+        {/* `data-radius`: the corner the field rounds the screen's light to, as a share of its width. */}
+        <figure data-screen={fieldId} data-radius={fieldId ? (radius / width).toFixed(5) : undefined} className="screen-figure @container">
+          <div className="picture-edge screen-frame">
+            <picture>
+              {phone ? <source media="(max-width: 639px)" srcSet={phone.image.src} width={phone.image.width} height={phone.image.height} /> : null}
+              <img
+                src={image.src}
+                srcSet={image.srcSet}
+                sizes={image.srcSet ? sizes : undefined}
+                alt={alt}
+                width={width}
+                height={height}
+                loading={priority ? "eager" : "lazy"}
+                fetchPriority={priority ? "high" : undefined}
+                decoding="async"
+                className="screen-image"
+              />
+            </picture>
+            <span aria-hidden className="screen-light" />
           </div>
           {caption ? (
             <figcaption className="screen-tab">
