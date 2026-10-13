@@ -4,6 +4,7 @@ import type { Rect, StageFactory, StageInput } from "@/components/lab/stage"
 
 import {
   basis,
+  blend,
   clamp,
   dot,
   Follow,
@@ -16,23 +17,36 @@ import {
   smooth,
   smoother,
   sub,
-  type Basis,
   type Key,
   type Place,
   type Vec3,
   type View,
 } from "./camera"
 import { CHAPTERS, CLIMB, FINALE, OPENING, TEAM } from "./route"
-import { CLEAR, compositeShader, LIT, PANELS, PLAZAS, SCREENS, sceneShader, type CompositeUniforms, type SceneUniforms } from "./shaders"
+import {
+  AIR_SCALE_HEIGHT,
+  CLEAR,
+  compositeShader,
+  LIT,
+  PANELS,
+  PLAZAS,
+  SCREENS,
+  sceneShader,
+  type CompositeUniforms,
+  type SceneUniforms,
+} from "./shaders"
 import { ROLES, WORLD_REALMITE } from "./Team"
 import { cellCentre, DOOR, doorFoot, latticeOf, nearestCell, PLANET_RADIUS } from "./world"
 
 const DEG = Math.PI / 180
-/** Lattice cells drawn around the camera's look point, per side. */
+/** Lattice cells drawn around the camera's look point, per side: fewer on a phone, whose drift
+ *  looks down on a smaller patch of the field. */
 const GRID = 64
+const GRID_PHONE = 44
 /** The realm mesh: thirteen quads, two triangles each. */
 const REALM_VERTICES = 78
-/** The scene is drawn at this many target pixels per CSS px (the canvas itself runs up to 1.5). */
+/** The scene is drawn at this many target pixels per CSS px (the canvas itself runs up to 1.5), and
+ *  multisampled, so its edges stay clean where the canvas scales it up. */
 const RENDER_SCALE = 1
 
 type Mode = "flight" | "still" | "drift"
@@ -47,7 +61,7 @@ type Stand = {
   slot?: [number, number]
   depth?: number
   cells?: [number, number][]
-  /** The finale's limb: where its top stands on the page. */
+  /** The finale's limb, and the foot of the page's: where the planet's edge stands on the page. */
   limb?: number
 }
 
@@ -57,10 +71,8 @@ const rest = (r: Rect, scrollY: number, keyY: number): Rect => [r[0], r[1] + scr
 const centred = (r: Rect, scrollY: number, height: number) => scrollY + r[1] + r[3] / 2 - height / 2
 
 function levelView(foot: Vec3, yaw: number, height: number, distance: number, focal: number, x: number, bottom: number): View {
-  const c = Math.cos(yaw)
-  const s = Math.sin(yaw)
   return {
-    eye: [foot[0] - distance * c, foot[1] - distance * s, height],
+    eye: [foot[0] - distance * Math.cos(yaw), foot[1] - distance * Math.sin(yaw), height],
     yaw,
     pitch: 0,
     focal,
@@ -79,17 +91,19 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
   const { width, height, anchors } = input
   const out: Stand[] = []
   const R = PLANET_RADIUS
+  const phone = mode === "drift"
 
   // The opening: looking down the mark's own diagonal through a long lens, so every realm on the
   // field is the logo; the lens's axis meets the page at the middle of the window's top edge, and the
-  // field point there is the world's origin.
+  // field point there is the world's origin. The haze is measured from there, as the Hive's is: clear
+  // beside the window, gone by the words.
   const portal = anchors.portal
   if (portal) {
     const windowTop = portal[1] + scrollY
     const yaw = OPENING.yaw * DEG
     const pitch = OPENING.pitch * DEG
-    const focal = mode === "drift" ? 1500 : OPENING.focal
-    const edge = mode === "drift" ? 26 : OPENING.edge
+    const focal = phone ? 1500 : OPENING.focal
+    const edge = phone ? 26 : OPENING.edge
     const distance = (Math.sqrt(2 / 3) * focal) / edge
     const fwd: Vec3 = [Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch)]
     const view: View = {
@@ -97,12 +111,12 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
       yaw,
       pitch,
       focal,
-      px: mode === "drift" ? width / 2 : portal[0] + portal[2] / 2,
-      py: mode === "drift" ? height * 0.55 : windowTop,
+      px: phone ? width / 2 : portal[0] + portal[2] / 2,
+      py: phone ? height * 0.55 : windowTop,
     }
     out.push({
       key: { id: "open", kind: "open", y: 0, view, hold: [0, 0.1], turn: 3 * DEG, pivot: [OPENING.focus[0], OPENING.focus[1], 0], lift: 0 },
-      fog: [distance - 10, 4 / distance],
+      fog: phone ? [distance - 10, 4 / distance] : [distance - 3, 9 / distance],
     })
   }
 
@@ -119,7 +133,7 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
       const slot = rest(slotRect, scrollY, y)
       const view = levelView(foot, stop.yaw * DEG, stop.height, stop.distance, stop.focal, slot[0] + slot[2] / 2, slot[1] + slot[3])
       out.push({
-        key: { id, kind: "chapter", y, view, hold: [0.24, 0.24], turn: stop.orbit * DEG, pivot: foot, lift: 1.5 },
+        key: { id, kind: "chapter", y, view, hold: [0.24, 0.24], turn: stop.orbit * DEG, pivot: foot, lift: 1.6 },
         fog: [stop.distance + 5, 1 / (stop.distance * 4.2)],
         realm,
         foot,
@@ -136,10 +150,10 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
       const across = Math.max(...xs) - Math.min(...xs) + 1
       const foot: Vec3 = [(Math.max(...xs) + Math.min(...xs)) / 2, Math.min(...ys) - 0.6, 0]
       const slot = rest(slotRect, scrollY, y)
-      const distance = (TEAM.focal * across * 1.12) / Math.max(slot[2], 1)
-      const view = levelView(foot, TEAM.yaw * DEG, TEAM.height, distance, TEAM.focal, slot[0] + slot[2] / 2, slot[1] + slot[3] * 0.92)
+      const distance = (TEAM.focal * across * TEAM.frame) / Math.max(slot[2], 1)
+      const view = levelView(foot, TEAM.yaw * DEG, TEAM.height, distance, TEAM.focal, slot[0] + slot[2] / 2, slot[1] + slot[3] * 0.9)
       out.push({
-        key: { id, kind: "teams", y, view, hold: [0.24, 0.24], turn: TEAM.orbit * DEG, pivot: foot, lift: 1.5 },
+        key: { id, kind: "teams", y, view, hold: [0.24, 0.24], turn: TEAM.orbit * DEG, pivot: foot, lift: 1.6 },
         fog: [distance + 6, 1 / (distance * 3.5)],
         foot,
         cells,
@@ -233,7 +247,7 @@ function moment(list: Stand[], scrollY: number, mode: Mode): Moment {
   const picture: number[] = []
   list.forEach((_, k) => {
     if (mode !== "flight") {
-      open.push(1)
+      open.push(k === nearest ? 1 : 0)
       door.push(k === nearest ? 1 : 0.4)
       picture.push(1)
       return
@@ -259,7 +273,7 @@ function moment(list: Stand[], scrollY: number, mode: Mode): Moment {
   return { view, at, nearest, open, door, picture }
 }
 
-type ScreenNode = { el: HTMLElement; last: string }
+type Node = { el: HTMLElement; last: string }
 
 export const createRealms: StageFactory = async (gpu, output) => {
   const zero = [0, 0, 0, 0]
@@ -275,10 +289,11 @@ export const createRealms: StageFactory = async (gpu, output) => {
     sun: [0, 0, 1, 0],
     air: [1, 0, 0, 1],
     field: [0, 0, 0, 0],
+    fence: [0, 0, 0, 0],
     lamp: [0, 0, 2, 0],
     grid: [0, 0, GRID, 120],
     screens: Array.from({ length: SCREENS * 2 }, () => [...zero]),
-    plazas: Array.from({ length: PLAZAS }, () => [...zero]),
+    plazas: Array.from({ length: PLAZAS * 2 }, () => [...zero]),
     lit: Array.from({ length: LIT }, () => [0, 0, -1, 0]),
   }
   const comp: CompositeUniforms = {
@@ -324,13 +339,13 @@ export const createRealms: StageFactory = async (gpu, output) => {
   await Promise.all([realms.compile(world), sky.compile(world)])
 
   const follow = new Follow(9)
-  const lampEased = { x: 0, y: 0, presence: 0 }
-  const sway = { x: 0 }
+  const lamp = { x: 0, y: 0, presence: 0 }
+  let sway = 0
   let lastSeconds = -1
   let mode: Mode | null = null
   const root = document.documentElement
-  const screens = new Map<string, ScreenNode>()
-  const realmites = new Map<string, ScreenNode>()
+  const screens = new Map<string, Node>()
+  const realmites = new Map<string, Node>()
 
   const nodes = () => {
     for (const el of document.querySelectorAll<HTMLElement>("[data-screen]")) {
@@ -343,7 +358,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
     }
   }
 
-  const write = (node: ScreenNode, css: string) => {
+  const write = (node: Node, css: string) => {
     if (node.last === css) return
     node.last = css
     node.el.style.cssText = css
@@ -369,22 +384,25 @@ export const createRealms: StageFactory = async (gpu, output) => {
 
       const list = stands(input, scrollY, mode!)
       if (list.length === 0) return
+      if (process.env.NODE_ENV !== "production") (window as unknown as { __realmsKeys?: [string, number][] }).__realmsKeys = list.map((s) => [s.key.id, Math.round(s.key.y)])
 
       // ---- the camera ------------------------------------------------------------------------
       const now = moment(list, scrollY, mode!)
       let view: View = now.view
       if (mode === "drift") {
-        // A phone: the opening's view of the field, carried slowly up it as the page scrolls, and
-        // the same climb into orbit at the end.
+        // A phone: the opening's view of the field, carried slowly up it as the page scrolls, then the
+        // same climb into orbit at the end, and the planet sinking under the links.
         const open = list[0]!.key.view
         const travel = scrollY * 0.012
         view = { ...open, eye: [open.eye[0] + Math.cos(open.yaw) * travel, open.eye[1] + Math.sin(open.yaw) * travel, open.eye[2]] }
-        const finale = list.findIndex((s) => s.key.kind === "finale")
-        const into = list[finale]
-        if (finale > 0 && into?.limb !== undefined) {
+        const finaleIndex = list.findIndex((s) => s.key.kind === "finale")
+        const into = list[finaleIndex]
+        if (into?.limb !== undefined) {
           const from = Math.max(0, into.key.y - height * 1.4)
           const u = clamp((scrollY - from) / Math.max(into.key.y - from, 1), 0, 1)
           if (u > 0) view = rise(view, into.key.view, u, into.limb)
+          const end = list[finaleIndex + 1]
+          if (end && scrollY > into.key.y) view = blend(into.key.view, end.key.view, clamp((scrollY - into.key.y) / Math.max(end.key.y - into.key.y, 1), 0, 1), 0)
         }
       } else if (mode === "still") {
         // Reduced motion: each stop's own composed view, redrawn as the reader moves between them.
@@ -395,49 +413,60 @@ export const createRealms: StageFactory = async (gpu, output) => {
       // pivot, so what is at rest on the page stays where it is.
       const [pointerX, pointerY, presence] = input.pointer
       const k = input.still ? 1 : 1 - Math.exp(-Math.max(dt, 0) / 0.6)
-      if (lampEased.presence < 0.001) {
-        lampEased.x = pointerX
-        lampEased.y = pointerY
+      if (lamp.presence < 0.001) {
+        lamp.x = pointerX
+        lamp.y = pointerY
       }
-      lampEased.x += (pointerX - lampEased.x) * k
-      lampEased.y += (pointerY - lampEased.y) * k
-      lampEased.presence += ((input.still ? 0 : presence) - lampEased.presence) * k
-      sway.x += (((pointerX / Math.max(width, 1)) - 0.5) * presence - sway.x) * k
+      lamp.x += (pointerX - lamp.x) * k
+      lamp.y += (pointerY - lamp.y) * k
+      lamp.presence += ((input.still ? 0 : presence) - lamp.presence) * k
+      sway += ((pointerX / Math.max(width, 1) - 0.5) * presence - sway) * k
 
       if (mode === "flight") {
         view = follow.step(view, dt)
-        const pivot = list[now.nearest]!.key.pivot
-        view = orbit(view, pivot, -sway.x * 0.9 * DEG)
+        view = orbit(view, list[now.nearest]!.key.pivot, -sway * 0.9 * DEG)
       }
       const b = basis(view)
 
-      // ---- the screens, positioned from their realms -----------------------------------------
+      // ---- what stands in the world: screens, lit realms, plazas -----------------------------
       const panels: number[][] = []
       const lights: number[][] = []
       const plazas: number[][] = []
       const lit: number[][] = []
       const clears: Rect[] = []
+      let fence = [0, 0, 0, 0]
       const visible = (r: Rect) => r[2] > 0 && r[1] < height + 160 && r[1] + r[3] > -160 && r[0] < width + 160 && r[0] + r[2] > -160
+      const progress = now.at.from + now.at.u
+      const teams = list.findIndex((s) => s.cells)
 
       list.forEach((stand, index) => {
+        const opening = now.open[index]!
         if (stand.realm && stand.foot) {
-          const glow = now.door[index]!
-          lit.push([stand.realm[0], stand.realm[1], Math.max(glow, 0), 0.0])
-          plazas.push([stand.realm[0], stand.realm[1], 3.6, 11])
+          // Under reduced motion the screens sit in the page, not at their realms, so the realms stand
+          // aside: their plazas stay clear and the screens' light falls on them from where they are.
+          if (mode !== "still") lit.push([stand.realm[0], stand.realm[1], Math.max(now.door[index]!, 0), 0])
+          const eye = stand.key.view.eye
+          const reach = 0.72
+          plazas.push([stand.realm[0], stand.realm[1], 3.4, 11, lerp(stand.realm[0], eye[0], reach), lerp(stand.realm[1], eye[1], reach)])
+          // A space can be confined: its realm gets a boundary drawn on the ground round it.
+          if (stand.key.id === "sandbox" && mode !== "drift") fence = [stand.realm[0], stand.realm[1], 2.4, opening]
         }
         if (stand.cells) {
-          const presenceHere = Math.max(0, 1 - Math.abs(index - (now.at.from + now.at.u)) * 0.9)
+          const here = mode === "still" ? (now.nearest === index ? 1 : 0) : Math.max(0, 1 - Math.abs(index - progress) * 0.9)
           const cx = stand.cells.reduce((sum, c) => sum + c[0], 0) / stand.cells.length
           const cy = stand.cells.reduce((sum, c) => sum + c[1], 0) / stand.cells.length
-          plazas.push([cx, cy, 6.2, 16])
+          const eye = stand.key.view.eye
+          plazas.push([cx, cy, 6.4, 18, lerp(cx, eye[0], 0.6), lerp(cy, eye[1], 0.6)])
           stand.cells.forEach((cell, r) => {
             const role = ROLES[r]
             const node = role ? realmites.get(role.id) : undefined
             const state = node?.el.dataset.state
             const picked = node?.el.dataset.picked !== undefined
-            const base = state === "working" ? 1 : state === "needs-you" ? 0.9 : state === "idle" ? 0.22 : 0.0
-            const glow = Math.min(1.2, (base + (picked ? 0.35 : 0)) * presenceHere)
-            lit.push([cell[0], cell[1], glow, state === "needs-you" ? 1 : 0])
+            // A doorway says what its role's run is doing: lit at work, Realm's blue when it needs
+            // you, low when idle, dark when it is done for the day; the role picked on the board is
+            // a step brighter.
+            const base = state === "working" ? 1 : state === "needs-you" ? 0.9 : state === "idle" ? 0.22 : 0
+            lit.push([cell[0], cell[1], Math.min(1.2, (base + (picked ? 0.35 : 0)) * here), state === "needs-you" ? 1 : 0])
           })
         }
 
@@ -445,7 +474,6 @@ export const createRealms: StageFactory = async (gpu, output) => {
         const node = screens.get(id)
         if (!node || !stand.slot || !stand.foot || stand.depth === undefined) return
         const pictureOn = now.picture[index]!
-        const opening = now.open[index]!
         if (mode === "flight") {
           const [bx, by, z] = project(view, b, stand.foot)
           const shown = z > 0.6 && pictureOn > 0.001
@@ -463,18 +491,25 @@ export const createRealms: StageFactory = async (gpu, output) => {
           if (z > 0.6 && (opening > 0.001 || pictureOn > 0.001) && panels.length < PANELS * 2 && stand.realm) {
             // The doorway's own rect on the page, opening out into the screen's.
             const [cx, cy] = stand.realm
-            const corners: Vec3[] = [
+            const corners = [
               [cx + DOOR.across[0] - 0.5, cy - 0.5, 1 - DOOR.down[1]],
               [cx + DOOR.across[1] - 0.5, cy - 0.5, 1 - DOOR.down[1]],
               [cx + DOOR.across[0] - 0.5, cy - 0.5, 1 - DOOR.down[0]],
               [cx + DOOR.across[1] - 0.5, cy - 0.5, 1 - DOOR.down[0]],
-            ].map((p) => project(view, b, p as Vec3)) as unknown as Vec3[]
+            ].map((p) => project(view, b, p as Vec3))
             const xs = corners.map((c) => c[0])
             const ys = corners.map((c) => c[1])
             const door: Rect = [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)]
             const e = smoother(opening)
             const rect: Rect = [lerp(door[0], left, e), lerp(door[1], top, e), lerp(door[2], w, e), lerp(door[3], h, e)]
-            panels.push([...rect], [smooth(opening), lerp(1.5, 12 * s, e), pictureOn, (1 - pictureOn) * smooth(opening)])
+            // The doorway's light, spread over the rect as it grows: bright while it is the doorway, dim
+            // by the time it is the screen, and gone under the picture.
+            const spread = Math.min(1, ((door[2] * door[3]) / Math.max(rect[2] * rect[3], 1)) ** 0.55)
+            // Opaque while it opens (nothing shows through a picture still arriving); on the way out it
+            // goes with the picture, so no dark rect is left behind it.
+            const leaving = now.at.from === index && now.at.to !== index
+            const fill = leaving ? pictureOn : smooth(Math.min(1, opening * 2.4))
+            panels.push([...rect], [fill, lerp(1.5, 12 * s, e), pictureOn, (0.35 + 0.65 * spread) * (1 - pictureOn) * smooth(opening)])
             if (lights.length < SCREENS * 2) {
               const W = (stand.slot[0] * stand.depth) / stand.key.view.focal
               const H = (stand.slot[1] * stand.depth) / stand.key.view.focal
@@ -500,7 +535,6 @@ export const createRealms: StageFactory = async (gpu, output) => {
       })
 
       // The Realmites, standing at their doors.
-      const teams = list.findIndex((s) => s.cells)
       for (const [roleIndex, role] of ROLES.entries()) {
         const node = realmites.get(role.id)
         if (!node) continue
@@ -510,16 +544,16 @@ export const createRealms: StageFactory = async (gpu, output) => {
           write(node, "")
           continue
         }
-        const presenceHere = mode === "still" ? (now.nearest === teams ? 1 : 0) : Math.max(0, 1 - Math.abs(teams - (now.at.from + now.at.u)) * 1.6)
+        const here = mode === "still" ? (now.nearest === teams ? 1 : 0) : Math.max(0, 1 - Math.abs(teams - progress) * 1.6)
         const foot = doorFoot(cell[0], cell[1])
         const [x, y, z] = project(view, b, [foot[0], foot[1] - 0.12, 0])
         const size = (0.5 * view.focal) / Math.max(z, 1e-3)
         const s = size / WORLD_REALMITE
-        const shown = z > 0.8 && presenceHere > 0.01
+        const shown = z > 0.8 && here > 0.01
         write(
           node,
           shown
-            ? `width:${WORLD_REALMITE}px;height:${WORLD_REALMITE}px;transform:translate3d(${(x - size / 2).toFixed(2)}px,${(y - size * 0.94).toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${smooth(presenceHere).toFixed(3)};visibility:visible`
+            ? `width:${WORLD_REALMITE}px;height:${WORLD_REALMITE}px;transform:translate3d(${(x - size / 2).toFixed(2)}px,${(y - size * 0.94).toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${smooth(here).toFixed(3)};visibility:visible`
             : `width:${WORLD_REALMITE}px;height:${WORLD_REALMITE}px;opacity:0;visibility:hidden`,
         )
       }
@@ -529,20 +563,19 @@ export const createRealms: StageFactory = async (gpu, output) => {
         if ((name === "copy" || name.startsWith("k:") || name.startsWith("c:")) && visible(rect)) clears.push(rect)
       }
 
-      // ---- the light and the hour ------------------------------------------------------------
-      const progress = now.at.from + now.at.u
+      // ---- the hour, and what the field has become -------------------------------------------
       const firstChapter = list.findIndex((s) => s.key.kind === "chapter")
       const teamsIndex = Math.max(teams, firstChapter + 1)
       const night = clamp((progress - Math.max(firstChapter, 0) + 0.6) / Math.max(teamsIndex - firstChapter + 0.6, 1), 0, 1)
-      // Altitude decides what the field has become: realms, then the field's average with its lit
-      // doorways as points of light, then a planet with air at its edge.
+      // Altitude decides what the field is: realms, then their average with the lit doorways as
+      // points of light, then a planet with air at its edge.
       const altitude = view.eye[2]
       const orbitAmount = ramp(70, 520, altitude)
       const dissolve = ramp(36, 110, altitude)
       const pointsOn = ramp(28, 90, altitude)
 
-      // The sun: a fixed direction, set from the finale's own view so the sunrise lands on the limb
-      // under the words, a little below it at first and coming up to it as the reader arrives.
+      // The sun: one direction, set from the finale's own view so the sunrise lands on the limb under
+      // the words, a little below it at first and coming up to it as the reader arrives.
       const finale = list.find((s) => s.key.kind === "finale")
       let sun: Vec3 = [0, 0, 1]
       let risen = 0
@@ -551,52 +584,47 @@ export const createRealms: StageFactory = async (gpu, output) => {
       let glareUnit = 1
       if (finale?.limb !== undefined) {
         const fv = finale.key.view
-        const fb2 = basis(fv)
+        const fb = basis(fv)
         const finaleIndex = list.indexOf(finale)
         risen = smooth(clamp(progress - (finaleIndex - 0.6), 0, 1))
         const below = lerp(18, 5, risen)
-        sun = rayThrough(fv, fb2, width * 0.56, finale.limb + below)
+        sun = rayThrough(fv, fb, width * 0.56, finale.limb + below)
         // The limb's radius on the page and the air's apparent thickness there (the World concept's):
         // one thickness for the page's width rather than one that grows with the planet.
         const R = PLANET_RADIUS
         const dip = Math.acos(R / (R + fv.eye[2]))
         const radius = fv.focal / Math.tan(dip)
         const alpha = Math.PI / 2 - dip
-        const scaleHeight = (radius * 0.0011) / Math.cos(alpha) ** 2
+        const scaleHeight = (radius * AIR_SCALE_HEIGHT) / Math.cos(alpha) ** 2
         airK = clamp(width * 0.0035, 3.4, 6) / scaleHeight
         glareUnit = clamp(radius / 2340, 0.4, 1.3)
         // Where the sun's direction meets the page now: the glare sits just above it, on the limb.
-        const d = sun
-        const z = dot(d, b.fwd)
-        if (z > 1e-3) limbPoint = [view.px + (view.focal * dot(d, b.right)) / z, view.py - (view.focal * dot(d, b.up)) / z - below]
+        const z = dot(sun, b.fwd)
+        if (z > 1e-3) limbPoint = [view.px + (view.focal * dot(sun, b.right)) / z, view.py - (view.focal * dot(sun, b.up)) / z - below]
       }
 
       // Haze: carried between the stops with the camera.
       const fa = list[now.at.from]!.fog
-      const fb = list[now.at.to]!.fog
+      const fz = list[now.at.to]!.fog
       const e = smoother(now.at.u)
-      let fogStart = lerp(fa[0], fb[0], e)
-      let fogDensity = Math.exp(lerp(Math.log(fa[1]), Math.log(fb[1]), e))
-      if (mode === "drift") {
-        fogStart = list[0]!.fog[0]
-        fogDensity = list[0]!.fog[1]
-      }
-      if (mode === "still") {
-        ;[fogStart, fogDensity] = list[now.nearest]!.fog
-      }
+      let fogStart = lerp(fa[0], fz[0], e)
+      let fogDensity = Math.exp(lerp(Math.log(fa[1]), Math.log(fz[1]), e))
+      if (mode === "drift") [fogStart, fogDensity] = list[0]!.fog
+      if (mode === "still") [fogStart, fogDensity] = list[now.nearest]!.fog
 
       // The lamp: where the pointer meets the field, held a little above it.
-      const ray = rayThrough(view, b, lampEased.x, lampEased.y)
+      const ray = rayThrough(view, b, lamp.x, lamp.y)
       let lampAt: Vec3 = [0, 0, 0]
       let lampOn = 0
       if (ray[2] < -1e-3) {
         const t = -view.eye[2] / ray[2]
         lampAt = [view.eye[0] + ray[0] * t, view.eye[1] + ray[1] * t, 0]
-        lampOn = lampEased.presence * (1 - orbitAmount)
+        lampOn = lamp.presence * (1 - orbitAmount)
       }
       const lampHeight = clamp(view.eye[2] * 0.35, 1.2, 6)
 
       // The lattice around where the camera is looking.
+      const grid = mode === "drift" ? GRID_PHONE : GRID
       const lookAhead = Math.min(view.eye[2] / Math.max(Math.tan(-view.pitch), 0.05), 120)
       const ahead = view.pitch < -0.05 ? lookAhead : clamp(fogStart * 1.4, 18, 70)
       const lookX = view.eye[0] + Math.cos(view.yaw) * ahead
@@ -611,7 +639,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
       plazas.length = Math.min(plazas.length, PLAZAS)
       lit.length = Math.min(lit.length, LIT)
       while (lights.length < SCREENS * 2) lights.push([...zero])
-      while (plazas.length < PLAZAS) plazas.push([...zero])
+      while (plazas.length < PLAZAS) plazas.push([0, 0, 0, 0, 0, 0])
+      const plazaPairs = plazas.flatMap((q) => [[q[0]!, q[1]!, q[2]!, q[3]!], [q[4] ?? q[0]!, q[5] ?? q[1]!, 0, 0]])
       while (lit.length < LIT) lit.push([0, 0, -1, 0])
       while (panels.length < PANELS * 2) panels.push([...zero])
       const clearList = clears.slice(0, CLEAR)
@@ -621,16 +650,17 @@ export const createRealms: StageFactory = async (gpu, output) => {
       scene.right = [...b.right, RENDER_SCALE]
       scene.up = [...b.up, 0]
       scene.view = [width, height, view.px, view.py]
-      scene.clock = [input.seconds, night, input.still ? 1 : 0, lerp(0.035, 0.09, night)]
+      scene.clock = [input.seconds, night, input.still ? 1 : 0, lerp(0.03, 0.065, night)]
       scene.fog = [fogStart, fogDensity, 0, 0]
       scene.planet = [view.eye[0], view.eye[1], PLANET_RADIUS, orbitAmount]
       scene.sun = [...sun, risen]
       scene.air = [airK, limbPoint[0], limbPoint[1], glareUnit]
       scene.field = [dissolve, pointsOn, 0, 0]
+      scene.fence = fence
       scene.lamp = [lampAt[0], lampAt[1], lampHeight, lampOn]
-      scene.grid = [gi, gj, GRID, Math.min(cull, 260)]
+      scene.grid = [gi, gj, grid, Math.min(cull, 260)]
       scene.screens = lights
-      scene.plazas = plazas
+      scene.plazas = plazaPairs
       scene.lit = lit
 
       const dpr = output.size[0] / Math.max(width, 1)
@@ -649,7 +679,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
       realms.set({ scene })
       sky.set({ scene })
       composite.set({ comp })
-      const instances = dissolve > 0.995 ? 0 : GRID * GRID
+      const instances = dissolve > 0.995 ? 0 : grid * grid
       frame.pass({ target: world, clear: [0, 0, 0, 1], clearDepth: 0 }, (pass) => {
         if (instances > 0) pass.draw(realms, { vertices: REALM_VERTICES, instances })
         pass.draw(sky, { vertices: 3 })

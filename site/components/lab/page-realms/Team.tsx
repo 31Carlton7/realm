@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 
 import { Icon } from "@/components/home/mini/icons"
+import { FIELD_PATTERN, TILE } from "@/components/lab/hive/fallback"
 import { Realmite, realmiteFromSeed, type RealmiteSpec, type RealmiteState } from "@/lib/realmite"
 
 type Role = { id: string; name: string; goal: string; handsTo: string; seed: string }
@@ -64,7 +65,7 @@ export function Team({ side }: { side: "left" | "right" }) {
 
   return (
     <section aria-labelledby="teams-title" className="relative">
-      <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-10 px-6 py-24 sm:px-10 lg:min-h-[170vh] lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0">
+      <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-10 px-6 py-24 sm:px-10 lg:min-h-[150vh] lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0">
         <div data-lab-anchor="k:teams" className={`relative z-[2] min-w-0 lg:row-start-1 ${textCols}`}>
           <p className="flex items-center gap-2 text-[13px] text-accent-ink">
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
@@ -180,7 +181,13 @@ export function Team({ side }: { side: "left" | "right" }) {
 
         {/* Where the team's realms stand in the field. Without the field it holds nothing, and the
             board beside it carries the whole of the section. */}
-        <div data-lab-anchor="s:teams" aria-hidden className={`relative hidden aspect-[3/2] min-w-0 lg:row-start-1 lg:block ${slotCols}`} />
+        <div data-lab-anchor="s:teams" aria-hidden className={`relative hidden aspect-[3/2] min-w-0 lg:row-start-1 lg:block ${slotCols}`}>
+          {/* Without the field: the Hive's still drawing of it, a calm plate of realms. */}
+          <div
+            className="absolute inset-0 hidden [mask-image:radial-gradient(closest-side,black_35%,transparent)] [html[data-lab-field=off]_&]:block"
+            style={{ backgroundImage: FIELD_PATTERN, backgroundSize: `${TILE.width}px ${TILE.height}px`, backgroundPosition: "center" }}
+          />
+        </div>
       </div>
 
       {/* The Realmites at their doors, placed by the field. */}

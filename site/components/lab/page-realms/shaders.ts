@@ -31,6 +31,7 @@ export type SceneUniforms = {
   sun: number[]
   air: number[]
   field: number[]
+  fence: number[]
   lamp: number[]
   grid: number[]
   screens: number[][]
@@ -62,10 +63,11 @@ struct Scene {
   sun: vec4f,      // direction (world), how far it has risen (0 .. 1)
   air: vec4f,      // the shell's thickening, the limb point under the sun (CSS px), the glare's scale
   field: vec4f,    // realms dissolved into the ground (0 .. 1), lit doorways seen as lights (0 .. 1), unused, unused
+  fence: vec4f,    // a confined realm's boundary on the ground: centre x, y, half its side, how drawn (0 .. 1)
   lamp: vec4f,     // the pointer's lamp on the ground: x, y, height, presence
   grid: vec4f,     // the instances' origin cell i, j, cells per side, how far out a realm is drawn
   screens: array<vec4f, ${SCREENS * 2}>,  // per screen: foot xyz + width; height, facing yaw, light, unused
-  plazas: array<vec4f, ${PLAZAS}>,        // centre x, y, radius cleared, radius kept quiet
+  plazas: array<vec4f, ${PLAZAS * 2}>,    // per plaza: centre x, y, radius cleared, radius kept quiet; the avenue's far end x, y
   lit: array<vec4f, ${LIT}>,              // realms lit by the page: centre x, y, glow (<0: unused), blue
 }
 @group(0) @binding(0) var<uniform> scene: Scene;
@@ -152,13 +154,18 @@ fn seedOf(cell: vec2f) -> vec4f {
 // a cell outside them all needs no more looking at.
 struct Kept { gone: bool, listed: bool, quiet: bool, glow: f32, blue: f32 }
 
+// A plaza is a clearing round a realm the page shows, drawn out into an avenue toward where the camera
+// stands to look at it, so nothing stands between the camera and the screen.
 fn kept(centre: vec2f) -> Kept {
   var inside = false;
   var quiet = false;
   for (var k = 0; k < ${PLAZAS}; k++) {
-    let q = scene.plazas[k];
+    let q = scene.plazas[k * 2];
     if (q.z <= 0.0) { continue; }
-    let d = distance(q.xy, centre);
+    let a = scene.plazas[k * 2 + 1].xy;
+    let ab = a - q.xy;
+    let t = saturate(dot(centre - q.xy, ab) / max(dot(ab, ab), 1e-4));
+    let d = distance(centre, q.xy + ab * t);
     if (d < q.z) { inside = true; }
     if (d < q.w) { quiet = true; }
   }
@@ -224,8 +231,10 @@ fn doorSpill(centre: vec2f, glow: f32, p: vec3f, n: vec3f) -> f32 {
   return glow * ln.y * across * seen * max(dot(n, ln), 0.0) / (r2 + 0.05);
 }
 
-// A screen standing on the ground, giving off light from its face toward the camera that composed
-// it: the nearest point of its rectangle, falling off like a lit panel rather than a bulb.
+// A screen standing on the ground, giving off light from its face toward the camera that composed it.
+// The light leaves the whole face, so a point is lit from the face's middle height above the nearest
+// point across it (which lifts the ground at its foot, rather than grazing it), falling off like a lit
+// panel rather than a bulb.
 fn screenLight(p: vec3f, n: vec3f) -> vec3f {
   var e = vec3f(0.0);
   for (var k = 0; k < ${SCREENS}; k++) {
@@ -237,16 +246,15 @@ fn screenLight(p: vec3f, n: vec3f) -> vec3f {
     let rel = p - a.xyz;
     if (dot(rel, facing) <= 0.02) { continue; }
     let u = clamp(dot(rel, across), -a.w * 0.5, a.w * 0.5);
-    let v = clamp(p.z - a.z, 0.0, b.x);
-    let nearest = a.xyz + across * u + vec3f(0.0, 0.0, v);
-    let l = nearest - p;
+    let source = a.xyz + across * u + vec3f(0.0, 0.0, b.x * 0.5);
+    let l = source - p;
     let r2 = dot(l, l);
     let ln = l * inverseSqrt(max(r2, 1e-6));
     let emit = max(dot(facing, -ln), 0.0);
     let area = a.w * b.x;
-    e += SCREEN_LIGHT * b.z * area * max(dot(n, ln), 0.0) * (0.35 + 0.65 * emit) / (r2 * 3.2 + area * 0.9 + 0.4);
+    e += SCREEN_LIGHT * b.z * area * max(dot(n, ln), 0.0) * emit / (r2 * 3.0 + area * 0.6 + 0.5);
   }
-  return e;
+  return e * 0.16;
 }
 
 // A lamp held over the field where the pointer is.
@@ -433,7 +441,7 @@ fn fieldAverage() -> vec3f {
       }
     }
   }
-  let radiance = tone * (ambient + spill * 0.16 + POINTER_LIGHT * lamp(p, n) * 0.4) + tone * screenLight(p, n) + emit;
+  let radiance = tone * (ambient + spill * 0.16 + POINTER_LIGHT * lamp(p, n) * 0.4) + tone * screenLight(p, n) * 2.5 + emit;
   let d = distance(in.bent, scene.eye.xyz);
   let rd = (in.bent - scene.eye.xyz) / d;
   var color = finish(radiance, d, rd);
@@ -447,6 +455,24 @@ fn fieldAverage() -> vec3f {
 @vertex fn vs_sky(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
   var corners = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
   return vec4f(corners[vi], 0.0, 1.0);
+}
+
+// A confined space's boundary, drawn on the ground round its realm as a hairline of the accent's light:
+// a rounded square a little over a device pixel wide wherever it is seen from, and a faint wash
+// inside it, because what it bounds is the realm's own ground.
+fn boundary(p: vec3f, spot: f32) -> vec3f {
+  let f = scene.fence;
+  if (f.w <= 0.001) { return vec3f(0.0); }
+  let q = abs(p.xy - f.xy) - vec2f(f.z) + vec2f(0.6);
+  let sd = length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - 0.6;
+  let w = max(spot * 1.2, 0.01);
+  let line = 1.0 - smoothstep(0.0, w, abs(sd));
+  let inside = (1.0 - smoothstep(-0.3, 0.0, sd)) * 0.006;
+  return toLinear3(ACCENT_INK) * (line * 0.22 + inside) * f.w;
+}
+
+fn toLinear3(c: vec3f) -> vec3f {
+  return select(pow((c + 0.055) / 1.055, vec3f(2.4)), c / 12.92, c <= vec3f(0.04045));
 }
 
 // The ground between the realms: the page's own colour, darker close in to every realm's foot, and
@@ -488,9 +514,9 @@ fn ground(p: vec3f, detail: f32, here: vec2f, spot: f32) -> vec3f {
     }
   }
   let up = vec3f(0.0, 0.0, 1.0);
-  let near = PAGE_LINEAR * ao + spill * 0.13 + screenLight(p, up) * 0.5 + POINTER_LIGHT * lamp(p, up) * 0.03;
+  let near = PAGE_LINEAR * ao + spill * 0.13 + screenLight(p, up) + POINTER_LIGHT * lamp(p, up) * 0.03 + boundary(p, spot);
   let far = fieldAverage();
-  return mix(far, near, detail) + points * 0.55 * scene.field.y;
+  return mix(far, near, detail) + points * 0.4 * scene.field.y;
 }
 
 // Stars, few and faint, fixed to directions of the sky so they wheel with the camera: one chance of a
@@ -731,8 +757,10 @@ fn clearance(p: vec2f) -> f32 {
     let h = r.zw * 0.5;
     let d = sdRoundRect(p - r.xy - h, h, s.y);
     let inside = saturate(0.5 - d * dpr);
-    // The doorway's light while it opens, the page's colour under the picture once it is in.
-    let panel = mix(page, page + vec3f(0.80, 0.88, 1.0) * 0.9, s.w);
+    // The doorway's light opening out into the screen: the rect goes dark as it grows, with the light
+    // gathered at its edges like a frame being drawn open, and the picture fades in over the dark.
+    let rim = exp(max(d, -400.0) / 10.0) * 0.55 + exp(max(d, -400.0) / 46.0) * 0.12 + 0.03;
+    let panel = page + vec3f(0.74, 0.84, 1.0) * s.w * rim;
     color = mix(color, panel, inside * s.x);
     let out = max(d, 0.0);
     let halo = (exp(-out / 9.0) * 0.05 + exp(-out / 60.0) * 0.022) * max(s.z, s.w) * clear;

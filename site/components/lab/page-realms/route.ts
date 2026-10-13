@@ -20,21 +20,21 @@ export const OPENING = {
 }
 
 export const CHAPTERS: Record<string, Stop> = {
-  space: { at: [6, 30], yaw: 82, height: 2.3, distance: 7.2, focal: 1500, orbit: 7 },
-  spaces: { at: [-2, 46], yaw: 99, height: 2.5, distance: 7.6, focal: 1500, orbit: -7 },
-  transcript: { at: [8, 62], yaw: 81, height: 2.2, distance: 7.0, focal: 1500, orbit: 7 },
-  agents: { at: [0, 78], yaw: 100, height: 2.6, distance: 7.4, focal: 1500, orbit: -7 },
-  delegation: { at: [10, 94], yaw: 82, height: 2.3, distance: 7.2, focal: 1500, orbit: 7 },
-  gateway: { at: [2, 110], yaw: 98, height: 2.4, distance: 7.2, focal: 1500, orbit: -7 },
-  review: { at: [12, 126], yaw: 81, height: 2.3, distance: 7.0, focal: 1500, orbit: 7 },
-  sandbox: { at: [4, 142], yaw: 99, height: 2.5, distance: 7.4, focal: 1500, orbit: -7 },
-  durable: { at: [14, 158], yaw: 83, height: 2.4, distance: 7.6, focal: 1500, orbit: 6 },
+  space: { at: [6, 30], yaw: 82, height: 3.0, distance: 9.2, focal: 1700, orbit: 7 },
+  spaces: { at: [-2, 47], yaw: 99, height: 3.3, distance: 9.6, focal: 1700, orbit: -7 },
+  transcript: { at: [8, 64], yaw: 81, height: 2.9, distance: 9.0, focal: 1700, orbit: 7 },
+  agents: { at: [0, 81], yaw: 100, height: 3.4, distance: 9.4, focal: 1700, orbit: -7 },
+  delegation: { at: [10, 98], yaw: 82, height: 3.0, distance: 9.2, focal: 1700, orbit: 7 },
+  gateway: { at: [2, 115], yaw: 98, height: 3.2, distance: 9.2, focal: 1700, orbit: -7 },
+  review: { at: [12, 132], yaw: 81, height: 3.0, distance: 9.0, focal: 1700, orbit: 7 },
+  sandbox: { at: [4, 149], yaw: 99, height: 3.6, distance: 9.8, focal: 1700, orbit: -6 },
+  durable: { at: [14, 166], yaw: 83, height: 3.1, distance: 9.6, focal: 1700, orbit: 6 },
 }
 
 /** The team's four realms, as lattice steps from the cell nearest `at`: two in front, two behind
  *  and between them, so every doorway faces the camera with nothing in front of it. */
 export const TEAM = {
-  at: [8, 176] as const,
+  at: [8, 184] as const,
   cells: [
     [0, 0],
     [1, 1],
@@ -42,16 +42,17 @@ export const TEAM = {
     [0, 1],
   ] as const,
   yaw: 92,
-  height: 4.2,
-  distance: 15,
+  height: 3.6,
+  /** How much wider than the four realms the camera frames the slot. */
+  frame: 1.0,
   focal: 1500,
   orbit: 6,
 }
 
 /** The climb: two calm stops over the field, higher each time, before the planet. */
 export const CLIMB: Record<string, { at: readonly [number, number]; yaw: number; height: number; pitch: number; focal: number }> = {
-  facts: { at: [9, 190], yaw: 92, height: 15, pitch: -22, focal: 1500 },
-  faq: { at: [10, 200], yaw: 92, height: 46, pitch: -38, focal: 1500 },
+  facts: { at: [9, 196], yaw: 92, height: 15, pitch: -22, focal: 1500 },
+  faq: { at: [10, 206], yaw: 92, height: 46, pitch: -38, focal: 1500 },
 }
 
 /** Orbit, at a third of the planet's radius up. */

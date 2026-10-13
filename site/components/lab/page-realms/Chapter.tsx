@@ -42,7 +42,7 @@ export function Chapter({
   return (
     <section aria-labelledby={`${id}-title`} className="relative">
       <div
-        className={`mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-10 px-6 py-24 sm:px-10 lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0 ${tall ? "lg:min-h-[190vh]" : "lg:min-h-[150vh]"}`}
+        className={`mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-10 px-6 py-24 sm:px-10 lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0 ${tall ? "lg:min-h-[175vh]" : "lg:min-h-[135vh]"}`}
       >
         <div data-lab-anchor={`k:${id}`} className={`relative z-[2] min-w-0 lg:row-start-1 ${textCols}`}>
           <h2 id={`${id}-title`} className="text-[clamp(1.9rem,2.9vw,2.6rem)] leading-[1.06] font-[580] tracking-[-0.04em] text-balance text-ink">

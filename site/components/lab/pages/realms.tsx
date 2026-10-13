@@ -4,6 +4,7 @@ import { AgentMark, type AgentId } from "@/components/AgentMark"
 import { DownloadButton, QuietButton } from "@/components/Buttons"
 import { Actions, Announcement, Lede, ProductWindow } from "@/components/lab/HeroParts"
 import { GitHubIcon, GlobeIcon, LinkedInIcon, XIcon } from "@/components/icons"
+import { FIELD_PATTERN, TILE } from "@/components/lab/hive/fallback"
 import { Chapter } from "@/components/lab/page-realms/Chapter"
 import { Flight } from "@/components/lab/page-realms/Flight"
 import { Team } from "@/components/lab/page-realms/Team"
@@ -86,7 +87,16 @@ export default async function Realms({ download, claims }: PageDesignProps) {
               <Actions download={download} className="mt-7" center />
             </div>
           </div>
-          <ProductWindow className="mx-auto mt-[clamp(3.5rem,calc(100dvh-50rem),7rem)] w-full max-w-[76rem] px-4 sm:px-10" />
+          <div className="relative mt-[clamp(3.5rem,calc(100dvh-50rem),7rem)]">
+            {/* Without WebGPU, the field as the Hive draws it still: the same realms in the same light,
+                hazing out toward the words and gone before the section ends. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 -top-28 bottom-[-4rem] -z-10 hidden [mask-image:linear-gradient(to_bottom,transparent,rgb(0_0_0/0.55)_8rem,black_18rem,black_calc(100%-10rem),transparent)] [html[data-lab-field=off]_&]:block"
+              style={{ backgroundImage: FIELD_PATTERN, backgroundSize: `${TILE.width}px ${TILE.height}px`, backgroundPosition: "center top" }}
+            />
+            <ProductWindow className="mx-auto w-full max-w-[76rem] px-4 sm:px-10 [html[data-lab-field=off]_&]:bg-page [html[data-lab-field=off]_&]:shadow-[0_0_40px_24px_var(--color-page)]" />
+          </div>
         </section>
 
         <Chapter
@@ -207,7 +217,8 @@ export default async function Realms({ download, claims }: PageDesignProps) {
         </section>
 
         {/* Orbit: the planet's edge low in the view and the sun coming up on it, under the call. */}
-        <section aria-labelledby="finale-title" className="relative">
+        <section aria-labelledby="finale-title" className="relative overflow-x-clip">
+          <FallbackPlanet />
           <div className="mx-auto flex w-full max-w-[92rem] flex-col items-center px-6 pt-40 pb-[46vh] text-center sm:px-10 lg:min-h-[150vh] lg:justify-center lg:pt-0">
             <div data-lab-anchor="k:finale" className="relative z-[2] flex flex-col items-center">
               <h2 id="finale-title" className="max-w-[16ch] text-[clamp(2.4rem,5vw,4.25rem)] leading-[1] font-[580] tracking-[-0.05em] text-balance text-ink">
@@ -232,6 +243,21 @@ export default async function Realms({ download, claims }: PageDesignProps) {
       </main>
 
       <Foot href={download.href} />
+    </div>
+  )
+}
+
+/**
+ * Without WebGPU: the planet's edge drawn by the stylesheet, as the World concept draws it — a
+ * planet-sized circle of the night side's colour with the air as a blue edge and the sunrise a short
+ * white stretch of it, placed under the call.
+ */
+function FallbackPlanet() {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[62%] bottom-0 hidden overflow-hidden [html[data-lab-field=off]_&]:block">
+      <div className="absolute top-10 left-1/2 aspect-square w-[300vw] -translate-x-1/2 rounded-full bg-[oklch(0.165_0.004_264)] shadow-[0_0_0_1px_oklch(0.79_0.11_248/0.5),0_-3px_16px_-2px_oklch(0.68_0.173_253.3/0.5),0_-12px_60px_-8px_oklch(0.68_0.173_253.3/0.22)]">
+        <div className="absolute top-0 left-[52%] h-[3px] w-[4%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,oklch(0.99_0.01_250),oklch(0.86_0.07_250/0.7)_45%,transparent)]" />
+      </div>
     </div>
   )
 }
