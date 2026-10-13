@@ -1,18 +1,17 @@
 /**
- * What the page tells the studio light beyond the rects it reads for itself: where the key light is
- * aimed, where the floor is, and a bright part of the window's face. The camera writes it as it moves;
- * the light reads it every frame. Where nothing has been written (a phone, reduced motion), the light
- * aims at the first lit object it finds.
+ * What the page tells the studio light beyond the rects it reads for itself: where the key light
+ * hangs, where the floor is, and where the words' side of the stage falls into the dark. The camera
+ * writes it as it moves; the light reads it every frame. Where nothing has been written (a phone,
+ * reduced motion), the light hangs above the first lit object it finds.
  */
 export type Rect = readonly [number, number, number, number]
 
 export const studioScene: {
   key: readonly [number, number, number, number] | null
   floor: number | null
-  hot: { rect: Rect; light: number } | null
   /** Where the words' side of the stage begins to fall into the dark, and where the light is whole. */
   dark: readonly [number, number] | null
-} = { key: null, floor: null, hot: null, dark: null }
+} = { key: null, floor: null, dark: null }
 
 /**
  * Run at the start of every frame the light draws, before it reads a single rect: the camera moves the

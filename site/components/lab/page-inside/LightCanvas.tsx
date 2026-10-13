@@ -113,7 +113,6 @@ export function LightCanvas() {
         floor,
         objects,
         words: words.slice(0, 3),
-        hot: studioScene.hot,
         dark: studioScene.dark,
       }
     }

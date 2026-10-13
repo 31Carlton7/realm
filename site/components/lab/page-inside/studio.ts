@@ -47,13 +47,11 @@ struct Studio {
   pointer: vec4f,  // x, y (CSS px), presence 0..1, device px per CSS px
   key: vec4f,      // the point the key light is aimed at (CSS px), its reach (CSS px), its strength
   floor: vec4f,    // the floor line (CSS px), unused, unused, unused
-  counts: vec4f,   // lit objects, word blocks, bright regions, unused
+  counts: vec4f,   // lit objects, word blocks, unused, unused
   objs: array<vec4f, ${MAX_OBJECTS}>,   // each lit object's rect: left, top, width, height
   looks: array<vec4f, ${MAX_OBJECTS}>,  // its corner radius (CSS px), how lit it is 0..1, its face's light, flags: 1 squircle, 2 no rim
   words: array<vec4f, ${MAX_WORDS}>,    // text no light with area may reach
   pads: vec4f,                          // how far outside each text block the light takes to return (CSS px)
-  hot: vec4f,                           // a bright region on the main object's face (rect), for its reflection
-  hotLight: vec4f,                      // that region's light, unused...
   dark: vec4f,                          // the words' side of the stage: dark left of x, light whole right of y; z > 0 when in use
 }
 @group(0) @binding(0) var<uniform> studio: Studio;
@@ -208,13 +206,7 @@ fn wordsBound(p: vec2f) -> f32 {
       let mn = edgeNormal(m, half, look.x);
       let mFacing = dot(mn, normalize(keyAt - (centre + m)));
       let mirroredRim = exp(-abs(sdm) / (blur * 0.6 + 0.6)) * smoothstep(-0.05, 1.0, mFacing) * select(0.0, 0.5, rimmed);
-      var reflected = cover * look.z * 0.12 + mirroredRim * 0.06;
-      if (i == 0 && studio.hotLight.x > 0.0) {
-        let h = studio.hot;
-        let hm = vec2f(p.x, bottom - below) - h.xy - h.zw * 0.5;
-        let hc = 1.0 - smoothstep(-blur, blur, sdBox(hm, h.zw * 0.5));
-        reflected += hc * studio.hotLight.x * 0.12;
-      }
+      let reflected = cover * look.z * 0.12 + mirroredRim * 0.06;
       light += mix(KEY, SCREEN, 0.6) * reflected * fade * lit;
       // Occlusion where the floor meets the object, outside its reflection: round its two ends, and
       // gone a short way beyond them, so the floor line is never drawn across the page.
@@ -249,7 +241,6 @@ export type StudioInput = {
   floor: number
   objects: { rect: readonly [number, number, number, number]; radius: number; lit: number; face: number; squircle?: boolean; rim?: boolean }[]
   words: { rect: readonly [number, number, number, number]; pad: number }[]
-  hot: { rect: readonly [number, number, number, number]; light: number } | null
   dark: readonly [number, number] | null
 }
 
@@ -270,8 +261,6 @@ export function createStudio(gpu: Gpu, output: Surface) {
         looks: Array.from({ length: MAX_OBJECTS }, () => ZERO),
         words: Array.from({ length: MAX_WORDS }, () => ZERO),
         pads: ZERO,
-        hot: ZERO,
-        hotLight: ZERO,
         dark: ZERO,
       },
     },
@@ -294,7 +283,7 @@ export function createStudio(gpu: Gpu, output: Surface) {
         pointer: [input.pointer[0], input.pointer[1], input.pointer[2], input.dpr] as Vec4,
         key: [...input.key] as Vec4,
         floor: [input.floor, 0, 0, 0] as Vec4,
-        counts: [objects.length, words.length, input.hot ? 1 : 0, 0] as Vec4,
+        counts: [objects.length, words.length, 0, 0] as Vec4,
         objs: Array.from({ length: MAX_OBJECTS }, (_, i) => (objects[i] ? ([...objects[i]!.rect] as Vec4) : ZERO)),
         looks: Array.from({ length: MAX_OBJECTS }, (_, i) => {
           const o = objects[i]
@@ -302,8 +291,6 @@ export function createStudio(gpu: Gpu, output: Surface) {
         }),
         words: Array.from({ length: MAX_WORDS }, (_, i) => (words[i] ? ([...words[i]!.rect] as Vec4) : ZERO)),
         pads: Array.from({ length: 4 }, (_, i) => words[i]?.pad ?? 1) as Vec4,
-        hot: input.hot ? ([...input.hot.rect] as Vec4) : ZERO,
-        hotLight: [input.hot?.light ?? 0, 0, 0, 0] as Vec4,
         dark: (input.dark ? [input.dark[0], input.dark[1], 1, 0] : ZERO) as Vec4,
       }
       // The light holds still unless something it reads has moved; the time only feeds the grain.

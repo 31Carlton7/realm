@@ -144,7 +144,7 @@ export function Relay() {
 
           <div className="mt-10">
             <h3 className="flex items-center gap-2.5 text-[14px] text-ink">
-              Review
+              Review{" "}
               {waiting.length ? (
                 <span className="flex items-center gap-1.5 text-[13px] text-orange">
                   <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-orange" />

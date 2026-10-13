@@ -5,8 +5,8 @@
  * centre of the set (the lit area the camera frames into) and how much of the window's width spans the
  * set. A pose is the same thing as the transform the window is drawn with. Moving between two views
  * follows van Wijk and Nuij's path ("Smooth and efficient zooming and panning", 2003, the curve
- * d3-zoom uses): a long move pulls back while it travels and pushes in as it arrives, the way a
- * camera operator would rather than a straight slide.
+ * d3-zoom uses): a long move eases back a little while it travels and pushes in as it arrives, the
+ * way a camera operator would rather than a straight slide.
  */
 
 export type Box = { x: number; y: number; w: number; h: number }
@@ -46,7 +46,9 @@ export function frame(focus: Box, set: Box, max: number, fill = 0.86): View {
   return { cx: focus.x + focus.w / 2, cy: focus.y + focus.h / 2, w: set.w / s }
 }
 
-const RHO = 1.1
+/** How far a long move pulls back while it travels: van Wijk and Nuij's ρ, lowered from d3's √2 so a
+ *  move between two close-ups is a gentle arc and a push-in never starts by backing away. */
+const RHO = 0.7
 const RHO2 = RHO * RHO
 
 /** The path from view a to view b, as a function of 0..1. */

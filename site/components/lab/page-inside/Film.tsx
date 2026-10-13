@@ -22,14 +22,14 @@ export const FILM_QUERY = "(min-width: 1024px) and (prefers-reduced-motion: no-p
 
 /* How far the reader scrolls for each part of the tour, in viewport heights. */
 const INTRO = 0.18
-const PUSH = 0.8
-const MOVE = 0.44
-const HOLD = 0.52
-const SUB_MOVE = 0.32
-const SUB_HOLD = 0.44
-const JOIN = 0.64
-const STILL = 0.46
-const OUTRO = 0.34
+const PUSH = 0.78
+const MOVE = 0.4
+const HOLD = 0.44
+const SUB_MOVE = 0.3
+const SUB_HOLD = 0.38
+const JOIN = 0.54
+const STILL = 0.42
+const OUTRO = 0.3
 
 type Flat = Beat & { chapter: number; first: boolean; at: number }
 
@@ -340,7 +340,6 @@ export function Film({ download, claims }: { download: MacDownload; claims: Prov
       // moves under it as the camera does; the floor is wherever the window (or the strip) stands.
       studioScene.key = stripOn ? [keyX, -g.vh * 0.3, g.vh * 1.15, 1] : [set.x + set.w * 0.62, -g.vh * 0.32, g.vh * 1.2, 1]
       studioScene.floor = stripOn ? g.cy + g.Fh / 2 : pose.ty + pose.s * WINDOW.height
-      studioScene.hot = null
       studioScene.dark = g.dark
 
       // The callout: from the end of the chapter's title to the part of the window it is about.
@@ -449,7 +448,6 @@ export function Film({ download, claims }: { download: MacDownload; claims: Prov
       window.clearTimeout(rest)
       studioScene.key = null
       studioScene.floor = null
-      studioScene.hot = null
       studioScene.dark = null
       remeasure.current = () => {}
       rig.style.transform = ""
@@ -750,7 +748,7 @@ function Timeline({ playheadRef, current }: { playheadRef: React.RefObject<HTMLS
         <span className="text-ink-2" aria-live="polite">
           {current}
         </span>
-        <a href="#after-film" className="text-ink-3 transition-colors hover:text-ink">
+        <a href="#after-film" className="text-ink-2 transition-colors hover:text-ink">
           Skip the tour
         </a>
       </div>

@@ -72,6 +72,11 @@
   inset: 0;
 }
 
+/* The window clips what is in it, so a focus ring is drawn inside a control's own edge. */
+.frame :focus-visible {
+  outline-offset: -2px;
+}
+
 /* The one-pixel outline every capture and the sample wear, drawn over what they show. */
 .edge {
   position: absolute;
@@ -418,5 +423,29 @@
     right: max(40px, calc((100vw - 1680px) / 2 + 40px));
     height: auto;
     margin: 0;
+  }
+}
+
+/* A chapter's capture where the tour does not run: a phone's cut, and a wider one from 640px. The
+   picture inside is placed by the same four numbers either way. */
+.crop {
+  aspect-ratio: var(--ar-n);
+}
+
+.crop img {
+  width: var(--iw-n);
+  left: var(--il-n);
+  top: var(--it-n);
+}
+
+@media (min-width: 640px) {
+  .crop {
+    aspect-ratio: var(--ar-w);
+  }
+
+  .crop img {
+    width: var(--iw-w);
+    left: var(--il-w);
+    top: var(--it-w);
   }
 }
