@@ -783,13 +783,17 @@ export const createRealms: StageFactory = async (gpu, output) => {
             panels.push([left, top, w, h], [1, corner * w, pictureOn, 0])
             plates.push([left, top, w, h], [corner * w, smooth(pictureOn / 0.35), 0, 0])
           }
-          // The light from the doorway to the screen, as it opens out and while it is there.
-          const reach = Math.max(opening, pictureOn)
+          // The light from the doorway to the screen: reaching out ahead of the picture as the reader
+          // arrives, and going back into the doorway with the picture as they leave.
+          const leaving = now.at.from === index && now.at.to !== index
+          const reach = leaving ? pictureOn : Math.max(opening, pictureOn)
           if (reach > 0.001 && z > 0.6) {
-            const e = smoother(opening / 0.6)
+            const e = smoother((leaving ? pictureOn : opening) / 0.6)
             const mid = mix3(mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25), screenMid, Math.max(e, 0.04))
             const half: [number, number] = [lerp(0.2, W * 0.48, e), lerp(0.4, H * 0.48, e)]
-            beamsNow.push({ door, mid, half, light: 0.42 + 0.7 * (1 - pictureOn) * smooth(opening), moment: index * 0.37, reach, hidden: pictureOn > 0.995 ? [left, top, w, h] : null })
+            // A little brighter while it is reaching out for a picture that has not arrived yet.
+            const ahead = leaving ? 0 : 0.7 * (1 - pictureOn) * smooth(opening)
+            beamsNow.push({ door, mid, half, light: 0.42 + ahead, moment: index * 0.37, reach, hidden: pictureOn > 0.995 ? [left, top, w, h] : null })
           }
         } else {
           // In the slot: the screen is where the layout put it, and its light is read from there.
