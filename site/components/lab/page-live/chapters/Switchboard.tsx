@@ -138,7 +138,7 @@ export function Switchboard() {
                     {h === "acp" ? (
                       <span>
                         Agent Client Protocol
-                        <span className="mt-1.5 block text-[12px] text-ink-2">one adapter, seven agents</span>
+                        <span className="mt-1.5 block text-[12px] text-ink-2">one adapter they share</span>
                       </span>
                     ) : (
                       HARNESS[h].short

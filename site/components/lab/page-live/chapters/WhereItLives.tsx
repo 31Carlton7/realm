@@ -85,7 +85,7 @@ export function WhereItLives() {
             <span className="text-[12px] text-ink-2">no account, nothing uploaded</span>
           </p>
 
-          <Block part="realm" hot={hot} hover={hover("realm")} title="~/Realm" mono note="Files and a SQLite database on disk. Nothing here leaves." className="md:col-start-1 md:row-span-2 md:row-start-2">
+          <Block part="realm" hot={hot} hover={hover("realm")} title="~/Realm" mono note="Files and a SQLite database on disk. Realm uploads none of it." className="md:col-start-1 md:row-span-2 md:row-start-2">
             <ul className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[12.5px] text-ink-2">
               <li>Transcripts</li>
               <li>Documents</li>

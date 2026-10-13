@@ -34,12 +34,12 @@ type Node = {
  * every report back to the agent that asked.
  */
 const NODES: Node[] = [
-  { id: "lead", level: 0, x: 0.5, parent: null, agent: "claude", model: "Opus 5.5", task: "Dark mode, end to end", grows: [0, 0], reports: [1, 1] },
-  { id: "luna", level: 1, x: 0.16, parent: "lead", agent: "openai", model: "GPT-6 Luna", task: "The toggle and its tests", grows: [0.04, 0.17], reports: [0.82, 0.93] },
-  { id: "fable", level: 1, x: 0.5, parent: "lead", agent: "claude", model: "Fable 5.1", task: "Storing the choice", grows: [0.25, 0.38], reports: [0.84, 0.95] },
-  { id: "sonnet", level: 1, x: 0.84, parent: "lead", agent: "claude", model: "Sonnet 5", task: "The settings copy", grows: [0.25, 0.38], reports: [0.8, 0.91] },
-  { id: "haiku", level: 2, x: 0.36, parent: "fable", agent: "claude", model: "Haiku 4.5", task: "The migration's fixtures", grows: [0.47, 0.57], reports: [0.71, 0.8] },
-  { id: "luna2", level: 2, x: 0.64, parent: "fable", agent: "openai", model: "GPT-6 Luna", task: "The schema check", grows: [0.47, 0.57], reports: [0.73, 0.82] },
+  { id: "lead", level: 0, x: 0.42, parent: null, agent: "claude", model: "Opus 5.5", task: "Dark mode, end to end", grows: [0, 0], reports: [1, 1] },
+  { id: "luna", level: 1, x: 0.1, parent: "lead", agent: "openai", model: "GPT-6 Luna", task: "The toggle and its tests", grows: [0.04, 0.17], reports: [0.82, 0.93] },
+  { id: "fable", level: 1, x: 0.42, parent: "lead", agent: "claude", model: "Fable 5.1", task: "Storing the choice", grows: [0.25, 0.38], reports: [0.84, 0.95] },
+  { id: "sonnet", level: 1, x: 0.74, parent: "lead", agent: "claude", model: "Sonnet 5", task: "The settings copy", grows: [0.25, 0.38], reports: [0.8, 0.91] },
+  { id: "haiku", level: 2, x: 0.29, parent: "fable", agent: "claude", model: "Haiku 4.5", task: "The migration's fixtures", grows: [0.47, 0.57], reports: [0.71, 0.8] },
+  { id: "luna2", level: 2, x: 0.55, parent: "fable", agent: "openai", model: "GPT-6 Luna", task: "The schema check", grows: [0.47, 0.57], reports: [0.73, 0.82] },
 ]
 /** The third level, refused: out of a level-two node, into the boundary, and no further. */
 const REFUSED = { from: "luna2", grows: [0.59, 0.66] as [number, number] }
@@ -202,15 +202,17 @@ function Tree({ progress: p }: { progress: number }) {
       {NODES.map((n) => {
         if (!shown(n)) return null
         const [x, y] = at(n)
-        const below = n.level > 0
+        // Beside its node on a wide drawing, so a branch leaving the node never crosses its own name;
+        // under it on a narrow one. Either way the words are cut out of whatever line runs behind them.
+        const below = narrow && n.level > 0
         return (
           <div key={n.id}>
             <span aria-hidden style={{ left: x, top: y }} className="absolute grid size-[26px] -translate-x-1/2 -translate-y-1/2 place-items-center text-ink">
               <AgentMark id={n.agent} className="size-3.5" />
             </span>
             <div
-              style={below ? { left: x, top: y + 20 } : { left: x + 26, top: y }}
-              className={`absolute w-max max-w-[11rem] ${below ? "-translate-x-1/2 text-center" : "-translate-y-1/2 text-left"}`}
+              style={below ? { left: x, top: y + 18 } : { left: x + 20, top: y }}
+              className={`absolute w-max max-w-[11rem] bg-page py-0.5 ${below ? "-translate-x-1/2 px-1 text-center" : "-translate-y-1/2 px-1.5 text-left"}`}
             >
               <p className={`flex items-center gap-1 text-[12.5px] leading-[1.35] text-ink ${below ? "justify-center" : ""}`}>
                 {n.model}
