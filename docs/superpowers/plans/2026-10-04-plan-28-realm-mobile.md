@@ -2,11 +2,11 @@
 
 > Numbered 28: 27 (the sidebar) is the highest on any branch. Renumber on landing if it collides.
 
-> **Status (2026-10-12): Phases 1 and 2 are done on `feat/mobile`, apart from one Phase 2 check.**
-> The Needs-you parity live check has not been run. The four decisions below were answered by the
+> **Status (2026-10-12): Phases 1 and 2 are done.** The four decisions below were answered by the
 > owner on 2026-10-04. Build 1 is on TestFlight from Xcode Cloud, and a push decrypted on the owner's
-> iPhone. "Phase 1 results" and "Phase 2 so far" under Phases have the numbers; "Phase 2 results"
-> scores the pass marks.
+> iPhone. The phone's Needs you is the sidebar's own rule, shared as `@realm/view`, and a live check
+> holds the two lists to each other. "Phase 1 results" and "Phase 2 so far" under Phases have the
+> numbers; "Phase 2 results" scores the pass marks.
 
 ## What it is for
 
@@ -736,10 +736,24 @@ what the relay sees of a sleeping Mac or a pulled network.
 
 | Pass mark | Result |
 |---|---|
-| The phone's Needs you matches the desktop's for the same scratch data | **Not yet checked.** No live check compares the two lists. |
+| The phone's Needs you matches the desktop's for the same scratch data | **Met.** `needsYou()` moved to `@realm/view`, and `home.get` runs it on the lists the sidebar is seeded from. `needs-you-live.mjs` drives 14 sessions through every state the rule decides on, reads the window's list off its DOM and the phone's from `home.get`: the same 6 rows in the same order. A server that drops the quick chat's id fails it, and so does the phone's old copy of the rule, which listed the quick chat and a sub-agent under a listed lead and missed a failure nobody had opened. |
 | Every event kind renders, or says "Open this on your Mac" | **Met** in the iPhone branch's hosted tests: each row is drawn and read back with Vision. An unknown kind says "Open this on your Mac". |
 | Remove cuts a phone off within a second | **Met** in `mobile-server-live`: the removed phone is refused at once (4403). The Mac also drops it itself through a relay that never hears of the removal. Not separately timed. |
 | A push decrypts on the TestFlight build | **Met.** Build 1 came from Xcode Cloud, and APNs production answered 200. The owner's locked iPhone showed "Fix the flaky test", decrypted on the device. |
+
+**What the desktop shows, carried to the phone (2026-10-12).** All of it is additions to `mobile.v1`
+(PROTOCOL.md §8, with what each new call exposes):
+
+- questions read from Realm's own ask card, with their keys, kinds, multi-select, words of your own
+  and secrets, answered in the desktop's shape;
+- the plan on an approval, and the hint as `session.open`'s `hint` and a `session.hint` event;
+- the agent's and model's names (`modelLabel`, also in `@realm/view`), and what a space's icon is,
+  with `space.icon` for a picture;
+- `session.changes` and `session.diff`, a turn's files and a file's diff in pages under 256 KB;
+- `session.file`, a preview of a file the session made and of nothing else.
+
+Not done: the vectors for agent marks and Hugeicons glyphs (the phone has the names only), and
+Build mode after a plan is approved from the phone.
 
 ### Phase 3 — Answer
 
