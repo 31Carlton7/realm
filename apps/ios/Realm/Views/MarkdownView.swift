@@ -169,7 +169,7 @@ private struct CodeBlockView: View {
             .padding(.top, 1)
             .padding(.trailing, 2)
             .accessibilityLabel(copied ? "Copied" : "Copy code")
-            .sensoryFeedback(.success, trigger: copied) { _, new in new }
+            .sensoryFeedback(.impact(weight: .light), trigger: copied) { _, new in new }
             .task(id: copied) {
                 guard copied else { return }
                 try? await Task.sleep(for: .seconds(2))

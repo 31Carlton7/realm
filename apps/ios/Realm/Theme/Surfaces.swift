@@ -1,4 +1,3 @@
-import RealmKit
 import SwiftUI
 import UIKit
 
@@ -7,8 +6,6 @@ import UIKit
 /// rung that reads as a card there, and a well inside it stays concentric: the card's radius is the
 /// well's plus the padding between them.
 enum Radius {
-    /// Inline code and other marks inside a line.
-    static let chip: CGFloat = 6
     /// A well inside a card: a command, a tool's output.
     static let well: CGFloat = 8
     /// The padding between a card's edge and a well inside it.
@@ -137,26 +134,5 @@ enum Tone {
         case .failed: Palette.red
         case .done: Palette.green
         }
-    }
-}
-
-extension SessionStatus {
-    var tone: Tone {
-        switch self {
-        case .running: .working
-        case .waiting: .waiting
-        case .error: .failed
-        case .idle, .ended, .other: .quiet
-        }
-    }
-}
-
-/// Motion: a critically damped spring for whatever arrives or changes, and nothing at all under
-/// Reduce Motion, where the change simply lands.
-enum Motion {
-    static let spring = Animation.smooth(duration: 0.35)
-
-    static func animation(_ reduceMotion: Bool) -> Animation? {
-        reduceMotion ? nil : spring
     }
 }

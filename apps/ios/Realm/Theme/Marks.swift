@@ -21,6 +21,24 @@ enum Marks {
         "fake": "bot",
     ]
 
+    /// Every agent mark the catalog holds, by the name the Mac sends as a session's `agentMark`.
+    static let agentIcons: Set<String> = [
+        "bot",
+        "caduceus",
+        "claude",
+        "cursor",
+        "deepseek",
+        "fx",
+        "gemini",
+        "githubCopilot",
+        "goose",
+        "grok",
+        "openai",
+        "opencode",
+        "openhands",
+        "qwen",
+    ]
+
     /// The one colour a vendor draws its mark in, where the agent's identity is the point.
     static let agentColors: [String: String] = [
         "claude": "#D97757",

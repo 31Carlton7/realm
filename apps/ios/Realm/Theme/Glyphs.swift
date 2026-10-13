@@ -1,102 +1,115 @@
 import RealmKit
 import SwiftUI
 
-/// A session's status as a glyph whose SHAPE says it, in its tone: a hand that waits on you, a
-/// triangle that failed, an indicator that runs, and for an idle session the Mac's quiet dot. It
-/// always sits beside the status's word, which is what VoiceOver reads, so the glyph itself is
-/// silent. Every status takes one column's width, so the words after it line up down a list.
-struct StatusGlyph: View {
-    let status: SessionStatus
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .subheadline) private var column: CGFloat = 20
-    @ScaledMetric(relativeTo: .subheadline) private var dot: CGFloat = 7
+extension View {
+    /// A glyph that says work began: its segments light a few times in turn, then it holds its still
+    /// form, which says the same thing (design.md ▸ Motion). It plays again when the state is drawn
+    /// anew, and not at all under Reduce Motion.
+    func restingPulse(when active: Bool) -> some View {
+        modifier(RestingPulse(active: active))
+    }
+}
 
-    var body: some View {
-        Group {
-            if status == .idle {
-                Circle()
-                    .fill(Palette.ink3)
-                    .frame(width: dot, height: dot)
-            } else {
-                Image(systemName: Self.symbol(status))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(status.tone.color)
-                    // A run is live work, the one state worth motion. It holds still under Reduce Motion.
-                    .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeat(.continuous),
-                                  isActive: status == .running && !reduceMotion)
-                    .contentTransition(.symbolEffect(.replace))
-            }
+private struct RestingPulse: ViewModifier {
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var plays = 0
+
+    func body(content: Content) -> some View {
+        content
+            .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeat(3), value: plays)
+            .onAppear { if active && !reduceMotion { plays += 1 } }
+            .onChange(of: active) { _, now in if now && !reduceMotion { plays += 1 } }
+    }
+}
+
+/// How the link to the Mac looks beside its words: a shape for each state, and a tone that is only
+/// ever a state's — green connected, red where something failed, quiet otherwise.
+extension LinkStatus.Kind {
+    var glyph: String {
+        switch self {
+        case .connected: "circle.fill"
+        case .connecting: "circle.dotted"
+        case .asleep: "moon.fill"
+        case .notAnswering: "laptopcomputer.trianglebadge.exclamationmark"
+        case .relayUnreachable: "wifi.exclamationmark"
+        case .refused: "xmark.octagon.fill"
+        case .notConnected: "pause.circle.fill"
         }
-        .frame(width: column)
-        .accessibilityHidden(true)
     }
 
-    static func symbol(_ status: SessionStatus) -> String {
-        switch status {
-        case .running: "progress.indicator"
-        case .waiting: "hand.raised.fill"
-        case .error: "exclamationmark.triangle.fill"
-        // The Mac's idle dot: nothing is happening, and nothing needs saying louder.
-        case .idle: "circle.fill"
-        case .ended: "stop.circle"
-        case .other: "questionmark.circle"
+    var tone: Tone {
+        switch self {
+        case .connected: .done
+        case .notAnswering, .relayUnreachable, .refused: .failed
+        case .connecting, .asleep, .notConnected: .quiet
         }
     }
 }
 
 /// An agent's mark, as the Mac's model chip draws it: the vendor's own glyph, in the ink of the text
-/// beside it, or in the vendor's colour where the agent's identity is the point. An agent with no
-/// mark on file draws nothing: a guessed mark would name the wrong vendor, and its name is beside it.
+/// beside it, or in the vendor's colour where the agent's identity is the point. The mark is the one
+/// the Mac names for the session (`agentMark`), else the one this app's table has for its kind. An
+/// agent with no mark on file draws nothing: a guessed mark would name the wrong vendor, and its name
+/// is beside it.
 struct AgentMark: View {
-    /// The agent's kind, as a session names it (`claude`, `codex`, `acp:gemini`).
-    let kind: String
+    let icon: String?
     var colored = false
     @ScaledMetric private var size: CGFloat
 
-    init(kind: String, colored: Bool = false, size: CGFloat = 15, relativeTo style: Font.TextStyle = .subheadline) {
-        self.kind = kind
+    init(kind: String, mark: String? = nil, colored: Bool = false, size: CGFloat = 15, relativeTo style: Font.TextStyle = .subheadline) {
+        icon = Self.icon(kind: kind, mark: mark)
         self.colored = colored
         _size = ScaledMetric(wrappedValue: size, relativeTo: style)
     }
 
+    /// The catalog's name for an agent's mark: the Mac's when it sent one the catalog holds.
+    static func icon(kind: String, mark: String?) -> String? {
+        if let mark, Marks.agentIcons.contains(mark) { return mark }
+        return Marks.agents[kind]
+    }
+
     /// The asset that draws an agent's mark, if one is on file.
-    static func asset(for kind: String) -> String? {
-        Marks.agents[kind].map { "Agents/\($0)" }
+    static func asset(kind: String, mark: String? = nil) -> String? {
+        icon(kind: kind, mark: mark).map { "Agents/\($0)" }
     }
 
     var body: some View {
-        if let asset = Self.asset(for: kind) {
-            let image = Image(asset)
+        if let icon {
+            let image = Image("Agents/\(icon)")
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
-            if let vendorColor {
-                image.foregroundStyle(vendorColor)
+            if colored, let hex = Marks.agentColors[icon], let vendor = Color(hex: hex) {
+                image.foregroundStyle(vendor)
             } else {
                 image
             }
         }
     }
-
-    /// The vendor's own colour, asked for and declared; otherwise the mark takes the text's ink.
-    private var vendorColor: Color? {
-        guard colored, let icon = Marks.agents[kind], let hex = Marks.agentColors[icon] else { return nil }
-        return Color(hex: hex)
-    }
 }
 
-/// What a space's icon is, read as the desktop reads it (`parseSpaceIcon` in presets.ts): an emoji, a
-/// picture made for it, or one of the picker's glyphs — a bare name included, since that is every
-/// icon stored before the prefixes existed. A glyph this phone does not have falls back to the folder,
-/// as the desktop's does.
+/// What a space's icon is, read as the desktop reads it: one of the picker's glyphs, an emoji, or a
+/// picture made for it. A Mac that says which (`iconKind`) is taken at its word; for one that sends only
+/// the stored string, the string is parsed as `parseSpaceIcon` in presets.ts does — a bare name is a
+/// glyph, since that is every icon stored before the prefixes existed. A glyph this phone does not
+/// have falls back to the folder, as the desktop's does.
 enum SpaceIcon: Equatable {
     case glyph(String)
     case emoji(String)
-    /// A picture generated or uploaded for the space. The phone has no copy of it yet, so it wears the
-    /// folder glyph in the space's colour.
-    case picture(id: String)
+    /// The person's own picture, which `space.icon` sends.
+    case picture
+
+    init(space: Space) {
+        switch space.iconKind {
+        case .glyph?: self = Self.known(space.glyph ?? "folder")
+        case .emoji?: self = space.emoji.map(SpaceIcon.emoji) ?? .glyph("folder")
+        case .picture?: self = .picture
+        case .other?, nil: self.init(space.icon?.stringValue)
+        }
+    }
 
     init(_ icon: String?) {
         guard let icon, !icon.isEmpty else {
@@ -111,8 +124,9 @@ enum SpaceIcon: Equatable {
         let rest = String(icon[icon.index(after: colon)...])
         if kind == "emoji", !rest.isEmpty {
             self = .emoji(rest)
-        } else if kind == "asset", !rest.isEmpty {
-            self = .picture(id: rest)
+        } else if kind == "asset" {
+            // A picture a Mac that sends no `iconKind` cannot send either.
+            self = .glyph("folder")
         } else {
             self = Self.known(kind == "hugeicon" ? rest : icon)
         }
@@ -122,7 +136,7 @@ enum SpaceIcon: Equatable {
         .glyph(Marks.spaces.contains(name) ? name : "folder")
     }
 
-    /// The catalog image this icon draws, when it is a glyph.
+    /// The catalog image this icon draws, or stands in with until its picture arrives.
     var asset: String? {
         switch self {
         case .glyph(let name): "Spaces/\(name)"
@@ -132,21 +146,20 @@ enum SpaceIcon: Equatable {
     }
 }
 
-/// A space's glyph in the space's colour, or its emoji as it is: what the sidebar shows beside the
-/// space's name on the Mac.
+/// A space's glyph in the space's colour, its emoji as it is, or its picture: what the sidebar shows
+/// beside the space's name on the Mac.
 struct SpaceGlyph: View {
+    let spaceId: String
     let icon: SpaceIcon
     let color: Color?
     @ScaledMetric private var size: CGFloat
-
-    init(icon: String?, color: String?, size: CGFloat = 18, relativeTo style: Font.TextStyle = .subheadline) {
-        self.icon = SpaceIcon(icon)
-        self.color = color.flatMap(SpaceTint.color)
-        _size = ScaledMetric(wrappedValue: size, relativeTo: style)
-    }
+    @Environment(AppModel.self) private var model
 
     init(space: Space, size: CGFloat = 18, relativeTo style: Font.TextStyle = .subheadline) {
-        self.init(icon: space.icon?.stringValue, color: space.color?.stringValue, size: size, relativeTo: style)
+        spaceId = space.id
+        icon = SpaceIcon(space: space)
+        color = space.color?.stringValue.flatMap(SpaceTint.color)
+        _size = ScaledMetric(wrappedValue: size, relativeTo: style)
     }
 
     var body: some View {
@@ -155,15 +168,29 @@ struct SpaceGlyph: View {
             case .emoji(let emoji):
                 Text(emoji)
                     .font(.system(size: size * 0.9))
-            case .glyph, .picture:
-                Image(icon.asset ?? "Spaces/folder")
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(color ?? Palette.ink2)
+            case .picture:
+                if let picture = model.spacePictures[spaceId] {
+                    Image(uiImage: picture)
+                        .resizable()
+                        .scaledToFill()
+                        .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+                } else {
+                    glyph("Spaces/folder")
+                        .task(id: spaceId) { await model.loadSpacePicture(spaceId) }
+                }
+            case .glyph:
+                glyph(icon.asset ?? "Spaces/folder")
             }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+
+    private func glyph(_ asset: String) -> some View {
+        Image(asset)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(color ?? Palette.ink2)
     }
 }

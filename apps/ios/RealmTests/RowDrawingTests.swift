@@ -48,6 +48,17 @@ enum Drawing {
     }
 }
 
+/// A model with one open session, as the Mac would have sent it.
+@MainActor
+func modelWithSession(agent: String = "claude", status: SessionStatus = .waiting, rows: [TranscriptRow] = []) -> AppModel {
+    let model = AppModel()
+    model.store.finishOpening(OpenedSession(
+        session: SessionRow(id: "s1", title: "T", spaceId: "sp", spaceName: "Realm", agent: agent, model: nil, status: status,
+                            needsYou: status == .waiting, unread: false, updatedAt: 0),
+        rows: rows, hasMore: false))
+    return model
+}
+
 @MainActor
 @Suite("Every row of a transcript draws", .serialized)
 struct RowDrawingTests {
@@ -58,6 +69,9 @@ struct RowDrawingTests {
     static func words(_ content: TranscriptRow.Content, model: AppModel = AppModel(), dark: Bool = true) throws -> String {
         try Drawing.words(TranscriptRowView(row: row(content), sessionId: "s1").environment(model), dark: dark)
     }
+
+    static let permission = TranscriptRow.Request(requestId: "r1", tool: "Bash", title: "Allow Bash?", summary: "pnpm test",
+                                                  state: .pending, questions: nil)
 
     /// A row this version cannot draw says so: nothing in a transcript is ever blank.
     @Test func anUnknownRowSaysOpenThisOnYourMac() throws {
@@ -71,7 +85,7 @@ struct RowDrawingTests {
         #expect(try Self.words(.assistant(text: "Reading the page", streaming: true)).contains("Writing"))
         #expect(try Self.words(.thinking(text: "Hmm")).contains("Thinking"))
         let tool = try Self.words(.tool(name: "Bash", summary: "pnpm test", state: .done, detail: "ok"))
-        #expect(tool.contains("Bash") && tool.contains("pnpm test"))
+        #expect(tool.contains("Ran") && tool.contains("pnpm test"), "\(tool)")
         let plan = try Self.words(.plan(text: nil, steps: [PlanStep(text: "Carry the plan", status: "in_progress")]))
         #expect(plan.contains("Plan") && plan.contains("Carry the plan"))
         #expect(try Self.words(.notice(text: "Context compacted")).contains("Context compacted"))
@@ -83,9 +97,8 @@ struct RowDrawingTests {
     @Test func theLightFaceDrawsTheSameWords() throws {
         let error = try Self.words(.error(text: "Out of credits", hint: "Top up in Settings"), dark: false)
         #expect(error.contains("Out of credits") && error.contains("Top up"))
-        let permission = try Self.words(.request(.init(requestId: "r1", tool: "Bash", title: "Allow Bash?", summary: "pnpm test",
-                                                       state: .pending, questions: nil)), dark: false)
-        #expect(permission.contains("Allow Bash?") && permission.contains("Allow") && permission.contains("Deny"))
+        let permission = try Self.words(.request(Self.permission), dark: false)
+        #expect(permission.contains("Allow Bash?") && permission.contains("pnpm test"))
     }
 
     @Test func aPlanSaysHowFarAlongItIs() throws {
@@ -95,69 +108,89 @@ struct RowDrawingTests {
         #expect(words.contains("1 of 3 done"))
     }
 
-    @Test func aPermissionIsAnsweredInPlace() throws {
-        let words = try Self.words(.request(.init(requestId: "r1", tool: "Bash", title: "Allow Bash?", summary: "pnpm test",
-                                                   state: .pending, questions: nil)))
+    /// The card in the transcript says what is asked and where it stands; the answers are docked.
+    @Test func aPermissionSaysWhatItAsksAndWhereItStands() throws {
+        let words = try Self.words(.request(Self.permission), model: modelWithSession())
+        #expect(words.contains("Claude asks"))
         #expect(words.contains("Allow Bash?"))
         #expect(words.contains("Waiting on you"))
-        #expect(words.contains("Deny"))
-    }
-
-    /// Answered, the card stays as the question and its answer, with nothing left to press.
-    @Test func anAnsweredPermissionKeepsItsWordsAndLosesItsButtons() throws {
-        let words = try Self.words(.request(.init(requestId: "r1", tool: "Bash", title: "Allow Bash?", summary: "pnpm test",
-                                                   state: .allowed, questions: nil)))
-        #expect(words.contains("Allow Bash?") && words.contains("Allowed"))
         #expect(!words.contains("Deny"))
     }
 
-    @Test func aPlanIsApprovedNotAllowed() throws {
-        let words = try Self.words(.request(.init(requestId: "p1", tool: "ExitPlanMode", title: "Exit plan mode?",
-                                                   summary: "Ship the mapper", state: .pending, questions: nil)))
-        #expect(words.contains("Implement this plan"))
-        #expect(words.contains("Keep planning"))
+    /// Answered, the card stays as the question and its answer.
+    @Test func anAnsweredPermissionKeepsItsWords() throws {
+        let allowed = TranscriptRow.Request(requestId: "r1", tool: "Bash", title: "Allow Bash?", summary: "pnpm test", state: .allowed,
+                                            questions: nil)
+        let words = try Self.words(.request(allowed))
+        #expect(words.contains("Allow Bash?") && words.contains("Allowed"))
     }
 
-    /// A card says who is asking first.
+    /// An answered question shows what was answered, a secret one only as its mark.
+    @Test func anAnsweredQuestionShowsItsAnswers() throws {
+        let questions = [Question(question: "Which database?", header: "Database", multiSelect: false,
+                                  options: [QuestionOption(label: "SQLite", description: nil)], id: "db"),
+                         Question(question: "Token?", header: "Token", multiSelect: false, options: [], secret: true, id: "token")]
+        let request = TranscriptRow.Request(requestId: "q1", tool: "AskUserQuestion", title: "", summary: "", state: .allowed,
+                                            questions: questions, answers: ["db": .one("SQLite"), "token": .one("••••••")])
+        let words = try Self.words(.request(request))
+        #expect(words.contains("Database: SQLite"), "\(words)")
+        #expect(words.contains("Answered"))
+    }
+
+    /// A card says who is asking first: the asker the Mac names, else the session's agent.
     @Test func aQuestionSaysWhoAsks() throws {
-        let model = AppModel()
-        model.store.finishOpening(OpenedSession(
-            session: SessionRow(id: "s1", title: "T", spaceId: "sp", spaceName: "Site", agent: "codex", model: "gpt-6-luna",
-                                status: .waiting, needsYou: true, unread: false, updatedAt: 0),
-            rows: [], hasMore: false))
         let questions = [Question(question: "Which database should this use?", header: "Database", multiSelect: false,
                                   options: [QuestionOption(label: "SQLite", description: nil)])]
-        let words = try Self.words(.request(.init(requestId: "q1", tool: "AskUserQuestion", title: "", summary: "",
-                                                   state: .pending, questions: questions)), model: model)
-        #expect(words.contains("Codex asks"))
+        let request = TranscriptRow.Request(requestId: "q1", tool: "AskUserQuestion", title: "", summary: "", state: .pending,
+                                            questions: questions, asker: "Linear's MCP server", message: "Before I file the issue.")
+        let words = try Self.words(.request(request), model: modelWithSession(agent: "codex"))
+        #expect(words.contains("Linear's MCP server asks") || words.contains("Linear’s MCP server asks"), "\(words)")
+        #expect(words.contains("Before I file the issue."))
         #expect(words.contains("Which database should this use?"))
-        #expect(words.contains("Answer") && words.contains("Skip"))
     }
 
-    /// An answer given while the Mac sleeps is kept, and the card says where it is.
+    /// The dock holds the answers: Allow and Deny for a permission, in place.
+    @Test func theDockAnswersAPermissionInPlace() throws {
+        let model = modelWithSession(rows: [Self.row(.request(Self.permission), key: "r:r1")])
+        let pending = try #require(PendingRequest.first(in: model.store.transcript("s1"), outbox: model.store.outbox))
+        let words = try Drawing.words(WaitingDock(pending: pending, sessionId: "s1", fold: {}).environment(model))
+        #expect(words.contains("Claude asks") && words.contains("Allow Bash?"))
+        #expect(words.contains("Deny") && words.contains("Allow"))
+    }
+
+    /// A plan is approved, not allowed: the dock opens it to be read, the sheet implements it.
+    @Test func aPlanIsReviewedThenImplemented() throws {
+        let request = TranscriptRow.Request(requestId: "p1", tool: "ExitPlanMode", title: "Exit plan mode?", summary: "Ship the mapper",
+                                            state: .pending, questions: nil,
+                                            plan: PendingPlan(text: "Ship the mapper", steps: [PlanStep(text: "Carry the plan", status: "pending")]))
+        let model = modelWithSession(rows: [Self.row(.request(request), key: "r:p1")])
+        let pending = try #require(PendingRequest.first(in: model.store.transcript("s1"), outbox: model.store.outbox))
+        let dock = try Drawing.words(WaitingDock(pending: pending, sessionId: "s1", fold: {}).environment(model))
+        #expect(dock.contains("A plan to approve") && dock.contains("1 step"), "\(dock)")
+        #expect(dock.contains("Review the plan") && dock.contains("Keep planning"), "\(dock)")
+        let card = try Self.words(.request(request), model: model)
+        #expect(card.contains("Carry the plan") && card.contains("Ship the mapper"))
+    }
+
+    /// An answer given while the Mac sleeps is kept, and the dock says where it is.
     @Test func anAnswerWaitingForASleepingMacSaysSo() throws {
-        let model = AppModel()
-        model.store.finishOpening(OpenedSession(
-            session: SessionRow(id: "s1", title: "T", spaceId: "sp", spaceName: "Realm", agent: "claude", model: nil, status: .waiting,
-                                needsYou: true, unread: false, updatedAt: 0),
-            rows: [], hasMore: false))
+        let model = modelWithSession(rows: [Self.row(.request(Self.permission), key: "r:r1")])
         model.store.connection = .macOffline(lastSeen: 1_790_000_000_000)
-        let request = TranscriptRow.Request(requestId: "r1", tool: "Bash", title: "Allow Bash?", summary: "pnpm test", state: .pending,
-                                            questions: nil)
         model.store.enqueueAnswer(.allow, to: "r1", in: "s1")
-        let words = try Self.words(.request(request), model: model)
+        let pending = try #require(PendingRequest.first(in: model.store.transcript("s1"), outbox: model.store.outbox))
+        let words = try Drawing.words(WaitingDock(pending: pending, sessionId: "s1", fold: {}).environment(model))
         #expect(words.contains("You allowed it"))
         #expect(words.contains("Your Mac is asleep"))
         #expect(words.contains("Don't send") || words.contains("Don’t send"))
     }
 
-    /// A run of tool calls is one ledger, and every call in it is drawn.
-    @Test func aLedgerDrawsEveryCall() throws {
+    /// The work is quiet lines that say what they did, in the tense of their state.
+    @Test func workSaysWhatItDid() throws {
         let rows = [Self.row(.tool(name: "Read", summary: "AppSettings.tsx", state: .done, detail: nil), key: "t1"),
                     Self.row(.tool(name: "Edit", summary: "AppSettings.tsx", state: .done, detail: nil), key: "t2"),
                     Self.row(.tool(name: "Bash", summary: "pnpm vitest", state: .running, detail: nil), key: "t3")]
-        let words = try Drawing.words(WorkCard(rows: rows))
-        #expect(words.contains("Read") && words.contains("Edit") && words.contains("Bash"))
+        let words = try Drawing.words(WorkRun(rows: rows, sessionId: "s1").environment(AppModel()))
+        #expect(words.contains("Read") && words.contains("Edited") && words.contains("Running"), "\(words)")
     }
 }
 
@@ -166,30 +199,44 @@ struct RowDrawingTests {
 struct SessionRowTests {
     static let row = SessionRow(id: "s1", title: "Add the dark-mode toggle", spaceId: "sp1", spaceName: "Realm", agent: "claude",
                                 model: "claude-opus-5-5", status: .waiting, needsYou: true, unread: true,
-                                updatedAt: 1_790_000_000_000)
+                                updatedAt: 1_790_000_000_000, agentName: "Claude", agentMark: "claude", modelLabel: "Opus 5.5")
 
-    @Test func aRowDrawsItsTitleStatusAndModel() throws {
-        let words = try Drawing.words(SessionRowView(row: Self.row, space: nil))
+    @Test func aRowDrawsItsTitleStateAndModel() throws {
+        let words = try Drawing.words(SessionRowView(row: Self.row, space: nil).environment(AppModel()))
         #expect(words.contains("Add the dark-mode toggle"), "\(words)")
         #expect(words.contains("Waiting on you"), "\(words)")
-        // JetBrains Mono's tailed l reads to Vision as a capital.
-        #expect(words.lowercased().contains("claude-opus-5-5"), "\(words)")
+        #expect(words.contains("Opus 5.5"), "\(words)")
     }
 
-    /// At the largest accessibility size nothing shares a line with the title, and it all still draws.
+    /// At the largest accessibility size nothing shares a line with the state, and it all still draws.
     @Test func aRowStillReadsAtTheLargestSize() throws {
-        let words = try Drawing.words(SessionRowView(row: Self.row, space: nil), size: .accessibility5)
-        #expect(words.contains("Waiting on you"))
-        #expect(words.contains("toggle"))
+        let words = try Drawing.words(SessionRowView(row: Self.row, space: nil).environment(AppModel()), size: .accessibility5)
+        #expect(words.contains("Waiting"), "\(words)")
+        #expect(words.contains("toggle"), "\(words)")
     }
 
     @Test func aRowSaysEverythingItShowsInWords() {
         let now = Date(timeIntervalSince1970: 1_790_000_120)
         #expect(SessionRowView.spoken(Self.row, now: now)
-                == "Add the dark-mode toggle, Waiting on you, Unread, Realm, Claude, claude-opus-5-5, 2m ago")
+                == "Add the dark-mode toggle, Waiting on you, Unread, Realm, Claude, Opus 5.5, 2m ago")
         let quiet = SessionRow(id: "s2", title: "", spaceId: "sp1", spaceName: "Realm", agent: "codex", model: nil, status: .idle,
                                needsYou: false, unread: false, updatedAt: 1_790_000_000_000)
-        #expect(SessionRowView.spoken(quiet, now: now) == "Untitled session, Idle, Realm, Codex, 2m ago")
+        #expect(SessionRowView.spoken(quiet, now: now) == "Untitled session, Realm, Codex, 2m ago")
+    }
+
+    /// A row says the state a person would act on or want to know, and nothing for one at rest.
+    @Test func aRowSaysOnlyTheStateWorthSaying() {
+        let make = { (status: SessionStatus, unread: Bool) in
+            SessionRow(id: "s", title: "T", spaceId: "sp", spaceName: "", agent: "claude", model: nil, status: status, needsYou: false,
+                       unread: unread, updatedAt: 0)
+        }
+        #expect(RowState(make(.waiting, false)) == .waiting)
+        #expect(RowState(make(.running, false)) == .working)
+        #expect(RowState(make(.error, false)) == .failed)
+        #expect(RowState(make(.idle, true)) == .done)
+        #expect(RowState(make(.idle, false)) == nil)
+        #expect(RowState(make(.ended, true)) == nil)
+        #expect(RowState.done.word == "Done" && RowState.working.word == "Working")
     }
 
     @Test func stopIsOfferedOnlyWhileATurnIsUnderWay() {
@@ -248,47 +295,244 @@ struct HomeSectionsTests {
         #expect(sections.space(of: Self.home.needsYou[0])?.name == "Site")
         #expect(sections.space(of: Self.row("x", "T", space: "gone", spaceName: "Gone")) == nil)
     }
+
+    /// What has not gone to the Mac is gathered by session: a refusal always, held work while away.
+    @Test func whatHasNotGoneIsGatheredBySession() {
+        var outbox = Outbox()
+        let message = OutgoingItem(sessionId: "b", payload: .message(text: "Ship it"), afterSeq: 0)
+        let answer = OutgoingItem(sessionId: "b", payload: .answer(requestId: "r1", decision: .allow, answers: nil), afterSeq: 0)
+        let refused = OutgoingItem(sessionId: "a", payload: .message(text: "Go"), state: .failed("The session ended."), afterSeq: 0)
+        for item in [message, answer, refused] { outbox.add(item) }
+
+        let away = UnsentSession.list(outbox: outbox, home: Self.home, connected: false)
+        #expect(away.map(\.id) == ["b", "a"])
+        #expect(away.first?.title == "Explain the relay")
+        #expect(away.first?.what == "A message and an answer")
+
+        // Connected, what is held is on its way; only the refusal stays.
+        let live = UnsentSession.list(outbox: outbox, home: Self.home, connected: true)
+        #expect(live.map(\.id) == ["a"])
+        #expect(UnsentSession.list(outbox: outbox, home: nil, connected: true).first?.title == "A session")
+    }
 }
 
 @MainActor
 @Suite("How a transcript is laid out")
 struct TranscriptLayoutTests {
-    static func row(_ key: String, _ content: TranscriptRow.Content) -> TranscriptRow {
-        TranscriptRow(key: key, seq: 1, content: content)
+    static func row(_ key: String, _ content: TranscriptRow.Content, checkpoint: String? = nil) -> TranscriptRow {
+        TranscriptRow(key: key, seq: 1, content: content, checkpointId: checkpoint)
     }
 
-    static let rows = [
-        row("u1", .user(text: "Build it")),
-        row("t1", .tool(name: "Read", summary: "a", state: .done, detail: nil)),
-        row("k1", .thinking(text: "Hmm")),
-        row("t2", .tool(name: "Edit", summary: "a", state: .done, detail: nil)),
-        row("a1", .assistant(text: "Done", streaming: false)),
-        row("t3", .tool(name: "Bash", summary: "test", state: .running, detail: nil)),
-    ]
+    static func user(_ key: String) -> TranscriptRow { row(key, .user(text: "Build it")) }
+    static func tool(_ key: String, _ name: String) -> TranscriptRow { row(key, .tool(name: name, summary: "a", state: .done, detail: nil)) }
+    static func said(_ key: String) -> TranscriptRow { row(key, .assistant(text: "Done", streaming: false)) }
 
-    @Test func aRunOfToolsAndThinkingIsOneLedger() {
-        let items = TranscriptLayout.items(Self.rows)
+    static let rows = [user("u1"), tool("t1", "Read"), row("k1", .thinking(text: "Hmm")), tool("t2", "Edit"), said("a1"), tool("t3", "Bash")]
+
+    /// In a turn still going, the work is quiet lines and what is said stands on its own.
+    @Test func aTurnStillGoingShowsItsWork() {
+        let items = TranscriptLayout.items(Self.rows, settled: false)
         #expect(items.map(\.id) == ["u1", "work/t1", "a1", "work/t3"])
-        guard case .work(let work) = items[1] else { Issue.record("the run is not a ledger"); return }
+        guard case .work(let work, _) = items[1] else { Issue.record("the run is not work"); return }
         #expect(work.map(\.key) == ["t1", "k1", "t2"])
     }
 
-    @Test func everyRowIsDrawnOnceAndInOrder() {
-        let keys = TranscriptLayout.items(Self.rows).flatMap { item -> [String] in
-            switch item {
-            case .row(let row): [row.key]
-            case .work(let rows): rows.map(\.key)
-            }
-        }
-        #expect(keys == Self.rows.map(\.key))
+    /// Finished, everything on the way to the answer folds, and the answer stands.
+    @Test func aFinishedTurnFoldsOnTheWayToItsAnswer() {
+        #expect(TranscriptLayout.items(Self.rows, settled: true).map(\.id) == ["u1", "fold/t1", "a1", "fold/t3"])
+        let earlier = [Self.user("u1"), Self.said("p1"), Self.tool("t1", "Read"), Self.said("a1"), Self.user("u2"), Self.tool("t2", "Bash")]
+        #expect(TranscriptLayout.items(earlier, settled: false).map(\.id) == ["u1", "fold/p1", "a1", "u2", "work/t2"])
     }
 
-    /// A ledger keeps its identity as its run grows, so it does not redraw from nothing with each call.
-    @Test func aLedgerKeepsItsPlaceAsItGrows() {
-        let before = TranscriptLayout.items(Array(Self.rows.prefix(2))).map(\.id)
-        let after = TranscriptLayout.items(Array(Self.rows.prefix(4))).map(\.id)
-        #expect(before == ["u1", "work/t1"])
-        #expect(after == ["u1", "work/t1"])
+    /// What a person may need to act on or see is never folded away, and words alone are not folded.
+    @Test func aFoldNeverHidesWhatMatters() {
+        let request = Self.row("r1", .request(.init(requestId: "r1", tool: "Bash", title: "", summary: "", state: .allowed, questions: nil)))
+        let changes = Self.row("c1", .notice(text: "Changed 1 file"), checkpoint: "cp1")
+        let rows = [Self.user("u1"), Self.tool("t1", "Read"), request, Self.tool("t2", "Edit"), changes, Self.said("a1")]
+        #expect(TranscriptLayout.items(rows, settled: true).map(\.id) == ["u1", "fold/t1", "r1", "fold/t2", "c1", "a1"])
+        let talk = [Self.user("u1"), Self.said("p1"), Self.said("a1")]
+        #expect(TranscriptLayout.items(talk, settled: true).map(\.id) == ["u1", "p1", "a1"])
+    }
+
+    @Test func everyRowIsDrawnOnceAndInOrder() {
+        for settled in [false, true] {
+            let keys = TranscriptLayout.items(Self.rows, settled: settled).flatMap { item -> [String] in
+                switch item {
+                case .row(let row): [row.key]
+                case .work(let rows, _), .folded(let rows, _): rows.map(\.key)
+                }
+            }
+            #expect(keys == Self.rows.map(\.key))
+        }
+    }
+
+    /// A run keeps its identity as it grows, so it does not redraw from nothing with each call.
+    @Test func aRunKeepsItsPlaceAsItGrows() {
+        #expect(TranscriptLayout.items(Array(Self.rows.prefix(2)), settled: false).map(\.id) == ["u1", "work/t1"])
+        #expect(TranscriptLayout.items(Array(Self.rows.prefix(4)), settled: false).map(\.id) == ["u1", "work/t1"])
+    }
+
+    /// An edit's line opens onto its own turn's changes, never a later turn's.
+    @Test func workKnowsItsTurnsChanges() {
+        let rows = [Self.user("u1"), Self.tool("t1", "Edit"), Self.row("c1", .notice(text: "Changed"), checkpoint: "cp1"), Self.said("a1"),
+                    Self.user("u2"), Self.tool("t2", "Edit")]
+        let items = TranscriptLayout.items(rows, settled: false)
+        guard case .folded(_, let first) = items[1], case .work(_, let second) = items.last else { Issue.record("\(items.map(\.id))"); return }
+        #expect(first == "cp1")
+        #expect(second == nil)
+    }
+
+    @Test func reviewChangesIsTheNewestTurnsUntilSomethingIsSaid() {
+        let settled = [Self.user("u1"), Self.tool("t1", "Edit"), Self.row("c1", .notice(text: "Changed"), checkpoint: "cp1"), Self.said("a1")]
+        #expect(TranscriptLayout.reviewable(settled) == "cp1")
+        #expect(TranscriptLayout.reviewable(settled + [Self.user("u2")]) == nil)
+        #expect(TranscriptLayout.reviewable([Self.user("u1"), Self.said("a1")]) == nil)
+    }
+
+    /// What a running turn is doing, where no row on screen already says it.
+    @Test func theLiveLineSaysWhatNothingElseDoes() {
+        #expect(LiveActivity.of([Self.row("t1", .tool(name: "Bash", summary: "", state: .running, detail: nil))]) == nil)
+        #expect(LiveActivity.of([Self.row("a1", .assistant(text: "Wri", streaming: true))]) == nil)
+        #expect(LiveActivity.of([Self.row("k1", .thinking(text: "Hmm"))]) == .thinking)
+        #expect(LiveActivity.of([Self.user("u1")]) == .working)
+        #expect(LiveActivity.of([]) == .working)
+    }
+
+    @Test func aFoldSaysHowMuchWorkItHolds() {
+        let rows = [Self.said("p1"), Self.tool("t1", "Read"), Self.row("k1", .thinking(text: "Hmm")), Self.tool("t2", "Edit")]
+        #expect(FoldedWork.summary(rows) == "Worked · 3 steps")
+        #expect(FoldedWork.summary([Self.tool("t1", "Read")]) == "Worked · 1 step")
+    }
+}
+
+@MainActor
+@Suite("What the work and the changes say")
+struct WorkWordsTests {
+    @Test func aToolSaysWhatItDidInTheTenseOfItsState() {
+        #expect(ToolWords.line(tool: "Bash", summary: "pnpm test", running: true) == .init(verb: "Running", object: "pnpm test"))
+        #expect(ToolWords.line(tool: "Bash", summary: "pnpm test", running: false) == .init(verb: "Ran", object: "pnpm test"))
+        #expect(ToolWords.line(tool: "Edit", summary: "a.ts", running: false).verb == "Edited")
+        #expect(ToolWords.line(tool: "Write", summary: "a.ts", running: false).verb == "Wrote")
+        #expect(ToolWords.line(tool: "TodoWrite", summary: "3 todos", running: false) == .init(verb: "Updated the plan", object: nil))
+        #expect(ToolWords.line(tool: "Linear__create_issue", summary: "", running: false) == .init(verb: "Called Linear__create_issue", object: nil))
+        #expect(ToolWords.line(tool: "Read", summary: "Read", running: false).object == nil)
+    }
+
+    @Test func anEditFindsItsFileHoweverEitherPathWasShortened() {
+        let changes = TurnChanges(checkpointId: "cp", files: [
+            ChangedFile(path: "apps/server/src/db/migrations.ts", oldPath: nil, status: "modified", additions: 1, deletions: 3),
+            ChangedFile(path: "README.md", oldPath: nil, status: "added", additions: 1, deletions: 0),
+        ], totalFiles: 2)
+        #expect(Edits.file(named: "/Users/me/realm/apps/server/src/db/migrations.ts", in: changes)?.path == "apps/server/src/db/migrations.ts")
+        #expect(Edits.file(named: "db/migrations.ts", in: changes)?.path == "apps/server/src/db/migrations.ts")
+        #expect(Edits.file(named: "", in: changes) == nil)
+        #expect(Edits.file(named: "other.ts", in: changes) == nil)
+        #expect(Edits.changes("Edit") && Edits.changes("Write") && !Edits.changes("Read"))
+        #expect(changes.additions == 2 && changes.deletions == 3)
+        #expect(ChangesWords.files(changes) == "Changed 2 files")
+        #expect(ChangesWords.name("apps/server/src/db/migrations.ts") == "migrations.ts")
+        #expect(ChangesWords.folder("apps/server/src/db/migrations.ts") == "apps/server/src/db")
+        #expect(ChangesWords.folder("README.md") == nil)
+    }
+
+    /// A diff's lines carry the numbers they have in each file, across pages.
+    @Test func aDiffIsNumberedByItsHunks() throws {
+        var numbering = DiffNumbering()
+        let first = numbering.number(["--- a/x", "+++ b/x", "@@ -10,3 +10,4 @@ func", " keep", "-old", "+new", "+more"], from: 0)
+        #expect(first.map(\.kind) == [.fileHeader, .fileHeader, .hunkHeader, .context, .removed, .added, .added])
+        #expect(first[3].old == 10 && first[3].new == 10)
+        #expect(first[4].old == 11 && first[4].new == nil)
+        #expect(first[5].new == 11 && first[6].new == 12)
+        // The next page carries on from where this one stopped.
+        let second = numbering.number([" tail"], from: 7)
+        #expect(second[0].id == 7 && second[0].old == 12 && second[0].new == 13)
+        let starts = try #require(DiffNumbering.starts("@@ -1 +1,2 @@"))
+        #expect(starts.0 == 1 && starts.1 == 1)
+        #expect(DiffNumbering.starts("@@ nonsense") == nil)
+    }
+
+    @Test func aPlanSaysHowFarAlong() {
+        #expect(PlanSteps.progress([PlanStep(text: "a", status: "completed"), PlanStep(text: "b", status: "pending")]) == "1 of 2 done")
+    }
+}
+
+@MainActor
+@Suite("What a request asks, and the answer it holds")
+struct RequestTests {
+    static let questions = [
+        Question(question: "Which database?", header: "Database", multiSelect: false,
+                 options: [QuestionOption(label: "SQLite", description: nil, value: "sqlite"), QuestionOption(label: "Postgres", description: nil)],
+                 id: "db", defaultAnswer: .one("sqlite")),
+        Question(question: "Which regions?", header: "", multiSelect: true,
+                 options: [QuestionOption(label: "eu-west-1", description: nil), QuestionOption(label: "us-east-1", description: nil)],
+                 id: "regions", defaultAnswer: .several(["eu-west-1", "us-east-1"])),
+        Question(question: "Name it", header: "", multiSelect: false, options: [], id: "name", defaultAnswer: .one("theme")),
+        Question(question: "Token?", header: "", multiSelect: false, options: [], secret: true, id: "token"),
+    ]
+
+    @Test func answersReadInTheQuestionsOrderAndASecretIsOnlyItsMark() {
+        let questions = [
+            Question(question: "Which database?", header: "", multiSelect: false, options: [QuestionOption(label: "SQLite", description: nil)]),
+            Question(question: "Token?", header: "", multiSelect: false, options: [], secret: true),
+            Question(question: "Which regions?", header: "", multiSelect: true, options: [QuestionOption(label: "eu-west-1", description: nil)]),
+        ]
+        let words = RequestCard.describe(.allow, answers: ["Which regions?": "eu-west-1", "Token?": "hunter2", "Which database?": "SQLite"],
+                                         kind: .questions(questions))
+        #expect(words == "You answered: SQLite · •••••• · eu-west-1")
+        #expect(!words.contains("hunter2"))
+        #expect(RequestCard.describe(.deny, answers: nil, kind: .questions(questions)) == "You skipped these questions.")
+        #expect(RequestCard.describe(.allow, answers: nil, kind: .plan) == "You approved the plan.")
+    }
+
+    /// The answers the Mac logged, by each question's head, a secret one only as its mark whatever came.
+    @Test func anAnsweredRequestSaysItsAnswers() {
+        let request = TranscriptRow.Request(requestId: "q", tool: "AskUserQuestion", title: "", summary: "", state: .allowed,
+                                            questions: Self.questions,
+                                            answers: ["db": .one("SQLite"), "regions": .several(["eu-west-1", "us-east-1"]), "token": .one("hunter2")])
+        #expect(RequestCard.answered(request) == "Database: SQLite\nWhich regions?: eu-west-1, us-east-1\nToken?: ••••••")
+        let unanswered = TranscriptRow.Request(requestId: "q", tool: "", title: "", summary: "", state: .pending, questions: Self.questions)
+        #expect(RequestCard.answered(unanswered) == nil)
+    }
+
+    /// A fresh answer opens with what the asker suggests already picked.
+    @Test func whatTheAskerSuggestsIsAlreadyPicked() {
+        let draft = QuestionDefaults.applied(to: AnswerDraft(sessionId: "s", requestId: "q", questions: Self.questions))
+        #expect(draft.isPicked("SQLite", in: Self.questions[0]))
+        #expect(!draft.isPicked("Postgres", in: Self.questions[0]))
+        #expect(draft.isPicked("eu-west-1", in: Self.questions[1]) && draft.isPicked("us-east-1", in: Self.questions[1]))
+        #expect(draft.other(for: Self.questions[2]) == "theme")
+        #expect(draft.other(for: Self.questions[3]).isEmpty)
+    }
+
+    @Test func aCardNamesWhoAsks() {
+        let request = TranscriptRow.Request(requestId: "q", tool: "", title: "", summary: "", state: .pending, questions: nil)
+        #expect(Asker.name(request, agent: "codex") == "Codex")
+        #expect(Asker.name(request, agent: "acp:gemini") == "Gemini")
+        #expect(Asker.name(request, agent: "") == "The agent")
+        let mcp = TranscriptRow.Request(requestId: "q", tool: "", title: "", summary: "", state: .pending, questions: nil,
+                                        asker: "Linear's MCP server")
+        #expect(Asker.name(mcp, agent: "claude") == "Linear's MCP server")
+    }
+
+    /// The dock holds the oldest request still waiting, and the answer on its way to it.
+    @Test func theDockHoldsTheOldestRequestStillWaiting() {
+        let request = { (id: String, state: RequestState) in
+            TranscriptRow(key: "r:\(id)", seq: 1, content: .request(.init(requestId: id, tool: "Bash", title: "", summary: "", state: state,
+                                                                          questions: nil)))
+        }
+        let transcript = Transcript(rows: [request("r0", .allowed), request("r1", .pending), request("r2", .pending)])
+        var outbox = Outbox()
+        #expect(PendingRequest.first(in: transcript, outbox: outbox)?.request.requestId == "r1")
+        #expect(PendingRequest.first(in: transcript, outbox: outbox)?.answer == nil)
+        let answer = OutgoingItem(sessionId: "s", payload: .answer(requestId: "r1", decision: .allow, answers: nil), afterSeq: 0)
+        outbox.add(answer)
+        #expect(PendingRequest.first(in: transcript, outbox: outbox)?.answer == answer)
+        #expect(PendingRequest.first(in: Transcript(rows: [request("r0", .denied)]), outbox: outbox) == nil)
+    }
+
+    @Test func aQuestionThisIPhoneCannotAnswerSaysWhereItCanBe() {
+        #expect(MacOnlyKind.words("branch") == "It picks a branch from the checkout on your Mac.")
+        #expect(MacOnlyKind.words(nil) == "Realm on your Mac answers this kind of question.")
     }
 }
 
@@ -317,27 +561,44 @@ struct MarkTests {
         #expect(SpaceIcon("emoji:🌊") == .emoji("🌊"))
         #expect(SpaceIcon("rocket") == .glyph("rocket"))
         #expect(SpaceIcon("hugeicon:rocket") == .glyph("rocket"))
-        #expect(SpaceIcon("asset:x1") == .picture(id: "x1"))
-        // What the desktop falls back to the folder for, so does the phone.
+        // A picture a Mac that sends no icon kind cannot send either; what the desktop falls back to
+        // the folder for, so does the phone.
+        #expect(SpaceIcon("asset:x1") == .glyph("folder"))
         #expect(SpaceIcon("emoji:") == .glyph("folder"))
         #expect(SpaceIcon("hugeicon:noSuchGlyph") == .glyph("folder"))
         #expect(SpaceIcon(nil) == .glyph("folder"))
-        #expect(SpaceIcon("asset:x1").asset == "Spaces/folder")
         #expect(SpaceIcon("emoji:🌊").asset == nil)
+    }
+
+    /// A Mac that says what the icon is is taken at its word.
+    @Test func aSpaceIconTheMacNamesIsTakenAtItsWord() {
+        let space = { (kind: SpaceIconKind?, glyph: String?, emoji: String?, icon: JSONValue?) in
+            Space(id: "s", name: "S", icon: icon, color: nil, sessions: [], more: 0, iconKind: kind, glyph: glyph, emoji: emoji)
+        }
+        #expect(SpaceIcon(space: space(.glyph, "rocket", nil, "rocket")) == .glyph("rocket"))
+        #expect(SpaceIcon(space: space(.glyph, "noSuchGlyph", nil, nil)) == .glyph("folder"))
+        #expect(SpaceIcon(space: space(.emoji, nil, "🦜", "emoji:🦜")) == .emoji("🦜"))
+        #expect(SpaceIcon(space: space(.picture, nil, nil, "asset:x1")) == .picture)
+        #expect(SpaceIcon.picture.asset == "Spaces/folder")
+        // A Phase 1 Mac sends only the stored string.
+        #expect(SpaceIcon(space: space(nil, nil, nil, "emoji:🌊")) == .emoji("🌊"))
     }
 
     @Test func everyMarkIsInTheCatalog() {
         for name in Marks.spaces { #expect(UIImage(named: "Spaces/\(name)") != nil, "Spaces/\(name)") }
-        for icon in Set(Marks.agents.values) { #expect(UIImage(named: "Agents/\(icon)") != nil, "Agents/\(icon)") }
+        for icon in Marks.agentIcons { #expect(UIImage(named: "Agents/\(icon)") != nil, "Agents/\(icon)") }
+        #expect(Set(Marks.agents.values).isSubset(of: Marks.agentIcons))
         #expect(UIImage(named: "RealmMark") != nil && UIImage(named: "RealmMarkShaded") != nil)
     }
 
+    /// An agent wears the mark the Mac names, else its kind's, and never a guessed one.
     @Test func anAgentWearsItsVendorsMarkOrNone() {
-        #expect(AgentMark.asset(for: "claude") == "Agents/claude")
-        #expect(AgentMark.asset(for: "codex") == "Agents/openai")
-        #expect(AgentMark.asset(for: "acp:hermes") == "Agents/caduceus")
-        // A guessed mark would name the wrong vendor; the agent's name is beside it.
-        #expect(AgentMark.asset(for: "acp:newcomer") == nil)
+        #expect(AgentMark.asset(kind: "claude") == "Agents/claude")
+        #expect(AgentMark.asset(kind: "codex") == "Agents/openai")
+        #expect(AgentMark.asset(kind: "acp:hermes") == "Agents/caduceus")
+        #expect(AgentMark.asset(kind: "acp:newcomer", mark: "openai") == "Agents/openai")
+        #expect(AgentMark.asset(kind: "claude", mark: "noSuchMark") == "Agents/claude")
+        #expect(AgentMark.asset(kind: "acp:newcomer") == nil)
     }
 
     /// The desktop's own clamp, value for value: these are `spaceColor` in packages/ui/src/theme.ts.
@@ -366,29 +627,14 @@ struct MarkTests {
         #expect(Color(hex: "blue") == nil)
         #expect(Color(hex: "#12345") == nil)
     }
-}
 
-@MainActor
-@Suite("What a request card says about the answer it holds")
-struct AnswerWordsTests {
-    @Test func answersReadInTheQuestionsOrderAndASecretIsOnlyItsMark() {
-        let questions = [
-            Question(question: "Which database?", header: "", multiSelect: false, options: [QuestionOption(label: "SQLite", description: nil)]),
-            Question(question: "Token?", header: "", multiSelect: false, options: [], secret: true),
-            Question(question: "Which regions?", header: "", multiSelect: true, options: [QuestionOption(label: "eu-west-1", description: nil)]),
-        ]
-        let words = RequestCard.describe(.allow, answers: ["Which regions?": "eu-west-1", "Token?": "hunter2", "Which database?": "SQLite"],
-                                         kind: .questions(questions))
-        #expect(words == "You answered: SQLite · •••••• · eu-west-1")
-        #expect(!words.contains("hunter2"))
-        #expect(RequestCard.describe(.deny, answers: nil, kind: .questions(questions)) == "You skipped these questions.")
-        #expect(RequestCard.describe(.allow, answers: nil, kind: .plan) == "You approved the plan.")
-    }
-
-    @Test func aCardNamesWhoAsks() {
-        #expect(RequestCard.asker("codex") == "Codex")
-        #expect(RequestCard.asker("acp:gemini") == "Gemini")
-        #expect(RequestCard.asker("") == "The agent")
+    /// The link's glyph and tone: green only when connected, red only where something failed.
+    @Test func theLinkWearsItsStatesToneOnly() {
+        #expect(LinkStatus.Kind.connected.tone == .done)
+        #expect(LinkStatus.Kind.asleep(since: nil).tone == .quiet)
+        #expect(LinkStatus.Kind.connecting.tone == .quiet)
+        #expect(LinkStatus.Kind.relayUnreachable.tone == .failed)
+        #expect(LinkStatus.Kind.asleep(since: nil).glyph == "moon.fill")
     }
 }
 
@@ -404,10 +650,26 @@ struct AppResourceTests {
 
     @Test func everyPaletteColourIsInTheCatalog() {
         let names = ["Page", "Canvas", "Surface", "Inset", "Hover", "Hover2", "Field", "Ink", "Ink2", "Ink3", "AccentColor", "AccentInk",
-                     "AccentTint", "Green", "GreenTint", "Orange", "OrangeTint", "Red", "RedTint", "Line", "LineStrong", "Divider", "Mark"]
+                     "AccentTint", "AccentFill", "AccentFillPress", "DangerFill", "Green", "GreenTint", "Orange", "OrangeTint", "Red", "RedTint",
+                     "Line", "LineStrong", "Divider", "Mark"]
         for name in names { #expect(UIColor(named: name) != nil, "\(name) is missing from the asset catalog") }
         let dark = UITraitCollection(userInterfaceStyle: .dark), light = UITraitCollection(userInterfaceStyle: .light)
         #expect(UIColor(named: "Page")!.resolvedColor(with: dark) != UIColor(named: "Page")!.resolvedColor(with: light))
+    }
+
+    /// A filled control's white word clears 4.5:1 on its fill, on both faces (design.md); the bare
+    /// accent is kept for marks that carry no word.
+    @Test func theAccentFillCarriesAWhiteWord() {
+        func luminance(_ color: UIColor) -> Double {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            let lin = { (c: CGFloat) -> Double in let c = Double(c); return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+            return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+        }
+        for style in [UIUserInterfaceStyle.dark, .light] {
+            let fill = UIColor(named: "AccentFill")!.resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
+            #expect(1.05 / (luminance(fill) + 0.05) >= 4.5, "white on the accent fill, \(style == .dark ? "dark" : "light")")
+        }
     }
 
     /// The transcript stands on the canvas in dark and on the page's grey in light, so a white card

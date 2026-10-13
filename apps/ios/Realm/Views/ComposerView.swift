@@ -18,9 +18,9 @@ struct ComposerButtons: Equatable {
 /// as Sending… in the log until the Mac has it.
 struct ComposerView: View {
     let sessionId: String
+    var focused: FocusState<Bool>.Binding
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @FocusState private var focused: Bool
     @Namespace private var glass
 
     var body: some View {
@@ -32,14 +32,14 @@ struct ComposerView: View {
             HStack(alignment: .bottom, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     if let session = transcript.session {
-                        ComposerContext(agent: session.agent, model: session.model)
+                        ComposerContext(session: session)
                     }
                     HStack(alignment: .bottom, spacing: 6) {
                         TextField(placeholder(transcript.session), text: draft, axis: .vertical)
                             .font(.body)
                             .foregroundStyle(Palette.ink)
                             .lineLimit(1...6)
-                            .focused($focused)
+                            .focused(focused)
                             .padding(.vertical, 8)
                             .accessibilityLabel("Message")
                         if buttons.send {
@@ -50,7 +50,7 @@ struct ComposerView: View {
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(width: 32, height: 32)
-                                    .background(Palette.accent, in: Circle())
+                                    .background(Palette.accentFill, in: Circle())
                                     .touchTarget()
                             }
                             .buttonStyle(.plain)
@@ -67,23 +67,8 @@ struct ComposerView: View {
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
                 .glassEffectID("field", in: glass)
                 if buttons.stop {
-                    Button {
-                        Task { await model.stop(sessionId) }
-                    } label: {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(Palette.ink)
-                            .frame(width: 48, height: 48)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: Circle())
-                    .glassEffectID("stop", in: glass)
-                    // Stop has to reach the Mac; while it is away the button keeps its place, greyed.
-                    .disabled(!model.isConnected)
-                    .opacity(model.isConnected ? 1 : 0.45)
-                    .accessibilityLabel("Stop")
-                    .accessibilityShowsLargeContentViewer()
-                    .accessibilityHint("Stops the agent's turn")
+                    StopButton(sessionId: sessionId)
+                        .glassEffectID("stop", in: glass)
                 }
             }
         }
@@ -96,7 +81,7 @@ struct ComposerView: View {
     private func placeholder(_ session: SessionRow?) -> String {
         switch model.linkStatus.kind {
         case .connected, .connecting:
-            session.map { "Message \(AgentNames.label($0.agent))" } ?? "Message"
+            session.map { "Message \($0.agentDisplayName)" } ?? "Message"
         case .asleep:
             "Sends when your Mac wakes"
         case .relayUnreachable:
@@ -118,22 +103,55 @@ struct ComposerView: View {
     }
 }
 
-/// What the next message goes to: the agent's mark in its vendor's colour, and the model in mono — the
-/// Mac's model chip, carried to the phone.
+/// Stop, as a glass circle beside whatever it sits with. It has to reach the Mac, so while the Mac is
+/// away it keeps its place, greyed.
+struct StopButton: View {
+    let sessionId: String
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button {
+            Task { await model.stop(sessionId) }
+        } label: {
+            Image(systemName: "stop.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Palette.ink)
+                .frame(width: 48, height: 48)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Circle())
+        .disabled(!model.isConnected)
+        .opacity(model.isConnected ? 1 : 0.45)
+        .accessibilityLabel("Stop")
+        .accessibilityHint("Stops the agent's turn")
+        .accessibilityShowsLargeContentViewer()
+    }
+}
+
+/// What the next message goes to: the agent's mark in its vendor's colour, and the model as the Mac's
+/// chip names it — the prompter's model chip, carried to the phone. A model only known by its id is
+/// shown in mono, as an id is.
 private struct ComposerContext: View {
-    let agent: String
-    let model: String?
+    let session: SessionRow
 
     var body: some View {
         HStack(spacing: 5) {
-            AgentMark(kind: agent, colored: true, size: 12, relativeTo: .caption)
-            Text(model.flatMap { $0.isEmpty ? nil : $0 } ?? AgentNames.label(agent))
-                .mono(.caption)
-                .foregroundStyle(Palette.ink2)
-                .lineLimit(1)
+            AgentMark(kind: session.agent, mark: session.agentMark, colored: true, size: 12, relativeTo: .caption)
+            if let label = session.modelLabel, !label.isEmpty {
+                Text(label)
+                    .font(.caption.weight(.medium))
+            } else if let id = session.model, !id.isEmpty {
+                Text(id)
+                    .mono(.caption)
+            } else {
+                Text(session.agentDisplayName)
+                    .font(.caption.weight(.medium))
+            }
         }
+        .foregroundStyle(Palette.ink2)
+        .lineLimit(1)
         .padding(.top, 2)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Sends to \(AgentNames.label(agent))\(model.map { ", \($0)" } ?? "")")
+        .accessibilityLabel("Sends to \(session.agentDisplayName)\(session.modelDisplayName.map { ", \($0)" } ?? "")")
     }
 }
