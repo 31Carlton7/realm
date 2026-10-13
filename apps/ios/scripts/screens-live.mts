@@ -21,7 +21,8 @@
  * awake, asleep, awake again, the relay down — moving the Mac between them, and leaves each test's
  * screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any
  * phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id> picks the
- * Simulator, and --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData).
+ * Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
+ * --no-build runs what was built there last.
  *
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
  */
@@ -166,7 +167,7 @@ async function runUiTests(): Promise<boolean> {
   const shots = arg("shots") ?? join(repoRoot, "apps/ios/.build/screenshots");
   mkdirSync(shots, { recursive: true });
   const common = ["-project", "Realm.xcodeproj", "-scheme", "RealmLive", "-destination", `id=${udid}`, "-derivedDataPath", arg("derived-data") ?? ".build/DerivedData"];
-  if (await xcodebuild(["build-for-testing", ...common]) !== 0) { say("the UI tests did not build"); return false; }
+  if (!process.argv.includes("--no-build") && await xcodebuild(["build-for-testing", ...common]) !== 0) { say("the UI tests did not build"); return false; }
   const results: [string, boolean][] = [];
   const only = arg("phases")?.split(",");
   const phase = async (test: string, env: Record<string, string> = {}) => {
