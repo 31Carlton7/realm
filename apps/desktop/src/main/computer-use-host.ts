@@ -1,7 +1,7 @@
 import {
-  parseKeySpec,
+  COMPUTER_SNAPSHOT_MAX, parseKeySpec,
   type ComputerAction, type ComputerActResult, type ComputerAppsResult,
-  type ComputerElement, type ComputerRefusal, type ComputerSnapshotResult,
+  type ComputerElement, type ComputerRefusal, type ComputerSnapshotResult, type ComputerSnapshotScope,
 } from "@realm/contracts";
 
 /**
@@ -47,12 +47,18 @@ export class ComputerUseHost {
       }
       case "computerSnapshot": {
         this.requireHelper();
+        const scope = (params.scope ?? {}) as ComputerSnapshotScope;
+        // The helper walks on-screen subtrees first and stops at `limit`, so a later page or a search
+        // asks it to walk further; a plain snapshot costs what it always did.
+        const limit = scope.query !== undefined ? COMPUTER_QUERY_WALK : (scope.offset ?? 0) + COMPUTER_SNAPSHOT_MAX;
         const raw = await this.d.request<Omit<ComputerSnapshotResult, "text">>("snapshot", {
           ...(typeof params.bundleId === "string" ? { bundleId: params.bundleId } : {}),
           ...(typeof params.pid === "number" ? { pid: params.pid } : {}),
           screenshot: params.screenshot === true,
+          ...(limit !== COMPUTER_SNAPSHOT_MAX ? { limit } : {}),
         });
-        return { ...raw, text: renderElements(raw.elements) } satisfies ComputerSnapshotResult;
+        const page = pageOfElements(raw.elements, scope, raw.elements.length >= limit);
+        return { ...raw, elements: page.elements, text: [renderElements(page.elements), ...page.notes].filter(Boolean).join("\n") } satisfies ComputerSnapshotResult;
       }
       /**
        * One frame of an app's windows (Plan 25 W7).
@@ -168,6 +174,56 @@ export function actionToHelperParams(snapshotId: string, action: ComputerAction)
  * whether it can be pressed, whether it is disabled, where focus is, and — loudest — whether it is a
  * password field, which is refused in every mode and should not be attempted.
  */
+/** How far the helper walks for a `query`: a search reads past one page, but a whole big app is
+ *  minutes of AX calls (a full Mail window took ~2), so it is bounded and says so when it stops. */
+const COMPUTER_QUERY_WALK = 2_000;
+
+/** Roles a person fills in — ranked ahead of offscreen buttons and rows, as in the browser reader. */
+const FIELD_ROLES = new Set([
+  "AXTextField", "AXTextArea", "AXSecureTextField", "AXComboBox", "AXSearchField",
+  "AXCheckBox", "AXRadioButton", "AXSlider", "AXIncrementor", "AXStepper", "AXPopUpButton",
+]);
+
+/**
+ * The page of a walk one snapshot lists, and the notes that say how to reach the rest. Ranked on
+ * screen first, then fields, then everything else, each in walk order — and listed in walk order.
+ * Walk order alone is the failure this replaces: a chat app's transcript comes before its compose
+ * field in the tree, and filled the whole list before the field was reached. `walkStopped` is the
+ * helper having stopped at the limit it was given, so the app has more than `all`.
+ */
+export function pageOfElements(all: ComputerElement[], scope: ComputerSnapshotScope, walkStopped = false): { elements: ComputerElement[]; notes: string[] } {
+  const words = scope.query?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+  const matched = words.length === 0 ? all : all.filter((e) => {
+    const hay = `${e.role} ${e.subrole} ${e.name} ${e.value}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+  const tier = (e: ComputerElement): number => (e.onscreen !== false ? 0 : FIELD_ROLES.has(e.role) ? 1 : 2);
+  const ranked = matched.map((e, i) => ({ e, i, t: tier(e) })).sort((a, b) => a.t - b.t || a.i - b.i).map((x) => x.e);
+  const offset = scope.offset ?? 0;
+  const page = new Set(ranked.slice(offset, offset + COMPUTER_SNAPSHOT_MAX));
+  const elements = matched.filter((e) => page.has(e));
+
+  const of = scope.query !== undefined ? ` matching query "${scope.query}"` : "";
+  const notes: string[] = [];
+  if (scope.query !== undefined && walkStopped) notes.push(`(searched the first ${all.length} elements of the app, on screen first — scroll toward what you are after and search again if it is not here)`);
+  if (ranked.length === 0 && of) notes.push(`(no element${of} — loosen the query, or snapshot without it)`);
+  if (offset > 0 && ranked.length > 0) {
+    notes.push(offset >= ranked.length
+      ? `(offset ${offset} is past the end: there are ${ranked.length} element(s)${of})`
+      : `(elements ${offset + 1}–${offset + elements.length} of ${ranked.length}${walkStopped ? "+" : ""}${of}, ranked on screen first, then fields, then the rest)`);
+  }
+  const rest = ranked.length - offset - elements.length;
+  const more = rest > 0 || (walkStopped && scope.query === undefined);
+  if (more) {
+    notes.push(
+      `(${rest > 0 ? `${rest} more` : "More"} element(s)${of} not listed — this list puts what is on screen first, then fields, then the rest in tree order. ` +
+      `Snapshot again with offset: ${offset + COMPUTER_SNAPSHOT_MAX} for the next ${rest > 0 ? Math.min(rest, COMPUTER_SNAPSHOT_MAX) : "page"}, ` +
+      `or query: "<words>" to list only elements whose role, name or value contains them. Each snapshot has its own snapshotId: act with the one whose list you chose from.)`,
+    );
+  }
+  return { elements, notes };
+}
+
 export function renderElements(elements: ComputerElement[]): string {
   return elements.map(formatElementLine).join("\n");
 }

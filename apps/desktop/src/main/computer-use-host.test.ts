@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ComputerActionSchema, type ComputerElement } from "@realm/contracts";
-import { ComputerUseHost, actionToHelperParams, formatElementLine, renderElements } from "./computer-use-host";
+import { COMPUTER_SNAPSHOT_MAX, ComputerActionSchema, type ComputerElement } from "@realm/contracts";
+import { ComputerUseHost, actionToHelperParams, formatElementLine, pageOfElements, renderElements } from "./computer-use-host";
 
 const element = (over: Partial<ComputerElement> = {}): ComputerElement => ({
   index: 0, role: "AXButton", subrole: "", name: "", value: "",
@@ -107,6 +107,68 @@ describe("actionToHelperParams", () => {
   it("carries both ends of a drag", () => {
     expect(actionToHelperParams("s1", parse({ kind: "drag", index: 1, toIndex: 9 })))
       .toEqual({ snapshotId: "s1", kind: "drag", index: 1, toIndex: 9, modifiers: [] });
+  });
+});
+
+/**
+ * The budget. The walk keeps more than one snapshot lists, and a chat app's transcript comes before
+ * its compose field in the tree: listing the first page of the walk filled the list with transcript
+ * rows scrolled out of view, and the field was never listed. The mutant that must die is that plain
+ * slice of walk order coming back.
+ */
+describe("pageOfElements — an app bigger than the budget", () => {
+  /** A sidebar, a 1000-message transcript mostly scrolled out of view, then the compose field and
+   *  Send — in walk order. */
+  function chatApp(): ComputerElement[] {
+    const out: ComputerElement[] = [];
+    const add = (over: Partial<ComputerElement>) => out.push(element({ index: out.length, onscreen: true, ...over }));
+    add({ role: "AXButton", name: "Inbox", actions: ["AXPress"] });
+    for (let i = 0; i < 1000; i++) add({ role: "AXStaticText", name: `message ${i}`, y: -30_000 + i * 30, onscreen: i >= 980 });
+    add({ role: "AXTextArea", name: "Message", onscreen: false, y: 2000 });
+    add({ role: "AXButton", name: "Send", actions: ["AXPress"] });
+    return out;
+  }
+
+  it("lists what is on screen and the compose field, in walk order, and says how to reach the rest", () => {
+    const all = chatApp();
+    const { elements, notes } = pageOfElements(all, {});
+    expect(elements).toHaveLength(COMPUTER_SNAPSHOT_MAX);
+    const names = elements.map((e) => e.name);
+    for (const name of ["Inbox", "message 999", "Message", "Send"]) expect(names).toContain(name);
+    expect(elements.map((e) => e.index)).toEqual([...elements.map((e) => e.index)].sort((a, b) => a - b));
+    expect(notes.join("\n")).toContain(`${all.length - COMPUTER_SNAPSHOT_MAX} more element(s) not listed`);
+    expect(notes.join("\n")).toContain(`offset: ${COMPUTER_SNAPSHOT_MAX}`);
+  });
+
+  it("offset pages through every element exactly once; query narrows", () => {
+    const all = chatApp();
+    const seen = [0, 500, 1000].flatMap((offset) => pageOfElements(all, { offset }).elements.map((e) => e.index));
+    expect(seen).toHaveLength(all.length);
+    expect(new Set(seen).size).toBe(all.length);
+    expect(pageOfElements(all, { query: "send" }).elements.map((e) => e.name)).toEqual(["Send"]);
+    expect(pageOfElements(all, { query: "message 3" }).elements.map((e) => e.name)).toContain("message 3");
+    expect(pageOfElements(all, { query: "MESSAGE textarea" }).elements.map((e) => e.name)).toEqual(["Message"]);
+    expect(pageOfElements(all, { query: "zzz" }).notes.join("")).toContain('no element matching query "zzz"');
+  });
+
+  it("an element from a helper that predates onscreen counts as on screen, so a small tree is unchanged", () => {
+    const small = [element({ index: 0, name: "A" }), element({ index: 1, name: "B" })];
+    expect(pageOfElements(small, {})).toEqual({ elements: small, notes: [] });
+  });
+
+  it("a walk the helper stopped at its limit says there is more, and the host asks it to walk further for a later page or a search", async () => {
+    const page = Array.from({ length: COMPUTER_SNAPSHOT_MAX }, (_, i) => element({ index: i, name: `row ${i}`, onscreen: true }));
+    expect(pageOfElements(page, {}, true).notes.join("")).toContain("(More element(s) not listed");
+    expect(pageOfElements(page, {}, true).notes.join("")).toContain(`offset: ${COMPUTER_SNAPSHOT_MAX}`);
+    expect(pageOfElements(page, {}, false).notes).toEqual([]);
+
+    const { instance, calls } = host({ snapshot: { snapshotId: "ax_1", elements: chatApp(), truncated: false } });
+    const snap = await instance.handleOp("computerSnapshot", { bundleId: "x", scope: { query: "send" } }) as { text: string; elements: ComputerElement[] };
+    expect(snap.elements.map((e) => e.name)).toEqual(["Send"]);
+    expect(snap.text).toBe('[1002] AXButton "Send" (10,20 30×40) {press}');
+    await instance.handleOp("computerSnapshot", { bundleId: "x", scope: { offset: 500 } });
+    await instance.handleOp("computerSnapshot", { bundleId: "x" });
+    expect(calls.map((c) => c.params.limit)).toEqual([2000, 1000, undefined]);
   });
 });
 

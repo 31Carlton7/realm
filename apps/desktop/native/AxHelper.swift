@@ -43,8 +43,11 @@ private let AX_TIMEOUT_SECONDS: Float = 1.5
 /// Walk bounds. Real apps are much bigger than they look: a Safari window with a busy page, or any
 /// Electron app, exposes tens of thousands of AX nodes, nearly all of them unaddressable leaf text.
 /// These caps are what keep a snapshot a page of text instead of a megabyte, and they are reported
-/// (`truncated`) rather than applied silently.
-private let MAX_ELEMENTS = 500
+/// (`truncated`) rather than applied silently. `DEFAULT_ELEMENTS` is one page; main asks for more
+/// (`limit`, up to `MAX_ELEMENTS`) when the agent pages on or searches. Raising the default instead
+/// is not free: a big Mail window takes ~14 s to yield 500 elements and ~2 minutes for all of them.
+private let DEFAULT_ELEMENTS = 500
+private let MAX_ELEMENTS = 5_000
 private let MAX_DEPTH = 32
 private let MAX_CHILDREN_PER_NODE = 256
 /// Total nodes VISITED, including the ones filtered out. Bounds the walk itself, not its output —
@@ -203,13 +206,15 @@ private struct Element {
   let enabled: Bool
   let focused: Bool
   let depth: Int
+  /// Inside the window and every scroll area around it — what main ranks first.
+  let onscreen: Bool
 
   var wire: [String: Any] {
     [
       "index": index, "role": role, "subrole": subrole, "name": name, "value": value,
       "x": Int(frame.origin.x.rounded()), "y": Int(frame.origin.y.rounded()),
       "w": Int(frame.size.width.rounded()), "h": Int(frame.size.height.rounded()),
-      "actions": actions, "enabled": enabled, "focused": focused, "depth": depth,
+      "actions": actions, "enabled": enabled, "focused": focused, "depth": depth, "onscreen": onscreen,
     ]
   }
 }
@@ -273,7 +278,7 @@ private let ALWAYS_KEEP_ROLES: Set<String> = [
 /// (`AXMenu` presented as a window) is still reachable — this only skips the resting menu bar.
 private let SKIP_SUBTREE_ROLES: Set<String> = ["AXMenuBar"]
 
-private func walk(app: AXUIElement) -> (elements: [Element], truncated: Bool) {
+private func walk(app: AXUIElement, limit: Int) -> (elements: [Element], truncated: Bool) {
   var elements: [Element] = []
   var visits = 0
   var truncated = false
@@ -286,8 +291,16 @@ private func walk(app: AXUIElement) -> (elements: [Element], truncated: Bool) {
     roots = [focused as! AXUIElement]
   }
 
-  func visit(_ element: AXUIElement, depth: Int) {
-    if visits >= MAX_VISITS || elements.count >= MAX_ELEMENTS {
+  /// Roles whose frame clips what is inside them: a row scrolled out of a scroll area is still in the
+  /// tree, with a frame outside the area's.
+  let clippingRoles: Set<String> = ["AXWindow", "AXSheet", "AXDrawer", "AXScrollArea"]
+  /// Subtrees entirely outside what is visible, walked after everything on screen. Tree order alone
+  /// spent the whole budget on a chat's scrolled-away transcript before the compose field and the
+  /// panes after it were reached.
+  var deferred: [(element: AXUIElement, frame: CGRect?, depth: Int, bounds: CGRect)] = []
+
+  func visit(_ element: AXUIElement, frame: CGRect?, depth: Int, bounds: CGRect) {
+    if visits >= MAX_VISITS || elements.count >= limit {
       truncated = true
       return
     }
@@ -313,7 +326,6 @@ private func walk(app: AXUIElement) -> (elements: [Element], truncated: Bool) {
     let isSecure = role == "AXSecureTextField"
     let value = isSecure ? "" : clip(axString(element, kAXValueAttribute as String) ?? "", MAX_VALUE_CHARS)
 
-    let frame = axFrame(element)
     // Zero-area elements cannot be clicked and are the bulk of a real tree (layout groups, collapsed
     // rows, offscreen list items an app keeps realised). Dropping them here is what makes the
     // element cap sufficient.
@@ -327,17 +339,32 @@ private func walk(app: AXUIElement) -> (elements: [Element], truncated: Bool) {
         name: name, value: value, frame: frame, actions: actions,
         enabled: axBool(element, kAXEnabledAttribute as String) ?? true,
         focused: axBool(element, kAXFocusedAttribute as String) ?? false,
-        depth: depth))
+        depth: depth,
+        onscreen: frame.intersects(bounds)))
     }
 
     if depth >= MAX_DEPTH {
       truncated = true
       return
     }
-    for child in axChildren(element) { visit(child, depth: depth + 1) }
+    let childBounds = clippingRoles.contains(role) ? (frame.map { bounds.intersection($0) } ?? bounds) : bounds
+    for child in axChildren(element) {
+      let childFrame = axFrame(child)
+      if let f = childFrame, f.width >= 1, f.height >= 1, !f.intersects(childBounds) {
+        deferred.append((child, childFrame, depth + 1, childBounds))
+      } else {
+        visit(child, frame: childFrame, depth: depth + 1, bounds: childBounds)
+      }
+    }
   }
 
-  for root in roots { visit(root, depth: 0) }
+  for root in roots { visit(root, frame: axFrame(root), depth: 0, bounds: .infinite) }
+  var next = 0
+  while next < deferred.count {
+    let d = deferred[next]
+    next += 1
+    visit(d.element, frame: d.frame, depth: d.depth, bounds: d.bounds)
+  }
   return (elements, truncated)
 }
 
@@ -759,7 +786,8 @@ private final class Helper {
     // the walk below is thousands of them.
     AXUIElementSetMessagingTimeout(axApp, AX_TIMEOUT_SECONDS)
 
-    let (elements, truncated) = walk(app: axApp)
+    let limit = min(max((params["limit"] as? Int) ?? DEFAULT_ELEMENTS, 1), MAX_ELEMENTS)
+    let (elements, truncated) = walk(app: axApp, limit: limit)
     if elements.isEmpty {
       // Distinguishable from a legitimately empty app: a trusted client reading a real app always
       // sees at least a window. Empty almost always means the app has no open window.

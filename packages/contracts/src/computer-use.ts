@@ -110,7 +110,22 @@ export type ComputerElement = {
   enabled: boolean;
   focused: boolean;
   depth: number;
+  /** Inside the window and every scroll area around it, so it is on screen now. Absent from a helper
+   *  that predates it, which reads as on screen: the list then stays in walk order, as it was. */
+  onscreen?: boolean;
 };
+
+/** How many elements one `computer_snapshot` lists. The walk keeps more than this; the rest are
+ *  reached with `offset` or `query` (`ComputerSnapshotScope`), never dropped silently. */
+export const COMPUTER_SNAPSHOT_MAX = 500;
+
+/** Which part of an app's tree a snapshot lists: the next page of the ranking (on screen first, then
+ *  fields, then the rest in walk order), or the elements whose role, name or value match. */
+export const ComputerSnapshotScopeSchema = z.object({
+  offset: z.number().int().min(0).optional(),
+  query: z.string().trim().min(1).max(200).optional(),
+});
+export type ComputerSnapshotScope = z.infer<typeof ComputerSnapshotScopeSchema>;
 
 export type ComputerApp = { pid: number; bundleId: string; name: string; frontmost: boolean; hidden: boolean };
 
@@ -124,7 +139,8 @@ export type ComputerSnapshotResult = {
   bundleId: string;
   appName: string;
   frontmost: boolean;
-  /** The walk hit its element/depth budget: what is here is real, but incomplete. */
+  /** The walk hit its visit/element/depth budget, so part of the app was never read — not the same as
+   *  the listing being cut off, which `text` says in its own notes. */
   truncated: boolean;
   elements: ComputerElement[];
   /** Base64 JPEG of the app's windows. Absent when Screen Recording is not granted — the tree, which
