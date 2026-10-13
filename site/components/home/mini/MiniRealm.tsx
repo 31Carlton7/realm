@@ -30,6 +30,20 @@ const SCENES: { label: string; session: string; tab?: string; view: View; expand
   { label: "Browser", session: "settings", tab: "settings-browser", view: "panel" },
 ]
 
+/** A state the page around the window can put it in: a session, the tab its side panel shows, the
+ *  column in front on a narrow screen, and a Needs you row to open (if it is still waiting). */
+export type MiniScene = { session: string; tab?: string; view?: "sidebar" | "session" | "panel"; expand?: string }
+
+type MiniRealmProps = {
+  /** Drive the window from outside: one of the row's views by its index, or any MiniScene. Absent,
+   *  the window is the reader's alone, as it always was. */
+  scene?: number | MiniScene
+  /** Called with the row's index when the reader picks a view from the row. */
+  onSceneChange?: (index: number) => void
+  /** Leave the row out, for a page that steps through the views itself. */
+  sceneRow?: boolean
+}
+
 const TAB_ICON: Record<PanelKind, IconName> = {
   document: "doc",
   terminal: "terminal",
@@ -50,7 +64,7 @@ const TAB_ICON: Record<PanelKind, IconName> = {
  * Narrower than the whole window, it recomposes rather than shrinks (design.md, Accessibility): two
  * columns on a tablet, one on a phone, with the column chosen by what was last clicked.
  */
-export function MiniRealm() {
+export function MiniRealm({ scene: driven, onSceneChange, sceneRow = true }: MiniRealmProps = {}) {
   const [selected, setSelected] = useState("crash")
   const [view, setView] = useState<View>("session")
   const [tabs, setTabs] = useState<Record<string, string>>(() =>
@@ -125,6 +139,23 @@ export function MiniRealm() {
     openTab("crash", "crash-doc")
     setFlash((n) => n + 1)
   }
+
+  // A page that drives the window puts it in each state it asks for, the way the row's buttons do.
+  // Keyed on the scene's value: a new object for the same state does nothing, and a status changing
+  // under it (the reader answering) is not taken for a new scene.
+  const drivenKey = driven === undefined ? undefined : JSON.stringify(driven)
+  useEffect(() => {
+    if (driven === undefined) return
+    if (typeof driven === "number") {
+      goToScene(driven)
+      return
+    }
+    setScene(-1)
+    setSelected(driven.session)
+    if (driven.tab) setTabs((current) => ({ ...current, [driven.session]: driven.tab! }))
+    setExpanded(driven.expand && status[driven.expand] === "waiting" ? driven.expand : null)
+    setView(driven.view ?? "session")
+  }, [drivenKey])
 
   return (
     <div className="flex h-full flex-col">
@@ -347,22 +378,27 @@ export function MiniRealm() {
       </div>
 
       {/* Clerk's segmented row under its hero component, as the views worth seeing. */}
-      <div className="flex justify-center border-t border-line bg-page px-2 py-2.5">
-        <div role="group" aria-label="Show" className="flex max-w-full gap-1 overflow-x-auto [scrollbar-width:none]">
-          {SCENES.map((s, i) => (
-            <button
-              key={s.label}
-              type="button"
-              aria-pressed={scene === i}
-              onClick={() => goToScene(i)}
-              className="app-corner flex h-8 shrink-0 items-center gap-2 rounded-[10px] px-3 text-[13px] text-ink-3 transition-colors duration-150 hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink"
-            >
-              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${scene === i ? "bg-accent" : "bg-ink-3/50"}`} />
-              {s.label}
-            </button>
-          ))}
+      {sceneRow ? (
+        <div className="flex justify-center border-t border-line bg-page px-2 py-2.5">
+          <div role="group" aria-label="Show" className="flex max-w-full gap-1 overflow-x-auto [scrollbar-width:none]">
+            {SCENES.map((s, i) => (
+              <button
+                key={s.label}
+                type="button"
+                aria-pressed={scene === i}
+                onClick={() => {
+                  goToScene(i)
+                  onSceneChange?.(i)
+                }}
+                className="app-corner flex h-8 shrink-0 items-center gap-2 rounded-[10px] px-3 text-[13px] text-ink-3 transition-colors duration-150 hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink"
+              >
+                <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${scene === i ? "bg-accent" : "bg-ink-3/50"}`} />
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   )
 }
