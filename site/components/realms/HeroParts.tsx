@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react"
 import Link from "next/link"
 
 import { DownloadButton, QuietButton } from "@/components/Buttons"
@@ -64,8 +65,10 @@ export function Actions({ download, className = "", center = false }: ConceptPro
 }
 
 /**
- * The working sample of Realm, framed. `anchor` names its rect for the shader (default "portal"), and
- * `frameClassName` sizes it — the concept decides how much of the first viewport the product takes.
+ * The working sample of Realm, framed as the pictures further down are (Screen): Realm's own window
+ * corner, a window's shadow, and on its edge the one-device-pixel outline with the light from above
+ * catching its top. `anchor` names its rect for the shader (default "portal"), and `frameClassName`
+ * sizes it — the concept decides how much of the first viewport the product takes.
  */
 export function ProductWindow({
   className = "",
@@ -88,9 +91,10 @@ export function ProductWindow({
       ) : null}
       <div
         data-field-anchor={anchor}
-        className={`app-corner relative w-full overflow-hidden rounded-[20px] bg-page shadow-[0_0_0_1px_oklch(1_0_0/0.09)] ${frameClassName}`}
+        className={`relative w-full overflow-hidden rounded-[16px] bg-page shadow-[0_0_0_1px_oklch(0_0_0/0.5),0_30px_70px_-20px_oklch(0_0_0/0.65),0_80px_140px_-60px_oklch(0_0_0/0.5)] ${frameClassName}`}
       >
         <MiniRealm />
+        <span aria-hidden className="screen-light z-10" style={{ "--screen-radius": "16px" } as CSSProperties} />
       </div>
     </div>
   )

@@ -79,8 +79,8 @@ Inspect the existing implementation before designing.
   A picture with no source can only be regenerated, never adjusted, which is why the colourings are
   data. A running Mac app can change only its own Dock tile — the Finder keeps the bundle's icon — and
   Settings says so rather than implying more.
-- The landing page's field: `site/lib/dimension/` — one WebGPU pass behind the whole page — with
-  the mark's six faces as geometry in `site/lib/mark.ts`
+- The landing page's field: `site/components/realms/` on `site/components/field/` — one WebGPU pass
+  behind the whole page — with the mark's six faces as geometry in `site/lib/mark.ts`
 
 When the landing mark is presented as glass, derive its surface field from the approved vector rather
 than inventing geometry around it. Refraction and edge highlights must respond to that field, and

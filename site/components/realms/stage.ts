@@ -48,6 +48,10 @@ const REALM_VERTICES = 78
 /** The scene is drawn at this many target pixels per CSS px (the canvas itself runs up to 1.5), and
  *  multisampled, so its edges stay clean where the canvas scales it up. */
 const RENDER_SCALE = 1
+/** The share of the field left under a pane of words, before the pane's own blur and tint: enough
+ *  for the blur to have something to show, little enough that no lit doorway behind it can take the
+ *  words below AA. */
+const PANE_FIELD = 0.45
 
 type Mode = "flight" | "still" | "drift"
 
@@ -80,8 +84,8 @@ function levelView(foot: Vec3, yaw: number, height: number, distance: number, fo
 }
 
 /**
- * Every stop, read from the page as it is laid out right now: each is composed around the block of
- * words marked `k:<id>`, at the scroll position that centres it, and a chapter's camera is solved so
+ * Every stop, read from the page as it is laid out right now: each is composed around the block
+ * marked `k:<id>` (its words) or `p:<id>` (its picture), at the scroll position that centres it, and a chapter's camera is solved so
  * that the foot of its realm's doorway lands on the bottom middle of the screen's slot at exactly that
  * position. The layout is the DOM's; the world is built round it.
  */
@@ -118,7 +122,9 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
   }
 
   for (const [name, rect] of Object.entries(anchors)) {
-    if (!name.startsWith("k:")) continue
+    // A stop is composed around its words (`k:`), or, where the words come first and the picture is
+    // the whole width under them, around its picture (`p:`).
+    if (!name.startsWith("k:") && !name.startsWith("p:")) continue
     const id = name.slice(2)
     const y = Math.max(1, centred(rect, scrollY, height))
     const stop = CHAPTERS[id]
@@ -259,7 +265,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
   const comp: CompositeUniforms = {
     view: [1, 1, 1, 0],
     look: [0, 0, 0, 0],
-    clear: Array.from({ length: CLEAR }, () => [...zero]),
+    clear: Array.from({ length: CLEAR * 2 }, () => [...zero]),
     panels: Array.from({ length: PANELS * 2 }, () => [...zero]),
   }
 
@@ -311,8 +317,18 @@ export const createRealms: StageFactory = async (gpu, output) => {
   const root = document.documentElement
   const screens = new Map<string, Node>()
   const realmites = new Map<string, Node>()
+  /** The panes words sit on (FieldPanel), by their anchor: each one's corner as drawn right now. */
+  const panes = new Map<string, number>()
 
   const nodes = () => {
+    panes.clear()
+    for (const el of document.querySelectorAll<HTMLElement>("[data-field-panel]")) {
+      const name = el.dataset.fieldAnchor
+      if (!name) continue
+      // A caption rides its screen's scale in the flight; its corner scales with it.
+      const scale = el.offsetWidth > 0 ? el.getBoundingClientRect().width / el.offsetWidth : 1
+      panes.set(name, Number(el.dataset.fieldPanel) * scale)
+    }
     for (const el of document.querySelectorAll<HTMLElement>("[data-screen]")) {
       const id = el.dataset.screen!
       if (screens.get(id)?.el !== el) screens.set(id, { el, last: "" })
@@ -328,6 +344,14 @@ export const createRealms: StageFactory = async (gpu, output) => {
     node.last = css
     node.el.style.cssText = css
   }
+
+  /**
+   * The pointer's lamp on a picture's rim (Screen's `.screen-light`): where the lamp is in the
+   * picture's own unscaled box, and how present it is. Only the rim takes it, so nothing is laid over
+   * the picture; under reduced motion the lamp is out and the rim is its resting outline.
+   */
+  const rimLamp = (x: number, y: number) =>
+    lamp.presence < 0.002 ? "" : `--lx:${x.toFixed(1)}px;--ly:${y.toFixed(1)}px;--lamp:${lamp.presence.toFixed(3)}`
 
   const setMode = (next: Mode) => {
     if (next === mode) return
@@ -394,7 +418,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const lights: number[][] = []
       const plazas: number[][] = []
       const lit: number[][] = []
-      const clears: Rect[] = []
+      const clears: [Rect, number, number][] = []
+      /** How present each screen's caption is: a caption has its pane only while it can be seen. */
+      const captions = new Map<string, number>()
       let fence = [0, 0, 0, 0]
       const visible = (r: Rect) => r[2] > 0 && r[1] < height + 160 && r[1] + r[3] > -160 && r[0] < width + 160 && r[0] + r[2] > -160
       const progress = now.at.from + now.at.u
@@ -435,6 +461,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
         const node = screens.get(id)
         if (!node || !stand.slot || !stand.foot || stand.depth === undefined) return
         const pictureOn = now.picture[index]!
+        // The picture's own corner (Screen's `data-radius`, a share of its width), so the light drawn
+        // round it follows the surface it shows: a window's corner, a picker's, a column's.
+        const corner = Number(node.el.dataset.radius ?? 0)
         if (mode === "flight") {
           const [bx, by, z] = project(view, b, stand.foot)
           const shown = z > 0.6 && pictureOn > 0.001
@@ -446,9 +475,10 @@ export const createRealms: StageFactory = async (gpu, output) => {
           write(
             node,
             shown
-              ? `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;transform:translate3d(${left.toFixed(2)}px,${top.toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${pictureOn.toFixed(3)}`
+              ? `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;transform:translate3d(${left.toFixed(2)}px,${top.toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${pictureOn.toFixed(3)};${rimLamp((lamp.x - left) / s, (lamp.y - top) / s)}`
               : `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;opacity:0;pointer-events:none`,
           )
+          if (shown) captions.set(id, pictureOn)
           if (z > 0.6 && (opening > 0.001 || pictureOn > 0.001) && panels.length < PANELS * 2 && stand.realm) {
             // The doorway's own rect on the page, opening out into the screen's.
             const [cx, cy] = stand.realm
@@ -470,18 +500,18 @@ export const createRealms: StageFactory = async (gpu, output) => {
             // goes with the picture, so no dark rect is left behind it.
             const leaving = now.at.from === index && now.at.to !== index
             const fill = leaving ? pictureOn : smooth(Math.min(1, opening * 2.4))
-            panels.push([...rect], [fill, lerp(1.5, 12 * s, e), pictureOn, (0.35 + 0.65 * spread) * (1 - pictureOn) * smooth(opening)])
+            panels.push([...rect], [fill, lerp(1.5, corner * w, e), pictureOn, (0.35 + 0.65 * spread) * (1 - pictureOn) * smooth(opening)])
             if (lights.length < SCREENS * 2) {
               const W = (stand.slot[0] * stand.depth) / stand.key.view.focal
               const H = (stand.slot[1] * stand.depth) / stand.key.view.focal
               lights.push([...stand.foot, W], [H, stand.key.view.yaw, Math.max(opening, pictureOn), 0])
             }
-            if (pictureOn > 0.05) clears.push([left, top + h + 4, Math.min(w, 600), 52])
           }
         } else {
           // In the slot: the screen is where the layout put it, and its light is read from there.
-          write(node, "")
           const slot = input.anchors[`s:${id}`]
+          write(node, slot ? rimLamp(lamp.x - slot[0], lamp.y - slot[1]) : "")
+          captions.set(id, 1)
           if (slot && visible(slot) && lights.length < SCREENS * 2) {
             const ray = rayThrough(view, b, slot[0] + slot[2] / 2, slot[1] + slot[3])
             if (ray[2] < -1e-3) {
@@ -490,9 +520,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
               const depth = dot(sub(foot, view.eye), b.fwd)
               lights.push([...foot, (slot[2] * depth) / view.focal], [(slot[3] * depth) / view.focal, view.yaw, 0.85, 0])
             }
-            if (panels.length < PANELS * 2) panels.push([...slot], [0, 12, 1, 0])
+            if (panels.length < PANELS * 2) panels.push([...slot], [0, corner * slot[2], 1, 0])
           }
-          if (slot && visible(slot)) clears.push([slot[0], slot[1] + slot[3] + 4, Math.min(slot[2], 600), 52])
         }
       })
 
@@ -522,11 +551,14 @@ export const createRealms: StageFactory = async (gpu, output) => {
 
       // The working sample is a lit screen too: the same breath of light at its edge as every chapter's.
       const portal = input.anchors.portal
-      if (portal && visible(portal) && panels.length < PANELS * 2) panels.push([...portal], [0, 20, 0.85, 0])
+      if (portal && visible(portal) && panels.length < PANELS * 2) panels.push([...portal], [0, 16, 0.85, 0])
 
       // ---- the words the field keeps clear of ----------------------------------------------
       for (const [name, rect] of Object.entries(input.anchors)) {
-        if ((name === "copy" || name.startsWith("k:") || name.startsWith("c:")) && visible(rect)) clears.push(rect)
+        if (!(name === "copy" || name.startsWith("k:") || name.startsWith("c:")) || !visible(rect)) continue
+        // A caption's pane comes and goes with its picture; one whose picture is away is not there.
+        const present = name.startsWith("c:caption-") ? captions.get(name.slice("c:caption-".length)) ?? 0 : 1
+        if (present > 0.02) clears.push([rect, panes.get(name) ?? -1, 1 - (1 - PANE_FIELD) * present])
       }
 
       // ---- the hour, and what the field has become -------------------------------------------
@@ -604,7 +636,10 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const dpr = output.size[0] / Math.max(width, 1)
       comp.view = [width, height, dpr, input.seconds]
       comp.look = [input.still ? 1 : 0, clearList.length, 0, 0]
-      comp.clear = [...clearList.map((r) => [...r]), ...Array.from({ length: CLEAR - clearList.length }, () => [...zero])]
+      comp.clear = [
+        ...clearList.flatMap(([r, radius, inside]) => [[...r], [radius, inside, 0, 0]]),
+        ...Array.from({ length: (CLEAR - clearList.length) * 2 }, () => [...zero]),
+      ]
       comp.panels = panels
 
       const wanted = sizeOf()

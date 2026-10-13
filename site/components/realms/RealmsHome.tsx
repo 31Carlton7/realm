@@ -3,13 +3,15 @@ import { DownloadButton, QuietButton } from "@/components/Buttons"
 import { Actions, Announcement, Lede, ProductWindow } from "@/components/realms/HeroParts"
 import { GitHubIcon } from "@/components/icons"
 import { FIELD_PATTERN, TILE } from "@/components/realms/hive/fallback"
-import { Chapter } from "@/components/realms/Chapter"
+import { Chapter, type ChapterPicture } from "@/components/realms/Chapter"
+import { FieldPanel } from "@/components/realms/FieldPanel"
 import { Flight } from "@/components/realms/Flight"
 import { HoleStage } from "@/components/realms/HoleStage"
 import { Team } from "@/components/realms/Team"
 import { SiteFooter } from "@/components/SiteFooter"
 import { SiteHeader } from "@/components/SiteHeader"
 import { delegation, facets, facetsCoda, faq, type Claim } from "@/content/home"
+import { partImage, sceneImage } from "@/lib/pictures"
 import type { MacDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 
@@ -35,6 +37,19 @@ const FACTS: { title: string; body: string }[] = [
   { title: "No API key", body: "Realm drives the agent CLIs you already have, on the plan you already pay for." },
   { title: "Signed and notarized", body: "Builds for Apple silicon, updated from a public release feed. The source is on GitHub." },
 ]
+
+/**
+ * A claim's evidence: the part of the window it is about, photographed on its own, or its whole scene
+ * where no part was taken; nothing when neither was (design.md: a claim whose capture does not exist
+ * reads as prose).
+ */
+function evidence(claim: Claim): ChapterPicture | null {
+  const alt = claim.caption ?? claim.title
+  const part = claim.part ? partImage(claim.part) : null
+  if (part) return { image: part, alt, caption: claim.caption ?? "", kind: "part" }
+  if (claim.capture) return { image: sceneImage(claim.capture), alt, caption: claim.caption ?? "", kind: "window" }
+  return null
+}
 
 /** The order the flight visits the claims in, and which side each one's screen stands on. */
 const ROUTE: { id: string; side: "left" | "right" }[] = [
@@ -67,7 +82,7 @@ const ROUTE: { id: string; side: "left" | "right" }[] = [
 export async function RealmsHome({ download, claims }: HomeProps) {
   const byId = new Map(claims.map((claim) => [claim.id, claim]))
   const chapters = ROUTE.map((stop) => ({ ...stop, claim: byId.get(stop.id) })).filter(
-    (stop): stop is { id: string; side: "left" | "right"; claim: Claim } => Boolean(stop.claim?.capture),
+    (stop): stop is { id: string; side: "left" | "right"; claim: Claim } => Boolean(stop.claim),
   )
 
   return (
@@ -106,17 +121,17 @@ export async function RealmsHome({ download, claims }: HomeProps) {
         <Chapter
           id="space"
           side="right"
-          tall
+          stacked
           title="What a realm holds."
-          caption="A session in the Dashboard space, and the file its turn edited open in vim in a terminal beside it."
           picture={{
-            kind: "scene",
-            slug: "terminal",
-            alt: "Realm's window: the sidebar with every space, a session in the Dashboard space that edited two files, and a terminal beside it with vim open on web/lib/orgs.ts.",
+            image: partImage("realm") ?? sceneImage("terminal"),
+            kind: "window",
+            caption: "A session in the Dashboard space, and the file its turn edited open in vim in a terminal beside it.",
+            alt: "Realm's window with the sidebar folded: a session in the Dashboard space whose turn edited two files, and beside it a terminal with vim open on web/lib/orgs.ts at the function the turn rewrote.",
           }}
         >
-          <p>A realm is one space in Realm: a project, with everything its work needs kept beside it.</p>
-          <dl className="space-y-3.5 pt-1">
+          <p className="max-w-[60ch]">A realm is one space in Realm: a project, with everything its work needs kept beside it.</p>
+          <dl className="grid gap-x-10 gap-y-5 pt-2 sm:grid-cols-2 lg:grid-cols-3">
             {facets.map((facet) => (
               <div key={facet.title}>
                 <dt className="text-[16px] font-[560] text-ink">{facet.title}</dt>
@@ -136,8 +151,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
             side={side}
             tall={id === "delegation"}
             title={claim.title}
-            caption={claim.caption ?? ""}
-            picture={{ kind: "claim", id: claim.id, focus: claim.focus, alt: claim.caption ?? claim.title }}
+            picture={evidence(claim)}
           >
             {id === "delegation" ? (
               <>
@@ -159,7 +173,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
               <p>{claim.body}</p>
             )}
             {id === "agents" ? (
-              <ul aria-label="Agents Realm runs" className="grid grid-cols-3 gap-x-4 gap-y-3 pt-2">
+              <ul aria-label="Agents Realm runs" className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2 sm:grid-cols-3">
                 {AGENTS.map(({ id: agent, name }) => (
                   <li key={agent} className="flex items-center gap-2.5 text-[14px] text-ink">
                     <AgentMark id={agent} className="h-[18px] w-[18px] shrink-0 text-ink-2" />
@@ -176,11 +190,11 @@ export async function RealmsHome({ download, claims }: HomeProps) {
         {/* The climb: the field falls away under where the work lives and the questions. */}
         <section aria-labelledby="facts-title" className="relative">
           <div className="mx-auto flex w-full max-w-[92rem] flex-col justify-center px-6 py-24 sm:px-10 lg:min-h-[110vh]">
-            <div data-field-anchor="k:facts" className="relative z-[2]">
+            <FieldPanel anchor="k:facts" wrapClassName="z-[2]" className="px-6 pt-8 sm:px-9 sm:pt-9">
               <h2 id="facts-title" className="text-[clamp(1.6rem,2.4vw,2.1rem)] leading-[1.1] font-[580] tracking-[-0.035em] text-ink">
                 Where the work lives.
               </h2>
-              <dl className="mt-8 grid border-y border-line sm:grid-cols-2 lg:grid-cols-4">
+              <dl className="mt-8 grid border-t border-line sm:grid-cols-2 lg:grid-cols-4">
                 {FACTS.map((fact, i) => (
                   <div
                     key={fact.title}
@@ -191,19 +205,19 @@ export async function RealmsHome({ download, claims }: HomeProps) {
                   </div>
                 ))}
               </dl>
-            </div>
+            </FieldPanel>
           </div>
         </section>
 
         <section aria-labelledby="faq-title" className="relative">
           <div className="mx-auto w-full max-w-[52rem] px-6 py-24 sm:px-10 lg:min-h-[120vh] lg:py-40">
-            <div data-field-anchor="k:faq" className="relative z-[2]">
+            <FieldPanel anchor="k:faq" wrapClassName="z-[2]" className="px-6 pt-8 pb-3 sm:px-9 sm:pt-9 sm:pb-4">
               <h2 id="faq-title" className="text-[clamp(1.6rem,2.4vw,2.1rem)] leading-[1.1] font-[580] tracking-[-0.035em] text-ink">
                 Questions
               </h2>
               <div className="mt-8">
                 {faq.map((item, i) => (
-                  <details key={item.q} name="realms-faq" open={i === 0} className="group border-t border-line py-4 last:border-b">
+                  <details key={item.q} name="realms-faq" open={i === 0} className="group border-t border-line py-4">
                     <summary className="flex cursor-pointer list-none items-start justify-between gap-6 text-[16px] leading-[1.45] font-[500] text-ink [&::-webkit-details-marker]:hidden">
                       <span>{item.q}</span>
                       <span aria-hidden className="mt-1 shrink-0 text-ink-2 transition-transform duration-200 ease-[var(--ease-out-strong)] group-open:rotate-45">
@@ -216,14 +230,14 @@ export async function RealmsHome({ download, claims }: HomeProps) {
                   </details>
                 ))}
               </div>
-            </div>
+            </FieldPanel>
           </div>
         </section>
 
         {/* The night over the field, under the call; the black hole comes up under the footer. */}
         <section aria-labelledby="finale-title" className="relative">
           <div className="mx-auto flex w-full max-w-[92rem] flex-col items-center px-6 pt-40 pb-16 text-center sm:px-10 lg:min-h-[115vh] lg:justify-center lg:pt-0 lg:pb-0">
-            <div data-field-anchor="k:finale" className="relative z-[2] flex flex-col items-center">
+            <FieldPanel anchor="k:finale" wrapClassName="z-[2]" className="flex flex-col items-center px-8 py-10 sm:px-14 sm:py-12">
               <h2 id="finale-title" className="max-w-[16ch] text-[clamp(2.4rem,5vw,4.25rem)] leading-[1] font-[580] tracking-[-0.05em] text-balance text-ink">
                 Give your agents a world to work in.
               </h2>
@@ -240,7 +254,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
               <p className="mt-4 font-mono text-[12px] text-ink-2">
                 {download.version ? `${download.version} · ` : ""}macOS on Apple silicon · in active development
               </p>
-            </div>
+            </FieldPanel>
           </div>
         </section>
       </main>

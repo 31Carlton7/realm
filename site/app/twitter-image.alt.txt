@@ -1,1 +1,1 @@
-Realm, with the words: Give your agents a world to work in. Below them, a Realm window in a lit portal: every space in the sidebar, a session that fixed a crash, and the file it named open beside it.
+Realm, with the words: One workspace for every coding agent, on your Mac. Below them, over a field of Realm's cubes at dusk, a Realm window: a session that fixed a crash, and the file its turn edited open in vim in a terminal beside it.

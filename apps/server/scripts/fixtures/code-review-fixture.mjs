@@ -225,14 +225,25 @@ function file(dir, path, status, before, after, extra = {}) {
 
 const iso = (daysAgo, hour = 10) => new Date(Date.UTC(2026, 9, 5 - daysAgo, hour, 12)).toISOString();
 
-function entry({ owner, repo, number, title, author, daysAgo, draft = false, body = "", files = [], view = {}, contents }) {
+/** A branch named the way a person names one: the title's first words, whole, up to 30 characters. */
+function branchFor(title) {
+  let name = "";
+  for (const word of title.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)) {
+    const next = name ? `${name}-${word}` : word;
+    if (next.length > 30) break;
+    name = next;
+  }
+  return name;
+}
+
+function entry({ owner, repo, number, title, author, daysAgo, draft = false, body = "", files = [], view = {}, contents, branch = branchFor(title) }) {
   const additions = files.reduce((n, f) => n + f.additions, 0), deletions = files.reduce((n, f) => n + f.deletions, 0);
   const url = `https://github.com/${owner}/${repo}/pull/${number}`;
   return {
     node: { number, title, url, state: "OPEN", isDraft: draft, createdAt: iso(daysAgo + 2), updatedAt: iso(daysAgo), author: { login: author }, repository: { name: repo, owner: { login: owner } } },
     view: {
       number, title, body, url, state: "OPEN", isDraft: draft, author: { login: author, name: author },
-      createdAt: iso(daysAgo + 2), updatedAt: iso(daysAgo), baseRefName: "main", headRefName: `${author}/${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30)}`,
+      createdAt: iso(daysAgo + 2), updatedAt: iso(daysAgo), baseRefName: "main", headRefName: `${author}/${branch}`,
       headRefOid: HEAD, headRepositoryOwner: { login: owner }, additions, deletions, changedFiles: files.length,
       mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: "REVIEW_REQUIRED",
       reviewRequests: [], latestReviews: [], comments: [], statusCheckRollup: [],
@@ -247,7 +258,7 @@ export function buildFixture() {
   const dir = mkdtempSync(join(tmpdir(), "realm-cr-fixture-"));
   try {
     const main = entry({
-      owner: "acme", repo: "widgets", number: 42, author: "mara-lin", daysAgo: 0,
+      owner: "acme", repo: "widgets", number: 42, author: "mara-lin", daysAgo: 0, branch: "stream-tokenizer",
       title: "Stream the tokenizer instead of buffering its input",
       body: [
         "## Summary", "",

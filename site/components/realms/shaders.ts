@@ -602,7 +602,7 @@ export const compositeShader = /* wgsl */ `
 struct Comp {
   view: vec4f,     // width, height (CSS px), device px per CSS px, seconds
   look: vec4f,     // still, number of clear rects, unused, unused
-  clear: array<vec4f, ${CLEAR}>,
+  clear: array<vec4f, ${CLEAR * 2}>,     // per block of words: rect x, y, w, h; its pane's corner radius (< 0: no pane), field left inside, unused, unused
   panels: array<vec4f, ${PANELS * 2}>,   // per panel: rect x, y, w, h; fill, corner radius, picture, light
 }
 @group(0) @binding(0) var<uniform> comp: Comp;
@@ -622,17 +622,26 @@ fn toLinear(c: vec3f) -> vec3f {
   return select(pow((c + 0.055) / 1.055, vec3f(2.4)), c / 12.92, c <= vec3f(0.04045));
 }
 
-// 0 at the words, 1 clear of them: zero inside each block grown by 14 px, easing out over 100.
-fn clearance(p: vec2f) -> f32 {
+// How much of the field shows at p, given the words over it. Words on a pane (FieldPanel) dim it
+// inside the pane's own rounded rect, by the share the pane leaves, with an anti-aliased edge and
+// nothing past it, so the pane is the only shape there is. The opening's words, on no pane, keep a
+// clearance: zero inside the block grown by 14 px, easing out over 100.
+fn clearance(p: vec2f, dpr: f32) -> f32 {
   var k = 1.0;
   let n = i32(comp.look.y);
   for (var i = 0; i < ${CLEAR}; i++) {
     if (i >= n) { break; }
-    let r = comp.clear[i];
+    let r = comp.clear[i * 2];
+    let pane = comp.clear[i * 2 + 1];
     if (r.z <= 0.0) { continue; }
     let h = r.zw * 0.5;
-    let d = sdRoundRect(p - r.xy - h, h + vec2f(14.0), 18.0);
-    k *= smoothstep(0.0, 100.0, d);
+    if (pane.x < 0.0) {
+      let d = sdRoundRect(p - r.xy - h, h + vec2f(14.0), 18.0);
+      k *= smoothstep(0.0, 100.0, d);
+    } else {
+      let d = sdRoundRect(p - r.xy - h, h, pane.x);
+      k *= mix(1.0, pane.y, saturate(0.5 - d * dpr));
+    }
   }
   return k;
 }
@@ -644,7 +653,7 @@ fn clearance(p: vec2f) -> f32 {
   let t = comp.view.w;
   let page = toLinear(PAGE);
   let field = textureSampleLevel(sceneTex, sceneSampler, uv, 0.0).rgb;
-  let clear = clearance(p);
+  let clear = clearance(p, dpr);
   var color = mix(page, field, clear);
 
   for (var k = 0; k < ${PANELS}; k++) {

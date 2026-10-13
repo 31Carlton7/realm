@@ -9,10 +9,6 @@
  * Everything here is a fact about the shipped app. Anything Realm cannot do yet belongs in the
  * changelog, not on this page.
  */
-import type { Focus } from "@/lib/frames"
-
-export type { Focus }
-
 export type Claim = {
   /** Stable id, used for the section's own heading anchor. */
   id: string
@@ -20,21 +16,19 @@ export type Claim = {
   body: string
   /** A slug in the capture manifest, or null for a claim that has no picture yet. */
   capture: string | null
-  /** What the picture is evidence OF. Required wherever there is one. */
-  caption?: string
   /**
-   * Which part of the capture this claim is actually about.
+   * The part of that scene the claim is about, photographed on its own (`public/product/parts.json`,
+   * written by `scripts/capture-product.mjs`).
    *
    * Every scene is shot at the whole 1440x900 window, and most of them spend a good half of it on
-   * the dimmed sidebar and empty canvas either side of the thing being claimed. Shown whole in a
-   * page column the subject lands around 60% of its own size, which is a picture of the product
-   * rather than a readable one. `x` and `y` are the point that stays in the middle of the frame and
-   * `span` is how much of the capture's width the frame shows, both as fractions of the source.
-   *
-   * A point near an edge is held back to the edge rather than dragging blank space into frame, so
-   * these are aims, not promises — see `Claim.tsx`.
+   * the sidebar and empty canvas either side of the thing being claimed: shown whole in a page column
+   * the subject lands around half its own size, a picture of the product rather than a readable one.
+   * A part is the one surface the claim is about, at the size it has in the app. A claim without one
+   * shows its whole scene.
    */
-  focus?: Focus
+  part?: string
+  /** What the picture shows. Required wherever there is one, and re-read whenever it is retaken. */
+  caption?: string
 }
 
 export const claims: Claim[] = [
@@ -44,9 +38,8 @@ export const claims: Claim[] = [
     body:
       "Each space in a profile gets its own section of the sidebar: its name in its colour, a count of what's waiting and working, and its sessions. Needs you sits on top and collects every session that's waiting on a permission or a question, from every space and every profile. Open a row and you can answer it right there. Switching spaces loads nothing, because they're all loaded already.",
     capture: "sidebar",
-    /* The column, from the profile down: Needs you, then the spaces and their sessions. */
-    focus: { x: 0.25, y: 0.27, span: 0.56 },
-    caption: "Three sessions waiting on you (two questions and a sub-agent's permission, one from another profile) above every space's sessions.",
+    part: "sidebar",
+    caption: "Two questions waiting on you, one from another profile, above every space's sessions and a count of what's waiting and working in each.",
   },
   {
     id: "transcript",
@@ -54,9 +47,8 @@ export const claims: Claim[] = [
     body:
       "A turn isn't a wall of log. Tool calls fold into rows you can open, a plan shows up as a plan, and a reply can carry a chart, a diagram or a comparison. When a turn changes files, it ends with a card listing each file and its line counts from git. Review opens that turn's diff, and Undo is there when a checkpoint can take back exactly that turn. Every prompt also leaves a tick down the edge of the pane, so a long session has a map.",
     capture: "session",
-    /* The answer from its first line to the turn's card under it. */
-    focus: { x: 0.5, y: 0.47, span: 0.75 },
-    caption: "One turn: the answer, the files it named as links, and the two it edited, with Review and Undo.",
+    part: "turn",
+    caption: "One turn: the ask, its tool calls folded into one row, the answer, and a card for the two files it edited, with Undo and Review.",
   },
   {
     id: "agents",
@@ -64,9 +56,8 @@ export const claims: Claim[] = [
     body:
       "Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code and Grok all run here, most of them through one Agent Client Protocol adapter. Each keeps its own login, models and permission modes. The model picker groups models by the harness that runs them, and its footer holds each model's effort levels and fast mode. Realm never asks for an API key. Signing in runs the agent's own login, and you're the one who approves it.",
     capture: "models",
-    /* The prompter and the whole picker under its chip, from the search to the effort track. */
-    focus: { x: 0.615, y: 0.66, span: 0.77 },
-    caption: "Every installed agent's models in one list. Opus 5.5 is picked, at Max, with fast mode on.",
+    part: "models",
+    caption: "Claude's and Codex's models in one list, grouped by the harness that runs them. Opus 5.5 is picked, at Max, with fast mode on.",
   },
   {
     id: "delegation",
@@ -74,9 +65,8 @@ export const claims: Claim[] = [
     body:
       "Ask in plain words (\"have GPT-6 Luna build this\") or pick models in a session's Agents tab and say what to build. The session's agent splits up the work, starts a sub-agent on each model through whichever harness runs it, waits for the reports and tells you what each one did. Every sub-agent gets its own line in the transcript, and its own session is a click away.",
     capture: "delegation",
-    /* The lead's lines and the Agents tab beside them. */
-    focus: { x: 0.615, y: 0.38, span: 0.77 },
-    caption: "Two sub-agents on two harnesses. One finished with its report, the other is waiting on a permission.",
+    part: "delegation",
+    caption: "A session's Agents tab: two sub-agents on two harnesses, one waiting on a permission you can answer there, one finished with its report.",
   },
   {
     id: "gateway",
@@ -84,9 +74,8 @@ export const claims: Claim[] = [
     body:
       "Linear, Notion, Slack, GitHub, Jira, Figma and Sentry connect in one click, and you sign in through the app. A connection belongs to the space instead of an agent, so every session in the space reaches it through one Realm endpoint. The agent gets the tools and never the credential: it calls Realm, and Realm calls the server. Every call is logged with its arguments and what came back, and your own MCP servers go in the same place. OAuth connections are encrypted with a key kept in the macOS Keychain. A key you paste into a custom server isn't, and the app tells you so right at that field.",
     capture: "connections",
-    /* The page's head and the first two rows of cards, close enough to read what each one grants. */
-    focus: { x: 0.51, y: 0.36, span: 0.7 },
-    caption: "Connecting an app to a space. One click each, and every session in the space can use them.",
+    part: "connections",
+    caption: "The apps a space can connect, each with what it lets an agent do and one Connect button.",
   },
   {
     id: "review",
@@ -94,9 +83,8 @@ export const claims: Claim[] = [
     body:
       "Code review lists your pull requests through your own gh, so Realm never holds a GitHub token and sees exactly what gh sees. A pull request opens on its summary and its changes. A reviewer reads the diff in read-only mode, on the model and effort level you pick, and leaves its findings on the page. None of its findings and none of your comments reach GitHub until you press Submit review.",
     capture: "review",
-    /* The request, the reviewer's findings and the facts beside them, clear of the column. */
-    focus: { x: 0.62, y: 0.38, span: 0.76 },
-    caption: "A pull request's summary with three findings from a reviewer, one of them on a line the diff doesn't show.",
+    part: "review",
+    caption: "A pull request and three findings from a reviewer on Fable 5.1, one of them on a line the diff doesn't show.",
   },
   {
     id: "sandbox",
@@ -104,9 +92,8 @@ export const claims: Claim[] = [
     body:
       "A space can run its agents and terminals inside a macOS Seatbelt policy. Its checkouts and toolchain caches stay writable, the files in your home that run things later can be read but not changed, and credential folders can't be read at all. The policy covers the process and everything it starts. Seatbelt isn't a container and the network stays open, so this limits what a session can damage or read, not what it can send. It's off by default, per space, because a list of writable folders that hasn't met your toolchain yet can break a build.",
     capture: "sandbox",
-    /* The three posture cards, not the settings page they sit on. */
-    focus: { x: 0.615, y: 0.41, span: 0.68 },
-    caption: "The three postures a space can take, set to the one it ships with.",
+    part: "sandbox",
+    caption: "The three postures a space can take, on No sandbox, which every new space starts with.",
   },
   {
     id: "durable",
@@ -114,18 +101,16 @@ export const claims: Claim[] = [
     body:
       "realm-server keeps running after you close the window, so a long turn finishes whether you're watching or not. Tasks can run on a schedule, and every run is a real session you can read and pick up from. Each turn is bracketed by a checkpoint. Restoring one puts the files back, and for Claude it rewinds the conversation too.",
     capture: "schedules",
-    /* The whole width: the column of tasks, the run and the task's card are one picture. */
-    focus: { x: 0.5, y: 0.43, span: 1 },
-    caption: "Three tasks, each on its own model, and one run open as its own session next to the task's card.",
+    part: "schedules",
+    caption: "Three tasks on a schedule, each on its own model, and the run Weekly numbers made today.",
   },
 ]
 
 export type Facet = { title: string; body: string }
 
 /**
- * What a realm is made of: the six faces of the mark, in the order they arrive (`ORDER` in
- * lib/dimension/faces.ts), so the sentence beside a face is about the face that is landing. The walls
- * come first, and the agent last, as the doorway's lit back.
+ * What a realm is made of: the six faces of the mark, the walls first and the agent last, as the
+ * doorway's lit back.
  *
  * A realm is a place rather than a stack of layers, so these are what the place contains, each one
  * something the shipped app does, with the limit stated wherever there is one.
@@ -170,10 +155,9 @@ export const facetsCoda: Facet = {
 }
 
 /**
- * The interlude between the claims: delegation, told in the order the tree draws it
- * (lib/dimension/tree.ts). Every sentence is the delegation code's own behaviour (`agent_run` and
- * `agent_start`, `MAX_DELEGATION_DEPTH`, the fenced final report), and `realm-agent` is on by
- * default, so "an agent can" is true of a fresh install rather than of a setting.
+ * Delegation, beat by beat, beside its chapter's picture. Every sentence is the delegation code's own
+ * behaviour (`agent_run` and `agent_start`, `MAX_DELEGATION_DEPTH`, the fenced final report), and
+ * `realm-agent` is on by default, so "an agent can" is true of a fresh install rather than of a setting.
  */
 export const delegation: Facet[] = [
   {
