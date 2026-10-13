@@ -63,20 +63,23 @@ const ROUTE: { id: string; side: "left" | "right" }[] = [
 ]
 
 /**
- * Realms: the whole page is one flight across a world built from Realm's mark, drawn live behind it.
+ * Realms: the whole page is one flight through deep space among realms built from Realm's mark, drawn
+ * live behind it.
  *
- *   opening    dusk over a field of realms, the working sample of Realm floating over it
- *   a realm    the camera comes down to one realm; its doorway opens into a capture of a space
- *   chapters   one realm per claim, further up the field: the doorway lights, opens into the claim's
- *              real capture as a lit screen standing on the ground, and the claim sits beside it on
- *              clean ground; between them the camera lifts over the realm it leaves and turns
+ *   opening    a sky of nebulae and far galaxies, the realms hanging in it at every depth, turning and
+ *              drifting, some with an agent at work in the doorway; the working sample of Realm over it
+ *   chapters   one realm per claim, hung over its screen: the doorway lights, the claim's real capture
+ *              opens out of it as a lit screen, and the doorway's light keeps running to the screen's
+ *              frame while the claim sits beside it; between them the camera flies on through the realms
  *   teams      a team's four realms together, a Realmite at each door, the board beside them
- *   the climb  where the work lives, and the questions, as the camera rises off the field
- *   finale     the camera lifts its eyes from the field to the night, and the page ends on a black
- *              hole under the footer, drawing a disk of realms in (blackhole.ts)
+ *   the climb  where the work lives, and the questions, as the camera rises out of the swarm
+ *   finale     the camera lifts its eyes to the deep sky, and the page ends on a black hole under the
+ *              footer, drawing a disk of realms in (blackhole.ts)
  *
  * Every picture is a capture of the shipped app or the working sample, labelled as one. The flight is
- * scrubbed by the scroll and nothing else; the pointer is a lamp over the field.
+ * scrubbed by the scroll and nothing else; the sky moves slowly on its own, and the realms answer the
+ * pointer: the one it is near turns to the reader with its doorway lit, and a click (or the chapter's
+ * key) throws the doorway open.
  */
 export async function RealmsHome({ download, claims }: HomeProps) {
   const byId = new Map(claims.map((claim) => [claim.id, claim]))

@@ -65,8 +65,7 @@ export function seed4(index: number, salt: number): [number, number, number, num
   return [(h & 255) / 255, ((h >>> 8) & 255) / 255, ((h >>> 16) & 255) / 255, (h >>> 24) / 255]
 }
 
-export const SALT_BOB = 101
-export const SALT_DOOR = 202
+const SALT_BOB = 101
 
 // ---- a realm at a moment ----------------------------------------------------------------------
 

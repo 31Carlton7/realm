@@ -427,7 +427,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
   // ---- the reader's hand ------------------------------------------------------------------------
   /** Realms the reader is touching, by index: the sky's from 0, the page's from MAX_REALMS. */
   const touches = new Map<number, Touch>()
-  const hand = { x: -1, y: -1, over: false, inside: false, clicked: false, clickX: 0, clickY: 0, key: "" }
+  const hand = { x: -1, y: -1, over: false, inside: false, clicked: false, key: "" }
   /** Content under the pointer takes the pointer: words, pictures, controls. The header's band is
    *  empty but for its bar, so only the bar counts; a realm's own key is the realm. */
   const CONTENT = "a,button,input,select,textarea,summary,label,[data-field-panel],[data-screen],[data-field-anchor='portal'],footer,[role='button']"
@@ -454,8 +454,6 @@ export const createRealms: StageFactory = async (gpu, output) => {
     // A realm's key opens its realm itself; content keeps its clicks.
     if (target?.closest("[data-realm-key]") || isContent(target)) return
     hand.clicked = true
-    hand.clickX = event.clientX
-    hand.clickY = event.clientY
   }
   window.addEventListener("pointermove", onMove, { passive: true })
   root.addEventListener("pointerleave", onLeave)

@@ -1068,10 +1068,10 @@ fn burst(k: i32, p: vec2f, depthHere: f32, t: f32) -> vec3f {
   if (depthHere > 1.0 / max(a.z - 0.8, 0.5)) { return vec3f(0.0); }
   let d = p - a.xy;
   let r = length(d) / max(b.x, 8.0);
-  if (r > 9.0) { return vec3f(0.0); }
+  if (r > 6.0) { return vec3f(0.0); }
   let angle = atan2(d.y, d.x);
   let spokes = noise(vec2f(angle * 5.0 + b.y * 7.0, t * 0.35 + b.y)) * 0.6 + noise(vec2f(angle * 13.0 - b.y, t * 0.6)) * 0.4;
-  let rays = pow(smoothstep(0.35, 0.9, spokes), 2.0) * exp(-r * 0.42) * smoothstep(0.15, 0.6, r);
+  let rays = pow(smoothstep(0.35, 0.9, spokes), 2.0) * exp(-r * 0.75) * smoothstep(0.15, 0.6, r) * smoothstep(6.0, 3.5, r);
   let bloom = exp(-r * r * 2.4) * 0.9 + exp(-r * 1.3) * 0.22;
   return vec3f(0.82, 0.9, 1.0) * a.w * (bloom + rays * 0.55);
 }
