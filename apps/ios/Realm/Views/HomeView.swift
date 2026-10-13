@@ -47,10 +47,17 @@ struct HomeView: View {
                         ForEach(space.sessions) { row in
                             SessionLink(row: row, space: nil)
                         }
+                        // A line of the list rather than its footer, which a plain list paints in the
+                        // system's own ground instead of Realm's.
+                        if let words = SpaceFooter.words(space, searching: sections.isFiltered) {
+                            Text(words)
+                                .font(.footnote)
+                                .foregroundStyle(Palette.ink2)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden, edges: .bottom)
+                        }
                     } header: {
                         SectionHead(title: space.name) { SpaceGlyph(space: space) }
-                    } footer: {
-                        SpaceFooter(space: space, searching: sections.isFiltered)
                     }
                 }
             } else if shown.kind == .connecting || shown.kind == .connected {
@@ -245,20 +252,11 @@ struct SectionHead<Glyph: View>: View {
 }
 
 /// Under a space: how many more of its sessions the Mac holds, or that it has none yet.
-private struct SpaceFooter: View {
-    let space: Space
-    let searching: Bool
-
-    var body: some View {
-        Group {
-            if space.sessions.isEmpty {
-                Text("No sessions yet")
-            } else if space.more > 0, !searching {
-                Text("\(space.more) more on your Mac")
-            }
-        }
-        .font(.footnote)
-        .foregroundStyle(Palette.ink2)
+enum SpaceFooter {
+    static func words(_ space: Space, searching: Bool) -> String? {
+        if space.sessions.isEmpty { return "No sessions yet" }
+        if space.more > 0, !searching { return "\(space.more) more on your Mac" }
+        return nil
     }
 }
 

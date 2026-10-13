@@ -489,6 +489,8 @@ struct QuestionSheet: View {
             }
         }
         .presentationDetents([.large])
+        // The sheet's own ground is Realm's too, so the part a keyboard leaves never shows the system's.
+        .presentationBackground(Ground.grouped)
         .sensoryFeedback(.selection, trigger: picks)
         .onChange(of: draft) { _, changed in model.store.keepDraft(changed) }
     }

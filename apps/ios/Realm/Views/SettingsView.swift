@@ -145,12 +145,13 @@ private struct MacHeader: View {
                 Text(name)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(Palette.ink)
-                Label {
-                    Text(status.words)
-                        .foregroundStyle(Palette.ink2)
-                } icon: {
+                // Not a Label: a list sets a label's glyph in a column of its own, and starts its
+                // separator there.
+                HStack(spacing: 5) {
                     Image(systemName: status.symbol)
                         .foregroundStyle(status.isConnected ? Palette.green : Palette.ink2)
+                    Text(status.words)
+                        .foregroundStyle(Palette.ink2)
                 }
                 .font(.subheadline)
             }

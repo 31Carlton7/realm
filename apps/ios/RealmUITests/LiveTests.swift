@@ -103,7 +103,7 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.buttons["Continue answering"].waitForExistence(timeout: 5), "the picks were not kept")
         sleep(3)
         XCTAssertFalse(element(containing: "Sending").exists, "putting the sheet away sent an answer")
-        XCTAssert(text("Waiting on you").exists, "putting the sheet away answered the request")
+        XCTAssert(app.buttons["Skip"].exists, "putting the sheet away answered the request")
         shot("question-put-away")
         back()
 
@@ -161,7 +161,9 @@ final class LiveTests: XCTestCase {
         let pill = element(containing: "Working, ")
         XCTAssert(pill.waitForExistence(timeout: 15), "the pill did not say the turn is working")
         sleep(2)
-        app.swipeDown(velocity: .slow)
+        // A drag down into the keyboard puts it away and scrolls the reader off the newest row.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)))
         XCTAssert(app.buttons["Latest"].waitForExistence(timeout: 5), "scrolled away, there was no way back to the newest row")
         sleep(1)
         shot("session-working-latest")
