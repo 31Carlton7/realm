@@ -2,6 +2,7 @@ import Link from "next/link"
 import type { ReactNode } from "react"
 
 import { GitHubIcon, GlobeIcon, LinkedInIcon, XIcon } from "@/components/icons"
+import { ChangelogLink } from "@/components/passage/ChangelogLink"
 import { Wordmark } from "@/components/Wordmark"
 import { macDownload } from "@/lib/release"
 import { site } from "@/lib/site"
@@ -16,7 +17,7 @@ import { site } from "@/lib/site"
  * holds the hole's light off it: clean ground, with the hole's sky running on under it.
  */
 const linkClass =
-  "inline-flex min-h-8 items-center gap-2.5 text-ink-2 transition-colors duration-150 hover:text-ink focus-visible:text-ink"
+  "inline-flex min-h-8 items-center gap-2.5 text-ink-2 transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring focus-visible:text-ink"
 
 export async function SiteFooter({ world }: { world?: ReactNode }) {
   const { href } = await macDownload()
@@ -46,17 +47,17 @@ export async function SiteFooter({ world }: { world?: ReactNode }) {
               <ul className="mt-3 space-y-1 text-[14px]">
                 <li>
                   <a href={href} className={linkClass}>
-                    Download for Mac
+                    <span className="link-line">Download for Mac</span>
                   </a>
                 </li>
                 <li>
-                  <Link href="/changelog" className={linkClass}>
-                    Changelog
-                  </Link>
+                  <ChangelogLink className={linkClass}>
+                    <span className="link-line">Changelog</span>
+                  </ChangelogLink>
                 </li>
                 <li>
                   <a href={site.repo} target="_blank" rel="noreferrer noopener" className={linkClass}>
-                    Source on GitHub
+                    <span className="link-line">Source on GitHub</span>
                   </a>
                 </li>
               </ul>
@@ -68,7 +69,7 @@ export async function SiteFooter({ world }: { world?: ReactNode }) {
                   <li key={label}>
                     <a href={to} target="_blank" rel="noreferrer noopener me" className={linkClass}>
                       <Icon className="h-3.5 w-3.5 shrink-0" />
-                      <span>
+                      <span className="link-line">
                         {handle}
                         <span className="sr-only"> on {label}</span>
                       </span>

@@ -1,10 +1,11 @@
 "use client"
 
-import { useMemo, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react"
 
 import { FieldCanvas } from "@/components/field/FieldCanvas"
+import { arriveAt, underway } from "@/components/passage/state"
 
-import { arrivalStage, walkStage, type AvenueRelease } from "./stage"
+import { arrivalStage, openingPoint, walkStage, type AvenueRelease } from "./stage"
 
 /**
  * The box the sky draws in. `contain: paint` makes it the containing block of FieldCanvas's fixed
@@ -12,15 +13,42 @@ import { arrivalStage, walkStage, type AvenueRelease } from "./stage"
  * page where it is not, which then scrolls away with its band rather than holding its last frame over
  * the reading. The box is also the `stage` anchor, so the loop stops once it has left the view.
  *
- * Under it, the deep sky's own black, as the landing page lays it; and without WebGPU
- * (`data-field="off"`), the landing page's opening sky held still (public/realms, photographed from
- * the live field). The photograph has realms in it, so it is laid from the words' edge (`photo`
- * places it), never behind them.
+ * Under it, the deep sky's own black, as the landing page lays it, and the landing page's opening sky
+ * held still (public/realms, photographed from the live field). Until the field draws, the photograph
+ * is the sky, softened so none of its realms stand where the field's will not, so a page never arrives
+ * on bare black while its field starts up (a passage onto it shows the page at once). Once the field
+ * has been drawing a moment it covers the photograph, which goes. Without WebGPU (`data-field="off"`)
+ * the photograph is the whole of the sky, sharp. It has realms in it, so it is laid from the words'
+ * edge (`photo` places it), never behind them.
+ *
+ * Its state is its own rather than read off `data-field` by the stylesheet, which on a page a passage
+ * has just brought in still names the field of the page it left; and it lies under the canvas
+ * (FieldCanvas's is `-z-10`), so the field covers it from its first frame.
  */
 function Ground({ className, photo, children }: { className: string; photo: string; children: ReactNode }) {
+  const [sky, setSky] = useState<"waiting" | "field" | "still">("waiting")
+  useEffect(() => {
+    const root = document.documentElement
+    let timer = 0
+    const read = () => {
+      window.clearTimeout(timer)
+      if (root.dataset.field === "off") setSky("still")
+      else if (root.dataset.field === "on") timer = window.setTimeout(() => setSky("field"), 1200)
+    }
+    read()
+    const observer = new MutationObserver(read)
+    observer.observe(root, { attributes: true, attributeFilter: ["data-field"] })
+    return () => {
+      observer.disconnect()
+      window.clearTimeout(timer)
+    }
+  }, [])
   return (
     <div data-field-anchor="stage" aria-hidden className={`pointer-events-none -z-10 bg-[#03050b] [contain:paint] ${className}`}>
-      <div className={`absolute inset-0 hidden bg-[url(/realms/space-phone.webp)] bg-cover bg-top sm:bg-[url(/realms/space.webp)] [html[data-field=off]_&]:block ${photo}`} />
+      <div
+        data-sky={sky}
+        className={`absolute inset-0 -z-20 bg-[url(/realms/space-phone.webp)] bg-cover bg-top sm:bg-[url(/realms/space.webp)] data-[sky=field]:invisible data-[sky=waiting]:blur-[22px] data-[sky=waiting]:brightness-90 ${photo}`}
+      />
       {children}
     </div>
   )
@@ -29,7 +57,21 @@ function Ground({ className, photo, children }: { className: string; photo: stri
 /** The index's walk: behind the whole page on a wide screen, in the opening band on a narrow one,
  *  where its foot fades into the page's black. */
 export function Walk({ releases }: { releases: AvenueRelease[] }) {
-  const create = useMemo(() => walkStage(releases), [releases])
+  // The warp the page arrived by, read as it mounts.
+  const [warp] = useState(() => underway("warp"))
+  const create = useMemo(() => walkStage(releases, warp), [releases, warp])
+  // A passage onto the index arrives at the realm the walk opens on (components/passage).
+  useLayoutEffect(
+    () =>
+      arriveAt(() => {
+        const list = document.querySelector('[data-field-anchor="c:list"]')?.getBoundingClientRect()
+        const slot = document.querySelector('[data-field-anchor="s:avenue"]')?.getBoundingClientRect()
+        const width = window.innerWidth
+        const [x, y] = openingPoint(list ? list.right : width / 2, width, window.innerHeight, slot ? [slot.left, slot.top, slot.width, slot.height] : null, width < 1024)
+        return { x, y }
+      }),
+    [],
+  )
   return (
     <Ground
       className="absolute inset-0 lg:fixed"
@@ -43,7 +85,18 @@ export function Walk({ releases }: { releases: AvenueRelease[] }) {
 
 /** An entry's band: the release's realm, and the walk up to its doorway as the band scrolls away. */
 export function Arrival({ release, total, dark }: { release: number; total: number; dark: boolean }) {
-  const create = useMemo(() => arrivalStage(release, total, dark), [release, total, dark])
+  // The dive the page arrived by, read as it mounts.
+  const [dive] = useState(() => underway("dive"))
+  const create = useMemo(() => arrivalStage(release, total, dark, dive), [release, total, dark, dive])
+  // A passage onto an entry arrives at its release's doorway, where the band stands it.
+  useLayoutEffect(
+    () =>
+      arriveAt(() => {
+        const r = document.querySelector('[data-field-anchor="s:door"]')?.getBoundingClientRect()
+        return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null
+      }),
+    [],
+  )
   return (
     <Ground
       className="absolute inset-0"

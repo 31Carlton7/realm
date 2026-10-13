@@ -89,9 +89,9 @@ export function Team({ side }: { side: "left" | "right" }) {
               <button
                 type="button"
                 onClick={shuffle}
-                className="app-corner flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-[13px] text-ink-2 transition-colors duration-150 hover:bg-raised hover:text-ink"
+                className="btn btn-ghost app-corner flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-[13px]"
               >
-                <Icon name="reload" className="h-3.5 w-3.5" /> Shuffle
+                <Icon name="reload" className="turn h-3.5 w-3.5" /> Shuffle
               </button>
             </div>
 
@@ -102,7 +102,7 @@ export function Team({ side }: { side: "left" | "right" }) {
                     type="button"
                     aria-pressed={picked === r.id}
                     onClick={() => setPicked(r.id)}
-                    className="flex w-full flex-col items-center gap-1.5 rounded-[12px] bg-page px-2 pt-4 pb-3 shadow-[inset_0_0_0_1px_var(--color-line)] transition-[box-shadow,background-color] duration-200 hover:bg-surface aria-pressed:bg-surface aria-pressed:shadow-[inset_0_0_0_1px_oklch(0.68_0.173_253.301/0.55)]"
+                    className="flex w-full flex-col items-center gap-1.5 rounded-[12px] bg-page px-2 pt-4 pb-3 shadow-[inset_0_0_0_1px_var(--color-line)] transition-[box-shadow,background-color] duration-150 ease-out hover:bg-surface hover:duration-220 hover:ease-spring aria-pressed:bg-surface aria-pressed:shadow-[inset_0_0_0_1px_oklch(0.68_0.173_253.301/0.55)]"
                   >
                     <Realmite spec={specs[r.id]!} size={48} state={states[r.id]} />
                     <span className="text-[13px] font-[520] text-ink">{r.name}</span>
@@ -149,7 +149,7 @@ export function Team({ side }: { side: "left" | "right" }) {
                           <button
                             type="button"
                             onClick={() => setDecided(({ [item.id]: _, ...rest }) => rest)}
-                            className="ml-2 text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-ink"
+                            className="ml-2 text-ink-2 underline decoration-line-strong underline-offset-2 transition-colors duration-150 ease-out hover:text-ink hover:decoration-current hover:duration-220 hover:ease-spring"
                           >
                             Undo
                           </button>
@@ -159,14 +159,14 @@ export function Team({ side }: { side: "left" | "right" }) {
                           <button
                             type="button"
                             onClick={() => setDecided((d) => ({ ...d, [item.id]: "returned" }))}
-                            className="app-corner rounded-[8px] px-2.5 py-1.5 text-[12.5px] text-ink-2 transition-colors hover:bg-raised hover:text-ink"
+                            className="btn btn-ghost app-corner rounded-[8px] px-2.5 py-1.5 text-[12.5px]"
                           >
                             Send back
                           </button>
                           <button
                             type="button"
                             onClick={() => setDecided((d) => ({ ...d, [item.id]: "approved" }))}
-                            className="app-corner rounded-[8px] bg-accent-fill px-2.5 py-1.5 text-[12.5px] text-white transition-[background-color,scale] hover:bg-accent-fill-hover active:scale-[0.97] active:bg-accent-fill-press"
+                            className="btn btn-accent app-corner rounded-[8px] px-2.5 py-1.5 text-[12.5px]"
                           >
                             Approve
                           </button>

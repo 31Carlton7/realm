@@ -1,9 +1,9 @@
 import type { CSSProperties } from "react"
-import Link from "next/link"
 
 import { DownloadButton, QuietButton } from "@/components/Buttons"
 import { MiniRealm } from "@/components/home/mini/MiniRealm"
 import { ArrowIcon, GitHubIcon } from "@/components/icons"
+import { PassageLink } from "@/components/passage/PassageLink"
 import type { MacDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 
@@ -16,15 +16,16 @@ export type ConceptProps = { download: MacDownload }
 
 export function Announcement({ className = "" }: { className?: string }) {
   return (
-    <Link
+    <PassageLink
       href="/changelog/v2-1-0"
-      className={`group inline-flex items-center gap-2.5 text-[13.5px] text-ink-2 transition-colors duration-150 hover:text-ink ${className}`}
+      passage="warp"
+      className={`inline-flex items-center gap-2.5 text-[13.5px] text-ink-2 transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring ${className}`}
     >
       <span className="font-mono text-[12px] text-accent-ink">2.1</span>
       <span className="h-3.5 w-px bg-line-strong" aria-hidden />
       Teams, and long sessions that open in a fifth of a second
-      <ArrowIcon className="h-3.5 w-3.5 transition-transform duration-200 ease-[var(--ease-out-strong)] group-hover:translate-x-0.5" />
-    </Link>
+      <ArrowIcon className="nudge h-3.5 w-3.5" />
+    </PassageLink>
   )
 }
 
@@ -65,12 +66,12 @@ export function Actions({ download, className = "", center = false }: ConceptPro
 }
 
 /**
- * The working sample of Realm, on the plate the pictures further down stand on (Screen): Realm's own
- * window corner inside a concentric one, the plate's rim and lattice round it, and on the window's
- * edge the one-device-pixel outline with the light from above catching its top. What it is stands on
- * a tab cut from the plate's top edge, as each picture's caption hangs from its foot. `anchor` names
- * the window's rect for the shader (default "portal"), and `frameClassName` sizes it — the concept
- * decides how much of the first viewport the product takes.
+ * The working sample of Realm, with the edge the pictures further down wear (Screen): Realm's own
+ * window corner, the rim of the doorways' light on it, and the one-device-pixel outline with the
+ * light from above catching its top. What it is stands on a tab cut from the window's top edge, as
+ * each picture's caption hangs from its foot. `anchor` names the window's rect for the shader
+ * (default "portal"), and `frameClassName` sizes it — the concept decides how much of the first
+ * viewport the product takes.
  */
 export function ProductWindow({
   className = "",
@@ -85,7 +86,7 @@ export function ProductWindow({
 }) {
   return (
     <div className={className}>
-      <div className="plate hero-plate">
+      <div className="picture-edge hero-frame">
         {tab ? (
           <p data-edge="top" className="screen-tab flex items-center justify-center gap-2">
             <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-green" />

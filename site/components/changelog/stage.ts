@@ -22,6 +22,7 @@ import {
   type SceneUniforms,
 } from "@/components/realms/shaders"
 import { clearOff, doorCorners, MAX_REALMS, packRealms, populate, type Pose, type Realm } from "@/components/realms/world"
+import { doorways, underway, type Passage } from "@/components/passage/state"
 
 import { poseOf, realmOf, SPACING, viewAt } from "./world"
 
@@ -60,6 +61,23 @@ const STAR_DRIFT: Vec3 = [0.07, -0.11, 0.03]
 
 /** A doorway that is not the one being read is lit this much of the way. */
 const LIT_AHEAD = 0.45
+
+/**
+ * Arriving by the landing page's warp (components/passage), the walk's camera starts this far back
+ * down the route and comes up it to the opening, fastest first, over this many seconds from the field's
+ * first frame: the flight the veil's stars began, carried on in the world until it settles. The field
+ * starts a moment after its page arrives, so its own clock is the one to count from.
+ */
+const WARP_DEPTH = 36
+const WARP_SETTLE = 1.1
+/** A doorway being dived through opens over this long from the click, in ms, on the page being left. */
+const DIVE_OPEN = 260
+/** Arriving by a dive, the entry's doorway is still thrown open for this many seconds of its field's
+ *  clock, then swings back over the next. */
+const DIVE_HOLD = 0.5
+const DIVE_CLOSE = 1.6
+
+const easeOut = (t: number) => 1 - (1 - clamp(t, 0, 1)) ** 3
 
 export type AvenueRelease = { slug: string; dark: boolean }
 
@@ -301,31 +319,49 @@ function swayer() {
   }
 }
 
+/** A realm's doorway on the page: its middle, its depth from the eye, and its size, in the canvas's px. */
+function doorOnPage(pose: Pose, view: View): { x: number; y: number; z: number; size: number; mid: Vec3 } {
+  const door = doorCorners(pose)
+  const mid: Vec3 = [0, 1, 2].map((i) => (door[0][i]! + door[1][i]! + door[2][i]! + door[3][i]!) / 4) as Vec3
+  const [x, y, z] = project(view, basis(view), mid)
+  return { x, y, z, size: z > 0 ? (view.focal * Math.hypot(...pose.z)) / z : 0, mid }
+}
+
 /** A doorway thrown open, as the composite draws one: its middle on the page, distance, light, size. */
 function burstOf(pose: Pose, view: View, open: number): [number, number, number, number, number] | null {
   if (open <= 0.01) return null
-  const b = basis(view)
-  const door = doorCorners(pose)
-  const mid: Vec3 = [0, 1, 2].map((i) => (door[0][i]! + door[1][i]! + door[2][i]! + door[3][i]!) / 4) as Vec3
-  const [x, y, z] = project(view, b, mid)
+  const { x, y, z, size, mid } = doorOnPage(pose, view)
   if (z < 1) return null
   const out = [-pose.y[0], -pose.y[1], -pose.y[2]] as Vec3
   const toEye = sub3(view.eye, mid)
   const facingEye = (out[0] * toEye[0] + out[1] * toEye[1] + out[2] * toEye[2]) / (length3(out) * length3(toEye))
   if (facingEye <= 0) return null
-  return [x, y, length3(toEye), open * (0.4 + 0.6 * facingEye), (view.focal * Math.hypot(...pose.z)) / z]
+  return [x, y, length3(toEye), open * (0.4 + 0.6 * facingEye), size]
 }
 
 /**
- * The index: a walk up the route, one stop per release card.
+ * Where release 0's realm stands at the top of the index, in the canvas's px: right of the list on a
+ * wide screen, at the place the band keeps for it on a narrow one. What the walk composes its opening
+ * round, and where a passage onto the index arrives.
  */
-export function walkStage(releases: AvenueRelease[]): StageFactory {
+export function openingPoint(columnRight: number, width: number, height: number, slot: Rect | null, banded: boolean): [number, number] {
+  return banded && slot ? [slot[0] + slot[2] * 0.62, slot[1] + slot[3] * 0.55] : [columnRight + (width - columnRight) * 0.56, height * 0.56]
+}
+
+/**
+ * The index: a walk up the route, one stop per release card. `warp` is the landing page's warp the
+ * page arrived by, if it did.
+ */
+export function walkStage(releases: AvenueRelease[], warp: Passage | null = null): StageFactory {
   return async (gpu, output) => {
     const s = await sky(gpu, output, [Math.max(1, window.innerWidth), Math.max(1, window.innerHeight)])
     const follow = new Follow(9)
     const sway = swayer()
     let lastSeconds = -1
     let mode = ""
+    // Come by the landing page's warp, the flight carries on into the walk (WARP_DEPTH), counted from
+    // the walk's first frame.
+    let firstSeconds = -1
 
     return {
       draw(frame, input) {
@@ -356,7 +392,8 @@ export function walkStage(releases: AvenueRelease[]): StageFactory {
 
         // The opening: further back down the route, so the releases ahead are a row of lit doorways.
         const slot = input.anchors["s:avenue"] ? local(input.anchors["s:avenue"]) : null
-        const opening = banded && slot ? viewAt(0, slot[0] + slot[2] * 0.62, slot[1] + slot[3] * 0.55, slot[3] * 0.34, 2.2, 1.1) : viewAt(0, sx, H * 0.56, edge * 0.62, 2.8, 1.5)
+        const [ox, oy] = openingPoint(columnRight, W, H, slot, banded)
+        const opening = banded && slot ? viewAt(0, ox, oy, slot[3] * 0.34, 2.2, 1.1) : viewAt(0, ox, oy, edge * 0.62, 2.8, 1.5)
 
         type Stop = { key: Key; release: number; through: number }
         const stops: Stop[] = [{ key: { id: "open", kind: "open", y: 0, view: opening, hold: [0, 0.08], turn: 0, pivot: realmOf(0), lift: 0 }, release: 0, through: 0 }]
@@ -395,6 +432,7 @@ export function walkStage(releases: AvenueRelease[]): StageFactory {
         const path: Vec3[] = []
         for (let k = 0; k + 1 < keys.length; k++) for (let i = 0; i <= 16; i++) path.push(blend(keys[k]!.view, keys[k + 1]!.view, i / 16, keys[k]!.lift).eye)
         if (banded) for (let i = 0; i <= 12; i++) path.push([opening.eye[0], opening.eye[1] + i * 2, opening.eye[2]])
+        if (warp) for (let i = 1; i <= 12; i++) path.push([opening.eye[0], opening.eye[1] - (WARP_DEPTH * i) / 12, opening.eye[2]])
         s.clearFor(keys.map((key, k) => ({ view: key.view, keep: 9, words: k === keys.length - 1 ? [...side, ...foot] : side })), path, W, H)
 
         const at = place(keys, scrollY)
@@ -407,22 +445,43 @@ export function walkStage(releases: AvenueRelease[]): StageFactory {
           view = follow.step(view, dt)
           view = orbit(view, keys[nearest]!.pivot, -swayNow * 0.8 * DEG)
         }
+        if (firstSeconds < 0) firstSeconds = t
+        if (warp && mode !== "still") {
+          const back = WARP_DEPTH * (1 - easeOut((t - firstSeconds) / WARP_SETTLE))
+          if (back > 0.001) view = { ...view, eye: [view.eye[0], view.eye[1] - back, view.eye[2]] }
+        }
 
         // How far along the releases the reader is: the doorway being read is lit fully.
         const from = stops[at.from]!
         const to = stops[at.to]!
         const reading = mode === "still" ? stops[nearest]!.release : lerp(from.release, to.release, smooth(at.u))
         const near = Math.max(0, Math.round(view.eye[1] / SPACING))
+        // A release being dived into (components/passage) has its doorway thrown open as the link is
+        // followed, while this page is still the one shown.
+        const dive = underway("dive", 1500)
+        const diving = dive && dive.release !== undefined ? dive.release : -1
+        const opened = dive ? 0.95 * easeOut((performance.now() - dive.at) / DIVE_OPEN) : 0
         const shown = releases
           .map((release, r) => ({ release, r }))
           .filter(({ r }) => r >= near - 2)
           .slice(0, 14)
           .map(({ release, r }) => ({
+            r,
             pose: poseOf(r, viewAt(r, sx, sy, edge).eye, t, input.still),
-            glow: release.dark ? 0 : lerp(LIT_AHEAD, 1, clamp(1 - Math.abs(r - reading), 0, 1)),
-            open: 0,
+            glow: release.dark ? 0 : r === diving ? 1 : lerp(LIT_AHEAD, 1, clamp(1 - Math.abs(r - reading), 0, 1)),
+            open: r === diving && !release.dark ? opened : 0,
           }))
         s.page(shown)
+        // Where each doorway is on the page, for a link that dives through it.
+        doorways.clear()
+        for (const { r, pose } of shown) {
+          const door = doorOnPage(pose, view)
+          if (door.z > 1) doorways.set(r, { x: door.x + canvas[0], y: door.y + canvas[1], size: door.size })
+        }
+        const bursts = shown.flatMap(({ pose, open }) => {
+          const burst = burstOf(pose, view, open)
+          return burst ? [burst] : []
+        })
 
         // The words: the list's cards and the rail on panes, the opening's and the footer's on none.
         const corners = panes()
@@ -442,7 +501,7 @@ export function walkStage(releases: AvenueRelease[]): StageFactory {
           still: input.still,
           haze: [Math.max(distance, 6) + 30, 1 / 170],
           clears,
-          bursts: [],
+          bursts,
         })
       },
     }
@@ -451,13 +510,17 @@ export function walkStage(releases: AvenueRelease[]): StageFactory {
 
 /**
  * An entry's band: its release's realm, and the walk up to its doorway as the band scrolls away, the
- * doorway thrown open as the reader goes in.
+ * doorway thrown open as the reader goes in. `dive` is the dive the page arrived by, if it did.
  */
-export function arrivalStage(release: number, total: number, dark: boolean): StageFactory {
+export function arrivalStage(release: number, total: number, dark: boolean, dive: Passage | null = null): StageFactory {
   return async (gpu, output) => {
     const s = await sky(gpu, output, [Math.max(1, window.innerWidth), Math.max(1, Math.round(window.innerHeight * 0.7))])
     const sway = swayer()
     let lastSeconds = -1
+    // Come by a dive through this release's doorway, the doorway is still thrown open (DIVE_HOLD),
+    // counted from the band's first frame.
+    const cameThrough = dive && dive.release === release ? dive : null
+    let firstSeconds = -1
 
     return {
       draw(frame, input) {
@@ -485,7 +548,9 @@ export function arrivalStage(release: number, total: number, dark: boolean): Sta
 
         // The release's own realm, and the older ones going away behind it.
         const pose = poseOf(release, far.eye, t, input.still)
-        const open = dark || input.still ? 0 : 0.55 * smooth((u - 0.25) / 0.6)
+        if (firstSeconds < 0) firstSeconds = t
+        const held = cameThrough ? 0.62 * (1 - smoother((t - firstSeconds - DIVE_HOLD) / DIVE_CLOSE)) : 0
+        const open = dark || input.still ? 0 : Math.max(0.55 * smooth((u - 0.25) / 0.6), held)
         const page: { pose: Pose; glow: number; open: number }[] = [{ pose, glow: dark ? 0 : 1, open }]
         for (let r = release + 1; r < total && page.length < 6; r++) page.push({ pose: poseOf(r, viewAt(r, sx, sy, edge).eye, t, input.still), glow: LIT_AHEAD, open: 0 })
         s.page(page)

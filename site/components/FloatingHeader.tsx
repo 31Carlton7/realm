@@ -2,10 +2,11 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useEffect, useRef } from "react"
+import { useLayoutEffect, useRef, type FocusEvent, type PointerEvent } from "react"
 
 import { DownloadButton } from "@/components/Buttons"
 import { GitHubIcon } from "@/components/icons"
+import { ChangelogLink } from "@/components/passage/ChangelogLink"
 import { Wordmark } from "@/components/Wordmark"
 import { site } from "@/lib/site"
 
@@ -23,6 +24,9 @@ const CONDENSE = 140
  *
  * On the landing page the capsule's lower edge also carries the flight's progress, as a hairline of
  * the accent's light drawn from left to right. The changelog's link says when it is the page shown.
+ *
+ * The bar's links share one highlight (globals.css, `.nav-pill`) that glides to the link under the
+ * pointer, or the one the keyboard is on; where it was hidden, it lands under that link and fades in.
  */
 export function FloatingHeader({ width, flight, download }: { width: string; flight: boolean; download: string }) {
   const rootRef = useRef<HTMLElement>(null)
@@ -30,10 +34,13 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
   const barRef = useRef<HTMLDivElement>(null)
   const brandRef = useRef<HTMLAnchorElement>(null)
   const actionsRef = useRef<HTMLDivElement>(null)
+  const pillRef = useRef<HTMLSpanElement>(null)
   const path = usePathname()
   const onChangelog = path?.startsWith("/changelog") ?? false
 
-  useEffect(() => {
+  // Measured before the bar is first painted: a view transition captures a page arriving before its
+  // passive effects run, and the bar would cross the view at its unmeasured width.
+  useLayoutEffect(() => {
     const root = rootRef.current
     const frame = frameRef.current
     const bar = barRef.current
@@ -86,8 +93,32 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
     }
   }, [flight])
 
+  const light = (item: Element | null) => {
+    const pill = pillRef.current
+    if (!pill) return
+    if (!(item instanceof HTMLElement)) {
+      delete pill.dataset.on
+      return
+    }
+    const arriving = pill.dataset.on === undefined
+    if (arriving) pill.dataset.landing = ""
+    pill.style.setProperty("--x", `${item.offsetLeft}px`)
+    pill.style.setProperty("--w", `${item.offsetWidth}px`)
+    if (arriving) {
+      void pill.offsetWidth
+      delete pill.dataset.landing
+    }
+    pill.dataset.on = ""
+  }
+  const onOver = (event: PointerEvent<HTMLElement>) => {
+    if (event.pointerType === "mouse") light((event.target as Element).closest("a"))
+  }
+  const onFocus = (event: FocusEvent<HTMLElement>) => {
+    if (event.target.matches(":focus-visible")) light(event.target)
+  }
+
   return (
-    <header ref={rootRef} className="sticky top-0 z-50 h-[72px] [--flight:0] [--p:0]">
+    <header ref={rootRef} className="sticky top-0 z-50 h-[72px] [--flight:0] [--p:0] [view-transition-name:site-header]">
       <div ref={frameRef} className={`mx-auto h-full w-full px-6 sm:px-10 ${width}`}>
         <div
           ref={barRef}
@@ -103,25 +134,36 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
               <div className="h-full w-full origin-left scale-x-[var(--flight)] bg-[linear-gradient(to_right,oklch(0.788_0.113_248.33/0.2),oklch(0.788_0.113_248.33/0.95))]" />
             </div>
           ) : null}
-          <Link ref={brandRef} href="/" className="relative flex shrink-0 items-center rounded-[8px] text-ink transition-opacity duration-150 hover:opacity-75">
+          <Link
+            ref={brandRef}
+            href="/"
+            className="relative flex shrink-0 items-center rounded-[8px] text-ink transition-opacity duration-150 ease-out hover:opacity-75 hover:duration-220 hover:ease-spring"
+          >
             <Wordmark />
           </Link>
           <div className="min-w-0 flex-1" />
           <div ref={actionsRef} className="relative flex shrink-0 items-center gap-1">
-            <nav aria-label="Site" className="flex items-center gap-1">
-              <Link
-                href="/changelog"
+            <nav
+              aria-label="Site"
+              onPointerOver={onOver}
+              onPointerLeave={() => light(null)}
+              onFocus={onFocus}
+              onBlur={() => light(null)}
+              className="relative flex items-center gap-1"
+            >
+              <span ref={pillRef} aria-hidden className="nav-pill" />
+              <ChangelogLink
                 aria-current={onChangelog ? "page" : undefined}
-                className={`app-corner inline-flex min-h-11 items-center rounded-[14px] px-3.5 text-[14px] transition-colors duration-150 hover:bg-white/[0.06] hover:text-ink ${onChangelog ? "bg-white/[0.06] text-ink" : "text-ink-2"}`}
+                className={`nav-link app-corner relative inline-flex min-h-11 items-center rounded-[14px] px-3.5 text-[14px] ${onChangelog ? "bg-white/[0.06] text-ink" : "text-ink-2"}`}
               >
                 Changelog
-              </Link>
+              </ChangelogLink>
               <a
                 href={site.repo}
                 target="_blank"
                 rel="noreferrer noopener"
                 aria-label="Realm on GitHub"
-                className="app-corner hidden size-11 items-center justify-center rounded-[14px] text-ink-2 transition-colors duration-150 hover:bg-white/[0.06] hover:text-ink sm:inline-flex"
+                className="nav-link app-corner relative hidden size-11 items-center justify-center rounded-[14px] text-ink-2 sm:inline-flex"
               >
                 <GitHubIcon className="h-[18px] w-[18px]" />
               </a>

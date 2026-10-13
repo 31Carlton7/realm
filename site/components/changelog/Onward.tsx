@@ -28,7 +28,7 @@ export function Onward({ entry }: { entry: Entry }) {
                 <li key={change.slug}>
                   <Link
                     href={`/changelog/${change.slug}`}
-                    className="flex min-h-10 items-baseline justify-between gap-6 rounded-[8px] px-3 py-2 transition-colors duration-150 hover:bg-surface"
+                    className="row-link flex min-h-10 items-baseline justify-between gap-6 rounded-[8px] px-3 py-2 [--row-hover:var(--color-surface)]"
                   >
                     <span className="min-w-0 text-[15px] leading-[1.45] text-ink">{change.title}</span>
                     <span className="shrink-0 text-[13px] text-ink-2">{change.area}</span>
@@ -53,12 +53,12 @@ export function Onward({ entry }: { entry: Entry }) {
     <Shell label="More in this release">
       <Link
         href={`/changelog/${release.slug}`}
-        className="group mb-3 block rounded-[12px] bg-canvas p-5 transition-colors duration-200 hover:bg-surface sm:p-6"
+        className="row-link group mb-3 block rounded-[12px] bg-canvas p-5 [--row-hover:var(--color-surface)] sm:p-6"
       >
         <span className="text-[13px] text-ink-2">Shipped in</span>
         <span className="mt-1.5 flex items-center gap-2 text-[17px] leading-[1.35] font-[560] text-ink">
           {shortTitle(release)}
-          <ArrowIcon className="h-3.5 w-3.5 text-ink-2 transition-transform duration-300 ease-[var(--ease-out-strong)] group-hover:translate-x-0.5" />
+          <ArrowIcon className="nudge h-3.5 w-3.5 text-ink-2" />
         </span>
         <span className="mt-1 block font-mono text-[13px] text-ink-2">{formatDate(release.date)}</span>
         <span className="mt-3 block text-[15px] leading-[1.55] text-ink-2">{release.summary}</span>
@@ -96,15 +96,15 @@ function Neighbour({ side, direction }: { side: Side; direction: "newer" | "olde
   return (
     <Link
       href={`/changelog/${entry.slug}`}
-      className={`group flex flex-col rounded-[12px] bg-canvas p-5 transition-colors duration-200 hover:bg-surface sm:p-6 ${direction === "older" ? "sm:items-end sm:text-right" : ""}`}
+      className={`row-link group flex flex-col rounded-[12px] bg-canvas p-5 [--row-hover:var(--color-surface)] sm:p-6 ${direction === "older" ? "sm:items-end sm:text-right" : ""}`}
     >
       <span className="inline-flex items-center gap-1.5 text-[13px] text-ink-2">
         {direction === "newer" ? (
-          <ArrowIcon className="h-3.5 w-3.5 rotate-180 transition-transform duration-300 ease-[var(--ease-out-strong)] group-hover:-translate-x-0.5" />
+          <ArrowIcon className="nudge h-3.5 w-3.5 rotate-180 [--nudge:-3px]" />
         ) : null}
         {label}
         {direction === "older" ? (
-          <ArrowIcon className="h-3.5 w-3.5 transition-transform duration-300 ease-[var(--ease-out-strong)] group-hover:translate-x-0.5" />
+          <ArrowIcon className="nudge h-3.5 w-3.5" />
         ) : null}
       </span>
       <span className="mt-2 text-[17px] leading-[1.35] font-[560] text-ink">{shortTitle(entry)}</span>
