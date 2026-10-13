@@ -5,6 +5,7 @@ import { GitHubIcon } from "@/components/icons"
 import { FIELD_PATTERN, TILE } from "@/components/realms/hive/fallback"
 import { Chapter } from "@/components/realms/Chapter"
 import { Flight } from "@/components/realms/Flight"
+import { HoleStage } from "@/components/realms/HoleStage"
 import { Team } from "@/components/realms/Team"
 import { SiteFooter } from "@/components/SiteFooter"
 import { SiteHeader } from "@/components/SiteHeader"
@@ -57,7 +58,8 @@ const ROUTE: { id: string; side: "left" | "right" }[] = [
  *              clean ground; between them the camera lifts over the realm it leaves and turns
  *   teams      a team's four realms together, a Realmite at each door, the board beside them
  *   the climb  where the work lives, and the questions, as the camera rises off the field
- *   finale     the field curves away into a planet seen from orbit, the sun coming up at its edge
+ *   finale     the camera lifts its eyes from the field to the night, and the page ends on a black
+ *              hole under the footer, drawing a disk of realms in (blackhole.ts)
  *
  * Every picture is a capture of the shipped app or the working sample, labelled as one. The flight is
  * scrubbed by the scroll and nothing else; the pointer is a lamp over the field.
@@ -218,10 +220,9 @@ export async function RealmsHome({ download, claims }: HomeProps) {
           </div>
         </section>
 
-        {/* Orbit: the planet's edge low in the view and the sun coming up on it, under the call. */}
-        <section aria-labelledby="finale-title" className="relative overflow-x-clip">
-          <FallbackPlanet />
-          <div className="mx-auto flex w-full max-w-[92rem] flex-col items-center px-6 pt-40 pb-[46vh] text-center sm:px-10 lg:min-h-[150vh] lg:justify-center lg:pt-0">
+        {/* The night over the field, under the call; the black hole comes up under the footer. */}
+        <section aria-labelledby="finale-title" className="relative">
+          <div className="mx-auto flex w-full max-w-[92rem] flex-col items-center px-6 pt-40 pb-16 text-center sm:px-10 lg:min-h-[115vh] lg:justify-center lg:pt-0 lg:pb-0">
             <div data-field-anchor="k:finale" className="relative z-[2] flex flex-col items-center">
               <h2 id="finale-title" className="max-w-[16ch] text-[clamp(2.4rem,5vw,4.25rem)] leading-[1] font-[580] tracking-[-0.05em] text-balance text-ink">
                 Give your agents a world to work in.
@@ -244,22 +245,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
         </section>
       </main>
 
-      <SiteFooter />
-    </div>
-  )
-}
-
-/**
- * Without WebGPU: the planet's edge drawn by the stylesheet, as the World concept draws it — a
- * planet-sized circle of the night side's colour with the air as a blue edge and the sunrise a short
- * white stretch of it, placed under the call.
- */
-function FallbackPlanet() {
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[62%] bottom-0 hidden overflow-hidden [html[data-field=off]_&]:block">
-      <div className="absolute top-10 left-1/2 aspect-square w-[300vw] -translate-x-1/2 rounded-full bg-[oklch(0.165_0.004_264)] shadow-[0_0_0_1px_oklch(0.79_0.11_248/0.5),0_-3px_16px_-2px_oklch(0.68_0.173_253.3/0.5),0_-12px_60px_-8px_oklch(0.68_0.173_253.3/0.22)]">
-        <div className="absolute top-0 left-[52%] h-[3px] w-[4%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,oklch(0.99_0.01_250),oklch(0.86_0.07_250/0.7)_45%,transparent)]" />
-      </div>
+      <SiteFooter world={<HoleStage />} />
     </div>
   )
 }

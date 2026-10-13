@@ -33,7 +33,7 @@ export const HOLE = {
   outer: 26,
   /** The view's inclination from the disk's normal: arriving, and arrived (the camera all but in
    *  the disk's plane, so its far side is lensed into the arc over the shadow). */
-  inclination: [64, 83.5] as const,
+  inclination: [62, 80.5] as const,
   /** How far the pointer leans the view, in degrees: across (a bank) and up and down. */
   lean: [5, 4] as const,
   /** Realms dropped in at once. */
@@ -60,7 +60,7 @@ const HOLE_TAU = 6.2831853;
 const HOLE_SPIN = 0.32;
 // The realms: rings of them in log radius, each ring turning rigidly and the whole stream drifting in.
 const HOLE_RINGS = 10.0;
-const HOLE_AROUND = 40.0;
+const HOLE_AROUND = 34.0;
 const HOLE_FLOW = 0.11;
 // Doorway light (the field's), and the plasma's ramp from its cool outer edge to white.
 const HOLE_DOOR = vec3f(0.82, 0.9, 1.0);
@@ -110,29 +110,30 @@ fn holeOmega(r: f32) -> f32 {
 // own rate. Two sets of rings half a ring apart are blended, so no ring's edge shows and the grain
 // never winds up however long the page is open.
 fn holePlasma(r: f32, phi: f32, t: f32) -> f32 {
-  let s = log(r / HOLE_IN) * 7.0;
+  let s = log(r / HOLE_IN) * 5.0;
   var sum = 0.0;
   for (var k = 0; k < 2; k++) {
     let o = f32(k) * 0.5;
     let ring = floor(s + o);
-    let centre = HOLE_IN * exp((ring + 0.5 - o) / 7.0);
+    let centre = HOLE_IN * exp((ring + 0.5 - o) / 5.0);
     let w = 1.0 - abs(2.0 * fract(s + o) - 1.0);
     let turn = fract((phi - holeOmega(centre) * t) / HOLE_TAU + hash21(vec2f(ring, o)));
-    let q = vec2f(turn * 48.0, s * 6.0 + o * 13.0);
-    let grain = 0.55 * holeNoise(q, 48.0) + 0.3 * holeNoise(q * vec2f(2.0, 2.3) + 7.1, 96.0) + 0.15 * holeNoise(q * vec2f(4.0, 4.7) + 3.3, 192.0);
+    let q = vec2f(turn * 20.0, s * 2.6 + o * 13.0);
+    let grain = 0.6 * holeNoise(q, 20.0) + 0.28 * holeNoise(q * vec2f(3.0, 2.2) + 7.1, 60.0) + 0.12 * holeNoise(q * vec2f(9.0, 3.1) + 3.3, 180.0);
     sum += w * grain;
   }
   return sum;
 }
 
-// The realms on the disk: doorways of light on rings. Each ring turns rigidly at the rate of the orbit
-// it is on now and drifts inward, so a realm rides a spiral down; near the inner edge it stretches
-// along its orbit and runs into the plasma. They are drawn round as the camera sees them, which on a
-// disk seen nearly edge-on means long along the line of sight. rgb is light, a how much it covers.
+// The realms on the disk, as the field draws them from afar: a lit doorway, a short upright slit of
+// light. They ride rings that each turn rigidly at the rate of the orbit they are on now and drift
+// inward, so a realm follows a spiral down; near the inner edge it stretches along its orbit and runs
+// into the plasma. The slit is upright as the camera sees it, which on a disk seen nearly edge-on
+// means long along the line of sight. rgb is light, a how much it covers.
 fn holeRealms(p: vec2f, r: f32, phi: f32, t: f32, cosI: f32) -> vec4f {
   let span = log(HOLE_OUT / HOLE_IN);
   let s = log(r / HOLE_IN) / span;
-  if (s <= 0.12 || s >= 1.0) { return vec4f(0.0); }
+  if (s <= 0.16 || s >= 1.0) { return vec4f(0.0); }
   let q = s * HOLE_RINGS + HOLE_FLOW * t;
   let ring = floor(q);
   let here = (ring + 0.5 - HOLE_FLOW * t) / HOLE_RINGS;
@@ -142,31 +143,28 @@ fn holeRealms(p: vec2f, r: f32, phi: f32, t: f32, cosI: f32) -> vec4f {
   let wind = HOLE_SPIN * HOLE_RINGS / (1.5 * span * HOLE_FLOW);
   let spin = fract(wind * pow(HOLE_IN / rr, 1.5) / HOLE_TAU + hash21(vec2f(ring, 3.7))) * HOLE_TAU;
   let a = (phi - spin) / HOLE_TAU * HOLE_AROUND;
-  let stretch = 1.0 + 7.0 * pow(1.0 - here, 4.0);
-  let size = mix(0.075, 0.12, here);
+  let stretch = 1.0 + 10.0 * pow(saturate(1.0 - here / 0.45), 2.0);
+  let size = mix(0.032, 0.05, here);
   var light = vec3f(0.0);
   var cover = 0.0;
   for (var dj = -1; dj <= 1; dj++) {
     let j = floor(a) + f32(dj);
     let id = vec2f(j - HOLE_AROUND * floor(j / HOLE_AROUND), ring);
-    let h = hash22(id * 1.37 + 0.71);
     let g = hash22(id * 2.11 + 5.3);
-    let angle = spin + (j + 0.5 + 0.6 * (h.x - 0.5)) / HOLE_AROUND * HOLE_TAU;
-    let rad = rr * exp((h.y - 0.5) * 0.55 * span / HOLE_RINGS);
-    let centre = rad * vec2f(cos(angle), sin(angle));
+    // Some realms have no agent at work: no light at all.
+    if (g.x > 0.42) { continue; }
+    let angle = spin + (j + 0.5) / HOLE_AROUND * HOLE_TAU;
+    let centre = rr * vec2f(cos(angle), sin(angle));
     let along = vec2f(-sin(angle), cos(angle));
     var delta = p - centre;
     delta -= along * dot(delta, along) * (1.0 - 1.0 / stretch);
-    delta.x *= cosI;
+    delta.x *= cosI / 1.9;
     let e = exp(-dot(delta, delta) / (size * size));
-    // Most realms have an agent at work and a lit doorway; the rest are dark cubes, which only catch
-    // the disk's light faintly.
-    let lit = select(0.08, mix(1.1, 2.4, g.y), g.x < 0.62);
-    let tint = mix(HOLE_DOOR, HOLE_DOOR_BLUE, step(0.72, fract(g.y * 7.31)));
-    light += tint * lit * e;
-    cover += e * 0.35;
+    let tint = mix(HOLE_DOOR, HOLE_DOOR_BLUE, step(0.7, fract(g.y * 7.31)));
+    light += tint * mix(0.9, 2.0, g.y) * e;
+    cover += e * 0.4;
   }
-  let fade = smoothstep(1.0, 0.86, s) * smoothstep(0.12, 0.3, s);
+  let fade = smoothstep(1.0, 0.84, s) * smoothstep(0.16, 0.34, s);
   return vec4f(light * fade, saturate(cover) * fade);
 }
 
@@ -179,13 +177,13 @@ fn holeDrops(p: vec2f, r: f32, phi: f32, cosI: f32) -> vec3f {
     let at = d.x * vec2f(cos(d.y), sin(d.y));
     var delta = p - at;
     delta.x *= cosI;
-    let point = exp(-dot(delta, delta) / 0.05);
+    let point = exp(-dot(delta, delta) / 0.03);
     // Behind it along its spiral: the angle back from it, and the radius its path had there.
     let back = fract((d.y - phi) / HOLE_TAU) * HOLE_TAU;
     let path = d.x + back * d.w;
-    let width = 0.09 * path;
-    let streak = exp(-back / 0.9) * exp(-pow((r - path) / width, 2.0)) * step(back, 3.0);
-    light += HOLE_WHITE * d.z * (point * 9.0 + streak * 1.6);
+    let width = 0.03 * path;
+    let streak = exp(-back / 0.8) * exp(-pow((r - path) / width, 2.0)) * smoothstep(3.2, 1.6, back);
+    light += mix(HOLE_WHITE, HOLE_DOOR_BLUE, 0.35) * d.z * (point * 10.0 + streak * 2.4);
   }
   return light;
 }
@@ -211,13 +209,13 @@ fn holeDisk(p: vec3f, dir: vec3f) -> vec4f {
   let beam = pow(g, 2.6);
   // Brightest just outside the innermost stable orbit, falling away outward; inside it the gas is
   // plunging and goes dark fast.
-  let edge = smoothstep(HOLE_IN - 1.4, HOLE_IN + 0.4, r);
-  let profile = edge * pow(HOLE_IN / max(r, HOLE_IN), 2.3) * (1.0 - smoothstep(13.0, 22.0, r));
+  let edge = smoothstep(HOLE_IN - 1.6, HOLE_IN + 0.3, r);
+  let profile = edge * pow(HOLE_IN / max(r, HOLE_IN), 2.6) * (1.0 - smoothstep(12.0, 21.0, r));
   let grain = holePlasma(r, phi, t);
-  let density = profile * (0.35 + 1.15 * grain * grain);
-  let heat = density * g * 1.1;
-  var light = holeTint(heat) * density * beam * 1.9;
-  var cover = saturate(density * 2.4);
+  let density = profile * (0.45 + 1.1 * grain * grain);
+  let heat = density * g * 1.35;
+  var light = holeTint(heat) * density * beam * 2.6;
+  var cover = saturate(density * 2.6);
   let realms = holeRealms(p.xy, r, phi, t, cosI);
   light += realms.rgb * beam;
   cover = max(cover, realms.a);
@@ -274,7 +272,7 @@ fn holeTrace(css: vec2f, rd: vec3f) -> HoleRay {
   var through = 1.0;
   var leave = -1.0;
   for (var i = 0; i < 64; i++) {
-    let h = mix(0.24, 0.075, smoothstep(0.015, 0.2, u));
+    let h = mix(0.26, 0.1, smoothstep(0.015, 0.2, u));
     let k1u = w;
     let k1w = 3.0 * u * u - u;
     let u2 = u + 0.5 * h * k1u;

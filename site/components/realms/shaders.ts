@@ -2,6 +2,7 @@ import { TONES } from "@/components/realms/hive/cube"
 import { DOOR_BLUE, DOOR_LIGHT, DUSK, OPEN_SKY, POINTER_LIGHT, SPILL_LIGHT, toLinear } from "@/components/realms/hive/light"
 import { fieldWgsl, PAGE } from "@/components/field/stage"
 
+import { holeWgsl } from "./blackhole"
 import { DOOR, G1, G2 } from "./world"
 
 const f = (n: number) => n.toFixed(6)
@@ -71,8 +72,10 @@ struct Scene {
   lit: array<vec4f, ${LIT}>,              // realms lit by the page: centre x, y, glow (<0: unused), blue
 }
 @group(0) @binding(0) var<uniform> scene: Scene;
+@group(0) @binding(1) var<uniform> hole: Hole;
 
 ${fieldWgsl}
+${holeWgsl}
 
 const PAGE_LINEAR = ${lin3(PAGE)};
 // The night side from orbit, as the World concept draws it: darker than space right under the limb.
@@ -613,19 +616,28 @@ fn atmosphere(o: vec3f, rd: vec3f, sun: vec3f, toGround: bool) -> vec4f {
 }
 
 @fragment fn fs_sky(@builtin(position) frag: vec4f) -> @location(0) vec4f {
-  let css = frag.xy / scene.right.w;
+  let page = frag.xy / scene.right.w;
   let f = scene.eye.w;
-  let rd = normalize(scene.fwd.xyz + scene.right.xyz * ((css.x - scene.view.z) / f) - scene.up.xyz * ((css.y - scene.view.w) / f));
+  let ray = normalize(scene.fwd.xyz + scene.right.xyz * ((page.x - scene.view.z) / f) - scene.up.xyz * ((page.y - scene.view.w) / f));
   let o = scene.eye.xyz;
   let R = scene.planet.z;
   let h = max(o.z, 1e-3);
   let orbit = scene.planet.w;
 
   // How far above the horizon (the limb, from orbit) this ray passes, as an angle, and how fast that
-  // changes across the screen: the planet's edge is anti-aliased from it like a vector edge.
+  // changes across the screen: the planet's edge is anti-aliased from it like a vector edge. The rate
+  // is taken from the straight ray, before the hole's loop, where a derivative is still defined.
   let dip = atan(sqrt(h * (2.0 * R + h)) / R);
+  let rate = fwidth(asin(clamp(ray.z, -1.0, 1.0)));
+
+  // The black hole at the foot of the page: in its rect the ray is bent round it, and its disk is
+  // put in front. A bent ray reads the world where its new direction would meet the page.
+  let bent = holeTrace(page, ray);
+  let rd = bent.dir;
+  let ahead = dot(rd, scene.fwd.xyz);
+  let css = select(page, scene.view.zw + vec2f(dot(rd, scene.right.xyz), -dot(rd, scene.up.xyz)) * f / max(ahead, 1e-4), ahead > 0.05);
   let above = asin(clamp(rd.z, -1.0, 1.0)) + dip;
-  let cover = saturate(0.5 - above / max(fwidth(above), 1e-6));
+  let cover = saturate(0.5 - above / max(rate, 1e-6));
 
   var base = PAGE_LINEAR + horizonGlow(rd);
   var light = vec3f(0.0);
@@ -657,9 +669,9 @@ fn atmosphere(o: vec3f, rd: vec3f, sun: vec3f, toGround: bool) -> vec4f {
     base = mix(base, surface, cover);
   }
 
-  // Stars by night, never on the planet.
+  // Stars by night, never on the planet; brighter over the hole, where the air has been left behind.
   let starry = scene.clock.y * smoothstep(0.0, 0.08, rd.z + dip);
-  light += INK * stars(rd) * starry * 0.06 * (1.0 - cover);
+  light += INK * stars(rd) * starry * (0.06 + 0.14 * hole.ax.w) * (1.0 - cover);
 
   // From orbit: the air along the limb, lit from a sun just under it, and the camera's glare there.
   if (orbit > 0.001) {
@@ -681,7 +693,9 @@ fn atmosphere(o: vec3f, rd: vec3f, sun: vec3f, toGround: bool) -> vec4f {
   }
 
   let lit = vec3f(1.0) - exp(-light * 1.15);
-  return vec4f(base + lit * (vec3f(1.0) - base), 1.0);
+  let behind = (base + lit * (vec3f(1.0) - base)) * bent.through;
+  let front = vec3f(1.0) - exp(-bent.light * 1.15);
+  return vec4f(behind + front * (vec3f(1.0) - behind), 1.0);
 }
 `
 

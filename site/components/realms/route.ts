@@ -55,5 +55,7 @@ export const CLIMB: Record<string, { at: readonly [number, number]; yaw: number;
   faq: { at: [10, 206], yaw: 92, height: 46, pitch: -38, focal: 1500 },
 }
 
-/** Orbit, at a third of the planet's radius up. */
-export const FINALE = { altitude: 0.3, focal: 1500 }
+/** The finale: lifted a little over the climb's last stop and looking out level over the field into the
+ *  night, with the lens shifted so the horizon sits this share of the view's height down the page:
+ *  under its bottom edge, so the whole view is sky for the black hole to come up into. */
+export const FINALE = { height: 60, pitch: 6, focal: 1500, horizon: 1.12 }

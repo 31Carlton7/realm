@@ -2,6 +2,7 @@ import { draw, effect, sampler, target } from "vgpu"
 
 import type { Rect, StageFactory, StageInput } from "@/components/field/stage"
 
+import { BlackHole } from "./blackhole"
 import {
   basis,
   blend,
@@ -24,7 +25,6 @@ import {
 } from "./camera"
 import { CHAPTERS, CLIMB, FINALE, OPENING, TEAM } from "./route"
 import {
-  AIR_SCALE_HEIGHT,
   CLEAR,
   compositeShader,
   LIT,
@@ -61,8 +61,6 @@ type Stand = {
   slot?: [number, number]
   depth?: number
   cells?: [number, number][]
-  /** The finale's limb, and the foot of the page's: where the planet's edge stands on the page. */
-  limb?: number
 }
 
 const rest = (r: Rect, scrollY: number, keyY: number): Rect => [r[0], r[1] + scrollY - keyY, r[2], r[3]]
@@ -90,7 +88,6 @@ function levelView(foot: Vec3, yaw: number, height: number, distance: number, fo
 function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
   const { width, height, anchors } = input
   const out: Stand[] = []
-  const R = PLANET_RADIUS
   const phone = mode === "drift"
 
   // The opening: looking down the mark's own diagonal through a long lens, so every realm on the
@@ -174,57 +171,28 @@ function stands(input: StageInput, scrollY: number, mode: Mode): Stand[] {
       continue
     }
     if (id === "finale") {
+      // The finale: the camera lifts its eyes off the field to the night over it. It is level, and its
+      // lens is shifted so the horizon sits under the bottom of the page, so the whole view is sky,
+      // and the black hole the page ends on comes up into it from below.
       const last = out[out.length - 1]?.key.view
       const yaw = last ? last.yaw : 90 * DEG
-      const altitude = R * FINALE.altitude
-      const dip = Math.acos(R / (R + altitude))
-      const r = rest(rect, scrollY, y)
-      const limb = r[1] + r[3] + Math.min(150, height * 0.17)
-      const focal = FINALE.focal
-      const ahead = last ? [last.eye[0] + Math.cos(yaw) * 60, last.eye[1] + Math.sin(yaw) * 60] : [0, 0]
-      const view: View = { eye: [ahead[0]!, ahead[1]!, altitude], yaw, pitch: -90 * DEG, focal, px: width / 2, py: limb + focal / Math.tan(dip) }
+      const ahead = last ? [last.eye[0] + Math.cos(yaw) * 40, last.eye[1] + Math.sin(yaw) * 40] : [0, 0]
+      const view: View = {
+        eye: [ahead[0]!, ahead[1]!, FINALE.height],
+        yaw,
+        pitch: FINALE.pitch * DEG,
+        focal: FINALE.focal,
+        px: width / 2,
+        py: height * FINALE.horizon - FINALE.focal * Math.tan(FINALE.pitch * DEG),
+      }
       out.push({
         key: { id, kind: "finale", y, view, hold: [0.12, 0.3], turn: 0, pivot: [ahead[0]!, ahead[1]!, 0], lift: 0 },
-        fog: [altitude * 2, 1 / (altitude * 6)],
-        limb,
+        fog: [FINALE.height * 2, 1 / (FINALE.height * 6)],
       })
-      // The foot of the page: the planet sinks until its edge is just above the bottom of the view,
-      // so the links stand in space above it and the sun is the last thing on the page.
-      const end = document.documentElement.scrollHeight - height
-      if (end > y + height * 0.3) {
-        const low = height - Math.min(56, height * 0.07)
-        out.push({
-          key: { id: "end", kind: "end", y: end, view: { ...view, py: low + focal / Math.tan(dip) }, hold: [0.1, 0], turn: 0, pivot: [ahead[0]!, ahead[1]!, 0], lift: 0 },
-          fog: [altitude * 2, 1 / (altitude * 6)],
-          limb: low,
-        })
-      }
     }
   }
   out.sort((a, b) => a.key.y - b.key.y)
   return out
-}
-
-/** The climb into orbit: height grows by multiples, and the camera tips down exactly as far as keeps
- *  the horizon, then the planet's limb, moving smoothly to its place under the finale's words. */
-function rise(a: View, b: View, u: number, limb: number): View {
-  const s = smoother(u)
-  const R = PLANET_RADIUS
-  const h = Math.exp(lerp(Math.log(Math.max(a.eye[2], 0.5)), Math.log(b.eye[2]), s))
-  const dip = Math.acos(R / (R + h))
-  const focal = lerp(a.focal, b.focal, s)
-  const py = lerp(a.py, b.py, s)
-  const startHorizon = a.py - a.focal * Math.tan(-a.pitch - Math.acos(R / (R + Math.max(a.eye[2], 0.5))))
-  const horizon = lerp(startHorizon, limb, s)
-  const pitch = -Math.min(Math.PI / 2, dip + Math.atan((py - horizon) / focal))
-  return {
-    eye: [lerp(a.eye[0], b.eye[0], s), lerp(a.eye[1], b.eye[1], s), h],
-    yaw: a.yaw,
-    pitch,
-    focal,
-    px: lerp(a.px, b.px, s),
-    py,
-  }
 }
 
 /** Where the reader is: the view, and for every stop how open its screen and doorway are. */
@@ -233,13 +201,7 @@ type Moment = { view: View; at: Place; nearest: number; open: number[]; door: nu
 function moment(list: Stand[], scrollY: number, mode: Mode): Moment {
   const keys = list.map((s) => s.key)
   const at = place(keys, scrollY)
-  let view = at.view
-  // Into orbit, the climb has its own arc.
-  const into = list[at.to]
-  if (into?.key.kind === "finale" && at.from !== at.to && into.limb !== undefined) {
-    const from = keys[at.from]!
-    view = rise(orbit(from.view, from.pivot, from.turn / 2), into.key.view, at.u, into.limb)
-  }
+  const view = at.view
   const nearest = at.from === at.to ? at.from : at.u < 0.5 ? at.from : at.to
 
   const open: number[] = []
@@ -318,13 +280,15 @@ export const createRealms: StageFactory = async (gpu, output) => {
     depth: { write: true, compare: "greater" },
     set: { scene },
   })
+  const blackHole = new BlackHole()
+  const hole = blackHole.frame({ view: { eye: [0, 0, 10], yaw: 0, pitch: 0, focal: 1500, px: 0, py: 0 }, rect: undefined, width: 1, height: 1, seconds: 0, dt: 0, still: true, pointer: [0, 0, 0] }).uniforms
   const sky = draw(gpu, {
     label: "realms-sky",
     shader: sceneShader,
     entry: { vertex: "vs_sky", fragment: "fs_sky" },
     vertices: 3,
     depth: { write: false, compare: "greater-equal" },
-    set: { scene },
+    set: { scene, hole },
   })
   const linear = sampler(gpu, { minFilter: "linear", magFilter: "linear" })
   const composite = effect(gpu, compositeShader, { label: "realms-composite", set: { comp, sceneTex: world, sceneSampler: linear } })
@@ -394,18 +358,15 @@ export const createRealms: StageFactory = async (gpu, output) => {
       let view: View = now.view
       if (mode === "drift") {
         // A phone: the opening's view of the field, carried slowly up it as the page scrolls, then the
-        // same climb into orbit at the end, and the planet sinking under the links.
+        // same lift to the night at the end, where the black hole comes up under the links.
         const open = list[0]!.key.view
         const travel = scrollY * 0.012
         view = { ...open, eye: [open.eye[0] + Math.cos(open.yaw) * travel, open.eye[1] + Math.sin(open.yaw) * travel, open.eye[2]] }
-        const finaleIndex = list.findIndex((s) => s.key.kind === "finale")
-        const into = list[finaleIndex]
-        if (into?.limb !== undefined) {
+        const into = list.find((s) => s.key.kind === "finale")
+        if (into) {
           const from = Math.max(0, into.key.y - height * 1.4)
           const u = clamp((scrollY - from) / Math.max(into.key.y - from, 1), 0, 1)
-          if (u > 0) view = rise(view, into.key.view, u, into.limb)
-          const end = list[finaleIndex + 1]
-          if (end && scrollY > into.key.y) view = blend(into.key.view, end.key.view, clamp((scrollY - into.key.y) / Math.max(end.key.y - into.key.y, 1), 0, 1), 0)
+          if (u > 0) view = blend(view, into.key.view, u, 0)
         }
       } else if (mode === "still") {
         // Reduced motion: each stop's own composed view, redrawn as the reader moves between them.
@@ -582,34 +543,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const dissolve = ramp(36, 110, altitude)
       const pointsOn = ramp(28, 90, altitude)
 
-      // The sun: one direction, set from the finale's own view so the sunrise lands on the limb under
-      // the words, a little below it at first and coming up to it as the reader arrives.
-      const finale = list.find((s) => s.key.kind === "finale")
-      let sun: Vec3 = [0, 0, 1]
-      let risen = 0
-      let airK = 1
-      let limbPoint: [number, number] = [0, 0]
-      let glareUnit = 1
-      if (finale?.limb !== undefined) {
-        const fv = finale.key.view
-        const fb = basis(fv)
-        const finaleIndex = list.indexOf(finale)
-        risen = smooth(clamp(progress - (finaleIndex - 0.6), 0, 1))
-        const below = lerp(18, 5, risen)
-        sun = rayThrough(fv, fb, width * 0.56, finale.limb + below)
-        // The limb's radius on the page and the air's apparent thickness there (the World concept's):
-        // one thickness for the page's width rather than one that grows with the planet.
-        const R = PLANET_RADIUS
-        const dip = Math.acos(R / (R + fv.eye[2]))
-        const radius = fv.focal / Math.tan(dip)
-        const alpha = Math.PI / 2 - dip
-        const scaleHeight = (radius * AIR_SCALE_HEIGHT) / Math.cos(alpha) ** 2
-        airK = clamp(width * 0.0035, 3.4, 6) / scaleHeight
-        glareUnit = clamp(radius / 2340, 0.4, 1.3)
-        // Where the sun's direction meets the page now: the glare sits just above it, on the limb.
-        const z = dot(sun, b.fwd)
-        if (z > 1e-3) limbPoint = [view.px + (view.focal * dot(sun, b.right)) / z, view.py - (view.focal * dot(sun, b.up)) / z - below]
-      }
+      // The finale's night: how far the camera has lifted its eyes to it, which the hole's stars take.
+      const finaleIndex = list.findIndex((s) => s.key.kind === "finale")
+      const lifted = finaleIndex < 0 ? 0 : mode === "still" ? (now.nearest >= finaleIndex ? 1 : 0) : smooth(clamp(progress - (finaleIndex - 1), 0, 1))
 
       // Haze: carried between the stops with the camera.
       const fa = list[now.at.from]!.fog
@@ -661,8 +597,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
       scene.clock = [input.seconds, night, input.still ? 1 : 0, lerp(0.03, 0.05, night)]
       scene.fog = [fogStart, fogDensity, 0, 0]
       scene.planet = [view.eye[0], view.eye[1], PLANET_RADIUS, orbitAmount]
-      scene.sun = [...sun, risen]
-      scene.air = [airK, limbPoint[0], limbPoint[1], glareUnit]
+      scene.sun = [0, 0, 1, 0]
+      scene.air = [1, 0, 0, 1]
       scene.field = [dissolve, pointsOn, 0, 0]
       scene.fence = fence
       scene.lamp = [lampAt[0], lampAt[1], lampHeight, lampOn]
@@ -684,13 +620,17 @@ export const createRealms: StageFactory = async (gpu, output) => {
         composite.set({ sceneTex: world })
       }
 
+      // The black hole under the footer: retraced every frame it is on screen, since its disk turns.
+      const holeNow = blackHole.frame({ view, b, rect: input.anchors.hole, width, height, seconds: input.seconds, dt, still: input.still, pointer: input.pointer })
+      holeNow.uniforms.ax[3] = lifted
+
       const state = `${scrollY}|${width}x${height}|${view.eye.map((v) => v.toFixed(4)).join(",")}|${view.yaw.toFixed(5)}|${lamp.x.toFixed(1)},${lamp.y.toFixed(1)},${lamp.presence.toFixed(3)}|${mode}`
-      if (state === drawn && !input.still && quietFrames++ % 3 !== 0) return
+      if (state === drawn && !input.still && !holeNow.live && quietFrames++ % 3 !== 0) return
       if (state !== drawn) quietFrames = 0
       drawn = state
 
       realms.set({ scene })
-      sky.set({ scene })
+      sky.set({ scene, hole: holeNow.uniforms })
       composite.set({ comp })
       const instances = dissolve > 0.995 ? 0 : grid * grid
       frame.pass({ target: world, clear: [0, 0, 0, 1], clearDepth: 0 }, (pass) => {
