@@ -103,7 +103,7 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
               <div className="h-full w-full origin-left scale-x-[var(--flight)] bg-[linear-gradient(to_right,oklch(0.788_0.113_248.33/0.2),oklch(0.788_0.113_248.33/0.95))]" />
             </div>
           ) : null}
-          <Link ref={brandRef} href="/" className="relative shrink-0 rounded-[8px] text-ink transition-opacity duration-150 hover:opacity-75">
+          <Link ref={brandRef} href="/" className="relative flex shrink-0 items-center rounded-[8px] text-ink transition-opacity duration-150 hover:opacity-75">
             <Wordmark />
           </Link>
           <div className="min-w-0 flex-1" />
