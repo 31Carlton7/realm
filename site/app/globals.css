@@ -1040,16 +1040,21 @@ html:active-view-transition body {
   }
 }
 
+/* Under reduced motion every passage is the plain crossfade: no opening, no zoom, nothing travelling. */
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(.warp-out),
   ::view-transition-old(.dive-out),
   ::view-transition-old(.surface-out) {
+    -webkit-mask-image: none;
+    mask-image: none;
     animation: passage-out 160ms ease-out both;
   }
 
   ::view-transition-new(.warp-in),
   ::view-transition-new(.dive-in),
   ::view-transition-new(.surface-in) {
+    -webkit-mask-image: none;
+    mask-image: none;
     animation: passage-in 200ms ease-out both;
   }
 }
