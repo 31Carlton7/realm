@@ -353,6 +353,20 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
+  it("allows every permission request itself under Full access, and asks again once the session leaves it", async () => {
+    /* A scheduled task's run on Cursor: ACP has no mode for Full access, so the request is where Realm
+       holds it. THE MUTANT: the request carded anyway — the run waits on a person who is not there. */
+    const { handle, evs } = await booted({ permissionMode: "bypassPermissions" });
+    await turn(handle, evs, "PERMIT");
+    expect(of(evs, "permission_request")).toEqual([]);
+    expect(statuses(evs)).not.toContain("waiting_permission");
+    expect(of(evs, "tool_result")[0]!.payload).toMatchObject({ content: "outcome:allow-once", isError: false });
+    await handle.setOptions({ permissionMode: "default" });
+    await handle.send({ text: "PERMIT", attachments: [] });
+    await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
+    await handle.dispose();
+  });
+
   it("echoes the reject option a deny maps to", async () => {
     const { handle, evs } = await booted();
     await handle.send({ text: "PERMIT", attachments: [] });

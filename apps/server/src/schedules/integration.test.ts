@@ -22,6 +22,7 @@ import { waitFor } from "../test-utils";
  *   - continuing as a fresh session            → "one conversation"
  *   - the success left in the sidebar          → "archived"
  *   - a task from the tool shaped differently  → "the tool's path"
+ *   - a scheduled run started restricted       → "Full access"
  */
 
 let app: App;
@@ -95,6 +96,24 @@ describe("a task fired from the Scheduled page", () => {
     ears.close();
   });
 
+  it("runs in Full access whatever permission the task holds, and a run started by hand still does not", async () => {
+    /* A scheduled task always runs in Full access, on every agent Realm can set a mode on. THE MUTANT: the run's session started on the task's own permission (or the default) —
+       a run that stops on the first prompt with nobody there to answer it. */
+    const { fake, spaceId } = await boot();
+    const asking = app.schedules.create(task(spaceId, { title: "Asking", constraints: { agentKind: "fake", permissionMode: "default" } }));
+    const plain = app.schedules.create(task(spaceId, { title: "Plain", constraints: null }));
+    for (const s of [asking, plain]) {
+      const runId = app.schedules.runNow(s.id).lastRunId!;
+      await settled(runId);
+      expect(app.sessions.get(runOf(runId).sessionId!).permissionMode).toBe("bypassPermissions");
+      expect(fake.seen.at(-1)).toMatchObject({ permissionMode: "bypassPermissions" });
+    }
+    // A run nobody scheduled keeps the rule it always had.
+    const { run: byHand } = app.runs.create({ spaceId, goal: "Write the status update.", constraints: { agentKind: "fake" }, dedupeKey: null, maxAttempts: 1, deadlineAt: null });
+    await settled(byHand.id);
+    expect(app.sessions.get(runOf(byHand.id).sessionId!).permissionMode).toBe("default");
+  });
+
   it("hands the agent its unattended rules after the instructions, and says on the message which part they are", async () => {
     /* The transcript draws the task's name above the bubble and keeps the note out of it, which it can
        only do if the message says what the note is. THE mutant: the field dropped on its way to the
@@ -136,21 +155,23 @@ describe("a task that continues one session", () => {
     expect(runOf(second).state).toBe("succeeded");
   });
 
-  it("runs the next turn on what the task says now: a level, a speed and a permission edited since", async () => {
+  it("runs the next turn on what the task says now: a level and a speed edited since, in Full access", async () => {
     /* THE MUTANT: a continued session left on what its first run set up. Edit the task to the model's
-       default level, fast mode off and Accept edits, and the conversation carried on at High, fast,
-       asking every time. */
+       default level and fast mode off, and the conversation carried on at High, fast. And a session
+       put back to asking between runs — by the person, in its prompter — is Full access again for the
+       next one, whatever permission the task holds. */
     const { spaceId } = await boot();
     const schedule = app.schedules.create(task(spaceId, { newSessionPerRun: false }));
     const first = app.schedules.runNow(schedule.id).lastRunId!;
     await settled(first);
     const sessionId = runOf(first).sessionId!;
-    expect(app.sessions.get(sessionId)).toMatchObject({ effort: "high", fastMode: true, permissionMode: "default" });
+    expect(app.sessions.get(sessionId)).toMatchObject({ effort: "high", fastMode: true, permissionMode: "bypassPermissions" });
+    await app.sessions.setOptions(sessionId, { permissionMode: "default" });
     app.schedules.update({ id: schedule.id, constraints: { agentKind: "fake", model: "fake-pro", permissionMode: "acceptEdits" } });
     const second = app.schedules.runNow(schedule.id).lastRunId!;
     await settled(second);
     expect(runOf(second).sessionId).toBe(sessionId);
-    expect(app.sessions.get(sessionId)).toMatchObject({ model: "fake-pro", effort: null, fastMode: false, permissionMode: "acceptEdits" });
+    expect(app.sessions.get(sessionId)).toMatchObject({ model: "fake-pro", effort: null, fastMode: false, permissionMode: "bypassPermissions" });
   });
 
   it("a task that does not starts each run in a session of its own", async () => {
