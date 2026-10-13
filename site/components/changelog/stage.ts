@@ -165,6 +165,8 @@ async function sky(gpu: Gpu, output: Surface, size: [number, number]) {
 
   let prev: { view: View; b: Basis; seconds: number } | null = null
   let cleared = ""
+  let spaceDrawn = ""
+  let spaceFrame = 0
 
   return {
     scene,
@@ -272,7 +274,11 @@ async function sky(gpu: Gpu, output: Surface, size: [number, number]) {
       glows.set({ scene })
       stars.set({ scene })
       composite.set({ comp })
-      frame.pass({ target: space, clear: [0, 0, 0, 1] }, (pass) => pass.draw(deep))
+      // The deep sky moves slowly: while the camera holds still it is redrawn every other frame, as the
+      // landing page redraws it.
+      const camera = `${view.eye.map((v) => v.toFixed(3)).join(",")}|${b.fwd.map((v) => v.toFixed(4)).join(",")}|${view.px.toFixed(1)},${view.py.toFixed(1)}|${wanted.join("x")}`
+      if (camera !== spaceDrawn || spaceFrame++ % 2 === 0 || set.still) frame.pass({ target: space, clear: [0, 0, 0, 1] }, (pass) => pass.draw(deep))
+      spaceDrawn = camera
       frame.pass({ target: scenery, clear: [0, 0, 0, 0], clearDepth: 0 }, (pass) => {
         pass.draw(realms, { vertices: REALM_VERTICES, instances: MAX_REALMS + PAGE_REALMS })
         pass.draw(backdrop, { vertices: 3 })
