@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ROLE_TEMPLATES, mediaUrl, type TeamActivity, type TeamRecordType, type TeamRole, type TeamSpace } from "@realm/contracts";
 import { Menu } from "../../components/Menu";
 import { Sheet } from "../../components/Sheet";
-import { MODES, RoleSheet, modelLabel } from "./RoleSheet";
+import { ROLE_MODE_LABEL, RoleSheet, modelLabel } from "./RoleSheet";
 import { MakeTeam } from "./TeamPicker";
 import { PoliciesPage } from "./PoliciesPage";
 import { VaultPage } from "./VaultPage";
@@ -392,7 +392,7 @@ function RolePage({ role, team }: { role: TeamRole; team: TeamSpace }) {
           <li className="settings-row">
             <div className="settings-row-main">
               <span className="settings-row-name">Can use</span>
-              <span className="settings-row-detail">{["Records and Review", ...role.skills.map((s) => `the ${s} skill`)].join(", ")} · {MODES.find((m) => m.id === role.permissionMode)?.label ?? role.permissionMode}</span>
+              <span className="settings-row-detail">{["Records and Review", ...role.skills.map((s) => `the ${s} skill`)].join(", ")} · {ROLE_MODE_LABEL}</span>
             </div>
             <button type="button" className="btn-quiet" onClick={() => setSheet("edit")}>Edit</button>
           </li>

@@ -505,6 +505,26 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const installedApps = useApp((st) => st.installedApps);
   const appIcons = useApp((st) => st.appIcons);
   const accessibility = useApp((st) => { const row = st.computerAccess?.rows.find((r) => r.id === "accessibility"); return row ? row.state === "granted" : null; });
+  const a11yRow = useApp((st) => st.computerAccess?.rows.find((r) => r.id === "accessibility") ?? null);
+  const computerRequesting = useApp((st) => st.computerRequesting);
+  const computerAwaiting = useApp((st) => st.computerAwaiting);
+  const requestComputerAccess = useApp((st) => st.requestComputerAccess);
+  const repairComputerAccess = useApp((st) => st.repairComputerAccess);
+  /* Allow, or Repair where macOS stopped honouring a grant an earlier build held — the same action
+     the Settings row leads with, so the prompter and Settings never offer different fixes. */
+  const accessibilityAction = useMemo(() => {
+    if (!a11yRow || a11yRow.state === "granted") return null;
+    const repairFirst = a11yRow.stale && a11yRow.canRepair;
+    const label = computerRequesting === a11yRow.id ? "Waiting for macOS…"
+      : computerAwaiting === a11yRow.id ? "Open System Settings again"
+      : repairFirst ? "Repair" : "Allow in System Settings";
+    return {
+      label, busy: computerRequesting !== null,
+      title: computerAwaiting === a11yRow.id ? `Switch Realm on in System Settings ▸ ${a11yRow.settingsPlace}.`
+        : (repairFirst ? a11yRow.repairExplanation : a11yRow.askExplanation),
+      run: () => { void run(() => (repairFirst ? repairComputerAccess(a11yRow.id) : requestComputerAccess(a11yRow.id))); },
+    };
+  }, [a11yRow, computerRequesting, computerAwaiting, run, requestComputerAccess, repairComputerAccess]);
   const loadInstalledApps = useApp((st) => st.loadInstalledApps);
   const ensureAppIcons = useApp((st) => st.ensureAppIcons);
   const refreshComputerAccess = useApp((st) => st.refreshComputerAccess);
@@ -523,8 +543,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const cwd = session?.cwd ?? "";
   // A team space's roles: `@Creator Manager` wakes one as this session's sub-agent.
   const teamRoles = useApp((st) => (session ? st.teams[session.spaceId]?.roles : undefined));
-  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [] }),
-    [cwd, macSkill, installedApps, appIcons, accessibility, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles]);
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [] }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
      when the transcript first carries them. */
   const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),

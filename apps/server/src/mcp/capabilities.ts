@@ -90,7 +90,8 @@ const BLOCKS: Record<string, string> = {
     "`creators/<name>.md` in the team's memory — so read the record before acting for someone, and change " +
     "the record when a fact changes rather than leaving it in this conversation. Finished work a person " +
     "should approve (slides, a message to send, a document) goes to Review with `review_submit`; nothing " +
-    "you make is sent or posted by you. Ordinary questions about the space need none of this.",
+    "you make is sent or posted by you. A review you sent that is no longer wanted (replaced, done another " +
+    "way) you close with `review_close`, so it stops waiting on the person. Ordinary questions about the space need none of this.",
 
   "realm-terminal":
     "- **A terminal that talks back.** `terminal_open` starts a real terminal pane in this space, " +

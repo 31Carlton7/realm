@@ -165,7 +165,8 @@ export function appMenuTemplate({ appName, rules, send, openExternal, developer,
       role: "help",
       submenu: [
         { label: `${appName} Website`, click: () => openExternal(WEBSITE_URL) },
-        { label: "What's New", click: () => openExternal(CHANGELOG_URL) },
+        // The sheet, which carries this version's notes and the link to the rest (whats-new.ts).
+        { label: "What's New", click: () => send("app.whatsNew") },
       ],
     },
   ];

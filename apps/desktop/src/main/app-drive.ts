@@ -1,4 +1,4 @@
-import { NO_AGENT_ATTR, type BrowserAction, type BrowserActResult, type BrowserSnapshotResult } from "@realm/contracts";
+import { NO_AGENT_ATTR, type BrowserAction, type BrowserActResult, type BrowserSnapshotResult, type BrowserSnapshotScope } from "@realm/contracts";
 import { buildSnapshot, markAct, performAct, type CdpSend, type SnapshotIndex } from "./browser-agent";
 
 /**
@@ -62,9 +62,9 @@ export class AppDriveHost {
 
   constructor(private readonly d: AppDriveDeps) {}
 
-  async snapshot(): Promise<BrowserSnapshotResult> {
+  async snapshot(scope: BrowserSnapshotScope = {}): Promise<BrowserSnapshotResult> {
     const cdp = this.require();
-    const { index, ...snapshot } = await buildSnapshot(cdp.send, this.index);
+    const { index, ...snapshot } = await buildSnapshot(cdp.send, this.index, scope);
     this.index = index;
     return snapshot;
   }

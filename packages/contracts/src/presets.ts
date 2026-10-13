@@ -157,6 +157,10 @@ export const DEFAULT_MODEL_LABEL = {
  * (`acpPlanMode` over the captured `availableModes`). The PERMISSION axis stays false — Cursor's
  * `agent`/`plan`/`ask` are what-the-agent-is-doing modes, none of them a "how freely may it act" level,
  * so there is still nothing honest to map Ask/Accept edits/Full access onto.
+ *
+ * One case reaches past the table without being offered: a scheduled task's run is always Full
+ * access, on every agent, and `AcpAdapter` honours that by allowing each permission request itself
+ * rather than through a mode. It is not a picker option, so nothing here changes for it.
  */
 export const AGENT_SUPPORTS_PERMISSION_MODES = {
   claude: true, codex: true, "acp:cursor": false, "acp:gemini": false,

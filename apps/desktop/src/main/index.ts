@@ -33,10 +33,10 @@ import { AppDriveHost } from "./app-drive";
 import { registerAppPick } from "./app-pick";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
-import { ComputerUseHelper, axHelperPath } from "./computer-use-helper";
+import { ComputerUseHelper, axHelperPath, probeGrantsOnce } from "./computer-use-helper";
 import { ComputerUseHost } from "./computer-use-host";
 import { ComputerDrivingIndicator } from "./computer-driving";
-import { computerAccessRows, isComputerAccessId, type ComputerAccessStatus } from "./computer-access";
+import { ComputerAccess, isComputerAccessId, type ComputerAccessStatus, type ComputerGrantHistory } from "./computer-access";
 import {
   MAC_CAPABILITIES, MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
@@ -63,12 +63,13 @@ import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { registerNativeMenus } from "./native-menu";
 import { attachTextContextMenu } from "./text-context-menu";
 import { windowOpenTarget } from "./link-open";
-import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
+import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom } from "./window-registry";
 import { registerFileActions } from "./file-actions";
 import { AppIconStore, registerAppIcon } from "./app-icon";
 import { registerAppearance, savedAppearance } from "./appearance";
+import { registerWhatsNew, WhatsNewState } from "./whats-new";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
@@ -1194,42 +1195,87 @@ ipcMain.handle("phone:show-live", async (): Promise<string> => {
 // stays prompt-free and uses the same queries `tcc:probe` does; the decisions live in
 // computer-access.ts, only the Electron/helper legs are here.
 
-/** Both grants, queried without prompting for either. Screen Recording's status read comes from
- *  Electron rather than the helper so it answers on a build that has no helper at all. */
-function computerGrantState() {
+/** Both grants, read without prompting for either — by a helper started for the read, because the
+ *  running one keeps the trust it saw at launch. Electron's own queries answer on a build with no
+ *  helper at all. */
+async function computerGrantState() {
+  if (computerHelper.available) {
+    try { return await probeGrantsOnce(axHelperPath); } catch { /* fall through to Electron's reads */ }
+  }
   return {
     accessibility: systemPreferences.isTrustedAccessibilityClient(false),
     screenRecording: systemPreferences.getMediaAccessStatus("screen") === "granted",
   };
 }
 
-function computerAccessStatus(): ComputerAccessStatus {
-  const bundlePath = appBundlePath(app.getPath("exe"));
-  return {
-    rows: computerAccessRows(computerGrantState(), { helperAvailable: computerHelper.available }),
-    hostName: macHostName({ appName: app.getName(), bundlePath, packaged: app.isPackaged }),
-    packaged: app.isPackaged,
-    helperAvailable: computerHelper.available,
-  };
+/** The bundle id macOS keys Realm's grants to: co.charmtechnologies.realm packaged, Electron's own
+ *  under `pnpm dev`. Read from the bundle rather than assumed, so a repair resets the app that asked. */
+let computerBundleId: string | null | undefined;
+function readComputerBundleId(): string | null {
+  if (computerBundleId !== undefined) return computerBundleId;
+  try {
+    computerBundleId = execFileSync("/usr/libexec/PlistBuddy",
+      ["-c", "Print :CFBundleIdentifier", `${appBundlePath(app.getPath("exe"))}/Contents/Info.plist`],
+      { encoding: "utf8", timeout: 4000 }).trim() || null;
+  } catch { computerBundleId = null; }
+  return computerBundleId;
 }
 
-ipcMain.handle("computer:status", (): ComputerAccessStatus => computerAccessStatus());
+const computerGrantHistoryFile = () => join(app.getPath("userData"), "computer-grants.json");
+const computerAccess = new ComputerAccess({
+  helperAvailable: () => computerHelper.available,
+  probe: computerGrantState,
+  request: async (id) => {
+    if (computerHelper.available) {
+      // Preferred when it exists, because it is the only route to Screen Recording's prompt and it
+      // raises both from one place.
+      await computerHelper.request("requestTrust", { what: id });
+    } else if (id === "accessibility") {
+      // The `true` is the prompting form: Electron can raise this one dialog by itself, which is why
+      // the Accessibility row offers Allow on a build with no helper. Screen Recording has no such API.
+      systemPreferences.isTrustedAccessibilityClient(true);
+    }
+  },
+  reset: (service, bundleId) => new Promise<void>((resolve, reject) => {
+    // tccutil needs no privileges to reset the calling user's own entries for one bundle id.
+    const child = spawn("/usr/bin/tccutil", ["reset", service, bundleId], { stdio: "ignore" });
+    child.on("error", reject);
+    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`tccutil reset ${service} exited with ${code}`))));
+  }),
+  openSettings: (id) => { void shell.openExternal(TCC_SETTINGS_URLS[id]); },
+  restartHelper: () => computerHelper.stop(),
+  loadHistory: () => {
+    try { return JSON.parse(readFileSync(computerGrantHistoryFile(), "utf8")) as ComputerGrantHistory; } catch { return {}; }
+  },
+  saveHistory: (history) => {
+    try { writeFileSync(computerGrantHistoryFile(), JSON.stringify(history)); } catch { /* the next read starts over */ }
+  },
+  build: (() => {
+    let built = "";
+    try { built = String(Math.round(statSync(app.getPath("exe")).mtimeMs)); } catch { /* version alone */ }
+    return `${app.getVersion()}+${built}`;
+  })(),
+  bundleId: readComputerBundleId,
+  macosMajor: Number.parseInt(process.getSystemVersion(), 10) || 0,
+  hostName: macHostName({ appName: app.getName(), bundlePath: appBundlePath(app.getPath("exe")), packaged: app.isPackaged }),
+  packaged: app.isPackaged,
+  signed: __REALM_SIGNED_BUILD__,
+});
 
-/** Raise the real macOS prompt for one row. The renderer names a ROW, validated against
- *  computer-access.ts's closed set — it can never name an arbitrary method for the helper to run. */
-ipcMain.handle("computer:request", async (_e, id: unknown): Promise<ComputerAccessStatus> => {
+ipcMain.handle("computer:status", (): Promise<ComputerAccessStatus> => computerAccess.status());
+
+/** Ask macOS for one row, then open the pane its switch is in. The renderer names a ROW, validated
+ *  against computer-access.ts's closed set — it can never name an arbitrary method for the helper. */
+ipcMain.handle("computer:request", (_e, id: unknown): Promise<ComputerAccessStatus> => {
   if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
-  if (computerHelper.available) {
-    // Preferred when it exists, because it is the only route to Screen Recording's prompt and it
-    // raises both from one place.
-    try { await computerHelper.request("requestTrust", { what: id }); } catch { /* the re-read below is the real answer */ }
-  } else if (id === "accessibility") {
-    // The `true` is the prompting form, and this branch is the reason `computerAccessRows` lets the
-    // Accessibility row offer to ask on a build with no helper: Electron can raise that one dialog
-    // by itself. Screen Recording has no such API, so its row offers System Settings instead.
-    systemPreferences.isTrustedAccessibilityClient(true);
-  }
-  return computerAccessStatus();
+  return computerAccess.allow(id);
+});
+
+/** Clear Realm's stale entry for one row (tccutil reset) and ask again. Same closed set: the service
+ *  and the bundle id are main's, never the renderer's. */
+ipcMain.handle("computer:repair", (_e, id: unknown): Promise<ComputerAccessStatus> => {
+  if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
+  return computerAccess.repair(id);
 });
 
 ipcMain.handle("computer:open-settings", (_e, id: unknown) => {
@@ -1667,6 +1713,17 @@ registerAppIcon({ handle: (channel, fn) => ipcMain.handle(channel, fn), store: a
  *  last run before any window exists, then kept current by the renderer. */
 nativeTheme.themeSource = savedAppearance(app.getPath("userData"));
 registerAppearance({ on: (channel, fn) => ipcMain.on(channel, fn), theme: nativeTheme, dir: app.getPath("userData") });
+/** What's new (whats-new.ts). Decided here, at load, before the server exists to make a new install's
+ *  database — which is half of how an install that predates the record is told from a new one. */
+registerWhatsNew({
+  handle: (channel, fn) => ipcMain.handle(channel, fn),
+  notes: { ...__REALM_WHATS_NEW__, url: CHANGELOG_URL },
+  state: new WhatsNewState({
+    dir: app.getPath("userData"),
+    version: __REALM_WHATS_NEW__.version,
+    ranBefore: existsSync(join(app.getPath("userData"), windowStateFileName(null))) || existsSync(join(realmHomePath(), "realm.db")),
+  }),
+});
 /**
  * Save a copy of a file somewhere the user names.
  *
@@ -1923,7 +1980,7 @@ app.whenReady().then(async () => {
         // Realm's own window, which is a different target from any browser view — so these are
         // answered before the executor below, whose `host` is about panes and would refuse first
         // with a message about a pane.
-        if (op === "appSnapshot") return appDriveHost.snapshot();
+        if (op === "appSnapshot") return appDriveHost.snapshot((params as { scope?: Parameters<typeof appDriveHost.snapshot>[0] }).scope);
         if (op === "appAct") return appDriveHost.act((params as { action: BrowserAction }).action);
         // Level B: Electron is here, the window is not. The refusal names the actual fix, because
         // "Realm is not connected" would be false — it is connected, that is how this message got

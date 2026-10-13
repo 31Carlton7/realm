@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { DELIVERABLE_FORMATS, DeliverableFormatSchema, ItemMetaSchema, ProposedActionSchema, ReviewLabelSchema, ReviewTargetSchema, TEAM_PROVIDER_NAME, type TeamReviewSummary } from "@realm/contracts";
+import { DELIVERABLE_FORMATS, REVIEW_CLOSE_OUTCOMES, DeliverableFormatSchema, ReviewCloseOutcomeSchema, ItemMetaSchema, ProposedActionSchema, ReviewLabelSchema, ReviewTargetSchema, TEAM_PROVIDER_NAME, type TeamReviewSummary } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
 import type { TeamService } from "./service";
@@ -9,7 +9,7 @@ import type { RecordTypeService } from "./record-types/service";
 export { TEAM_PROVIDER_NAME };
 
 export type TeamAgentToolsDeps = {
-  team: Pick<TeamService, "isTeam" | "space" | "records" | "readForAgent" | "updateForAgent" | "submit" | "reviewStatus" | "review">;
+  team: Pick<TeamService, "isTeam" | "space" | "records" | "readForAgent" | "updateForAgent" | "submit" | "reviewStatus" | "review" | "closeForAgent">;
   /** The team's kinds of record: what `record_types` answers, and the record tools' words per space. */
   types: Pick<RecordTypeService, "describe" | "descriptions">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
@@ -47,6 +47,7 @@ const SubmitArgs = z.object({
   }).strict()).min(1).max(30),
 }).strict().refine((a) => !(a.label && a.kind && a.label !== a.kind), { message: "give `label` or `kind`, not two different ones" });
 const StatusArgs = z.object({ id: z.string().min(1).max(40).optional() }).strict();
+const CloseArgs = z.object({ id: z.string().min(1).max(40), outcome: ReviewCloseOutcomeSchema, reason: z.string().max(500).optional() }).strict();
 const PolicyReadArgs = z.object({}).strict();
 
 const TOOLS: Tool[] = [
@@ -131,6 +132,24 @@ const TOOLS: Tool[] = [
     inputSchema: { type: "object", properties: { id: { type: "string" } }, additionalProperties: false },
   },
   {
+    name: "review_close",
+    description: [
+      "Close a review you sent, before the person decides it, so it stops waiting on them. `id` is the review's id, as review_submit and review_status give it.",
+      "`outcome`: `superseded` when a newer review replaces it, `done` when the work got finished another way, `withdrawn` when it is no longer wanted. `reason` is a sentence the person will read.",
+      "Only a review this session or your role sent, in this space, and only while it waits on the person or on your changes; one they approved, finished or put away is theirs. To replace work the person asked changes on, submit again instead — that revises it in place.",
+    ].join(" "),
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        outcome: { type: "string", enum: [...REVIEW_CLOSE_OUTCOMES] },
+        reason: { type: "string", description: "why, in a sentence, e.g. \"replaced by the v2 batch\"" },
+      },
+      required: ["id", "outcome"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "policy_read",
     description: "What this team's policies let a role do here without the person: for each kind of action, and for each connection or tool with a rule of its own, whether a call goes ahead, asks the person, waits for Review and their press, or never runs — with any daily limits. Plan inside these: a call the policy refuses is refused. Read-only; only the person changes policies, on the team's Policies page.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -193,13 +212,18 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
             // What Realm checked is the role's to read now, while it can still fix it: a missing consent
             // line is reported here and enforced only when something would go out.
             const failing = d.team.review(r.id).checks.filter((c) => c.ok === false).map((c) => `${c.title} — ${c.detail}`);
-            return ok(`Sent "${r.title}" to Review (${r.itemCount} item${r.itemCount === 1 ? "" : "s"}${r.version > 1 ? `, version ${r.version}` : ""}; review ${r.id}). Nothing goes out until a person approves it. Check on it with review_status.`
+            return ok(`Sent "${r.title}" to Review (${r.itemCount} item${r.itemCount === 1 ? "" : "s"}${r.version > 1 ? `, version ${r.version}` : ""}; review ${r.id}). Nothing goes out until a person approves it. Check on it with review_status; if it stops being wanted, close it with review_close.`
               + (failing.length ? `\nBefore it can go, Realm found: ${failing.join("; ")}.` : ""));
           }
           case "review_status": {
             const a = parseArgs(StatusArgs, args); if ("error" in a) return a.error;
             const rows = d.team.reviewStatus(ctx.spaceId, a.value.id ?? null, ctx.sessionId);
             return ok(rows.length ? rows.map(statusLine).join("\n") : "This session has sent nothing to Review.");
+          }
+          case "review_close": {
+            const a = parseArgs(CloseArgs, args); if ("error" in a) return a.error;
+            const r = d.team.closeForAgent(ctx, a.value.id, a.value.outcome, a.value.reason ?? null);
+            return ok(`Closed review ${r.id} "${r.title}" as ${a.value.outcome}; it no longer waits on the person.`);
           }
           case "policy_read": {
             const a = parseArgs(PolicyReadArgs, args); if ("error" in a) return a.error;

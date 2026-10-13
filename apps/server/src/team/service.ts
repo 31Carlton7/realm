@@ -4,7 +4,7 @@ import {
   CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
   ACT_PACING, CREATOR_PRESET, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, lineDiff, reviewVerb, verbFamily, recordTemplate,
   type DeliverableFormat, type ProposedAction, type ReviewAction, type RecordType, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTitle, sessionEvent, usageDeltas, weekStart,
-  type ActTicket, type AgentKind, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewKind, type ReviewTarget, type RoleRun,
+  type ActTicket, type AgentKind, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
   type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type TeamRole, type TeamSpace, type UpdateRoleInput, type WokeOn,
 } from "@realm/contracts";
@@ -30,6 +30,7 @@ const SLOTS_KEY = "team.slots";
 const IMAGE = /\.(png|jpe?g|gif|webp|heic|avif)$/i;
 const TEXT_FILE = /\.(md|markdown|csv|tsv|diff|patch|txt)$/i;
 const REVIEW_DEDUPE = /^review:([0-9A-HJKMNP-TV-Z]{26}):\d+$/;
+const STATE_CLOSED: Record<ReviewState, string> = { waiting: "waiting", changes: "waiting on changes", approved: "approved by the person", done: "done", dismissed: "put away" };
 
 export type SubmitInput = {
   /** The review's label, as the role wrote it (`kind` is its old name, still taken). Absent, the
@@ -446,6 +447,7 @@ export class TeamService {
       "",
       "Team rules (Realm):",
       "- Deliver with `review_submit` (the realm-team tools). Never send, post, sign or pay: a person approves everything in Review, then presses each post or send themselves, one at a time, at Realm's paced slots. No tool lets you post, send or DM, and none ever will.",
+      "- A review you sent that is no longer wanted — replaced, done another way, or withdrawn — you close with `review_close`, so it stops waiting on the person.",
       this.d.recordTypes.preambleLine(role.spaceId),
       "- Save what you make inside this space's folder; Review only takes files from there.",
       `- This run stops at ${usd(role.runCapUsd)} or ${Math.round(role.runCapMs / 60_000)} minutes, whichever comes first.`,
@@ -698,6 +700,30 @@ export class TeamService {
       return [this.summary(r)];
     }
     return this.d.store.reviews(spaceId, 50).filter((r) => r.sessionId === sessionId).map((r) => this.summary(r));
+  }
+
+  /**
+   * A role closes a review it sent, before the person decides it: replaced by a newer one, done
+   * another way, or no longer wanted — so a finished draft leaves Needs you without a hand. Only
+   * its own: one this session sent, or one its role sent in an earlier run, in this space. Only
+   * while it waits on the person (or on the role's changes); a yes, a done or a put-away is theirs.
+   */
+  closeForAgent(ctx: { sessionId: string; spaceId: string }, id: string, outcome: ReviewCloseOutcome, reason: string | null): TeamReviewSummary {
+    const r = this.d.store.review(id);
+    if (!r || r.spaceId !== ctx.spaceId) throw new NotFoundError("review", id);
+    const run = this.runFor(ctx.sessionId);
+    const roleId = run?.roleId ?? null;
+    if (r.sessionId !== ctx.sessionId && !(roleId && r.roleId === roleId))
+      throw new RpcError("TEAM_REVIEW_NOT_YOURS", `review ${id} was sent by someone else on this team; only the person, or whoever sent it, closes it`);
+    if (r.state !== "waiting" && r.state !== "changes")
+      throw new RpcError("TEAM_REVIEW_STATE", `review ${id} is already ${STATE_CLOSED[r.state]}; there is nothing to close`);
+    const why = reason?.trim() || null;
+    const secret = why ? secretShapeIn(why) : null;
+    if (secret) throw new RpcError("TEAM_REVIEW_SECRET", `the reason holds what looks like ${secret}. Review never takes a secret.`);
+    const next = this.d.store.setReviewState(id, outcome === "done" ? "done" : "dismissed", { decided: true, note: why })!;
+    this.log(r.spaceId, roleId ? `role:${roleId}` : "realm", "closed", r.title, { reviewId: id, outcome, reason: why }, run ?? { sessionId: ctx.sessionId });
+    this.changed(r.spaceId);
+    return this.summary(next);
   }
 
   summary(r: ReviewRow): TeamReviewSummary {

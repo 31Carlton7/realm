@@ -602,10 +602,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     macGrantAnswers: overrides.macGrantAnswers ?? {},
     computerGrantAnswers: overrides.computerGrantAnswers ?? {},
     computerAccess: overrides.computerAccess ?? {
-      hostName: "Realm", packaged: true, helperAvailable: true,
+      hostName: "Realm", packaged: true, signed: true, helperAvailable: true,
       rows: [
-        { id: "accessibility", label: "Accessibility", state: "denied", detail: "Required.", canPrompt: true, needsSettings: true, askExplanation: "macOS will open System Settings." },
-        { id: "screenRecording", label: "Screen Recording", state: "granted", detail: "Optional.", canPrompt: false, needsSettings: false, askExplanation: null },
+        { id: "accessibility", label: "Accessibility", state: "denied", detail: "Required.", canPrompt: true, needsSettings: true, askExplanation: "macOS will open System Settings.",
+          stale: false, canRepair: true, repairExplanation: "Clears Realm's entry and asks again.", settingsPlace: "Privacy & Security ▸ Device Control and Data Access" },
+        { id: "screenRecording", label: "Screen Recording", state: "granted", detail: "Optional.", canPrompt: false, needsSettings: false, askExplanation: null,
+          stale: false, canRepair: false, repairExplanation: null, settingsPlace: "Privacy & Security ▸ Screen & System Audio Recording" },
       ],
     },
     updateStatus: overrides.updateStatus ?? { version: "0.0.1", state: { kind: "disabled", reason: "unsigned" } },
@@ -1584,9 +1586,21 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`computerAccessRequest:${id}`);
       await wait(`computerAccessRequest:${id}`);
       if (data.computerGrantAnswers[id] === "granted") {
-        const rows = data.computerAccess.rows.map((r) => (r.id === id ? { ...r, state: "granted" as const, canPrompt: false, needsSettings: false, askExplanation: null } : r));
+        const rows = data.computerAccess.rows.map((r) => (r.id === id ? { ...r, state: "granted" as const, stale: false, canPrompt: false, needsSettings: false, askExplanation: null, canRepair: false, repairExplanation: null } : r));
         data.computerAccess = { ...data.computerAccess, rows };
       }
+      return structuredClone(data.computerAccess);
+    },
+    /** Like the request: a reset cannot grant either, so the row comes back as it was (no longer stale)
+     *  unless the fixture says the user switched it on again. */
+    computerAccessRepair: async (id) => {
+      calls.push(`computerAccessRepair:${id}`);
+      await wait(`computerAccessRepair:${id}`);
+      const granted = data.computerGrantAnswers[id] === "granted";
+      const rows = data.computerAccess.rows.map((r) => (r.id !== id ? r : granted
+        ? { ...r, state: "granted" as const, stale: false, canPrompt: false, needsSettings: false, askExplanation: null, canRepair: false, repairExplanation: null }
+        : { ...r, stale: false }));
+      data.computerAccess = { ...data.computerAccess, rows };
       return structuredClone(data.computerAccess);
     },
     computerAccessOpenSettings: async (id) => { calls.push(`computerAccessOpenSettings:${id}`); },

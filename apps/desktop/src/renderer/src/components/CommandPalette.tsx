@@ -361,6 +361,8 @@ function PaletteBody({ closing }: { closing: boolean }) {
         act(`open-${noun}`, `Open ${noun}`, kind, () => openDestinationPage(kind))) : []),
       // Global (every space's calls, W7) — unlike the space page above, it never needs an activeSpaceId.
       act("mcp-activity", "MCP Activity", "tool", () => run(() => openActivity())),
+      // This version's notes, as the rail's button above the person opens them (WhatsNewSheet).
+      ...(window.realm?.whatsNew ? [act("whats-new", "What's new", "gift", () => openSheet({ kind: "whats-new" }))] : []),
       // Unavailable while there is no room for another pane at its floor. The row keeps its name and
       // says the sentence's first clause; the whole of it — what would make room, the same words the
       // pane's menu row and the key's toast use — is the hint's tooltip.

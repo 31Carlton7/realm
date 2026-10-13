@@ -489,6 +489,7 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "window.back", label: "Go back", group: "App" },
   { id: "window.forward", label: "Go forward", group: "App" },
   { id: "settings.open", label: "Settings", group: "App" },
+  { id: "app.whatsNew", label: "What's new", group: "App" },
 ];
 
 /**

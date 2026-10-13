@@ -18,8 +18,8 @@ export const SCHEDULE_PROVIDER_NAME = "realm-schedule";
  *
  * **It schedules, and it does not execute.** `schedule_create` writes a row and returns. What fires
  * later is a RUN, which is where attempts, worktrees, restart recovery, the human gate and the
- * refusal of `bypassPermissions` already live — so nothing in this file has an opinion about any of
- * them. The one thing a caller must understand is that the run starts a FRESH session: it inherits
+ * permission a scheduled run works in (always Full access, `runPermissionMode`) already live — so
+ * nothing in this file has an opinion about any of them. The one thing a caller must understand is that the run starts a FRESH session: it inherits
  * none of this conversation, which is why the `goal` field's description asks for standing
  * instructions rather than a follow-up.
  *
@@ -50,7 +50,7 @@ const TOOLS: Tool[] = [
     description: [
       "Schedule work to start later in this space — once at a moment, or repeatedly on a cron.",
       "What fires is a task: a FRESH agent session with none of this conversation, so write `goal` as complete standing instructions — name the repository, the branch, the channel, the person, everything it needs — never as a follow-up to something said here.",
-      "It never runs in Full access, whatever this session's mode, because it runs while nobody is watching.",
+      "It always runs in Full access, whatever this session's mode: nobody is there to answer a permission prompt when it fires.",
       "Give exactly one of `at` (once) or `cron` (repeating). Resolve a relative ask like \"in two weeks\" to an absolute moment yourself and pass it as `at`.",
       "Use this when the user asks for something to happen LATER. Do the work now when they are asking for it now, and never schedule something you could finish in this turn.",
       "Tell the user the moment it is set for, in their own terms — work that arrives unannounced is the failure this tool has to avoid.",
