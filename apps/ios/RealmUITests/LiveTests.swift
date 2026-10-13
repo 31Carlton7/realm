@@ -63,7 +63,7 @@ final class LiveTests: XCTestCase {
         shot("home-spaces")
         app.swipeDown()
 
-        card("Add the dark-mode toggle").tap()
+        open("Add the dark-mode toggle")
         XCTAssert(app.staticTexts["Allow Bash?"].waitForExistence(timeout: 10))
         shot("session-request")
         let read = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Read, ")).firstMatch
@@ -73,7 +73,7 @@ final class LiveTests: XCTestCase {
         }
         back()
 
-        card("Choose the database").tap()
+        open("Choose the database")
         let answer = app.buttons["Answer"]
         XCTAssert(answer.waitForExistence(timeout: 10))
         shot("session-question")
@@ -100,7 +100,7 @@ final class LiveTests: XCTestCase {
         shot("question-put-away")
         back()
 
-        card("Explain the relay").tap()
+        open("Explain the relay")
         XCTAssert(element(containing: "How the relay works").waitForExistence(timeout: 10)
                   || element(containing: "dials out").waitForExistence(timeout: 5))
         shot("session-markdown")
@@ -114,12 +114,12 @@ final class LiveTests: XCTestCase {
         shot("session-sent")
         back()
 
-        card("Rework the transcript mapper").tap()
+        open("Rework the transcript mapper")
         XCTAssert(element(containing: "Carry the plan as its own event").waitForExistence(timeout: 10))
         shot("session-plan")
         back()
 
-        card("Train the social model").tap()
+        open("Train the social model")
         XCTAssert(element(containing: "limit").waitForExistence(timeout: 10))
         shot("session-error")
         back()
@@ -136,7 +136,7 @@ final class LiveTests: XCTestCase {
         XCTAssert(element(containing: "Asleep since").waitForExistence(timeout: 90), "the phone was never told the Mac slept")
         XCTAssert(element(containing: "Last updated").exists)
         shot("asleep-home")
-        card("Add the dark-mode toggle").tap()
+        open("Add the dark-mode toggle")
         let allow = app.buttons["Allow"]
         XCTAssert(allow.waitForExistence(timeout: 10))
         allow.tap()
@@ -149,7 +149,7 @@ final class LiveTests: XCTestCase {
     func test3_awakeAgain() throws {
         launch()
         XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
-        card("Add the dark-mode toggle").tap()
+        open("Add the dark-mode toggle")
         XCTAssert(app.staticTexts["Allowed"].waitForExistence(timeout: 30), "the answer kept while the Mac slept never went")
         shot("answer-delivered")
     }
@@ -168,13 +168,16 @@ final class LiveTests: XCTestCase {
         launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         XCTAssert(app.staticTexts["Needs you"].waitForExistence(timeout: 30))
         shot("ax-home")
-        card("Choose the database").tap()
+        open("Choose the database")
         XCTAssert(app.buttons["Skip"].waitForExistence(timeout: 10))
         shot("ax-session-question")
         back()
-        card("Explain the relay").tap()
-        XCTAssert(element(containing: "dials out").waitForExistence(timeout: 10))
+        open("Explain the relay")
+        // A long session opens at its newest message, whatever the text size.
+        let newest = element(containing: "echo: Ship it on Friday")
+        let arrived = newest.waitForExistence(timeout: 10)
         shot("ax-session-markdown")
+        XCTAssert(arrived && newest.isHittable, "the session did not open at its newest message")
     }
 
     /// Reduce Transparency, set on the Simulator by the script: the glass the composer and the bars
@@ -184,7 +187,7 @@ final class LiveTests: XCTestCase {
         launch()
         XCTAssert(app.staticTexts["Needs you"].waitForExistence(timeout: 30))
         shot("rt-home")
-        card("Add the dark-mode toggle").tap()
+        open("Add the dark-mode toggle")
         XCTAssert(app.staticTexts["Allowed"].waitForExistence(timeout: 10))
         shot("rt-session")
     }
@@ -196,15 +199,25 @@ final class LiveTests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
-    /// A session's row on Home, scrolled to if it is further down.
+    /// Opens a session from its row on Home. The row is scrolled until its head is clear of the bars
+    /// — a row under the search field is not one a person can press — and pressed there, since at
+    /// the largest text sizes its middle can be off the screen.
     @MainActor
-    private func card(_ title: String) -> XCUIElement {
-        let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
-        if !card.waitForExistence(timeout: 10) || !card.isHittable {
-            for _ in 0..<6 where !(card.exists && card.isHittable) { app.swipeUp() }
+    private func open(_ title: String) {
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+        // A list makes the rows near the screen, so one further down exists only once scrolled to.
+        if !row.waitForExistence(timeout: 10) {
+            for _ in 0..<12 where !row.exists { app.swipeUp(velocity: .slow) }
         }
-        XCTAssert(card.exists, "no row for \(title)")
-        return card
+        XCTAssert(row.exists, "no row for \(title)")
+        let screen = app.windows.firstMatch.frame
+        let clear = (screen.minY + 180)...(screen.maxY - 220)
+        for _ in 0..<12 {
+            let head = row.frame.minY + 24
+            if clear.contains(head) { break }
+            if head > clear.upperBound { app.swipeUp(velocity: .slow) } else { app.swipeDown(velocity: .slow) }
+        }
+        row.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.frame.width / 2, dy: 24)).tap()
     }
 
     @MainActor

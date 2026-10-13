@@ -125,12 +125,13 @@ private struct LatestButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "arrow.down")
-                .font(.body.weight(.semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .frame(width: 44, height: 44)
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
         .accessibilityLabel("Latest")
+        .accessibilityShowsLargeContentViewer()
         .accessibilityHint("Scrolls to the newest message")
     }
 }

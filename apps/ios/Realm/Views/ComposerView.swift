@@ -44,8 +44,10 @@ struct ComposerView: View {
                             .accessibilityLabel("Message")
                         if buttons.send {
                             Button(action: send) {
+                                // A bar's button keeps its size at every text size, as the system's do;
+                                // a long press shows it large instead.
                                 Image(systemName: "arrow.up")
-                                    .font(.body.weight(.bold))
+                                    .font(.system(size: 16, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(width: 32, height: 32)
                                     .background(Palette.accent, in: Circle())
@@ -53,6 +55,7 @@ struct ComposerView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Send")
+                            .accessibilityShowsLargeContentViewer()
                             .transition(reduceMotion ? .opacity : .scale(scale: 0.4).combined(with: .opacity))
                         }
                     }
@@ -68,7 +71,7 @@ struct ComposerView: View {
                         Task { await model.stop(sessionId) }
                     } label: {
                         Image(systemName: "stop.fill")
-                            .font(.body.weight(.semibold))
+                            .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(Palette.ink)
                             .frame(width: 48, height: 48)
                     }
@@ -79,6 +82,7 @@ struct ComposerView: View {
                     .disabled(!model.isConnected)
                     .opacity(model.isConnected ? 1 : 0.45)
                     .accessibilityLabel("Stop")
+                    .accessibilityShowsLargeContentViewer()
                     .accessibilityHint("Stops the agent's turn")
                 }
             }
