@@ -16,10 +16,6 @@ export const PLAZAS = 6
 export const CLEAR = 12
 export const PANELS = 2
 
-/** The air's Rayleigh scale height in planet radii (the World concept's), which the stage needs to
- *  keep the shell one apparent thickness on screen. */
-export const AIR_SCALE_HEIGHT = 0.0011
-
 export type SceneUniforms = {
   eye: number[]
   fwd: number[]
@@ -29,8 +25,6 @@ export type SceneUniforms = {
   clock: number[]
   fog: number[]
   planet: number[]
-  sun: number[]
-  air: number[]
   field: number[]
   fence: number[]
   lamp: number[]
@@ -45,9 +39,8 @@ export type SceneUniforms = {
  *
  *   vs_realm / fs_realm  every realm near the camera, one instance per lattice cell: the mark's cube
  *                        with its doorway cut, generated from the vertex index (no buffers)
- *   vs_sky / fs_sky      what lies behind them, at the far plane: the ground between the realms, the
- *                        planet once the camera climbs (its night side, its lit doorways, its air at
- *                        the limb and the sun under it), and the sky
+ *   vs_sky / fs_sky      what lies behind them, at the far plane: the ground between the realms as it
+ *                        curves away, the sky, and the black hole at the foot of the page
  *
  * Depth is reversed (1 near, 0 far), so the sky drawn at 0 lands only where no realm did.
  */
@@ -60,9 +53,7 @@ struct Scene {
   view: vec4f,     // width, height (CSS px), principal point x, y (CSS px)
   clock: vec4f,    // seconds, night (0 dusk .. 1 night), still, share of doorways lit by agents at work
   fog: vec4f,      // distance the haze starts, its density, unused, unused
-  planet: vec4f,   // nadir x, y, radius, orbit (0 .. 1): how much of the planet's air and night is drawn
-  sun: vec4f,      // direction (world), how far it has risen (0 .. 1)
-  air: vec4f,      // the shell's thickening, the limb point under the sun (CSS px), the glare's scale
+  planet: vec4f,   // nadir x, y, radius, unused
   field: vec4f,    // realms dissolved into the ground (0 .. 1), lit doorways seen as lights (0 .. 1), unused, unused
   fence: vec4f,    // a confined realm's boundary on the ground: centre x, y, half its side, how drawn (0 .. 1)
   lamp: vec4f,     // the pointer's lamp on the ground: x, y, height, presence
@@ -78,8 +69,6 @@ ${fieldWgsl}
 ${holeWgsl}
 
 const PAGE_LINEAR = ${lin3(PAGE)};
-// The night side from orbit, as the World concept draws it: darker than space right under the limb.
-const NIGHT_GROUND = ${lin3(PAGE.map((c) => c * 0.42))};
 
 // The doorway (world.ts, read from the mark): across the dark wall, down from the top, and its depth.
 const X0 = ${f(-0.5 + DOOR.across[0])};
@@ -267,10 +256,9 @@ fn lamp(p: vec3f, n: vec3f) -> f32 {
   return scene.lamp.w * max(dot(n, l), 0.0) * inverseSqrt(r2) / (1.0 + r2 * r2 / pow(scene.lamp.z, 4.0) * 0.55);
 }
 
-// Haze from where it starts, thickening with distance into the page's own colour. From orbit the air
-// at the limb does that work instead.
+// Haze from where it starts, thickening with distance into the page's own colour.
 fn fogAt(d: f32) -> f32 {
-  return (1.0 - exp(-max(d - scene.fog.x, 0.0) * scene.fog.y)) * (1.0 - scene.planet.w);
+  return 1.0 - exp(-max(d - scene.fog.x, 0.0) * scene.fog.y);
 }
 
 fn horizonGlow(rd: vec3f) -> vec3f {
@@ -537,84 +525,6 @@ fn stars(rd: vec3f) -> f32 {
   return mix(0.08, 0.45, m * m * m) * exp(-d * d / 0.7);
 }
 
-// ---- the air, from orbit (the World concept's single scattering) -------------------------------
-
-const HR = ${AIR_SCALE_HEIGHT};
-const HM = 0.0004;
-const TOP = 1.0135;
-const BETA_R = vec3f(0.30, 0.58, 1.0) * 78.0;
-const HAZE_BROAD = 3.2;
-const HAZE_FORWARD = 0.3;
-const HAZE_AUREOLE = 0.045;
-const LOW_TINT = vec3f(0.78, 0.89, 1.0);
-const SUN_TINT = vec3f(0.95, 0.975, 1.0);
-const EXT_R = 13.0;
-const EXT_M = 8.0;
-const EXPOSURE = 3.2;
-const GLARE = 0.32;
-
-fn henyeyGreenstein(cosTheta: f32, g: f32) -> f32 {
-  return 0.0795775 * (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * cosTheta, 1e-7), 1.5);
-}
-
-fn opticalDepth(r: f32, mu: f32, h: f32) -> f32 {
-  let c = sqrt(1.5707963 * r / h);
-  let here = exp((1.0 - r) / h);
-  if (mu >= 0.0) {
-    return h * here * c / ((c - 1.0) * mu + 1.0);
-  }
-  let rmin = r * sqrt(max(1.0 - mu * mu, 0.0));
-  let low = exp(min((1.0 - rmin) / h, 60.0));
-  let cmin = sqrt(1.5707963 * rmin / h);
-  return h * (2.0 * low * cmin - here * c / ((c - 1.0) * (-mu) + 1.0));
-}
-
-// Single scattering along one view ray from \`o\` (planet radii, from the centre). rgb is the light
-// reaching the camera, a the transmittance of the path.
-fn atmosphere(o: vec3f, rd: vec3f, sun: vec3f, toGround: bool) -> vec4f {
-  let k = scene.air.x;
-  let hr = HR * k;
-  let hm = HM * k;
-  let top = 1.0 + (TOP - 1.0) * k;
-  let thin = inverseSqrt(k);
-  let b = -dot(o, rd);
-  let r2 = dot(o, o) - b * b;
-  let disc = top * top - r2;
-  if (disc <= 0.0) { return vec4f(0.0, 0.0, 0.0, 1.0); }
-  let chord = sqrt(disc);
-  let spread = 4.5 * sqrt(sqrt(max(r2, 0.0)) * hr);
-  let t0 = max(max(b - chord, b - spread), 0.0);
-  var t1 = min(b + chord, b + spread);
-  if (toGround && r2 < 1.0) { t1 = min(t1, b - sqrt(1.0 - r2)); }
-  if (t1 <= t0) { return vec4f(0.0, 0.0, 0.0, 1.0); }
-
-  let cosTheta = dot(rd, sun);
-  let phaseR = 0.0596831 * (1.0 + cosTheta * cosTheta);
-  let haze = LOW_TINT * (HAZE_BROAD * henyeyGreenstein(cosTheta, 0.85))
-    + SUN_TINT * (HAZE_FORWARD * henyeyGreenstein(cosTheta, 0.97) + HAZE_AUREOLE * henyeyGreenstein(cosTheta, 0.995));
-
-  let steps = 16;
-  let dt = (t1 - t0) / f32(steps);
-  var tau = 0.0;
-  var rayleigh = 0.0;
-  var mie = 0.0;
-  for (var i = 0; i < steps; i++) {
-    let s = o + rd * (t0 + (f32(i) + 0.5) * dt);
-    let r = length(s);
-    let dR = exp((1.0 - r) / hr);
-    let dM = exp((1.0 - r) / hm);
-    let local = (dR * EXT_R + dM * EXT_M) * dt * thin;
-    let mu = dot(s, sun) / r;
-    let toSun = (opticalDepth(r, mu, hr) * EXT_R + opticalDepth(r, mu, hm) * EXT_M) * thin;
-    let through = exp(-(tau + 0.5 * local + toSun));
-    rayleigh += dR * through * dt;
-    mie += dM * through * dt;
-    tau += local;
-  }
-  let light = BETA_R * (rayleigh * phaseR) + haze * mie;
-  return vec4f(light * (EXPOSURE * thin), exp(-tau));
-}
-
 @fragment fn fs_sky(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   let page = frag.xy / scene.right.w;
   let f = scene.eye.w;
@@ -622,10 +532,9 @@ fn atmosphere(o: vec3f, rd: vec3f, sun: vec3f, toGround: bool) -> vec4f {
   let o = scene.eye.xyz;
   let R = scene.planet.z;
   let h = max(o.z, 1e-3);
-  let orbit = scene.planet.w;
 
-  // How far above the horizon (the limb, from orbit) this ray passes, as an angle, and how fast that
-  // changes across the screen: the planet's edge is anti-aliased from it like a vector edge. The rate
+  // How far above the horizon this ray passes, as an angle, and how fast that changes across the
+  // screen: the ground's edge is anti-aliased from it like a vector edge. The rate
   // is taken from the straight ray, before the hole's loop, where a derivative is still defined.
   let dip = atan(sqrt(h * (2.0 * R + h)) / R);
   let rate = fwidth(asin(clamp(ray.z, -1.0, 1.0)));
@@ -641,10 +550,9 @@ fn atmosphere(o: vec3f, rd: vec3f, sun: vec3f, toGround: bool) -> vec4f {
 
   var base = PAGE_LINEAR + horizonGlow(rd);
   var light = vec3f(0.0);
-  var through = 1.0;
 
   if (cover > 0.0) {
-    // The planet: a sphere whose top is under the camera. c is the camera's height times (2R + h),
+    // The ground, as a sphere whose top is under the camera. c is the camera's height times (2R + h),
     // written that way so it keeps its precision a few edges above a planet thousands round.
     let b = (h + R) * rd.z;
     let c = h * (2.0 * R + h);
@@ -659,38 +567,12 @@ fn atmosphere(o: vec3f, rd: vec3f, sun: vec3f, toGround: bool) -> vec4f {
     let spot = t / (f * scene.right.w * max(-rd.z, 0.03));
     let detail = 1.0 - smoothstep(0.08, 0.45, spot);
     let lit = ground(onGround, detail, css, spot);
-    var surface = finish(lit, t, rd);
-    // From orbit, the night side darkens toward its limb (the World concept's moonlit sphere).
-    let oc = (o - vec3f(scene.planet.xy, -R)) / R;
-    let along = dot(oc, rd);
-    let facing = sqrt(max(1.0 - (dot(oc, oc) - along * along), 0.0));
-    let night = saturate(1.0 - 2.1 * facing) * orbit;
-    surface = mix(surface, NIGHT_GROUND, night);
-    base = mix(base, surface, cover);
+    base = mix(base, finish(lit, t, rd), cover);
   }
 
-  // Stars by night, never on the planet; brighter over the hole, where the air has been left behind.
+  // Stars by night, never on the ground; brighter over the hole, once the camera has lifted its eyes.
   let starry = scene.clock.y * smoothstep(0.0, 0.08, rd.z + dip);
   light += INK * stars(rd) * starry * (0.06 + 0.08 * hole.ax.w) * (1.0 - cover);
-
-  // From orbit: the air along the limb, lit from a sun just under it, and the camera's glare there.
-  if (orbit > 0.001) {
-    let oc = (o - vec3f(scene.planet.xy, -R)) / R;
-    let sun = scene.sun.xyz;
-    if (abs(above) * f < 220.0) {
-      var air = atmosphere(oc, rd, sun, true);
-      if (cover > 0.0 && cover < 1.0) {
-        air = mix(atmosphere(oc, rd, sun, false), air, cover);
-      }
-      light += air.rgb * orbit;
-      through = air.a;
-    }
-    let unit = scene.air.w;
-    let toLimb = length(css - (scene.air.yz - vec2f(0.0, 4.0 * unit))) / unit;
-    let tail = 1.0 + toLimb * toLimb / (60.0 * 60.0);
-    let glare = GLARE * (0.6 * exp(-toLimb / 8.0) + 0.25 * exp(-toLimb / 28.0) + 0.15 / (tail * sqrt(tail)) + 0.05 * exp(-toLimb / 170.0)) * mix(1.0, 0.3, cover);
-    light += mix(INK, ACCENT_INK, 0.5) * glare * scene.sun.w * orbit;
-  }
 
   let lit = vec3f(1.0) - exp(-light * 1.15);
   let behind = (base + lit * (vec3f(1.0) - base)) * bent.through;

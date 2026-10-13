@@ -248,8 +248,6 @@ export const createRealms: StageFactory = async (gpu, output) => {
     clock: [0, 0, 0, 0.03],
     fog: [10, 0.02, 0, 0],
     planet: [0, 0, PLANET_RADIUS, 0],
-    sun: [0, 0, 1, 0],
-    air: [1, 0, 0, 1],
     field: [0, 0, 0, 0],
     fence: [0, 0, 0, 0],
     lamp: [0, 0, 2, 0],
@@ -537,9 +535,8 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const teamsIndex = Math.max(teams, firstChapter + 1)
       const night = clamp((progress - Math.max(firstChapter, 0) + 0.6) / Math.max(teamsIndex - firstChapter + 0.6, 1), 0, 1)
       // Altitude decides what the field is: realms, then their average with the lit doorways as
-      // points of light, then a planet with air at its edge.
+      // points of light.
       const altitude = view.eye[2]
-      const orbitAmount = ramp(70, 520, altitude)
       const dissolve = ramp(36, 110, altitude)
       const pointsOn = ramp(28, 90, altitude)
 
@@ -563,7 +560,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
       if (ray[2] < -1e-3) {
         const t = -view.eye[2] / ray[2]
         lampAt = [view.eye[0] + ray[0] * t, view.eye[1] + ray[1] * t, 0]
-        lampOn = lamp.presence * (1 - orbitAmount)
+        lampOn = lamp.presence
       }
       const lampHeight = clamp(view.eye[2] * 0.35, 1.2, 6)
 
@@ -596,9 +593,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
       scene.view = [width, height, view.px, view.py]
       scene.clock = [input.seconds, night, input.still ? 1 : 0, lerp(0.03, 0.05, night)]
       scene.fog = [fogStart, fogDensity, 0, 0]
-      scene.planet = [view.eye[0], view.eye[1], PLANET_RADIUS, orbitAmount]
-      scene.sun = [0, 0, 1, 0]
-      scene.air = [1, 0, 0, 1]
+      scene.planet = [view.eye[0], view.eye[1], PLANET_RADIUS, 0]
       scene.field = [dissolve, pointsOn, 0, 0]
       scene.fence = fence
       scene.lamp = [lampAt[0], lampAt[1], lampHeight, lampOn]
