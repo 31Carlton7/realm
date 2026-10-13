@@ -805,10 +805,21 @@ export const createRealms: StageFactory = async (gpu, output) => {
           const h = stand.slot[1] * s
           const left = bx - w / 2
           const top = by - h
+          // A solid thing: only the first stretch of its way out of the doorway, and the last of its way
+          // back in, is a fade, so a picture any size on the page is opaque rather than a dim pane with
+          // the sky behind it showing through, wherever the reader stops. The field's dark under it
+          // (`plates`) covers that stretch.
+          const solid = smooth(pictureOn / 0.4)
+          // At rest, whole device pixels and no scale, so its words are as sharp as the page's own.
+          const resting = pictureOn > 0.999 && Math.abs(s - 1) < 0.002
+          const dpr = window.devicePixelRatio || 1
+          const moved = resting
+            ? `translate3d(${Math.round(left * dpr) / dpr}px,${Math.round(top * dpr) / dpr}px,0)`
+            : `translate3d(${left.toFixed(2)}px,${top.toFixed(2)}px,0) scale(${s.toFixed(4)})`
           write(
             node,
             shown
-              ? `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;transform:translate3d(${left.toFixed(2)}px,${top.toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${pictureOn.toFixed(3)};${rimLamp((lamp.x - left) / s, (lamp.y - top) / s)}`
+              ? `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;transform:${moved};opacity:${solid.toFixed(3)};${rimLamp((lamp.x - left) / s, (lamp.y - top) / s)}`
               : `width:${stand.slot[0].toFixed(1)}px;height:${stand.slot[1].toFixed(1)}px;opacity:0;pointer-events:none`,
           )
           if (shown) captions.set(id, pictureOn)
