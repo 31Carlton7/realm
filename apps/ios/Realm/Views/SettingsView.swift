@@ -81,8 +81,6 @@ struct SettingsView: View {
                 default:
                     EmptyView()
                 }
-            } header: {
-                Text("Notifications")
             } footer: {
                 Text("Your Mac sends one when a session waits on you, finishes or fails, and holds it back while you are at the Mac.")
             }
@@ -104,6 +102,7 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Ground.grouped)
+        .contentMargins(.top, 12, for: .scrollContent)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.refreshNotificationStatus() }
@@ -148,11 +147,12 @@ private struct MacHeader: View {
                     .foregroundStyle(Palette.ink)
                 Label {
                     Text(status.words)
+                        .foregroundStyle(Palette.ink2)
                 } icon: {
                     Image(systemName: status.symbol)
+                        .foregroundStyle(status.isConnected ? Palette.green : Palette.ink2)
                 }
                 .font(.subheadline)
-                .foregroundStyle(status.isConnected ? Palette.green : Palette.ink2)
             }
         }
         .padding(.vertical, 6)

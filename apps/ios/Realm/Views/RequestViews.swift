@@ -14,17 +14,17 @@ struct RequestCard: View {
         let pending = model.store.outbox.answer(for: request.requestId)
         let agent = model.store.transcript(sessionId).session?.agent ?? ""
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                HStack(spacing: 6) {
-                    AgentMark(kind: agent, colored: true, size: 15, relativeTo: .subheadline)
-                    Text("\(Self.asker(agent)) asks")
+            // Who asks, and where the request is; one above the other where both will not fit a line.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    askerLabel(agent)
+                    Spacer(minLength: 8)
+                    stateLabel
                 }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Palette.ink2)
-                .accessibilityElement(children: .combine)
-                Spacer(minLength: 8)
-                stateLabel
-                    .fixedSize()
+                VStack(alignment: .leading, spacing: 6) {
+                    askerLabel(agent)
+                    stateLabel
+                }
             }
             if let title {
                 Text(title)
@@ -54,6 +54,16 @@ struct RequestCard: View {
         }
     }
 
+    private func askerLabel(_ agent: String) -> some View {
+        HStack(spacing: 6) {
+            AgentMark(kind: agent, colored: true, size: 15, relativeTo: .subheadline)
+            Text("\(Self.asker(agent)) asks")
+        }
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(Palette.ink2)
+        .accessibilityElement(children: .combine)
+    }
+
     /// Who is asking, by the agent's name; an agent the session does not name is "The agent".
     static func asker(_ agent: String) -> String {
         agent.isEmpty ? "The agent" : AgentNames.label(agent)
@@ -76,7 +86,7 @@ struct RequestCard: View {
         case .permission:
             if !request.tool.isEmpty || !request.summary.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    if !request.tool.isEmpty {
+                    if !request.tool.isEmpty, !(title ?? "").contains(request.tool) {
                         Text(request.tool)
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(Palette.ink2)
@@ -182,6 +192,7 @@ struct RequestCard: View {
                 Button("Don't send") { model.discard(item) }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
+                    .tint(Palette.ink)
             }
         }
     }
@@ -234,6 +245,7 @@ private struct AnswerButtons: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
+        .tint(Palette.ink)
     }
 
     private var acceptButton: some View {

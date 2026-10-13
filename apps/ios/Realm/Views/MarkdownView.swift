@@ -134,33 +134,12 @@ private struct CodeBlockView: View {
     @State private var copied = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(language ?? "Code")
-                    .font(language == nil ? .footnote : RealmType.mono(.footnote))
-                    .foregroundStyle(Palette.ink2)
-                Spacer(minLength: 8)
-                Button {
-                    UIPasteboard.general.string = text
-                    copied = true
-                } label: {
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.ink2)
-                        .contentTransition(.symbolEffect(.replace))
-                        .touchTarget()
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(copied ? "Copied" : "Copy code")
-                .sensoryFeedback(.success, trigger: copied) { _, new in new }
-                .task(id: copied) {
-                    guard copied else { return }
-                    try? await Task.sleep(for: .seconds(2))
-                    copied = false
-                }
-            }
-            .padding(.leading, 14)
-            .padding(.trailing, 2)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(language ?? "Code")
+                .font(language == nil ? .footnote : RealmType.mono(.footnote))
+                .foregroundStyle(Palette.ink2)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
             ScrollView(.horizontal) {
                 Text(text)
                     .mono(.footnote)
@@ -174,6 +153,29 @@ private struct CodeBlockView: View {
             .scrollIndicators(.hidden)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // The copy control sits in the head's corner, its 44-point target over the panel's edge.
+        .overlay(alignment: .topTrailing) {
+            Button {
+                UIPasteboard.general.string = text
+                copied = true
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.ink2)
+                    .contentTransition(.symbolEffect(.replace))
+                    .touchTarget()
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 1)
+            .padding(.trailing, 2)
+            .accessibilityLabel(copied ? "Copied" : "Copy code")
+            .sensoryFeedback(.success, trigger: copied) { _, new in new }
+            .task(id: copied) {
+                guard copied else { return }
+                try? await Task.sleep(for: .seconds(2))
+                copied = false
+            }
+        }
         .surface(ground.panel)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(language.map { "\($0) code" } ?? "Code")

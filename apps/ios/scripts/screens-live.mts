@@ -89,7 +89,8 @@ const settled = (id: string) => waitFor(`${id} to settle`, async () => ["idle", 
 const [profile] = await rpc.call("profiles.list", {});
 const space = (name: string, icon: string, color: string) => rpc.call("spaces.create", { profileId: profile!.id, name, icon, color });
 const realm = await space("Realm", "emoji:🌊", "#3b82f6");
-const site = await space("Site", "emoji:🧭", "#10b981");
+// Site wears one of the picker's glyphs rather than an emoji, so the glyph is drawn in its colour.
+const site = await space("Site", "browser", "#10b981");
 const laya = await space("Laya", "emoji:🦜", "#f59e0b");
 
 const session = async (spaceId: string, agentKind: "claude" | "codex", model: string, title: string) =>

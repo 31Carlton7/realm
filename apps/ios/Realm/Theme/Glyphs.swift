@@ -2,22 +2,33 @@ import RealmKit
 import SwiftUI
 
 /// A session's status as a glyph whose SHAPE says it, in its tone: a hand that waits on you, a
-/// triangle that failed, an indicator that runs. It always sits beside the status's word, which is
-/// what VoiceOver reads, so the glyph itself is silent.
+/// triangle that failed, an indicator that runs, and for an idle session the Mac's quiet dot. It
+/// always sits beside the status's word, which is what VoiceOver reads, so the glyph itself is
+/// silent. Every status takes one column's width, so the words after it line up down a list.
 struct StatusGlyph: View {
     let status: SessionStatus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .subheadline) private var column: CGFloat = 20
+    @ScaledMetric(relativeTo: .subheadline) private var dot: CGFloat = 7
 
     var body: some View {
-        Image(systemName: Self.symbol(status))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(status.tone.color)
-            .imageScale(status == .idle ? .small : .medium)
-            // A run is live work, the one state worth motion. It holds still under Reduce Motion.
-            .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeat(.continuous),
-                          isActive: status == .running && !reduceMotion)
-            .contentTransition(.symbolEffect(.replace))
-            .accessibilityHidden(true)
+        Group {
+            if status == .idle {
+                Circle()
+                    .fill(Palette.ink3)
+                    .frame(width: dot, height: dot)
+            } else {
+                Image(systemName: Self.symbol(status))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(status.tone.color)
+                    // A run is live work, the one state worth motion. It holds still under Reduce Motion.
+                    .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeat(.continuous),
+                                  isActive: status == .running && !reduceMotion)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+        }
+        .frame(width: column)
+        .accessibilityHidden(true)
     }
 
     static func symbol(_ status: SessionStatus) -> String {

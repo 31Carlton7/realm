@@ -107,6 +107,7 @@ struct OutgoingStatusView: View {
                 HStack(spacing: 10) {
                     Button("Delete", role: .destructive) { model.discard(item) }
                     Button("Try again") { model.retry(item) }
+                        .tint(Palette.ink)
                 }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.capsule)
@@ -457,7 +458,6 @@ private struct ErrorCard: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Palette.red)
             VStack(alignment: .leading, spacing: 4) {
                 Text(text)

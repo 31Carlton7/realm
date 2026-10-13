@@ -75,6 +75,9 @@ struct ComposerView: View {
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: Circle())
                     .glassEffectID("stop", in: glass)
+                    // Stop has to reach the Mac; while it is away the button keeps its place, greyed.
+                    .disabled(!model.isConnected)
+                    .opacity(model.isConnected ? 1 : 0.45)
                     .accessibilityLabel("Stop")
                     .accessibilityHint("Stops the agent's turn")
                 }

@@ -5,6 +5,7 @@ import SwiftUI
 /// activity. Under the title, the Mac and its state.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var query = ""
     @Namespace private var settingsZoom
 
@@ -63,7 +64,7 @@ struct HomeView: View {
             }
         }
         .navigationTitle("Sessions")
-        .navigationSubtitle(model.macLine)
+        .navigationSubtitle(dynamicTypeSize.isAccessibilitySize ? model.linkStatus.words : model.macLine)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -245,7 +246,7 @@ struct SessionRowView: View {
                     : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 10))
                 detailLine {
                     StatusLabel(status: row.status)
-                        .fixedSize()
+                        .fixedSize(horizontal: !stacked, vertical: true)
                     AgentLabel(agent: row.agent, model: row.model)
                 }
             }
