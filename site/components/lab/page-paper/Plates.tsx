@@ -40,7 +40,7 @@ export function Plate({ claim, from = "left", priority = false }: { claim: Claim
         {/* The edge of the sheet being drawn across: a hairline riding the wipe, gone once it is done. */}
         <span aria-hidden data-from={from} className={s.pull} />
       </div>
-      <figcaption className="mt-4 grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-8">
+      <figcaption className="mt-4 grid gap-1.5 border-t border-line pt-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-8">
         <span className={`${s.caption} max-w-[62ch]`}>{claim.caption}</span>
         <span className={`${s.note} sm:pt-0.5 sm:text-right`}>Capture · {claim.capture}</span>
       </figcaption>

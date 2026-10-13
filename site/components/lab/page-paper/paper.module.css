@@ -294,9 +294,11 @@
   visibility: hidden;
 }
 
+/* Light Inter is narrower than set Inter, so the light state can be a touch looser than the set
+   tracking and still never be the wider of the two: the set word fills its own cell at rest. */
 .ink > [data-reserve="light"] {
   font-weight: 300;
-  letter-spacing: 0.01em;
+  letter-spacing: calc(var(--set-tracking, -0.045em) + 0.02em);
 }
 
 .ink > [data-word] {
@@ -316,7 +318,7 @@
 @keyframes inkset {
   from {
     font-weight: 300;
-    letter-spacing: 0.01em;
+    letter-spacing: calc(var(--set-tracking, -0.045em) + 0.02em);
     color: var(--color-ink-2);
   }
   to {
@@ -482,15 +484,6 @@
 
 /* ---------------------------------------------------------------- the family tree */
 
-@keyframes drop {
-  from {
-    scale: 1 0;
-  }
-  to {
-    scale: 1 1;
-  }
-}
-
 @keyframes span {
   from {
     scale: 0 1;
@@ -511,42 +504,12 @@
   }
 }
 
-.drop {
-  transform-origin: top center;
-}
-
-.span {
-  transform-origin: left center;
-}
-
-.returnLine {
-  transform-origin: bottom center;
-}
-
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) {
-    .drop {
-      animation: drop linear both;
-      animation-timeline: view();
-      animation-range: entry 60% cover 52%;
-    }
-
-    .span {
-      animation: span linear both;
-      animation-timeline: view();
-      animation-range: entry 100% cover 54%;
-    }
-
     .member {
       animation: member linear both;
       animation-timeline: view();
       animation-range: entry 40% cover 40%;
-    }
-
-    .returnLine {
-      animation: drop linear both;
-      animation-timeline: view();
-      animation-range: entry 80% cover 60%;
     }
   }
 }
@@ -763,5 +726,23 @@
     .pull[data-from="right"] {
       animation-name: pull-reverse;
     }
+  }
+}
+
+/* The running head turning over to the next section's name. */
+@keyframes head-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+.headIn {
+  animation: head-in 280ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .headIn {
+    animation: none;
   }
 }

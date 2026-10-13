@@ -212,7 +212,7 @@ export function Anatomy({ facets, coda }: { facets: Facet[]; coda: Facet }) {
               </span>
             ))}
           </div>
-          <figcaption className="mt-6 grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-8">
+          <figcaption className="mt-6 grid gap-1.5 border-t border-line pt-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-8">
             <span className={s.caption}>
               <span className="text-ink">{coda.title}</span> {coda.body}
             </span>

@@ -57,10 +57,10 @@ export function Header({ href }: { href: string }) {
         </Link>
         <p aria-live="off" className={`${s.note} hidden min-w-0 truncate text-ink-2 md:block`}>
           {section ? (
-            <>
+            <span key={section} className={`${s.headIn} inline-block`}>
               <span aria-hidden className="mr-3 inline-block h-px w-6 translate-y-[-3px] bg-line-strong" />
               {section}
-            </>
+            </span>
           ) : null}
         </p>
         <nav aria-label="Site" className="ml-auto flex items-center gap-1">

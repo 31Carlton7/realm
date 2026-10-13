@@ -78,7 +78,7 @@ export function Hero({ download }: { download: MacDownload }) {
           <div className={`${s.dark} ${s.plate} h-[620px] sm:h-[640px] lg:h-[min(700px,calc(100dvh-6rem))] lg:min-h-[560px]`}>
             <MiniRealm />
           </div>
-          <figcaption className="mt-4 grid gap-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-6">
+          <figcaption className="mt-4 grid gap-1 border-t border-line pt-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-6">
             <span className={s.caption}>
               <span className="text-ink">A working sample of Realm, drawn in the page.</span> Click anything: pick a session,
               answer what&rsquo;s waiting from its row, follow a file link to the line it names. It runs no agent.

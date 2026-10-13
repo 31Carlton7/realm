@@ -6,7 +6,7 @@ import { Wordmark } from "@/components/Wordmark"
 import type { MacDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 
-import { Register, Seam } from "./kinetic"
+import { Ink, Seam } from "./kinetic"
 import s from "./paper.module.css"
 
 /**
@@ -19,7 +19,18 @@ export function Close({ download }: { download: MacDownload }) {
       <Seam />
       <div className={`${s.measure} ${s.grid} items-end gap-y-10`}>
         <div className="col-span-12 lg:col-span-8">
-          <Register id="close-title" text="Open your first realm." className={`${s.display} !text-[clamp(3rem,6.4vw,7.5rem)] text-ink`} />
+          {/* The last statement inks in a word at a time, settling at the display weight as it rises. */}
+          <h2
+            id="close-title"
+            className={`${s.display} ${s.inkScope} !text-[clamp(3rem,6.4vw,7.5rem)] text-ink`}
+            style={{ ["--set-weight" as string]: 640, ["--set-tracking" as string]: "-0.046em", ["--step" as string]: "4.5%" }}
+          >
+            {["Open", "your", "first", "realm."].map((word, i) => (
+              <span key={word}>
+                <Ink index={i}>{word}</Ink>{" "}
+              </span>
+            ))}
+          </h2>
         </div>
         <div className="col-span-12 lg:col-span-4 lg:pb-3">
           <p className={s.lede}>
