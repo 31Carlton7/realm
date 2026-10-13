@@ -7,7 +7,7 @@ export const PRESENCE_STALE_MS = 5 * 60_000;
  * Whether the owner is at this Mac, for holding pushes back (Plan 28, "When the phone buzzes").
  *
  * Electron main is the only thing that can tell — the screen lock, the idle clock, the windows are
- * all its — and it reports with `presence.set`. Everything it cannot vouch for reads as away: no
+ * all its — and it reports with `remote.away`. Everything it cannot vouch for reads as away: no
  * report yet, a report gone stale, or no Electron attached at all (a headless daemon has nobody at it
  * by definition). Away is the side to fail on: a push that should have waited costs a buzz, and a
  * push that waited on nobody costs the answer an agent is blocked on.

@@ -270,7 +270,7 @@ async function readPairedPhones() {
 const presence = new PresenceReporter({
   idleSeconds: () => powerMonitor.getSystemIdleTime(),
   windows: () => windows.size,
-  send: (away) => (bridgeClient ? bridgeClient.call("presence.set", { away }) : Promise.reject(new Error("realm-server is not connected"))),
+  send: (away) => (bridgeClient ? bridgeClient.call("remote.away", { away }) : Promise.reject(new Error("realm-server is not connected"))),
 });
 
 /** The preference, read from the server when main (re)connects: the renderer pushes changes as they

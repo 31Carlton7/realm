@@ -1756,7 +1756,7 @@ export const Methods = {
   "remote.phones.remove": { params: z.object({ phoneId: z.string() }), result: z.object({ ok: z.literal(true) }) },
   /** Electron main's report of whether the owner is at this Mac: idle past two minutes, the screen
    *  locked, or no Realm window. Pushes go at once while away and wait two minutes otherwise. */
-  "presence.set": { params: z.object({ away: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  "remote.away": { params: z.object({ away: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
    * The reviewer recipe (Plan 13 W3): spawn a read-only reviewer session over this environment. The
    * call returns as soon as the reviewer session exists — the review itself takes minutes, and the

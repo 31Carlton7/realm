@@ -1013,7 +1013,7 @@ export function registerMethods(d: Deps): void {
   reg("remote.pair.cancel", (_p, ctx) => { fromTheMac(ctx); d.remote.pairCancel(); return { ok: true as const }; });
   reg("remote.pair.answer", (p, ctx) => { fromTheMac(ctx); d.remote.pairAnswer(p.requestId, p.accept); return { ok: true as const }; });
   reg("remote.phones.remove", (p, ctx) => { fromTheMac(ctx); d.remote.removePhone(p.phoneId); return { ok: true as const }; });
-  reg("presence.set", (p, ctx) => { fromTheMac(ctx); d.presence.set(p.away); return { ok: true as const }; });
+  reg("remote.away", (p, ctx) => { fromTheMac(ctx); d.presence.set(p.away); return { ok: true as const }; });
 
   // The reviewer recipe (Plan 13 W3). `request` returns the moment the reviewer session exists; the
   // verdict arrives later as `review.changed` + a `review_done` notification. Reads and dismissal go

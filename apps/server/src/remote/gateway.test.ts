@@ -262,7 +262,7 @@ describe("Plan 28: pairing from Settings ▸ Devices", () => {
     const r = await boot();
     const asPhone = { client: null, principal: "phone:abc" } as const;
     for (const [method, params] of [["remote.status", {}], ["remote.pair.start", {}], ["remote.pair.cancel", {}],
-      ["remote.pair.answer", { requestId: "x", accept: true }], ["remote.phones.remove", { phoneId: "x" }], ["presence.set", { away: false }]] as const) {
+      ["remote.pair.answer", { requestId: "x", accept: true }], ["remote.phones.remove", { phoneId: "x" }], ["remote.away", { away: false }]] as const) {
       await expect(r.app.rpc.call(method, params, asPhone), method).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
     await expect(r.app.rpc.call("browserHost.register", { hasWindow: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -426,7 +426,7 @@ describe("Plan 28: a paired phone, in process", () => {
     const phone = await pairPhone(r);
     phone.apns(randomBytes(32).toString("hex"));
     await phone.call("ping");
-    await r.mac.call("presence.set", { away: false });
+    await r.mac.call("remote.away", { away: false });
     const asked = () => nextEvent(r.mac, "session.event", (p) => p.sessionId === id && p.event.type === "permission_request");
     const requestId = (p: EventPayload<"session.event">) => (p.event.payload as { requestId: string }).requestId;
 

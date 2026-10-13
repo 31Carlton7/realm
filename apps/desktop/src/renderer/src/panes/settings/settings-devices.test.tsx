@@ -418,8 +418,11 @@ describe("Notifications ▸ Notify my iPhone", () => {
   });
 
   it("is found by search only while it is drawn", async () => {
-    expect(searchSettings("iphone").map((e) => e.id)).toEqual(["pair-iphone"]);
-    expect(searchSettings("iphone", { phonesPaired: true }).map((e) => e.id)).toEqual(["relay-iphone", "pair-iphone"]);
+    // Other pages mention iPhones too (the Lab's devices), so this asks only about the two rows it owns.
+    const found = (phonesPaired?: boolean) => searchSettings("iphone", phonesPaired === undefined ? undefined : { phonesPaired }).map((e) => e.id);
+    expect(found()).toContain("pair-iphone");
+    expect(found()).not.toContain("relay-iphone");
+    expect(found(true)).toEqual(expect.arrayContaining(["relay-iphone", "pair-iphone"]));
     // …and the page's own search asks with what the store holds.
     await mount({ remote: remoteStatus({ phones: [pairedPhone("p1")] }) }, "General");
     await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search settings" })).toBeInTheDocument());
