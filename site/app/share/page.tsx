@@ -1,9 +1,9 @@
 import type { Metadata } from "next"
-import type { CSSProperties } from "react"
 
-import { Flight } from "@/components/realms/Flight"
+import { Arrival } from "@/components/changelog/Field"
 import { Wordmark } from "@/components/Wordmark"
-import { partImage, sceneImage } from "@/lib/pictures"
+import { releases } from "@/lib/changelog"
+import { CARD, DOOR, WORDS } from "@/lib/og/layout"
 import { site } from "@/lib/site"
 
 export const metadata: Metadata = {
@@ -11,33 +11,45 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 }
 
+/** The sky's realm for this card: the newest release's, at the start of the route. */
+const REALM = 0
+
 /**
  * The source for the site's share images. scripts/capture-share-images.mjs opens this at 1200 × 630
  * and saves the frame as app/opengraph-image.png and app/twitter-image.png; nothing links here.
  *
- * It is the landing page's opening at card size: the field of realms drawn by the same flight, the
- * headline over it, and Realm's window rising under the words, framed as the page frames its
- * pictures. The window is a capture of the app rather than the working sample, which a card cannot
- * click. The wordmark stands in for the header, which a card does not have; the prose and the buttons
- * are left out, since at thumbnail size they would only be clutter.
+ * One of the landing page's realms with its doorway lit, more of them going away behind it into the
+ * nebula, and the words on the dark side of the sky, where the field is dimmed under them. The field
+ * is the changelog's arrival at a release's doorway, which holds a realm at the size a card can carry;
+ * the changelog's own cards (lib/og/card.tsx) are set on the same layout (lib/og/layout.ts). The
+ * page's closing line leads, since the card has the picture it describes; the tagline says what Realm
+ * is under it. The boxes are fixed in px from the left and the top and the realm is held to the right,
+ * so a wider frame (GitHub's 1280 × 640) re-lays rather than stretches.
  */
 export default function SharePage() {
-  const image = partImage("realm") ?? sceneImage("terminal")
   return (
     <main className="relative h-[100dvh] overflow-hidden">
-      <Flight />
-      <div data-field-anchor="copy" className="relative z-[2] flex flex-col items-center px-14 pt-11 text-center">
-        <Wordmark size="display" className="text-ink" />
-        <h1 className="mt-6 max-w-[20ch] text-[60px] leading-[1] font-[580] tracking-[-0.05em] text-balance text-ink">{site.tagline}</h1>
-      </div>
-      {/* Fixed before the picture loads: under reduced motion the field reads the rect for one frame. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-20 bg-[#03050b]" />
+      <Arrival release={REALM} total={releases.length} dark={false} />
       <div
-        data-field-anchor="portal"
-        className="absolute inset-x-[110px] top-[318px] overflow-hidden rounded-[16px] bg-page shadow-[0_0_0_1px_oklch(0_0_0/0.5),0_30px_70px_-20px_oklch(0_0_0/0.65)]"
-        style={{ aspectRatio: `${image.width} / ${image.height}` }}
+        aria-hidden
+        data-field-anchor="s:door"
+        className="absolute"
+        style={{
+          right: CARD.width - DOOR.left - DOOR.width,
+          top: `${(DOOR.top / CARD.height) * 100}%`,
+          width: DOOR.width,
+          height: `${(DOOR.height / CARD.height) * 100}%`,
+        }}
+      />
+      <div
+        data-field-anchor="c:title"
+        className="absolute flex flex-col justify-center"
+        style={{ left: WORDS.left, top: WORDS.top, width: WORDS.width, bottom: CARD.height - WORDS.top - WORDS.height }}
       >
-        <img src={image.src} alt="" width={image.width} height={image.height} className="block h-full w-full" />
-        <span aria-hidden className="screen-light" style={{ "--screen-radius": "16px" } as CSSProperties} />
+        <Wordmark size="display" className="text-ink" />
+        <h1 className="mt-10 text-[80px] leading-[0.98] font-[580] tracking-[-0.05em] text-ink">Give your agents a world to work in.</h1>
+        <p className="mt-7 max-w-[30ch] text-[27px] leading-[1.35] text-ink-2">{site.tagline}</p>
       </div>
     </main>
   )
