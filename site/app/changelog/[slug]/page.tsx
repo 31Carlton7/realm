@@ -2,10 +2,14 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
-import { ArrowIcon } from "@/components/icons"
+import { Arrival } from "@/components/changelog/Field"
+import { Onward } from "@/components/changelog/Onward"
 import { Prose } from "@/components/changelog/Prose"
+import { Rail } from "@/components/changelog/Rail"
+import { ArrowIcon } from "@/components/icons"
+import { SiteFooter } from "@/components/SiteFooter"
 import { SiteHeader } from "@/components/SiteHeader"
-import { changelog, entryBySlug, formatDate, neighbours } from "@/lib/changelog"
+import { changelog, entryBySlug, formatDate, isWithdrawn, outline, releaseOf, releases } from "@/lib/changelog"
 
 type Params = { params: Promise<{ slug: string }> }
 
@@ -30,75 +34,86 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   }
 }
 
+/** Sections a reader is offered a map of: a short entry reads in one go, and a map of it is chrome. */
+const MAP_FROM = 3
+
+/**
+ * One entry. It opens in a band where the release it belongs to stands in the field, and walks up to
+ * that realm's doorway as the reader scrolls into the notes; the field is the band's alone, and stops
+ * when the band has gone. Then the notes, in a reading column, with a map of their sections beside a
+ * long one, and the way on: the releases either side, or the release a change shipped in.
+ */
 export default async function ChangelogEntryPage({ params }: Params) {
   const { slug } = await params
   const entry = entryBySlug(slug)
   if (!entry) notFound()
 
-  const { newer, older } = neighbours(slug)
+  const release = releaseOf(slug)
+  const index = release ? releases.indexOf(release) : 0
+  const sections = outline(entry.body)
+  const withdrawn = isWithdrawn(entry)
 
   return (
-    <>
-      <SiteHeader width="max-w-[46rem]" />
-      <main className="mx-auto w-full max-w-[46rem] px-6 pt-8 pb-28 sm:px-10 sm:pt-12">
-        <Link
-          href="/changelog"
-          className="group inline-flex min-h-10 items-center gap-2 text-[13px] text-ink-2 transition-colors duration-150 hover:text-ink"
-        >
-          <ArrowIcon className="h-3.5 w-3.5 rotate-180 transition-transform duration-300 ease-[var(--ease-out-strong)] group-hover:-translate-x-0.5" />
-          Changelog
-        </Link>
+    <div className="relative min-h-[100dvh]">
+      <SiteHeader width="max-w-[92rem]" floating />
 
-        <article className="mt-8">
-          <p className="font-mono text-[13px] text-ink-3">
-            <time dateTime={entry.date}>{formatDate(entry.date)}</time>
-            {` · ${entry.area}`}
-            {entry.version ? ` · ${entry.version}` : ""}
-          </p>
-          <h1 className="mt-3 text-[clamp(1.85rem,4.5vw,2.5rem)] leading-[1.08] font-[560] tracking-[-0.035em] text-ink">
-            {entry.title}
-          </h1>
-          <p className="mt-5 text-[17px] leading-[1.6] text-ink-2">{entry.summary}</p>
+      <main>
+        <article aria-labelledby="entry-title">
+          <header className="relative">
+            <Arrival release={index} total={releases.length} dark={release ? isWithdrawn(release) : false} />
+            <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 px-6 pt-10 pb-16 sm:px-10 sm:pt-14 lg:min-h-[min(62vh,38rem)] lg:grid-cols-[minmax(0,36rem)_1fr] lg:items-end lg:gap-x-16 lg:pt-20 lg:pb-20 xl:grid-cols-[10rem_minmax(0,40rem)_1fr]">
+              {/* Where the realm stands. On a phone it stands over the words; beside them otherwise. */}
+              <div
+                aria-hidden
+                data-field-anchor="s:door"
+                className="mx-auto h-44 w-40 sm:h-52 lg:order-2 lg:mx-0 lg:mb-4 lg:h-[clamp(11rem,26vh,15rem)] lg:w-[min(100%,16rem)] lg:justify-self-center"
+              />
+              <div data-field-anchor="c:title" className="mt-8 min-w-0 lg:order-1 lg:mt-0 xl:col-start-2">
+                <Link
+                  href="/changelog"
+                  className="group -ml-1 inline-flex min-h-10 items-center gap-2 rounded-[8px] px-1 text-[14px] text-ink-2 transition-colors duration-150 hover:text-ink"
+                >
+                  <ArrowIcon className="h-3.5 w-3.5 rotate-180 transition-transform duration-300 ease-[var(--ease-out-strong)] group-hover:-translate-x-0.5" />
+                  Changelog
+                </Link>
+                <p className="mt-6 font-mono text-[13px] text-ink-2">
+                  <time dateTime={entry.date}>{formatDate(entry.date)}</time>
+                  {entry.version ? null : ` · ${entry.area}`}
+                  {withdrawn ? <span className="text-orange"> · Withdrawn</span> : null}
+                </p>
+                <h1 id="entry-title" className="mt-3 text-[clamp(2.1rem,3.6vw,3rem)] leading-[1.04] font-[580] tracking-[-0.042em] text-balance text-ink">
+                  {entry.title}
+                </h1>
+                <p className="mt-5 max-w-[60ch] text-[18px] leading-[1.6] text-ink-2">{entry.summary}</p>
+                {!entry.version && release ? (
+                  <p className="mt-5 text-[14px] text-ink-2">
+                    Shipped in{" "}
+                    <Link href={`/changelog/${release.slug}`} className="text-accent-ink underline-offset-4 hover:underline">
+                      {release.version}
+                    </Link>
+                    , {formatDate(release.date)}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </header>
 
-          <hr className="mt-9 border-0 border-t border-line" />
-
-          <div className="mt-9">
-            <Prose blocks={entry.body} />
+          <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 px-6 sm:px-10 xl:grid-cols-[10rem_minmax(0,40rem)] xl:gap-x-16 [--figure-room:100%] lg:[--figure-room:min(58rem,calc(100vw-5rem))] xl:[--figure-room:min(58rem,calc(100vw-21rem))]">
+            <div className="hidden xl:block">
+              {sections.length >= MAP_FROM ? (
+                <Rail label="On this page" className="sticky top-28" items={sections.map((section) => ({ id: section.id, label: section.text }))} />
+              ) : null}
+            </div>
+            <div className="min-w-0 max-w-[40rem]">
+              <Prose blocks={entry.body} />
+            </div>
           </div>
         </article>
 
-        {newer || older ? (
-          <nav
-            aria-label="More entries"
-            className="mt-16 grid gap-3 border-t border-line pt-8 sm:grid-cols-2"
-          >
-            {newer ? <Neighbour entry={newer} direction="newer" /> : <span className="hidden sm:block" />}
-            {older ? <Neighbour entry={older} direction="older" /> : null}
-          </nav>
-        ) : null}
+        <Onward entry={entry} />
       </main>
-    </>
-  )
-}
 
-function Neighbour({
-  entry,
-  direction,
-}: {
-  entry: { slug: string; title: string }
-  direction: "newer" | "older"
-}) {
-  return (
-    <Link
-      href={`/changelog/${entry.slug}`}
-      className={`rounded-xl bg-canvas p-5 transition-colors duration-200 hover:bg-surface ${
-        direction === "older" ? "sm:text-right" : ""
-      }`}
-    >
-      <span className="font-mono text-[12px] text-ink-3">
-        {direction === "newer" ? "Newer" : "Older"}
-      </span>
-      <span className="mt-1.5 block text-[15px] leading-[1.4] font-[500] text-ink">{entry.title}</span>
-    </Link>
+      <SiteFooter />
+    </div>
   )
 }
