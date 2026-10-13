@@ -4,7 +4,7 @@ import { useMemo, useState } from "react"
 
 import { Realmite, realmiteFromSeed, type RealmiteSpec, type RealmiteState } from "@/lib/realmite"
 
-import { Register } from "./kinetic"
+import { Register, Seam } from "./kinetic"
 import s from "./paper.module.css"
 
 type Role = { id: string; name: string; goal: string; handsTo: string; seed: string }
@@ -62,6 +62,7 @@ export function Masthead() {
 
   return (
     <section data-running-head="Teams" aria-labelledby="teams-title" className={s.section}>
+      <Seam />
       <div className={`${s.measure} ${s.grid} gap-y-12`}>
         <div className="col-span-12 lg:col-span-5">
           <p className={`${s.note} text-accent-ink`}>New in 2.1</p>

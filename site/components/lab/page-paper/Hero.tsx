@@ -18,7 +18,7 @@ export function Hero({ download }: { download: MacDownload }) {
   return (
     <section aria-labelledby="paper-title" className="relative pt-8 sm:pt-10 lg:pt-2">
       <div className={`${s.measure} ${s.grid} relative`}>
-        <div className="col-span-12 lg:col-span-7 lg:pt-5">
+        <div className="order-1 col-span-12 lg:order-none lg:col-span-7 lg:row-start-1 lg:pt-5">
           <Link
             href="/changelog/v2-1-0"
             className={`${s.note} group inline-flex items-baseline gap-3 text-ink-2 transition-colors duration-150 hover:text-ink`}
@@ -61,25 +61,25 @@ export function Hero({ download }: { download: MacDownload }) {
         <div
           aria-hidden
           data-paper-glass
-          className="relative col-span-12 mt-4 aspect-[6/5] w-full max-w-[36rem] justify-self-center sm:mt-2 lg:col-span-5 lg:col-start-8 lg:mt-0 lg:mr-[calc(-1*var(--margin))] lg:w-auto lg:max-w-none lg:self-start lg:justify-self-stretch"
+          className="relative order-3 col-span-12 mt-10 aspect-[6/5] w-full max-w-[36rem] justify-self-center lg:order-none lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:mt-0 lg:mr-[calc(-1*var(--margin))] lg:w-auto lg:max-w-none lg:self-start lg:justify-self-stretch"
         >
           <GlassStill />
           <GlassLight />
         </div>
-      </div>
 
-      <figure className={`${s.measure} mt-12 lg:mt-9`}>
-        <div className={`${s.dark} ${s.plate} h-[620px] sm:h-[640px] lg:h-[min(700px,calc(100dvh-6rem))] lg:min-h-[560px]`}>
-          <MiniRealm />
-        </div>
-        <figcaption className="mt-4 grid gap-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-6">
-          <span className={s.caption}>
-            <span className="text-ink">A working sample of Realm, drawn in the page.</span> Click anything: pick a session,
-            answer what&rsquo;s waiting from its row, follow a file link to the line it names. It runs no agent.
-          </span>
-          <span className={`${s.note} sm:text-right`}>Sample · not a capture</span>
-        </figcaption>
-      </figure>
+        <figure className="order-2 col-span-12 mt-10 lg:order-none lg:row-start-2 lg:mt-9">
+          <div className={`${s.dark} ${s.plate} h-[620px] sm:h-[640px] lg:h-[min(700px,calc(100dvh-6rem))] lg:min-h-[560px]`}>
+            <MiniRealm />
+          </div>
+          <figcaption className="mt-4 grid gap-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-6">
+            <span className={s.caption}>
+              <span className="text-ink">A working sample of Realm, drawn in the page.</span> Click anything: pick a session,
+              answer what&rsquo;s waiting from its row, follow a file link to the line it names. It runs no agent.
+            </span>
+            <span className={`${s.note} sm:text-right`}>Sample · not a capture</span>
+          </figcaption>
+        </figure>
+      </div>
     </section>
   )
 }

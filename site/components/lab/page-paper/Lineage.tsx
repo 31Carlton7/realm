@@ -3,7 +3,7 @@ import type { ReactNode } from "react"
 import { AgentMark, type AgentId } from "@/components/AgentMark"
 import type { Claim, Facet } from "@/content/home"
 
-import { Register } from "./kinetic"
+import { Register, Seam } from "./kinetic"
 import s from "./paper.module.css"
 import { Plate } from "./Plates"
 
@@ -25,12 +25,12 @@ function Member({
 }) {
   return (
     <div className={`${s.member} min-w-0`}>
-      <p className={`flex items-baseline gap-2 text-[18px] leading-[1.3] font-[580] tracking-[-0.018em] ${tone === "ink" ? "text-ink" : "text-ink-2"}`}>
+      <p className={`flex items-baseline gap-2 text-[19px] leading-[1.3] font-[580] tracking-[-0.018em] ${tone === "ink" ? "text-ink" : "text-ink-2"}`}>
         {agent ? <AgentMark id={agent} className="h-[0.8em] w-[0.8em] shrink-0 translate-y-[0.06em] text-ink-2" /> : null}
         <span>{name}</span>
         {by ? <span className="text-[14px] font-[450] tracking-normal text-ink-3">{by}</span> : null}
       </p>
-      {children ? <p className="mt-1.5 max-w-[34ch] text-[15px] leading-[1.5] text-ink-2">{children}</p> : null}
+      {children ? <p className="mt-1.5 max-w-[36ch] text-[16px] leading-[1.5] text-ink-2">{children}</p> : null}
       {state ? <p className={`${s.note} mt-2`}>{state}</p> : null}
     </div>
   )
@@ -51,6 +51,7 @@ export function Lineage({ claim, beats }: { claim: Claim | undefined; beats: Fac
   const [start, several, deep, back] = beats
   return (
     <section data-running-head="Agents handing work on" aria-labelledby="lineage-title" className={s.section}>
+      <Seam />
       <div className={`${s.measure} ${s.grid} gap-y-6`}>
         <div className="col-span-12 lg:col-span-7">
           <Register id="lineage-title" text={claim?.title ?? "Hand work to other models."} className={`${s.statement} text-ink`} />
@@ -98,13 +99,9 @@ export function Lineage({ claim, beats }: { claim: Claim | undefined; beats: Fac
             <div className="sm:ml-[calc(50%+1rem)]">
               <Member name="A sub-agent of its own" tone="muted">A sub-agent can hand work off once more.</Member>
               <Drop className="ml-3 h-8" />
-              <p className="flex items-baseline gap-3 text-[15px] text-ink-2">
-                <span aria-hidden className="relative -ml-px inline-block h-3 w-[25px] shrink-0">
-                  <span className="absolute top-1/2 left-1/2 h-px w-3 -translate-x-1/2 rotate-45 bg-red" />
-                  <span className="absolute top-1/2 left-1/2 h-px w-3 -translate-x-1/2 -rotate-45 bg-red" />
-                </span>
-                Past that, Realm says no.
-              </p>
+              {/* The line ends: a genealogist's terminating rule, where no further generation is allowed. */}
+              <span aria-hidden className={`${s.span} ml-[calc(0.75rem-0.625rem)] block h-px w-5 bg-ink`} />
+              <p className="mt-3 text-[15px] text-ink-2">Past that, Realm says no.</p>
             </div>
           </div>
 

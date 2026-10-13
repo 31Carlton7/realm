@@ -1,6 +1,6 @@
 import { faq } from "@/content/home"
 
-import { Register } from "./kinetic"
+import { Register, Seam } from "./kinetic"
 import s from "./paper.module.css"
 
 /** The term each question is filed under, as a book's index would file it. */
@@ -26,6 +26,7 @@ export function Questions() {
 
   return (
     <section data-running-head="Questions" aria-labelledby="questions-title" className={s.section}>
+      <Seam />
       <div className={`${s.measure} ${s.grid} gap-y-10`}>
         <div className="col-span-12 lg:col-span-4">
           <Register id="questions-title" text="Questions, indexed." className={`${s.statement} text-ink`} />

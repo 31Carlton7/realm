@@ -7,13 +7,15 @@ import { Facts } from "@/components/lab/page-paper/Facts"
 import { paperInter } from "@/components/lab/page-paper/fonts"
 import { Header } from "@/components/lab/page-paper/Header"
 import { Hero } from "@/components/lab/page-paper/Hero"
-import { Register } from "@/components/lab/page-paper/kinetic"
+import { Register, Seam } from "@/components/lab/page-paper/kinetic"
 import { Lineage } from "@/components/lab/page-paper/Lineage"
 import { Masthead } from "@/components/lab/page-paper/Masthead"
 import s from "@/components/lab/page-paper/paper.module.css"
 import { ClaimSpread } from "@/components/lab/page-paper/Plates"
 import { Questions } from "@/components/lab/page-paper/Questions"
+import { features } from "@/content/features"
 import { delegation, facets, facetsCoda } from "@/content/home"
+import captured from "@/public/product/manifest.json"
 
 /** Notes for the margin of a claim's spread: the machine's own names for what the claim is about. */
 const NOTES: Record<string, string> = {
@@ -40,6 +42,8 @@ const PLATED = ["spaces", "transcript", "gateway", "review", "sandbox", "durable
 export default function Paper({ download, claims }: PageDesignProps) {
   const claim = (id: string) => claims.find((c) => c.id === id)
   const plated = PLATED.map(claim).filter((c) => c !== undefined)
+  const taken = new Set(captured as string[])
+  const frames = features.filter((feature) => taken.has(feature.slug))
 
   return (
     <div className={`${s.root} ${paperInter.variable}`}>
@@ -51,6 +55,7 @@ export default function Paper({ download, claims }: PageDesignProps) {
         <Lineage claim={claim("delegation")} beats={delegation} />
 
         <section data-running-head="Shown in the app" aria-labelledby="plates-title" className={s.section}>
+          <Seam />
           <div className={`${s.measure} ${s.grid} gap-y-6`}>
             <div className="col-span-12 lg:col-span-8">
               <Register id="plates-title" text="Shown in the app, plate by plate." className={`${s.statement} text-ink`} />
@@ -66,7 +71,7 @@ export default function Paper({ download, claims }: PageDesignProps) {
           </div>
         </section>
 
-        <ContactSheet />
+        <ContactSheet frames={frames} />
         <Masthead />
         <Facts />
         <Questions />

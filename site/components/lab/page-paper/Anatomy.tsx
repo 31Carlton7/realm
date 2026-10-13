@@ -3,9 +3,9 @@
 import { useState, type CSSProperties } from "react"
 
 import type { Facet } from "@/content/home"
-import { FACES } from "@/lib/mark"
+import { DOOR, FACES } from "@/lib/mark"
 
-import { Register } from "./kinetic"
+import { Register, Seam } from "./kinetic"
 import s from "./paper.module.css"
 
 type Point = readonly [number, number]
@@ -28,9 +28,9 @@ const FLIGHT: Record<string, Point> = {
   top: times(UP, 5.5),
   left: times(DOWN, 5.5),
   right: times(OUT, 5.5),
-  floor: add(times(OUT, 15), times(UP, 2.4)),
-  jamb: add(times(OUT, 15), times(DOWN, 2.4)),
-  lit: times(OUT, 19.5),
+  floor: add(times(OUT, 15), times(UP, 7)),
+  jamb: add(times(OUT, 15), times(DOWN, 7)),
+  lit: times(OUT, 24),
 }
 
 /** How much further a face lifts, along the same line, when its label is pointed at. */
@@ -65,10 +65,10 @@ const centroid = (points: readonly Point[]): Point =>
 const STANDOFF: Record<string, Point> = {
   top: [-12, -10],
   left: [-12, 12],
-  right: [6, -19],
-  floor: [9, 13],
-  jamb: [11, 3],
-  lit: [8, -11],
+  right: [-3, -21],
+  floor: [10, -12],
+  jamb: [10, 12],
+  lit: [9, -1.5],
 }
 
 /** Where each leader line meets its face (the face's middle, after its flight), and where its label is. */
@@ -80,7 +80,7 @@ const LABELS = Object.fromEntries(
 ) as Record<string, { tip: Point; at: Point }>
 
 /** The drawing's window onto the mark's units: room for the flight and the labels. */
-const VIEW = { x: -16, y: -12, w: 94, h: 72 }
+const VIEW = { x: -16, y: -14, w: 96, h: 76 }
 const pct = ([x, y]: Point) => ({ left: `${((x - VIEW.x) / VIEW.w) * 100}%`, top: `${((y - VIEW.y) / VIEW.h) * 100}%` })
 
 const path = (points: readonly Point[]) => `M${points.map(([x, y]) => `${x} ${y}`).join("L")}Z`
@@ -98,6 +98,7 @@ export function Anatomy({ facets, coda }: { facets: Facet[]; coda: Facet }) {
 
   return (
     <section data-running-head="What a space holds" aria-labelledby="anatomy-title" className={`${s.section} ${s.anatomy}`}>
+      <Seam />
       <div className={`${s.measure} ${s.grid} gap-y-12`}>
         <div className="col-span-12 lg:col-span-5">
           <Register id="anatomy-title" text="What a space holds." className={`${s.statement} text-ink`} />
@@ -168,7 +169,8 @@ export function Anatomy({ facets, coda }: { facets: Facet[]; coda: Facet }) {
                       style={{ "--lx": `${(fx / Math.hypot(fx, fy)) * LIFT}px`, "--ly": `${(fy / Math.hypot(fx, fy)) * LIFT}px` } as CSSProperties}
                     >
                       <path
-                        d={path(face.polygon)}
+                        d={face.cut ? `${path(face.polygon)}${path(DOOR)}` : path(face.polygon)}
+                        fillRule="evenodd"
                         fill={FILL[face.name]}
                         stroke={lifted ? "var(--color-ink)" : "oklch(0.235 0.006 264 / 0.55)"}
                         strokeWidth={lifted ? 1.5 : 1}

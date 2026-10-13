@@ -3,7 +3,7 @@ import { Fragment } from "react"
 import { AgentMark, type AgentId } from "@/components/AgentMark"
 import type { Claim } from "@/content/home"
 
-import { Ink, Register } from "./kinetic"
+import { Ink, Register, Seam } from "./kinetic"
 import s from "./paper.module.css"
 import { Plate } from "./Plates"
 
@@ -27,6 +27,7 @@ const AGENTS: { id: AgentId; name: string }[] = [
 export function Agents({ claim }: { claim: Claim | undefined }) {
   return (
     <section data-running-head="The agents" aria-labelledby="agents-title" className={s.section}>
+      <Seam />
       <div className={`${s.measure} ${s.grid} gap-y-8`}>
         <p className={`${s.note} col-span-12 lg:col-span-3 lg:pt-3`}>
           Most of them through one Agent Client Protocol adapter

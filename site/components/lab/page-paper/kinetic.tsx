@@ -55,3 +55,15 @@ export function Ink({ children, index, className = "" }: { children: ReactNode; 
     </span>
   )
 }
+
+/**
+ * The seam between two sections: a hairline across the measure, drawn from its left end as the
+ * section arrives. One rule, not a frame round the section.
+ */
+export function Seam() {
+  return (
+    <div aria-hidden className={`${s.measure} mb-[clamp(56px,6vw,88px)]`}>
+      <span className={`${s.rule} ${s.drawRule} block`} />
+    </div>
+  )
+}

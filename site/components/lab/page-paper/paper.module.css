@@ -257,7 +257,7 @@
 
 .section {
   position: relative;
-  padding-block: clamp(96px, 13vw, 200px) 0;
+  padding-block: clamp(48px, 7vw, 112px) 0;
 }
 
 /* A rule across the measure, the page's seam between sections. */
@@ -622,4 +622,43 @@
 /* The assembled mark's outline, a ghost under the parts. */
 .ghost {
   opacity: 0.32;
+}
+
+/* ---------------------------------------------------------------- the loupe */
+
+.loupeHost {
+  position: relative;
+}
+
+.loupe {
+  position: absolute;
+  z-index: 2;
+  top: var(--ly, 50%);
+  left: var(--lx, 50%);
+  width: var(--loupe);
+  height: var(--loupe);
+  margin: calc(var(--loupe) / -2) 0 0 calc(var(--loupe) / -2);
+  border-radius: 50%;
+  background-color: oklch(0.209 0.004 264.477);
+  background-image: var(--src);
+  background-repeat: no-repeat;
+  background-size: calc(var(--lw, 300px) * var(--power)) calc(var(--lh, 188px) * var(--power));
+  background-position: calc(var(--loupe) / 2 - var(--lx, 0px) * var(--power)) calc(var(--loupe) / 2 - var(--ly, 0px) * var(--power));
+  box-shadow:
+    0 0 0 1px oklch(1 0 0 / 0.55),
+    0 0 0 2px oklch(0.235 0.006 264 / 0.18),
+    0 14px 30px -10px oklch(0.235 0.006 264 / 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease-out;
+}
+
+.loupeHost:hover .loupe {
+  opacity: 1;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .loupe {
+    display: none;
+  }
 }

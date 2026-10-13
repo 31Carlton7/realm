@@ -6,7 +6,7 @@ import { Wordmark } from "@/components/Wordmark"
 import type { MacDownload } from "@/lib/release"
 import { site } from "@/lib/site"
 
-import { Register } from "./kinetic"
+import { Register, Seam } from "./kinetic"
 import s from "./paper.module.css"
 
 /**
@@ -16,6 +16,7 @@ import s from "./paper.module.css"
 export function Close({ download }: { download: MacDownload }) {
   return (
     <section data-running-head="Download" aria-labelledby="close-title" className={`${s.section} pb-[clamp(96px,12vw,180px)]`}>
+      <Seam />
       <div className={`${s.measure} ${s.grid} items-end gap-y-10`}>
         <div className="col-span-12 lg:col-span-8">
           <Register id="close-title" text="Open your first realm." className={`${s.display} !text-[clamp(3rem,6.4vw,7.5rem)] text-ink`} />

@@ -36,7 +36,7 @@ ${geometryWgsl(shape)}
 
 const IOR = 1.505;
 // Absorption per mark unit of glass: clear, with the faint cool cast thick glass has.
-const SIGMA = vec3f(0.0105, 0.0072, 0.0046);
+const SIGMA = vec3f(0.0135, 0.0085, 0.0047);
 const BOX = vec2f(${f(RADIUS)}, ${f(APOTHEM)});
 
 fn absorbed(len: f32) -> f32 {
@@ -201,8 +201,11 @@ struct Scene {
   lamp: vec4f,
   // The room's share of the paper's light and the lamp's, the caustic's gain, and the dither's seed.
   light: vec4f,
-  // The paper's colour, linear.
+  // The paper's colour, linear (w: debug view).
   paper: vec4f,
+  // The registration mark printed on the paper: its centre (mark units), its circle's radius, and the
+  // ink's strength.
+  print: vec4f,
 }
 @group(0) @binding(0) var<uniform> scene: Scene;
 @group(0) @binding(1) var causticMap: texture_2d<f32>;
@@ -244,6 +247,18 @@ fn lampSeen(p: vec2f) -> f32 {
 }
 
 // The paper's light at p: the room, the lamp past the block, and what came through it.
+// What is printed on the paper: a registration mark, a circle and its crosshair in hairline ink, with
+// the crosshair running out to fade before the canvas's edge. Under the block it is seen refracted,
+// which is how the eye knows the block is glass.
+fn printed(p: vec2f) -> f32 {
+  let px = 1.0 / scene.view.z;
+  let d = p - scene.print.xy;
+  let reach = 1.0 - smoothstep(scene.print.z * 1.25, scene.print.z * 1.75, max(abs(d.x), abs(d.y)));
+  let cross = max(1.0 - smoothstep(0.0, px, abs(d.x) - px * 0.35), 1.0 - smoothstep(0.0, px, abs(d.y) - px * 0.35)) * reach;
+  let ring = 1.0 - smoothstep(0.0, px, abs(length(d) - scene.print.z) - px * 0.35);
+  return 1.0 - scene.print.w * max(cross, ring);
+}
+
 fn paperLight(p: vec2f) -> vec3f {
   let sd = sdMark(p) + ZP * TAPER;
   // Where the block stands on the paper the room's light is cut off a little; glass passes most of it.
@@ -251,13 +266,13 @@ fn paperLight(p: vec2f) -> vec3f {
   let contact = 1.0 - (0.28 * exp(-max(sd, 0.0) / 0.7) + 0.1 * exp(-max(sd, 0.0) / 3.5)) * near - 0.12 * (1.0 - near) * exp(-max(sdMark(p), 0.0) / 6.0);
   let ambient = scene.light.x * contact;
   let direct = scene.light.y * lampSeen(p);
-  return vec3f(ambient + direct) + scene.light.z * scene.light.y * causticAt(p);
+  return (vec3f(ambient + direct) + scene.light.z * scene.light.y * causticAt(p)) * printed(p);
 }
 
 // The paper under the block, seen through it: the room's light that came in through the top, and
 // whatever of the lamp's the block bent onto it.
 fn underLight(p: vec2f) -> vec3f {
-  return vec3f(scene.light.x * 0.92) + scene.light.z * scene.light.y * causticAt(p);
+  return (vec3f(scene.light.x * 0.92) + scene.light.z * scene.light.y * causticAt(p)) * printed(p);
 }
 
 // The room the block reflects and looks out at, lit the way glass is photographed: a large soft
@@ -271,8 +286,8 @@ fn room(r: vec3f, at: vec3f) -> vec3f {
   // The softbox: the half of the room toward the lamp, from just above the paper to well up the wall.
   c += 1.35 * smoothstep(0.1, 0.75, facing) * smoothstep(-0.12, 0.08, r.z) * (1.0 - smoothstep(0.55, 0.9, r.z));
   let a = dot(r, toLamp);
-  // The lamp's own disc, smaller than its penumbra suggests: the shade glows, its bulb is small.
-  c += 18.0 * smoothstep(cos(scene.lamp.w * 0.8), cos(scene.lamp.w * 0.3), a);
+  // The lamp's bulb, a point next to its penumbra: a glint where a face catches it, with a little bloom.
+  c += 40.0 * smoothstep(cos(scene.lamp.w * 0.32), cos(scene.lamp.w * 0.12), a) + 1.2 * pow(max(a, 0.0), 2400.0);
   if (r.z < -0.12) { c = 0.86; }
   return vec3f(c);
 }

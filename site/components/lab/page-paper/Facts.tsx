@@ -1,4 +1,4 @@
-import { Ink } from "./kinetic"
+import { Ink, Seam } from "./kinetic"
 import s from "./paper.module.css"
 
 /** Where things live, from the landing page's four facts (components/home/LocalFacts.tsx). */
@@ -19,6 +19,7 @@ const STATEMENT = ["It", "all", "stays", "on", "your", "Mac,", "under"]
 export function Facts() {
   return (
     <section data-running-head="Where the work lives" aria-labelledby="facts-title" className={s.section}>
+      <Seam />
       <div className={s.measure}>
         <h2
           id="facts-title"

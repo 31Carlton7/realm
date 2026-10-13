@@ -29,10 +29,15 @@ const LAMP_FAR = 64
 const REST = { angle: (-128 * Math.PI) / 180, reach: 46 }
 /** The lamp's angular radius: a shade at arm's length, which sets the shadow's penumbra. */
 const LAMP_SIZE = 0.06
+/** The registration mark printed where the block stands: off its centre so the block refracts some
+ *  of it and leaves the rest plain beside it, for comparison (mark units, and the ink's strength). */
+const PRINT = { x: 7, y: 5, radius: 25, ink: 0.34 }
 /** The room's share of the paper's light; the lamp gives the rest. */
 const AMBIENT = 0.62
 /** Seconds for the lamp to follow the pointer: slow, a hand moving a lamp rather than a cursor. */
 const FOLLOW = 0.42
+/** Without a pointer, how far the lamp swings round the block as the block crosses the screen. */
+const SCROLL_SWING = (120 * Math.PI) / 180
 
 type Lamp = { x: number; y: number; z: number }
 
@@ -66,6 +71,7 @@ export function GlassLight({ className = "" }: { className?: string }) {
     if (!canvas) return
     const root = document.documentElement
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const fine = window.matchMedia("(pointer: fine)")
     let disposed = false
     let teardown: (() => void) | undefined
     window.__labFrames = window.__labFrames ?? 0
@@ -118,6 +124,7 @@ export function GlassLight({ className = "" }: { className?: string }) {
               // The room's share and the lamp's always make 1, which is the paper's own colour.
               light: [tune.amb ?? AMBIENT, 1 - (tune.amb ?? AMBIENT), tune.gain ?? 1, 0.37],
               paper: [...PAPER_LINEAR, new URLSearchParams(window.location.search).get("paper-debug") === "caustic" ? 2 : 1],
+              print: [tune.px ?? PRINT.x, tune.py ?? PRINT.y, tune.pr ?? PRINT.radius, tune.pink ?? PRINT.ink],
             },
             causticMap: map,
             causticSampler: sampler(gpu, { minFilter: "linear", magFilter: "linear" }),
@@ -128,6 +135,7 @@ export function GlassLight({ className = "" }: { className?: string }) {
         const height = tune.h ?? LAMP_HEIGHT
         const lampAt = (angle: number, reach: number): Lamp => ({ x: Math.cos(angle) * reach, y: Math.sin(angle) * reach, z: height })
         const rest = lampAt(tune.az !== undefined ? (tune.az * Math.PI) / 180 : REST.angle, tune.reach ?? REST.reach)
+        // Where the lamp starts: already where it would be aimed, so the first frame is not a swing.
         const lamp: Lamp = { ...rest }
         let goal: Lamp = { ...rest }
         let last = performance.now()
@@ -139,9 +147,21 @@ export function GlassLight({ className = "" }: { className?: string }) {
         const markScale = () => (rect.width * (tune.share ?? MARK_SHARE)) / 40
         const markCentre = () => [rect.width / 2, rect.height / 2] as const
 
+        const restAngle = tune.az !== undefined ? (tune.az * Math.PI) / 180 : REST.angle
         const aim = () => {
-          if (still || !pointer.here) {
+          if (still) {
             goal = { ...rest }
+            return
+          }
+          if (!pointer.here) {
+            // On a touch screen the reader's scroll is the only hand there is: the lamp swings round
+            // the block as it crosses the screen, and rests where it would with a mouse at the top.
+            if (fine.matches) {
+              goal = { ...rest }
+              return
+            }
+            const travel = Math.min(1, Math.max(0, (window.innerHeight - rect.top) / (window.innerHeight + rect.height)))
+            goal = lampAt(restAngle + (travel - 0.35) * SCROLL_SWING, tune.reach ?? REST.reach)
             return
           }
           const [cx, cy] = markCentre()
@@ -217,7 +237,7 @@ export function GlassLight({ className = "" }: { className?: string }) {
         const onScroll = () => {
           // The canvas moves with the page, so a scroll needs no repaint, only a new place for the lamp.
           rect = canvas.getBoundingClientRect()
-          if (pointer.here && !still) {
+          if (!still && (pointer.here || !fine.matches)) {
             aim()
             wake()
           }
@@ -248,6 +268,8 @@ export function GlassLight({ className = "" }: { className?: string }) {
         document.addEventListener("visibilitychange", onVisibility)
         motion.addEventListener("change", onMotion)
 
+        aim()
+        Object.assign(lamp, goal)
         paint()
         root.dataset.labField = "on"
 
