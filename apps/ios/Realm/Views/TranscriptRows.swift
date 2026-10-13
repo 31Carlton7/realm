@@ -692,10 +692,12 @@ struct LineCounts: View {
     var binary = false
 
     var body: some View {
+        // Counts are never broken over lines, wherever they are squeezed.
         if binary {
             Text("Binary")
                 .font(.footnote)
                 .foregroundStyle(Palette.ink2)
+                .fixedSize()
         } else {
             HStack(spacing: 6) {
                 Text("+\(additions ?? 0)").foregroundStyle(Palette.green)
@@ -703,6 +705,7 @@ struct LineCounts: View {
             }
             .font(.footnote.weight(.medium))
             .monospacedDigit()
+            .fixedSize()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(additions ?? 0) lines added, \(deletions ?? 0) taken away")
         }
