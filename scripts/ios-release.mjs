@@ -130,12 +130,15 @@ export function ipaProblems(facts, expected) {
   return problems;
 }
 
-/** What `asc xcode-cloud run --wait --output json` printed: the run, and whether it built. */
+/** What `asc xcode-cloud run --wait --output json` printed: the run, and whether it built. asc prints
+ *  the run flat (`buildRunId`, `buildNumber`, `completionStatus`); the API's own `{ data }` shape is
+ *  read too, in case a later asc passes it through. */
 export function cloudRunOutcome(json) {
-  const run = json?.data;
-  const status = run?.attributes?.completionStatus ?? null;
-  if (typeof run?.id !== "string") throw new Error("asc did not say which Xcode Cloud run it started");
-  return { runId: run.id, number: run.attributes?.number ?? null, status, succeeded: status === "SUCCEEDED" };
+  const runId = json?.buildRunId ?? json?.data?.id;
+  const status = json?.completionStatus ?? json?.data?.attributes?.completionStatus ?? null;
+  const number = json?.buildNumber ?? json?.data?.attributes?.number ?? null;
+  if (typeof runId !== "string") throw new Error("asc did not say which Xcode Cloud run it started");
+  return { runId, number, status, succeeded: status === "SUCCEEDED" };
 }
 
 // ---------- the run ----------
