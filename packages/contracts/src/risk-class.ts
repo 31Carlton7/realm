@@ -63,6 +63,8 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *   - `workspace_state`, `sessions_list`, `session_read`, `space_list` — what is in this space and
  *     profile and what its sessions said, as the sidebar already shows it;
  *   - `settings_get` — the five settings an agent may change (theme and the like), none of them secret;
+ *   - `realm_capabilities` — Realm's tools, connections, skills and panes by name and state, as the
+ *     Connections and Settings pages show them; never a value;
  *   - `agent_peers` — the other sessions in this space and whether each can be asked;
  *   - `agent_status` — this session's own delegated runs, without collecting them;
  *   - `schedule_list` — the space's schedules;
@@ -91,6 +93,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__session_read": read,
   "realm-workspace__space_list": read,
   "realm-workspace__settings_get": read,
+  "realm-workspace__realm_capabilities": read,
   "realm-agent__agent_peers": read,
   "realm-agent__agent_status": read,
   "realm-schedule__schedule_list": read,

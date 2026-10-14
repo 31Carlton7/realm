@@ -969,8 +969,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - The lead's Agents tab is where its sub-agents are run from, not only watched: a card each, saying
   where it stands, what it runs on, in which checkout and mode, and how much of its budget of working
   time is spent. A card waiting on a request is open with the request in it, answered there through
-  the same call the transcript uses; any card opens its transcript, takes a message or is stopped. What
-  a sub-agent started of its own nests under it, never beside it.
+  the same call the transcript uses. What a sub-agent started of its own nests under it, never beside it.
+- A sub-agent is looked at in ONE place, whichever surface it was clicked on — its line in the lead's
+  transcript, the strip under the last message, the bar's chip, a card: the lead's Agents tab, on that
+  sub-agent, beside the lead and never over it, with the keyboard left in the lead's prompter. Its
+  siblings are tabs along the top with their state's mark; its head says the state in words, the
+  clock, the model and the checkout; its report is pinned under the head once it has one; its log is
+  its own transcript, streaming, with its requests answered there; and its foot is only what its owner
+  supports — Stop, Open as session and a message for a delegated child, nothing for a harness's own
+  agent. Escape goes back to all of them, and the tab remembers which one it was on.
 - A question is one card whichever agent or server asked it, and it says who is asking first —
   "Codex asks", "Linear's MCP server asks" — because the same question means something different from
   each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the

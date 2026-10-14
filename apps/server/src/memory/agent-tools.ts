@@ -112,6 +112,7 @@ const TOOLS: Tool[] = [
 export function createMemoryAgentProvider(d: MemoryAgentToolsDeps): RealmToolProvider {
   return {
     name: MEMORY_PROVIDER_NAME,
+    listsIn: (spaceId) => d.repos.activeFor(spaceId).length > 0,
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       // `activeFor` already answers none in a space with this provider switched off (app.ts wires its
       // `toolsEnabled` to the same switch), so the index and the tools can never disagree.

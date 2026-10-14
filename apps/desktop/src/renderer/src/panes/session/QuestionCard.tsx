@@ -1,6 +1,7 @@
 import { AGENT_META, HIDDEN_ANSWER, type AgentKind, type AskAnswers, type AskCard, type AskOption, type AskQuestion, type Asker, type DelegableModel, type ProjectFileHit } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { mcpServerMark } from "../../components/mcp-mark";
 import { useThumbnail } from "../../components/use-thumbnail";
 import { useAppStoreMaybe } from "../../state/store";
 import { ModelChooser, OWN } from "../agents-tab/ModelChooser";
@@ -14,9 +15,10 @@ export function askerLine(a: Asker, past = false): string {
   return a.via ? `${who} ${verb}, through ${a.via}` : `${who} ${verb}`;
 }
 
-/** An agent wears its own mark; a server, the plug every Connection wears. */
+/** An agent wears its own mark; a server, its app's (`mcpServerMark`), or the plug every Connection
+ *  wears where Realm draws none. */
 export function askerIcon(a: Asker): string {
-  return a.kind === "server" ? "plug" : a.agent ? AGENT_META[a.agent].icon : "bot";
+  return a.kind === "server" ? mcpServerMark(a.name) : a.agent ? AGENT_META[a.agent].icon : "bot";
 }
 
 /**

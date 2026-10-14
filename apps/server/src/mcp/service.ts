@@ -1,4 +1,4 @@
-import { COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME, MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
+import { COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME, MCP_SECRET_STORAGE_NOTE, type ItemScope, type McpOauthStatus, type McpOauthVia, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { APP_PROVIDER_NAME } from "../app-ui/agent-tools";
 import { RpcError } from "../store/rows";
 import { liveCheck, type McpTestResult } from "./live-check";
@@ -419,6 +419,7 @@ function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | 
     // actually sends upstream once it exists.
     authKind: r.oauthJson ? "oauth" : keys.length > 0 ? "secrets" : "none",
     oauthStatus: oauthStatusOf(r),
+    ...oauthViaOf(r),
     status,
     tools: r.tools,
     allowedTools,
@@ -442,6 +443,12 @@ function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | 
  * `mcp.serverStatus` independently of `list()`/`toContract`, since a status flip can happen between
  * `mcp.list` calls — derive `oauthStatus` the SAME way instead of keeping a second copy.
  */
+/** How the stored token was obtained, for the row's "Connected with …" line — absent with no token. */
+function oauthViaOf(row: McpServerRow): { oauthVia?: McpOauthVia } {
+  const state = readOauthState(row.oauthJson);
+  return state.tokens ? { oauthVia: state.via ?? "browser" } : {};
+}
+
 export function oauthStatusOf(row: McpServerRow): McpOauthStatus {
   const state = readOauthState(row.oauthJson);
   if (state.reconnectNeeded) return "reconnect_needed";
