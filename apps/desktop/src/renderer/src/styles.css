@@ -5550,6 +5550,20 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .market-docs:hover { color: var(--rl-text-dim); text-decoration: underline; text-underline-offset: 2px; }
 .market-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
 .market-card[data-state="connected"] .market-mark { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 45%, transparent); }
+/* The sign-in sheet (McpSignInSheet.tsx): a block per way in, parted by space rather than rules, and
+   the code a device sign-in shows set large in mono so it can be read across to another window. */
+.signin-routes { gap: 18px; }
+.signin-hint { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.signin-hint code { font: 12px var(--font-mono); }
+.signin-actions { justify-content: flex-start; margin-top: 2px; }
+.signin-code-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.signin-code { font-family: var(--font-mono); font-size: 24px; line-height: 30px; font-weight: var(--fw-title); letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums; color: var(--rl-text-bright); user-select: all; }
+.signin-app > summary { list-style: none; width: fit-content; padding: 2px 0; font-size: 13px; color: var(--rl-text-dim); }
+.signin-app > summary::-webkit-details-marker { display: none; }
+.signin-app > summary::before { content: "▸ "; }
+.signin-app[open] > summary::before { content: "▾ "; }
+.signin-app > .form { padding-top: 10px; }
 .ch-marker { color: var(--rl-accent); }
 .ch-punct { color: var(--rl-text-faint); }
 .ch-code { color: var(--rl-text-bright); background: var(--inset); border-radius: 3px; }

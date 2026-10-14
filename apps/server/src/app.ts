@@ -967,6 +967,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // The OAuth seam. `McpOauth` sanitizes its own errors — the hub cannot redact a token that only ever
     // existed inside an error thrown in here (see the seam's own doc comment in `hub.ts`).
     authHeaders: (row) => oauth.headers(row),
+    // A 401: a GitHub CLI token is read again, a pasted one flags the row for the user.
+    reauthorize: (row) => oauth.reauthorize(row),
     onStatus: (id, status) => {
       mcpStatus.set(id, status);
       // `oauthStatusOf` is the ONE place `oauthJson` → `oauthStatus` derivation lives (see its own doc
