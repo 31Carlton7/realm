@@ -37,8 +37,8 @@ describe("providerFor — which servers are GitHub", () => {
     expect(providerFor("https://mcp.example.com/mcp", "https://auth.example.com/")).toBeNull();
   });
 
-  it("ships with no device-flow client id, so that route stays hidden until one is registered", () => {
-    expect(KNOWN_PROVIDERS.find((p) => p.id === "github")?.device?.clientId).toBe(process.env.REALM_GITHUB_CLIENT_ID ?? "");
+  it("ships with Realm's own device-flow client id", () => {
+    expect(KNOWN_PROVIDERS.find((p) => p.id === "github")?.device?.clientId).toBe(process.env.REALM_GITHUB_CLIENT_ID ?? "Ov23li7V5Sa6RKuFKi9f");
   });
 });
 
@@ -146,7 +146,10 @@ async function setup(opts: { gh?: () => GhToken; provider?: Partial<KnownProvide
   const servers = new McpServersStore(db);
   const row = servers.create({ name: "realm-github", transport: "http", command: "", args: [], url: `${as.url}/mcp`, secrets: {} });
   const github = KNOWN_PROVIDERS.find((p) => p.id === "github")!;
-  const providers = opts.provider === null ? [] : [{ ...github, hosts: ["127.0.0.1"], ...opts.provider }];
+  // The shipped table carries Realm's real client id and GitHub's real device endpoints; a harness that
+  // inherited them could start a sign-in against github.com. A test that wants the device flow passes EP.
+  const offline: KnownProvider = { ...github, hosts: ["127.0.0.1"], device: { ...github.device!, clientId: "" } };
+  const providers = opts.provider === null ? [] : [{ ...offline, ...opts.provider }];
   const statusEvents: string[] = [];
   let ghCalls = 0;
   const gh = opts.gh ?? (() => ({ ok: true, token: GH_TOKEN }) as GhToken);

@@ -22,12 +22,12 @@ export type KnownProvider = {
 };
 
 /**
- * TODO: Realm has no GitHub OAuth App yet, so the device-flow sign-in stays hidden. To turn it on,
- * register one (see docs/dev/getting-started.md, "GitHub sign-in for MCP"), tick "Enable Device Flow",
- * and put its client id here. A client id is public — the device flow sends no secret — so it ships in
- * the source. `REALM_GITHUB_CLIENT_ID` overrides it for a local build trying one out.
+ * Realm's GitHub OAuth App ("Realm", owned by 31Carlton7), registered with "Enable Device Flow" and
+ * non-expiring user tokens: the device flow keeps no refresh path, so an expiring token would need a
+ * fresh sign-in every eight hours. A client id is public — the device flow sends no secret — so it
+ * ships in the source. `REALM_GITHUB_CLIENT_ID` overrides it for a local build trying another app.
  */
-export const GITHUB_OAUTH_CLIENT_ID = process.env.REALM_GITHUB_CLIENT_ID ?? "";
+export const GITHUB_OAUTH_CLIENT_ID = process.env.REALM_GITHUB_CLIENT_ID ?? "Ov23li7V5Sa6RKuFKi9f";
 
 /** What GitHub's MCP server's tools reach: repositories, the orgs they belong to, and Actions. */
 const GITHUB_SCOPES = "repo read:org workflow";
