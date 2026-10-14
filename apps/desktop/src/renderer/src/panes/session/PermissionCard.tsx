@@ -28,8 +28,15 @@ const OPTIONS: { decision: PermissionDecision; label: string; kbd: string }[] = 
  */
 const ALWAYS_LABEL: Record<string, string> = { computer_act: "Always allow in this space" };
 
-const optionsFor = (toolName: string): typeof OPTIONS => {
-  const label = ALWAYS_LABEL[toolName];
+/** A password fill on a page of the password's own site (`page` on its input) keeps "always" for that
+ *  password on that page, in Realm's store, and the card still unlocks by Touch ID — so it says where. */
+const alwaysLabel = (toolName: string, input: unknown): string | undefined =>
+  toolName === "browser_fill_credential" && typeof (input as { page?: unknown } | null)?.page === "string"
+    ? "Always allow on this site"
+    : ALWAYS_LABEL[toolName];
+
+const optionsFor = (toolName: string, input?: unknown): typeof OPTIONS => {
+  const label = alwaysLabel(toolName, input);
   return label ? OPTIONS.map((o) => (o.decision === "allow_always" ? { ...o, label } : o)) : OPTIONS;
 };
 
@@ -104,7 +111,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       {preview && <div className="permission-preview"><ToolInputBody view={preview} /></div>}
       <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre ref={raw}>{prettyJson(permission.input)}</pre></details>
       <div className="permission-options">
-        {optionsFor(permission.toolName).map((o, i) => (
+        {optionsFor(permission.toolName, permission.input).map((o, i) => (
           <button key={o.decision} ref={(el) => { rows.current[i] = el; }} className="permission-option"
             aria-label={o.label} data-selected={i === selected || undefined} data-decision={o.decision}
             onFocus={() => setSelected(i)} onClick={() => onDecide(o.decision)}>

@@ -4,7 +4,7 @@ import {
   CREDENTIAL_2FA_NOTE, DOWNLOAD_DIRNAME, DOWNLOAD_MAX_BYTES, GENERATED_CREDENTIAL_NOTE,
   GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH,
   PANE_SHOW_WIRE_NAME, SCREENSHOT_DIRNAME, UPLOAD_MAX_FILES, formatUploadSize, loadErrorLine, normalizeOrigin, paneNotOpenError,
-  type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserDescribeResult,
+  type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type SiteCredential, type BrowserDescribeResult,
   type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserFillCredentialResult,
   type BrowserNavigateResult, type BrowserReadResult, type BrowserScreenshotResult,
   BrowserSnapshotScopeSchema, SNAPSHOT_SCOPE_PROPERTIES, type BrowserSnapshotResult, type BrowserUploadResult, type Browser,
@@ -243,14 +243,19 @@ const TOOLS: Tool[] = [
   {
     name: "browser_credentials",
     description:
-      "List the sign-ins saved on this machine — the user's own, from Realm's Settings, plus any Realm generated for an earlier browser_fill_credential: id, origin, username, label. Never returns passwords — Realm cannot give you one. Use an id with browser_fill_credential. Read-only.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      "List the passwords Realm can fill: the user's own (saved in Realm, imported from the Passwords app or another manager, or in their macOS login keychain when they turned that on) plus any Realm generated for an earlier browser_fill_credential: id, origin, username, label. " +
+      "Give browserId to list only the ones for the site that pane is on — exact origin first, then the rest of the site — which is the list to pick from before a fill. Never returns passwords — Realm cannot give you one. Use an id with browser_fill_credential. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: { browserId: { type: "string", description: "list only the passwords for the site this pane is on" } },
+      additionalProperties: false,
+    },
   },
   {
     name: "browser_fill_credential",
     description:
       "Type a password into a field without ever seeing it — either one the user saved, or a new one Realm generates for this page. Give the [ref=N] of the username or password field, plus EITHER credentialId (from browser_credentials) OR generate (to have Realm mint a strong password, save it under Settings → Sign-ins, and fill it). " +
-      "Both work the same way: Realm checks the pane's current origin, refuses if it is not the page the sign-in belongs to, asks the user to approve this specific fill, and unlocks it the way the user set for this profile (Touch ID unless they chose otherwise). You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
+      "Both work the same way: Realm checks the pane's current origin, refuses if it is not the site the sign-in belongs to, asks the user to approve this specific fill (they may answer Always allow on this site), and unlocks it the way the user set for this profile (Touch ID unless they chose otherwise). You never receive the value and cannot read it back, so generate is the way to set a password on a sign-up form: never put one in your reply for the user to copy. " +
       "A generated fill returns its new credentialId, which you use to fill the same value again (a confirm-password field, or signing in later). Two-factor prompts (Duo, Okta, an emailed code) are not automated: hand those to the user.",
     inputSchema: {
       type: "object",
@@ -360,6 +365,7 @@ const DoArgs = z.object({
   until: z.string().trim().min(1).max(MAX_LABEL).optional(),
 }).refine((a) => a.path.length > 0 || a.text !== undefined, { message: "give a path to walk or text to type", path: ["path"] });
 const DownloadArgs = z.object({ browserId: z.string().min(1), ref: z.number().int().positive() });
+const CredentialsArgs = z.object({ browserId: z.string().min(1).optional() });
 const FillCredentialArgs = z.object({
   browserId: z.string().min(1),
   ref: z.number().int().positive(),
@@ -531,18 +537,32 @@ const HANDLERS: Record<string, Handler> = {
     }
   },
 
-  browser_credentials: async (d, ctx) => {
+  browser_credentials: async (d, ctx, rawArgs) => {
+    const args = parseArgs(CredentialsArgs, rawArgs ?? {}); if ("error" in args) return args.error;
+    if (args.value.browserId) { const row = requireRow(d, ctx, args.value.browserId); if ("error" in row) return row.error; }
     // A team's role is offered what it was granted, and only that: the rest are the team's to know.
     const granted = d.vault?.grantedSignins(ctx.sessionId) ?? null;
-    const rows = (await listCredentials(d, ctx)).filter((c) => granted === null || granted.includes(c.id));
+    const site = args.value.browserId ? await siteCredentials(d, ctx, args.value.browserId) : null;
+    const rows = (site?.credentials ?? await listCredentials(d, ctx)).filter((c) => granted === null || granted.includes(c.id));
     if (rows.length === 0) {
-      return ok("No saved sign-ins. The user adds their own in Realm's Settings → Sign-ins, and there is no way for you to enroll a password of theirs. What you can do is have Realm make one: browser_fill_credential with `generate` mints a password for the page a pane is on, saves it here and types it, without ever telling you the value.");
+      const where = site ? ` for ${site.origin ?? "the page this pane is on"}` : "";
+      return ok(`No saved passwords${where}. The user adds their own in Realm's Settings ▸ Passwords, and there is no way for you to enroll a password of theirs. What you can do is have Realm make one: browser_fill_credential with \`generate\` mints a password for the page a pane is on, saves it here and types it, without ever telling you the value.`);
     }
-    // The user's own words from Settings (or, for a generated row, the ones an earlier call asked
-    // for) — not page-authored text, so no `fenceUntrusted`, but still clipped, because a long label
-    // in a tool result is a long label in the model's context.
-    const lines = rows.map((c) => `credentialId: ${c.id} — ${c.origin}${c.username ? ` · ${c.username}` : ""}${c.label ? ` · ${clip(c.label, 60)}` : ""}${c.generated ? " · generated by Realm" : ""}`);
-    return ok(`Saved sign-ins (no passwords — Realm cannot show you one):\n${lines.join("\n")}\n\n${CREDENTIAL_2FA_NOTE}`);
+    // The user's own words from Settings, an import or the keychain (or, for a generated row, the ones
+    // an earlier call asked for) — not page-authored text, so no `fenceUntrusted`, but still clipped,
+    // because a long label in a tool result is a long label in the model's context.
+    const lines = rows.map((c) => {
+      const s = c as SiteCredential;
+      const marks = [
+        c.generated ? "generated by Realm" : "",
+        c.source === "keychain" ? "from the login keychain" : c.source === "imported" ? "imported" : "",
+        s.match === "same-site" ? "same site, another address" : "",
+        s.agentAllowed ? "the user lets you fill it here without a card" : "",
+      ].filter(Boolean);
+      return `credentialId: ${c.id} — ${c.origin}${c.username ? ` · ${c.username}` : ""}${c.label ? ` · ${clip(c.label, 60)}` : ""}${marks.length ? ` · ${marks.join(" · ")}` : ""}`;
+    });
+    const head = site ? `Saved passwords for ${site.origin} (no passwords — Realm cannot show you one):` : "Saved passwords (no passwords — Realm cannot show you one):";
+    return ok(`${head}\n${lines.join("\n")}\n\n${CREDENTIAL_2FA_NOTE}`);
   },
 
   browser_fill_credential: async (d, ctx, rawArgs) => {
@@ -572,7 +592,8 @@ const HANDLERS: Record<string, Handler> = {
       // place they learn an account is about to exist with a password only Realm will hold.
       const gate = await d.broker.gate(
         ctx.sessionId, "browser_fill_credential", title,
-        { browserId: row.value.id, ref: args.value.ref, origin, username: generate.username, label: generate.label, generate: true },
+        // `always: false`: the card offers no "Always allow" for a password that does not exist yet.
+        { browserId: row.value.id, ref: args.value.ref, origin, username: generate.username, label: generate.label, generate: true, always: false },
         "browser_fill_credential", { alwaysPrompt: true },
       );
       if (!gate.allowed) return err(gate.reason);
@@ -596,10 +617,16 @@ const HANDLERS: Record<string, Handler> = {
     // The card is built from the CREDENTIAL's stored metadata (the user's own words, typed in
     // Settings) and the pane's live URL — never the page's text, and never the value. If the id is
     // unknown, say so now: a prompt for a credential that does not exist teaches nothing.
-    const credential = (await listCredentials(d, ctx)).find((c) => c.id === args.value.credentialId);
+    // Looked up among the passwords for the pane's SITE first, which is what says whether this one
+    // belongs to the page and whether the user has let it through here before; then among all of
+    // them, so a password for another site is still refused by main's origin gate in the usual words.
+    const site = await siteCredentials(d, ctx, row.value.id);
+    const onSite = site.credentials.find((c) => c.id === args.value.credentialId) ?? null;
+    const credential: BrowserCredential | undefined = onSite ?? (await listCredentials(d, ctx)).find((c) => c.id === args.value.credentialId);
     if (!credential) {
-      return err("refused: no saved sign-in has that id. browser_credentials lists what exists; the user enrolls new ones in Realm's Settings → Sign-ins.");
+      return err("refused: no saved password has that id. browser_credentials lists what exists; the user adds new ones in Realm's Settings ▸ Passwords.");
     }
+    const pageOrigin = onSite ? site.origin : null;
     const title = `Fill the saved sign-in for ${credential.origin}${credential.username ? ` (${credential.username})` : ""}${credential.label ? ` — ${clip(credential.label, 40)}` : ""} into the page on ${hostOf(live?.url)}`;
     // A team's role passes its grant first — for this sign-in, at its own origin's host — and is
     // refused, with a line in the team's log, before any card is raised. Main still checks the live
@@ -610,15 +637,30 @@ const HANDLERS: Record<string, Handler> = {
     if (check && "refuse" in check) return err(check.refuse);
     const who = { roleId: check?.roleId ?? null, runId: check?.runId ?? null };
     const unattended = check?.unattended === true;
-    // `alwaysPrompt`: this card appears for every fill in every mode, and answering "always" to it
-    // licenses nothing. See `GateOptions`. The one way past it is a grant's allow, which main sealed
-    // when the person turned it on in the Vault page; `preapproved` still refuses in a read-only mode.
+    /* Three ways through the card, and nothing else:
+       - a team's role: the card on every fill (`alwaysPrompt`), unless its grant's allow — sealed in
+         main when the person turned it on in the Vault page — says otherwise;
+       - anyone else, on a page of the password's own site: the card, which offers "Always allow on
+         this site". That answer is kept in main for THIS password on THIS exact origin, and after it
+         the card is skipped there — never the unlock, which main still asks for on every fill;
+       - `bypassPermissions` skips none of it (`promptUnderBypass`): a secret entering a page is not an
+         ordinary action. A read-only mode refuses before any of this. */
+    const teamRole = who.roleId !== null;
+    const standing = !teamRole && pageOrigin !== null;
+    const allowKey = `browser_fill_credential:${credential.id}@${pageOrigin ?? ""}`;
     const gate = await d.broker.gate(
-      ctx.sessionId, "browser_fill_credential", title,
+      ctx.sessionId, standing ? allowKey : "browser_fill_credential", title,
       // The input echoed onto the permission event — the card's "what was asked for" detail. Origin,
       // username and label, exactly as the spec requires, and structurally nothing else.
-      { browserId: row.value.id, ref: args.value.ref, origin: credential.origin, username: credential.username, label: credential.label },
-      "browser_fill_credential", unattended ? { preapproved: true } : { alwaysPrompt: true },
+      { browserId: row.value.id, ref: args.value.ref, origin: credential.origin, username: credential.username, label: credential.label, ...(standing ? { page: pageOrigin } : { always: false }) },
+      "browser_fill_credential",
+      unattended ? { preapproved: true }
+      : standing ? {
+        promptUnderBypass: true,
+        preapproved: onSite?.agentAllowed === true,
+        onAlwaysAllow: () => { void d.bridge.call("credentialAllow", { profileId: profileIdOf(d, ctx), credentialId: credential.id, origin: pageOrigin }).catch(() => {}); },
+      }
+      : { alwaysPrompt: true },
     );
     if (!gate.allowed) {
       d.vault?.note(ctx, { secret, host, refused: gate.reason }, who);
@@ -628,6 +670,8 @@ const HANDLERS: Record<string, Handler> = {
     return runTracked(d, ctx.spaceId, row.value.id, title, async () => {
       const result = (await d.bridge.call("fillCredential", {
         browserId: row.value.id, ref: args.value.ref, credentialId: credential.id, profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId,
+        // The page the card named. Main fills only if the live page is exactly this origin.
+        ...(pageOrigin ? { pageOrigin } : {}),
         ...(who.roleId ? { roleId: who.roleId } : {}), ...(who.runId ? { runId: who.runId } : {}),
       })) as BrowserActResult;
       d.vault?.note(ctx, result.ok ? { secret, host, how: unattended ? "unattended" : "card" } : { secret, host, refused: result.refused ?? "not filled" }, who);
@@ -1253,6 +1297,17 @@ async function listCredentials(d: Deps, ctx: ProviderCallContext): Promise<Brows
     return Array.isArray(result?.credentials) ? result.credentials : [];
   } catch {
     return [];
+  }
+}
+
+/** The passwords for the site a pane is on, from Electron main, which reads the pane's own URL: the
+ *  origin it found (null when the pane is not on an http(s) page) and the rows, metadata only. */
+async function siteCredentials(d: Deps, ctx: ProviderCallContext, browserId: string): Promise<{ origin: string | null; credentials: SiteCredential[] }> {
+  try {
+    const result = (await d.bridge.call("credentials", { profileId: profileIdOf(d, ctx), spaceId: ctx.spaceId, browserId })) as { origin?: unknown; credentials?: SiteCredential[] };
+    return { origin: typeof result?.origin === "string" ? result.origin : null, credentials: Array.isArray(result?.credentials) ? result.credentials : [] };
+  } catch {
+    return { origin: null, credentials: [] };
   }
 }
 
