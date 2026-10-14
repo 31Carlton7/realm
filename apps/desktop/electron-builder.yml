@@ -82,6 +82,11 @@ win:
   icon: build/icon.png
   # No certificate in the env, so nothing is signed: SmartScreen warns on first run ("More info" →
   # "Run anyway"), which docs/platforms.md says.
+# The deb's package and file take a plain name: npm's "@realm/desktop" is not a Debian package name,
+# and its slash made fpm write into a release/@realm directory that does not exist.
+deb:
+  packageName: realm
+  artifactName: realm_${version}_${arch}.${ext}
 nsis:
   oneClick: false
   perMachine: false
