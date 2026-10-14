@@ -2379,6 +2379,22 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(sw).not.toContain("corner-shape");
   });
 
+  it("an ON switch stays the accent under the pointer: lighter on the dark face, deeper on the light", () => {
+    /* `.switch:hover:not(:disabled)` is (0,3,0) and outranks `.switch:checked` (0,2,0), so a lit
+       switch used to take the OFF track's grey on hover. The checked hover is its own rule, one
+       class more specific, on the accent moved by a per-mode step — never a neutral. */
+    const on = bodiesFor(".switch:checked:hover:not(:disabled)").join(" ");
+    expect(on).toContain("background: oklch(from var(--rl-accent) calc(l + var(--accent-hover-step)) c h)");
+    expect(on).not.toMatch(/--mark|--hover/);
+    // The off track's hover is unchanged.
+    expect(bodiesFor(".switch:hover:not(:disabled)").join(" ")).toContain("background: var(--mark-strong)");
+    const darkBlock = tokensCss.match(/:root \{[^}]*--accent: oklch[^}]*\}/)?.[0] ?? "";
+    const lightBlock = tokensCss.match(/:root\[data-mode="light"\] \{[^}]*--accent: oklch[^}]*\}/)?.[0] ?? "";
+    const step = (block: string) => Number(block.match(/--accent-hover-step: (-?[\d.]+);/)?.[1]);
+    expect(step(darkBlock)).toBeGreaterThan(0);
+    expect(step(lightBlock)).toBeLessThan(0);
+  });
+
   it("a count OVERHANGS its glyph in the rail, and wears the count pill's own colours", () => {
     /* The feed's count used to be a pill in a destination row, where an opaque row sat under it and
        there was width for padding. It is a badge on a 26px button now, and two things have to hold
@@ -3154,6 +3170,14 @@ describe("the browser pane's mark", () => {
     // `both` would hold the animation's implicit end over the property for good, and the dim below
     // would land in one frame instead of on its transition.
     expect(bodiesFor(".reach-mark-shape").join(" ")).toMatch(/animation: rl-reach-in var\(--dur-move\) var\(--ease-out-strong\) backwards/);
+  });
+
+  it("shimmers like a working label: the band's core goes past the accent — lighter on dark, deeper on light", () => {
+    /* The band used to peak at the accent itself, over the mark's own dimmed accent: a wipe of one
+       colour rather than a light crossing it. The core is the shimmer's bright end, per face. */
+    expect(bodiesFor(".reach-mark-shine").join(" ")).toContain("stop-color: var(--reach-shine)");
+    expect(bodiesFor(".reach-mark").join(" ")).toContain("--reach-shine: oklch(from var(--rl-accent) .97 .04 h)");
+    expect(bodiesFor(':root[data-mode="light"] .reach-mark').join(" ")).toContain("--reach-shine: oklch(from var(--rl-accent) calc(l - .16) c h)");
   });
 
   it("dims and runs a glint only while busy, and the glint is a loop the quiet rules pause", () => {
