@@ -1,6 +1,7 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { MenuItem } from "./Menu";
 import { canQuickLook, canShare, quickLook, shareFile } from "./file-actions";
+import { capabilities } from "../platform";
 
 /** The remove row's tooltip: what goes, and what never does. */
 export const REMOVE_FROM_LIBRARY_TITLE = "Deletes Realm's own copy. The file you added it from stays where it is.";
@@ -24,7 +25,7 @@ export function fileMenuItems({ path, onOpen, shareFrom, onRemove }: {
     { label: "Open", onSelect: onOpen },
     ...(canQuickLook() ? [{ label: "Quick Look", kbd: "Space", onSelect: () => quickLook(path) } as MenuItem] : []),
     ...(canShare() ? [{ label: "Share…", onSelect: () => shareFile(path, shareFrom()) } as MenuItem] : []),
-    { label: "Reveal in Finder", onSelect: () => { void window.realm?.files?.reveal?.(path); } },
+    { label: `Reveal in ${capabilities().fileManager}`, onSelect: () => { void window.realm?.files?.reveal?.(path); } },
     { label: "Copy path", onSelect: () => { void navigator.clipboard?.writeText?.(path); } },
     ...(onRemove ? [{ kind: "separator" } as MenuItem, removeFromLibraryItem(onRemove)] : []),
   ];

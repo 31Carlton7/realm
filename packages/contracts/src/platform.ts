@@ -35,6 +35,8 @@ export type PlatformCapabilities = {
   autoUpdate: boolean;
   /** Quick Look previews and thumbnails (`qlmanage`). */
   quickLook: boolean;
+  /** The system Share menu on a file. */
+  shareMenu: boolean;
   /** Seatbelt (`sandbox-exec`), the execution sandbox's enforcement. */
   executionSandbox: boolean;
   /** What the OS calls the app that "Show in …" opens. */
@@ -56,6 +58,7 @@ export function platformCapabilities(platform: string): PlatformCapabilities {
     dockIcons: mac,
     autoUpdate: mac,
     quickLook: mac,
+    shareMenu: mac,
     executionSandbox: mac,
     fileManager: mac ? "Finder" : os === "windows" ? "File Explorer" : "Files",
   };

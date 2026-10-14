@@ -5,7 +5,7 @@ describe("platformCapabilities", () => {
   it("gives a Mac every Mac feature", () => {
     const mac = platformCapabilities("darwin");
     expect(mac.os).toBe("mac");
-    for (const k of ["windowMaterial", "insetTrafficLights", "accessibility", "simulators", "keychain", "laya", "macCli", "dockIcons", "autoUpdate", "quickLook", "executionSandbox"] as const) {
+    for (const k of ["windowMaterial", "insetTrafficLights", "accessibility", "simulators", "keychain", "laya", "macCli", "dockIcons", "autoUpdate", "quickLook", "shareMenu", "executionSandbox"] as const) {
       expect(mac[k], k).toBe(true);
     }
     expect(mac.fileManager).toBe("Finder");

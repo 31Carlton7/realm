@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
 import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, VaultAllow, VaultKey, VaultKeyInput, VaultSecrets, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
+import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
@@ -31,6 +32,9 @@ contextBridge.exposeInMainWorld("realm", {
    *  platform where the window has a material behind it, so the sidebar's transparency has nothing
    *  to reveal anywhere else (main/index.ts gives Windows and Linux an opaque backgroundColor). */
   platform: process.platform,
+  /** What this OS can do for Realm — the Mac-only features (computer use, simulators, Laya, Dock
+   *  icons, Quick Look…) are hidden where this says they do not exist (renderer/src/platform.ts). */
+  capabilities: platformCapabilities(process.platform),
   /** A menu the OS draws (main/native-menu.ts): rows described here, answered with the chosen row's
    *  id, or null. The one surface that can open over a browser pane's page, and how the app's own
    *  menus are drawn on a Mac. `closeMenu` takes down the one that is up when its owner goes first. */

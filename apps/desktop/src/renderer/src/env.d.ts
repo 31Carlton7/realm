@@ -47,6 +47,9 @@ interface Window {
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
+    /** What this OS can do for Realm (packages/contracts/src/platform.ts). Absent in jsdom; read it
+     *  through `capabilities()` in platform.ts, which answers for a Mac there. */
+    capabilities?: import("@realm/contracts").PlatformCapabilities;
     /** Settings ▸ Appearance ▸ Reduce motion: main changes what this window reports for
      *  `prefers-reduced-motion`. Optional like the other late bridges — jsdom has none. */
     motion?: { set(pref: import("@realm/contracts").ReducedMotionPref): Promise<void> };
@@ -305,7 +308,7 @@ interface Window {
 /** Mirrors UpdateState/UpdateStatus in main/updater.ts — the Updates row's payload. Every kind is a
  *  fact main reported; `disabled` carries the reason so the row can say why, honestly. */
 type UpdateState =
-  | { kind: "disabled"; reason: "dev" | "unsigned" | "no-feed" }
+  | { kind: "disabled"; reason: "dev" | "platform" | "unsigned" | "no-feed" }
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "up-to-date" }

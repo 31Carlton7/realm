@@ -220,7 +220,9 @@ const DISPLAY_KEYS: Readonly<Record<string, string>> = {
  * An unparseable key comes back verbatim rather than as some fallback glyph: showing the user the
  * string their file actually contains is the whole of what lets them find the typo.
  */
-export function displayKeyChord(text: string, platform: string = displayPlatform): string {
+export function displayKeyChord(text: string, o?: { platform?: string }): string {
+  // An options bag, not a positional platform: `chords.map(displayKeyChord)` hands it an index.
+  const platform = o?.platform ?? displayPlatform;
   const chord = parseKeyChord(text);
   if (chord === null) return text;
   if (platform !== "darwin") {

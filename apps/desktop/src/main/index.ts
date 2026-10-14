@@ -1426,7 +1426,7 @@ ipcMain.handle("mac:reveal-app", () => { shell.showItemInFolder(appBundlePath(ap
 let updater: RealmUpdater;
 updater = new RealmUpdater({
   version: app.getVersion(),
-  decision: updaterDecision({ packaged: app.isPackaged, signed: __REALM_SIGNED_BUILD__, feedLive: UPDATE_FEED_LIVE }),
+  decision: updaterDecision({ packaged: app.isPackaged, signed: __REALM_SIGNED_BUILD__, feedLive: UPDATE_FEED_LIVE, autoUpdate: platform.autoUpdate }),
   load: async () => (await import("electron-updater")).autoUpdater,
   onDownloaded: (version) => void labTakesUpdate(labUpdate(), version).then((taken) => {
     // On a lab the update window installs it between team runs; nobody is there for a dialog.
