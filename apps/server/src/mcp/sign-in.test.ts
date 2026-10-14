@@ -67,6 +67,7 @@ describe("readGhToken — the GitHub CLI's existing sign-in", () => {
     expect(list[0]).toBe("/custom/bin/gh");
     expect(list).toContain("/opt/homebrew/bin/gh");
     expect(ghCandidates({ PATH: "/usr/bin:/bin" })).toContain("/opt/homebrew/bin/gh");
+    expect(ghCandidates({ PATH: "/custom/bin", REALM_GH: "/elsewhere/gh" })).toEqual(["/elsewhere/gh"]);
   });
 
   it("is signed out when gh exits non-zero, or prints nothing", async () => {

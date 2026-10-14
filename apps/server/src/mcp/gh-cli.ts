@@ -10,11 +10,14 @@ export type GhToken = { ok: true; token: string } | { ok: false; reason: "missin
 export type GhRun = (bin: string, args: string[]) => Promise<string>;
 
 /**
- * Where `gh` lives: PATH first, so a gh someone chose to put ahead of the others is the one asked, then
+ * Where `gh` lives: `REALM_GH` when set, else PATH first, so a gh someone chose to put ahead of the others is the one asked, then
  * the usual install locations by name — a Mac app launched from the Dock gets launchd's PATH, which
  * has no Homebrew in it.
  */
 export function ghCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+  // A gh named outright wins, alone: one installed somewhere none of these reach, or a live check's
+  // stand-in, which PATH cannot carry because main puts the login shell's PATH first.
+  if (env.REALM_GH) return [env.REALM_GH];
   const exe = process.platform === "win32" ? "gh.exe" : "gh";
   const known = process.platform === "win32"
     ? [join(env.ProgramFiles ?? "C:\\Program Files", "GitHub CLI", exe)]
