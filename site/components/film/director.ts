@@ -3,7 +3,7 @@ import { HOLE, type HoleDirection, type ScriptedDrop } from "@/components/realms
 import { basis, clamp, Follow, lerp, project, smooth, smoother, type View, type Vec3 } from "@/components/realms/camera"
 import type { ScreenImage } from "@/components/realms/Screen"
 import { presented, type DirectedRealm, type DirectedScreen, type Direction, type Director } from "@/components/realms/stage"
-import { bob, type Pose } from "@/components/realms/world"
+import { bob, doorCorners, type Pose } from "@/components/realms/world"
 import { partImage, sceneImage } from "@/lib/pictures"
 
 /**
@@ -14,6 +14,7 @@ import { partImage, sceneImage } from "@/lib/pictures"
  *   0.0  deep space, a slow push up the route; one doorway ahead brightens
  *   2.3  the wordmark, then the line under it
  *   5.2  that doorway is thrown open and Realm's window comes out of it; the camera eases in
+ *   7.45 the window is drawn back up into the doorway, which flares as it takes it
  *   7.6  three stops, each a realm whose picture comes out of its doorway, with the site's own line
  *  14.0  the camera rises and turns to the black hole; a realm drops in and comes back out
  *  17.2  the sky dips to black under the end card while its clock runs down; still from 18.5
@@ -22,7 +23,8 @@ import { partImage, sceneImage } from "@/lib/pictures"
  * lays its pictures and words out from `overlay(t)`. Both are pure, so any frame can be drawn alone.
  */
 
-export const FILM = { width: 1920, height: 1080, duration: 20 } as const
+/** The film's frame and length, and the moment from which every frame is the same one: the end card held. */
+export const FILM = { width: 1920, height: 1080, duration: 20, still: 18.5 } as const
 
 const W = FILM.width
 const H = FILM.height
@@ -62,7 +64,9 @@ function onPage(view: View, x: number, y: number, depth: number): Vec3 {
   return add(view.eye, mul(ray, depth))
 }
 
-const level = (eye: Vec3, yaw: number, pitch = 0): View => ({ eye, yaw: yaw * DEG, pitch: pitch * DEG, focal: FOCAL, px: W / 2, py: H / 2 })
+/** A view from `eye`, its lens shifted `shift` px so the picture sits that much lower: the landing page's
+ *  way of composing up and down without tilting, so every realm's verticals stay vertical. */
+const level = (eye: Vec3, yaw: number, pitch = 0, shift = 0): View => ({ eye, yaw: yaw * DEG, pitch: pitch * DEG, focal: FOCAL, px: W / 2, py: H / 2 + shift })
 
 // ---- the camera -----------------------------------------------------------------------------------
 
@@ -79,6 +83,13 @@ function hermite(p0: number, p1: number, m0: number, m1: number, s: number, d: n
   const s3 = s2 * s
   return (2 * s3 - 3 * s2 + 1) * p0 + (s3 - 2 * s2 + s) * m0 * d + (-2 * s3 + 3 * s2) * p1 + (s3 - s2) * m1 * d
 }
+
+/**
+ * The lens shift at `t`, laid over the camera after its spring so it lands exactly when it says: none,
+ * except at the close of the window shot, where the picture is lowered so the doorway the window came out
+ * of stays in view above it until the window has gone back in, and is centred again by the first stop.
+ */
+const lensShift = (t: number) => WINDOW_SHIFT * span(t, 6.2, 7.4) * (1 - span(t, 7.85, 8.15))
 
 /** The camera the path asks for at `t`, before the spring. */
 function aim(keys: CameraKey[], t: number): View {
@@ -143,13 +154,17 @@ const cornerOf = (id: PictureId, rect: Rect) => (PICTURES[id].radius / PICTURES[
 
 /** The window's realm, the doorway that brightens first, and the window under it. */
 const WINDOW = { mid: [4, -40, 2.4] as Vec3, half: [4.6, 2.875] as const }
+/** The window's light reaching out and the window up in it, and the window drawn back into the doorway. */
+const WINDOW_TIMES = { reach: 5.42, show: 5.72, back: [7.45, 7.85] as const }
+/** How far the lens is shifted at the close of the window shot (px). */
+const WINDOW_SHIFT = 120
 const FIRST_REALM: Vec3 = [6.6, -40.6, 6.75]
 const FIRST_SIZE = 1.35
 
 /** The opening's push up the route, toward the window's place, and the approach once it is out. */
 const OPEN = { from: [4, -100, 2.4] as Vec3, to: [4, -64, 2.4] as Vec3, until: 5.6 }
 const PUSH_SPEED = (OPEN.to[1] - OPEN.from[1]) / OPEN.until
-const CLOSE: Vec3 = [4, -51, 2.4]
+const CLOSE: Vec3 = [4, -52.5, 2.4]
 
 /** A stop where a picture comes out of its realm: the camera, and where on the page the picture rests. */
 type Stop = {
@@ -198,7 +213,7 @@ const WORDS: Record<WordsId, { in: [number, number]; out: [number, number] }> = 
 }
 
 /** The sky's clock runs down to a stop under the end card, so its last moment is a still. */
-const CLOCK = { slows: 17.6, stops: 18.5 }
+const CLOCK = { slows: 17.6, stops: FILM.still }
 function skyClock(t: number) {
   const L = CLOCK.stops - CLOCK.slows
   const x = clamp((t - CLOCK.slows) / L, 0, 1)
@@ -257,7 +272,8 @@ export function createFilm(): FilmDirector {
   const cameraAt = (t: number): View => {
     const x = clamp(Math.min(t, CLOCK.stops), 0, FILM.duration) * TRACK_RATE
     const i = Math.min(Math.floor(x), path.length - 2)
-    return between(path[i]!, path[i + 1]!, x - i)
+    const view = between(path[i]!, path[i + 1]!, x - i)
+    return { ...view, py: view.py + lensShift(t) }
   }
 
   // ---- the realms the film visits ----
@@ -305,7 +321,33 @@ export function createFilm(): FilmDirector {
     return { reach, shown, leaving }
   }
 
-  const windowTiming = (t: number) => timing(t, 5.42, 5.72, 7.62)
+  /** The window's realm, where it hangs at `clock`, and the middle of its doorway. */
+  const firstPose = (clock: number) => posed(FIRST_REALM, 0, clock, OPEN.to, FIRST_SIZE, -0.42, 0.62)
+  const doorOf = (pose: Pose): Vec3 => {
+    const door = doorCorners(pose)
+    return mul(add(add(door[0], door[1]), add(door[2], door[3])), 0.25)
+  }
+
+  /**
+   * Realm's window at `t`: the light reaching out of its doorway and the window up in it, as each stop's
+   * picture comes; then, as the camera lifts off, drawn back into that doorway, the way it came out of it:
+   * up to the opening and smaller as it goes, opaque until it is small, and gone into the light over the
+   * last third, with nothing of the field kept from under it while it goes, so no dark slab is left.
+   */
+  const windowAt = (t: number, door: Vec3) => {
+    const [from, to] = WINDOW_TIMES.back
+    const u = clamp((t - from) / (to - from), 0, 1)
+    const pull = smoother(u)
+    const k = lerp(1, 0.04, pull)
+    return {
+      reach: span(t, WINDOW_TIMES.reach, WINDOW_TIMES.reach + 0.5),
+      shown: span(t, WINDOW_TIMES.show, WINDOW_TIMES.show + 0.42) * (1 - smooth((u - 2 / 3) * 3)),
+      leaving: u > 0,
+      mid: add(WINDOW.mid, mul(sub(door, WINDOW.mid), pull)),
+      half: [WINDOW.half[0] * k, WINDOW.half[1] * k] as [number, number],
+      plate: u > 0 ? 0 : undefined,
+    }
+  }
   const stopTiming = (t: number, k: number) => timing(t, beatAt(k) - 0.18, beatAt(k) + 0.02, beatAt(k) + BEAT.hold + 0.15)
 
   // ---- the words ----
@@ -347,16 +389,19 @@ export function createFilm(): FilmDirector {
       const realms: DirectedRealm[] = []
       const screens: DirectedScreen[] = []
 
-      // The window's realm: lit as the push begins, thrown open to let the window out, then left lit.
-      const first = windowTiming(t)
+      // The window's realm: lit as the push begins, thrown open to let the window out, then left lit, and
+      // flaring as it takes the window back in.
+      const pose = firstPose(clock)
+      const first = windowAt(t, doorOf(pose))
+      const takes = span(t, 7.62, 7.85) * (1 - span(t, 7.9, 8.5))
       realms.push({
-        pose: posed(FIRST_REALM, 0, clock, OPEN.to, FIRST_SIZE, -0.42, 0.62),
+        pose,
         glow: lerp(0.04, 1.1, span(t, 0.9, 2.4)),
-        open: Math.max(0.14 * span(t, 1.9, 2.7), span(t, 5.2, 5.5)) * (1 - 0.7 * span(t, 6.5, 7.6)),
+        open: Math.min(1, Math.max(0.14 * span(t, 1.9, 2.7), span(t, 5.2, 5.5)) * (1 - 0.7 * span(t, 6.5, 7.6)) + 0.6 * takes),
       })
       if (first.reach > 0 || first.shown > 0) {
-        const rect = rectOf(view, WINDOW.mid, WINDOW.half, first.shown)
-        if (rect) screens.push({ rect, corner: cornerOf("window", rect), shown: first.shown, realm: 0, mid: WINDOW.mid, half: WINDOW.half, reach: first.reach, leaving: first.leaving })
+        const rect = rectOf(view, first.mid, first.half, first.shown)
+        if (rect) screens.push({ rect, corner: cornerOf("window", rect), shown: first.shown, realm: 0, mid: first.mid, half: first.half, reach: first.reach, leaving: first.leaving, plate: first.plate })
       }
 
       STOPS.forEach((stop, k) => {
@@ -443,8 +488,8 @@ export function createFilm(): FilmDirector {
         words[id] = { opacity: smooth((t - w.in[0]) / (w.in[1] - w.in[0])) * (1 - out), blur: (1 - into) * 10 + out * 6, rise: (1 - into) * 22 }
       }
       const pictures = {} as Record<PictureId, PictureState | null>
-      const first = windowTiming(t)
-      const windowRect = first.shown > 0 ? rectOf(view, WINDOW.mid, WINDOW.half, first.shown) : null
+      const first = windowAt(t, doorOf(firstPose(skyClock(t))))
+      const windowRect = first.shown > 0 ? rectOf(view, first.mid, first.half, first.shown) : null
       pictures.window = windowRect ? { rect: windowRect, shown: first.shown, corner: cornerOf("window", windowRect) } : null
       STOPS.forEach((stop, k) => {
         const at = stopTiming(t, k)

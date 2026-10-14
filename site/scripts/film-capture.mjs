@@ -160,6 +160,7 @@ try {
   // A development server draws its badge in the corner; it is not part of the film.
   await page.evaluate(`document.querySelectorAll("nextjs-portal").forEach((n) => n.remove())`)
   const duration = await page.evaluate("window.__film.duration")
+  const still = await page.evaluate("window.__film.still ?? null")
 
   if (args.stills) {
     mkdirSync(dir, { recursive: true })
@@ -177,6 +178,11 @@ try {
     const count = Math.round((to - from) * fps)
     const draft = Boolean(args.draft)
     const out = resolve(String(args.out))
+    // From `still` on every frame is the same one. Left alone, x264 keeps refining its P-frames against
+    // that one picture, so the held end card shimmers by a few levels at its edges; a keyframe at the
+    // first held frame, and nothing spent on the rest, holds it bit for bit.
+    const held = still === null ? -1 : Math.round(still * fps) - first
+    const hold = held >= 0 && held < count - 1 ? ["-force_key_frames", String(held / fps), "-x264-params", `zones=${held + 1},${count - 1},q=40`] : []
     ffmpeg = spawn(
       "ffmpeg",
       [
@@ -186,6 +192,7 @@ try {
         // carry): a blue film shifts visibly under the BT.601 default.
         "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv",
         "-c:v", "libx264", "-preset", draft ? "veryfast" : String(args.preset ?? "slow"), "-crf", String(args.crf ?? (draft ? 20 : 14)),
+        ...hold,
         "-r", String(fps), "-movflags", "+faststart",
         out,
       ],

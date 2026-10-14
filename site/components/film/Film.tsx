@@ -14,8 +14,8 @@ import { createFilm, FILM, PICTURES, type Overlay, type PictureId, type WordsId 
 declare global {
   interface Window {
     /** The film, for the script that records it (scripts/film-capture.mjs): `seek` resolves once that
-     *  frame is drawn and on screen. */
-    __film?: { duration: number; ready: Promise<void>; seek(t: number): Promise<void> }
+     *  frame is drawn and on screen, and every frame from `still` on is the same one. */
+    __film?: { duration: number; still: number; ready: Promise<void>; seek(t: number): Promise<void> }
   }
 }
 
@@ -107,6 +107,7 @@ export function Film() {
     let seekFrame: (t: number) => Promise<void> = async () => {}
     window.__film = {
       duration: FILM.duration,
+      still: FILM.still,
       ready,
       seek: async (t) => {
         await ready

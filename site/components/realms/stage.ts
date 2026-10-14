@@ -397,7 +397,8 @@ export type DirectedRealm = { pose: Pose; glow: number; open: number; blue?: num
  * A picture out of a doorway: its rect on the page and its corner (px); how far it has come up (0..1);
  * the realm (an index into `realms`) whose doorway it came out of; its middle and half size in the
  * world; how far that doorway's light has reached out to it (0..1); and whether it is on its way back
- * in, when the light goes back with it.
+ * in, when the light goes back with it. `plate` is how far it keeps the field out from under it: by
+ * default that comes up with the picture, so nothing of the sky is seen through one still arriving.
  */
 export type DirectedScreen = {
   rect: Rect
@@ -408,6 +409,7 @@ export type DirectedScreen = {
   half: readonly [number, number]
   reach: number
   leaving: boolean
+  plate?: number
 }
 
 /** A film: what the world is at a moment, and which realms of the sky stand in its way. */
@@ -911,7 +913,7 @@ async function build(gpu: Gpu, output: Surface, director?: Director): Promise<St
       const [left, top, w, h] = screen.rect
       if (screen.shown > 0.001 && panels.length < PANELS * 2) {
         panels.push([left, top, w, h], [1, screen.corner, screen.shown, 0])
-        plates.push([left, top, w, h], [screen.corner, smooth(screen.shown / 0.35), 0, 0])
+        plates.push([left, top, w, h], [screen.corner, screen.plate ?? smooth(screen.shown / 0.35), 0, 0])
       }
       const realm = shot.realms[screen.realm]
       const reach = screen.leaving ? screen.shown : Math.max(screen.reach, screen.shown)
