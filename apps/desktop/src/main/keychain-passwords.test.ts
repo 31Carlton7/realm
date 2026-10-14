@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { tempDir } from "@realm/test-utils";
 import { keychainSource, keychainSourceFor, parseItem } from "./keychain-passwords";
 
 const item = { server: "example.com", account: "ada", protocol: "https" as const, port: 0, path: "", label: "example.com", modified: 5 };
@@ -56,7 +56,7 @@ describe("parseItem", () => {
 const helper = join(__dirname, "..", "..", "native", "bin", "realmkeychain");
 describe.skipIf(process.platform !== "darwin" || !existsSync(helper))("the helper, on a scratch keychain", () => {
   it("lists metadata and reads one password", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-kc-test-"));
+    const dir = tempDir("realm-kc-test-");
     const kc = join(dir, "scratch.keychain-db");
     try {
       execFileSync("security", ["create-keychain", "-p", "scratch", kc]);
