@@ -307,8 +307,10 @@ async function shimmerFace(c, face) {
     const xs = Array.from({ length: 13 }, (_, k) => box.x + 2 + (k * (box.w - 4)) / 12);
     // The mark's middle band — clear of the doorway, which runs from the centre to the lower right.
     const row = await pixels(c, xs.map((x) => [x, box.y + box.h * 0.3]));
+    // The shine is lighter than the mark on the dark face and deeper on the light one.
     const l = row.map(lum);
-    samples.push({ peakAt: l.indexOf(Math.max(...l)), spread: Math.round(Math.max(...l) - Math.min(...l)) });
+    const peak = face === "dark" ? Math.max(...l) : Math.min(...l);
+    samples.push({ peakAt: l.indexOf(peak), spread: Math.round(Math.max(...l) - Math.min(...l)) });
     if (i < 3) await shot(c, `shimmer-${face}-${i}`, { x: box.x - 16, y: box.y - 16, width: box.w + 32, height: box.h + 32 }, 6);
     await sleep(190);
   }
@@ -408,8 +410,10 @@ async function main() {
   // Reduced motion: the mark is simply drawn, nothing crosses it.
   await c.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await sleep(400);
-  const still = await evalIn(c, `(() => { const g = ${PANE}?.querySelector('.reach-mark-glint, .reach-mark-shine'); return g ? getComputedStyle(g).display : "absent"; })()`);
-  check("reduced motion: no light crosses the mark", still === "none" || still === "absent", still);
+  const still = await evalIn(c, `(() => { const g = ${PANE}?.querySelector('.reach-mark-glint');
+    return { reduce: matchMedia('(prefers-reduced-motion: reduce)').matches, glint: g ? getComputedStyle(g).display : "absent",
+      connecting: !!${PANE}?.querySelector('.browser-connecting'), error: !!${PANE}?.querySelector('.browser-error') }; })()`);
+  check("reduced motion: no light crosses the mark", still.reduce && (still.glint === "none" || still.glint === "absent"), still);
 }
 
 try {
