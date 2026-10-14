@@ -1422,7 +1422,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       catalog: (sessionId, spaceId) => mcpGateway.catalogFor(sessionId, spaceId),
       connections: (spaceId) => mcp.list(spaceId).servers,
       skills: (spaceId) => skills.list(spaceId),
-      models: (sessionId) => agentRunsFinal.catalogFor(sessionId),
       items, laya: () => laya.currentMode(),
     }),
   ]));

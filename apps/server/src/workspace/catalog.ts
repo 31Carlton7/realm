@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { DelegableModel, Item, LayaMode, McpServer, Skill } from "@realm/contracts";
+import type { Item, LayaMode, McpServer, Skill } from "@realm/contracts";
 import type { ProviderCallContext, ProviderCatalogEntry } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
 import type { WorkspaceToolGroup } from "./agent-tools";
@@ -11,7 +11,7 @@ import type { WorkspaceToolGroup } from "./agent-tools";
  * The preamble (`mcp/capabilities.ts`) names every tool once, at session start, and cannot say more
  * without costing every turn of every session. This is the rest, read when it matters: which groups
  * this space switched off and which this Mac cannot offer, the user's connections and whether each is
- * signed in, the skills and sub-agent models on hand, the panes open — and what Realm does that no
+ * signed in, the skills on hand, the panes open — and what Realm does that no
  * tool reaches, so an agent can say where the user does it instead of saying it cannot be done.
  *
  * Nothing here is a list someone keeps by hand. The tool groups and their tools are the gateway's own
@@ -26,8 +26,6 @@ export type CatalogDeps = {
   /** The space's MCP server rows, as the Connections page lists them (`McpService.list`). */
   connections: (spaceId: string) => McpServer[];
   skills: (spaceId: string) => { root: string; skills: Skill[] };
-  /** What a sub-agent can be put on (`AgentRunService.catalogFor`). */
-  models: (sessionId: string) => Promise<{ models: DelegableModel[] }>;
   items: { list(spaceId: string): Item[] };
   laya: () => LayaMode;
 };
@@ -80,7 +78,7 @@ const TOOLS: Tool[] = [
   {
     name: "realm_capabilities",
     description:
-      "Everything Realm can do for you right now: every Realm tool group with what each tool is for, which groups are off in this space or unavailable on this Mac and who can change that, the user's connections (MCP servers) and whether each is signed in, the skills, sub-agent models and panes this space has, and what Realm does that no tool reaches. Call it before telling the user Realm cannot do something, and when a task needs a capability you have not seen. Give `group` (e.g. \"realm-browser\") for that group's tools in full. Read-only.",
+      "Everything Realm can do for you right now: every Realm tool group with what each tool is for, which groups are off in this space or unavailable on this Mac and who can change that, the user's connections (MCP servers) and whether each is signed in, the skills and panes this space has, and what Realm does that no tool reaches. Call it before telling the user Realm cannot do something, and when a task needs a capability you have not seen. Give `group` (e.g. \"realm-browser\") for that group's tools in full. Read-only.",
     inputSchema: {
       type: "object",
       properties: { group: { type: "string", description: "one tool group, such as realm-browser, for its tools' whole descriptions" } },
@@ -119,12 +117,6 @@ async function capabilities(d: CatalogDeps, ctx: ProviderCallContext, raw: unkno
   const servers = d.connections(ctx.spaceId);
   lines.push("", "## Connections (the user's MCP servers)");
   lines.push(...(servers.length > 0 ? servers.map(connectionLine) : ["None yet. The user adds them on the Connections page; name the one that would help."]));
-
-  const models = await d.models(ctx.sessionId).then((m) => m.models).catch(() => [] as DelegableModel[]);
-  if (models.length > 0) {
-    lines.push("", "## Models a sub-agent can run on (`constraints.model`)");
-    lines.push(models.map((m) => `${m.label}${m.ready ? "" : " (not ready)"}`).join(", "));
-  }
 
   const { root, skills } = d.skills(ctx.spaceId);
   const on = skills.filter((s) => s.enabled && s.valid);

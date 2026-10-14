@@ -147,7 +147,7 @@ const BLOCKS: Record<string, string> = {
   "realm-workspace":
     "- **Realm itself.** `realm_capabilities` is the whole catalog, live: every Realm tool and what it is for, " +
     "what is switched off and why, the user's connections and whether each is connected, and this space's " +
-    "skills, sub-agent models and panes. `workspace_state` says what is in this space and on the user's screen. " +
+    "skills and panes. `workspace_state` says what is in this space and on the user's screen. " +
     "When a tool says a pane is not open in the app, call `pane_show` (`realm-workspace__pane_show`) with the id " +
     "it named and retry, rather than asking the user to reopen it. `sessions_list` and `session_read` read this " +
     "space's sessions; `session_open` opens a new one beside yours when the user asks (it is not delegation). " +
