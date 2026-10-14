@@ -3172,6 +3172,14 @@ describe("the browser pane's mark", () => {
     expect(bodiesFor(".reach-mark-shape").join(" ")).toMatch(/animation: rl-reach-in var\(--dur-move\) var\(--ease-out-strong\) backwards/);
   });
 
+  it("shimmers like a working label: the band's core goes past the accent — lighter on dark, deeper on light", () => {
+    /* The band used to peak at the accent itself, over the mark's own dimmed accent: a wipe of one
+       colour rather than a light crossing it. The core is the shimmer's bright end, per face. */
+    expect(bodiesFor(".reach-mark-shine").join(" ")).toContain("stop-color: var(--reach-shine)");
+    expect(bodiesFor(".reach-mark").join(" ")).toContain("--reach-shine: oklch(from var(--rl-accent) .97 .04 h)");
+    expect(bodiesFor(':root[data-mode="light"] .reach-mark').join(" ")).toContain("--reach-shine: oklch(from var(--rl-accent) calc(l - .16) c h)");
+  });
+
   it("dims and runs a glint only while busy, and the glint is a loop the quiet rules pause", () => {
     expect(bodiesFor(".reach-mark-glint").join(" ")).toContain("opacity: 0");
     expect(bodiesFor(".reach-mark[data-busy] .reach-mark-shape").join(" ")).toContain("opacity: .35");

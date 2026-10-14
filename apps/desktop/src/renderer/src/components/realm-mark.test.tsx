@@ -44,4 +44,16 @@ describe("Realm's flat mark in the window", () => {
     expect(mark.querySelector("g > rect.reach-mark-glint")).not.toBeNull();
     expect(container.innerHTML).not.toContain(OLD_SPIRAL);
   });
+
+  it("sweeps a shimmer, not a wipe: the band's middle is the shine, between the accent on both sides", () => {
+    const { container } = render(<BrowserConnecting />);
+    const band = container.querySelector("svg.reach-mark linearGradient")!;
+    const rect = container.querySelector("rect.reach-mark-glint")!;
+    expect(rect.getAttribute("fill")).toBe(`url(#${band.id})`);
+    const stops = [...band.querySelectorAll("stop")].map((s) => ({ at: s.getAttribute("offset"), shine: s.classList.contains("reach-mark-shine"), color: s.getAttribute("stop-color") }));
+    expect(stops.filter((s) => s.shine).map((s) => s.at)).toEqual([".5"]);
+    // The shine takes its colour from the stylesheet, per face; everything else is the mark's accent.
+    expect(stops.filter((s) => !s.shine).every((s) => s.color === "currentColor")).toBe(true);
+    expect(stops.find((s) => s.shine)?.color).toBeNull();
+  });
 });

@@ -2859,13 +2859,18 @@ button.panel-title:hover { background: var(--rl-hover); }
 @keyframes rl-connecting-in { from { opacity: 0; } to { opacity: 1; } }
 /* The marks (BrowserErrorPage.tsx). Realm's flat mark is the accent's one appearance on the page; the
    padlock is danger, because a certificate Realm will not trust is a state, not a mood. The mark fades
-   up once as it arrives. While a load is in flight it dims and a glint crosses it, looping until the
-   load settles, and the mark lights back up. Only then: an error page can sit for hours, and a loop
+   up once as it arrives. While a load is in flight it dims and a shimmer crosses it, looping until the
+   load settles, and the mark lights back up. The shimmer is the working label's (`.shimmer-text`):
+   quiet tone, full tone, and a core past it at the band's middle — the accent lifted toward white on
+   the dark face and taken deeper on the light one, where adding light to a pale mark on paper would
+   draw nothing. Only then: an error page can sit for hours, and a loop
    that kept running under `opacity: 0` would spend a core on a pane nobody is looking at (the power
    audit's finding, § Quiet). */
 .reach-mark, .lock-mark { flex: none; overflow: visible; }
 .lock-mark :is(path, rect) { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.reach-mark { color: var(--rl-accent); }
+.reach-mark { color: var(--rl-accent); --reach-shine: oklch(from var(--rl-accent) .97 .04 h); }
+:root[data-mode="light"] .reach-mark { --reach-shine: oklch(from var(--rl-accent) calc(l - .16) c h); }
+.reach-mark-shine { stop-color: var(--reach-shine); }
 .lock-mark { color: var(--rl-danger); }
 .reach-mark-shape { fill: currentColor; animation: rl-reach-in var(--dur-move) var(--ease-out-strong) backwards; transition: opacity var(--dur-swap) var(--ease-fade); }
 .reach-mark-glint { opacity: 0; }
