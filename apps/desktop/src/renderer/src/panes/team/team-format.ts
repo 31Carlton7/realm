@@ -197,10 +197,17 @@ export function reviewStateLine(r: TeamReviewSummary): { text: string; dot: "wai
     return { text: family === "send" ? "Approved by you · send it yourself" : family === "post" ? "Approved by you · post it by hand" : "Approved by you", dot: null };
   }
   if (r.state === "done") return { text: "Done", dot: null };
+  if (r.state === "rejected") return { text: "Rejected by you", dot: null };
+  if (r.state === "closed") {
+    // What went out before the close is still out: the line says so rather than implying none did.
+    if (r.actsDone > 0) return { text: `Closed by you · ${r.actsDone} already ${family === "send" ? "sent" : "posted"}`, dot: null };
+    return { text: "Closed by you", dot: null };
+  }
   return { text: "Put away", dot: null };
 }
 
-/** The list's three groups, in the order a person works through them. Done shows this week's only. */
+/** The list's groups, in the order a person works through them. Done and Closed show this week's only:
+ *  what was rejected, closed or put away is history, kept long enough to find a slip. */
 export function reviewGroups(reviews: readonly TeamReviewSummary[], now = Date.now()): { label: string; rows: TeamReviewSummary[] }[] {
   const week = now - 7 * 86_400_000;
   const by = (a: TeamReviewSummary, b: TeamReviewSummary) => b.createdAt - a.createdAt;
@@ -208,8 +215,12 @@ export function reviewGroups(reviews: readonly TeamReviewSummary[], now = Date.n
     { label: "Waiting for you", rows: reviews.filter((r) => r.state === "waiting" || r.state === "changes").sort(by) },
     { label: "Approved, not posted", rows: reviews.filter((r) => r.state === "approved").sort(by) },
     { label: "Done this week", rows: reviews.filter((r) => r.state === "done" && (r.decidedAt ?? r.updatedAt) >= week).sort(by) },
+    { label: "Closed this week", rows: reviews.filter((r) => CLOSED_STATES.includes(r.state) && (r.decidedAt ?? r.updatedAt) >= week).sort(by) },
   ].filter((g) => g.rows.length > 0);
 }
+
+/** The ways a review ends without going out: the person's no, the person's close, a role's close. */
+const CLOSED_STATES: readonly TeamReviewSummary["state"][] = ["rejected", "closed", "dismissed"];
 
 /** One line of the activity log, in plain words, with the actor's name already resolved. */
 export function activitySentence(a: TeamActivity, actorName: string): { text: string; detail: string | null } {
@@ -235,7 +246,8 @@ export function activitySentence(a: TeamActivity, actorName: string): { text: st
     case "asked_changes": return { text: `You asked for changes to ${a.object}`, detail: str("note") ? `“${str("note")}”` : null };
     case "marked_done": return a.actor === "realm" ? { text: `Everything in ${a.object} went out`, detail: null } : { text: `You marked ${a.object} done`, detail: null };
     case "dismissed": return { text: `You put away ${a.object}`, detail: null };
-    case "closed": return { text: d.outcome === "done" ? `${actorName} marked ${a.object} done` : d.outcome === "superseded" ? `${actorName} replaced ${a.object}` : `${actorName} withdrew ${a.object}`,
+    case "rejected": return { text: `You rejected ${a.object}`, detail: str("reason") ? `“${str("reason")}”` : null };
+    case "closed": return a.actor === "user" ? { text: `You closed ${a.object}`, detail: d.from === "approved" ? "before it went out" : null } : { text: d.outcome === "done" ? `${actorName} marked ${a.object} done` : d.outcome === "superseded" ? `${actorName} replaced ${a.object}` : `${actorName} withdrew ${a.object}`,
       detail: str("reason") ? `“${str("reason")}”` : null };
     case "edited_item": return { text: `You edited item ${num("item") ?? ""} of ${a.object}`.replace("item  of", "an item of"), detail: num("version") !== null ? `version ${num("version")}` : null };
     case "read_record": return { text: `${actorName} read ${a.object}'s record`, detail: null };

@@ -39,6 +39,7 @@ import { createCatalogTools } from "./workspace/catalog";
 import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
+import { statfsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -774,6 +775,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** The Mac's memory pressure and free disk as a training run reads them (`machineState`); left
    *  out, the real ones. A test hands in a Mac short of memory. */
   layaMachine?: () => Promise<import("./laya/training").MachineState>;
+  /** Laya installs itself once there is a moment for it (`LayaService`'s auto-install). Only `main.ts`
+   *  turns this on, and not in a harness: an app a test or a live check builds never downloads. */
+  layaAutoInstall?: boolean;
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -1132,6 +1136,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     activeEval: harnessEvalOverride(),
     baseEval: () => (layaRuntime ? readEval(join(layaRuntime.dir, "evals", "convaiinnovations-laya.json")) : null)
       ?? (layaResources ? readEval(join(layaResources, "evals", "convaiinnovations-laya.json")) : null),
+    ...(opts.layaAutoInstall ? {
+      autoInstall: {
+        onboarded: () => spaces.listAll().length > 0,
+        busy: () => sessions.statusCounts().working > 0,
+        freeBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
+      },
+    } : {}),
     ...(layaRuntime && layaResources
       ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files(), recorded: () => layaRecorder.screens(), machine: opts.layaMachine ?? (() => machineState(layaRuntime.dir)) }, o) }
       : {}),

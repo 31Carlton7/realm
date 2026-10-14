@@ -751,6 +751,13 @@ kbd { font: 11px var(--font-mono); }
   background: conic-gradient(var(--rl-accent) var(--update-progress, 0%), var(--mark) 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); }
+/* Laya installing itself: the update's ring in quiet ink round a plain glyph — news, not a request. */
+.rail-laya { color: var(--rl-text-dim); }
+.rail-laya-disc { position: relative; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; }
+.rail-laya[data-measured] .rail-laya-disc::before { content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  background: conic-gradient(var(--rl-text-dim) var(--update-progress, 0%), var(--mark) 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); }
 /* A count at a rail glyph's shoulder — the bell's unread (`.rail-glyph`).
    `overflow: visible` and negative offsets on purpose: a badge that overhangs its glyph is how every
    bell on this platform is drawn, and a digit squeezed inside would go under the type floor.
@@ -10511,6 +10518,8 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-ask-field { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none; }
 .rv-ask-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+/* Close's strip says what it will stop before it does; it reads as the bar's own sentence does. */
+.rv-ask-text { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
 
 /* The team's kill switch, at the head of its Review, and the line that says it is on. */
 .rv-hold { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; }
