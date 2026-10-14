@@ -44,7 +44,7 @@
 .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
-.subagent-where[data-branch], .subagent-view-where[data-branch] {
+.subagent-where[data-branch], .subagent-view-where[data-branch], .signin-hint code, .signin-code {
   letter-spacing: normal;
 }
 
@@ -2835,13 +2835,18 @@ button.panel-title:hover { background: var(--rl-hover); }
 @keyframes rl-connecting-in { from { opacity: 0; } to { opacity: 1; } }
 /* The marks (BrowserErrorPage.tsx). Realm's flat mark is the accent's one appearance on the page; the
    padlock is danger, because a certificate Realm will not trust is a state, not a mood. The mark fades
-   up once as it arrives. While a load is in flight it dims and a glint crosses it, looping until the
-   load settles, and the mark lights back up. Only then: an error page can sit for hours, and a loop
+   up once as it arrives. While a load is in flight it dims and a shimmer crosses it, looping until the
+   load settles, and the mark lights back up. The shimmer is the working label's (`.shimmer-text`):
+   quiet tone, full tone, and a core past it at the band's middle — the accent lifted toward white on
+   the dark face and taken deeper on the light one, where adding light to a pale mark on paper would
+   draw nothing. Only then: an error page can sit for hours, and a loop
    that kept running under `opacity: 0` would spend a core on a pane nobody is looking at (the power
    audit's finding, § Quiet). */
 .reach-mark, .lock-mark { flex: none; overflow: visible; }
 .lock-mark :is(path, rect) { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.reach-mark { color: var(--rl-accent); }
+.reach-mark { color: var(--rl-accent); --reach-shine: oklch(from var(--rl-accent) .97 .04 h); }
+:root[data-mode="light"] .reach-mark { --reach-shine: oklch(from var(--rl-accent) calc(l - .16) c h); }
+.reach-mark-shine { stop-color: var(--reach-shine); }
 .lock-mark { color: var(--rl-danger); }
 .reach-mark-shape { fill: currentColor; animation: rl-reach-in var(--dur-move) var(--ease-out-strong) backwards; transition: opacity var(--dur-swap) var(--ease-fade); }
 .reach-mark-glint { opacity: 0; }
@@ -5574,6 +5579,20 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .market-docs:hover { color: var(--rl-text-dim); text-decoration: underline; text-underline-offset: 2px; }
 .market-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
 .market-card[data-state="connected"] .market-mark { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 45%, transparent); }
+/* The sign-in sheet (McpSignInSheet.tsx): a block per way in, parted by space rather than rules, and
+   the code a device sign-in shows set large in mono so it can be read across to another window. */
+.signin-routes { gap: 18px; }
+.signin-hint { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.signin-hint code { font: 12px var(--font-mono); }
+.signin-actions { justify-content: flex-start; margin-top: 2px; }
+.signin-code-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.signin-code { font-family: var(--font-mono); font-size: 24px; line-height: 30px; font-weight: var(--fw-title); letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums; color: var(--rl-text-bright); user-select: all; }
+.signin-app > summary { list-style: none; width: fit-content; padding: 2px 0; font-size: 13px; color: var(--rl-text-dim); }
+.signin-app > summary::-webkit-details-marker { display: none; }
+.signin-app > summary::before { content: "▸ "; }
+.signin-app[open] > summary::before { content: "▾ "; }
+.signin-app > .form { padding-top: 10px; }
 .ch-marker { color: var(--rl-accent); }
 .ch-punct { color: var(--rl-text-faint); }
 .ch-code { color: var(--rl-text-bright); background: var(--inset); border-radius: 3px; }
@@ -7575,6 +7594,10 @@ select { appearance: none; padding-right: 22px;
   transition: translate var(--dur-press) var(--ease-out-strong);
 }
 .switch:checked { background: var(--rl-accent); box-shadow: none; }
+/* On, the hover is the accent a step lighter in dark and deeper in light, never the off track's grey:
+   `.switch:hover:not(:disabled)` outranks `:checked`, so without this a lit switch went grey under
+   the pointer and read as switching itself off. */
+.switch:checked:hover:not(:disabled) { background: oklch(from var(--rl-accent) calc(l + var(--accent-hover-step)) c h); }
 .switch:checked::after { translate: 14px 0; }
 .switch:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
 /* A checked switch keeps the accent at full strength when disabled, so without this a dependent

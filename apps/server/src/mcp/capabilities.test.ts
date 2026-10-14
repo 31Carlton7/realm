@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHART_POINTS_MAX, CHART_SERIES_MAX, COMPUTER_PROVIDER_NAME, GOAL_PROVIDER_NAME, MACHINE_PROVIDER_NAME, PANE_SHOW_WIRE_NAME, TEAM_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, parseUiBlock } from "@realm/contracts";
+import { CHART_POINTS_MAX, CHART_SERIES_MAX, COMPUTER_PROVIDER_NAME, GOAL_PROVIDER_NAME, MACHINE_PROVIDER_NAME, PANE_SHOW_WIRE_NAME, TEAM_PROVIDER_NAME, VAULT_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, parseUiBlock } from "@realm/contracts";
 import { CAPABILITY_PROVIDERS, capabilitiesContext } from "./capabilities";
 import { BROWSER_PROVIDER_NAME } from "../browsers/agent-tools";
 import { REALM_AGENT_PROVIDER_NAME } from "../browsers/browser-agent";
@@ -9,6 +9,7 @@ import { TERMINAL_PROVIDER_NAME } from "../terminals/agent-tools";
 import { APP_PROVIDER_NAME } from "../app-ui/agent-tools";
 import { SIMULATOR_PROVIDER_NAME } from "../simulators/agent-tools";
 import { UI_PROVIDER_NAME } from "../ui/agent-tools";
+import { MEMORY_PROVIDER_NAME } from "../memory/agent-tools";
 
 /**
  * The preamble that tells an ordinary session what Realm's own tools are for. Two things are worth
@@ -23,7 +24,8 @@ describe("capabilitiesContext", () => {
     // preamble goes silent about a capability the session has, with nothing else to notice it.
     expect([...CAPABILITY_PROVIDERS].sort()).toEqual(
       [REALM_AGENT_PROVIDER_NAME, UI_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME, TEAM_PROVIDER_NAME,
-       TERMINAL_PROVIDER_NAME, SIMULATOR_PROVIDER_NAME, GOAL_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, APP_PROVIDER_NAME, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME].sort());
+       TERMINAL_PROVIDER_NAME, SIMULATOR_PROVIDER_NAME, GOAL_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, APP_PROVIDER_NAME, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME,
+       VAULT_PROVIDER_NAME, MEMORY_PROVIDER_NAME].sort());
   });
 
   it("describes only the providers it was given — a space with the browser off is never told it has one", () => {
@@ -62,6 +64,38 @@ describe("capabilitiesContext", () => {
     expect(text).toContain("says a pane is not open in the app");
     expect(text).toContain("instead of querying Realm's database");
     expect(capabilitiesContext([DOCS_PROVIDER_NAME])).not.toContain("pane_show");
+  });
+
+  it("tells a session to finish the task itself, naming only the tools it has, and what stays the user's", () => {
+    const text = capabilitiesContext([BROWSER_PROVIDER_NAME, TERMINAL_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME]);
+    // THE MUTANT: drop the section. The agent knows every tool and still writes "please sign in and
+    // paste me the page", because nothing said the sign-in was its to do.
+    expect(text).toContain("## Finishing without the user");
+    expect(text).toContain("a page behind a sign-in is a browser pane");
+    expect(text).toContain("a signed-out agent CLI is `signin_start`");
+    expect(text).toContain("before you say it cannot");
+    expect(text).toContain("work that belongs to later is `schedule_create`");
+    // …and the true human-only steps, so "finish it yourself" never reads as "type the password".
+    expect(text).toContain("typing a password or a one-time code, approving a payment or purchase");
+    expect(text).toContain("anything outward and irreversible");
+    // A session without the browser is not pointed at one to sign in with.
+    const docsOnly = capabilitiesContext([DOCS_PROVIDER_NAME]);
+    expect(docsOnly).toContain("## Finishing without the user");
+    expect(docsOnly).not.toContain("browser pane");
+    expect(docsOnly).not.toContain("check whether a tool here takes it");
+    expect(capabilitiesContext([])).not.toContain("## Finishing without the user");
+  });
+
+  it("points a session at the live catalog, not at the user, when it is unsure Realm can do something", () => {
+    const text = capabilitiesContext([WORKSPACE_PROVIDER_NAME]);
+    expect(text).toContain("`realm_capabilities` is the whole catalog");
+    expect(capabilitiesContext([DOCS_PROVIDER_NAME])).not.toContain("realm_capabilities");
+  });
+
+  it("tells a session with a vault and a memory repo what each is for", () => {
+    const text = capabilitiesContext([VAULT_PROVIDER_NAME, MEMORY_PROVIDER_NAME]);
+    expect(text).toContain("`vault_http` makes one request with a key in it");
+    expect(text).toContain("`memory_save` keeps one durable fact (never a secret)");
   });
 
   it("orders the blocks the same way whatever order they arrive in", () => {
