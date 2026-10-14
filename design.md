@@ -1064,6 +1064,19 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   between its words and keeps its extension whole — breaking anywhere is how Codex's own tile ends
   in "…pd" over "f". A tile that wide needs a picture minted for it — the 96px mark the composer's
   chips use is a smear there — so the size is named, not assumed.
+- A file's mark is its own logo, the one a developer already reads a file tree by (Material Icon
+  Theme's, vendored in `assets/file-icons`): a `.ts` is the blue TS square, a `package.json` Node's
+  hexagon, by the name first and then the extension, and Realm's coarse glyph only where the set has
+  none (the owner, 10-13). One component draws it (`file-icon.tsx`) for the Library, the documents list
+  and the prompter, so a file is the same shape in all three. Its colour is the file's signature, not
+  a state, which is the one place a hue from the state palette may stand for something else.
+- A text file is looked at as text. QuickLook's picture of a page of source is black type on a grey
+  sheet in both faces; the viewer draws it with the documents pane's own read-only editors instead —
+  Markdown rendered, source highlighted with its line numbers — on a sheet as tall as the file. Code
+  and plain text never soft-wrap: they scroll sideways under a gutter that stays put. Prose wraps, and
+  a fence inside it scrolls on its own.
+- In the prompter a file that has no picture is named — its mark, its name, its kind and size — and
+  a picture stays the square it was, since there the picture says it is the right file.
 - A browser of files leads with what KIND of thing a file is, as tabs, because that is the first
   narrowing a person reaches for. The rarer ones — which space, who made it — live behind a filter
   that lights while it narrows and says so as a chip by the tabs, undone from there: a list that is

@@ -129,6 +129,9 @@ contextBridge.exposeInMainWorld("realm", {
     /** Size and mtime, or null when nothing is there — which is how a preview learns to say the file
      *  is gone instead of drawing three actions that would each fail in turn. */
     stat: (path: string): Promise<{ path: string; size: number; mtimeMs: number } | null> => ipcRenderer.invoke("files:stat", path),
+    /** The file's text, up to the documents pane's ceiling; null when it is not there (main/read-text.ts). */
+    readText: (path: string): Promise<{ ok: true; text: string } | { ok: false; reason: "large" | "binary" } | null> =>
+      ipcRenderer.invoke("files:read-text", path),
     /** One folder under `root`, newest first — the session file browser's whole data source. Null
      *  when the folder cannot be read or the path points outside the root it was given. */
     browse: (root: string, dir: string): Promise<{ dir: string; truncated: boolean;

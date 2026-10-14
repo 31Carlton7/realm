@@ -201,3 +201,25 @@ describe("the caret's blink", () => {
     expect(rateOf(container)).toBe("1200ms");
   });
 });
+
+describe("wrapping", () => {
+  /** CodeMirror marks a wrapping editor's content with `cm-lineWrapping`. The grammar's arrival is a
+   *  promise, so the class lands a tick after mount. */
+  const wraps = (container: HTMLElement) => container.querySelector(".cm-content")?.classList.contains("cm-lineWrapping");
+
+  it("leaves source and plain text unwrapped, so a long line scrolls sideways", async () => {
+    for (const path of ["src/a.ts", "notes.txt", "server.log", "pnpm-lock.lock"]) {
+      const { container, unmount } = render(<CodeEditor path={path} text={"x".repeat(400)} onChange={() => {}} />);
+      await waitFor(() => expect(asked.length).toBeGreaterThan(0));
+      await act(async () => { await Promise.resolve(); });
+      expect(wraps(container), path).toBe(false);
+      unmount();
+      asked.length = 0;
+    }
+  });
+
+  it("wraps Markdown source, which is prose", async () => {
+    const { container } = render(<CodeEditor path="post.mdx" text={"word ".repeat(200)} onChange={() => {}} />);
+    await waitFor(() => expect(wraps(container)).toBe(true));
+  });
+});
