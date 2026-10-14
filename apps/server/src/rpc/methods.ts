@@ -670,9 +670,10 @@ export function registerMethods(d: Deps): void {
     return env;
   });
   reg("environments.worktreeStatus", (p) => d.envService.worktreeStatus(p.id));
+  reg("environments.branches", (p) => d.envService.branches(p.spaceId, p.from));
   reg("environments.removeWorktree", async (p) => {
     const spaceId = d.envService.get(p.id).spaceId;
-    await d.envService.removeWorktree(p.id, p.acknowledge);
+    await d.envService.removeWorktree(p.id, p.acknowledge, { deleteBranch: p.deleteBranch });
     rpc.broadcast("environments.changed", { spaceId });
     return { ok: true as const };
   });
