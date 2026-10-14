@@ -2,8 +2,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { acpSessionConfig } from "@realm/contracts";
 import { StdioJsonRpc, withTimeout } from "../jsonrpc/stdio";
+import { spawnTarget } from "../spawn-target";
 
-const run = promisify(execFile);
+const exec = promisify(execFile);
+/** `execFile` through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
+const run = (bin: string, args: string[], o: { timeout: number; env?: NodeJS.ProcessEnv }) => {
+  const t = spawnTarget(bin, args, { env: o.env });
+  return exec(t.command, t.args, { ...o, ...t.options });
+};
 
 /**
  * Whether a probe's child died rather than answered: killed by a signal (a binary macOS refuses to run

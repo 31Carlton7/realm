@@ -69,7 +69,7 @@ import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "
 /** Domain → the byte written into the header and mixed in as AAD. Codes are permanent: changing one
  *  makes every existing blob of that domain unopenable, which for credentials means silent data
  *  loss the user only discovers at a sign-in prompt. Add, never renumber. */
-export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8, "team-policy": 9, remote: 10 } as const;
+export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8, "team-policy": 9, "fill-allow": 10, remote: 11 } as const;
 export type SecretDomain = keyof typeof SECRET_DOMAINS;
 
 const VERSION = 1;

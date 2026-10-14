@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import { artifactTypeOf, documentKindFor, extOf, type ArtifactType, type Item } from "@realm/contracts";
 import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
 import { useApp } from "../../state/store";
-import { FileCard, TYPE_ICON } from "../../components/FileCard";
+import { FileCard } from "../../components/FileCard";
+import { FileMark } from "../../components/file-icon";
 import { ScrollFades } from "../../components/ScrollFades";
 import { groupByDay } from "../library/LibraryFiles";
 import { DOCK_PIN_MIN_PANE, useDockDismiss, useDockPinned, usePaneRect } from "./pane-dock";
@@ -241,7 +242,7 @@ function FilesPanel({ item, anchorRef, barRef, onClose }: {
                     {day.entries.map((row) => (
                       <button key={row.path} className="summary-row" title={row.path} onClick={() => openRow(row)}
                         onKeyDown={quickLookOnSpace(absOf(row))} {...fileDragProps(absOf(row))}>
-                        <Icon name={row.isDir ? "folder" : TYPE_ICON[typeOf(row.name)]} size={12} className="summary-row-glyph" />
+                        <FileMark path={row.name} folder={row.isDir} type={row.isDir ? undefined : typeOf(row.name)} size={12} className="summary-row-glyph" />
                         <span className="summary-row-name">{row.name}</span>
                         <span className="summary-row-meta">{row.isDir ? "Folder" : fileSize(row.size)}</span>
                       </button>

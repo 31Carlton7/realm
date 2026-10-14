@@ -3,6 +3,7 @@ import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript } from "@realm/adapters";
 import { RUN_BLOCK_SENTINEL } from "@realm/contracts";
 import { createApp, type App } from "../app";
+import { runPermissionMode } from "./service";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { RunsStore } from "../store/runs";
@@ -63,6 +64,20 @@ const notifications = (category: string) =>
 
 const create = (spaceId: string, over: Partial<Parameters<App["runs"]["create"]>[0]> = {}) =>
   app.runs.create({ spaceId, goal: "Draft the week 3 essay", constraints: null, dedupeKey: null, maxAttempts: 1, deadlineAt: null, ...over });
+
+describe("durable runs — the permission a run works in", () => {
+  /* THE MUTANTS: a scheduled task's or a team role's run left on its stored permission, and Full
+     access leaking to a run started by hand. */
+  it("is Full access for a scheduled task and a team role, and what was asked for otherwise", () => {
+    const acceptEdits = { permissionMode: "acceptEdits" as const };
+    expect(runPermissionMode({ scheduleId: "sch", roleId: null, constraints: acceptEdits })).toBe("bypassPermissions");
+    expect(runPermissionMode({ scheduleId: "sch", roleId: null, constraints: null })).toBe("bypassPermissions");
+    expect(runPermissionMode({ scheduleId: null, roleId: null, constraints: acceptEdits })).toBe("acceptEdits");
+    expect(runPermissionMode({ scheduleId: null, roleId: null, constraints: null })).toBe("default");
+    expect(runPermissionMode({ scheduleId: "sch", roleId: "role", constraints: acceptEdits })).toBe("bypassPermissions");
+    expect(runPermissionMode({ scheduleId: null, roleId: "role", constraints: { permissionMode: "plan" } })).toBe("bypassPermissions");
+  });
+});
 
 describe("durable runs — the happy path", () => {
   it("dispatches a real, visible session and stores its final report as the run's result", async () => {

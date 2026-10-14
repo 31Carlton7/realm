@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { killTree, spawnTarget } from "@realm/adapters";
 import type { McpServerRow } from "../store/mcp";
 
 /**
@@ -38,12 +39,16 @@ function stdioCheck(row: McpServerRow, timeoutMs: number): Promise<McpTestResult
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      try { child.kill(); } catch { /* already gone */ }
+      try { killTree(child, "SIGTERM"); } catch { /* already gone */ }
       resolve(r);
     };
-    const child = spawn(row.command, row.args, {
-      env: { ...process.env, ...row.secrets },
+    const env = { ...process.env, ...row.secrets };
+    // `npx` and `uvx` are `.cmd` files on Windows, which only cmd.exe can start (spawn-target.ts).
+    const target = spawnTarget(row.command, row.args, { env });
+    const child = spawn(target.command, target.args, {
+      env,
       stdio: ["pipe", "pipe", "ignore"], // stderr ignored on purpose: a child that echoes its env must not reach `detail`
+      ...target.options,
     });
     const timer = setTimeout(() => done({ reached: false, detail: `started, but no response to the MCP initialize request within ${Math.round(timeoutMs / 1000)}s` }), timeoutMs);
     child.on("error", (e) => done({ reached: false, detail: `could not start: ${e.message}` }));

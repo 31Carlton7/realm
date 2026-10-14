@@ -37,10 +37,17 @@ export class EnvironmentService {
     return env;
   }
 
-  async createWorktree(input: { spaceId: string; title: string | null; from: string | null }): Promise<Environment> {
+  /** The branches a new worktree in this space can start from — its primary checkout's, or `from`'s —
+   *  most recently committed first, and the one checked out there. Null for a plain folder. */
+  async branches(spaceId: string, from: string | null = null): Promise<{ branches: string[]; current: string | null } | null> {
+    if (!this.d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
+    return this.d.worktrees.branches(this.source(spaceId, from).path);
+  }
+
+  async createWorktree(input: { spaceId: string; title: string | null; from: string | null; base?: string | null }): Promise<Environment> {
     if (!this.d.spaces.get(input.spaceId)) throw new NotFoundError("space", input.spaceId);
     const src = this.source(input.spaceId, input.from);
-    const { path, branch } = await this.d.worktrees.create({ spaceId: input.spaceId, sourcePath: src.path, title: input.title });
+    const { path, branch } = await this.d.worktrees.create({ spaceId: input.spaceId, sourcePath: src.path, title: input.title, base: input.base ?? null });
     let env: Environment;
     try {
       env = this.d.environments.create({ spaceId: input.spaceId, path, kind: "worktree", branch });
@@ -81,7 +88,8 @@ export class EnvironmentService {
     };
   }
 
-  async removeWorktree(id: string, acknowledge: WorktreeAck | null): Promise<void> {
+  /** `deleteBranch: false` takes the directory and keeps the branch, with every commit on it. */
+  async removeWorktree(id: string, acknowledge: WorktreeAck | null, opts: { deleteBranch?: boolean } = {}): Promise<void> {
     const env = this.get(id);
     const blocked = this.blocker(env);
     if (blocked) throw blocked;
@@ -92,7 +100,7 @@ export class EnvironmentService {
     // directory git needs to resolve the ref store still exists.
     await this.d.checkpoints?.forgetEnvironment(id);
     try {
-      await this.d.worktrees.remove({ path: env.path, branch: env.branch, fallbackRepo: this.fallbackRepo(env), acknowledge });
+      await this.d.worktrees.remove({ path: env.path, branch: env.branch, fallbackRepo: this.fallbackRepo(env), acknowledge, deleteBranch: opts.deleteBranch ?? true });
     } catch (e) {
       // Only a PRESENT-but-stale acknowledgement is a hazard event: the user said yes to numbers the
       // tree has since moved past. A null acknowledge on a risky tree is the normal ask-first flow.

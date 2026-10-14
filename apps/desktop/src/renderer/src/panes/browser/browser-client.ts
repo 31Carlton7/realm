@@ -1,4 +1,4 @@
-import type { BlockedDownload, PasskeyNotice, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare } from "@realm/contracts";
+import type { BlockedDownload, PasskeyNotice, PasswordPaneEvent, PasswordSaveAnswer, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
 
 /** The per-space origin allowlist's settings key — stored like MCP enablement (`mcp.enabled:<spaceId>`),
@@ -79,6 +79,10 @@ export type BrowserHostBridge = {
   onDownloadBlocked(cb: (m: { browserId: string; blocked: BlockedDownload }) => void): () => void;
   /** A passkey request the pane refused, so a sign-in that goes nowhere says why (passkeys.ts). */
   onPasskey(cb: (m: PasskeyNotice) => void): () => void;
+  /** The pane's passwords (password-autofill.ts): a save offer — never the password — its
+   *  withdrawal, or the menu's Manage passwords…. Optional: a build without it offers nothing. */
+  onPassword?(cb: (m: PasswordPaneEvent) => void): () => void;
+  answerPasswordOffer?(id: string, offerId: string, answer: PasswordSaveAnswer): Promise<boolean>;
   /** Plan 26 W7a: a menu the OS draws at a window-relative point — the one surface that can open over
    *  the page. Resolves the chosen row's id, or null when it was dismissed. */
   popupMenu(items: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;

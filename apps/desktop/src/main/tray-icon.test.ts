@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { decodeRgbaPng } from "./png.test-util";
-import { TRAY_ICON, TRAY_ICON_2X, trayIconPath } from "./tray-icon";
+import { TRAY_ICON, TRAY_ICON_2X, TRAY_ICON_COLOUR, trayIconPath } from "./tray-icon";
 
 const desktop = join(__dirname, "../..");
 
@@ -13,9 +13,17 @@ describe("the menu-bar item's picture", () => {
   });
 
   it("is looked for beside the packaged app's resources, and in apps/desktop/resources in development", () => {
-    expect(trayIconPath({ packaged: true, appPath: "/A/app.asar", resourcesPath: "/A" })).toBe("/A/trayTemplate.png");
-    expect(trayIconPath({ packaged: false, appPath: desktop, resourcesPath: "/electron" })).toBe(join(desktop, "resources", TRAY_ICON));
-    expect(existsSync(trayIconPath({ packaged: false, appPath: desktop, resourcesPath: "/electron" }))).toBe(true);
+    expect(trayIconPath({ packaged: true, appPath: "/A/app.asar", resourcesPath: "/A" }, "darwin")).toBe("/A/trayTemplate.png");
+    expect(trayIconPath({ packaged: false, appPath: desktop, resourcesPath: "/electron" }, "darwin")).toBe(join(desktop, "resources", TRAY_ICON));
+    expect(existsSync(trayIconPath({ packaged: false, appPath: desktop, resourcesPath: "/electron" }, "darwin"))).toBe(true);
+  });
+
+  it("is the app icon in colour on Linux and Windows, where a template would be black on a dark panel", () => {
+    for (const platform of ["linux", "win32"]) {
+      expect(trayIconPath({ packaged: true, appPath: "/A/app.asar", resourcesPath: "/A" }, platform)).toBe(join("/A", TRAY_ICON_COLOUR));
+      expect(existsSync(trayIconPath({ packaged: false, appPath: desktop, resourcesPath: "/electron" }, platform))).toBe(true);
+    }
+    expect(readFileSync(join(desktop, "scripts/stage-pack.mjs"), "utf8")).toContain(TRAY_ICON_COLOUR);
   });
 
   it("is staged into the packaged app's resources, both scales", () => {

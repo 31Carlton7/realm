@@ -18,20 +18,25 @@ import { NewMenu, iconFor } from "./NewMenu";
 import { PreviewFrame } from "./PreviewFrame";
 import { publishShownFile } from "./shown-file";
 import { QuickLookView } from "./QuickLookView";
+import { VideoView } from "./VideoView";
 
 /** How long the editor stays quiet before autosaving. Long enough not to write on every keystroke,
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
 const AUTOSAVE_MS = 700;
 
-/** Files the pane opens WITHOUT reading their bytes: a PDF, and everything Quick Look renders for
- *  us. Both are fetched from the preview server — the PDF's bytes by pdf.js, the rest as Quick Look's
- *  picture — so pulling a `.docx` through `readDocument` would only produce mojibake and a failed open. */
+/** Files the pane opens WITHOUT reading their bytes: a PDF, everything Quick Look renders for us,
+ *  and a video. The first two are fetched from the preview server — the PDF's bytes by pdf.js, the
+ *  rest as Quick Look's picture — and a video is streamed to the player by main, so pulling a `.docx`
+ *  or an `.mp4` through `readDocument` would only produce mojibake and a failed open. */
 const isBinaryKind = (path: string): boolean => {
   const k = documentKindFor(path);
-  return k === "pdf" || k === "preview";
+  return k === "pdf" || k === "preview" || k === "video";
 };
 
 const baseName = (p: string) => p.split("/").pop() ?? p;
+
+/** Kinds whose source is read as prose — and so wraps — rather than as columns. */
+const PROSE_KINDS: ReadonlySet<DocumentKind> = new Set<DocumentKind>(["doc", "slides", "latex"]);
 
 /**
  * Why a file the pane was asked to open cannot be shown, in a sentence, from the read's refusal. Said
@@ -323,7 +328,8 @@ export function DocumentsPane({ item }: PaneProps) {
   const showingHome = home || !buf;
   /* The file on screen, for the pane's menu (Open in Preview, Share) — which is drawn by the pane's bar,
      outside this component. Only a PDF has rows there today. */
-  const shownPath = buf && !showingHome && root ? `${root.replace(/\/$/, "")}/${buf.path}` : null;
+  // An outside tab is its own absolute path; one inside the space is relative to the space's folder.
+  const shownPath = buf && !showingHome ? isOutsideTab(buf.path) ? buf.path : root ? `${root.replace(/\/$/, "")}/${buf.path}` : null : null;
   useEffect(() => publishShownFile(item.id, shownPath && kind === "pdf" ? { path: shownPath, kind } : null), [item.id, shownPath, kind]);
   useEffect(() => () => publishShownFile(item.id, null), [item.id]);
   return (
@@ -459,7 +465,7 @@ function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onR
      claim a write nobody did. It still says when the file is gone or needs a decision. */
   const readOnly = isOutsideTab(buffer.path);
   const state = buffer.missing ? "missing" : readOnly ? "read-only" : buffer.conflict ? "conflict" : buffer.dirty ? "dirty" : "clean";
-  const stateLabel = { conflict: "Needs a decision", missing: "Deleted on disk", dirty: "Saving…", clean: kind === "pdf" ? "" : "Saved", "read-only": "Read-only" }[state];
+  const stateLabel = { conflict: "Needs a decision", missing: "Deleted on disk", dirty: "Saving…", clean: kind === "pdf" || kind === "video" ? "" : "Saved", "read-only": "Read-only" }[state];
   return (
     <div className="documents-head">
       <Icon name={iconFor(buffer.path)} size={14} className="documents-head-glyph" />
@@ -602,7 +608,9 @@ function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, r
   return (
     <div className="documents-editor" data-kind={kind}>
       <div className="documents-surface">
-        {showStructured && structured === "render" ? (
+        {kind === "video" ? (
+          filePath ? <VideoView key={filePath} path={filePath} version={buffer.baseHash} /> : null
+        ) : showStructured && structured === "render" ? (
           <QuickLookView key={buffer.path} documentsId={documentsId} path={buffer.path} version={buffer.baseHash}
             scrollKey={`doc:${documentsId}:render:${buffer.path}`} />
         ) : showStructured && structured === "pdf" ? (
@@ -635,7 +643,10 @@ function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, r
               scrollKey={`doc:${documentsId}:code:${buffer.path}`} />
           </Suspense>
         ) : (
+          // Prose wraps and source does not, as in the code editor: a row of a CSV or a line of HTML
+          // folded onto three lines is no longer a row or a line, so those scroll sideways instead.
           <textarea className="documents-source" ref={sourceScroll} value={buffer.text} spellCheck={false} readOnly={readOnly}
+            wrap={PROSE_KINDS.has(kind) ? "soft" : "off"}
             aria-label={`${readOnly ? "Read" : "Edit"} ${baseName(buffer.path)}`} onChange={(e) => onChange(e.target.value)} />
         )}
       </div>

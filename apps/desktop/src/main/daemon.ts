@@ -219,9 +219,14 @@ export async function ensureDaemon(d: {
  * app it started. Orphaned daemons in development are the likeliest daily annoyance this feature has;
  * defaulting it off is most of the fix. `REALM_DAEMON=1` opts a dev build in, `REALM_DAEMON=0` opts a
  * packaged build out — which is how `packaged-smoke.cjs` launches the real app without leaking one.
+ *
+ * And a Mac only, by default. An AppImage runs from a mount that goes away when the app that mounted
+ * it exits, taking a daemon's own executable with it; on Windows a daemon still running from the
+ * install folder holds it open, so the installer can neither update nor remove Realm. There the
+ * server is the app's child and stops with it.
  */
-export function daemonModeEnabled(d: { packaged: boolean; env: string | undefined }): boolean {
+export function daemonModeEnabled(d: { packaged: boolean; env: string | undefined; platform?: string }): boolean {
   if (d.env === "1" || d.env === "true") return true;
   if (d.env === "0" || d.env === "false") return false;
-  return d.packaged;
+  return d.packaged && (d.platform ?? "darwin") === "darwin";
 }

@@ -916,6 +916,7 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
       "mcp__realm__realm-workspace__session_read",
       "mcp__realm__realm-workspace__space_list",
       "mcp__realm__realm-workspace__settings_get",
+      "mcp__realm__realm-workspace__realm_capabilities",
       "mcp__realm__realm-agent__agent_peers",
       "mcp__realm__realm-agent__agent_status",
       "mcp__realm__realm-schedule__schedule_list",
@@ -940,7 +941,7 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
     for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential",
       "pane_show", "session_open", "space_switch", "settings_set",
       "agent_run", "agent_start", "agent_ask", "schedule_create", "docs_open", "update_goal",
-      "record_update", "record_read", "review_submit", "memory_save", "memory_write_file", "vault_http"]) {
+      "record_update", "record_read", "review_submit", "review_close", "memory_save", "memory_write_file", "vault_http"]) {
       expect(allowed.some((t) => t.endsWith(`__${mutating}`))).toBe(false);
     }
   });

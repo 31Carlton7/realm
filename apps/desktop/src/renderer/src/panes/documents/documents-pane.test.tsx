@@ -339,3 +339,21 @@ describe("a file the pane cannot show", () => {
     expect(unshownReason("/a/gone.md", err("INTERNAL", "ENOENT: no such file or directory, stat '/a/gone.md'"))).toEqual({ says: "gone.md is no longer on disk.", gone: true });
   });
 });
+
+describe("a video in the documents pane", () => {
+  it("plays in Realm's player — a file from outside the space included — and is never read as text", async () => {
+    // THE MUTANT: leave video `unsupported`. The tab opened on "render.mp4 is not text", and the only
+    // way to watch it was the OS.
+    const stat = vi.fn(async (paths: readonly string[]) => paths.map((path) => ({ path, mime: "video/mp4", kind: "video" as const, size: 10 })));
+    vi.stubGlobal("realm", { media: { stat, poster: vi.fn(async () => null), reveal: vi.fn(), open: vi.fn() } });
+    const { api, ui } = renderPane({}, ["/tmp/render.mp4"], "/tmp/render.mp4");
+    const video = await waitFor(() => {
+      const v = ui.container.querySelector<HTMLVideoElement>(".video-player video");
+      if (!v) throw new Error("no player yet");
+      return v;
+    });
+    expect(video.getAttribute("src")).toBe("realm-media://f/%2Ftmp%2Frender.mp4");
+    expect(api.calls.some((c) => c.startsWith("readDocument"))).toBe(false);
+    vi.unstubAllGlobals();
+  });
+});

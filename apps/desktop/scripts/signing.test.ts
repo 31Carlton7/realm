@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { packPlan } from "./pack.mjs";
 // @ts-expect-error — CJS hook module; vitest interops the named export fine.
-import { notarizeDecision } from "./notarize.cjs";
+import { grantBindingProblems, notarizeDecision, parseCodesign } from "./notarize.cjs";
 
 describe("packPlan — sign iff a credential is in the env (Plan 15 W3)", () => {
   const argv = ["--mac", "dmg", "zip", "--publish", "never"];
@@ -120,5 +120,54 @@ describe("macOS consent packaging (Settings → Permissions can only work if the
     const camera = builder.match(/NSCameraUsageDescription: >-\n((?:\s{6}.+\n)+)/)?.[1].replace(/\s+/g, " ") ?? "";
     expect(camera).toMatch(/connected iPhone's screen/);
     expect(camera).toMatch(/never turns on this Mac's camera/);
+  });
+});
+
+/**
+ * Whether macOS will keep Realm's grants through an update is decided by how the build is signed: a
+ * Developer ID app's grants are pinned to its designated requirement (bundle id + team), an ad-hoc
+ * one's to its cdhash, which the next build does not share. The fixtures are real `codesign` output —
+ * the signed pair from the installed Realm 2.1.1, the ad-hoc one from a fresh `swiftc` binary.
+ */
+describe("grantBindingProblems — refuse a build whose grants would not survive an update", () => {
+  const signedApp = parseCodesign(
+    "Identifier=co.charmtechnologies.realm\nCodeDirectory v=20500 size=486 flags=0x10000(runtime) hashes=4+7 location=embedded\nAuthority=Developer ID Application: Carlton Aikins (FY9QB79VAP)\nTeamIdentifier=FY9QB79VAP\n",
+    'Executable=/Applications/Realm.app/Contents/MacOS/Realm\ndesignated => identifier "co.charmtechnologies.realm" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = FY9QB79VAP\n',
+  );
+  const signedHelper = parseCodesign(
+    "Identifier=axhelper\nCodeDirectory v=20500 size=724 flags=0x10000(runtime) hashes=12+7 location=embedded\nTeamIdentifier=FY9QB79VAP\n",
+    "designated => identifier axhelper and anchor apple generic and certificate leaf[subject.OU] = FY9QB79VAP\n",
+  );
+  const adhoc = parseCodesign(
+    "Identifier=axhelper\nCodeDirectory v=20400 size=382 flags=0x20002(adhoc,linker-signed) hashes=9+0 location=embedded\nSignature=adhoc\nTeamIdentifier=not set\n",
+    '# designated => cdhash H"e0c74e3150a130b81c1701dc6fac2fa1ffe889b2"\n',
+  );
+
+  it("reads the fields that decide binding", () => {
+    expect(signedApp).toMatchObject({ identifier: "co.charmtechnologies.realm", teamId: "FY9QB79VAP", runtime: true });
+    expect(adhoc).toMatchObject({ teamId: null, runtime: false });
+    expect(adhoc.requirement).toMatch(/^cdhash/);
+  });
+
+  it("passes the shipped 2.1.1 signature: app and helper on one team, hardened runtime", () => {
+    expect(grantBindingProblems(signedApp, { axhelper: signedHelper, scrollphase: null })).toEqual([]);
+  });
+
+  it("refuses an app whose grants would be pinned to its cdhash", () => {
+    const problems = grantBindingProblems({ ...adhoc, identifier: "co.charmtechnologies.realm" }, {});
+    expect(problems.join("\n")).toMatch(/no team/);
+    expect(problems.join("\n")).toMatch(/designated requirement/);
+  });
+
+  it("refuses a helper left ad-hoc inside a signed app", () => {
+    expect(grantBindingProblems(signedApp, { axhelper: adhoc }).join("\n")).toMatch(/axhelper is signed by no team/);
+  });
+
+  it("refuses a helper without the hardened runtime", () => {
+    expect(grantBindingProblems(signedApp, { axhelper: { ...signedHelper, runtime: false } })).toEqual(["axhelper is not signed with the hardened runtime"]);
+  });
+
+  it("refuses an app signed under another bundle id — macOS would key the grants to that", () => {
+    expect(grantBindingProblems({ ...signedApp, identifier: "com.github.Electron" }, {}).join("\n")).toMatch(/com\.github\.Electron/);
   });
 });

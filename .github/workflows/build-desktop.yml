@@ -1,0 +1,103 @@
+# Builds Realm's desktop app on each OS it runs on (docs/platforms.md): install, typecheck, test,
+# build, then package unsigned artifacts — a dmg and zip on macOS, an AppImage and a deb on Linux, an
+# NSIS installer on Windows — and keep them as workflow artifacts. Nothing is signed and nothing is
+# published: `pnpm release` is still how a Mac release ships.
+name: Build desktop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            dist: dist
+          - os: ubuntu-latest
+            dist: dist:linux
+          - os: windows-latest
+            dist: dist:win
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      # Unsigned on every OS: never go looking for a signing identity in the runner's keychain.
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # @hugeicons-pro is a paid package on Hugeicons' own registry; the token is the repo secret
+      # HUGEICONS_TOKEN. Written to the user .npmrc so it never lands in the checkout.
+      - name: Hugeicons registry
+        shell: bash
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: |
+          test -n "$HUGEICONS_TOKEN" || { echo "::error::Set the HUGEICONS_TOKEN repo secret to install @hugeicons-pro"; exit 1; }
+          printf '@hugeicons-pro:registry=https://npm.hugeicons.com/\n//npm.hugeicons.com/:_authToken=%s\n' "$HUGEICONS_TOKEN" >> ~/.npmrc
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      # The whole suite was written on a Mac — live ptys under /bin/sh, POSIX paths in fixtures — so it
+      # gates the Mac. Linux and Windows are gated on the tests that exercise their branches with the
+      # platform injected, and run the rest for information until it is made portable.
+      - name: Test (whole suite)
+        if: runner.os == 'macOS'
+        run: pnpm test
+
+      - name: Test (platform branches)
+        if: runner.os != 'macOS'
+        run: >-
+          pnpm vitest run
+          packages/contracts/src/platform.test.ts
+          packages/contracts/src/keybindings.test.ts
+          packages/contracts/src/terminal-programs.test.ts
+          packages/contracts/src/mention-refs.test.ts
+          packages/adapters/src/spawn-target.test.ts
+          apps/server/src/paths.test.ts
+          apps/desktop/src/main/window-chrome.test.ts
+          apps/desktop/src/renderer/src/keys/chord.test.ts
+          apps/desktop/src/renderer/src/platform.test.ts
+          apps/desktop/src/renderer/src/platform-gates.test.ts
+
+      - name: Test (whole suite, informational)
+        if: runner.os != 'macOS'
+        continue-on-error: true
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Package (unsigned)
+        run: pnpm --filter @realm/desktop ${{ matrix.dist }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: realm-${{ runner.os }}
+          if-no-files-found: error
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.exe

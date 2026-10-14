@@ -75,7 +75,10 @@ describe("starting a sign-in", () => {
     // THE MUTANT: take the command as an argument. The URL this flow later reads is only
     // provenanced because Realm chose the program that printed it — a caller-supplied command would
     // make the ticket a laundering step for any URL an agent wanted opened.
-    expect(calls.writes).toEqual([`${AGENT_CLI_COMMANDS.claude.login}\r`]);
+    // The program is `claude`, or the quoted copy Realm carries on a host with none on PATH.
+    expect(calls.writes).toHaveLength(1);
+    expect(calls.writes[0]).toMatch(/^(claude|'[^']*\/claude') auth login\r$/);
+    expect(AGENT_CLI_COMMANDS.claude.login).toBe("claude auth login");
   });
 
   it("opens the pane at the URL the terminal printed", async () => {

@@ -4,7 +4,11 @@ const MODIFIERS: Record<string, string> = { "⌘": "Command", "⇧": "Shift", "�
 const NAMED_KEYS: Record<string, string> = {
   "⏎": "Return", "↩": "Return", "⌫": "Backspace", "⌦": "Delete", "⎋": "Escape", "⇥": "Tab",
   "←": "Left", "→": "Right", "↑": "Up", "↓": "Down", Space: "Space",
+  Enter: "Return", Esc: "Escape", Tab: "Tab", Backspace: "Backspace", Del: "Delete",
+  PgUp: "PageUp", PgDn: "PageDown", Home: "Home", End: "End",
 };
+/** The modifiers as Linux and Windows spell a hint out ("Ctrl+Shift+F", `displayKeyChord`). */
+const WORD_MODIFIERS: Record<string, string> = { Ctrl: "Control", Win: "Super", Super: "Super", Alt: "Alt", Shift: "Shift" };
 
 /**
  * A row's shortcut HINT ("⌘⇧F") as an Electron accelerator ("Command+Shift+F"), so the OS menu
@@ -16,6 +20,11 @@ export function acceleratorFor(hint: string): string | undefined {
   const mods: string[] = [];
   let rest = hint;
   while (rest.length > 0 && MODIFIERS[rest[0]!]) { mods.push(MODIFIERS[rest[0]!]!); rest = rest.slice(1); }
+  const words = hint.split("+");
+  if (mods.length === 0 && words.length > 1 && words.slice(0, -1).every((w) => WORD_MODIFIERS[w])) {
+    mods.push(...words.slice(0, -1).map((w) => WORD_MODIFIERS[w]!));
+    rest = words[words.length - 1]!;
+  }
   const key = NAMED_KEYS[rest]
     ?? (/^[A-Za-z0-9]$/.test(rest) ? rest.toUpperCase() : undefined)
     ?? (/^F([1-9]|1[0-9]|2[0-4])$/.test(rest) ? rest : undefined)

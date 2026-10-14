@@ -224,8 +224,10 @@ export type DocumentEntry = z.infer<typeof DocumentEntrySchema>;
  * `doc` is rich text through tiptap, where a stray newline is a paragraph and the bytes on disk are
  * the editor's business; `code` is bytes, exactly, and an editor that reflows them has corrupted a
  * file. Widening the enum is safe: `agent_kind`-style, no persisted row re-parses.
+ *
+ * `video` is a movie played in Realm's own player, never read as bytes and never handed to the OS.
  */
-export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "preview", "code", "unsupported"]);
+export const DocumentKindSchema = z.enum(["doc", "sheet", "slides", "latex", "html", "pdf", "preview", "code", "video", "unsupported"]);
 export type DocumentKind = z.infer<typeof DocumentKindSchema>;
 
 /**

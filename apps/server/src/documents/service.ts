@@ -1,7 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import {
-  documentTemplate, emptyGuideProgress, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
+  documentTemplate, isSecretPath, emptyGuideProgress, GuideProgressSchema, newId, progressSidecarPath, recordGuideAttempt,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace, type GuideProgress,
 } from "@realm/contracts";
 import type { DocumentPreviewServer } from "./preview";
@@ -13,7 +13,7 @@ import type { ItemsStore } from "../store/items";
 import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
 import { hashText, readDocument, readIfExists, renameDocument, writeAtomic, writeDocument, type WriteOutcome } from "./files";
-import { HIDDEN_DIRS, namedInRoot, relInRoot, resolveInRoot } from "./paths";
+import { HIDDEN_DIRS, namedFile, relInRoot, resolveInRoot } from "./paths";
 import { DocumentWatcher } from "./watcher";
 
 /**
@@ -31,6 +31,8 @@ export class DocumentService {
   private readonly byWorkspace = new Map<string, Set<string>>();
   /** absolute path → the workspace ids watching it (the refcount that decides when to stop). */
   private readonly watchers = new Map<string, Set<string>>();
+  /** Files outside every root that `openPath` was asked for by name, which the pane may then read. */
+  private readonly named = new Set<string>();
 
   constructor(private d: {
     db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore;
@@ -78,26 +80,39 @@ export class DocumentService {
    * on its tab strip as the active tab, and broadcast `documents.openRequested`. The file must
    * exist — opening a tab on nothing would show an empty editor that cannot save (`baseHash` null
    * + a later creation = conflict), so a missing file is an error here rather than a surprise later.
+   *
+   * The path is taken as it was NAMED (`namedFile`): `~/…`, absolute, a `file://` URL, `out.md:12`, or
+   * relative to `base` — the session's working directory, for a path its agent wrote — and the
+   * workspace root otherwise. A file under the root is a relative tab, as every tab was; a file
+   * anywhere else is an absolute one, shown read-only. That second half is what an agent's work
+   * needs: what it generates lands in `/tmp`, in `~/Downloads`, in another worktree, and "outside
+   * this workspace" was the refusal behind every "I can't open that for you". The deliberate limits
+   * stay: a folder is not a tab, a file that exists to hold a secret (`isSecretPath`) is not opened
+   * outside the root, and nothing outside the root is ever written through this pane.
    */
-  async openPath(p: { spaceId: string; environmentId?: string; path: string; openedBy?: string }): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string }> {
+  async openPath(p: { spaceId: string; environmentId?: string; path: string; base?: string; openedBy?: string }): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string; line: number | null }> {
     const { documentsId, itemId } = this.open({ spaceId: p.spaceId, environmentId: p.environmentId });
     const ws = this.get(documentsId);
     const root = this.rootOf(ws);
-    /* An ABSOLUTE path is relativized here rather than refused.
-       `openPaths` is a relative-path contract and stays one — but the callers that matter now are
-       the transcript's own clickable paths, and what an agent writes into its prose is absolute
-       (`/Users/…/scholarships/PROFILE.md`). Turning that into a tab is the whole point, and asking
-       every caller to know the workspace root first would be asking them to reimplement `relInRoot`.
-       `~/…` is absolute too, once expanded — it is how agents write most of them. Outside the root
-       is still a refusal, with a message that says so rather than one about traversal. */
-    const { rel, abs } = namedInRoot(root, p.path);
-    let st;
-    try { st = await stat(abs); } catch { throw new RpcError("NOT_FOUND", `no such file: ${rel}`); }
-    if (!st.isFile()) throw new RpcError("BAD_PATH", `${rel} is not a file`);
-    const openPaths = ws.openPaths.includes(rel) ? ws.openPaths : [...ws.openPaths, rel];
-    await this.setTabs(documentsId, openPaths, rel);
-    this.d.rpc.broadcast("documents.openRequested", { spaceId: ws.spaceId, environmentId: ws.environmentId, documentsId, itemId, path: rel, ...(p.openedBy ? { openedBy: p.openedBy } : {}) });
-    return { documentsId, itemId, environmentId: ws.environmentId, path: rel };
+    const found = await namedFile(p.path, p.base && isAbsolute(p.base) ? p.base : root);
+    if (!found) throw new RpcError("NOT_FOUND", `no such file: ${p.path}`);
+    if (!found.isFile) throw new RpcError("BAD_PATH", `${p.path} is not a file`);
+    const inside = relInRoot(root, found.abs);
+    if (inside === null && isSecretPath(found.abs)) throw new RpcError("BAD_PATH", `${p.path} holds a secret, so Realm does not open it outside the space's folder`);
+    const tab = inside ?? found.abs;
+    if (inside === null) this.named.add(found.abs);
+    const openPaths = ws.openPaths.includes(tab) ? ws.openPaths : [...ws.openPaths, tab];
+    await this.setTabs(documentsId, openPaths, tab);
+    this.d.rpc.broadcast("documents.openRequested", { spaceId: ws.spaceId, environmentId: ws.environmentId, documentsId, itemId, path: tab, ...(p.openedBy ? { openedBy: p.openedBy } : {}) });
+    return { documentsId, itemId, environmentId: ws.environmentId, path: tab, line: found.line };
+  }
+
+  /** Whether this workspace may READ an absolute path outside its root: one a session recorded, or
+   *  one opened by name into its tabs. The preview listener asks it for a PDF or a picture shown from
+   *  outside the space. */
+  readsOutside(documentsId: string, abs: string): boolean {
+    const ws = this.d.documents.get(documentsId);
+    return ws !== null && ws !== undefined && isAbsolute(abs) && this.mayRead(ws, abs);
   }
 
   /** A guide's quiz history from its sidecar; a missing or unreadable sidecar is simply empty. */
@@ -179,7 +194,7 @@ export class DocumentService {
     const root = this.rootOf(ws);
     // Validate every path before storing any of them — a rejected tab must not leave the strip
     // half-written.
-    const abs = openPaths.map((p) => this.resolveReadable(root, p));
+    const abs = openPaths.map((p) => this.resolveReadable(root, p, ws));
     const updated = this.d.documents.setTabs(documentsId, openPaths, activePath);
     if (!updated) throw new NotFoundError("documents", documentsId);
     await this.syncWatches(documentsId, new Set(abs));
@@ -254,7 +269,7 @@ export class DocumentService {
    */
   async read(documentsId: string, path: string): Promise<{ text: string; hash: string }> {
     const ws = this.get(documentsId);
-    const abs = this.resolveReadable(this.rootOf(ws), path);
+    const abs = this.resolveReadable(this.rootOf(ws), path, ws);
     const r = await readDocument(abs, { refuseBinary: true });
     // Reading is what a tab opening does, so it is also the moment the watcher must learn this file's
     // current content — otherwise the first outside edit is compared against nothing.
@@ -320,12 +335,18 @@ export class DocumentService {
    * refuses every absolute path, so nothing outside the root is ever changed through this pane. The
    * match is the recorded string exactly — a `..` composed onto a recorded folder is not recorded.
    */
-  private resolveReadable(root: string, path: string): string {
+  private resolveReadable(root: string, path: string, ws: DocumentWorkspace): string {
     if (!isAbsolute(path) || path.includes("\0")) return resolveInRoot(root, path);
-    if (!this.d.recorded?.(path)) {
+    if (!this.mayRead(ws, path)) {
       throw new RpcError("BAD_PATH", `${path} is outside this space's folder, and no session recorded it`);
     }
     return path;
+  }
+
+  /** Recorded by a session or the Library, or opened by name (`openPath`) — this run, or an earlier
+   *  one whose tab is still on the strip. */
+  private mayRead(ws: DocumentWorkspace, abs: string): boolean {
+    return this.d.recorded?.(abs) === true || this.named.has(abs) || ws.openPaths.includes(abs);
   }
 
   private titleFor(envPath: string): string {

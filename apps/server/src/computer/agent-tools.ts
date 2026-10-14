@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  COMPUTER_FORBIDDEN_BUNDLE_IDS, COMPUTER_KEY_NAMES, COMPUTER_MODIFIERS, COMPUTER_PROVIDER_NAME, ComputerActionSchema, fenceUntrusted,
+  COMPUTER_FORBIDDEN_BUNDLE_IDS, COMPUTER_KEY_NAMES, COMPUTER_MODIFIERS, COMPUTER_PROVIDER_NAME, ComputerActionSchema, ComputerSnapshotScopeSchema, fenceUntrusted,
   type ComputerAction, type ComputerActResult, type ComputerAppsResult, type ComputerElement, type ComputerSnapshotResult,
 } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -141,12 +141,14 @@ const TOOLS: Tool[] = [
   {
     name: "computer_snapshot",
     description:
-      "Read an app's accessibility tree: every visible, addressable element as a line \"[N] AXRole \\\"name\\\" (x,y w×h) {flags}\". The [N] is what computer_act takes. Call this before every batch of actions and again after anything that changes the screen — indices are only valid for the snapshot that produced them, and acting on a stale one is refused rather than guessed at. Read-only.",
+      "Read an app's accessibility tree: every visible, addressable element as a line \"[N] AXRole \\\"name\\\" (x,y w×h) {flags}\". The [N] is what computer_act takes. Call this before every batch of actions and again after anything that changes the screen — indices are only valid for the snapshot that produced them, and acting on a stale one is refused rather than guessed at. A big app lists what is on screen first, then fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset or query that reaches them. Read-only.",
     inputSchema: {
       type: "object",
       properties: {
         bundleId: { type: "string", description: "the app's bundle id from computer_list_apps; omit to snapshot whatever is frontmost" },
         screenshot: { type: "boolean", description: "also return an image of the app's windows (default false — the tree is what you act on; ask for this when the tree is ambiguous or you need to see layout). Needs the Screen Recording permission." },
+        offset: { type: "number", description: "skip this many elements of the ranked list — the snapshot's note gives the offset of the next page when it is cut off" },
+        query: { type: "string", description: "list only elements whose role, name or value contains every one of these words (case-insensitive), e.g. \"send\" or \"message\"" },
       },
       additionalProperties: false,
     },
@@ -206,7 +208,7 @@ const TOOLS: Tool[] = [
 
 /* ---------------------------------- arg schemas ---------------------------------- */
 
-const SnapshotArgs = z.object({ bundleId: z.string().min(1).optional(), screenshot: z.boolean().default(false) });
+const SnapshotArgs = z.object({ bundleId: z.string().min(1).optional(), screenshot: z.boolean().default(false) }).merge(ComputerSnapshotScopeSchema);
 /** `intent` is optional where the simulator's input tools require it: required, it would turn every
  *  call from an agent that has not learned the field into a refusal — a change to the act path in
  *  the name of a feature that promises never to touch it. It is the goal Laya's `target` question is
@@ -272,17 +274,15 @@ const HANDLERS: Record<string, Handler> = {
     // No grant pre-check: the helper refuses an ungranted snapshot itself, with the same advice, and
     // it has to — it is the only side that can see the trust state at the moment of the walk. Asking
     // first would be a second round-trip to restate what the answer already carries.
-    const snap = (await d.bridge.call("computerSnapshot", {
-      ...(args.value.bundleId ? { bundleId: args.value.bundleId } : {}),
-      screenshot: args.value.screenshot,
-    })) as ComputerSnapshotResult;
+    const { bundleId, screenshot, ...scope } = args.value;
+    const snap = (await d.bridge.call("computerSnapshot", { ...(bundleId ? { bundleId } : {}), screenshot, scope })) as ComputerSnapshotResult;
     d.snapshots.remember(ctx.sessionId, snap.snapshotId, { bundleId: snap.bundleId, appName: snap.appName });
     // Kept for the observer and for Assist: both read what the agent was shown, never a re-read.
     if (d.observe || d.assist) d.trees.remember(ctx.sessionId, snap.bundleId, snap.snapshotId, snap.elements.map(observed));
 
     const head = [
       `Snapshot ${snap.snapshotId} of ${clip(snap.appName, 60)} (${snap.bundleId}) — ${snap.elements.length} element(s).`,
-      snap.truncated ? "The tree was larger than the budget, so this is the first part of it: scroll or narrow what you are looking at rather than assuming an element is absent." : "",
+      snap.truncated ? "The app has more than this snapshot read: the last lines say how to reach the rest — do not assume an element is absent until a query for it comes back empty." : "",
       "Act with computer_act using this snapshotId and an element's [N].",
     ].filter(Boolean).join(" ");
     // Everything below is other applications' content. It is fenced for the same reason page text

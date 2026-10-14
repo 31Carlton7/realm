@@ -16,7 +16,8 @@ const EMPTY: readonly TeamReviewSummary[] = [];
 
 /**
  * A space's Review: the list of what its team made and the one being read, Mail's shape (the Teams
- * plan, section 7). The list is grouped Waiting for you / Approved, not posted / Done this week; the
+ * plan, section 7). The list is grouped Waiting for you / Approved, not posted / Done this week /
+ * Closed this week; the
  * reading side shows the deliverable at the width it needs, the caption, what Realm checked, and how
  * it was made, with the run's dollars and minutes in the byline. The decision sits OUTSIDE the
  * scroller, so it never dissolves with the content (design.md).
@@ -45,8 +46,8 @@ export function ReviewPane({ item }: { item: Item; visible: boolean; focused?: b
   const groups = useMemo(() => {
     const fresh = reviewGroups(reviews);
     for (const g of fresh) for (const r of g.rows) if (!placed.current.has(r.id)) placed.current.set(r.id, g.label);
-    const order = ["Waiting for you", "Approved, not posted", "Done this week"];
-    const shown = reviews.filter((r) => placed.current.has(r.id) && (r.state !== "dismissed"));
+    const order = ["Waiting for you", "Approved, not posted", "Done this week", "Closed this week"];
+    const shown = reviews.filter((r) => placed.current.has(r.id));
     return order.map((label) => ({ label, rows: shown.filter((r) => placed.current.get(r.id) === label).sort((a, b) => b.createdAt - a.createdAt) }))
       .filter((g) => g.rows.length > 0);
   }, [reviews]);
@@ -258,19 +259,28 @@ function HeldNote({ spaceId }: { spaceId: string }) {
 }
 
 /**
- * The decision: a sentence of consequence, then Request changes and the one primary. Approve says
- * how many it approves; nothing is approved by accident and nothing posts. After a yes, the item being
- * read has its ticket: "Post…" opens its sheet, a pressed one says when it goes and can be taken back,
- * and one that went out says so with its proof. Where the platform is not connected, the bar offers
- * what a person does by hand — the folder, then marking it posted.
+ * The decision: a sentence of consequence, then Close, Reject, Request changes and the one primary.
+ * Approve says how many it approves; nothing is approved by accident and nothing posts. After a yes,
+ * the item being read has its ticket: "Post…" opens its sheet, a pressed one says when it goes and can
+ * be taken back, and one that went out says so with its proof. Where the platform is not connected,
+ * the bar offers what a person does by hand — the folder, then marking it posted.
+ *
+ * Until it has gone out, a batch can be let go of two ways, each through the strip above the bar that
+ * Request changes uses: Reject is a no with a reason the role is told (the reason is optional, and
+ * without one the role is not woken), Close puts it away and tells nobody. Close is there after the
+ * yes too, which is when it matters most: it takes back every send still waiting for a press or a
+ * slot, and its strip says what it will and will not stop before it does.
  */
 function DecisionBar({ detail, item, held }: { detail: TeamReviewDetail; item: TeamReviewItem | null; held: boolean }) {
   const decide = useApp((s) => s.decideTeamReview);
   const requestChanges = useApp((s) => s.requestTeamReviewChanges);
+  const reject = useApp((s) => s.rejectTeamReview);
+  const close = useApp((s) => s.closeTeamReview);
   const cancelTicket = useApp((s) => s.cancelTeamTicket);
   const openViewer = useApp((s) => s.openViewer);
   const run = useApp((s) => s.run);
-  const [asking, setAsking] = useState(false);
+  // Which strip is open above the bar: a request for changes, a rejection, or the close's last word.
+  const [asking, setAsking] = useState<"changes" | "reject" | "close" | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState<ActTicket | null>(null);
@@ -281,32 +291,58 @@ function DecisionBar({ detail, item, held }: { detail: TeamReviewDetail; item: T
   const n = detail.items.length;
   const family = verbFamily(reviewVerb(detail.kind, detail.items));
   const reveal = window.realm?.files?.reveal;
-  const send = () => { const text = note.trim(); if (!text) return; act(async () => { await requestChanges(detail.id, text); setAsking(false); setNote(""); }); };
+  const ask = (mode: "changes" | "reject" | "close") => { setNote(""); setAsking(mode); };
+  const send = () => {
+    const text = note.trim();
+    if (asking === "changes" && !text) return;
+    act(async () => {
+      if (asking === "changes") await requestChanges(detail.id, text);
+      else if (asking === "reject") await reject(detail.id, text || null);
+      else await close(detail.id);
+      setAsking(null); setNote("");
+    });
+  };
   const pending = detail.state === "waiting" || detail.state === "changes";
+  const open = pending || detail.state === "approved";
+  const role = detail.roleName ?? "the role";
   const ticket = item ? detail.tickets.find((t) => t.itemId === item.id) ?? null : null;
   const live = sheet ? detail.tickets.find((t) => t.id === sheet.id) ?? sheet : null;
   const byHand = detail.state === "approved" && (!ticket || !ticket.adapter.connected);
   const approvedAt = `Approved by you${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}.`;
-  const sentence = detail.state === "changes" ? `You asked for changes${detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : ""}. ${detail.roleName ?? "The role"} is on it.`
+  const at = detail.decidedAt ? ` at ${feedTime(detail.decidedAt)}` : "";
+  const sentence = detail.state === "changes" ? `You asked for changes${at}. ${detail.roleName ?? "The role"} is on it.`
     : detail.state === "approved" ? approvedLine(ticket, approvedAt, held, family)
+    : detail.state === "rejected" ? `You rejected it${at}${detail.note ? `: “${detail.note}”` : "."} Nothing of it goes out.`
+    : detail.state === "closed" ? closedLine(detail, at, family)
+    : detail.state === "dismissed" ? `Put away${detail.note ? `: “${detail.note}”` : "."}`
     : detail.state === "done" ? doneLine(ticket) : detail.note && detail.changedSinceApproval ? detail.note
     : family === "send" ? "Nothing sends until you approve." : family === "post" ? "Nothing posts until you approve." : "Nothing leaves Realm until you approve.";
   return (
     <div className="rv-decide-wrap">
-      {asking && (
-        <form className="rv-ask" onSubmit={(e) => { e.preventDefault(); send(); }}>
-          <input ref={field} className="rv-ask-field" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What should change?"
-            aria-label={`What should change in ${detail.title}?`}
-            onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setAsking(false); } }} />
-          <button type="button" className="btn" onClick={() => setAsking(false)}>Cancel</button>
-          <button type="submit" className="btn primary" disabled={!note.trim() || busy}>Send to {detail.roleName ?? "the role"}</button>
+      {asking && open && (
+        <form className="rv-ask" data-mode={asking} onSubmit={(e) => { e.preventDefault(); send(); }}
+          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setAsking(null); } }}>
+          {asking === "close"
+            ? <span className="rv-ask-text">{closeConsequence(detail, family)}</span>
+            : <input ref={field} className="rv-ask-field" value={note} onChange={(e) => setNote(e.target.value)}
+                placeholder={asking === "changes" ? "What should change?" : `Why not? ${detail.roleName ?? "The role"} is told (optional)`}
+                aria-label={asking === "changes" ? `What should change in ${detail.title}?` : `Why reject ${detail.title}? Optional`} />}
+          <button type="button" className="btn" autoFocus={asking === "close"} onClick={() => setAsking(null)}>Cancel</button>
+          {asking === "changes" && <button type="submit" className="btn primary" disabled={!note.trim() || busy}>Send to {role}</button>}
+          {asking === "reject" && <button type="submit" className="btn primary" disabled={busy}>{note.trim() ? `Reject and tell ${role}` : "Reject"}</button>}
+          {asking === "close" && <button type="submit" className="btn primary" disabled={busy}>Close</button>}
         </form>
       )}
       <div className="rv-decide">
         <span className="rv-decide-note">{error ?? sentence}</span>
+        {open && !asking && (
+          <button type="button" className="btn" disabled={busy} title="Put it away without sending any of it, and without telling the role"
+            onClick={() => ask("close")}>Close</button>
+        )}
         {pending && !asking && (
           <>
-            <button type="button" className="btn" disabled={busy} onClick={() => setAsking(true)}>Request changes</button>
+            <button type="button" className="btn" disabled={busy} title={`Say no; ${role} is told why, if you say`} onClick={() => ask("reject")}>Reject…</button>
+            <button type="button" className="btn" disabled={busy} onClick={() => ask("changes")}>Request changes</button>
             <button type="button" className="btn primary" disabled={busy || detail.state === "changes"}
               title={detail.state === "changes" ? "Waiting for the new version" : undefined}
               onClick={() => act(() => decide(detail.id, "approve"))}>
@@ -316,7 +352,7 @@ function DecisionBar({ detail, item, held }: { detail: TeamReviewDetail; item: T
         )}
         {detail.state === "approved" && !asking && ticket && ticket.adapter.connected && (
           <>
-            {ticket.state === "ready" && <button type="button" className="btn" disabled={busy} onClick={() => setAsking(true)}>Request changes</button>}
+            {ticket.state === "ready" && <button type="button" className="btn" disabled={busy} onClick={() => ask("changes")}>Request changes</button>}
             {ticket.state === "ready" && (
               <button type="button" className="btn primary" data-no-agent={POST_SHEET_NO_AGENT} disabled={busy || held}
                 title={held ? "Posting is held for this team" : undefined} onClick={() => setSheet(ticket)}>
@@ -331,7 +367,7 @@ function DecisionBar({ detail, item, held }: { detail: TeamReviewDetail; item: T
           </>
         )}
         {ticket?.state === "done" && <ProofControls ticket={ticket} onShot={(path, opener) => openViewer({ files: [{ path }], index: 0, sessionId: detail.sessionId, spaceId: detail.spaceId, opener })} />}
-        {byHand && (
+        {byHand && !asking && (
           <>
             {reveal && detail.root && detail.items[0]?.files[0] && (
               <button type="button" className="btn" onClick={() => { void reveal(`${detail.root}/${detail.items[0]!.files[0]}`); }}>Show in Finder</button>
@@ -367,6 +403,31 @@ function approvedLine(t: ActTicket | null, approvedAt: string, held: boolean, fa
     case "done": return doneLine(t);
     case "cancelled": return t.error ?? "Taken back.";
   }
+}
+
+/** What Close will do, said before it does it: for an approved batch, which sends it takes back and
+ *  the one it may be too late for. */
+function closeConsequence(detail: TeamReviewDetail, family: "post" | "send" | null): string {
+  const verb = family === "post" ? "posts" : "sends";
+  if (detail.state !== "approved" || detail.tickets.length === 0) return `Close “${detail.title}”? Nothing of it ${verb}, and ${detail.roleName ?? "the role"} is not told.`;
+  const left = detail.tickets.filter((t) => t.state === "ready" || t.state === "scheduled").length;
+  const going = detail.tickets.some((t) => t.state === "acting");
+  const out = detail.tickets.filter((t) => t.state === "done").length;
+  return [
+    left > 0 ? `Close it and take back ${left === 1 ? "the one" : `all ${left}`} not ${family === "post" ? "posted" : "sent"} yet?` : `Close “${detail.title}”? Nothing more of it ${verb}.`,
+    going ? `One is going out right now; Realm stops it if the platform still can.` : null,
+    out > 0 ? `${out} already went out and ${out === 1 ? "stays" : "stay"} out.` : null,
+  ].filter(Boolean).join(" ");
+}
+
+/** A closed batch: when, and what of it had already gone. */
+function closedLine(detail: TeamReviewDetail, at: string, family: "post" | "send" | null): string {
+  const out = detail.tickets.filter((t) => t.state === "done").length;
+  const going = detail.tickets.some((t) => t.state === "acting");
+  const past = family === "post" ? "posted" : "sent";
+  if (going) return `You closed it${at}. One was already going out; Realm is stopping it if the platform still can.`;
+  if (out > 0) return `You closed it${at}. ${out} ${out === 1 ? "was" : "were"} already ${past}; nothing more goes out.`;
+  return `You closed it${at}. Nothing of it goes out.`;
 }
 
 function doneLine(t: ActTicket | null): string {

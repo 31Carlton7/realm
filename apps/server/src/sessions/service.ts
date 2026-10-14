@@ -214,7 +214,7 @@ export class SessionService {
     sandbox?: ExecutionSandboxService;
     /** The documents service, for surfacing a file the agent wrote. Optional like every other
      *  nicety here: a server built without it simply shows nothing. */
-    documents?: { openPath(p: { spaceId: string; environmentId?: string; path: string; openedBy?: string }): Promise<unknown> };
+    documents?: { openPath(p: { spaceId: string; environmentId?: string; path: string; base?: string; openedBy?: string }): Promise<unknown> };
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
@@ -1252,7 +1252,7 @@ export class SessionService {
     const path = shouldSurfaceWrite(toolName, input);
     if (path === null) return;
     const s = this.d.sessions.get(id); if (!s) return;
-    void this.d.documents.openPath({ spaceId: s.spaceId, environmentId: s.environmentId, path, openedBy: id })
+    void this.d.documents.openPath({ spaceId: s.spaceId, environmentId: s.environmentId, path, base: s.cwd, openedBy: id })
       .catch(() => {});
   }
 
@@ -1586,11 +1586,6 @@ export class SessionService {
     const skills = (only
       ? this.d.skills.injectionFor(s.spaceId, s.agentKind, { only, stageId: id })
       : this.d.skills.injectionFor(s.spaceId, s.agentKind)) ?? undefined;
-    // The ONLY MCP config any agent ever receives (W3): one `realm` gateway entry, minted fresh per
-    // session start by `gateway.register`. Third-party server endpoints, API keys and OAuth tokens never
-    // leave realm-server — an agent reaches them only by proxy, through the Bearer token below, which
-    // `onLog` (like every other log line here) never sees.
-    const mcpServers = [this.d.gateway.register(id, s.spaceId)];
     // The session's durable context (W3): THIS space's Realm memory document, plus — when the skills
     // injection above is active on a Claude session — the CLAUDE.md content that `settingSources: []`
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
@@ -1611,11 +1606,17 @@ export class SessionService {
     // Skipped for a session that already carries `agentContext` — a delegated child, a reviewer, an
     // unattended worker. Each of those was spawned with a brief written for one job, and generic advice
     // about spawning MORE agents beside a brief that just told it how deep it may go is noise at best.
-    // Also skipped where the agent has no context channel at all, the same honesty `systemContextFor`
-    // applies: Cursor's ACP session/new takes no per-session context, so this would be told to nobody.
-    const capabilities = agentContext || AGENT_MEMORY_CHANNEL[s.agentKind] === "none"
-      ? undefined
-      : capabilitiesContext(this.d.gateway.realmProvidersFor(id, s.spaceId));
+    // An agent with no context channel at all — Cursor's ACP session/new takes no per-session context —
+    // is told the same thing by the one thing it does connect to: the gateway's own `initialize`
+    // answer, as the server's instructions. Never both, so Claude does not read it twice.
+    const preamble = agentContext ? undefined : capabilitiesContext(this.d.gateway.realmProvidersFor(id, s.spaceId));
+    const noChannel = AGENT_MEMORY_CHANNEL[s.agentKind] === "none";
+    const capabilities = noChannel ? undefined : preamble;
+    // The ONLY MCP config any agent ever receives (W3): one `realm` gateway entry, minted fresh per
+    // session start by `gateway.register`. Third-party server endpoints, API keys and OAuth tokens never
+    // leave realm-server — an agent reaches them only by proxy, through the Bearer token below, which
+    // `onLog` (like every other log line here) never sees.
+    const mcpServers = [this.d.gateway.register(id, s.spaceId, noChannel ? preamble : undefined)];
     const joined = [capabilities, baseContext, agentContext, handoffContext].filter((p): p is string => Boolean(p)).join("\n\n");
     const systemContext = joined.length > 0 ? joined : undefined;
     // The fork a checkpoint restore armed, if one is still waiting. Read off the ROW and not from
