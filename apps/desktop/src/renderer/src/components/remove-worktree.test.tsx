@@ -59,6 +59,14 @@ describe("RemoveWorktreeSheet", () => {
     await waitFor(() => expect(api.calls).toContain("removeWorktree:env1|0,2|keep-branch"));
   });
 
+  it("says the kept commits stay, beside the files that do not", async () => {
+    await open(status({ dirtyFiles: 1, unpushedCommits: 1 }));
+    expect(screen.getByText("This will destroy 1 uncommitted file. There is no undo.")).toBeInTheDocument();
+    expect(screen.getByText("Its unpushed commit stays on the branch.")).toBeInTheDocument();
+    fireEvent.click(branchBox());
+    expect(screen.queryByText("Its unpushed commit stays on the branch.")).toBeNull();
+  });
+
   it("deletes the branch of a worktree that holds nothing of its own", async () => {
     const { api } = await open(status());
     expect(branchBox()).toBeChecked();

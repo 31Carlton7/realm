@@ -79,18 +79,22 @@ export function EnvironmentList({ spaceId }: { spaceId: string }) {
           <ul className="env-list">
             {rows.map(({ e, here, running, lastAt, git }) => {
               const branch = git?.branch ?? e.branch;
+              // A worktree is named by its branch — its folder keeps the name it was made with, which
+              // an untitled session's branch has since outgrown — so its git line carries only counts.
+              const name = e.kind === "primary" ? spaceName : e.kind === "worktree" && branch ? branch : e.path.replace(/\/+$/, "").split("/").pop();
+              const counts = git ? [git.dirty > 0, git.ahead > 0, git.behind > 0].some(Boolean) : false;
               return (
                 <li key={e.id} className="env-row" data-kind={e.kind}>
                   <div className="env-main">
                     <Icon name={e.kind === "worktree" ? "branch" : "folder"} size={14} />
-                    <span className="env-name">{e.kind === "primary" ? spaceName : e.path.replace(/\/+$/, "").split("/").pop()}</span>
+                    <span className="env-name" title={name}>{name}</span>
                     <span className="env-kind">{KIND_LABEL[e.kind]}</span>
                   </div>
-                  {branch && (
+                  {branch && (e.kind !== "worktree" || counts) && (
                     // What git says now. Each count is drawn only when it is not zero; a clean checkout
                     // on its upstream is just its branch.
                     <div className="env-git" title={git ? undefined : "Not asked of git yet"}>
-                      <code className="env-branch">{branch}</code>
+                      {e.kind !== "worktree" && <code className="env-branch">{branch}</code>}
                       {git && git.dirty > 0 && <span className="env-dirty">{git.dirty} changed</span>}
                       {git && git.ahead > 0 && <span className="env-sync" title={`${git.ahead} ${git.ahead === 1 ? "commit" : "commits"} not on its upstream`}>↑{git.ahead}</span>}
                       {git && git.behind > 0 && <span className="env-sync" title={`${git.behind} ${git.behind === 1 ? "commit" : "commits"} on its upstream it does not have`}>↓{git.behind}</span>}

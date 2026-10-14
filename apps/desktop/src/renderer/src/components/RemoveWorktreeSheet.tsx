@@ -67,6 +67,10 @@ export function RemoveWorktreeSheet({ environmentId }: { environmentId: string }
         </div>
         {!status.present && <p className="wt-note">The directory is already gone; removing only clears git's record of it.</p>}
         <p className="wt-hazard" data-risky={risky || undefined}>{hazardSentence(status, deleteBranch)}</p>
+        {/* Said beside a loss, too: kept, the commits are the part that is not lost. */}
+        {!deleteBranch && status.unpushedCommits > 0 && status.dirtyFiles > 0 && (
+          <p className="wt-note">{status.unpushedCommits === 1 ? "Its unpushed commit stays" : `Its ${status.unpushedCommits} unpushed commits stay`} on the branch.</p>
+        )}
         {stale && (
           <p className="wt-stale" role="alert">
             The worktree changed while this was open — the counts above are the new ones. Confirm again to proceed.

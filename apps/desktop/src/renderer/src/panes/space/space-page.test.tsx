@@ -156,7 +156,7 @@ describe("the space's checkouts", () => {
 
   it("names each checkout, its kind, its reserved port range and who is in it", async () => {
     await openWorktrees();
-    const worktree = card("fix-login");
+    const worktree = card("realm/fix-login");
     expect(within(worktree).getByText("Worktree")).toBeInTheDocument();
     expect(within(worktree).getByText("/tmp/worktrees/s1/fix-login")).toBeInTheDocument();
     // A RANGE Realm holds — never a claim about what is listening on it.
@@ -175,8 +175,9 @@ describe("the space's checkouts", () => {
     const primary = card("Versed");
     await waitFor(() => expect(within(primary).getByText("develop")).toBeInTheDocument());
     expect(primary.querySelector(".env-dirty, .env-sync")).toBeNull();
-    const worktree = card("fix-login");
-    expect(within(worktree).getByText("realm/fix-login")).toBeInTheDocument();
+    // A worktree is named by its branch, so the branch is not said twice.
+    const worktree = card("realm/fix-login");
+    expect(worktree.querySelector(".env-branch")).toBeNull();
     expect(within(worktree).getByText("3 changed")).toBeInTheDocument();
     expect(within(worktree).getByText("↑2")).toBeInTheDocument();
     expect(within(worktree).getByText("↓1")).toBeInTheDocument();
@@ -185,16 +186,16 @@ describe("the space's checkouts", () => {
   it("says when each was last active, and lists the space folder first, then the most recent", async () => {
     await openWorktrees();
     // The most recent of its two sessions, not the older one.
-    expect(within(card("fix-login")).getByText("Active 3h ago")).toBeInTheDocument();
+    expect(within(card("realm/fix-login")).getByText("Active 3h ago")).toBeInTheDocument();
     // No session yet: when it was made.
-    expect(within(card("quiet")).getByText("Made 2d ago")).toBeInTheDocument();
-    expect([...document.querySelectorAll(".env-name")].map((n) => n.textContent)).toEqual(["Versed", "fix-login", "quiet"]);
+    expect(within(card("realm/quiet")).getByText("Made 2d ago")).toBeInTheDocument();
+    expect([...document.querySelectorAll(".env-name")].map((n) => n.textContent)).toEqual(["Versed", "realm/fix-login", "realm/quiet"]);
   });
 
   it("offers removal only for the worktree, never for the space's own folder", async () => {
     const { api, store } = await openWorktrees();
     expect(within(card("Versed")).queryByRole("button", { name: "Remove…" })).toBeNull();
-    fireEvent.click(within(card("fix-login")).getByRole("button", { name: "Remove…" }));
+    fireEvent.click(within(card("realm/fix-login")).getByRole("button", { name: "Remove…" }));
     // The button opens the confirm (App renders it), having first read what removal would cost.
     await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "remove-worktree", environmentId: "envW" }));
     expect(api.calls).toContain("worktreeStatus:envW");

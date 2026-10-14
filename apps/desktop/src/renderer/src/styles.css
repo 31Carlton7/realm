@@ -7179,6 +7179,9 @@ select { appearance: none; padding-right: 22px;
 /* The list's head carries the one way to make another: a worktree is made here, beside the ones there are. */
 .env-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .env-field-head > .btn { display: inline-flex; align-items: center; gap: 4px; }
+/* One card a row here: a checkout's name is a branch of unbounded length and its path longer still,
+   and half the column left both an ellipsis and a path broken over seven lines. */
+.env-field > .env-list { grid-template-columns: minmax(0, 1fr); }
 /* What git says now: the branch in mono, then only the counts that are not zero. */
 .env-git { grid-column: 1; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
 .env-branch { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
