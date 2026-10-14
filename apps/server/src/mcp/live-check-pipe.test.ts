@@ -9,7 +9,9 @@ import type { McpServerRow } from "../store/mcp";
  * then the exit arrives. The real race only loses on a loaded machine (the full suite lost it once);
  * this child loses it every time.
  */
-vi.mock("node:child_process", () => ({
+vi.mock("node:child_process", async (importOriginal) => ({
+  // Only `spawn` is faked: the rest of the module stays real for whatever else the check loads.
+  ...(await importOriginal<typeof import("node:child_process")>()),
   spawn: () => {
     const child = Object.assign(new EventEmitter(), {
       stdout: new PassThrough(),
