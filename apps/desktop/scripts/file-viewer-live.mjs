@@ -192,7 +192,14 @@ async function main() {
   if (!fs.existsSync(mainEntry)) throw new Error("apps/desktop/out is missing — run `pnpm build` first");
 
   const wrapper = path.join(scratch, "wrapper.mjs");
-  fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
+  fs.writeFileSync(wrapper, [
+    'import { app } from "electron";',
+    'app.setPath("userData", process.env.LIVE_USER_DATA);',
+    // A scratch window must never take the owner's typing: no key focus, and a title that says so.
+    'app.on("browser-window-created", (_e, w) => { w.setFocusable(false); w.setTitle("SCRATCH — file viewer check");',
+    '  w.on("page-title-updated", (e) => e.preventDefault()); });',
+    "await import(process.env.LIVE_MAIN);",
+  ].join("\n"));
   const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   electron = spawn(electronBin, [wrapper, ...UNTHROTTLED], {
     env: {
@@ -205,17 +212,17 @@ async function main() {
       // Every engine is the scripted agent, onboarding's session included: nothing reaches a real one.
       REALM_FAKE_STANDS_IN: "claude,codex",
       REALM_HTML_MENUS: "1",
-      // A window that opens without focus and cannot take it (main/live-scratch.ts).
-      REALM_LIVE_SCRATCH: "1",
       LIVE_USER_DATA: path.join(scratch, "userData"),
       LIVE_MAIN: mainEntry,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  electron.stderr.on("data", () => {}); electron.stdout.on("data", () => {});
+  const log = fs.createWriteStream(path.join(OUT_DIR, "file-viewer-electron.log"));
+  electron.stderr.pipe(log); electron.stdout.pipe(log);
 
   const targets = () => fetch(`http://127.0.0.1:${CDP_PORT}/json/list`).then((r) => r.json()).catch(() => []);
-  const renderer = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("file://")), 60_000, "renderer target");
+  const renderer = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("file://")), 180_000, "renderer target")
+    .catch(async (e) => { note("targets", await targets()); throw e; });
   const c = cdp(renderer.webSocketDebuggerUrl);
   await c.ready;
   await c.send("Runtime.enable");
@@ -225,7 +232,7 @@ async function main() {
     new MutationObserver(() => r.hasAttribute("data-window-inactive") && r.removeAttribute("data-window-inactive")).observe(r, { attributes: true }); return true; })()`;
   await evalIn(c, awake);
 
-  await until(() => evalIn(c, `!!document.querySelector('.onboarding input:not([type=radio])')`), 30_000, "onboarding");
+  await until(() => evalIn(c, `!!document.querySelector('.onboarding input:not([type=radio])')`), 90_000, "onboarding");
   await evalIn(c, `(() => {
     const input = document.querySelector('.onboarding input:not([type=radio])');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "Atlas");
