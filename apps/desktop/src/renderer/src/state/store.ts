@@ -900,6 +900,18 @@ export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
  *  ever read together — a position with no conversation to put in it is nothing. */
 export const SETTING_QUICK_CHAT = "ui.quickChat";
+/** Which sub-agent each lead's Agents tab was showing, by lead session id — so a tab restored after a
+ *  relaunch opens where it was left. Capped at `AGENTS_SHOWN_MAX` leads, the newest kept. */
+export const SETTING_AGENTS_SHOWN = "ui.agentsShown";
+const AGENTS_SHOWN_MAX = 100;
+
+/** The stored map, as far as it can be read: string ids under string keys, the newest last. */
+export function parseAgentsShown(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [lead, id] of Object.entries(raw as Record<string, unknown>)) if (typeof id === "string" && id) out[lead] = id;
+  return out;
+}
 export const EVENTS_PAGE = 1000;
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
@@ -938,7 +950,7 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
  * What a session pane's right-hand strip is showing. One union rather than two flags, because the
  * strip is one place: see `sessionDock`.
  */
-export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "subagent"; toolUseId: string } | { kind: "terminal" };
+export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "terminal" };
 
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history"
   /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): the Overview, the records
@@ -1583,10 +1595,13 @@ export type AppState = TeamSlice & LabSlice & {
    *  Agents tab lists and its transcript's delegation lines read. Fetched while either is on screen,
    *  and re-read on each `delegation.changed` for the lead, which is every begin, settle and collect. */
   subagents: Record<string, DelegatedChild[]>;
-  /** What a lead's Agents tab was last asked to show: a plan to start the composer from ("Implement
-   *  with…"), or a row to bring into view (a transcript line). Counted, so the same ask twice is two
-   *  asks rather than a prop that did not change. */
-  agentsAsk: Record<string, { plan?: string; childId?: string; n: number }>;
+  /** What a lead's Agents tab was last asked to start its composer from ("Implement with…").
+   *  Counted, so the same ask twice is two asks rather than a prop that did not change. */
+  agentsAsk: Record<string, { plan?: string; n: number }>;
+  /** The sub-agent each lead's Agents tab is showing in its viewer, by LEAD session id — a harness
+   *  agent's launching call id or a delegated child's session id. Absent: the tab's overview.
+   *  Persisted (`SETTING_AGENTS_SHOWN`), so a restored tab opens where it was left. */
+  agentsShown: Record<string, string>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -1600,16 +1615,15 @@ export type AppState = TeamSlice & LabSlice & {
   /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
   /**
-   * What is docked to a session pane's right-hand strip — its summary, or one harness sub-agent by
-   * its launching call's `toolUseId`. Absent means nothing is.
+   * What is docked to a session pane's strip — its summary, its files, or its terminal. Absent
+   * means nothing is. (A sub-agent is no longer one: it opens in the lead's Agents tab.)
    *
-   * ONE slot, because there is one strip. The summary and the sub-agent panel are two contents for
-   * one place, and holding their open states separately is how two panels come to be drawn over each
-   * other: each measures the same edge and each claims it.
+   * ONE slot, because there is one strip. Its contents are contents for one place, and holding their
+   * open states separately is how two panels come to be drawn over each other: each measures the
+   * same edge and each claims it.
    *
-   * In memory only, unlike `terminalPanel`. Both of these are things you look at while working and
-   * then stop looking at; restoring one across a relaunch would reopen a panel onto an agent that
-   * finished last night, which is the same empty-panel failure a pane KIND for this would have had.
+   * In memory only, unlike `terminalPanel`. These are things you look at while working and then stop
+   * looking at; restoring one across a relaunch would reopen a panel nobody is reading.
    */
   sessionDock: Record<string, SessionDock | undefined>;
   /**
@@ -1981,9 +1995,11 @@ export type AppState = TeamSlice & LabSlice & {
    * itself (terminal, documents, browser, machine, simulator) and every agent's open lands here, whatever
    * kind it is — make the item, then hand it to this. A person's open (`focus`) also brings the side
    * panes back if they were put away (`sidePanesHidden`); an agent's quiet one adds its tab and
-   * leaves them as the person left them.
+   * leaves them as the person left them. `show` is a person's open that leaves the keyboard where it
+   * was — a sub-agent clicked in the lead's transcript is read beside the prompter being typed in —
+   * unless the panel has no room beside the panes, where it takes their place and the keyboard with it.
    */
-  openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean }): Promise<boolean>;
+  openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean; show?: boolean }): Promise<boolean>;
   /** The toggle at the window's top right: put the side panel away with its tabs, or bring it back —
    *  in the main panes' place when there is no room for it beside them. With nothing open in it, it
    *  opens a new tab for the session in focus. */
@@ -2493,8 +2509,7 @@ export type AppState = TeamSlice & LabSlice & {
   /** Dock something to this session pane's right-hand strip, replacing whatever was there. Passing
    *  what is already docked closes it, so one call serves every toggle that opens this strip. */
   toggleSessionDock(sessionId: string, dock: SessionDock): void;
-  /** Undock. Nothing is destroyed — a sub-agent goes on working and its calls go on landing in the
-   *  transcript; this closes a view of them. */
+  /** Undock. Nothing is destroyed — this closes a view. */
   closeSessionDock(sessionId: string): void;
   /** Open the quick chat, making its session if there is not one already. A second call is a no-op:
    *  there is one quick chat, and a button that stacked windows would be a way to lose one. */
@@ -2624,9 +2639,15 @@ export type AppState = TeamSlice & LabSlice & {
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
   /** Re-read a lead's sub-agents into `subagents`. */
   refreshSubagents(sessionId: string): Promise<void>;
-  /** The session's Agents tab, as a tab of its side pane the way its other tools open — with the
-   *  composer started from `plan`, or the row for `childId` brought into view, when asked. */
-  openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string }): Promise<void>;
+  /** The session's Agents tab, as a tab of its side pane the way its other tools open. `childId`
+   *  opens it on that sub-agent's viewer, null on the overview, and absent wherever it was left; a
+   *  `plan` starts the overview's composer from it. */
+  openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string | null }): Promise<void>;
+  /** Show one sub-agent in the lead's Agents tab, or with null its overview — the viewer's own
+   *  switcher. Remembered (`agentsShown`). */
+  showSubagent(leadId: string, id: string | null): void;
+  /** Read the remembered `agentsShown`, once. */
+  hydrateAgentsShown(): Promise<void>;
   /** A view an MCP server drew for one of the session's tool calls, as a tab of the session's side
    *  pane — the one it has, or a new one. Never a split: a view is the session's, not the layout's. */
   openAppView(sessionId: string, view: AppViewRef): Promise<void>;
@@ -3376,6 +3397,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** Terminal-panel state persists as one settings blob, on its own debounce: a resize drag writes
      *  every frame, but a toggle is a single deliberate act and writes straight through. */
     let panelTimer: ReturnType<typeof setTimeout> | null = null;
+    /** `agentsShown` is read on first use rather than at boot (`hydrateAgentsShown`), and nothing is
+     *  written back before it has been: a write first would replace every other lead's mark. */
+    let agentsShownRead: Promise<void> | null = null;
+    let agentsShownLoaded = false;
+    let agentsShownTimer: ReturnType<typeof setTimeout> | null = null;
     const persistPanels = async () => {
       if (panelTimer) { clearTimeout(panelTimer); panelTimer = null; }
       await api.setSetting(SETTING_TERMINAL_PANEL, get().terminalPanel);
@@ -3969,11 +3995,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  panel is showing that session's tabs (or nothing), or that session is the one the keyboard is
      *  working for — and otherwise waits in the strip, so two agents opening pages side by side do not
      *  pull the panel back and forth under the person reading it. */
-    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean } = {}): Promise<boolean> => {
+    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean; show?: boolean } = {}): Promise<boolean> => {
       const view = viewNow();
       const panel = findPanel(view.layout);
       const showingOwner = panel?.itemId ? tabOwner(panel, panel.itemId) : undefined;
-      const front = !!opts.focus || !panel || showingOwner === owner || servedSession() === owner;
+      const front = !!opts.focus || !!opts.show || !panel || showingOwner === owner || servedSession() === owner;
       const layout = layoutOpenInSidePane(view.layout, owner, itemId, { front });
       if (!layout) return false;
       const leaf = findLeafOfItem(layout, itemId)!;
@@ -3983,7 +4009,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
         showPanelIfAside();
       } else {
+        if (opts.show) { revealPanes(); revealSidePanes(); }
         set(writeView({ ...view, layout }));
+        if (opts.show && panelPlace(get()).kind === "aside") { set({ focusedLeafId: leaf.id }); showPanelIfAside(); }
       }
       await persist();
       return true;
@@ -4386,7 +4414,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -7115,7 +7143,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const cur = get().sessionDock[sessionId];
         // Same thing again closes it — which is what makes the opener a toggle without every opener
         // having to hold its own idea of whether it is the one currently showing.
-        if (cur && cur.kind === dock.kind && (cur.kind !== "subagent" || cur.toolUseId === (dock as { toolUseId: string }).toolUseId)) {
+        if (cur && cur.kind === dock.kind) {
           get().closeSessionDock(sessionId);
           return;
         }
@@ -7355,13 +7383,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ subagents: { ...get().subagents, [sessionId]: children } });
       },
       async openAgentsTab(sessionId, ask) {
-        if (ask) set({ agentsAsk: { ...get().agentsAsk, [sessionId]: { ...ask, n: (get().agentsAsk[sessionId]?.n ?? 0) + 1 } } });
+        if (ask?.plan !== undefined) set({ agentsAsk: { ...get().agentsAsk, [sessionId]: { plan: ask.plan, n: (get().agentsAsk[sessionId]?.n ?? 0) + 1 } } });
+        // A plan is handed to the overview's composer, so it is the overview that opens.
+        const shown = ask?.plan !== undefined ? null : ask?.childId;
+        if (shown !== undefined) { await get().hydrateAgentsShown(); get().showSubagent(sessionId, shown); }
         const sid = get().sessions[sessionId]?.spaceId ?? get().allSessions[sessionId]?.spaceId;
         if (!sid) return;
         const { itemId } = await api.agentsTab(sessionId);
+        // Opened on one sub-agent — from the lead's transcript, its bar, a card — the tab is shown and
+        // the keyboard stays in the lead's prompter, which is what the person was in. Not where the
+        // person has dragged the tab into the split: that is theirs, and is gone to as it is.
+        const layout = get().layout ?? emptyLayout();
+        const at = findLeafOfItem(layout, itemId);
+        const quiet = typeof ask?.childId === "string" && (!at || at.id === findPanel(layout)?.id);
+        if (quiet && !get().items.some((i) => i.id === itemId)) await loadSpaceItems(sid);
+        if (quiet && await get().openInSidePane(sessionId, itemId, { show: true })) return;
         // Already a tab somewhere: brought to the front where it is. Otherwise the documents button's
         // route — a tab of this session's side pane, with the keyboard, because a person asked.
-        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        if (at) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
       },
       async openAppView(sessionId, view) {
@@ -7375,6 +7414,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
+      },
+      showSubagent(leadId, id) {
+        if (!agentsShownLoaded) { void get().hydrateAgentsShown().then(() => get().showSubagent(leadId, id)); return; }
+        if ((get().agentsShown[leadId] ?? null) === id) return;
+        const { [leadId]: _was, ...rest } = get().agentsShown;
+        // Re-inserted rather than updated in place, so the map's order is the order leads were last
+        // looked at and the cap drops the one looked at longest ago.
+        const next = id === null ? rest : { ...rest, [leadId]: id };
+        const keys = Object.keys(next);
+        for (const k of keys.slice(0, Math.max(0, keys.length - AGENTS_SHOWN_MAX))) delete next[k];
+        set({ agentsShown: next });
+        if (agentsShownTimer) clearTimeout(agentsShownTimer);
+        agentsShownTimer = setTimeout(() => { agentsShownTimer = null; get().run(() => api.setSetting(SETTING_AGENTS_SHOWN, get().agentsShown)); }, PERSIST_DEBOUNCE_MS);
+      },
+      async hydrateAgentsShown() {
+        if (agentsShownRead) return agentsShownRead;
+        agentsShownRead = api.getSetting(SETTING_AGENTS_SHOWN).then((raw) => {
+          set({ agentsShown: parseAgentsShown(raw) });
+        }, () => {}).finally(() => { agentsShownLoaded = true; });
+        return agentsShownRead;
       },
       clearAgentsAsk(sessionId) {
         if (!get().agentsAsk[sessionId]) return;
