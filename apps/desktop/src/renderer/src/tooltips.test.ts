@@ -34,6 +34,12 @@ describe("splitShortcut", () => {
     expect(splitShortcut("Stop (interrupt)")).toEqual({ label: "Stop (interrupt)", shortcut: null });
     expect(splitShortcut("Saved (2 files)").shortcut).toBeNull();
   });
+  it("reads the spelled-out chords Linux and Windows print", () => {
+    expect(splitShortcut("Search (Ctrl+K)")).toEqual({ label: "Search", shortcut: "Ctrl+K" });
+    expect(splitShortcut("Split down (Ctrl+Shift+\\)").shortcut).toBe("Ctrl+Shift+\\");
+    expect(splitShortcut("Next space (Super+Tab)").shortcut).toBe("Super+Tab");
+    expect(splitShortcut("Retry (Shift+click)").shortcut).toBe("Shift+click");
+  });
 });
 
 describe("the tooltip layer", () => {

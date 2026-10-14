@@ -67,12 +67,13 @@ const ACCELERATOR_KEYS: Readonly<Record<string, string>> = {
   up: "Up", down: "Down", left: "Left", right: "Right", home: "Home", end: "End",
   pageup: "PageUp", pagedown: "PageDown", "+": "Plus",
 };
-export function acceleratorFor(chord: string): string | undefined {
+export function acceleratorFor(chord: string, darwin = true): string | undefined {
   const c = parseKeyChord(chord);
   if (!c) return undefined;
   const key = ACCELERATOR_KEYS[c.key] ?? (/^f\d+$/.test(c.key) ? c.key.toUpperCase() : c.key.length === 1 ? c.key.toUpperCase() : undefined);
   if (!key) return undefined;
-  return [c.mod && "Command", c.ctrl && "Control", c.alt && "Alt", c.shift && "Shift", key].filter(Boolean).join("+");
+  // Off a Mac `mod` is Ctrl and `ctrl` the Super key (key-event.ts).
+  return [c.mod && (darwin ? "Command" : "Control"), c.ctrl && (darwin ? "Control" : "Super"), c.alt && "Alt", c.shift && "Shift", key].filter(Boolean).join("+");
 }
 
 /**
@@ -96,9 +97,9 @@ export function pageChords(rules: readonly Keybinding[]): Set<string> {
 }
 
 /** Whether a keystroke belongs to the page rather than to the menu bar. */
-export function shouldPageOwn(input: Pick<Input, "type" | "key" | "code" | "meta" | "shift" | "alt" | "control">, owned: Set<string>): boolean {
+export function shouldPageOwn(input: Pick<Input, "type" | "key" | "code" | "meta" | "shift" | "alt" | "control">, owned: Set<string>, platform: string = process.platform): boolean {
   if (input.type !== "keyDown") return false;
-  const chord = chordFromEvent({ key: input.key, code: input.code, metaKey: input.meta, ctrlKey: input.control, altKey: input.alt, shiftKey: input.shift });
+  const chord = chordFromEvent({ key: input.key, code: input.code, metaKey: input.meta, ctrlKey: input.control, altKey: input.alt, shiftKey: input.shift }, platform);
   return chord !== null && owned.has(chord);
 }
 
@@ -122,7 +123,7 @@ export function appMenuTemplate({ appName, rules, send, openExternal, developer,
   const items = (rows: readonly (CommandRow | null)[]): MenuItemConstructorOptions[] => rows.map((r) => {
     if (r === null) return sep;
     const chord = chordsForCommand(rules, r.command)[0];
-    const accelerator = chord ? acceleratorFor(chord) : undefined;
+    const accelerator = chord ? acceleratorFor(chord, darwin) : undefined;
     return { label: r.label, ...(accelerator ? { accelerator } : {}), click: () => send(r.command) };
   });
   return [

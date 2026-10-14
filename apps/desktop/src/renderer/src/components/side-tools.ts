@@ -1,5 +1,6 @@
 import type { IconName } from "@realm/ui";
 import type { AppState, NewTabTool } from "../state/store";
+import { capabilities } from "../platform";
 
 /**
  * The tools a session opens beside itself, in one list: the side pane's "+" offers them and a blank
@@ -21,6 +22,11 @@ export const SIDE_TOOLS: readonly { tool: NewTabTool; label: string; icon: IconN
   { tool: "machine", label: "Machine", icon: "machine", hint: "Connect to another computer" },
 ];
 
+/** Whether this OS has the tool at all: a simulator is Xcode's, so Linux and Windows are not offered one. */
+export function sideToolOffered(tool: NewTabTool): boolean {
+  return tool !== "simulator" || capabilities().simulators;
+}
+
 /**
  * Whether `tool` can open beside `sessionId` right now. Documents waits for the session's checkout,
  * because an action that could only no-op is a row nobody should be offered. The terminal is a tab
@@ -28,6 +34,7 @@ export const SIDE_TOOLS: readonly { tool: NewTabTool; label: string; icon: IconN
  * its control is on the session's bar.
  */
 export function sideToolReady(s: AppState, sessionId: string, tool: NewTabTool): boolean {
+  if (!sideToolOffered(tool)) return false;
   if (tool === "documents") { const e = s.sessions[sessionId]?.environmentId; return !!e && !!s.environments[e]; }
   if (tool === "terminal") return s.terminalDock !== "bottom";
   return true;

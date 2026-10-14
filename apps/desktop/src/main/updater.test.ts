@@ -14,6 +14,9 @@ describe("updaterDecision — the hard gate (Plan 15 W1)", () => {
 
   it("packaged but unsigned: disabled as 'unsigned' — and unsigned outranks no-feed, since even a live feed can't install into an unsigned app", () => {
     expect(updaterDecision({ packaged: true, signed: false, feedLive: true })).toEqual({ enabled: false, reason: "unsigned" });
+    // Linux and Windows have no update feed to install from, signed or not.
+    expect(updaterDecision({ packaged: true, signed: true, feedLive: true, autoUpdate: false })).toEqual({ enabled: false, reason: "platform" });
+    expect(updaterDecision({ packaged: false, signed: true, feedLive: true, autoUpdate: false })).toEqual({ enabled: false, reason: "dev" });
     expect(updaterDecision({ packaged: true, signed: false, feedLive: false })).toEqual({ enabled: false, reason: "unsigned" });
   });
 

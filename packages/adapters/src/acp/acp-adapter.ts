@@ -8,6 +8,7 @@ import { createAcpMapper } from "./map-acp";
 import { fetchAcpCatalog, probeAcp } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { obj, str, type Bag } from "../bag";
+import { pathToFileURL } from "node:url";
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -595,7 +596,9 @@ export class AcpAdapter implements AgentAdapter {
       const blocks: Bag[] = m.text ? [{ type: "text", text: m.text }] : [];
       for (const a of m.attachments) {
         // Cursor reports embeddedContext:false, so a `resource` block is never an option — a link it is.
-        const link = { type: "resource_link", uri: `file://${a.path}`, name: basename(a.path), mimeType: a.mime };
+        // `file://C:\…` is no URI at all, so a Windows path goes through pathToFileURL.
+        const uri = process.platform === "win32" ? pathToFileURL(a.path).href : `file://${a.path}`;
+        const link = { type: "resource_link", uri, name: basename(a.path), mimeType: a.mime };
         if (!imagesAllowed || !a.mime.startsWith("image/")) { blocks.push(link); continue; }
         try { blocks.push({ type: "image", data: (await readFile(a.path)).toString("base64"), mimeType: a.mime }); }
         catch (e) { log(`could not read ${a.path} (${message(e)}); sending it as a link`); blocks.push(link); }

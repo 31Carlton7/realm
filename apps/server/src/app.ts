@@ -2,7 +2,7 @@ import { agentBin } from "./cli/bins";
 import { CliService } from "./cli/service";
 import { CliInstaller } from "./cli/install";
 import { openDatabase, type Db } from "./db/database";
-import { dbPath } from "./paths";
+import { appDataDir, dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
 import { SpacesStore } from "./store/spaces";
 import { IconAssetsStore } from "./store/icon-assets";
@@ -41,7 +41,7 @@ import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
 import { statfsSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
@@ -1073,7 +1073,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const userHome = opts.userHome ?? homedir();
   // A space that works in `/` or the home folder itself is not a project a repo could be mixed into —
   // counted as one, it would forbid every folder on the Mac and no team could ever be made.
-  const holdsUserHome = (p: string): boolean => !relative(resolve(p), userHome).startsWith("..");
+  // On Windows a folder on another drive has no relative path to home at all — `relative` answers
+  // with an absolute one — and is not around it.
+  const holdsUserHome = (p: string): boolean => { const r = relative(resolve(p), userHome); return !r.startsWith("..") && !isAbsolute(r); };
   const memoryRepos = new MemoryRepoService({
     home: opts.home, settings, scopes: scopeSeam,
     forbiddenRoots: () => [
@@ -1084,7 +1086,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Realm's home kept inside a project folder that is also a space (a preview build's, say) would
     // forbid every repo made under it; the app's own Application Support folder is the second place.
     // Only a caller that names the machine's home gets a default there: a test never writes outside its own.
-    fallbackRoot: opts.memoryFallbackRoot ?? (opts.userHome ? join(opts.userHome, "Library", "Application Support", "Realm", "memory-repos") : undefined),
+    fallbackRoot: opts.memoryFallbackRoot ?? (opts.userHome ? join(appDataDir(opts.userHome), "Realm", "memory-repos") : undefined),
     toolsEnabled: (spaceId) => mcp.providerEnabled(spaceId, MEMORY_PROVIDER_NAME),
     committerName: userFirstName,
     // Asked only whether a GitHub remote is private, before sync is turned on; never a test's network.

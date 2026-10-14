@@ -15,7 +15,7 @@ export type RunGit = (cwd: string, args: string[]) => Promise<string>;
  *  timeout). Always execFile — cwd is user data and must never reach a shell string. */
 const execGit: RunGit = (cwd, args) =>
   new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, timeout: GIT_TIMEOUT_MS, encoding: "utf8" }, (err, stdout) => {
+    execFile("git", args, { cwd, timeout: GIT_TIMEOUT_MS, encoding: "utf8", windowsHide: true }, (err, stdout) => {
       // stderr is deliberately dropped: git failure details never leak into RPC results.
       if (err) reject(err);
       else resolve(stdout);

@@ -62,6 +62,30 @@ mac:
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
 afterSign: scripts/notarize.cjs
+# Linux and Windows (docs/platforms.md): unsigned, built by CI on each OS's own runner
+# (.github/workflows/build-desktop.yml) — electron-builder packs for the machine it runs on, and
+# stage-pack.mjs stages that OS's node-pty and icons. The icon is the 1024px PNG the .icns is drawn
+# from; electron-builder makes the hicolor set and the .ico from it. No update feed reads these
+# (updater.ts is the Mac's alone), so they are installed by hand from the release page.
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/icon.png
+  category: Development
+  executableName: realm
+  synopsis: A workspace for running coding agents.
+  maintainer: Charm Technologies
+win:
+  target:
+    - nsis
+  icon: build/icon.png
+  # No certificate in the env, so nothing is signed: SmartScreen warns on first run ("More info" →
+  # "Run anyway"), which docs/platforms.md says.
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
 # The update feed's shape (Plan 15 W1/W2): presence of this block makes electron-builder emit
 # latest-mac.yml next to the dmg/zip (what `pnpm release` stages for a GitHub release) and embed
 # app-update.yml in the app. It does NOT publish — both dist scripts pin `--publish never`; humans

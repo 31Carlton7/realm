@@ -7,6 +7,7 @@ import { Markdown } from "../session/Markdown";
 import { patchKey, turnPatchKey, useApp, type TurnDiffScope } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { UnifiedPatch as Patch } from "./PatchView";
+import { capabilities } from "../../platform";
 
 /** One letter, the way `git status` writes it — the densest honest label for a row. */
 const STATUS_LETTER: Record<DiffFile["status"], string> = {
@@ -389,7 +390,7 @@ function NoRepository({ cwd }: { cwd: string }) {
       {/* `files.reveal`, not `media.reveal`: this is a DIRECTORY, and the media gate admits only what
           a media element can decode — so this button used to do nothing at all. */}
       <button type="button" className="btn" onClick={() => { void window.realm?.files?.reveal?.(cwd); }}>
-        Reveal in Finder
+        Reveal in {capabilities().fileManager}
       </button>
     </div>
   );

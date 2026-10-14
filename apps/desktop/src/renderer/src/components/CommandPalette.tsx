@@ -9,6 +9,7 @@ import { ItemGlyph } from "./sidebar/ItemList";
 import { ItemIcon } from "./PageIcon";
 import { SpaceIcon } from "./SpaceIcon";
 import { useDissolve } from "./ScrollFades";
+import { capabilities } from "../platform";
 
 type Entry = { id: string; label: string; hint?: ReactNode; icon: ReactNode; run: () => void; section: string; disabled?: boolean;
   /** A pre-rendered label, for a row whose match positions matter (a ⌘P path). `label` stays a plain
@@ -317,7 +318,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
          each the row the side pane's "+" carries, so nothing that left the session's bar is only in a
          menu. */
       act("new-tab", "New tab", "add", () => run(() => newTab()), kbd("pane.newTab")),
-      act("new-simulator", "Open a simulator", "simulator", () => run(() => newSimulator(null, besideSession ? { sessionId: besideSession } : false))),
+      ...(capabilities().simulators ? [act("new-simulator", "Open a simulator", "simulator", () => run(() => newSimulator(null, besideSession ? { sessionId: besideSession } : false)))] : []),
       ...(besideSession ? [
         act("show-terminal", "Show terminal", "terminal", () => run(() => showSessionTerminal(besideSession)), kbdIn("terminal.toggle", { sessionFocus: true })),
         act("sub-agents", "Sub-agents", "agents", () => run(() => openAgentsTab(besideSession))),
