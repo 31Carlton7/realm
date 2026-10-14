@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ALWAYS_SWALLOWED_CHORDS, CONTEXT_KEYS, KEY_COMMANDS, DEFAULT_KEYBINDINGS, KeybindingSchema,
-  chordsForCommand, commandForChord, defaultIsClaimed, displayKeyChord, setKeyDisplayPlatform, evaluateWhen, formatKeyChord,
+  chordsForCommand, commandForChord, defaultIsClaimed, displayKeyChord, displayKeyChordFor, setKeyDisplayPlatform, evaluateWhen, formatKeyChord,
   REVISED_DEFAULTS, matchKeybinding, mergeDefaults, normalizeKeyChord, parseKeyChord, parseWhen, whenHolds,
   type Keybinding, type WhenExpr,
 } from "./keybindings";
@@ -81,12 +81,12 @@ describe("displayKeyChord", () => {
     expect(displayKeyChord("mod+shift+enter")).toBe("⌘⇧↩");
   });
   it("spells chords out on Linux and Windows, with Ctrl as mod", () => {
-    expect(displayKeyChord("mod+shift+f", { platform: "win32" })).toBe("Ctrl+Shift+F");
-    expect(displayKeyChord("ctrl+shift+tab", { platform: "win32" })).toBe("Win+Shift+Tab");
-    expect(displayKeyChord("ctrl+tab", { platform: "linux" })).toBe("Super+Tab");
-    expect(displayKeyChord("mod+shift+enter", { platform: "linux" })).toBe("Ctrl+Shift+Enter");
-    expect(displayKeyChord("escape", { platform: "linux" })).toBe("Esc");
-    expect(displayKeyChord("mod+alt+left", { platform: "linux" })).toBe("Ctrl+Alt+←");
+    expect(displayKeyChordFor("mod+shift+f", "win32")).toBe("Ctrl+Shift+F");
+    expect(displayKeyChordFor("ctrl+shift+tab", "win32")).toBe("Win+Shift+Tab");
+    expect(displayKeyChordFor("ctrl+tab", "linux")).toBe("Super+Tab");
+    expect(displayKeyChordFor("mod+shift+enter", "linux")).toBe("Ctrl+Shift+Enter");
+    expect(displayKeyChordFor("escape", "linux")).toBe("Esc");
+    expect(displayKeyChordFor("mod+alt+left", "linux")).toBe("Ctrl+Alt+←");
   });
   it("prints for the platform the renderer set, and for a Mac until it does", () => {
     try {
@@ -96,8 +96,6 @@ describe("displayKeyChord", () => {
       setKeyDisplayPlatform("darwin");
     }
     expect(displayKeyChord("mod+k")).toBe("⌘K");
-    // THE MUTANT: a positional platform, which `map` fills with an index and prints a Mac's chords spelled out.
-    expect(["mod+k"].map(displayKeyChord)).toEqual(["⌘K"]);
   });
   it("shows an unparseable key verbatim, so the typo is findable", () => {
     // THE MUTANT: fall back to a glyph or an empty string, and the one thing the user needs to see —
