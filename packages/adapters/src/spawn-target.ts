@@ -47,7 +47,7 @@ function cmdArg(arg: string, shim: boolean): string {
   return shim ? a.replace(CMD_META, "^$1") : a;
 }
 
-export type SpawnTarget = { command: string; args: string[]; options: { windowsVerbatimArguments?: boolean } };
+export type SpawnTarget = { command: string; args: string[]; options: { windowsVerbatimArguments?: boolean; windowsHide?: boolean } };
 
 /**
  * What to hand `spawn`/`execFile` to run `command args` on this OS.
@@ -62,10 +62,12 @@ export function spawnTarget(command: string, args: string[], o: { env?: Env; pla
   if (platform !== "win32") return { command, args, options: {} };
   const env = o.env ?? process.env;
   const bin = findExecutable(command, env, platform) ?? command;
-  if (!needsShell(bin, platform)) return { command: bin, args, options: {} };
+  // Hidden: a console program started from Realm, which has no console of its own, would otherwise
+  // open a window of its own for every call.
+  if (!needsShell(bin, platform)) return { command: bin, args, options: { windowsHide: true } };
   const shim = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i.test(bin);
   const line = [bin.replace(CMD_META, "^$1"), ...args.map((a) => cmdArg(a, shim))].join(" ");
-  return { command: env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], options: { windowsVerbatimArguments: true } };
+  return { command: env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], options: { windowsVerbatimArguments: true, windowsHide: true } };
 }
 
 /**

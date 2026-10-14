@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { delimiter, isAbsolute, resolve, sep } from "node:path";
-import type { InstallProvenance } from "@realm/contracts";
+import { executableNames, type InstallProvenance } from "@realm/contracts";
 
 /**
  * Where an agent CLI on this machine came from, so Realm never runs an update command that would not
@@ -75,10 +75,12 @@ export async function resolveInstall(
   bin: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ path: string; realPath: string; provenance: InstallProvenance } | null> {
-  const candidates = bin.includes(sep)
+  // On Windows a CLI is `codex.cmd` or `codex.exe`, never the bare name (platform.ts).
+  const names = executableNames(bin, process.platform, env);
+  const candidates = bin.includes(sep) || (process.platform === "win32" && bin.includes("/"))
     // An explicit path (a REALM_*_BIN override pointing at a stub) is used as given, not searched for.
     ? [isAbsolute(bin) ? bin : resolve(bin)]
-    : (env.PATH ?? "").split(delimiter).filter(Boolean).map((dir) => resolve(dir, bin));
+    : (env.PATH ?? env.Path ?? "").split(delimiter).filter(Boolean).flatMap((dir) => names.map((name) => resolve(dir, name)));
   for (const path of candidates) {
     try {
       await access(path, constants.X_OK);

@@ -40,7 +40,7 @@ describe("spawnTarget", () => {
     const b = scratch();
     writeFileSync(join(b, "cursor-agent.exe"), "");
     expect(spawnTarget("cursor-agent", ["acp"], { platform: "win32", env: { PATH: b, PATHEXT: ".EXE;.CMD" } }))
-      .toEqual({ command: join(b, "cursor-agent.exe"), args: ["acp"], options: {} });
+      .toEqual({ command: join(b, "cursor-agent.exe"), args: ["acp"], options: { windowsHide: true } });
   });
 
   it("runs a .cmd through cmd.exe with every argument quoted and its metacharacters escaped", () => {
@@ -48,7 +48,7 @@ describe("spawnTarget", () => {
     writeFileSync(join(b, "codex.cmd"), "");
     const t = spawnTarget("codex", ["app-server", "a & b", 'say "hi"'], { platform: "win32", env: { PATH: b, PATHEXT: ".CMD", ComSpec: "C:\\Windows\\system32\\cmd.exe" } });
     expect(t.command).toBe("C:\\Windows\\system32\\cmd.exe");
-    expect(t.options).toEqual({ windowsVerbatimArguments: true });
+    expect(t.options).toEqual({ windowsVerbatimArguments: true, windowsHide: true });
     expect(t.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
     const line = t.args[3]!;
     expect(line.startsWith('"') && line.endsWith('"')).toBe(true);
