@@ -1,14 +1,12 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { tempDir } from "@realm/test-utils";
 import { findExecutable, killTree, spawnTarget } from "./spawn-target";
 
-const dirs: string[] = [];
-const scratch = () => { const d = mkdtempSync(join(tmpdir(), "realm-spawn-")); dirs.push(d); return d; };
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+const scratch = () => tempDir("realm-spawn-");
 
 describe("findExecutable", () => {
   // A real execute bit and a ":"-joined PATH of real directories: only a POSIX host has either.

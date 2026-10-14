@@ -99,6 +99,8 @@ function ViewerWindow({ viewer }: { viewer: ViewerState }) {
       const t = e.target;
       const emptyPrompter = t instanceof HTMLTextAreaElement && t.value === "" && t.closest(".media-viewer-chat") !== null;
       if (typingIn(t) && !emptyPrompter) return;
+      // A video with the keyboard seeks with them, as every player does; the step buttons still walk.
+      if (t instanceof Element && t.closest(".video-player")) return;
       e.preventDefault();
       stepViewer(e.key === "ArrowRight" ? 1 : -1);
     };

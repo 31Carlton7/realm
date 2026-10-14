@@ -1,7 +1,8 @@
 import { realpathSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { expandHome } from "@realm/contracts";
+import { expandHome, resolveFileTarget } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 
 /** Directories the file picker never descends into or lists — nor the turn-media sweep
@@ -87,4 +88,25 @@ export function namedInRoot(root: string, path: string): { rel: string; abs: str
   const rel = isAbsolute(named) ? relInRoot(root, named) : named;
   if (rel === null) throw new RpcError("BAD_PATH", `${path} is outside this workspace`);
   return { rel, abs: resolveInRoot(root, rel) };
+}
+
+/**
+ * The file a person or an agent NAMED, wherever it is: `~/…`, absolute, a `file://` URL, `out.mp4:12`,
+ * or relative to `base` — the session's working directory, where the agent that wrote it stood (the
+ * workspace root when there is no session). The string as written wins; the `file://` and line
+ * readings are tried after it, so a file whose real name ends in `:12` is still itself. Null when
+ * nothing is there.
+ */
+export async function namedFile(path: string, base: string, home = homedir()): Promise<{ abs: string; line: number | null; isFile: boolean } | null> {
+  if (path.includes("\0")) return null;
+  const named = expandHome(path, home);
+  const asWritten = resolve(base, named);
+  const tries: { abs: string; line: number | null }[] = [{ abs: asWritten, line: null }];
+  const target = resolveFileTarget(path, { cwd: base, home });
+  if (target && target.path !== asWritten) tries.push({ abs: target.path, line: target.line });
+  for (const t of tries) {
+    const st = await stat(t.abs).catch(() => null);
+    if (st) return { ...t, isFile: st.isFile() };
+  }
+  return null;
 }

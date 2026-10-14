@@ -1,4 +1,4 @@
-import { basenameOf, documentKindFor, resolveEditor } from "@realm/contracts";
+import { basenameOf, documentKindFor, parseFileTarget, resolveEditor } from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
 import { canQuickLook, canShare, quickLook, shareFile } from "../../components/file-actions";
@@ -27,12 +27,19 @@ import { capabilities } from "../../platform";
  * `~/…` and resolves a relative path against that directory, which is where the agent was standing.
  * And when there is nothing there, the menu says so — a reveal that quietly does nothing reads as a
  * broken button, not as a file that moved.
+ * Open and Preview take the path the same way, and so reach a file an agent made OUTSIDE the space —
+ * in `/tmp`, in `~/Downloads`, beside it in another checkout — which is where most of what an agent
+ * generates lands. Main resolves the path (`files.resolve`: `~`, the working directory, a `file://`
+ * URL, a `:42` line), and then the file goes where Realm shows that kind: a video to the player in
+ * the documents pane, a document to its editor, anything else to the viewer. Before, Open sent the
+ * raw string to a pane that took it as relative to the space's folder and refused everything else.
+ *
  * And the editor Settings ▸ General ▸ Open files in names, when this Mac has it — for a folder as
  * much as a file, since a folder is what an editor opens as a workspace. Offered beside Realm's own
  * open rather than instead of it: the documents pane is still the one that keeps the file in the
  * space, and an editor is somewhere else entirely.
  */
-export function PathMenu({ path, anchorRef, environmentId, cwd, onClose }: {
+export function PathMenu({ path, anchorRef, environmentId, cwd, sessionId = null, onClose }: {
   path: string;
   anchorRef: React.RefObject<HTMLElement | null>;
   /** The session's checkout, so the pane opens against the workspace this path belongs to rather
@@ -40,6 +47,8 @@ export function PathMenu({ path, anchorRef, environmentId, cwd, onClose }: {
   environmentId: string | null;
   /** The session's working directory — what a relative path in its transcript is relative to. */
   cwd: string | null;
+  /** The session the path was written in, which a file opened from it lands beside. */
+  sessionId?: string | null;
   onClose: () => void;
 }) {
   const openDocumentPath = useApp((s) => s.openDocumentPath);
@@ -47,22 +56,37 @@ export function PathMenu({ path, anchorRef, environmentId, cwd, onClose }: {
   const openFilesIn = useApp((s) => s.openFilesIn);
   const editors = useApp((s) => s.editors);
   const editor = resolveEditor(openFilesIn, editors);
+  const openViewer = useApp((s) => s.openViewer);
   const run = useApp((s) => s.run);
-  const name = basenameOf(path);
+  // The file and the line, without the `:42` or the `file://` the agent wrote round it.
+  const target = parseFileTarget(path) ?? { path, line: null };
+  const name = basenameOf(target.path);
   // A trailing slash, or a name with no extension, is a folder as far as an offer goes. Being wrong
   // in this direction costs nothing: the Finder handles both, and the open below reports honestly.
-  const looksLikeFile = !path.endsWith("/") && name.includes(".");
-  const editable = looksLikeFile && documentKindFor(path) !== "unsupported";
+  const looksLikeFile = !target.path.endsWith("/") && name.includes(".");
+  const editable = looksLikeFile && documentKindFor(target.path) !== "unsupported";
+  const missing = () => new Error(`Nothing is at ${path}. It may have been moved or deleted.`);
+  const open = () => run(async () => {
+    const resolve = window.realm?.files?.resolve;
+    // No bridge (a test, the web build): the path goes as written, and the server says what it finds.
+    const abs = resolve ? await resolve(path, cwd ?? undefined) : target.path;
+    if (abs === null) throw missing();
+    if (editable) {
+      await openDocumentPath(abs, environmentId, null, { ...(target.line ? { line: target.line } : {}), ...(sessionId ? { beside: { sessionId } } : {}) });
+    } else {
+      openViewer({ files: [{ path: abs }], sessionId });
+    }
+  });
 
   const items: MenuItem[] = [
     ...(looksLikeFile ? [{
       label: editable ? `Open ${name}` : `Preview ${name}`,
-      onSelect: () => run(() => openDocumentPath(path, environmentId)),
+      onSelect: open,
     }] : []),
     ...(editor ? [{ label: `Open in ${editor.name}`, onSelect: () => run(() => openPathInEditor(editor.id, path, cwd ?? undefined)) }] : []),
     { label: `Reveal in ${capabilities().fileManager}`, onSelect: () => run(async () => {
       const revealed = await window.realm?.files?.reveal?.(path, cwd ?? undefined);
-      if (revealed === false) throw new Error(`Nothing is at ${path}. It may have been moved or deleted.`);
+      if (revealed === false) throw missing();
     }) },
     ...(canQuickLook() ? [{ label: "Quick Look", kbd: "Space", onSelect: () => quickLook(path, cwd ?? undefined) } as MenuItem] : []),
     ...(canShare() ? [{ label: "Share…", onSelect: () => shareFile(path, anchorRef.current, cwd ?? undefined) } as MenuItem] : []),

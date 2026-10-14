@@ -40,6 +40,10 @@ import { QuickLookRenderer, type QuickLookDeps } from "./quicklook";
 export type PreviewDeps = {
   /** Workspace id → absolute root, or null when no such workspace. */
   rootOf(documentsId: string): string | null;
+  /** Whether that workspace may read this absolute path outside its root — a file a session recorded
+   *  or one opened into its tabs by name (`DocumentService.readsOutside`). Absent, nothing outside a
+   *  root is served. */
+  readsOutside?(documentsId: string, abs: string): boolean;
   /** Directory holding `katex.min.js`, `katex.min.css`, `contrib/`, `fonts/`; null disables KaTeX. */
   katexDir?: string | null;
   /** Directory holding `vis-network.min.js`; null leaves a remote bundle URL alone. */
@@ -159,8 +163,17 @@ export class DocumentPreviewServer {
     if (owner === "_realm") return this.serveHelper(res, rel);
     const root = this.d.rootOf(owner);
     if (!root) return this.fail(res, 404, "no such workspace");
+    /* A tab outside the space is its absolute path, and the pane writes it into the URL as it does any
+       tab, so it arrives as an empty segment after the owner: `/p/<token>/<owner>//tmp/render.png`.
+       That one is served only if the workspace already holds it — the same file the pane may read. */
+    const outside = new RegExp(`^/p/[^/]+/[^/]+//`).test(url.pathname) ? `/${rel}` : null;
     let abs: string;
-    try { abs = resolveInRoot(root, rel); } catch { return this.fail(res, 400, "bad path"); }
+    if (outside !== null) {
+      if (!this.d.readsOutside?.(owner, outside) || outside.includes("\0")) return this.fail(res, 404, "not found");
+      abs = outside;
+    } else {
+      try { abs = resolveInRoot(root, rel); } catch { return this.fail(res, 400, "bad path"); }
+    }
     let st;
     try { st = await stat(abs); } catch { return this.fail(res, 404, "not found"); }
     if (!st.isFile()) return this.fail(res, 404, "not found");

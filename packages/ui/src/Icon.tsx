@@ -17,8 +17,8 @@ import {
   House01Icon, PlaneIcon, Train01Icon, BicycleIcon, Globe02Icon, PaintBucketIcon, Pen01Icon, RulerIcon, PenTool01Icon, StartUp01Icon,
   Bookmark01Icon, BookOpen02Icon, FavouriteIcon, HeartbreakIcon, CameraAiIcon, FireworksIcon, DiceFaces01Icon, GameboyIcon, PentagonIcon, MicroscopeIcon,
   ArrowExpand01Icon, Minimize01Icon, LayoutTable01Icon, SidebarLeft01Icon, Archive02Icon, ArchiveArrowUpIcon,
-  // Inline media playback (MediaView.tsx).
-  PlayIcon, PauseIcon, VolumeHighIcon, VolumeOffIcon,
+  // Inline media playback (MediaView.tsx), and the rest of the video player's transport (VideoPlayer.tsx).
+  PlayIcon, PauseIcon, VolumeHighIcon, VolumeOffIcon, RepeatIcon, PictureInPictureOnIcon, PictureInPictureExitIcon, FullScreenIcon,
   // The reader's verdict on an assistant message (MessageActions.tsx).
   ThumbsUpIcon, ThumbsDownIcon,
   // The session's summary panel (SessionSummary.tsx).
@@ -125,6 +125,9 @@ export const icons = {
   // not focusing a pane, and a call site should not have to borrow the pane system's word for it.
   expand: ArrowExpand01Icon,
   play: PlayIcon, pause: PauseIcon, volumeOn: VolumeHighIcon, volumeOff: VolumeOffIcon,
+  // The video player's loop, picture in picture and full screen; leaving full screen is the pane
+  // focus's own inward mark, the gesture every window control draws for it.
+  loop: RepeatIcon, pip: PictureInPictureOnIcon, pipExit: PictureInPictureExitIcon, fullscreen: FullScreenIcon, exitFullscreen: Minimize01Icon,
   // Two rings: the record mark, as iOS's own Screen Recording control draws it — not a radio button here.
   record: RadioButtonIcon,
   // Same glyph as `group`, under the name a spreadsheet is actually looking for — a document's

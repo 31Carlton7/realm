@@ -21,16 +21,25 @@
  * and an `<a>` already has a destination.
  */
 
-/** One path segment: word characters and the punctuation filenames really carry. Deliberately
- *  excludes `,` `;` `)` and quotes, which end a path in prose far more often than they are in one. */
-const SEG = String.raw`[\w.@%+-]+`;
+/** One path segment: letters and digits in any script, and the punctuation filenames really carry.
+ *  Deliberately excludes `,` `;` `)` and quotes, which end a path in prose far more often than they
+ *  are in one. Unicode, because `\w` is ASCII: `/tmp/café.mp4` was cut at the é into a button for
+ *  `/tmp/caf`, which revealed nothing. */
+const SEG = String.raw`[\p{L}\p{N}\p{M}_.@%+-]+`;
 /** An absolute path with at least two segments. The trailing `/?` lets a directory match. Not when a
  *  path character comes before it: `/lib/orgs.ts` inside `web/lib/orgs.ts` is the tail of a RELATIVE
  *  path, and cutting it out would open a file at the filesystem's root that nobody named. */
-const ABS = new RegExp(String.raw`(?<![\w.@%+~-])(?:~|)(?:\/${SEG}){2,}\/?`, "g");
+const ABS = new RegExp(String.raw`(?<![\p{L}\p{N}_.@%+~-])(?:~|)(?:\/${SEG}){2,}\/?`, "gu");
+/** An editor's line on the end of a path (`report.py:42`, `:42:7`). The path menu takes it off again. */
+const LINE = String.raw`(?::\d+(?::\d+)?)?`;
 /** Anything a whole `<code>` may be for it to count as a path: the absolute form above, or a
  *  relative one that carries a separator AND an extension (`applications/ESSAY-BANK.md`). */
-const CODE_PATH = new RegExp(String.raw`^(?:(?:~|\.{1,2})?(?:\/${SEG})+\/?|${SEG}(?:\/${SEG})+\.${SEG})$`);
+const CODE_PATH = new RegExp(String.raw`^(?:(?:~|\.{1,2})?(?:\/${SEG})+\/?|${SEG}(?:\/${SEG})+\.${SEG})${LINE}$`, "u");
+/** A whole `<code>` holding an absolute or home path with spaces in it — `~/Movies/Screen Recording
+ *  1.mov` — which the forms above refuse, since a space ends a path in prose. In code the author has
+ *  already said where it starts and ends, so a space is only a refusal where it could not be in a
+ *  name: at a segment's edge. It must end in an extension, so a sentence in backticks is not a path. */
+const SPACED_PATH = new RegExp(String.raw`^(?:~|\.{1,2})?(?:\/[^/\s](?:[^/]*[^/\s])?)+\.[\p{L}\p{N}]{1,8}${LINE}$`, "u");
 
 /** Elements whose text is never scanned. A link has a destination already; a code block is copied
  *  whole; a heading is a label, not a location. */
@@ -44,8 +53,11 @@ const trimTail = (p: string): string => p.replace(/[.,;:!?]+$/, "");
  *  the false-positive budget is actually spent. */
 export function looksLikePath(text: string): boolean {
   const t = text.trim();
-  if (t.length < 3 || t.includes("://") || t.includes(" ")) return false;
-  return CODE_PATH.test(t);
+  if (t.length < 3) return false;
+  // A `file://` URL is a path in a URL's clothes: what an agent pastes after saving a file.
+  if (/^file:\/\/\/\S/i.test(t)) return true;
+  if (t.includes("://")) return false;
+  return t.includes(" ") ? SPACED_PATH.test(t) : CODE_PATH.test(t);
 }
 
 /**
