@@ -60,10 +60,12 @@ function useSquircleWell(): { ref: React.RefObject<HTMLSpanElement | null>; clip
  * One attachment, as a square: the file itself when macOS can render it — the image, the first page
  * of the PDF — and a glyph with the file's extension when it cannot.
  *
- * The NAME is deliberately not on the tile. A row of chips reading "Screenshot 2026-09-02 at
+ * The NAME is deliberately not on a square. A row of chips reading "Screenshot 2026-09-02 at
  * 14.31.07.png" tells the user something they already know (they just picked the file) at the cost of
  * the one thing they cannot check at a glance: whether it is the right file. The picture answers
- * that. The name is one hover away, in the tip, where it is available but not in the way.
+ * that. The name is one hover away, in the tip, where it is available but not in the way. In the
+ * prompter a file with no picture to answer it — source, a document, a folder — is the `card`
+ * instead: there a glyph and four letters were every file looking alike, and the name is the answer.
  *
  * A thumbnail that never arrives — an unreadable file, a path that has since moved, a type QuickLook
  * has no generator for — lands on the glyph, because `attachmentThumbnail` answers null for every one
