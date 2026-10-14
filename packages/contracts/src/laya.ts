@@ -159,9 +159,25 @@ export const LayaRecordingSchema = z.object({
 });
 export type LayaRecording = z.infer<typeof LayaRecordingSchema>;
 
+/**
+ * Laya installs itself: on by default, the install starts on its own in the background once there is
+ * a moment for it (`LayaService`'s auto-install). Where that stands, for the line Settings shows under
+ * the state — null when there is nothing for it to do (installed, installing, switched off, or a Mac
+ * that cannot run Laya). `waiting`: a condition is not met yet, and `why` says which. `retrying`: the
+ * last attempt failed (the runtime's `failed` carries its words) and the next is at `at`. `stopped`:
+ * it gave up after its last retry; Install again is the person's.
+ */
+export const LayaAutoInstallSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("waiting"), why: z.string() }),
+  z.object({ state: z.literal("retrying"), at: z.number(), attempt: z.number().int() }),
+  z.object({ state: z.literal("stopped"), attempts: z.number().int() }),
+]);
+export type LayaAutoInstall = z.infer<typeof LayaAutoInstallSchema>;
+
 export const LayaStatusSchema = z.object({
   mode: LayaModeSchema,
-  /** A finished install is on disk. The mode can only be switched to `shadow` once it is. */
+  /** A finished install is on disk. Shadow may be asked for before it is — it is the default, and it
+   *  runs once the install lands — but Assist only after. */
   installed: z.boolean(),
   runtime: LayaRuntimeStateSchema,
   /** Rows in the decision log, across its rotated files. */
@@ -176,5 +192,6 @@ export const LayaStatusSchema = z.object({
   recording: LayaRecordingSchema.nullable().optional(),
   /** What every recording on this Mac kept, which the next training run learns from. */
   recorded: z.object({ recordings: z.number().int().nonnegative(), screens: z.number().int().nonnegative(), apps: z.array(z.string()) }).optional(),
+  auto: LayaAutoInstallSchema.nullable().optional(),
 });
 export type LayaStatus = z.infer<typeof LayaStatusSchema>;

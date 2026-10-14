@@ -146,6 +146,7 @@ export function appCommands(store: StoreApi<AppState>): Readonly<Record<string, 
     "window.back": () => { const s = get(); s.run(() => s.stepWindow(-1)); },
     "window.forward": () => { const s = get(); s.run(() => s.stepWindow(1)); },
     "settings.open": () => get().openDestinationPage("settings-page"),
+    "app.whatsNew": () => get().openSheet({ kind: "whats-new" }),
   };
 }
 

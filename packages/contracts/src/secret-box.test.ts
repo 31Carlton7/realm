@@ -68,9 +68,9 @@ describe("secret-box", () => {
   it("never renumbers a domain: each code is written into every blob of its kind", () => {
     // Appended only. A renumbered `machine` or `remote` would leave every stored blob of that domain
     // unopenable — a forgotten VNC password, or every paired phone cut off — with no error to see.
-    expect(SECRET_DOMAINS).toEqual({ oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8, "team-policy": 9, remote: 10 });
+    expect(SECRET_DOMAINS).toEqual({ oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8, "team-policy": 9, "fill-allow": 10, remote: 11 });
     const key = newSecretKey();
-    expect(Buffer.from(seal(key, "remote", "keys"), "base64")[1]).toBe(10);
+    expect(Buffer.from(seal(key, "remote", "keys"), "base64")[1]).toBe(11);
     expect(open(key, "machine", seal(key, "remote", "keys"))).toBeNull();
   });
 

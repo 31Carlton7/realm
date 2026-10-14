@@ -98,3 +98,24 @@ describe("marking paths in rendered prose", () => {
   });
 
 });
+
+describe("the paths agents write for files they generated", () => {
+  it("keeps a name in any script whole, in prose and in code", () => {
+    // THE MUTANT: ASCII `\w` — `/tmp/café.mp4` became a button for `/tmp/caf`, which revealed nothing.
+    expect(marked("Saved to /tmp/renders/café-final.mp4 just now.")).toEqual(["/tmp/renders/café-final.mp4"]);
+    expect(marked("Saved to `~/Downloads/日本語/clip.mov`.")).toEqual(["~/Downloads/日本語/clip.mov"]);
+  });
+
+  it("takes a spaced path in code when it is rooted and ends in an extension, and never a sentence", () => {
+    expect(looksLikePath("~/Movies/Screen Recording 2026-10-13.mov")).toBe(true);
+    expect(looksLikePath("/tmp/my report.pdf")).toBe(true);
+    expect(looksLikePath("a b/c.md")).toBe(false);
+    expect(looksLikePath("/ then do this.")).toBe(false);
+  });
+
+  it("takes a file:// URL and a line suffix in code", () => {
+    expect(looksLikePath("file:///tmp/out/plot.png")).toBe(true);
+    expect(looksLikePath("/tmp/out/plot.py:42")).toBe(true);
+    expect(marked("Open `/tmp/out/plot.py:42`.")).toEqual(["/tmp/out/plot.py:42"]);
+  });
+});

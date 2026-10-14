@@ -2,7 +2,7 @@ import { agentBin } from "./cli/bins";
 import { CliService } from "./cli/service";
 import { CliInstaller } from "./cli/install";
 import { openDatabase, type Db } from "./db/database";
-import { dbPath } from "./paths";
+import { appDataDir, dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
 import { SpacesStore } from "./store/spaces";
 import { IconAssetsStore } from "./store/icon-assets";
@@ -35,11 +35,13 @@ import { createWorkspaceProvider } from "./workspace/agent-tools";
 import { createSessionOpenTools } from "./workspace/session-open";
 import { createSpacesTools } from "./workspace/spaces";
 import { createSettingsTools } from "./workspace/settings";
+import { createCatalogTools } from "./workspace/catalog";
 import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
+import { statfsSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
@@ -49,12 +51,13 @@ import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
 import { namedInRoot } from "./documents/paths";
+import { revealInFinder } from "./documents/reveal";
 import { LectureService } from "./school/lectures";
 import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
-import { createUiAgentProvider, listBranches } from "./ui/agent-tools";
+import { createUiAgentProvider } from "./ui/agent-tools";
 import { createHubElicitation } from "./mcp/elicitation";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
@@ -129,7 +132,7 @@ import { MentionFiles } from "./workspace/mention-files";
 import { gitCapture } from "./workspace/git-exec";
 import { GitWriteService } from "./workspace/git-write";
 import { PortAllocator } from "./workspace/ports";
-import { WorktreeService } from "./workspace/worktrees";
+import { WorktreeService, listBranches } from "./workspace/worktrees";
 import { EnvironmentService } from "./environments/service";
 import { CheckpointsStore } from "./store/checkpoints";
 import { CheckpointGit } from "./workspace/checkpoints";
@@ -783,6 +786,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  The rest are test knobs: development builds' `debug.report`, the pairing link's scheme, the
    *  pairing window's life, and the push hold-back. */
   remote?: { defaultRelay?: string; dev?: boolean; linkBase?: string; pairTtlMs?: number; pushHoldMs?: number; holdAwake?: HoldAwake | null };
+  /** Laya installs itself once there is a moment for it (`LayaService`'s auto-install). Only `main.ts`
+   *  turns this on, and not in a harness: an app a test or a live check builds never downloads. */
+  layaAutoInstall?: boolean;
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -898,7 +904,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
-  const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
+  const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id), readsOutside: (id, abs) => documents.readsOutside(id, abs) });
   const documents: DocumentService = new DocumentService({
     db, rpc, spaces, items, environments, documents: new DocumentsStore(db), preview,
     // Late-bound like `preview`: the index is built further down, and is asked only once a pane reads.
@@ -982,6 +988,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // The OAuth seam. `McpOauth` sanitizes its own errors — the hub cannot redact a token that only ever
     // existed inside an error thrown in here (see the seam's own doc comment in `hub.ts`).
     authHeaders: (row) => oauth.headers(row),
+    // A 401: a GitHub CLI token is read again, a pasted one flags the row for the user.
+    reauthorize: (row) => oauth.reauthorize(row),
     onStatus: (id, status) => {
       mcpStatus.set(id, status);
       // `oauthStatusOf` is the ONE place `oauthJson` → `oauthStatus` derivation lives (see its own doc
@@ -1079,17 +1087,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      `realm-memory` tools registered further down. A repo may never sit inside a space's checkout, an
      agent's own config folder or Realm's install — the spec's first rule, and W3's read-only one. */
   const userHome = opts.userHome ?? homedir();
+  // A space that works in `/` or the home folder itself is not a project a repo could be mixed into —
+  // counted as one, it would forbid every folder on the Mac and no team could ever be made.
+  // On Windows a folder on another drive has no relative path to home at all — `relative` answers
+  // with an absolute one — and is not around it.
+  const holdsUserHome = (p: string): boolean => { const r = relative(resolve(p), userHome); return !r.startsWith("..") && !isAbsolute(r); };
   const memoryRepos = new MemoryRepoService({
     home: opts.home, settings, scopes: scopeSeam,
     forbiddenRoots: () => [
-      ...spaces.listAll().flatMap((sp) => [sp.folderPath, ...environments.list(sp.id).map((e) => e.path)]).filter((p): p is string => typeof p === "string" && p !== ""),
+      ...spaces.listAll().flatMap((sp) => [sp.folderPath, ...environments.list(sp.id).map((e) => e.path)]).filter((p): p is string => typeof p === "string" && p !== "" && !holdsUserHome(p)),
       ...[".claude", ".codex", ".cursor", ".agents"].map((d) => join(userHome, d)),
       ...((process as { resourcesPath?: string }).resourcesPath ? [(process as { resourcesPath?: string }).resourcesPath!] : []),
     ],
     // Realm's home kept inside a project folder that is also a space (a preview build's, say) would
     // forbid every repo made under it; the app's own Application Support folder is the second place.
     // Only a caller that names the machine's home gets a default there: a test never writes outside its own.
-    fallbackRoot: opts.memoryFallbackRoot ?? (opts.userHome ? join(opts.userHome, "Library", "Application Support", "Realm", "memory-repos") : undefined),
+    fallbackRoot: opts.memoryFallbackRoot ?? (opts.userHome ? join(appDataDir(opts.userHome), "Realm", "memory-repos") : undefined),
     toolsEnabled: (spaceId) => mcp.providerEnabled(spaceId, MEMORY_PROVIDER_NAME),
     committerName: userFirstName,
     // Asked only whether a GitHub remote is private, before sync is turned on; never a test's network.
@@ -1141,6 +1154,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     activeEval: harnessEvalOverride(),
     baseEval: () => (layaRuntime ? readEval(join(layaRuntime.dir, "evals", "convaiinnovations-laya.json")) : null)
       ?? (layaResources ? readEval(join(layaResources, "evals", "convaiinnovations-laya.json")) : null),
+    ...(opts.layaAutoInstall ? {
+      autoInstall: {
+        onboarded: () => spaces.listAll().length > 0,
+        busy: () => sessions.statusCounts().working > 0,
+        freeBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
+      },
+    } : {}),
     ...(layaRuntime && layaResources
       ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files(), recorded: () => layaRecorder.screens(), machine: opts.layaMachine ?? (() => machineState(layaRuntime.dir)) }, o) }
       : {}),
@@ -1385,6 +1405,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } },
     listForSpace: (spaceId, dir) => documents.list(documents.open({ spaceId }).documentsId, dir),
     openPath: (p) => documents.openPath(p),
+    placeOf: (sessionId) => { const s = sessionsStore.get(sessionId); return s ? { environmentId: s.environmentId, cwd: s.cwd } : null; },
+    reveal: (abs) => revealInFinder(abs),
     progressForSpace: (spaceId, path) => documents.progressRead(documents.open({ spaceId }).documentsId, path),
     readForSpace: async (spaceId, path) => {
       const { rel, abs } = namedInRoot(documents.rootForSpace(spaceId), path);
@@ -1429,6 +1451,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     }),
     createSpacesTools({ spaces, settings, broker: browserBroker, rpc }),
     createSettingsTools({ settings, broker: browserBroker, rpc }),
+    createCatalogTools({
+      catalog: (sessionId, spaceId) => mcpGateway.catalogFor(sessionId, spaceId),
+      connections: (spaceId) => mcp.list(spaceId).servers,
+      skills: (spaceId) => skills.list(spaceId),
+      items, laya: () => laya.currentMode(),
+    }),
   ]));
   /* Any goal that was running when Realm last closed is parked rather than resumed. A desktop app is
      relaunched by someone opening it, sometimes days later and usually to do something else — see

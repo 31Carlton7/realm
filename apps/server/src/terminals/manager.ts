@@ -1,5 +1,5 @@
 import * as pty from "node-pty";
-import { newId } from "@realm/contracts";
+import { defaultShell, newId, shellArgs } from "@realm/contracts";
 import { NotFoundError } from "../store/rows";
 
 export type TerminalCallbacks = { onData: (id: string, data: string) => void; onExit: (id: string, exitCode: number) => void };
@@ -10,7 +10,7 @@ export class TerminalManager {
   private terms = new Map<string, pty.IPty>();
   /** When each pty last produced output, so a prefill can wait for the shell to stop talking. */
   private lastDataAt = new Map<string, number>();
-  constructor(private cb: TerminalCallbacks, private now: () => number = Date.now) {}
+  constructor(private cb: TerminalCallbacks, private now: () => number = Date.now, private platform: string = process.platform) {}
 
   create(opts: {
     id?: string; cwd: string; cols: number; rows: number; shell?: string; env?: Record<string, string>;
@@ -26,11 +26,9 @@ export class TerminalManager {
     wrap?: (command: string, args: string[]) => { command: string; args: string[] };
   }): { id: string; shell: string } {
     const id = opts.id ?? newId();
-    const shell = opts.shell ?? process.env.SHELL ?? "/bin/zsh";
-    // Login shell (`-l`): a non-login zsh never reads /etc/zprofile, so path_helper's PATH (and the
-    // user's ~/.zprofile additions) are missing — visible in a packaged app, where the inherited env
-    // is launchd's, not a terminal's. bash/zsh/fish/sh all accept -l; Windows shells do not.
-    const args = process.platform === "win32" ? [] : ["-l"];
+    const shell = opts.shell ?? defaultShell(this.platform, process.env);
+    // Login shell (`-l`) on a Mac and Linux, nothing a Windows shell would refuse (platform.ts).
+    const args = shellArgs(this.platform, shell);
     const spawned = opts.wrap ? opts.wrap(shell, args) : { command: shell, args };
     const p = pty.spawn(spawned.command, spawned.args, {
       name: "xterm-256color", cwd: opts.cwd, cols: clamp(opts.cols, 2, MAX_COLS), rows: clamp(opts.rows, 1, MAX_ROWS),

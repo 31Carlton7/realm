@@ -46,7 +46,7 @@ describe("the rail is grouped", () => {
     expect(seen).toEqual([
       ["You", ["General", "Appearance", "Keys", "Notifications", "Devices"]],
       ["Engines", ["Engines", "Usage"]],
-      ["Browser", ["Sign-ins"]],
+      ["Browser", ["Passwords"]],
       ["Computer", ["Permissions", "Computer use", "Lab"]],
       ["Data", ["Import", "Archived"]],
     ]);
@@ -121,7 +121,7 @@ describe("searching", () => {
     type("ine");
     expect(screen.getByText("No setting matches “ine”.")).toBeInTheDocument();
     type("sign in");
-    expect(results().getByRole("button", { name: "Saved sign-ins, in Sign-ins" })).toBeInTheDocument();
+    expect(results().getByRole("button", { name: "Saved passwords, in Passwords" })).toBeInTheDocument();
   });
 
   it("ranks rows whose label holds the words first, then their page or section, then their terms", () => {

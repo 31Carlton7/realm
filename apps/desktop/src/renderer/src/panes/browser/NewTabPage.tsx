@@ -4,7 +4,7 @@ import { useCallback, useRef, useSyncExternalStore } from "react";
 import { useAppStoreMaybe, type AppState, type NewTabTool } from "../../state/store";
 import { PageIcon } from "../../components/PageIcon";
 import { useDissolve } from "../../components/ScrollFades";
-import { SIDE_TOOLS } from "../../components/side-tools";
+import { SIDE_TOOLS, sideToolOffered } from "../../components/side-tools";
 
 /** A page this space's profile went to — a row of the history (`browsers.recent`), as this page draws it:
  *  with the icon it last showed, when it showed one. */
@@ -46,7 +46,7 @@ export function NewTabPage({ itemId, recent = [], onVisit }: {
   const subscribe = useCallback((cb: () => void) => store?.subscribe(cb) ?? (() => {}), [store]);
   const keybindings = useSyncExternalStore(subscribe, () => store?.getState().keybindings ?? DEFAULT_KEYBINDINGS);
   const session = useSyncExternalStore(subscribe, () => (store ? servesSession(store.getState(), itemId) : false));
-  const tools = SIDE_TOOLS.filter((t) => t.tool !== "agents" || session);
+  const tools = SIDE_TOOLS.filter((t) => (t.tool !== "agents" || session) && sideToolOffered(t.tool));
   /* From the keymap the handler reads, never a literal — the palette's own rule for its hints. */
   const kbd = (command: string | undefined) => {
     const chord = command ? chordsForCommand(keybindings, command)[0] : undefined;

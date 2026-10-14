@@ -4,7 +4,7 @@ import {
   AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, agentLabel, newId,
   type AgentKind, type AgentSignIn,
 } from "@realm/contracts";
-import { claudeExecutable, type ProbeResult } from "@realm/adapters";
+import { claudeExecutable, spawnTarget, type ProbeResult } from "@realm/adapters";
 import { agentBin } from "../cli/bins";
 import { resolveInstall } from "../cli/provenance";
 import { signInUrlOn } from "../browsers/signin-flow";
@@ -156,7 +156,10 @@ export class AgentSignInService {
          Claude Code reads a project's `.claude/settings.json` from where it runs, and a repo's
          settings can steer a sign-in (`forceLoginMethod`, `forceLoginOrgUUID`). Not Realm's home
          either — that is Realm's data folder, and nothing a third-party CLI writes belongs in it. */
-      run.term = pty.spawn(command.file, command.args, { name: "xterm-256color", cols: COLS, rows: ROWS, cwd: this.d.cwd ?? homedir(), env });
+      // An npm-installed CLI on Windows is a `.cmd`, started through cmd.exe; node-pty takes that
+      // already-quoted command line as one string there (spawn-target.ts).
+      const t = spawnTarget(command.file, command.args, { env });
+      run.term = pty.spawn(t.command, t.options.windowsVerbatimArguments ? t.args.join(" ") : t.args, { name: "xterm-256color", cols: COLS, rows: ROWS, cwd: this.d.cwd ?? homedir(), env });
     } catch (e) {
       this.end(run, "failed", `${agentLabel(kind)}'s sign-in could not start: ${(e as Error).message}`);
       return snapshot(run);
@@ -280,7 +283,8 @@ export class AgentSignInService {
     if (run.term && !run.exited) {
       const term = run.term;
       term.kill();
-      run.killTimer = setTimeout(() => { if (!run.exited) term.kill("SIGKILL"); }, KILL_GRACE_MS);
+      // node-pty on Windows throws on any signal, and its kill already ends the process outright.
+      run.killTimer = setTimeout(() => { if (!run.exited) term.kill(process.platform === "win32" ? undefined : "SIGKILL"); }, KILL_GRACE_MS);
       run.killTimer.unref?.();
     }
     this.say(run);

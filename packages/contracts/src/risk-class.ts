@@ -63,6 +63,8 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *   - `workspace_state`, `sessions_list`, `session_read`, `space_list` — what is in this space and
  *     profile and what its sessions said, as the sidebar already shows it;
  *   - `settings_get` — the five settings an agent may change (theme and the like), none of them secret;
+ *   - `realm_capabilities` — Realm's tools, connections, skills and panes by name and state, as the
+ *     Connections and Settings pages show them; never a value;
  *   - `agent_peers` — the other sessions in this space and whether each can be asked;
  *   - `agent_status` — this session's own delegated runs, without collecting them;
  *   - `schedule_list` — the space's schedules;
@@ -79,7 +81,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *
  * NEVER class `read` (without `asksFirst`) a tool that changes state, sends something, moves the
  * user's screen or reveals a secret value: such a name runs with no prompt from either engine. Classed
- * otherwise on purpose: `docs_open`, `pane_show`, `session_open`, `space_switch` (each changes what is
+ * otherwise on purpose: `docs_open`, `docs_reveal`, `pane_show`, `session_open`, `space_switch` (each changes what is
  * on screen); `team_roles` (re-hashes approved reviews, and sends one back to the person when a file
  * changed under it); `vault_http` (spends a secret).
  */
@@ -91,6 +93,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__session_read": read,
   "realm-workspace__space_list": read,
   "realm-workspace__settings_get": read,
+  "realm-workspace__realm_capabilities": read,
   "realm-agent__agent_peers": read,
   "realm-agent__agent_status": read,
   "realm-schedule__schedule_list": read,
@@ -146,6 +149,9 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-docs__docs_list": readAsking("it makes the space's Documents workspace the first time"),
   "realm-docs__docs_progress": readAsking("it makes the space's Documents workspace the first time"),
   "realm-docs__docs_open": internal,
+  // Selects a file in a Finder window: what is on screen changes, nothing on disk does — `docs_open`'s
+  // terms, so it goes ahead the way that one does rather than asking before every "here it is".
+  "realm-docs__docs_reveal": internal,
 
   "realm-vm__vm_list": readAsking(SHOWS_ELSEWHERE),
   "realm-vm__vm_screenshot": readAsking(SHOWS_ELSEWHERE),
@@ -183,6 +189,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-team__record_read": readAsking("it logs the read on the team's activity"),
   "realm-team__record_update": internal,
   "realm-team__review_submit": internal,
+  "realm-team__review_close": internal,
   "realm-team__team_handoff": internal,
   "realm-team__team_mention": internal,
 

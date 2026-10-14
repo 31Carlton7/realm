@@ -9,7 +9,7 @@
  *   1. Each launch is a sub-agent line in the transcript, not a generic tool card.
  *   2. Under the last message, a strip says "2 sub-agents working · 1 done" and lists all three —
  *      after the turn has ended — agreeing with the chip's count.
- *   3. A click on a strip row opens the session's Agents tab with that sub-agent's card lit.
+ *   3. A click on a strip row opens the session's Agents tab on that sub-agent's viewer.
  *   4. Once both background agents stop, the strip folds to "3 sub-agents finished", and that line
  *      opens the Agents tab again.
  *
@@ -227,16 +227,16 @@ async function main() {
   }
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "dark"; return true; })()`);
 
-  // ── A row opens the Agents tab on its card ───────────────────────────────────────────────────
+  // ── A row opens the Agents tab on its viewer ─────────────────────────────────────────────────
   await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-strip-row')].find((r) => r.textContent.includes('Teams rule engine')).click(); return true; })()`);
-  const lit = await until(() => evalIn(c, `document.querySelector('.subagents li.subagent[data-flash]')?.querySelector('.subagent-task')?.textContent ?? null`), 10_000, "card lit").catch(() => null);
-  check("a strip row opens the Agents tab with that sub-agent's card lit", lit === "Teams rule engine", lit);
-  const tabCards = await evalIn(c, `[...document.querySelectorAll('.subagents li.subagent')].map((li) => ({ task: li.querySelector('.subagent-task')?.textContent, state: li.dataset.state }))`);
-  note("Agents tab cards", tabCards);
+  const lit = await until(() => evalIn(c, `document.querySelector('.subagent-view-title')?.textContent ?? null`), 10_000, "viewer").catch(() => null);
+  check("a strip row opens the Agents tab on that sub-agent's viewer", lit === "Teams rule engine", lit);
+  const tabCards = await evalIn(c, `[...document.querySelectorAll('.subagent-switch-tab')].slice(1).map((t) => ({ task: t.textContent, state: t.dataset.state }))`);
+  note("Agents tab switcher", tabCards);
   check("the Agents tab lists the lead's own background agents", tabCards.length === 3, tabCards);
   await shot(c, "2-agents-tab-focused-dark");
   await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-strip-row')].find((r) => r.textContent.includes('Realmite runner game')).click(); return true; })()`);
-  await until(() => evalIn(c, `document.querySelector('.subagents li.subagent[data-flash]')?.querySelector('.subagent-task')?.textContent === 'Realmite runner game'`), 10_000, "second card lit");
+  await until(() => evalIn(c, `document.querySelector('.subagent-view-title')?.textContent === 'Realmite runner game'`), 10_000, "second viewer");
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "light"; return true; })()`);
   await sleep(400);
   await shot(c, "3-agents-tab-focused-light");

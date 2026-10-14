@@ -12,7 +12,11 @@ human following along, and so that every action is verifiable.
 
 1. **Snapshot first, always.** `browser_snapshot` is the primary way to read a page for acting on
    it: one line per visible interactive element, each with a stable `[ref=N]`. Never act on an
-   element you have not seen in a snapshot from the CURRENT page state.
+   element you have not seen in a snapshot from the CURRENT page state. A snapshot lists at most
+   400 elements: what is on screen first, then form fields, then the rest in page order. When it is
+   cut off, its last lines say how many were left out — follow them rather than concluding a
+   control is missing: `offset` pages through the rest, `query: "save"` lists only elements whose
+   role, name or value match, and `within: <ref>` lists one region (the note names the regions).
 2. **Act by ref, one intent at a time.** `browser_act` clicks/types/keys/scrolls by `[ref=N]`.
    Refs are re-resolved to live geometry at act time, so a stale ref fails honestly rather than
    clicking the wrong place — but a ref from before a navigation is stale on purpose: re-snapshot.

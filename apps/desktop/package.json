@@ -1,7 +1,8 @@
 {
   "name": "@realm/desktop",
-  "version": "2.1.0",
+  "version": "2.3.0",
   "private": true,
+  "homepage": "https://realm.computer",
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
@@ -12,7 +13,9 @@
     "build:native": "node scripts/build-native.mjs",
     "predev": "node scripts/build-native.mjs",
     "dist": "node scripts/stage-pack.mjs && node scripts/pack.mjs --mac dmg zip --publish never",
-    "dist:dir": "node scripts/stage-pack.mjs && node scripts/pack.mjs --dir --publish never"
+    "dist:dir": "node scripts/stage-pack.mjs && node scripts/pack.mjs --dir --publish never",
+    "dist:linux": "node scripts/stage-pack.mjs && node scripts/pack.mjs --linux AppImage deb --publish never",
+    "dist:win": "node scripts/stage-pack.mjs && node scripts/pack.mjs --win nsis --publish never"
   },
   "dependencies": {
     "emojilib": "4.0.3"
@@ -82,6 +85,7 @@
     "react-resizable-panels": "^3.0.0",
     "shadow-plugin": "^2.1.0",
     "tailwindcss": "^4.3.3",
+    "tldts": "6.1.86",
     "unicode-emoji-json": "^0.9.0",
     "uqr": "0.1.3",
     "vite": "^6.0.0",

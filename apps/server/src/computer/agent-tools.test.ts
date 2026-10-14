@@ -210,7 +210,14 @@ describe("computer_snapshot", () => {
 
   it("warns when the tree was cut short, so absence is not read as proof", async () => {
     const { provider } = setup({ ops: { computerSnapshot: { ...SNAPSHOT, truncated: true } } });
-    expect(text(await provider.call(ctx, "computer_snapshot", {}))).toMatch(/larger than the budget/);
+    expect(text(await provider.call(ctx, "computer_snapshot", {}))).toMatch(/more than this snapshot read: the last lines say how to reach the rest/);
+  });
+
+  it("forwards offset and query to the walk, and refuses a malformed one", async () => {
+    const { provider, ops } = setup({ ops: { computerSnapshot: SNAPSHOT } });
+    await provider.call(ctx, "computer_snapshot", { offset: 500, query: "send" });
+    expect(ops.find((o) => o.op === "computerSnapshot")?.params).toEqual({ screenshot: false, scope: { offset: 500, query: "send" } });
+    expect((await provider.call(ctx, "computer_snapshot", { offset: 1.5 })).isError).toBe(true);
   });
 });
 

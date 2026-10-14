@@ -23,7 +23,7 @@ const WEEK = [1, 2, 3, 4, 5, 6, 0].map((d) => ({ day: d, label: ["Sunday", "Mond
  * or not, how often, what time), and Advanced for HOW (a new session per run or one conversation
  * continued, archiving successes, the space, and the model it runs on). The model is the prompter's
  * own chip and picker, so its row also holds what Codex's Effort row did — the model's own levels —
- * and fast mode and the permission the runs start in.
+ * and fast mode, beside the Full access every run starts in.
  *
  * The instructions are sent as written, because they are standing orders to an agent that will never
  * see this modal — and they may name other models for the work they hand out, which is the run's

@@ -179,7 +179,9 @@ async function typedCommand(kind: AgentKind, command: string): Promise<string> {
   const bin = await claudeExecutable().catch(() => null);
   if (!bin || bin !== bundledClaude()) return command;
   const [, ...args] = command.split(/\s+/);
-  return [`'${bin.replaceAll("'", `'\\''`)}'`, ...args].join(" ");
+  // PowerShell runs a quoted path only behind `&`, and escapes a quote by doubling it.
+  const quoted = process.platform === "win32" ? `& '${bin.replaceAll("'", "''")}'` : `'${bin.replaceAll("'", `'\\''`)}'`;
+  return [quoted, ...args].join(" ");
 }
 
 const EMPTY_SCREEN: TerminalScreen = { screen: [], scrollback: [], cursor: { row: 0, col: 0 }, cols: 100, rows: 30, altScreen: false };

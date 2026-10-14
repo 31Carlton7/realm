@@ -2,7 +2,7 @@ import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
 import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
-  CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
+  CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
   EDITOR_NAMES, resolveEditor, type OpenFilesIn, type LinksOpenIn, type TerminalDockEdge, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
@@ -10,7 +10,7 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
   type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
   CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
-import { UNLOCK_POLICIES, UNLOCK_SESSION_HOURS, type ThemeSeed, type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus } from "@realm/contracts";
+import { UNLOCK_POLICIES, UNLOCK_SESSION_HOURS, type BrowserCredential, type ThemeSeed, type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus } from "@realm/contracts";
 import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
@@ -30,8 +30,10 @@ import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
+import { EditPasswordSheet, ImportPasswordsButton, KeychainPasswords, PasswordExceptions, PasswordRowActions, matchesPasswordSearch } from "./PasswordsSection";
 import { PageRail } from "../../components/page-nav";
-import { CATEGORY_COPY, SETTINGS_GROUPS, SETTINGS_INDEX, searchSettings, settingPlace, settingsTabLabel, type SettingEntry, type SettingsTab } from "./settings-index";
+import { CATEGORY_COPY, SETTINGS_INDEX, searchSettings, settingPlace, settingsTabLabel, tabAvailable, visibleSettingsGroups, type SettingEntry, type SettingsTab } from "./settings-index";
+import { capabilities } from "../../platform";
 
 /**
  * The Settings page (Plan 12 W6, Universe screenshot 5) — a `settings-page` destination on W4's
@@ -55,7 +57,10 @@ const FOUND_MS = 1600;
 
 export function SettingsPage(_props: PaneProps) {
   // In the store so an opener can land on a tab — the browser pane's "Browser settings" opens Sign-ins.
-  const tab = useApp((s) => s.settingsPageTab);
+  // A page this OS has nothing for (settings-index.ts `tabAvailable`) — asked for by name, or kept
+  // from another machine — opens General instead.
+  const askedTab = useApp((s) => s.settingsPageTab);
+  const tab = tabAvailable(askedTab) ? askedTab : "general";
   const setTab = useApp((s) => s.setSettingsPageTab);
   const [query, setQuery] = useState("");
   /** The row a search result asked for, held until its page has rendered it. */
@@ -99,7 +104,7 @@ export function SettingsPage(_props: PaneProps) {
                 choice, so the arrow keys still walk the whole rail. While a search is showing,
                 nothing is checked — the column is not any of these pages, and a lit tab over a list
                 of results would say it was. */}
-            {SETTINGS_GROUPS.map((g) => (
+            {visibleSettingsGroups().map((g) => (
               <fieldset key={g.label} className="page-rail-list" aria-labelledby={`${ids}-${g.label}`}>
                 <span className="page-rail-head" id={`${ids}-${g.label}`}>{g.label}</span>
                 {g.tabs.map((t) => {
@@ -323,8 +328,10 @@ function EnginesTab() {
       <FailoverPanel />
       {/* A model Realm runs itself, beside the ones it runs agents on: installed, started and watched
           from here, and — unlike every engine above — never handed a turn. */}
-      <h3 className="settings-head" data-setting="laya">Laya (local decisions)</h3>
-      <LayaSection />
+      {capabilities().laya && <>
+        <h3 className="settings-head" data-setting="laya">Laya (local decisions)</h3>
+        <LayaSection />
+      </>}
     </div>
   );
 }
@@ -1887,9 +1894,11 @@ function UnlockPolicyRows({ profileId, profileName }: { profileId: string; profi
  * needs saying out loud, because it inverts what a saved password usually means — the user has never
  * seen this one and cannot, so the site's own reset is their route back rather than their memory.
  *
- * The list is metadata: origin, username, label. There is no reveal button and no edit-in-place for
- * the value, because main has no method that would answer one. Changing a password means saving a new
- * sign-in and removing the old.
+ * The list is metadata: origin, username, label. Show and Copy (Realm 2.3) ask macOS for the person
+ * first and answer in a native sheet or on the clipboard, from main — never with the value here, in a
+ * window an agent can be asked to read. Edit changes a password only when a new one is typed, the same
+ * one-way channel as Add. Import, the login keychain, the sites never offered a save and agents'
+ * "Always allow" are `PasswordsSection.tsx`.
  *
  * Everything here is the window's PROFILE's (Plan 27 Phase 2), as its browser cookies are: a sign-in
  * saved here is offered only to that profile's agents and panes. Share with ▸ copies one into another
@@ -1925,6 +1934,9 @@ function SignInsTab() {
    *  the confirmation — a sheet that stayed open over the row it just made would ask "did that
    *  work?" of someone who can see that it did. */
   const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<BrowserCredential | null>(null);
+  const shown = credentials?.filter((c) => matchesPasswordSearch(c, search)) ?? null;
 
   const canSave = origin.trim() !== "" && value !== "" && !saving && profileId !== null;
 
@@ -1974,16 +1986,21 @@ function SignInsTab() {
       )}
 
       <div className="settings-head-row" data-setting="saved-signins">
-        <h3 className="settings-head">Saved sign-ins</h3>
+        <h3 className="settings-head">Saved passwords</h3>
+        <label className="settings-input-label passwords-search">
+          <input type="search" aria-label="Search saved passwords" placeholder="Search"
+            value={search} onChange={(e) => setSearch(e.target.value)} />
+        </label>
+        {profileId && <ImportPasswordsButton profileId={profileId} onImported={() => { void run(() => refreshCredentials(profileId)); }} />}
         {/* A saved sign-in is a secret. Composing one is a sequence — an address, a username, a
             password, and the pinning rule that governs all three — so it is a sheet you start and
             finish, not four fields sitting open in the middle of the page. */}
         <button type="button" className="btn" disabled={status !== null && !status.available}
           onClick={() => setAdding(true)}>
-          <Icon name="add" size={14} /> Add a sign-in
+          <Icon name="add" size={14} /> Add a password
         </button>
       </div>
-      {credentials === null ? <p className="env-empty">Loading…</p> : (
+      {credentials === null || shown === null ? <p className="env-empty">Loading…</p> : (
         <ul className="settings-list creds-list">
           {credentials.length === 0 ? (
             /* The empty state carries the one thing a person needs before saving a secret in an app:
@@ -1991,11 +2008,13 @@ function SignInsTab() {
             <li className="settings-row creds-empty">
               <span className="creds-mark" aria-hidden="true"><Icon name="padlock" size={16} /></span>
               <div className="settings-row-main">
-                <span className="settings-row-name">No saved sign-ins yet.</span>
+                <span className="settings-row-name">No saved passwords yet.</span>
                 <span className="settings-row-desc">An agent can type one into its site without ever seeing it, or have Realm make a new one for a sign-up. You approve each fill, and unlock it as set under Security.</span>
               </div>
             </li>
-          ) : credentials.map((c) => (
+          ) : shown.length === 0 ? (
+            <li className="settings-row creds-empty"><span className="settings-row-name">Nothing saved matches “{search.trim()}”.</span></li>
+          ) : shown.map((c) => (
             <li key={c.id} className="settings-row" aria-label={`${c.origin}${c.username ? `: ${c.username}` : ""}`}>
               <span className="creds-mark" aria-hidden="true"><Icon name="padlock" size={16} /></span>
               <div className="settings-row-main">
@@ -2004,9 +2023,10 @@ function SignInsTab() {
                     the one fact that changes what this sign-in means to the person reading it. Text,
                     not a pill — the list is metadata and a pill would read as a control. */}
                 <span className="settings-row-desc">
-                  {[c.username, c.label, c.generated ? "Generated by Realm" : ""].filter(Boolean).join(" · ") || "No username or label"}
+                  {[c.username, c.label, c.generated ? "Generated by Realm" : "", c.source === "imported" ? "Imported" : ""].filter(Boolean).join(" · ") || "No username or label"}
                 </span>
               </div>
+              {profileId && <PasswordRowActions profileId={profileId} credential={c} onEdit={() => setEditing(c)} />}
               {profileId && <ShareWith fromProfileId={profileId} what={`the sign-in for ${c.origin}`} share={(to) => shareCredential(profileId, c.id, to)} />}
               <button type="button" className="btn-quiet" onClick={() => { if (profileId) run(() => removeCredential(profileId, c.id)); }}>Remove</button>
             </li>
@@ -2055,8 +2075,15 @@ function SignInsTab() {
         </p>
       )}
 
+      {profileId && <KeychainPasswords profileId={profileId} />}
+      {profileId && credentials && <PasswordExceptions profileId={profileId} credentials={credentials} />}
+      {editing && profileId && (
+        <EditPasswordSheet profileId={profileId} credential={editing} onClose={() => setEditing(null)}
+          onSaved={() => { void run(() => refreshCredentials(profileId)); }} />
+      )}
+
       {adding && (
-      <Sheet title="Add a sign-in" onClose={() => setAdding(false)} width={480}>
+      <Sheet title="Add a password" onClose={() => setAdding(false)} width={480}>
       <div className="form creds-form">
         <label className="settings-input-label">Site address
           <input type="url" inputMode="url" placeholder="https://example.com" value={origin}
@@ -2079,8 +2106,8 @@ function SignInsTab() {
             the thing a person needs BEFORE typing an address, not after committing one. And where
             the secret goes, on the one surface that takes it (CREDENTIAL_STORAGE_NOTE's duty). */}
         <p className="settings-hint">
-          Realm pins the sign-in to exactly this address. A sign-in saved for https://example.com will
-          not fill on https://login.example.com or on any lookalike — subdomains are different sites.
+          Realm offers it on this site — https://example.com, and its other addresses such as
+          https://login.example.com when you pick it from a page's menu — and never on a lookalike.
         </p>
         <p className="settings-hint">{CREDENTIAL_STORAGE_NOTE}</p>
         <div className="sheet-actions">
@@ -2089,7 +2116,7 @@ function SignInsTab() {
           <button type="button" className="btn primary" disabled={!canSave}
             onClick={() => { void save(); }}>
             {saving && <Spinner size={12} />}
-            {saving ? "Saving…" : "Save sign-in"}
+            {saving ? "Saving…" : "Save password"}
           </button>
         </div>
       </div>
@@ -2121,13 +2148,14 @@ function SignInsTab() {
           <summary>
             <div className="settings-row-main">
               <span className="settings-row-name">What Realm can't do</span>
-              <span className="settings-row-desc">Two-factor steps, showing a password back, and iCloud Keychain passkeys.</span>
+              <span className="settings-row-desc">Two-factor steps, the Passwords app, and iCloud Keychain passkeys.</span>
             </div>
             <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
           </summary>
           <div className="settings-disclosure-body">
             <p>{CREDENTIAL_2FA_NOTE}</p>
             <p>{CREDENTIAL_STORAGE_NOTE}</p>
+            <p>{PASSWORDS_IMPORT_NOTE}</p>
             <p>{PASSKEY_STORAGE_NOTE}</p>
           </div>
         </details>
@@ -2140,6 +2168,7 @@ function SignInsTab() {
  *  The reasons are main's (updater.ts): the renderer names them, it never decides them. */
 export const UPDATE_DISABLED_COPY = {
   dev: "Update checks don't run in development builds.",
+  platform: "Realm updates itself on macOS only. On Linux and Windows, install a new version from the releases page.",
   unsigned: "Updates unavailable: unsigned build — macOS can only install a signed update. Signing steps: docs/dev/signing.md.",
   "no-feed": "Updates unavailable: this build has no public update feed. See README → Updates.",
 } as const;
@@ -2224,6 +2253,8 @@ function AppIcon({ id }: { id: string }) {
 }
 
 const TCC_STATE_LABEL = { granted: "Granted", denied: "Not granted", unknown: "Can't be checked until used" } as const;
+/** The grants Computer control asks for and repairs itself. */
+const COMPUTER_GRANT_IDS: ReadonlySet<string> = new Set(["accessibility", "screenRecording"]);
 
 function PermissionsTab() {
   return (
@@ -2320,19 +2351,23 @@ function ComputerSpaceRows({ spaceId, name, icon, profile }: { spaceId: string; 
  * page whose buttons can raise a prompt for Realm ITSELF (the "Apps on this Mac" rows prompt on the
  * `mac` CLI's behalf; "Realm's own access" only ever reads).
  *
- * The button says "Ask macOS", not "Grant", because that is all it can do: for both of these macOS
- * shows a dialog that only deep-links to System Settings, and the state does not change until the
- * user flips the switch there. Saying otherwise would make the page look broken when the row stays
- * red after a click.
+ * One button per row does the whole trip: it asks macOS and opens the pane where the switch is, then
+ * the row re-reads until the switch is on — so it turns Granted by itself when the user comes back.
+ * It says "Allow in System Settings", not "Grant", because the switch is there: a row that stayed red
+ * after "Grant" would look broken.
+ *
+ * A grant macOS stopped honouring after an update (made while Realm was unsigned, so pinned to one
+ * build) looks exactly like a refusal, while System Settings still shows Realm switched on. Where the
+ * row KNOWS that happened it leads with Repair; everywhere else Repair waits behind "Already on?",
+ * which is the question the user is asking at that moment.
  */
 function ComputerAccessSection() {
   const status = useApp((s) => s.computerAccess);
   const requesting = useApp((s) => s.computerRequesting);
+  const awaiting = useApp((s) => s.computerAwaiting);
   const refreshComputerAccess = useApp((s) => s.refreshComputerAccess);
-  const requestComputerAccess = useApp((s) => s.requestComputerAccess);
-  const openComputerAccessPane = useApp((s) => s.openComputerAccessPane);
   const run = useApp((s) => s.run);
-  useEffect(() => { void run(() => refreshComputerAccess()); }, [run, refreshComputerAccess]);
+  useComputerAccessFresh(refreshComputerAccess, run);
 
   return (
     <div className="computer-access-field" data-setting="computer-control">
@@ -2351,44 +2386,81 @@ function ComputerAccessSection() {
           {!status.packaged && (
             <p className="settings-hint">Running from source: macOS will attribute these grants to “{status.hostName}”, not to Realm.app — they will not carry into a packaged build.</p>
           )}
+          {status.packaged && !status.signed && (
+            <p className="settings-hint" title="A signed Realm's grants are tied to its bundle id and team, and survive updates.">
+              This copy of Realm is unsigned, so macOS ties these grants to this exact build and the next update will ask for them again.
+            </p>
+          )}
           <ul className="settings-list">
             {status.rows.map((r) => (
-              <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`} title={r.detail}>
-                <AppIcon id={r.id} />
-                <div className="settings-row-main">
-                  <span className="settings-row-name">{r.label}</span>
-                  <span className="tcc-state" data-state={r.state}>
-                    {r.state === "granted" && <Icon name="check" size={12} />}
-                    {TCC_STATE_LABEL[r.state]}
-                  </span>
-                  {/* What a grant BUYS is worth a sentence while you are deciding, and worth nothing
-                      once you have decided: a granted row's chip already says the only thing left to
-                      know. The sentence stays on the row's title either way. */}
-                  {r.state !== "granted" && <span className="settings-row-desc">{r.detail}</span>}
-                </div>
-                <div className="mac-row-actions">
-                  {r.canPrompt && (
-                    /* `askExplanation` rides the BUTTON now instead of stacking a second paragraph
-                       under the row. It was always a sentence about what clicking does — that the
-                       dialog's only button opens System Settings, and that nothing is granted until
-                       you switch Realm on there — which is a thing to read at the button, not two
-                       lines above it and again for every row on the page. */
-                    <button type="button" className="btn-quiet" disabled={requesting !== null}
-                      title={r.askExplanation ?? undefined}
-                      onClick={() => run(() => requestComputerAccess(r.id))}>
-                      {requesting === r.id ? "Waiting for macOS…" : "Ask macOS"}
-                    </button>
-                  )}
-                  {r.needsSettings && (
-                    <button type="button" className="btn-quiet" onClick={() => run(() => openComputerAccessPane(r.id))}>Open System Settings</button>
-                  )}
-                </div>
-              </li>
+              <ComputerAccessRowView key={r.id} row={r} hostName={status.hostName}
+                requesting={requesting} awaiting={awaiting === r.id} />
             ))}
           </ul>
         </>
       )}
     </div>
+  );
+}
+
+/** Re-read on mount and whenever the window comes back to the front — which is the moment someone
+ *  returns from System Settings, and after a watch has given up the only one left. */
+function useComputerAccessFresh(refresh: () => Promise<void>, run: (fn: () => Promise<unknown>) => void) {
+  useEffect(() => {
+    run(() => refresh());
+    const onFocus = () => run(() => refresh());
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [run, refresh]);
+}
+
+function ComputerAccessRowView({ row: r, hostName, requesting, awaiting }: {
+  row: ComputerAccessRow; hostName: string; requesting: string | null; awaiting: boolean;
+}) {
+  const requestComputerAccess = useApp((s) => s.requestComputerAccess);
+  const repairComputerAccess = useApp((s) => s.repairComputerAccess);
+  const run = useApp((s) => s.run);
+  const granted = r.state === "granted";
+  const chip = granted ? TCC_STATE_LABEL.granted : r.stale ? "Not honoured" : TCC_STATE_LABEL[r.state];
+  const busy = requesting !== null;
+  const mine = requesting === r.id;
+  // While the user is off in System Settings, the row's line is the one instruction that matters:
+  // where the switch is, on this macOS, by the name System Settings itself uses.
+  const desc = awaiting ? `Switch ${hostName} on in System Settings ▸ ${r.settingsPlace}. This row changes when you do.` : r.detail;
+  const repair = (
+    <button type="button" className="btn-quiet" disabled={busy} title={r.repairExplanation ?? undefined}
+      onClick={() => run(() => repairComputerAccess(r.id))}>
+      {mine ? "Waiting for macOS…" : r.stale ? "Repair" : "Already on?"}
+    </button>
+  );
+  return (
+    <li className="settings-row tcc-row" aria-label={`${r.label}: ${chip}`} title={r.detail}>
+      <AppIcon id={r.id} />
+      <div className="settings-row-main">
+        <span className="settings-row-name">{r.label}</span>
+        <span className="tcc-state" data-state={r.state}>
+          {granted && <Icon name="check" size={12} />}
+          {chip}
+        </span>
+        {/* What a grant BUYS is worth a sentence while you are deciding, and worth nothing once you
+            have decided: a granted row's chip already says the only thing left to know. The sentence
+            stays on the row's title either way. */}
+        {!granted && <span className="settings-row-desc" aria-live="polite">{desc}</span>}
+      </div>
+      {!granted && (
+        <div className="mac-row-actions">
+          {r.stale && r.canRepair ? repair : (
+            /* `askExplanation` rides the BUTTON: it is a sentence about what clicking does, which is
+               a thing to read at the button, not two lines above it and again for every row. */
+            <button type="button" className="btn-quiet" disabled={busy} title={r.askExplanation ?? undefined}
+              onClick={() => run(() => requestComputerAccess(r.id))}>
+              {mine ? "Waiting for macOS…" : "Allow in System Settings"}
+            </button>
+          )}
+          {!r.stale && r.canRepair && repair}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -2558,6 +2630,7 @@ function RealmAccessSection() {
   const rows = useApp((s) => s.tccRows);
   const refreshTcc = useApp((s) => s.refreshTcc);
   const openTccPane = useApp((s) => s.openTccPane);
+  const openSettingsPage = useApp((s) => s.openSettingsPage);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshTcc()); }, [run, refreshTcc]);
   return (
@@ -2577,7 +2650,13 @@ function RealmAccessSection() {
                 </span>
                 {r.state !== "granted" && <span className="settings-row-desc">{r.detail}</span>}
               </div>
-              <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane(r.id))}>Open System Settings</button>
+              {/* Accessibility and Screen Recording are asked for, repaired and watched under Computer
+                  use; a second button here that only deep-linked would be a weaker copy of that one. */}
+              {COMPUTER_GRANT_IDS.has(r.id) ? (
+                <button type="button" className="btn-quiet" onClick={() => openSettingsPage("computer-use")}>Set up in Computer use</button>
+              ) : (
+                <button type="button" className="btn-quiet" onClick={() => run(() => openTccPane(r.id))}>Open System Settings</button>
+              )}
             </li>
           ))}
         </ul>

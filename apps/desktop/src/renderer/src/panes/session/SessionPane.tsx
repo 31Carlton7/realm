@@ -17,7 +17,6 @@ import type { QueueActions } from "./ComposerQueue";
 import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
-import { SubagentPanel } from "./SubagentPanel";
 import { RunningAgents } from "./DelegatedRuns";
 import { TerminalDock } from "./TerminalDock";
 import { emptyTranscript } from "./transcript-model";
@@ -505,6 +504,26 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const installedApps = useApp((st) => st.installedApps);
   const appIcons = useApp((st) => st.appIcons);
   const accessibility = useApp((st) => { const row = st.computerAccess?.rows.find((r) => r.id === "accessibility"); return row ? row.state === "granted" : null; });
+  const a11yRow = useApp((st) => st.computerAccess?.rows.find((r) => r.id === "accessibility") ?? null);
+  const computerRequesting = useApp((st) => st.computerRequesting);
+  const computerAwaiting = useApp((st) => st.computerAwaiting);
+  const requestComputerAccess = useApp((st) => st.requestComputerAccess);
+  const repairComputerAccess = useApp((st) => st.repairComputerAccess);
+  /* Allow, or Repair where macOS stopped honouring a grant an earlier build held — the same action
+     the Settings row leads with, so the prompter and Settings never offer different fixes. */
+  const accessibilityAction = useMemo(() => {
+    if (!a11yRow || a11yRow.state === "granted") return null;
+    const repairFirst = a11yRow.stale && a11yRow.canRepair;
+    const label = computerRequesting === a11yRow.id ? "Waiting for macOS…"
+      : computerAwaiting === a11yRow.id ? "Open System Settings again"
+      : repairFirst ? "Repair" : "Allow in System Settings";
+    return {
+      label, busy: computerRequesting !== null,
+      title: computerAwaiting === a11yRow.id ? `Switch Realm on in System Settings ▸ ${a11yRow.settingsPlace}.`
+        : (repairFirst ? a11yRow.repairExplanation : a11yRow.askExplanation),
+      run: () => { void run(() => (repairFirst ? repairComputerAccess(a11yRow.id) : requestComputerAccess(a11yRow.id))); },
+    };
+  }, [a11yRow, computerRequesting, computerAwaiting, run, requestComputerAccess, repairComputerAccess]);
   const loadInstalledApps = useApp((st) => st.loadInstalledApps);
   const ensureAppIcons = useApp((st) => st.ensureAppIcons);
   const refreshComputerAccess = useApp((st) => st.refreshComputerAccess);
@@ -523,8 +542,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const cwd = session?.cwd ?? "";
   // A team space's roles: `@Creator Manager` wakes one as this session's sub-agent.
   const teamRoles = useApp((st) => (session ? st.teams[session.spaceId]?.roles : undefined));
-  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [] }),
-    [cwd, macSkill, installedApps, appIcons, accessibility, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles]);
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [] }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
      when the transcript first carries them. */
   const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),
@@ -722,7 +741,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageConnections={() => openSpacePage(session.spaceId, "connections")}
             submitKey={submitKey}
             eggs={easterEggs}
-            hero={hero} spaceName={space?.name ?? "this space"} spaceTint={spaceTint} place={place}
+            hero={hero} spaceName={space?.name ?? "this space"} spaceIcon={space?.icon} spaceTint={spaceTint} place={place}
             promptHint={hint} usage={transcript.usage} slashCommands={slashCommands}
             packGreetings={packGreetings}
             goal={<GoalStrip goal={goal}
@@ -739,19 +758,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
           transcript does — an affordance that blurred across the prompter would be the fade band's
           old bug wearing a different colour. Decorative: the drop is announced by what it does. */}
       {fileDrop.dropping && <div className="session-drop" aria-hidden="true" />}
-      {/* The sub-agent panel, docked to this pane's right edge — the same strip the summary uses,
-          and the same one at a time (`sessionDock`). Rendered from the PANE rather than from the
-          strip's row that opened it, because a background agent's row leaves the strip the moment
-          the harness says it stopped, and a panel parented to that row would vanish out from under
-          someone reading it. */}
-      {dock?.kind === "subagent" && paneEl && (
-        <SubagentPanel sessionId={id} toolUseId={dock.toolUseId} anchorRef={paneRef}
-          onClose={() => closeSessionDock(id)} />
-      )}
       {/* The terminal, when Settings docks it to the pane's foot — see TerminalDock. Its default place
           is a tab of the side pane, which is not this pane's to draw, so a dock left open when the
-          setting moved back is not drawn either. Rendered from the pane like the sub-agent view
-          rather than wrapping it in a split, which would cut the pane in half for a shell most turns
+          setting moved back is not drawn either. Rendered from the pane rather than wrapping it in
+          a split, which would cut the pane in half for a shell most turns
           never ask for. */}
       {dock?.kind === "terminal" && terminalDocked && paneEl && (
         <TerminalDock sessionId={id} title={terminalTitle(session.cwd)} visible={visible}
@@ -762,7 +772,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
           constantly, and a menu parented to a message would be torn down under the pointer. */}
       {pathMenu && (
         <PathMenu path={pathMenu.path} anchorRef={asRef(pathMenu.at)} environmentId={session.environmentId}
-          cwd={session.cwd} onClose={() => setPathMenu(null)} />
+          cwd={session.cwd} sessionId={id} onClose={() => setPathMenu(null)} />
       )}
     </div>
   );

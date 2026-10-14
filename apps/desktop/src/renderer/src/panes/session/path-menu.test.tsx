@@ -76,6 +76,42 @@ describe("Reveal in Finder on a path an agent wrote", () => {
   });
 });
 
+describe("Open and Preview on a file an agent made outside the space", () => {
+  const click = async (path: string, item: string) => {
+    fireEvent.click(await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(`.md-path[data-path="${path}"]`);
+      if (!el) throw new Error(`no path mark for ${path}`);
+      return el;
+    }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: item }));
+  };
+
+  it("opens a video in /tmp in the documents pane, resolved by main against the session's directory", async () => {
+    // THE MUTANT: hand the raw string to the pane — it was taken as relative to the space's folder
+    // and "outside this workspace" came back for every render an agent made in /tmp.
+    const { api } = await mount("Rendered to `/tmp/realm out/render.mp4`.", async () => true);
+    const resolve = vi.fn(async (p: string) => p);
+    window.realm.files!.resolve = resolve;
+    await click("/tmp/realm out/render.mp4", "Open render.mp4");
+    await waitFor(() => expect(api.calls).toContain("openDocumentPath:s1:/tmp/realm out/render.mp4"));
+    expect(resolve).toHaveBeenCalledWith("/tmp/realm out/render.mp4", CWD);
+  });
+
+  it("takes the line off before asking, and previews a kind the pane has no editor for in the viewer", async () => {
+    const { store } = await mount("Built `out/site.zip:3`.", async () => true);
+    window.realm.files!.resolve = vi.fn(async () => `${CWD}/out/site.zip`);
+    await click("out/site.zip:3", "Preview site.zip");
+    await waitFor(() => expect(store.getState().viewer?.files[0]?.path).toBe(`${CWD}/out/site.zip`));
+  });
+
+  it("says so when main finds nothing there", async () => {
+    const { store } = await mount("Rendered to `/tmp/gone.mp4`.", async () => true);
+    window.realm.files!.resolve = vi.fn(async () => null);
+    await click("/tmp/gone.mp4", "Open gone.mp4");
+    await waitFor(() => expect(store.getState().toasts.at(-1)?.text).toBe("Nothing is at /tmp/gone.mp4. It may have been moved or deleted."));
+  });
+});
+
 const CURSOR: InstalledEditor = { id: "cursor", name: "Cursor" };
 const ZED: InstalledEditor = { id: "zed", name: "Zed" };
 

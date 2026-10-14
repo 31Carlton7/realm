@@ -8,6 +8,7 @@ import { createAcpMapper } from "./map-acp";
 import { fetchAcpCatalog, probeAcp } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { obj, str, type Bag } from "../bag";
+import { pathToFileURL } from "node:url";
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -269,6 +270,11 @@ export class AcpAdapter implements AgentAdapter {
     let effortDefault: string | null = null;
     /** `modes.currentModeId` at boot — `acpBuildMode`'s fallback when the agent has no `agent` id. */
     let bootModeId: string | null = null;
+    /** Full access, answered on Realm's side. ACP has no mode for it — mode ids are the agent's own —
+     *  so the lever Realm has is the permission request itself: under `bypassPermissions` each one is
+     *  allowed as it arrives and never becomes a card. Nothing in Realm offers an ACP session this
+     *  mode (`AGENT_SUPPORTS_PERMISSION_MODES`); a scheduled task's or a team role's run is what gets it. */
+    let fullAccess = opts.permissionMode === "bypassPermissions";
     /** True only for the duration of `session/load`, whose replay Realm has already persisted. */
     let replaying = false;
     let disposed = false;
@@ -400,6 +406,12 @@ export class AcpAdapter implements AgentAdapter {
       const toolName = str(patch.title) || merged?.title || toolCallId;
       const input = { ...(merged?.input ?? {}), ...obj(patch.rawInput) };
       const options = Array.isArray(p.options) ? p.options : [];
+      if (fullAccess) {
+        const optionId = pickAcpOption("allow", options);
+        // An agent that offered no allow option still gets a card: picking anything else would be a
+        // guess at what its options mean.
+        if (optionId !== null) { log(`full access: allowed ${toolName}`); rpc?.respond(id, { outcome: { outcome: "selected", optionId } }); return; }
+      }
       const requestId = String(id);
       if (pending.size === 0 && questions.size === 0) events.push(sessionEvent("status", { status: "waiting_permission" }));
       pending.set(requestId, { id, options });
@@ -584,7 +596,9 @@ export class AcpAdapter implements AgentAdapter {
       const blocks: Bag[] = m.text ? [{ type: "text", text: m.text }] : [];
       for (const a of m.attachments) {
         // Cursor reports embeddedContext:false, so a `resource` block is never an option — a link it is.
-        const link = { type: "resource_link", uri: `file://${a.path}`, name: basename(a.path), mimeType: a.mime };
+        // `file://C:\…` is no URI at all, so a Windows path goes through pathToFileURL.
+        const uri = process.platform === "win32" ? pathToFileURL(a.path).href : `file://${a.path}`;
+        const link = { type: "resource_link", uri, name: basename(a.path), mimeType: a.mime };
         if (!imagesAllowed || !a.mime.startsWith("image/")) { blocks.push(link); continue; }
         try { blocks.push({ type: "image", data: (await readFile(a.path)).toString("base64"), mimeType: a.mime }); }
         catch (e) { log(`could not read ${a.path} (${message(e)}); sending it as a link`); blocks.push(link); }
@@ -634,6 +648,7 @@ export class AcpAdapter implements AgentAdapter {
           catch (e) { log(`${method} failed: ${message(e)}`); }
         };
         if (o.permissionMode !== undefined) {
+          fullAccess = o.permissionMode === "bypassPermissions";
           // The mode axis, translated (Plan 14 W3): Realm's plan wire value maps onto the agent's own
           // plan-equivalent, anything else onto its Build mode. NEVER `o.permissionMode` itself — ACP
           // mode ids are agent-defined, and `session/set_mode` with a Realm id ("plan" and "ask"

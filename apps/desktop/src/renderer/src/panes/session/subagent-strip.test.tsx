@@ -61,7 +61,7 @@ describe("the sub-agent strip under the last message", () => {
     // The turn is over (idle) — and the strip is still there, which is the whole point: the chip
     // in the corner was the only sign. Mutant: gate the strip on the session being busy.
     expect(within(s).getByRole("button", { name: /^2 sub-agents working/ })).toBeInTheDocument();
-    const rows = within(s).getAllByRole("button", { name: /Show it in the Agents tab$/ });
+    const rows = within(s).getAllByRole("button", { name: /Open it beside the transcript$/ });
     expect(rows.map((r) => r.querySelector(".subagent-strip-title")!.textContent)).toEqual(["Teams rule engine", "Realmite runner game"]);
     for (const r of rows) expect(r).toHaveTextContent("Working");
   });
@@ -80,7 +80,7 @@ describe("the sub-agent strip under the last message", () => {
     fireEvent.click(within(strip()!).getByRole("button", { name: /^Realmite runner game\./ }));
     await waitFor(() => expect(api.calls).toContain(`agentsTab:${LEAD}`));
     // Mutant: open the tab without saying which — the tab opens on its list and lights nothing.
-    expect(store.getState().agentsAsk[LEAD]).toMatchObject({ childId: "a2" });
+    expect(store.getState().agentsShown[LEAD]).toBe("a2");
   });
 
   it("folds to one line once they have all ended, and that line still opens the tab", async () => {
@@ -144,7 +144,7 @@ describe("the launch of the session's own sub-agent, in the transcript", () => {
     const { api, store } = await mount(fanOut);
     fireEvent.click(screen.getByRole("button", { name: /^Sub-agent working: Teams rule engine/ }));
     await waitFor(() => expect(api.calls).toContain(`agentsTab:${LEAD}`));
-    expect(store.getState().agentsAsk[LEAD]).toMatchObject({ childId: "a1" });
+    expect(store.getState().agentsShown[LEAD]).toBe("a1");
   });
 
   it("a blocking one whose turn was cut off is stopped, not working forever", async () => {

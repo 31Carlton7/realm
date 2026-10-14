@@ -1,8 +1,8 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
-  ACT_LATE_MS, ACT_PACING, ACT_SLOT_TOLERANCE_MS, DISCLOSURE, actAccountKey, actKindFor, itemActKind, itemTarget, planSlot, recordAccounts, slotProblem, slotWhyWords,
-  type ActKind, type ActTicket, type ParsedRecord, type PlannedAct, type RecordAccount, type ReviewTarget, type SlotWhy,
+  ACT_LATE_MS, ACT_PACING, ACT_SLOT_TOLERANCE_MS, DISCLOSURE, FINAL_REVIEW_STATES, actAccountKey, actKindFor, itemActKind, itemTarget, planSlot, recordAccounts, slotProblem, slotWhyWords,
+  type ActKind, type ActTicket, type ParsedRecord, type PlannedAct, type RecordAccount, type ReviewState, type ReviewTarget, type SlotWhy,
 } from "@realm/contracts";
 import type { RpcServer } from "../../rpc/server";
 import { NotFoundError, RpcError } from "../../store/rows";
@@ -340,14 +340,23 @@ export class ActService {
       clearTimeout(timeout);
       this.inflight.delete(t.id);
     }
+    // The person may have closed or rejected the batch while the platform had it. What went out is
+    // still told as it was; the review stays as they left it.
+    const after = this.d.team.review(t.reviewId);
+    const finished = !after || FINAL_REVIEW_STATES.includes(after.state);
     if (result.ok) {
       this.d.store.transition(t.id, "acting", { state: "done", actedAt: this.now(), proofUrl: result.url, screenshot: result.screenshot, error: null });
       this.log(t.spaceId, "realm", "acted", t, { url: result.url, screenshot: result.screenshot, hash: t.contentHash, to: t.to });
       const all = this.d.store.forReview(t.reviewId);
-      if (all.length > 0 && all.every((x) => x.state === "done")) {
+      if (after?.state === "approved" && all.length > 0 && all.every((x) => x.state === "done")) {
         this.d.team.setReviewState(t.reviewId, "done", { decided: true });
         this.d.team.appendActivity({ spaceId: t.spaceId, actor: "realm", verb: "marked_done", object: review.title, detail: { reviewId: t.reviewId, acts: all.length } });
       }
+    } else if (finished) {
+      // Stopped because the batch was finished with: there is nothing left to press again.
+      const why = (after && STOPPED_BY[after.state]) ?? "the batch was closed";
+      this.d.store.transition(t.id, "acting", { state: "cancelled", pressedAt: null, error: `Stopped before it went out: ${why}.`, screenshot: result.screenshot });
+      this.log(t.spaceId, "realm", "cancelled_ticket", t, { why, error: result.error });
     } else {
       // Never retried: the person sees the error and its screenshot, and presses again or not.
       this.d.store.transition(t.id, "acting", { state: "ready", pressedAt: null, error: result.error, screenshot: result.screenshot });
@@ -476,6 +485,8 @@ export class ActService {
 }
 
 const HELD = "Held with the rest of the team's posts. Press again once posting is let go.";
+/** Why an act stopped mid-way ended there, by the state the person left its batch in. */
+const STOPPED_BY: Partial<Record<ReviewState, string>> = { closed: "you closed it", rejected: "you rejected it", dismissed: "it was put away", done: "you marked it done" };
 
 function startOfDay(t: number): number { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
 

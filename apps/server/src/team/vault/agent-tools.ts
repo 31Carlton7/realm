@@ -66,6 +66,7 @@ const TOOLS: Tool[] = [
 export function createVaultAgentProvider(d: VaultAgentToolsDeps): RealmToolProvider {
   return {
     name: VAULT_PROVIDER_NAME,
+    listsIn: (spaceId) => d.isTeam(spaceId),
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!d.mcp.providerEnabled(ctx.spaceId, VAULT_PROVIDER_NAME) || !d.isTeam(ctx.spaceId)) return [];
       return TOOLS;

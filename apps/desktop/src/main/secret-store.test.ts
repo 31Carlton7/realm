@@ -396,7 +396,7 @@ describe("SecretStore — the key handoff and the audit log", () => {
     // can open credential blobs, and this assertion is where that lands.
     expect(Object.getOwnPropertyNames(SecretStore.prototype)).not.toContain("exportCredentialKey");
     expect(Object.getOwnPropertyNames(SecretStore.prototype).filter((m) => /credential/i.test(m) && /key|export|reveal|value/i.test(m)))
-      .toEqual(["withCredentialValue", "withGeneratedCredentialValue"]);
+      .toEqual(["withCredentialValue", "withCredentialValueForPerson", "withGeneratedCredentialValue"]);
   });
 
   it("with no encryption available there is no key to hand out — realm-server keeps its old plaintext posture", () => {

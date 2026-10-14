@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Item, Run, Schedule } from "@realm/contracts";
 import { FALLBACK_AGENT, useApp, useProfileSpaces } from "../../state/store";
 import type { PaneProps } from "../registry";
+import { mcpServerMark } from "../../components/mcp-mark";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { PageRail } from "../../components/page-nav";
 import { useDissolve } from "../../components/ScrollFades";
@@ -379,7 +380,7 @@ function TaskCard({ schedule, run, onEdit, onRunNow, onGone }: {
               <SpaceIcon icon={space.icon} size={14} />{space.name}</button></li>
           )}
           {enabled.slice(0, 3).map((c) => (
-            <li key={c.id} className="sched-card-source"><Icon name="plug" size={14} />{c.name}</li>
+            <li key={c.id} className="sched-card-source"><Icon name={mcpServerMark(c.name)} size={14} />{c.name}</li>
           ))}
           <li><button type="button" className="sched-card-link sched-card-quiet" onClick={() => openSpacePage(spaceId, "connections")}>
             <Icon name="plug" size={14} />{enabled.length > 3 ? `View all ${enabled.length}` : "View all"}</button></li>

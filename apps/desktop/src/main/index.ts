@@ -1,17 +1,17 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents, powerMonitor } from "electron";
-import { BrowserCredentialInputSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
+import { BrowserCredentialInputSchema, PasswordSaveAnswerSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
 import { callDaemon, daemonModeEnabled, ensureDaemon, probeDaemon, type HandoffResult } from "./daemon";
 import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
-import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, resolveHandoffMode, type DaemonState } from "@realm/contracts";
+import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, platformCapabilities, resolveHandoffMode, type DaemonState } from "@realm/contracts";
 import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
@@ -21,6 +21,7 @@ import { isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
+import { readTextFile } from "./read-text";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { refuseCapture } from "./capture-guard";
@@ -33,10 +34,10 @@ import { AppDriveHost } from "./app-drive";
 import { registerAppPick } from "./app-pick";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
-import { ComputerUseHelper, axHelperPath } from "./computer-use-helper";
+import { ComputerUseHelper, axHelperPath, probeGrantsOnce } from "./computer-use-helper";
 import { ComputerUseHost } from "./computer-use-host";
 import { ComputerDrivingIndicator } from "./computer-driving";
-import { computerAccessRows, isComputerAccessId, type ComputerAccessStatus } from "./computer-access";
+import { ComputerAccess, isComputerAccessId, type ComputerAccessStatus, type ComputerGrantHistory } from "./computer-access";
 import {
   MAC_CAPABILITIES, MAC_FALLBACK_DIRS, appBundlePath, isMacCapabilityId, macAccessRows, macGrantArgv, macHostName, macSettingsUrl,
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
@@ -61,24 +62,37 @@ import { PRESENCE_POLL_MS, PresenceReporter } from "./presence";
 import { installedEditors, openInEditor } from "./editors";
 import { InstalledApps, applicationDirs } from "./installed-apps";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
-import { registerNativeMenus } from "./native-menu";
+import { popupNativeMenu, registerNativeMenus } from "./native-menu";
+import { PasswordAutofill } from "./password-autofill";
+import { registerPasswordsIpc } from "./passwords-ipc";
+import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
 import { attachTextContextMenu } from "./text-context-menu";
 import { windowOpenTarget } from "./link-open";
-import { appMenuTemplate, pageChords, shouldPageOwn } from "./app-menu";
+import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
 import { WindowRegistry, cascadeFrom } from "./window-registry";
 import { registerFileActions } from "./file-actions";
 import { AppIconStore, registerAppIcon } from "./app-icon";
 import { registerAppearance, savedAppearance } from "./appearance";
+import { titleBarOverlay, windowChrome } from "./window-chrome";
+import { registerWhatsNew, WhatsNewState } from "./whats-new";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
+import { findFfmpeg, playableCopy } from "./media-proxy";
 
 /* `realm-media://` has to be declared privileged before `app.ready`, which is why this is a
    top-level statement rather than a line in `whenReady` — Electron ignores the registration
    afterwards, and the failure mode is a scheme that silently serves nothing. The handler that
    actually reads files is installed in `whenReady`, once the server has told us where home is. */
 registerMediaScheme();
+
+/** What this OS can do for Realm (packages/contracts/src/platform.ts) — read here, by the server, and by
+ *  the renderer through the preload, so a feature that does not exist here is gated in one place. */
+const platform = platformCapabilities(process.platform);
+// Windows shows a notification only for an app it can name, and names it by this id — the appId
+// electron-builder registers the Start menu shortcut under.
+if (process.platform === "win32") app.setAppUserModelId("co.charmtechnologies.realm");
 
 /** The server child, in the non-daemon shape: a process this one owns and SIGTERMs on quit. */
 let serverChild: import("node:child_process").ChildProcess | null = null;
@@ -179,6 +193,8 @@ function forgetProfile(profile: ProfileFacts): void {
  */
 function trayImage() {
   const image = nativeImage.createFromPath(trayIconPath({ packaged: app.isPackaged, appPath: app.getAppPath(), resourcesPath: process.resourcesPath }));
+  // Off a Mac it is the app icon in colour, at the tray's own size.
+  if (process.platform !== "darwin") return image.resize({ width: 32, height: 32 });
   // The file's name already says Template; this says it again for a picture loaded some other way.
   image.setTemplateImage(true);
   return image;
@@ -485,21 +501,9 @@ async function createWindow(info: { port: number; home: string; token: string },
     ...(place.center ? { width: place.width, height: place.height, center: true }
       : { x: place.x, y: place.y, width: place.width, height: place.height }),
     minWidth: 900, minHeight: 600,
-    // y:14 centres the ~14px lights in a 40px strip, and the renderer keeps every strip they can land
-    // in at 40px for exactly that reason: .sb-head with the sidebar open, and with it collapsed the
-    // first pane's .panel-bar (or the group bar, which is raised to 40px in that one state). One
-    // placement serves both, so nothing here has to be moved at runtime when the sidebar collapses —
-    // but shortening any of those strips leaves the lights sitting off-centre in that state.
-    titleBarStyle: "hiddenInset", trafficLightPosition: { x: 12, y: 14 },
-    // Ara refresh §5: macOS gets sidebar vibrancy behind a fully transparent window paint; the
-    // renderer keeps every surface EXCEPT the sidebar opaque, so only the sidebar column shows the
-    // material (the BUI --page tone at .82 over it — "ever so slightly transparent"). Elsewhere
-    // vibrancy does not exist, so the window keeps its opaque dark ground and the translucent
-    // sidebar composites against it — visually the BUI dark --page (#17181a ≈ oklch(.209 .004
-    // 264.477)), never a half-broken effect.
-    ...(process.platform === "darwin"
-      ? { vibrancy: "sidebar" as const, backgroundColor: "#00000000" }
-      : { backgroundColor: "#17181a" }),
+    // Inset traffic lights over the sidebar's material on a Mac; the system's own controls over the
+    // head row's right end on Linux and Windows (window-chrome.ts).
+    ...windowChrome(platform, nativeTheme.shouldUseDarkColors),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
       additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, `--realm-token=${info.token}`,
@@ -534,9 +538,14 @@ async function createWindow(info: { port: number; home: string; token: string },
   });
   // The views go in before the page loads: a restored browser pane asks for its view as soon as the
   // renderer boots, and a window with no pane surface yet would have nowhere to put it.
-  const pane = createBrowserPane(win, (paneId, cdp) => passkeys.install(paneId, cdp)); // destroys its views on win "closed" itself
+  // Passkeys first, then the password menu: the passkey install is what gives the view a document
+  // for `Runtime.addBinding` to answer on, and a failure of either leaves the other in place.
+  const pane = createBrowserPane(win, async (paneId, cdp) => {
+    await passkeys.install(paneId, cdp).catch(() => {});
+    await autofill.install(paneId, cdp).catch(() => {});
+  }); // destroys its views on win "closed" itself
   windowPanes.set(win.id, { win, pane });
-  pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); });
+  pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); autofill.release(id); });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   if (scratch) {
@@ -616,6 +625,66 @@ const passkeys = new PasskeyBroker({
 });
 
 /**
+ * The password menu under a pane's sign-in fields, and the bar that offers to save a form's password
+ * (password-autofill.ts). One for every window, like the passkey broker: a pane is named by its
+ * browser id, and its passwords are its PROFILE's. The menu is the OS's, popped by main at the
+ * field's place in the window; the bar is the pane's own, told everything but the password.
+ */
+const sendPasswordEvent = (browserId: string, message: unknown) => {
+  const win = holderOf(browserId)?.win;
+  if (win && !win.isDestroyed()) win.webContents.send("realm:browser-password", message);
+};
+const autofill = new PasswordAutofill({
+  pageUrl: (paneId) => paneFor(paneId)?.pageState(paneId)?.url ?? null,
+  credentialsFor: async (paneId, origin) => {
+    const profileId = profileOfPane(paneId);
+    const store = secrets();
+    if (!profileId || !store) return [];
+    await store.refreshKeychain();
+    return store.credentialsForSite(profileId, null, origin);
+  },
+  popupMenu: (paneId, items, rect) => {
+    const holder = holderOf(paneId);
+    const frame = holder?.pane.viewFrame(paneId);
+    if (!holder || !frame || holder.win.isDestroyed()) return Promise.resolve(null);
+    // Under the field, at its left edge: the page's CSS pixels, scaled by its zoom, from the view's corner.
+    const at = { x: frame.x + rect.x * frame.zoom, y: frame.y + (rect.y + rect.h) * frame.zoom + 2 };
+    return popupNativeMenu(items, at, (template, point, onClose) => {
+      Menu.buildFromTemplate(template).popup({ window: holder.win, x: point.x, y: point.y, callback: onClose });
+    });
+  },
+  withValue: async (paneId, id, use) => {
+    const profileId = profileOfPane(paneId);
+    return (profileId ? await secrets()?.withCredentialValue(profileId, id, use, { spaceId: null }, { gesture: true }) : null) ?? { ok: false, refused: "no_credential" };
+  },
+  saveOfferFor: (paneId, origin, username, value) => {
+    const profileId = profileOfPane(paneId);
+    return profileId ? secrets()?.saveOfferFor(profileId, origin, username, value) ?? null : null;
+  },
+  saveOffered: (paneId, input) => {
+    const profileId = profileOfPane(paneId);
+    if (profileId) secrets()?.saveOffered(profileId, input);
+  },
+  neverSave: (paneId, origin) => {
+    const profileId = profileOfPane(paneId);
+    if (profileId) secrets()?.setNeverSave(profileId, origin, true);
+  },
+  offer: (offer) => sendPasswordEvent(offer.browserId, { kind: "offer", offer }),
+  withdraw: (browserId, offerId) => sendPasswordEvent(browserId, { kind: "withdraw", browserId, offerId }),
+  openSettings: (browserId) => sendPasswordEvent(browserId, { kind: "manage", browserId }),
+  audit: (entry) => secrets()?.audit(entry),
+  now: () => Date.now(),
+  newId,
+});
+/** The person's answer on a pane's Save bar — from the window that holds the pane, and its top frame. */
+ipcMain.handle("browser:password-offer", (e, browserId: unknown, offerId: unknown, answer: unknown): boolean => {
+  const holder = holderOf(String(browserId), e.sender);
+  const parsed = PasswordSaveAnswerSchema.safeParse(answer);
+  if (!holder || holder.win.webContents !== e.sender || e.senderFrame !== e.sender.mainFrame || !parsed.success) return false;
+  return autofill.answer(String(offerId), parsed.data, String(browserId));
+});
+
+/**
  * The agent executor (W3): drives the panes' views over in-process CDP for realm-server's
  * realm-browser tools. One for every window — each op names a browser, and the executor finds the
  * window holding its view; buffers and snapshot-diff state die with each view. Between windows it
@@ -638,6 +707,9 @@ const agentHost = new BrowserAgentHost({
     withGeneratedCredentialValue: async (profileId, input, use) =>
       secrets()?.withGeneratedCredentialValue(profileId, input, use) ?? { ok: false, refused: "no_store" },
     audit: (entry) => secrets()?.audit(entry),
+    credentialsForSite: (profileId, spaceId, origin) => secrets()?.credentialsForSite(profileId, spaceId, origin) ?? [],
+    refreshKeychain: async () => { await secrets()?.refreshKeychain(); },
+    setFillAllow: (profileId, credentialId, origin) => secrets()?.setFillAllow(profileId, credentialId, origin) ?? false,
   },
   profileOf: (id) => profileOfPane(id),
   downloads: downloadGovernor,
@@ -954,6 +1026,11 @@ function secrets(): SecretStore | null {
     // The Keychain stamp a looser unlock policy must match, so a copy of secrets.json put back after
     // the user tightened a policy reads as Touch ID (policy-stamp.ts).
     policyStamp: keychainPolicyStamp(policyStampHelper(app.getAppPath(), process.resourcesPath)),
+    // The login keychain's internet passwords (Settings ▸ Passwords turns them on). A live check gets
+    // its scratch keychain or none: never the owner's login keychain (`keychainSourceFor`).
+    keychain: keychainSourceFor({ helper: keychainHelper(app.getAppPath(), process.resourcesPath), packaged: app.isPackaged, env: process.env }),
+    // Off a Mac there is no presence check to ask; a person's own pick or press stands in for it.
+    platformPresence: () => standIn !== null || process.platform === "darwin",
     now: () => Date.now(),
     newId,
     // Sign-ins saved before they were a profile's own belong to the profile that kept the shared
@@ -989,7 +1066,7 @@ ipcMain.handle("browser:save-download", async (e, browserId: string, id: string,
   if (!pane) return { ok: false, error: "the browser pane is not open" };
   // Same absolute-path requirement the agent op has: this writes to disk, and a relative path would
   // resolve against whatever cwd Electron happens to have.
-  if (!String(dir).startsWith("/")) return { ok: false, error: "there is no folder to save downloads into" };
+  if (!isAbsolute(String(dir))) return { ok: false, error: "there is no folder to save downloads into" };
   return retryBlockedDownload(downloadGovernor, blockedDownloads, {
     browserId: String(browserId), id: String(id), dir: String(dir),
     downloadURL: (url) => pane.downloadURL(String(browserId), url),
@@ -1084,6 +1161,38 @@ ipcMain.handle("credentials:set-unlock-policy", async (_e, profileId: unknown, p
 
 /** A team's Vault page: its secrets, and each grant's "use without asking" (`vault-ipc.ts`). Renderer
  *  IPC only, like the unlock policy above — and main's `VaultHost` answers the server's side. */
+registerPasswordsIpc({
+  handle: (channel, fn) => ipcMain.handle(channel, (e, ...args: unknown[]) => fn(e.sender, ...args)),
+  secrets,
+  resolveProfile: (id) => profileDirectory.resolve(profileArg(id)),
+  pickExport: async (sender) => {
+    const win = BrowserWindow.fromWebContents(sender as WebContents);
+    const options = { title: "Import passwords", buttonLabel: "Import", properties: ["openFile" as const], filters: [{ name: "Password export", extensions: ["csv"] }] };
+    const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    return r.canceled ? null : r.filePaths[0] ?? null;
+  },
+  readFile: async (path) => ({ size: statSync(path).size, text: () => readFile(path, "utf8") }),
+  offerToTrash: async (sender, path) => {
+    const win = BrowserWindow.fromWebContents(sender as WebContents);
+    const options = {
+      type: "question" as const, buttons: ["Move to Trash", "Keep"], defaultId: 0, cancelId: 1,
+      message: `Move ${basename(path)} to the Trash?`,
+      detail: "Realm has imported and encrypted these passwords. The file still holds every one of them in plain text.",
+    };
+    const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+    if (r.response !== 0) return false;
+    await shell.trashItem(path);
+    return true;
+  },
+  showPassword: async (sender, title, value) => {
+    const win = BrowserWindow.fromWebContents(sender as WebContents);
+    const options = { type: "none" as const, buttons: ["Done", "Copy"], defaultId: 0, cancelId: 0, message: title, detail: value };
+    const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+    return r.response === 1;
+  },
+  clipboard: { writeText: (t) => clipboard.writeText(t), readText: () => clipboard.readText(), clear: () => clipboard.clear() },
+  setTimer: (fn, ms) => { setTimeout(fn, ms).unref?.(); },
+});
 registerVaultIpc({
   handle: (channel, fn) => ipcMain.handle(channel, (_e, ...args: unknown[]) => fn(...args)),
   secrets,
@@ -1217,42 +1326,87 @@ ipcMain.handle("phone:show-live", async (): Promise<string> => {
 // stays prompt-free and uses the same queries `tcc:probe` does; the decisions live in
 // computer-access.ts, only the Electron/helper legs are here.
 
-/** Both grants, queried without prompting for either. Screen Recording's status read comes from
- *  Electron rather than the helper so it answers on a build that has no helper at all. */
-function computerGrantState() {
+/** Both grants, read without prompting for either — by a helper started for the read, because the
+ *  running one keeps the trust it saw at launch. Electron's own queries answer on a build with no
+ *  helper at all. */
+async function computerGrantState() {
+  if (computerHelper.available) {
+    try { return await probeGrantsOnce(axHelperPath); } catch { /* fall through to Electron's reads */ }
+  }
   return {
     accessibility: systemPreferences.isTrustedAccessibilityClient(false),
     screenRecording: systemPreferences.getMediaAccessStatus("screen") === "granted",
   };
 }
 
-function computerAccessStatus(): ComputerAccessStatus {
-  const bundlePath = appBundlePath(app.getPath("exe"));
-  return {
-    rows: computerAccessRows(computerGrantState(), { helperAvailable: computerHelper.available }),
-    hostName: macHostName({ appName: app.getName(), bundlePath, packaged: app.isPackaged }),
-    packaged: app.isPackaged,
-    helperAvailable: computerHelper.available,
-  };
+/** The bundle id macOS keys Realm's grants to: co.charmtechnologies.realm packaged, Electron's own
+ *  under `pnpm dev`. Read from the bundle rather than assumed, so a repair resets the app that asked. */
+let computerBundleId: string | null | undefined;
+function readComputerBundleId(): string | null {
+  if (computerBundleId !== undefined) return computerBundleId;
+  try {
+    computerBundleId = execFileSync("/usr/libexec/PlistBuddy",
+      ["-c", "Print :CFBundleIdentifier", `${appBundlePath(app.getPath("exe"))}/Contents/Info.plist`],
+      { encoding: "utf8", timeout: 4000 }).trim() || null;
+  } catch { computerBundleId = null; }
+  return computerBundleId;
 }
 
-ipcMain.handle("computer:status", (): ComputerAccessStatus => computerAccessStatus());
+const computerGrantHistoryFile = () => join(app.getPath("userData"), "computer-grants.json");
+const computerAccess = new ComputerAccess({
+  helperAvailable: () => computerHelper.available,
+  probe: computerGrantState,
+  request: async (id) => {
+    if (computerHelper.available) {
+      // Preferred when it exists, because it is the only route to Screen Recording's prompt and it
+      // raises both from one place.
+      await computerHelper.request("requestTrust", { what: id });
+    } else if (id === "accessibility") {
+      // The `true` is the prompting form: Electron can raise this one dialog by itself, which is why
+      // the Accessibility row offers Allow on a build with no helper. Screen Recording has no such API.
+      systemPreferences.isTrustedAccessibilityClient(true);
+    }
+  },
+  reset: (service, bundleId) => new Promise<void>((resolve, reject) => {
+    // tccutil needs no privileges to reset the calling user's own entries for one bundle id.
+    const child = spawn("/usr/bin/tccutil", ["reset", service, bundleId], { stdio: "ignore" });
+    child.on("error", reject);
+    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`tccutil reset ${service} exited with ${code}`))));
+  }),
+  openSettings: (id) => { void shell.openExternal(TCC_SETTINGS_URLS[id]); },
+  restartHelper: () => computerHelper.stop(),
+  loadHistory: () => {
+    try { return JSON.parse(readFileSync(computerGrantHistoryFile(), "utf8")) as ComputerGrantHistory; } catch { return {}; }
+  },
+  saveHistory: (history) => {
+    try { writeFileSync(computerGrantHistoryFile(), JSON.stringify(history)); } catch { /* the next read starts over */ }
+  },
+  build: (() => {
+    let built = "";
+    try { built = String(Math.round(statSync(app.getPath("exe")).mtimeMs)); } catch { /* version alone */ }
+    return `${app.getVersion()}+${built}`;
+  })(),
+  bundleId: readComputerBundleId,
+  macosMajor: Number.parseInt(process.getSystemVersion(), 10) || 0,
+  hostName: macHostName({ appName: app.getName(), bundlePath: appBundlePath(app.getPath("exe")), packaged: app.isPackaged }),
+  packaged: app.isPackaged,
+  signed: __REALM_SIGNED_BUILD__,
+});
 
-/** Raise the real macOS prompt for one row. The renderer names a ROW, validated against
- *  computer-access.ts's closed set — it can never name an arbitrary method for the helper to run. */
-ipcMain.handle("computer:request", async (_e, id: unknown): Promise<ComputerAccessStatus> => {
+ipcMain.handle("computer:status", (): Promise<ComputerAccessStatus> => computerAccess.status());
+
+/** Ask macOS for one row, then open the pane its switch is in. The renderer names a ROW, validated
+ *  against computer-access.ts's closed set — it can never name an arbitrary method for the helper. */
+ipcMain.handle("computer:request", (_e, id: unknown): Promise<ComputerAccessStatus> => {
   if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
-  if (computerHelper.available) {
-    // Preferred when it exists, because it is the only route to Screen Recording's prompt and it
-    // raises both from one place.
-    try { await computerHelper.request("requestTrust", { what: id }); } catch { /* the re-read below is the real answer */ }
-  } else if (id === "accessibility") {
-    // The `true` is the prompting form, and this branch is the reason `computerAccessRows` lets the
-    // Accessibility row offer to ask on a build with no helper: Electron can raise that one dialog
-    // by itself. Screen Recording has no such API, so its row offers System Settings instead.
-    systemPreferences.isTrustedAccessibilityClient(true);
-  }
-  return computerAccessStatus();
+  return computerAccess.allow(id);
+});
+
+/** Clear Realm's stale entry for one row (tccutil reset) and ask again. Same closed set: the service
+ *  and the bundle id are main's, never the renderer's. */
+ipcMain.handle("computer:repair", (_e, id: unknown): Promise<ComputerAccessStatus> => {
+  if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
+  return computerAccess.repair(id);
 });
 
 ipcMain.handle("computer:open-settings", (_e, id: unknown) => {
@@ -1410,7 +1564,7 @@ ipcMain.handle("mac:reveal-app", () => { shell.showItemInFolder(appBundlePath(ap
 let updater: RealmUpdater;
 updater = new RealmUpdater({
   version: app.getVersion(),
-  decision: updaterDecision({ packaged: app.isPackaged, signed: __REALM_SIGNED_BUILD__, feedLive: UPDATE_FEED_LIVE }),
+  decision: updaterDecision({ packaged: app.isPackaged, signed: __REALM_SIGNED_BUILD__, feedLive: UPDATE_FEED_LIVE, autoUpdate: platform.autoUpdate }),
   load: async () => (await import("electron-updater")).autoUpdater,
   onDownloaded: (version) => void labTakesUpdate(labUpdate(), version).then((taken) => {
     // On a lab the update window installs it between team runs; nobody is there for a dialog.
@@ -1631,6 +1785,15 @@ ipcMain.handle("media:open", async (_e, path: unknown): Promise<void> => {
   const servable = typeof path === "string" ? await servablePath(path) : null;
   if (servable) await shell.openPath(servable);
 });
+/** A video the player could not decode: whether this Mac can make a copy it can (media-proxy.ts),
+ *  and the copy itself — an mp4 under Realm's tmp, which the media scheme serves like any other. */
+ipcMain.handle("media:can-transcode", (): boolean => findFfmpeg() !== null);
+ipcMain.handle("media:transcode", async (_e, path: unknown): Promise<string> => {
+  const servable = typeof path === "string" ? await servablePath(path) : null;
+  if (!servable) throw new Error("Realm cannot read that video.");
+  if (!realmHome) throw new Error("Realm is still starting up; try again in a moment.");
+  return playableCopy(realmHome, servable);
+});
 
 /**
  * Any file the app LISTS, as opposed to any file an agent merely named.
@@ -1648,6 +1811,8 @@ ipcMain.handle("media:open", async (_e, path: unknown): Promise<void> => {
  * that one really can run an `.app`.
  */
 ipcMain.handle("files:stat", (_e, path: unknown) => statFile(path));
+/** A file's text, for the media viewer to draw as the documents pane would (read-text.ts). */
+ipcMain.handle("files:read-text", (_e, path: unknown) => readTextFile(path));
 /**
  * One folder of a space or a checkout, newest first (`browse.ts`) — what a session's file browser
  * lists.
@@ -1678,6 +1843,9 @@ ipcMain.handle("files:reveal", async (_e, path: unknown, base?: unknown): Promis
   if (found) shell.showItemInFolder(found);
   return found !== null;
 });
+/** A path an agent wrote, as the file it names — what the transcript's path menu opens, previews and
+ *  reveals. The same gate as Reveal: it answers where something is, and opens nothing. */
+ipcMain.handle("files:resolve", (_e, path: unknown, base?: unknown): Promise<string | null> => existingPath(path, base));
 /** Quick Look, Share and drag-out (file-actions.ts), behind the same existence gate as Reveal. */
 registerFileActions({ gate: existingPath });
 /** The Dock icon chosen in Settings ▸ App (app-icon.ts). Only macOS has a Dock to put it on. */
@@ -1690,6 +1858,21 @@ registerAppIcon({ handle: (channel, fn) => ipcMain.handle(channel, fn), store: a
  *  last run before any window exists, then kept current by the renderer. */
 nativeTheme.themeSource = savedAppearance(app.getPath("userData"));
 registerAppearance({ on: (channel, fn) => ipcMain.on(channel, fn), theme: nativeTheme, dir: app.getPath("userData") });
+// Off a Mac the system's window controls are drawn over the head row, in the appearance's ink.
+if (!platform.insetTrafficLights) nativeTheme.on("updated", () => {
+  for (const w of BrowserWindow.getAllWindows()) w.setTitleBarOverlay(titleBarOverlay(nativeTheme.shouldUseDarkColors));
+});
+/** What's new (whats-new.ts). Decided here, at load, before the server exists to make a new install's
+ *  database — which is half of how an install that predates the record is told from a new one. */
+registerWhatsNew({
+  handle: (channel, fn) => ipcMain.handle(channel, fn),
+  notes: { ...__REALM_WHATS_NEW__, url: CHANGELOG_URL },
+  state: new WhatsNewState({
+    dir: app.getPath("userData"),
+    version: __REALM_WHATS_NEW__.version,
+    ranBefore: existsSync(join(app.getPath("userData"), windowStateFileName(null))) || existsSync(join(realmHomePath(), "realm.db")),
+  }),
+});
 /**
  * Save a copy of a file somewhere the user names.
  *
@@ -1800,7 +1983,7 @@ function startDaemonProcess(home: string): void {
 
 async function startRealmServer(): Promise<{ port: number; home: string; token: string }> {
   const home = realmHomePath();
-  if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON })) {
+  if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON, platform: process.platform })) {
     const handle = await ensureDaemon({
       home,
       ourBundleId: bundleIdOf(statSync(serverEntry())),
@@ -1841,7 +2024,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on("second-instance", () => {
     if (relaunchIfBundleReplaced()) return;
     const win = windows.primary();
-    if (!win) return;
+    // Linux and Windows have no Dock to click (`activate` is a Mac event): launching Realm again is
+    // how a resident Realm with no window gets one back.
+    if (!win) { if (process.platform !== "darwin") void reattach(); return; }
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -1863,7 +2048,7 @@ app.whenReady().then(async () => {
     // timeout) degrades to current PATH + /opt/homebrew/bin:/usr/local/bin — see login-shell-path.ts.
     const login = await loginShellPath();
     process.env.PATH = mergePath(process.env.PATH, login);
-    if (!login) console.warn("[env] login-shell PATH resolution failed; using fallback:", process.env.PATH);
+    if (!login && process.platform !== "win32") console.warn("[env] login-shell PATH resolution failed; using fallback:", process.env.PATH);
     const info = await startRealmServer();
     serverInfo = info;
     realmHome = info.home;
@@ -1898,7 +2083,7 @@ app.whenReady().then(async () => {
     // The user chose to keep an older server working. Said once, and held, so a window opened later
     // (or reloaded) hears it too rather than silently working against the wrong build.
     if (staleDaemon) publishDaemonState({ kind: "stale", why: staleDaemon });
-    if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON })) {
+    if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON, platform: process.platform })) {
       daemonSupervisor = new DaemonSupervisor({
         logPath: daemonLogPath(info.home),
         recordedPid: () => readDaemonState(info.home)?.pid ?? null,
@@ -1959,7 +2144,7 @@ app.whenReady().then(async () => {
         // Realm's own window, which is a different target from any browser view — so these are
         // answered before the executor below, whose `host` is about panes and would refuse first
         // with a message about a pane.
-        if (op === "appSnapshot") return appDriveHost.snapshot();
+        if (op === "appSnapshot") return appDriveHost.snapshot((params as { scope?: Parameters<typeof appDriveHost.snapshot>[0] }).scope);
         if (op === "appAct") return appDriveHost.act((params as { action: BrowserAction }).action);
         // Level B: Electron is here, the window is not. The refusal names the actual fix, because
         // "Realm is not connected" would be false — it is connected, that is how this message got
@@ -2140,8 +2325,24 @@ app.on("before-quit", (e) => {
     goResident();
     return;
   }
+  // Windows has no SIGTERM to give the server: a signal there is TerminateProcess, and its shutdown —
+  // state file, home lock, ptys, agents, the database — never runs. Ask it over its socket, give it
+  // a moment to finish, and quit for real after.
+  if (process.platform === "win32" && serverInfo && !askedServerToStop) {
+    e.preventDefault();
+    askedServerToStop = true;
+    const child = serverChild;
+    const exited = child ? new Promise<void>((resolve) => child.once("exit", () => resolve())) : Promise.resolve();
+    void callDaemon(serverInfo, "daemon.stop", {}, 2_000)
+      .then(() => Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 3_000))]))
+      .catch(() => {})
+      .finally(() => app.quit());
+    return;
+  }
   shutdownForQuit();
 });
+/** Set once Windows' quit has asked the server to stop itself (above). */
+let askedServerToStop = false;
 // electron-updater's quitAndInstall() (mac: Squirrel, driven through Electron's native autoUpdater)
 // closes every window and quits WITHOUT the ordinary before-quit ordering — the documented hook for
 // that path is `autoUpdater`'s before-quit-for-update. Without it an update-restart would strand the

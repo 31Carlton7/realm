@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
+import type { BrowserCredentialEdit, KeychainPasswordsStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
 import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, VaultAllow, VaultKey, VaultKeyInput, VaultSecrets, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
+import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
 import type { MacAccessStatus } from "../main/mac-access";
 import type { ComputerAccessStatus } from "../main/computer-access";
 import type { UpdateStatus } from "../main/updater";
+import type { WhatsNew } from "../main/whats-new";
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
 const port = arg("realm-port");
 export type PickedFile = { path: string; mime: string; name: string; size: number };
@@ -30,6 +33,9 @@ contextBridge.exposeInMainWorld("realm", {
    *  platform where the window has a material behind it, so the sidebar's transparency has nothing
    *  to reveal anywhere else (main/index.ts gives Windows and Linux an opaque backgroundColor). */
   platform: process.platform,
+  /** What this OS can do for Realm — the Mac-only features (computer use, simulators, Laya, Dock
+   *  icons, Quick Look…) are hidden where this says they do not exist (renderer/src/platform.ts). */
+  capabilities: platformCapabilities(process.platform),
   /** A menu the OS draws (main/native-menu.ts): rows described here, answered with the chosen row's
    *  id, or null. The one surface that can open over a browser pane's page, and how the app's own
    *  menus are drawn on a Mac. `closeMenu` takes down the one that is up when its owner goes first. */
@@ -110,6 +116,9 @@ contextBridge.exposeInMainWorld("realm", {
     poster: (path: string): Promise<string | null> => ipcRenderer.invoke("media:poster", path),
     reveal: (path: string): Promise<void> => ipcRenderer.invoke("media:reveal", path),
     open: (path: string): Promise<void> => ipcRenderer.invoke("media:open", path),
+    /** A video the player could not decode: whether ffmpeg is here, and a playable copy's path. */
+    canTranscode: (): Promise<boolean> => ipcRenderer.invoke("media:can-transcode"),
+    transcode: (path: string): Promise<string> => ipcRenderer.invoke("media:transcode", path),
   },
   /**
    * Any file the app is already LISTING — a Library row, a session's outputs — rather than a path an
@@ -128,6 +137,9 @@ contextBridge.exposeInMainWorld("realm", {
     /** Size and mtime, or null when nothing is there — which is how a preview learns to say the file
      *  is gone instead of drawing three actions that would each fail in turn. */
     stat: (path: string): Promise<{ path: string; size: number; mtimeMs: number } | null> => ipcRenderer.invoke("files:stat", path),
+    /** The file's text, up to the documents pane's ceiling; null when it is not there (main/read-text.ts). */
+    readText: (path: string): Promise<{ ok: true; text: string } | { ok: false; reason: "large" | "binary" } | null> =>
+      ipcRenderer.invoke("files:read-text", path),
     /** One folder under `root`, newest first — the session file browser's whole data source. Null
      *  when the folder cannot be read or the path points outside the root it was given. */
     browse: (root: string, dir: string): Promise<{ dir: string; truncated: boolean;
@@ -140,6 +152,9 @@ contextBridge.exposeInMainWorld("realm", {
     /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`,
      *  as an agent writes them; false when nothing is there. */
     reveal: (path: string, base?: string): Promise<boolean> => ipcRenderer.invoke("files:reveal", path, base),
+    /** The absolute path of what is there, read as an agent writes a path — `~/…`, relative to
+     *  `base`, a `file://` URL, `out.ts:42` — or null when nothing is. */
+    resolve: (path: string, base?: string): Promise<string | null> => ipcRenderer.invoke("files:resolve", path, base),
     /** Finder's own icon as a data URL, for the menu item that names it. Takes no argument on
      *  purpose — the bundle path is fixed in main. */
     finderIcon: (): Promise<string | null> => ipcRenderer.invoke("files:finder-icon"),
@@ -159,6 +174,13 @@ contextBridge.exposeInMainWorld("realm", {
    *  which it puts on the Dock and keeps for the next launch; false when main refused them. */
   /** Realm's theme preference, for the window's native appearance (main/appearance.ts). */
   setAppearance: (pref: string): void => ipcRenderer.send("appearance:set", pref),
+  /** What's new (main/whats-new.ts): this version's notes; whether this window should open them
+   *  unasked (true once, after an update); and that they were seen. */
+  whatsNew: {
+    notes: (): Promise<WhatsNew> => ipcRenderer.invoke("whats-new:notes"),
+    claim: (): Promise<boolean> => ipcRenderer.invoke("whats-new:claim"),
+    seen: (): Promise<void> => ipcRenderer.invoke("whats-new:seen"),
+  },
   appIcon: {
     get: (): Promise<string> => ipcRenderer.invoke("app-icon:get"),
     set: (id: string, png: Uint8Array): Promise<boolean> => ipcRenderer.invoke("app-icon:set", id, png),
@@ -222,6 +244,7 @@ contextBridge.exposeInMainWorld("realm", {
   computerAccess: {
     status: (): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:status"),
     request: (id: string): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:request", id),
+    repair: (id: string): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:repair", id),
     openSettings: (id: string): Promise<void> => ipcRenderer.invoke("computer:open-settings", id),
   },
   /** Settings→App "Updates" row (Plan 15 W1). The gate lives in main (updater.ts): `check` on a
@@ -320,6 +343,22 @@ contextBridge.exposeInMainWorld("realm", {
     unlockPolicy: (profileId: string): Promise<UnlockPolicyStatus | null> => ipcRenderer.invoke("credentials:unlock-policy", profileId),
     setUnlockPolicy: (profileId: string, policy: UnlockPolicy): Promise<{ ok: true; status: UnlockPolicyStatus } | { ok: false; error: string }> =>
       ipcRenderer.invoke("credentials:set-unlock-policy", profileId, policy),
+    /** Settings ▸ Passwords (main/passwords-ipc.ts). `update` takes a value only when one was typed;
+     *  `import` opens the system's open panel in main; `reveal` shows a password in a native sheet or
+     *  copies it, after macOS confirms the person — and answers only whether that happened. */
+    update: (profileId: string, id: string, edit: BrowserCredentialEdit): Promise<BrowserCredential | null> =>
+      ipcRenderer.invoke("credentials:update", profileId, id, edit),
+    import: (profileId: string): Promise<PasswordImportResult> => ipcRenderer.invoke("credentials:import", profileId),
+    reveal: (profileId: string, id: string, action: "show" | "copy"): Promise<PasswordRevealResult> =>
+      ipcRenderer.invoke("credentials:reveal", profileId, id, action),
+    keychainStatus: (): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:keychain-status"),
+    setKeychain: (enabled: boolean): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:set-keychain", enabled),
+    keychainList: (): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:keychain-list"),
+    neverList: (profileId: string): Promise<string[]> => ipcRenderer.invoke("credentials:never-list", profileId),
+    setNever: (profileId: string, origin: string, never: boolean): Promise<string[]> => ipcRenderer.invoke("credentials:set-never", profileId, origin, never),
+    fillAllows: (profileId: string): Promise<PasswordFillAllow[]> => ipcRenderer.invoke("credentials:fill-allows", profileId),
+    clearFillAllow: (profileId: string, credentialId: string, origin: string): Promise<boolean> =>
+      ipcRenderer.invoke("credentials:clear-fill-allow", profileId, credentialId, origin),
   },
   /**
    * A team's Vault page (`main/vault-ipc.ts`). Same one-way rule as `credentials`: `addSignin` and
@@ -431,6 +470,15 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.on("realm:browser-passkey", handler);
       return () => ipcRenderer.removeListener("realm:browser-passkey", handler);
     },
+    /** A pane's passwords (main/password-autofill.ts): a save offer to show or take down, or the menu's
+     *  Manage passwords…. An offer names the site and username, never the password. */
+    onPassword: (cb: (m: PasswordPaneEvent) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: PasswordPaneEvent) => cb(m);
+      ipcRenderer.on("realm:browser-password", handler);
+      return () => ipcRenderer.removeListener("realm:browser-password", handler);
+    },
+    answerPasswordOffer: (id: string, offerId: string, answer: PasswordSaveAnswer): Promise<boolean> =>
+      ipcRenderer.invoke("browser:password-offer", id, offerId, answer),
     /** Plan 26 W7b — the ⋯ menu. `menuState` is read as the menu opens; the rest are its rows. */
     menuState: (id: string): Promise<BrowserMenuState> => ipcRenderer.invoke("browser:menu-state", id),
     goToIndex: (id: string, index: number): Promise<void> => ipcRenderer.invoke("browser:go-to-index", id, index),

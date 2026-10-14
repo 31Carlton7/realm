@@ -5,7 +5,7 @@
   "engines": { "node": ">=22.13" },
   "pnpm": { "onlyBuiltDependencies": ["node-pty", "esbuild", "electron"] },
   "scripts": {
-    "build": "pnpm -r --filter './packages/**' --filter './apps/**' build",
+    "build": "pnpm -r build",
     "test": "vitest run",
     "test:watch": "vitest",
     "relay:test": "pnpm --filter @realm/relay test",

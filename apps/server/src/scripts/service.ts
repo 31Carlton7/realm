@@ -172,7 +172,8 @@ export class ScriptService {
     // The script's name, not the cwd basename `TerminalService.open` auto-titles with: three scripts
     // run in one checkout would otherwise be three identical rows in the sidebar.
     try { this.d.items?.update({ id: opened.itemId, title: script.name }); } catch { /* a title is a nicety; the run is not */ }
-    await this.d.terminals.prefill(opened.terminalId, `${script.command}\n`);
+    // Return is \r to a Windows console; \n there is Ctrl+J, which PowerShell does not run.
+    await this.d.terminals.prefill(opened.terminalId, `${script.command}${process.platform === "win32" ? "\r" : "\n"}`);
     return { ...opened, cwd };
   }
 
