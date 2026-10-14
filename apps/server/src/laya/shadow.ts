@@ -152,6 +152,9 @@ export type ShadowRow = {
   tool: string;
   spaceId: string;
   sessionId: string;
+  /** The app or site the step was in, as the tool named it; absent when it did not know, and in every
+   *  row written before it was kept. */
+  app?: string;
   intent: string;
   candidates: ObservedElement[];
   chosen: { id: string } | { point: { x: number; y: number } } | null;
@@ -601,7 +604,7 @@ function rowOf(step: Step): ShadowRow {
   const { o } = step;
   return {
     v: 1, prompt: SHADOW_PROMPT_VERSION, id: step.id, at: new Date(step.at).toISOString(),
-    surface: o.surface, tool: o.tool, spaceId: o.spaceId, sessionId: o.sessionId, intent: step.intent,
+    surface: o.surface, tool: o.tool, spaceId: o.spaceId, sessionId: o.sessionId, ...(o.app ? { app: o.app } : {}), intent: step.intent,
     candidates: step.candidates.map((c) => ({ id: c.id, role: c.role, label: clip(c.label, 120), ...(c.value ? { value: clip(c.value, 60) } : {}) })),
     chosen: step.chosenElement ? { id: step.chosenElement.id } : o.chosen && "point" in o.chosen ? { point: o.chosen.point } : null,
     checkpoint: step.checkpoint,

@@ -7,8 +7,8 @@ import { LayaEvalReportSchema, type LayaEvalReport, type LayaTrainStep } from "@
 import { loadBenchmark, type BenchScreen } from "./benchmark";
 import { LAYA_CHECKPOINT, LayaClient } from "./client";
 import { REPORT_SPLITS, evaluate, reportOf } from "./eval";
+import { readLog } from "./log";
 import type { LayaRuntime } from "./runtime";
-import type { ShadowRow } from "./shadow";
 import { benchmarkRows, trainingSet, type Lexicon } from "./trainset";
 
 /**
@@ -216,23 +216,6 @@ export function progressOf(line: string): TrainProgress | null {
   }
   if (e.event === "done") return { step: "training", detail: "Fitting its confidence", fraction: 1 };
   return null;
-}
-
-/** The decision log's rows, oldest first; a line that does not parse is skipped. */
-function readLog(files: string[]): ShadowRow[] {
-  const rows: ShadowRow[] = [];
-  for (const f of [...files].reverse()) {
-    let text: string;
-    try { text = readFileSync(f, "utf8"); } catch { continue; }
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const r = JSON.parse(line) as ShadowRow;
-        if (r.v === 1) rows.push(r);
-      } catch { /* a torn last line */ }
-    }
-  }
-  return rows;
 }
 
 /** A checkpoint's report, or null when it has none that reads. */

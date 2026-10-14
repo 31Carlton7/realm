@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import type { ShadowRow } from "./shadow";
 
 /**
  * The decision log — one JSON line per observed step, and in Phase 2 the training set.
@@ -99,6 +100,23 @@ export class DecisionLog {
     this.counts = counts;
     return counts;
   }
+}
+
+/** The decision log's rows, oldest first; a line that does not parse is skipped. */
+export function readLog(files: string[]): ShadowRow[] {
+  const rows: ShadowRow[] = [];
+  for (const f of [...files].reverse()) {
+    let text: string;
+    try { text = readFileSync(f, "utf8"); } catch { continue; }
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const r = JSON.parse(line) as ShadowRow;
+        if (r.v === 1) rows.push(r);
+      } catch { /* a torn last line */ }
+    }
+  }
+  return rows;
 }
 
 function escape(s: string): string {

@@ -124,6 +124,16 @@ describe("asking Laya about a step", () => {
     expect(rows().map((r) => [r.surface, r.tool])).toEqual([["browser", "browser_do"], ["browser", "browser_act"]]);
   });
 
+  it("logs the site a step was in, so it can be scored site by site — and leaves it out where the tool did not know", async () => {
+    const { shadow, rows } = await setup();
+    const docs = el("2", "Docs", "link");
+    shadow.observe(step({ surface: "browser", tool: "browser_act", intent: "open the docs", elements: [docs], chosen: { element: docs }, app: "github.com" }));
+    shadow.observe(step({ surface: "browser", tool: "browser_act", sessionId: "s2", intent: "open the docs", elements: [docs], chosen: { element: docs } }));
+    await shadow.flush();
+    expect(rows().map((r) => r.app)).toEqual(["github.com", undefined]);
+    expect(Object.keys(rows()[1]!)).not.toContain("app");
+  });
+
   it("does not ask which element without an intent, or without an element — there is no goal, or no answer", async () => {
     const { shadow, server: s, rows } = await setup();
     shadow.observe(step({ intent: "" }));
