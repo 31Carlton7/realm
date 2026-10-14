@@ -185,5 +185,11 @@ describe("daemonModeEnabled", () => {
     expect(daemonModeEnabled({ packaged: true, env: "0" })).toBe(false);
     expect(daemonModeEnabled({ packaged: true, env: "" })).toBe(true);
   });
+  it("keeps the server the app's own child on Linux and Windows, unless asked otherwise", () => {
+    expect(daemonModeEnabled({ packaged: true, env: undefined, platform: "darwin" })).toBe(true);
+    expect(daemonModeEnabled({ packaged: true, env: undefined, platform: "linux" })).toBe(false);
+    expect(daemonModeEnabled({ packaged: true, env: undefined, platform: "win32" })).toBe(false);
+    expect(daemonModeEnabled({ packaged: true, env: "1", platform: "win32" })).toBe(true);
+  });
 });
 });

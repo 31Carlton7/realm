@@ -7,6 +7,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
+// The OS this package is for — electron-builder packs for the machine it runs on (CI builds each OS on
+// its own runner), so what is staged is that OS's: its node-pty, its icons, and only a Mac's helpers.
+const mac = process.platform === "darwin";
 const desktop = join(here, "..");
 const root = join(desktop, "..", "..");
 const stage = join(desktop, ".pack-stage");
@@ -22,7 +25,8 @@ mkdirSync(stage, { recursive: true });
 // 1. realm-server, deployable: dist + resolved production node_modules (node-pty prebuilds, agent
 // SDKs — the tsup externals). `--legacy` because this workspace doesn't use injected dependencies.
 console.log("[stage-pack] pnpm deploy @realm/server…");
-execFileSync("pnpm", ["--filter", "@realm/server", "deploy", "--legacy", "--prod", join(stage, "server")], { cwd: root, stdio: "inherit" });
+// On Windows pnpm is `pnpm.cmd`, which only a shell can start.
+execFileSync("pnpm", ["--filter", "@realm/server", "deploy", "--legacy", "--prod", join(stage, "server")], { cwd: root, stdio: "inherit", shell: process.platform === "win32" });
 
 // pnpm's legacy deploy leaves an aggregator link for the package being deployed. In the workspace
 // it points back to apps/server, which is outside the staged tree; after electron-builder copies it
@@ -34,14 +38,14 @@ rmSync(join(stage, "server", "node_modules", ".pnpm", "node_modules", "@realm", 
 for (const f of ["src", "scripts", "tsconfig.json", "tsup.config.ts", "vitest.config.ts"]) {
   rmSync(join(stage, "server", f), { recursive: true, force: true });
 }
-// node-pty ships prebuilds for every platform; a mac .app only ever loads darwin ones.
+// node-pty ships prebuilds for every platform; a package only ever loads its own OS's.
 const pnpmDir = join(stage, "server", "node_modules", ".pnpm");
 if (existsSync(pnpmDir)) {
   for (const pkg of readdirSync(pnpmDir)) {
     const prebuilds = join(pnpmDir, pkg, "node_modules", "node-pty", "prebuilds");
     if (!existsSync(prebuilds)) continue;
     for (const plat of readdirSync(prebuilds)) {
-      if (!plat.startsWith("darwin-")) rmSync(join(prebuilds, plat), { recursive: true, force: true });
+      if (!plat.startsWith(`${process.platform}-`)) rmSync(join(prebuilds, plat), { recursive: true, force: true });
     }
   }
 }
@@ -56,17 +60,18 @@ cpSync(join(root, "resources", "laya"), join(stage, "laya"), { recursive: true }
 // 2c. The device runner's SOURCE — deviceRunnerSourceDir()'s packaged branch reads
 // <resources>/ios-device-runner. Source, not a build: it is signed on the user's Mac with their own
 // identity, and the server copies it out before building, since the bundle is signed and read-only.
-cpSync(join(root, "resources", "ios-device-runner"), join(stage, "ios-device-runner"), { recursive: true });
+if (mac) cpSync(join(root, "resources", "ios-device-runner"), join(stage, "ios-device-runner"), { recursive: true });
 
 // 3. Swift helpers (each optional: absent when swiftc was unavailable, and each degrades on its own).
-for (const [binary, missing] of [
+// A Mac's only: build-native.mjs builds none anywhere else, and there is nothing to warn about.
+for (const [binary, missing] of mac ? [
   ["scrollphase", "the app falls back to timer-based scroll phases"],
   ["axhelper", "the computer-use tools stay unavailable"],
   ["phonescreen", "a real iPhone's picture is the runner's screenshots, about one a second"],
   ["deviceowner", "sign-ins unlock with Touch ID only, never the login password"],
   ["policystamp", "sign-ins stay on Touch ID: a looser unlock policy cannot be kept"],
   ["realmkeychain", "the login keychain's passwords cannot be offered"],
-]) {
+] : []) {
   const built = join(desktop, "native", "bin", binary);
   if (existsSync(built)) cpSync(built, join(stage, binary));
   else console.warn(`[stage-pack] native/bin/${binary} not built; ${missing}`);
@@ -74,10 +79,14 @@ for (const [binary, missing] of [
 
 // 3b. The menu-bar item's template image, both scales (main/tray-icon.ts reads <resources>/trayTemplate.png,
 // and macOS finds the @2x beside it by name).
-for (const name of ["trayTemplate.png", "trayTemplate@2x.png"]) cpSync(join(desktop, "resources", name), join(stage, name));
+// Linux and Windows draw the tray in colour, from the app icon (tray-icon.ts `TRAY_ICON_COLOUR`).
+if (mac) for (const name of ["trayTemplate.png", "trayTemplate@2x.png"]) cpSync(join(desktop, "resources", name), join(stage, name));
+else cpSync(join(root, "resources", "icon.png"), join(stage, "icon.png"));
 
-// 4. App icon where electron-builder's mac.icon points.
+// 4. App icon where electron-builder's mac.icon points — and for Linux and Windows the 1024px PNG it
+// is drawn from, which electron-builder turns into the hicolor set and the .ico itself.
 mkdirSync(join(desktop, "build"), { recursive: true });
-cpSync(join(root, "resources", "icon.icns"), join(desktop, "build", "icon.icns"));
+if (mac) cpSync(join(root, "resources", "icon.icns"), join(desktop, "build", "icon.icns"));
+else cpSync(join(root, "resources", "icon.png"), join(desktop, "build", "icon.png"));
 
 console.log("[stage-pack] staged:", stage);

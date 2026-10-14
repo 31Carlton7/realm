@@ -14,8 +14,8 @@ import { useElapsed } from "./use-elapsed";
  * last sentence, and the only sign anything was still working was a count in the corner.
  *
  * While any is live it lists them — each one's task, where it stands and for how long — and once
- * none is, it folds to the one line that says how they ended. Every part of it opens this session's
- * Agents tab, a row on that sub-agent's card, because that is where each one can be followed.
+ * none is, it folds to the one line that says how they ended. A row opens that sub-agent in this
+ * session's Agents tab, beside the transcript; the head opens the tab on all of them.
  */
 export function SubagentStrip({ sessionId, blocks }: { sessionId: string; blocks: readonly Block[] }) {
   const all = useSessionSubagents(sessionId);
@@ -29,7 +29,7 @@ export function SubagentStrip({ sessionId, blocks }: { sessionId: string; blocks
   if (agents.length === 0) return null;
   const now = since + elapsed;
   const headline = stripHeadline(agents.map((a) => a.state));
-  const open = (childId?: string) => run(() => openAgentsTab(sessionId, childId ? { childId } : undefined));
+  const open = (childId?: string) => run(() => openAgentsTab(sessionId, { childId: childId ?? null }));
   if (live.length === 0) {
     return (
       <section className="subagent-strip" data-settled="" aria-label="Sub-agents">
@@ -55,7 +55,7 @@ export function SubagentStrip({ sessionId, blocks }: { sessionId: string; blocks
           return (
             <li key={a.id}>
               <button type="button" className="subagent-strip-row" data-state={a.state}
-                aria-label={`${a.title}. ${STATE_LABEL[a.state]}, ${took}. Show it in the Agents tab`}
+                aria-label={`${a.title}. ${STATE_LABEL[a.state]}, ${took}. Open it beside the transcript`}
                 onClick={() => open(a.id)}>
                 <span className="subagent-strip-mark"><StateMark state={a.state} /></span>
                 <span className="subagent-strip-title">{a.title}</span>

@@ -28,7 +28,7 @@ const GH_MAX_BUFFER = 64 * 1024 * 1024;
 export function ghRunner(command: string): GhRun {
   return (args, opts = {}) => new Promise((resolve, reject) => {
     const child = execFile(command, args, {
-      cwd: tmpdir(), timeout: opts.timeoutMs ?? GH_TIMEOUT_MS, maxBuffer: GH_MAX_BUFFER, encoding: "utf8",
+      cwd: tmpdir(), timeout: opts.timeoutMs ?? GH_TIMEOUT_MS, maxBuffer: GH_MAX_BUFFER, encoding: "utf8", windowsHide: true,
       env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_SPINNER_DISABLED: "1", NO_COLOR: "1", CLICOLOR: "0" },
     }, (err, stdout, stderr) => {
       const e = err as (Error & { code?: number | string; killed?: boolean }) | null;

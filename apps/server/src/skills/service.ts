@@ -436,7 +436,8 @@ export class SkillsService {
       mkdirSync(root, { recursive: true });
       // Symlinks, not copies: both agents resolve them (proven in scripts/live-skills-check.ts), and an
       // edit the user makes mid-session is then live rather than a snapshot taken at start.
-      for (const s of enabled) symlinkSync(dirname(s.path), join(root, s.id), "dir");
+      // A junction on Windows, which needs neither an administrator nor Developer Mode as a symlink does.
+      for (const s of enabled) symlinkSync(dirname(s.path), join(root, s.id), process.platform === "win32" ? "junction" : "dir");
       return { pluginPath, root };
     } catch (e) {
       console.error(`[skills] could not stage skills for space ${spaceId}: ${e instanceof Error ? e.message : String(e)}`);

@@ -162,13 +162,43 @@ describe("EnvironmentService.removeWorktree", () => {
   });
 });
 
+describe("EnvironmentService — branches and a base", () => {
+  it("lists the space folder's branches, and null for a plain folder", async () => {
+    expect(await svc.branches(spaceId)).toBeNull();
+    initRepo(folder);
+    git(folder, "branch", "feat/base");
+    expect(await svc.branches(spaceId)).toMatchObject({ current: "main" });
+    expect((await svc.branches(spaceId))!.branches.sort()).toEqual(["feat/base", "main"]);
+  });
+
+  it("passes the base through to git", async () => {
+    initRepo(folder);
+    git(folder, "checkout", "-q", "-b", "feat/base");
+    writeFileSync(join(folder, "base.txt"), "x");
+    git(folder, "add", "."); git(folder, "commit", "-m", "base");
+    git(folder, "checkout", "-q", "main");
+    const env = await svc.createWorktree({ spaceId, title: "w", from: null, base: "feat/base" });
+    expect(existsSync(join(env.path, "base.txt"))).toBe(true);
+  });
+
+  it("keeps the branch when removal is asked to", async () => {
+    initRepo(folder);
+    const env = await svc.createWorktree({ spaceId, title: "keepme", from: null });
+    await svc.removeWorktree(env.id, null, { deleteBranch: false });
+    expect(existsSync(env.path)).toBe(false);
+    expect(envs.get(env.id)).toBeNull();
+    expect(git(folder, "branch", "--list", "realm/keepme").trim()).not.toBe("");
+  });
+});
+
 describe("EnvironmentService.worktreeStatus", () => {
   it("reports the hazard and that removal is allowed", async () => {
     initRepo(folder);
     const env = await svc.createWorktree({ spaceId, title: "s", from: null });
     writeFileSync(join(env.path, "b.txt"), "x");
     const st = await svc.worktreeStatus(env.id);
-    expect(st).toMatchObject({ environmentId: env.id, branch: "realm/s", present: true, dirtyFiles: 1, unpushedCommits: 1, removable: true, blockedBy: null });
+    // Its one commit is main's too, so deleting the branch would lose nothing.
+    expect(st).toMatchObject({ environmentId: env.id, branch: "realm/s", present: true, dirtyFiles: 1, unpushedCommits: 0, removable: true, blockedBy: null });
   });
 
   it("reports primary and checkout as not removable, and never prices them", async () => {
@@ -184,6 +214,8 @@ describe("EnvironmentService.worktreeStatus", () => {
   it("reports a worktree with a live session as blocked but still priced", async () => {
     initRepo(folder);
     const env = await svc.createWorktree({ spaceId, title: "held", from: null });
+    writeFileSync(join(env.path, "b.txt"), "x");
+    git(env.path, "add", "."); git(env.path, "commit", "-m", "only here");
     sessions.create({ spaceId, projectId: null, agentKind: "fake", model: null, effort: null, permissionMode: "default", environmentId: env.id, title: "t" });
     const st = await svc.worktreeStatus(env.id);
     expect(st.removable).toBe(false);

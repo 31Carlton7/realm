@@ -47,6 +47,9 @@ interface Window {
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
+    /** What this OS can do for Realm (packages/contracts/src/platform.ts). Absent in jsdom; read it
+     *  through `capabilities()` in platform.ts, which answers for a Mac there. */
+    capabilities?: import("@realm/contracts").PlatformCapabilities;
     /** Settings ▸ Appearance ▸ Reduce motion: main changes what this window reports for
      *  `prefers-reduced-motion`. Optional like the other late bridges — jsdom has none. */
     motion?: { set(pref: import("@realm/contracts").ReducedMotionPref): Promise<void> };
@@ -129,6 +132,9 @@ interface Window {
       /** Size and mtime, or null when nothing is there — how a preview learns to say the file is
        *  gone rather than drawing actions that would each fail in turn. */
       stat(path: string): Promise<{ path: string; size: number; mtimeMs: number } | null>;
+      /** The file's text, for the media viewer to draw as the documents pane does
+       *  (`main/read-text.ts`). Null when nothing is there. Optional: an older preload has none. */
+      readText?(path: string): Promise<{ ok: true; text: string } | { ok: false; reason: "large" | "binary" } | null>;
       /** One folder of a space or a checkout, newest first (`main/browse.ts`). Null when it cannot
        *  be read, or when the path would leave the root — the session file browser's data source,
        *  and the one list that shows a file a shell command made. */
@@ -320,7 +326,7 @@ interface Window {
 /** Mirrors UpdateState/UpdateStatus in main/updater.ts — the Updates row's payload. Every kind is a
  *  fact main reported; `disabled` carries the reason so the row can say why, honestly. */
 type UpdateState =
-  | { kind: "disabled"; reason: "dev" | "unsigned" | "no-feed" }
+  | { kind: "disabled"; reason: "dev" | "platform" | "unsigned" | "no-feed" }
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "up-to-date" }

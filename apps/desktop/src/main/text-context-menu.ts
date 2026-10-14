@@ -9,7 +9,8 @@ export type TextMenuParams = Pick<ContextMenuParams,
 export type TextMenuActions = {
   replaceMisspelling(word: string): void;
   learnSpelling(word: string): void;
-  lookUp(): void;
+  /** The Mac's dictionary panel; absent elsewhere, where there is no Look Up to offer. */
+  lookUp?(): void;
   openLink(url: string): void;
   copyLink(url: string): void;
   copyImageAt(x: number, y: number): void;
@@ -46,11 +47,12 @@ export function textMenuTemplate(p: TextMenuParams, act: TextMenuActions): MenuI
       { label: "Learn Spelling", click: () => act.learnSpelling(p.misspelledWord) },
     ]);
   }
-  if (selection) {
+  if (selection && act.lookUp) {
     // Cut back to a whole word, so the row never names half of one.
     const cut = selection.slice(0, LOOKUP_CHARS - 1);
     const shown = selection.length > LOOKUP_CHARS ? `${cut.includes(" ") ? cut.slice(0, cut.lastIndexOf(" ")) : cut}…` : selection;
-    groups.push([{ label: `Look Up “${shown}”`, click: () => act.lookUp() }]);
+    const lookUp = act.lookUp;
+    groups.push([{ label: `Look Up “${shown}”`, click: () => lookUp() }]);
   }
   if (/^(https?|mailto):/i.test(p.linkURL)) {
     const inDefault: MenuItemConstructorOptions = { label: "Open Link in Default Browser", click: () => act.openLink(p.linkURL) };
@@ -95,7 +97,7 @@ export function attachTextContextMenu(wc: WebContents, { page = false, realmBrow
     const template = textMenuTemplate(params, {
       replaceMisspelling: (w) => wc.replaceMisspelling(w),
       learnSpelling: (w) => wc.session.addWordToSpellCheckerDictionary(w),
-      lookUp: () => wc.showDefinitionForSelection(),
+      ...(process.platform === "darwin" ? { lookUp: () => wc.showDefinitionForSelection() } : {}),
       openLink: (url) => void shell.openExternal(url),
       copyLink: (url) => clipboard.writeText(url),
       copyImageAt: (x, y) => wc.copyImageAt(x, y),

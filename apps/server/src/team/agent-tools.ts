@@ -166,6 +166,7 @@ const TOOLS: Tool[] = [
 export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvider {
   return {
     name: TEAM_PROVIDER_NAME,
+    listsIn: (spaceId) => d.team.isTeam(spaceId),
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!d.mcp.providerEnabled(ctx.spaceId, TEAM_PROVIDER_NAME) || !d.team.isTeam(ctx.spaceId)) return [];
       const tools = withRecordWords(TOOLS, d.types.descriptions(ctx.spaceId));
@@ -244,6 +245,7 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
 
 const STATE_WORDS: Record<string, string> = {
   waiting: "waiting for a person", changes: "changes asked", approved: "approved, not posted", done: "done", dismissed: "dismissed",
+  rejected: "rejected by the person; nothing of it goes out, so do not send it again", closed: "closed by the person; nothing of it goes out",
 };
 
 function statusLine(r: TeamReviewSummary): string {

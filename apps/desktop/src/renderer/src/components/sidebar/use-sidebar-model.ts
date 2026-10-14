@@ -111,14 +111,13 @@ export function useOpenAnywhere(): (item: Item) => void {
 }
 
 /** A new session in a given space — a section's +. */
-export function useNewSessionIn(): (spaceId: string, worktree?: boolean) => void {
+export function useNewSessionIn(): (spaceId: string) => void {
   const newSessionInstant = useApp((s) => s.newSessionInstant);
-  const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
   const run = useApp((s) => s.run);
   // The section's own space, named outright — the create actions take one now that there is no room.
-  return useCallback((spaceId: string, worktree = false) => run(async () => {
-    await (worktree ? newSessionInWorktree(null, spaceId) : newSessionInstant(null, undefined, spaceId));
-  }), [newSessionInstant, newSessionInWorktree, run]);
+  return useCallback((spaceId: string) => run(async () => {
+    await newSessionInstant(null, undefined, spaceId);
+  }), [newSessionInstant, run]);
 }
 
 /** A space's own page — "Show more", a section's ⋯, a pane bar's breadcrumb — on a given tab, or on

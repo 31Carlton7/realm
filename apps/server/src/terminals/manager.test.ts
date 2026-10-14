@@ -30,6 +30,23 @@ describe("TerminalManager", () => {
     expect(exit!.id).toBe(id);
     expect(tm.has(id)).toBe(false);
   });
+  it.each([
+    ["darwin", "/bin/zsh", ["-l"]],
+    ["linux", "/bin/bash", ["-l"]],
+    ["win32", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoLogo"]],
+  ])("on %s, spawns the platform's shell with the arguments it accepts", (platform, shell, args) => {
+    const prev = { SHELL: process.env.SHELL, SystemRoot: process.env.SystemRoot };
+    delete process.env.SHELL; process.env.SystemRoot = "C:\\Windows";
+    try {
+      const tm = new TerminalManager({ onData: () => {}, onExit: () => {} }, Date.now, platform);
+      let seen: { command: string; args: string[] } | null = null;
+      // The wrap hook sees the argv before it becomes a process; throwing there spawns nothing.
+      expect(() => tm.create({ cwd: process.cwd(), cols: 80, rows: 24, wrap: (command, a) => { seen = { command, args: a }; throw new Error("stop"); } })).toThrow("stop");
+      expect(seen).toEqual({ command: shell, args });
+    } finally {
+      for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  });
   it("throws NOT_FOUND for unknown terminal", () => {
     const tm = new TerminalManager({ onData: () => {}, onExit: () => {} });
     expect(() => tm.write("nope", "x")).toThrowError(/not found/);

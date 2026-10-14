@@ -66,7 +66,7 @@ describe("createApp's Laya seam", () => {
     const c = await rpc(app.port);
     expect((await c.call("laya.status", {})).result.runtime).toEqual({ state: "unavailable", reason: "This build of Realm does not run Laya." });
     expect((await c.call("laya.install", {})).error.code).toBe("LAYA_UNAVAILABLE");
-    expect((await c.call("laya.setMode", { mode: "shadow" })).error.code).toBe("LAYA_NOT_INSTALLED");
+    expect((await c.call("laya.setMode", { mode: "shadow" })).error.code).toBe("LAYA_UNAVAILABLE");
     // THE MUTANT: `opts.laya ?? realLayaRuntime(...)` in createApp. Every app in the suite would then
     // run every Python on the developer's Mac on its first status read.
     expect(py.calls()).toEqual([]);

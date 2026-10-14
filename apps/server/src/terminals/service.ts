@@ -1,4 +1,4 @@
-import { TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, newId, type TerminalProgram } from "@realm/contracts";
+import { TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, defaultShell, newId, type TerminalProgram } from "@realm/contracts";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { Db } from "../db/database";
@@ -237,7 +237,7 @@ export class TerminalService {
   open(p: { spaceId: string; cwd?: string; cols: number; rows: number }): { terminalId: string; itemId: string } {
     const space = this.d.spaces.get(p.spaceId); if (!space) throw new NotFoundError("space", p.spaceId);
     const cwd = p.cwd ?? space.folderPath;
-    const shell = process.env.SHELL ?? "/bin/zsh";
+    const shell = defaultShell(process.platform, process.env);
     const terminalId = newId();
     this.d.db.exec("BEGIN");
     let itemId: string;

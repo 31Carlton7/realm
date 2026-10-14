@@ -117,7 +117,7 @@ const BY_NAME = new Map<string, ProgramDef>(PROGRAMS.flatMap((p) => p.names.map(
 export const TERMINAL_PROGRAM_MARKS: readonly string[] = [...new Set(PROGRAMS.map((p) => p.mark)), "terminal"];
 
 /** A shell is the prompt, not a program: no tab change while one is in front. */
-const SHELLS = new Set(["zsh", "bash", "sh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh", "pwsh"]);
+const SHELLS = new Set(["zsh", "bash", "sh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh", "pwsh", "powershell", "cmd"]);
 
 /** Interpreters, which name the language and not the program: the program is the script they run. */
 const INTERPRETERS = new Set(["node", "nodejs", "python", "python2", "python3", "pythonw", "ruby", "perl", "php"]);
@@ -147,10 +147,11 @@ const CODE_FLAGS = new Set(["-e", "--eval", "-p", "--print", "-c"]);
  *  file a native installer keeps — so the directory it was installed into is asked instead. */
 const UNNAMED = /^(?:index|cli|main|bin|entry|run|start|app|v?\d+(?:\.\d+)+.*)$/;
 
-/** The last path component, with a login shell's leading dash and a script's extension taken off. */
+/** The last path component, with a login shell's leading dash and a script's extension taken off —
+ *  and on Windows the backslash path and the `.exe`/`.cmd` a program is named with. */
 function commandName(word: string): string {
-  const base = word.slice(word.lastIndexOf("/") + 1).replace(/^-/, "");
-  return base.replace(/\.(?:[cm]?js|ts|py|rb|pl|php|sh)$/, "");
+  const base = word.slice(Math.max(word.lastIndexOf("/"), word.lastIndexOf("\\")) + 1).replace(/^-/, "");
+  return base.replace(/\.(?:[cm]?js|ts|py|rb|pl|php|sh|exe|cmd)$/i, "");
 }
 
 /** `python3.12` and `Python` (the framework build's own re-exec) are both "python3" to a reader. */

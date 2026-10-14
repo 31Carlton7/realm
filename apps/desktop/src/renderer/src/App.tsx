@@ -13,6 +13,7 @@ import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets"
 import { SessionPlanSheet } from "./panes/session/SessionSummary";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
+import { NewWorktreeSheet } from "./components/NewWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { WhatsNewBridge, WhatsNewSheet } from "./components/WhatsNewSheet";
@@ -371,6 +372,7 @@ function SheetHost() {
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
   if (sheet.kind === "new-profile") return <NewProfileSheet />;
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
+  if (sheet.kind === "new-worktree") return <NewWorktreeSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;
   if (sheet.kind === "whats-new") return <WhatsNewSheet />;

@@ -2201,18 +2201,30 @@ describe("prompter attachments", () => {
     expect(tip).not.toContain("/very/long/path");
   });
 
-  it("the tile shows no name at rest, but is still named to a screen reader", async () => {
+  it("a picture's tile shows no name at rest, but is still named to a screen reader", async () => {
+    await mountFor("codex", [picked("/x/shot.png", "image/png")]);
+    attach();
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    const tile = document.querySelector(".attach-tile")!;
+    // Everything naming the picture is either visually hidden or inside the hover tip — the picture
+    // is what says it is the right file. Read off a clone with those two stripped, at any depth: the
+    // hidden name rides inside the open button.
+    const bare = tile.cloneNode(true) as HTMLElement;
+    for (const hidden of bare.querySelectorAll(".visually-hidden, .attach-tip")) hidden.remove();
+    expect(bare.textContent).not.toContain("shot");
+    expect(tile.querySelector(".visually-hidden")!.textContent).toContain("shot.png");
+  });
+
+  it("a file that is not a picture is a card naming it, heard once by a screen reader", async () => {
+    // Changed on purpose (the owner, 10-13: "redesign what file and folder uploads look like"): a
+    // PDF or a page of source as a 44px square was a glyph and four letters, every file alike.
     await mountFor("codex", [picked("/x/report.pdf", "application/pdf")]);
     attach();
     await waitFor(() => expect(chips()).toHaveLength(1));
     const tile = document.querySelector(".attach-tile")!;
-    // Everything naming the file is either visually hidden or inside the hover tip — nothing else
-    // in the tile carries text, which is what keeps a row of files to a row of squares. Read off a
-    // clone with those two stripped, at any depth: the hidden name rides inside the open button, so
-    // a filter over the tile's direct children alone would stop seeing it and pass on nothing.
-    const bare = tile.cloneNode(true) as HTMLElement;
-    for (const hidden of bare.querySelectorAll(".visually-hidden, .attach-tip")) hidden.remove();
-    expect(bare.textContent).not.toContain("report");
+    expect(tile.getAttribute("data-layout")).toBe("card");
+    expect(tile.querySelector(".attach-card-name")!.textContent).toBe("report.pdf");
+    expect(tile.querySelector(".attach-card-text")!.getAttribute("aria-hidden")).toBe("true");
     expect(tile.querySelector(".visually-hidden")!.textContent).toContain("report.pdf");
   });
 
@@ -2450,6 +2462,23 @@ describe("under-strip (Plan 12 W1)", () => {
     const n = Number.parseInt(hex.slice(1), 16);
     expect(tint.style.color).toBe(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
     expect(tint.querySelector("svg")).not.toBeNull();
+  });
+
+  it("wears the space's own icon on the workspace chip, not a folder (an emoji here)", async () => {
+    // THE MUTANT: the hard-coded folder glyph — every space's chip looked the same.
+    const { store } = await mountStrip({ spaces: [space("s1", "p1", "Versed", { icon: "emoji:🧪" }), space("s2", "p1", "Homework")] });
+    const chip = screen.getByRole("button", { name: "Workspace" });
+    expect(chip.querySelector(".chip-tint")).toHaveTextContent("🧪");
+    expect(chip.querySelector(".chip-tint svg")).toBeNull();
+    // A worktree is named by its branch, and wears the branch.
+    act(() => store.setState({ sessions: { se1: { ...store.getState().sessions.se1!, environmentId: "envB", cwd: "/tmp/wt" } } }));
+    expect(chip.querySelector(".chip-tint")).not.toHaveTextContent("🧪");
+    expect(chip.querySelector(".chip-tint svg")).not.toBeNull();
+  });
+
+  it("says the branch the space's folder is on in the workspace chip's tooltip", async () => {
+    await mountStrip();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute("title", "Workspace: Versed on main"));
   });
 
   it("labels the workspace chip: space name for the primary, branch for a worktree", async () => {

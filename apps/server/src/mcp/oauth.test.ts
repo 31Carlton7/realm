@@ -37,6 +37,14 @@ type Harness = {
   connect(): Promise<void>;
 };
 
+/** `start` for a row that goes to the browser — every row here but the CLI ones, whose `authUrl` is
+ *  null because they connected without one. */
+async function browserFlow(oauth: McpOauth, id: string): Promise<{ authUrl: string }> {
+  const { authUrl } = await oauth.start(id);
+  if (authUrl === null) throw new Error("expected a browser flow");
+  return { authUrl };
+}
+
 const open: { db: Db; as: StubAuthServer }[] = [];
 afterEach(async () => {
   for (const h of open.splice(0)) { await h.as.close(); h.db.close(); }
@@ -61,7 +69,7 @@ async function setup(opts: Parameters<typeof makeStubAuthServer>[0] = {}): Promi
     // Reads `h.oauth` rather than closing over the instance built here, so the hub tests below — which
     // swap in an instance wired to a hub — actually exercise THAT one's status callback.
     async connect() {
-      const { authUrl } = await h.oauth.start(row.id);
+      const { authUrl } = await browserFlow(h.oauth, row.id);
       await h.oauth.handleCallback(as.authorize(authUrl));
     },
   };
@@ -78,7 +86,7 @@ async function rejection(fn: () => Promise<unknown>): Promise<RpcError> {
 describe("start — discovery, registration, PKCE", () => {
   it("returns an authorization URL carrying an S256 challenge, a state nonce, and the loopback redirect", async () => {
     const h = await setup();
-    const { authUrl } = await h.oauth.start(h.row.id);
+    const { authUrl } = await browserFlow(h.oauth, h.row.id);
     const p = new URL(authUrl).searchParams;
     expect(p.get("response_type")).toBe("code");
     expect(p.get("code_challenge_method")).toBe("S256");
@@ -102,8 +110,8 @@ describe("start — discovery, registration, PKCE", () => {
 
   it("a fresh flow replaces the previous pending nonce, so only one is ever live for a row", async () => {
     const h = await setup();
-    const first = new URL((await h.oauth.start(h.row.id)).authUrl).searchParams.get("state");
-    const second = new URL((await h.oauth.start(h.row.id)).authUrl).searchParams.get("state");
+    const first = new URL((await browserFlow(h.oauth, h.row.id)).authUrl).searchParams.get("state");
+    const second = new URL((await browserFlow(h.oauth, h.row.id)).authUrl).searchParams.get("state");
     expect(second).not.toBe(first);
     expect(h.state().pending!.state).toBe(second);
   });
@@ -133,8 +141,10 @@ describe("start — discovery, registration, PKCE", () => {
   it("refuses a server that offers no dynamic client registration instead of starting a doomed flow", async () => {
     const h = await setup({ dynamicRegistration: false });
     const err = await rejection(() => h.oauth.start(h.row.id));
-    expect(err.code).toBe("MCP_OAUTH_UNSUPPORTED");
-    expect(err.message).toContain("dynamic client registration");
+    // The refusal names what CAN be done, and carries its own code for the sign-in sheet to key on.
+    expect(err.code).toBe("MCP_OAUTH_NO_REGISTRATION");
+    expect(err.message).toContain("issues no client");
+    expect(err.message).toContain("Paste a token");
   });
 
   it("a client the user registered lets a server without dynamic registration connect", async () => {
@@ -154,7 +164,7 @@ describe("start — discovery, registration, PKCE", () => {
        authorization named, or the vendor refuses the code. */
     const h = await setup({ dynamicRegistration: false, clients: [{ id: "app-1", secret: "s3cret", redirectUris: [OAUTH_RELAY_URL] }] });
     h.oauth.setClient(h.row.id, { clientId: "app-1", clientSecret: "s3cret", relay: true });
-    const { authUrl } = await h.oauth.start(h.row.id);
+    const { authUrl } = await browserFlow(h.oauth, h.row.id);
     const u = new URL(authUrl);
     expect(u.searchParams.get("redirect_uri")).toBe(OAUTH_RELAY_URL);
     expect(u.searchParams.get("state")).toMatch(new RegExp(`^${GATEWAY_PORT}\\.`));
@@ -181,7 +191,7 @@ describe("start — discovery, registration, PKCE", () => {
     // No protected-resource document: no scope to request and no RFC 8707 resource indicator, but the
     // flow still completes — this is the legacy shape a lot of deployed servers still have.
     const h = await setup({ protectedResourceMetadata: false });
-    const { authUrl } = await h.oauth.start(h.row.id);
+    const { authUrl } = await browserFlow(h.oauth, h.row.id);
     expect(new URL(authUrl).searchParams.get("scope")).toBeNull();
     expect(new URL(authUrl).searchParams.get("resource")).toBeNull();
     await h.oauth.handleCallback(h.as.authorize(authUrl));
@@ -192,7 +202,7 @@ describe("start — discovery, registration, PKCE", () => {
 describe("handleCallback — state validation and code exchange", () => {
   it("exchanges the code and stores tokens, and headers() then injects the Bearer", async () => {
     const h = await setup();
-    const { authUrl } = await h.oauth.start(h.row.id);
+    const { authUrl } = await browserFlow(h.oauth, h.row.id);
     const { serverId } = await h.oauth.handleCallback(h.as.authorize(authUrl));
     expect(serverId).toBe(h.row.id);
     expect(oauthStatusOf(h.reload())).toBe("connected");
@@ -214,7 +224,7 @@ describe("handleCallback — state validation and code exchange", () => {
 
   it("rejects a replayed redirect — the state nonce is single-use", async () => {
     const h = await setup();
-    const { authUrl } = await h.oauth.start(h.row.id);
+    const { authUrl } = await browserFlow(h.oauth, h.row.id);
     const redirect = h.as.authorize(authUrl);
     await h.oauth.handleCallback(redirect);
     const err = await rejection(() => h.oauth.handleCallback(redirect));
@@ -226,7 +236,7 @@ describe("handleCallback — state validation and code exchange", () => {
 
   it("burns the nonce even when the exchange itself fails, so a retry needs a fresh Connect", async () => {
     const h = await setup();
-    const { authUrl } = await h.oauth.start(h.row.id);
+    const { authUrl } = await browserFlow(h.oauth, h.row.id);
     const redirect = h.as.authorize(authUrl);
     h.as.failTokenNext(1, 400, JSON.stringify({ error: "invalid_grant", error_description: "code expired" }));
     expect((await rejection(() => h.oauth.handleCallback(redirect))).code).toBe("MCP_OAUTH_FAILED");
@@ -236,7 +246,7 @@ describe("handleCallback — state validation and code exchange", () => {
 
   it("surfaces an authorization server's refusal instead of a code-less exchange attempt", async () => {
     const h = await setup();
-    const { authUrl } = await h.oauth.start(h.row.id);
+    const { authUrl } = await browserFlow(h.oauth, h.row.id);
     const state = new URL(authUrl).searchParams.get("state")!;
     const err = await rejection(() => h.oauth.handleCallback(`${REDIRECT_URI}?error=access_denied&error_description=user+said+no&state=${state}`));
     expect(err.code).toBe("MCP_OAUTH_FAILED");
@@ -420,7 +430,7 @@ describe("sanitization — a thrown error never carries a credential", () => {
     // An AS reporting a failed PKCE check can echo `code_verifier` straight into its 400 body, and this
     // failure path is exactly the one whose message the gateway prints on the callback page.
     const h = await setup();
-    const { authUrl } = await h.oauth.start(h.row.id);
+    const { authUrl } = await browserFlow(h.oauth, h.row.id);
     const verifier = h.state().pending!.codeVerifier;
     const redirect = h.as.authorize(authUrl);
     h.as.failTokenNext(1, 400, `{"detail":"code_verifier ${verifier} did not match"}`);
@@ -431,7 +441,7 @@ describe("sanitization — a thrown error never carries a credential", () => {
 
   it("scrubs the authorization code out of a failed exchange", async () => {
     const h = await setup();
-    const { authUrl } = await h.oauth.start(h.row.id);
+    const { authUrl } = await browserFlow(h.oauth, h.row.id);
     const redirect = h.as.authorize(authUrl);
     const code = new URL(redirect).searchParams.get("code")!;
     h.as.failTokenNext(1, 400, `{"detail":"code ${code} was already used"}`);

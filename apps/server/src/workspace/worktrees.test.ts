@@ -27,6 +27,11 @@ function makeRepo(name = "repo"): string {
   return dir;
 }
 const svc = () => new WorktreeService(home);
+/** A commit only this worktree's branch holds. */
+function commitIn(path: string, name = "c.txt"): void {
+  writeFileSync(join(path, name), "x\n");
+  git(path, "add", "."); git(path, "commit", "-m", `only on this branch: ${name}`);
+}
 const SPACE = "01HZZZZZZZZZZZZZZZZZZZZZZZ";
 
 describe("slugifyBranch", () => {
@@ -146,6 +151,7 @@ describe("WorktreeService.hazard", () => {
   it("counts modified and untracked files, and commits no remote has", async () => {
     const repo = makeRepo();
     const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "h" });
+    commitIn(wt.path, "h.txt");
     expect(await svc().hazard({ ...wt, fallbackRepo: repo })).toMatchObject({ present: true, dirtyFiles: 0, unpushedCommits: 1 });
 
     writeFileSync(join(wt.path, "b.txt"), "new\n");
@@ -170,6 +176,7 @@ describe("WorktreeService.hazard", () => {
   it("reports a directory removed by hand as absent, with nothing left to lose on disk", async () => {
     const repo = makeRepo();
     const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "gone" });
+    commitIn(wt.path);
     writeFileSync(join(wt.path, "dirty.txt"), "x");
     rmSync(wt.path, { recursive: true, force: true });
     const h = await svc().hazard({ ...wt, fallbackRepo: repo });
@@ -248,6 +255,7 @@ describe("WorktreeService.remove", () => {
   it("proceeds when the acknowledgement matches exactly", async () => {
     const repo = makeRepo();
     const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "acked" });
+    commitIn(wt.path);
     writeFileSync(join(wt.path, "work.txt"), "x");
     await svc().remove({ ...wt, fallbackRepo: repo, acknowledge: { dirtyFiles: 1, unpushedCommits: 1 } });
     expect(existsSync(wt.path)).toBe(false);
@@ -274,6 +282,7 @@ describe("WorktreeService.remove", () => {
   it("names both hazards in one refusal", async () => {
     const repo = makeRepo();
     const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "both" });
+    commitIn(wt.path);
     writeFileSync(join(wt.path, "d.txt"), "x");
     await expect(svc().remove({ ...wt, fallbackRepo: repo, acknowledge: null }))
       .rejects.toMatchObject({ message: expect.stringMatching(/1 uncommitted file and 1 unpushed commit/) });
@@ -303,6 +312,87 @@ describe("WorktreeService.remove", () => {
     await svc().remove({ ...wt, fallbackRepo: repo, acknowledge: { dirtyFiles: 0, unpushedCommits: 1 } });
     expect(git(repo, "worktree", "list")).not.toContain(wt.path);
     expect(git(repo, "branch", "--list", "realm/vanished").trim()).toBe("");
+  });
+});
+
+describe("WorktreeService — base branch, kept branch, branch list", () => {
+  it("starts the new branch from the base it is given", async () => {
+    const repo = makeRepo();
+    git(repo, "checkout", "-q", "-b", "feat/x");
+    commitIn(repo, "x.txt");
+    git(repo, "checkout", "-q", "main");
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "on x", base: "feat/x" });
+    expect(wt.branch).toBe("realm/on-x");
+    // THE MUTANT: branching from HEAD (main) whatever was asked — x.txt would be missing.
+    expect(existsSync(join(wt.path, "x.txt"))).toBe(true);
+    expect(git(wt.path, "rev-parse", "HEAD").trim()).toBe(git(repo, "rev-parse", "feat/x").trim());
+    // …and it does not track the branch it started from, so a push cannot land on feat/x.
+    expect(() => git(repo, "config", "--get", "branch.realm/on-x.merge")).toThrow();
+  });
+
+  it("refuses a base that names no commit, or that git would read as an option, and makes nothing", async () => {
+    const repo = makeRepo();
+    for (const base of ["no-such-branch", "--orphan"]) {
+      await expect(svc().create({ spaceId: SPACE, sourcePath: repo, title: "bad", base }))
+        .rejects.toMatchObject({ code: "WORKTREE_BAD_BASE" });
+    }
+    expect(git(repo, "branch", "--list", "realm/*").trim()).toBe("");
+    expect(existsSync(join(home, "worktrees", SPACE, "bad"))).toBe(false);
+  });
+
+  it("counts nothing for a fresh worktree of a repository with no remote — main still has it all", async () => {
+    // THE MUTANT: `--not --remotes` alone, which priced this worktree at the repository's history.
+    const repo = makeRepo();
+    commitIn(repo, "second.txt");
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "fresh" });
+    expect((await svc().hazard({ ...wt, fallbackRepo: repo })).unpushedCommits).toBe(0);
+  });
+
+  it("removes a worktree started from another branch and deletes its branch, though main never merged it", async () => {
+    const repo = makeRepo();
+    git(repo, "checkout", "-q", "-b", "feat/y");
+    commitIn(repo, "y.txt");
+    git(repo, "checkout", "-q", "main");
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "from y", base: "feat/y" });
+    // `branch -d` alone refuses here ("not fully merged" into main), after the directory is gone.
+    await svc().remove({ ...wt, fallbackRepo: repo, acknowledge: null });
+    expect(existsSync(wt.path)).toBe(false);
+    expect(git(repo, "branch", "--list", "realm/from-y").trim()).toBe("");
+    expect(git(repo, "branch", "--list", "feat/y").trim()).not.toBe("");
+  });
+
+  it("keeps the branch and its commits when asked, with only the dirty files to acknowledge", async () => {
+    const repo = makeRepo();
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "keep" });
+    commitIn(wt.path);
+    // A clean tree whose commits stay on a kept branch loses nothing, so it needs no acknowledgement.
+    await svc().remove({ ...wt, fallbackRepo: repo, acknowledge: null, deleteBranch: false });
+    expect(existsSync(wt.path)).toBe(false);
+    expect(git(repo, "log", "--format=%s", "-1", "realm/keep").trim()).toBe("only on this branch: c.txt");
+  });
+
+  it("still refuses a dirty tree when the branch is kept", async () => {
+    const repo = makeRepo();
+    const wt = await svc().create({ spaceId: SPACE, sourcePath: repo, title: "keepdirty" });
+    commitIn(wt.path);
+    writeFileSync(join(wt.path, "work.txt"), "x");
+    await expect(svc().remove({ ...wt, fallbackRepo: repo, acknowledge: null, deleteBranch: false }))
+      .rejects.toMatchObject({ code: "WORKTREE_UNSAFE", message: expect.not.stringContaining("unpushed") });
+    expect(existsSync(join(wt.path, "work.txt"))).toBe(true);
+    await svc().remove({ ...wt, fallbackRepo: repo, acknowledge: { dirtyFiles: 1, unpushedCommits: 0 }, deleteBranch: false });
+    expect(existsSync(wt.path)).toBe(false);
+    expect(git(repo, "branch", "--list", "realm/keepdirty").trim()).not.toBe("");
+  });
+
+  it("lists the branches and the one checked out", async () => {
+    const repo = makeRepo();
+    git(repo, "branch", "older");
+    git(repo, "checkout", "-q", "-b", "newer");
+    commitIn(repo, "n.txt");
+    const list = await svc().branches(repo);
+    expect(list?.current).toBe("newer");
+    expect([...list!.branches].sort()).toEqual(["main", "newer", "older"]);
+    expect(await svc().branches(tempDir("realm-wt-plain-"))).toBeNull();
   });
 });
 

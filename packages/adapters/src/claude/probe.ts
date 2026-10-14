@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { accessSync, constants, existsSync } from "node:fs";
-import { delimiter, join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
+import { findExecutable, spawnTarget } from "../spawn-target";
 
 const run = promisify(execFile);
 
@@ -34,8 +35,9 @@ type Located =
  * Resolved the way `sdk.mjs` resolves it — from the SDK's own entry point, then the platform package
  * by name — so the answer is the file the SDK would spawn rather than one that merely looks like it.
  * In a packaged app that is under `Contents/Resources/server/node_modules`, and `import.meta.url` is
- * the server bundle's, which is what makes the lookup start there. (On Linux the SDK also tries a
- * `-musl` variant; Realm ships for the Mac only.)
+ * the server bundle's, which is what makes the lookup start there. On Windows the binary is
+ * `claude.exe`. (On Linux the SDK also tries a `-musl` variant first, which this does not: a musl
+ * Linux reports Realm's own copy missing, and the sessions still run.)
  */
 export function bundledClaude(): string | null {
   try {
@@ -44,31 +46,23 @@ export function bundledClaude(): string | null {
     // second one is a SyntaxError in the built bundle that no test here can see.
     const { createRequire } = process.getBuiltinModule("node:module") as typeof import("node:module");
     const sdk = createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk");
-    return createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`);
+    const binary = process.platform === "win32" ? "claude.exe" : "claude";
+    return createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/${binary}`);
   } catch {
     // No SDK, or no platform package for this machine — an install made with `--omit=optional`.
     return null;
   }
 }
 
-/** The first executable `name` on PATH, which is the one a spawn would run. */
-function onPath(name: string, env: NodeJS.ProcessEnv): string | null {
-  for (const dir of (env.PATH ?? "").split(delimiter)) {
-    if (!dir) continue;
-    const candidate = resolve(dir, name);
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Not here, or not executable: the next entry is the next candidate, as for a spawn.
-    }
-  }
-  return null;
+/** `execFile`, through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
+function runBin(bin: string, args: string[], o: { timeout: number; env: NodeJS.ProcessEnv }) {
+  const t = spawnTarget(bin, args, { env: o.env });
+  return run(t.command, t.args, { ...o, ...t.options });
 }
 
 async function versionOf(bin: string, env: NodeJS.ProcessEnv, bundled: boolean): Promise<Located> {
   try {
-    const { stdout } = await run(bin, ["--version"], { timeout: 5000, env });
+    const { stdout } = await runBin(bin, ["--version"], { timeout: 5000, env });
     return { ok: true, bin, version: stdout.trim() || null, bundled };
   } catch (e) {
     return { ok: false, reason: (e as Error).message };
@@ -92,7 +86,7 @@ async function locate(bin: string | undefined, o: ClaudeLookup): Promise<Located
   // Blank counts as unset, as it does for `agentBin` — the two must name the same binary.
   const override = bin ?? (env.REALM_CLAUDE_BIN?.trim() ? env.REALM_CLAUDE_BIN : undefined);
   if (override) return versionOf(override, env, false);
-  const found = onPath("claude", env);
+  const found = findExecutable("claude", env);
   const tried = found ? await versionOf(found, env, false) : null;
   if (tried?.ok) return tried;
   const carried = (o.bundled ?? bundledClaude)();
@@ -118,7 +112,7 @@ async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.Proce
   try {
     // `--json` explicitly, though it is the default today: `--text` exists, so the default is a
     // choice the CLI could revisit, and a parse of the human-readable form would answer `null`.
-    const stdout = await run(bin, ["auth", "status", "--json"], { timeout: 5000, env }).then(
+    const stdout = await runBin(bin, ["auth", "status", "--json"], { timeout: 5000, env }).then(
       (r) => r.stdout,
       // Signed out, the CLI prints `{"loggedIn": false, …}` and exits 1 (2.1.281, checked on a
       // scratch config dir) — the exit status restates the verdict rather than failing to give one.

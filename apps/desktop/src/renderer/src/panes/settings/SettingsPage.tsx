@@ -31,7 +31,8 @@ import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
 import { EditPasswordSheet, ImportPasswordsButton, KeychainPasswords, PasswordExceptions, PasswordRowActions, matchesPasswordSearch } from "./PasswordsSection";
 import { PageRail } from "../../components/page-nav";
-import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, settingsTabLabel, type SettingEntry, type SettingsTab } from "./settings-index";
+import { CATEGORY_COPY, searchSettings, settingPlace, settingsTabLabel, tabAvailable, visibleSettingsGroups, type SettingEntry, type SettingsTab } from "./settings-index";
+import { capabilities } from "../../platform";
 
 /**
  * The Settings page (Plan 12 W6, Universe screenshot 5) — a `settings-page` destination on W4's
@@ -55,7 +56,10 @@ const FOUND_MS = 1600;
 
 export function SettingsPage(_props: PaneProps) {
   // In the store so an opener can land on a tab — the browser pane's "Browser settings" opens Sign-ins.
-  const tab = useApp((s) => s.settingsPageTab);
+  // A page this OS has nothing for (settings-index.ts `tabAvailable`) — asked for by name, or kept
+  // from another machine — opens General instead.
+  const askedTab = useApp((s) => s.settingsPageTab);
+  const tab = tabAvailable(askedTab) ? askedTab : "general";
   const setTab = useApp((s) => s.setSettingsPageTab);
   const [query, setQuery] = useState("");
   /** The row a search result asked for, held until its page has rendered it. */
@@ -93,7 +97,7 @@ export function SettingsPage(_props: PaneProps) {
                 choice, so the arrow keys still walk the whole rail. While a search is showing,
                 nothing is checked — the column is not any of these pages, and a lit tab over a list
                 of results would say it was. */}
-            {SETTINGS_GROUPS.map((g) => (
+            {visibleSettingsGroups().map((g) => (
               <fieldset key={g.label} className="page-rail-list" aria-labelledby={`${ids}-${g.label}`}>
                 <span className="page-rail-head" id={`${ids}-${g.label}`}>{g.label}</span>
                 {g.tabs.map((t) => {
@@ -316,8 +320,10 @@ function EnginesTab() {
       <FailoverPanel />
       {/* A model Realm runs itself, beside the ones it runs agents on: installed, started and watched
           from here, and — unlike every engine above — never handed a turn. */}
-      <h3 className="settings-head" data-setting="laya">Laya (local decisions)</h3>
-      <LayaSection />
+      {capabilities().laya && <>
+        <h3 className="settings-head" data-setting="laya">Laya (local decisions)</h3>
+        <LayaSection />
+      </>}
     </div>
   );
 }
@@ -2132,6 +2138,7 @@ function SignInsTab() {
  *  The reasons are main's (updater.ts): the renderer names them, it never decides them. */
 export const UPDATE_DISABLED_COPY = {
   dev: "Update checks don't run in development builds.",
+  platform: "Realm updates itself on macOS only. On Linux and Windows, install a new version from the releases page.",
   unsigned: "Updates unavailable: unsigned build — macOS can only install a signed update. Signing steps: docs/dev/signing.md.",
   "no-feed": "Updates unavailable: this build has no public update feed. See README → Updates.",
 } as const;

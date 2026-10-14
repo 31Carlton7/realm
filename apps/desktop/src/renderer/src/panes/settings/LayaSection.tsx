@@ -1,4 +1,4 @@
-import { LAYA_MODES, type LayaMode, type LayaStatus } from "@realm/contracts";
+import { LAYA_MODES, type LayaAutoInstall, type LayaMode, type LayaStatus } from "@realm/contracts";
 import { useEffect, useRef, useState } from "react";
 import { CommandCopy } from "../../components/CommandCopy";
 import { Spinner } from "../../components/Spinner";
@@ -10,7 +10,7 @@ import { useDissolve } from "../../components/ScrollFades";
  * what it said (docs/superpowers/specs/2026-09-29-laya-local-decisions.md).
  *
  * Five rows. The first says what the runtime is actually doing and offers the one action that moves
- * it on — Install, or Try again. The second is the request, Off, Shadow or Assist; it is a request
+ * it on — Install, or Try again — and, while Laya waits to install itself, what it is waiting for. The second is the request, Off, Shadow or Assist; it is a request
  * because the two can differ (Shadow while the checkpoint loads, Shadow after a start that failed),
  * which is why the first row exists at all. The third is the active checkpoint's evaluation — what
  * Assist is earned by — and the one action that can change it, Train. The fourth and fifth are what
@@ -102,6 +102,7 @@ function StateRow({ laya }: { laya: LayaStatus }) {
           </>
         )}
         {r.state === "starting" && <span className="settings-row-desc">Loading the checkpoint.</span>}
+        {laya.auto && <span className="settings-row-desc laya-auto">{autoLine(laya.auto)}</span>}
         {r.state === "ready" && (
           <span className="settings-row-desc laya-facts" title="Where the checkpoint computes (mps is this Mac's GPU; cpu means it fell back), the median round trip of the recent questions, and the checkpoint every logged row names.">
             <code>{r.device}</code> · {r.p50Ms === null ? "no steps asked yet" : `p50 ${r.p50Ms} ms`} · <code>{r.checkpoint}</code>
@@ -137,6 +138,13 @@ function StateRow({ laya }: { laya: LayaStatus }) {
   );
 }
 
+/** The auto-install's one line: what it waits for, when it tries again, or that it stopped trying. */
+export function autoLine(a: LayaAutoInstall): string {
+  if (a.state === "waiting") return a.why;
+  if (a.state === "retrying") return `Trying again on its own at ${new Date(a.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}.`;
+  return `Stopped trying on its own after ${a.attempts} attempts.`;
+}
+
 function ModeRow({ laya }: { laya: LayaStatus }) {
   const setLayaMode = useApp((s) => s.setLayaMode);
   const run = useApp((s) => s.run);
@@ -154,15 +162,16 @@ function ModeRow({ laya }: { laya: LayaStatus }) {
             chosen, and the sentence says which measurement. */}
         {!laya.assist.available && <span className="settings-row-desc laya-assist-lock">{laya.assist.reason}</span>}
       </div>
-      <fieldset className="settings-tabs" aria-label="Laya" disabled={!laya.installed}
-        title={laya.installed ? undefined : "Install Laya first."}>
+      {/* Off and Shadow are choices before an install too: Shadow is the default, and the install
+          answers it; Off stops the install that starts on its own. Assist waits for a checkpoint. */}
+      <fieldset className="settings-tabs" aria-label="Laya" disabled={laya.runtime.state === "unavailable"}>
         {LAYA_MODES.map((m) => {
           // Assist stays selectable only while it is already on or the gate is open; the server
           // refuses it otherwise with the same reason shown above.
-          const locked = m === "assist" && !laya.assist.available && laya.mode !== "assist";
+          const locked = m === "assist" && (!laya.installed || (!laya.assist.available && laya.mode !== "assist"));
           return (
             <label key={m} className="settings-tab" data-selected={laya.mode === m || undefined}
-              title={locked ? laya.assist.reason ?? undefined : undefined}>
+              title={locked ? (laya.installed ? laya.assist.reason ?? undefined : "Install Laya first.") : undefined}>
               <input type="radio" name="settings-laya-mode" value={m} checked={laya.mode === m} disabled={locked}
                 onChange={() => run(() => setLayaMode(m))} />
               {MODE_LABEL[m]}
