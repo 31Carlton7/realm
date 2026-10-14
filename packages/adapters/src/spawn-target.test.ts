@@ -11,7 +11,8 @@ const scratch = () => { const d = mkdtempSync(join(tmpdir(), "realm-spawn-")); d
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 
 describe("findExecutable", () => {
-  it("finds the first executable on a POSIX PATH and skips files that are not", () => {
+  // A real execute bit and a ":"-joined PATH of real directories: only a POSIX host has either.
+  it.skipIf(process.platform === "win32")("finds the first executable on a POSIX PATH and skips files that are not", () => {
     const a = scratch(); const b = scratch();
     writeFileSync(join(a, "codex"), "#!/bin/sh\n"); // not executable
     writeFileSync(join(b, "codex"), "#!/bin/sh\n"); chmodSync(join(b, "codex"), 0o755);
