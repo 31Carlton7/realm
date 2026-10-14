@@ -38,8 +38,11 @@ export type AskOutcome =
  *
  * `alwaysPrompt` makes ONE call prompt every single time: `bypassPermissions` does not skip it and
  * `allow_always` neither satisfies it nor gets recorded by it. Exactly one tool sets it —
- * `browser_fill_credential`, the only tool that puts a real secret onto a page, and it sets it for
- * the password Realm generates as much as for the one the user enrolled.
+ * `browser_fill_credential`, the only tool that puts a real secret onto a page — for the password
+ * Realm generates, and for a team role's fill. A saved password filled on a page of its own site
+ * instead takes `promptUnderBypass`, keyed to that password and that exact page: "Always allow on
+ * this site" is then the person's to give, kept in Electron main, and it removes the card there and
+ * nothing else — the profile's unlock (Touch ID by default) still runs on every fill.
  *
  * The reasoning, since this is the sole place a mode's meaning is narrowed: `bypassPermissions` means
  * "stop asking me about ordinary actions", and Realm has never treated a secret entering a page as an

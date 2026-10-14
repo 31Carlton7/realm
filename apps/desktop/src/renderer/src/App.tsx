@@ -13,8 +13,10 @@ import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets"
 import { SessionPlanSheet } from "./panes/session/SessionSummary";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
+import { NewWorktreeSheet } from "./components/NewWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
+import { WhatsNewBridge, WhatsNewSheet } from "./components/WhatsNewSheet";
 import { AddTeammatesSheet } from "./panes/team/TeamPicker";
 import { CommandPalette } from "./components/CommandPalette";
 import { Toasts } from "./components/Toasts";
@@ -370,8 +372,10 @@ function SheetHost() {
   if (sheet.kind === "new-space") return <NewSpaceSheet />;
   if (sheet.kind === "new-profile") return <NewProfileSheet />;
   if (sheet.kind === "remove-worktree") return <RemoveWorktreeSheet environmentId={sheet.environmentId} />;
+  if (sheet.kind === "new-worktree") return <NewWorktreeSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;
+  if (sheet.kind === "whats-new") return <WhatsNewSheet />;
   if (sheet.kind === "add-teammates") return <AddTeammatesSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "new-lecture") return <NewLectureSheet />;
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
@@ -775,6 +779,7 @@ export function App() {
       <PressTrackingBridge />
       <TooltipBridge />
       <CaretBridge />
+      <WhatsNewBridge />
       {/* Shared by the sidebar and the page over the panes, whose own rail can take the sidebar's
           column (components/page-nav.tsx). */}
       <PageNavProvider>

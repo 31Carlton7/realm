@@ -22,8 +22,9 @@ function main() {
   } else {
     console.warn("[pack] signing DISABLED — no CSC_LINK/CSC_NAME in env, building UNSIGNED (-c.mac.identity=null). See docs/dev/signing.md.");
   }
-  // Resolved from node_modules/.bin (this script only runs via the package's npm scripts).
-  const r = spawnSync("electron-builder", plan.args, { stdio: "inherit" });
+  // Resolved from node_modules/.bin (this script only runs via the package's npm scripts) — where on
+  // Windows it is `electron-builder.cmd`, which only a shell can start.
+  const r = spawnSync("electron-builder", plan.args, { stdio: "inherit", shell: process.platform === "win32" });
   if (r.error) throw r.error;
   process.exit(r.status ?? 1);
 }

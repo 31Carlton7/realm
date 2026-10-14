@@ -55,7 +55,7 @@ describe("documents.openPath", () => {
     await writeFile(join(root, "other.md"), "# o");
     await c.call("documents.setTabs", { documentsId, openPaths: ["other.md"], activePath: "other.md" });
     const r = (await c.call("documents.openPath", { spaceId: space.id, path: "notes.md" })).result;
-    expect(r).toEqual({ documentsId, itemId, environmentId: env.id, path: "notes.md" });
+    expect(r).toEqual({ documentsId, itemId, environmentId: env.id, path: "notes.md", line: null });
     const ws = (await c.call("documents.get", { documentsId })).result;
     expect(ws.openPaths).toEqual(["other.md", "notes.md"]);
     expect(ws.activePath).toBe("notes.md");
@@ -78,10 +78,12 @@ describe("documents.openPath", () => {
     c.close();
   });
 
-  it("refuses a missing file and an escaping path", async () => {
-    const { c, space } = await setup();
+  it("refuses a missing file and a folder", async () => {
+    const { c, space, root } = await setup();
     expect((await c.call("documents.openPath", { spaceId: space.id, path: "nope.md" })).error?.code).toBe("NOT_FOUND");
-    expect((await c.call("documents.openPath", { spaceId: space.id, path: "../x.md" })).error?.code).toBe("BAD_PATH");
+    expect((await c.call("documents.openPath", { spaceId: space.id, path: "../x.md" })).error?.code).toBe("NOT_FOUND");
+    await mkdir(join(root, "folder.md"));
+    expect((await c.call("documents.openPath", { spaceId: space.id, path: "folder.md" })).error?.code).toBe("BAD_PATH");
     c.close();
   });
 
@@ -116,12 +118,55 @@ describe("documents.openPath", () => {
     c.close();
   });
 
-  it("…and refuses an absolute path outside it, saying which thing was wrong", async () => {
-    // Not a traversal message: the path is well-formed, it just belongs to somewhere else on disk.
+  it("opens a file an agent made OUTSIDE the space as an absolute, read-only tab the pane can read", async () => {
+    // THE MUTANT: keep refusing "outside this workspace". Everything an agent renders into /tmp or
+    // ~/Downloads then came back as an error, and the agent told the user it could not show it.
+    const { c, space, documentsId } = await setup();
+    const made = tempDir("realm-made-");
+    const report = join(made, "réport 1.md");
+    await writeFile(report, "# made in /tmp");
+    const r = (await c.call("documents.openPath", { spaceId: space.id, path: report })).result;
+    expect(r.path).toBe(report);
+    expect((await c.call("documents.get", { documentsId })).result.activePath).toBe(report);
+    expect((await c.call("documents.read", { documentsId, path: report })).result.text).toBe("# made in /tmp");
+    // …and nothing outside is ever written through the pane.
+    const read = (await c.call("documents.read", { documentsId, path: report })).result;
+    expect((await c.call("documents.write", { documentsId, path: report, text: "x", baseHash: read.hash })).error?.code).toBe("BAD_PATH");
+    c.close();
+  });
+
+  it("reads a path as an agent writes it: relative to the session's directory, a file:// URL, a line", async () => {
     const { c, space } = await setup();
-    const err = (await c.call("documents.openPath", { spaceId: space.id, path: "/etc/hosts" })).error;
+    const cwd = tempDir("realm-cwd-");
+    await writeFile(join(cwd, "plot.py"), "print(1)\n");
+    const rel = (await c.call("documents.openPath", { spaceId: space.id, path: "plot.py:12", base: cwd })).result;
+    expect(rel).toMatchObject({ path: join(cwd, "plot.py"), line: 12 });
+    const url = (await c.call("documents.openPath", { spaceId: space.id, path: `file://${join(cwd, "plot.py")}` })).result;
+    expect(url.path).toBe(join(cwd, "plot.py"));
+    c.close();
+  });
+
+  it("keeps the deliberate limit: a file that holds a secret is not opened from outside the space", async () => {
+    const { c, space } = await setup();
+    const dir = tempDir("realm-keys-");
+    await mkdir(join(dir, ".ssh"));
+    await writeFile(join(dir, ".ssh", "id_ed25519"), "-----BEGIN-----");
+    const err = (await c.call("documents.openPath", { spaceId: space.id, path: join(dir, ".ssh", "id_ed25519") })).error;
     expect(err?.code).toBe("BAD_PATH");
-    expect(err?.message).toContain("outside this workspace");
+    expect(err?.message).toContain("holds a secret");
+    c.close();
+  });
+
+  it("serves an outside picture to the pane's preview only once the workspace holds it", async () => {
+    // The pane writes an outside tab into the frame URL as it writes any tab: `/p/<token>/<id>//tmp/…`.
+    const { c, space, documentsId } = await setup();
+    const info = (await c.call("documents.previewInfo", {})).result;
+    const made = tempDir("realm-made-");
+    await writeFile(join(made, "chart.pdf"), "%PDF-1.4");
+    const url = `http://127.0.0.1:${info.port}/p/${info.token}/${documentsId}/${join(made, "chart.pdf")}`;
+    expect((await fetch(url)).status).toBe(404);
+    await c.call("documents.openPath", { spaceId: space.id, path: join(made, "chart.pdf") });
+    expect((await fetch(url)).status).toBe(200);
     c.close();
   });
 });

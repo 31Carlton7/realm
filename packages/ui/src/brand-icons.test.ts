@@ -3,13 +3,14 @@ import { brandMarks, isBrandName } from "./brand-icons";
 
 describe("brand marks", () => {
   it("covers every provider the prompter can name, and every machine vendor the connect form can", () => {
-    /* Three sets, one list. The agents are what the prompter's model chip names; the eight machine
+    /* Four sets, one list. The agents are what the prompter's model chip names; the eight machine
        vendors are what "Connect a machine" names — who is on the other end of an address; and the
-       link services are what a pasted URL can become a chip for (`describeLink`). E2B's and
+       link services are what a pasted URL can become a chip for (`describeLink`); the MCP servers are the
+       apps whose calls the transcript names by their mark (`mcpServerMark`). E2B's and
        Namespace's come from the vendors' own sites rather than from the two icon sets this file
        otherwise draws on, because neither set carries them; both entries say so. */
     expect(Object.keys(brandMarks).sort()).toEqual([
-      "alpine", "android", "apple", "claude", "cursor", "debian", "deepseek", "e2b", "figma", "fx", "gemini", "github", "githubCopilot", "goose", "grok", "jira", "kimi", "linear", "meta", "modal", "namespace", "notion", "openai", "opencode", "openhands", "qwen", "sentry", "slack", "ubuntu", "vercel", "x", "zai",
+      "alpine", "android", "apple", "atlassian", "claude", "cursor", "debian", "deepseek", "e2b", "figma", "fx", "gemini", "github", "githubCopilot", "gmail", "googleCalendar", "googleDrive", "goose", "grok", "jira", "kimi", "linear", "meta", "modal", "namespace", "notion", "openai", "opencode", "openhands", "posthog", "qwen", "sentry", "slack", "stripe", "supabase", "ubuntu", "vercel", "x", "zai",
     ]);
   });
 

@@ -47,6 +47,9 @@ interface Window {
     /** `process.platform` from the preload. Absent in jsdom, which has no bridge — every reader has
      *  to treat "unknown" as "no window material" rather than guessing macOS. */
     platform?: string;
+    /** What this OS can do for Realm (packages/contracts/src/platform.ts). Absent in jsdom; read it
+     *  through `capabilities()` in platform.ts, which answers for a Mac there. */
+    capabilities?: import("@realm/contracts").PlatformCapabilities;
     /** Settings ▸ Appearance ▸ Reduce motion: main changes what this window reports for
      *  `prefers-reduced-motion`. Optional like the other late bridges — jsdom has none. */
     motion?: { set(pref: import("@realm/contracts").ReducedMotionPref): Promise<void> };
@@ -105,6 +108,10 @@ interface Window {
       poster(path: string): Promise<string | null>;
       reveal(path: string): Promise<void>;
       open(path: string): Promise<void>;
+      /** Whether this Mac has ffmpeg to make a playable copy of a video Chromium cannot decode. */
+      canTranscode?(): Promise<boolean>;
+      /** The path of that copy, made once per version of the file (main/media-proxy.ts). */
+      transcode?(path: string): Promise<string>;
     };
     /** Any file the app is already LISTING — a Library row, a session's outputs — as opposed to a
      *  path an agent merely named. `media` above admits only what a media element can decode, so it
@@ -114,6 +121,13 @@ interface Window {
      *  (main/appearance.ts). Optional: a renderer with no bridge has no native appearance to set. */
     setAppearance?(pref: "system" | "light" | "dark"): void;
     /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
+    /** What's new (main/whats-new.ts). Optional like every late bridge: jsdom has none. */
+    whatsNew?: {
+      notes(): Promise<WhatsNew>;
+      /** True once per run, after an update, for the first window that asks. */
+      claim(): Promise<boolean>;
+      seen(): Promise<void>;
+    };
     appIcon?: {
       get(): Promise<string>;
       set(id: string, png: Uint8Array): Promise<boolean>;
@@ -122,6 +136,9 @@ interface Window {
       /** Size and mtime, or null when nothing is there — how a preview learns to say the file is
        *  gone rather than drawing actions that would each fail in turn. */
       stat(path: string): Promise<{ path: string; size: number; mtimeMs: number } | null>;
+      /** The file's text, for the media viewer to draw as the documents pane does
+       *  (`main/read-text.ts`). Null when nothing is there. Optional: an older preload has none. */
+      readText?(path: string): Promise<{ ok: true; text: string } | { ok: false; reason: "large" | "binary" } | null>;
       /** One folder of a space or a checkout, newest first (`main/browse.ts`). Null when it cannot
        *  be read, or when the path would leave the root — the session file browser's data source,
        *  and the one list that shows a file a shell command made. */
@@ -134,6 +151,9 @@ interface Window {
       /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`
        *  — the way an agent writes them. False when nothing is there to select. */
       reveal(path: string, base?: string): Promise<boolean>;
+      /** What is there, absolute, read as an agent writes a path (`~/…`, relative to `base`, a
+       *  `file://` URL, `out.ts:42`); null when nothing is. Optional: a late bridge. */
+      resolve?(path: string, base?: string): Promise<string | null>;
       /** Finder's own icon as a data URL, read off this machine. Null when it cannot be read. */
       finderIcon(): Promise<string | null>;
       /** Copy it where the user points; the saved path, or null when they cancelled. */
@@ -185,6 +205,7 @@ interface Window {
     computerAccess: {
       status(): Promise<ComputerAccessStatus>;
       request(id: string): Promise<ComputerAccessStatus>;
+      repair(id: string): Promise<ComputerAccessStatus>;
       openSettings(id: string): Promise<void>;
     };
     /** Settings→App Updates row (Plan 15 W1). The gate lives in main: on a gated build `check`
@@ -217,6 +238,18 @@ interface Window {
       setPresenceTtl(ms: number): Promise<number>;
       unlockPolicy(profileId: string): Promise<import("@realm/contracts").UnlockPolicyStatus | null>;
       setUnlockPolicy(profileId: string, policy: import("@realm/contracts").UnlockPolicy): Promise<{ ok: true; status: import("@realm/contracts").UnlockPolicyStatus } | { ok: false; error: string }>;
+      /** Settings ▸ Passwords (main/passwords-ipc.ts). Optional: a renderer from before them has none. */
+      update?(profileId: string, id: string, edit: import("@realm/contracts").BrowserCredentialEdit): Promise<import("@realm/contracts").BrowserCredential | null>;
+      import?(profileId: string): Promise<import("@realm/contracts").PasswordImportResult>;
+      /** Show in a native sheet, or copy — never answers with the value. */
+      reveal?(profileId: string, id: string, action: "show" | "copy"): Promise<import("@realm/contracts").PasswordRevealResult>;
+      keychainStatus?(): Promise<import("@realm/contracts").KeychainPasswordsStatus>;
+      setKeychain?(enabled: boolean): Promise<import("@realm/contracts").KeychainPasswordsStatus>;
+      keychainList?(): Promise<import("@realm/contracts").BrowserCredential[]>;
+      neverList?(profileId: string): Promise<string[]>;
+      setNever?(profileId: string, origin: string, never: boolean): Promise<string[]>;
+      fillAllows?(profileId: string): Promise<import("@realm/contracts").PasswordFillAllow[]>;
+      clearFillAllow?(profileId: string, credentialId: string, origin: string): Promise<boolean>;
     };
     /** A team's post sheet: the one click that lets an act ticket go out (main/ticket-presses.ts).
      *  Optional like every bridge: jsdom has none, and without it nothing can be posted. */
@@ -271,6 +304,9 @@ interface Window {
       onDownloadBlocked(cb: (m: { browserId: string; blocked: import("@realm/contracts").BlockedDownload }) => void): () => void;
       /** A passkey request the pane refused, so a sign-in that goes nowhere says why. */
       onPasskey(cb: (m: import("@realm/contracts").PasskeyNotice) => void): () => void;
+      /** A pane's save offer (no password in it), its withdrawal, or Manage passwords…. */
+      onPassword?(cb: (m: import("@realm/contracts").PasswordPaneEvent) => void): () => void;
+      answerPasswordOffer?(id: string, offerId: string, answer: import("@realm/contracts").PasswordSaveAnswer): Promise<boolean>;
       setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
       /** Per-frame, fire-and-forget: placeholder rect (CSS px) + devicePixelRatio + visibility. */
       setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
@@ -297,7 +333,7 @@ interface Window {
 /** Mirrors UpdateState/UpdateStatus in main/updater.ts — the Updates row's payload. Every kind is a
  *  fact main reported; `disabled` carries the reason so the row can say why, honestly. */
 type UpdateState =
-  | { kind: "disabled"; reason: "dev" | "unsigned" | "no-feed" }
+  | { kind: "disabled"; reason: "dev" | "platform" | "unsigned" | "no-feed" }
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "up-to-date" }
@@ -306,6 +342,13 @@ type UpdateState =
   | { kind: "downloaded"; version: string }
   | { kind: "error"; message: string };
 interface UpdateStatus { version: string; state: UpdateState }
+/** Mirrors WhatsNew in main/whats-new.ts and ReleaseNotes in main/whats-new-notes.ts. */
+interface WhatsNewSpan { text: string; strong?: true; code?: true }
+interface WhatsNew {
+  version: string;
+  notes: { version: string; date: string | null; groups: { title: string | null; items: WhatsNewSpan[][] }[] } | null;
+  url: string;
+}
 /** Mirrors TccRow in main/tcc.ts — the Permissions tab's row payload. */
 interface TccRow { id: string; label: string; state: "granted" | "denied" | "unknown"; detail: string }
 /** Mirrors MacAccessRow/MacAccessStatus in main/mac-access.ts. The five states are mac doctor's own,
@@ -346,14 +389,23 @@ interface ComputerAccessRow {
   canPrompt: boolean;
   /** The switch that actually grants it lives in System Settings — true whenever it is missing. */
   needsSettings: boolean;
-  /** What pressing "Ask macOS" will really do; null when there is nothing to ask for. */
+  /** What pressing Allow will really do; null when there is nothing to ask for. */
   askExplanation: string | null;
+  /** macOS refuses a grant an earlier build held — System Settings likely still shows it on. */
+  stale: boolean;
+  /** Repair (tccutil reset for this service, then ask again) can run for this row. */
+  canRepair: boolean;
+  repairExplanation: string | null;
+  /** Where the switch is on this macOS, e.g. "Privacy & Security ▸ Device Control and Data Access". */
+  settingsPlace: string;
 }
 interface ComputerAccessStatus {
   rows: ComputerAccessRow[];
   /** The app macOS attributes the grants to — "Electron" under `pnpm dev`. */
   hostName: string;
   packaged: boolean;
+  /** Signed with a Developer ID. Unsigned, macOS pins each grant to this exact build. */
+  signed: boolean;
   /** False when this build has no compiled accessibility helper: computer control is unavailable
    *  whatever macOS has granted. */
   helperAvailable: boolean;

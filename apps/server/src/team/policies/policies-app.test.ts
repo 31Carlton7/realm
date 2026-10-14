@@ -89,7 +89,7 @@ describe("team.policies", () => {
     // space's workspace) still asks.
     const docs = view.connectors.find((x) => x.connector === "realm:realm-docs")!;
     expect(docs).toMatchObject({ kind: "realm", name: "Documents" });
-    expect(docs.tools.filter((t) => !t.asksToday).map((t) => t.tool)).toEqual(["docs_search", "docs_read", "docs_state", "docs_open"]);
+    expect(docs.tools.filter((t) => !t.asksToday).map((t) => t.tool)).toEqual(["docs_search", "docs_read", "docs_state", "docs_open", "docs_reveal"]);
     expect(view.connectors.filter((x) => x.kind === "realm").flatMap((x) => x.tools).every((t) => t.source === "realm")).toBe(true);
     expect((await c.call("team.policies", { spaceId: "01J00000000000000000000000" })).error.code).toBe("NOT_FOUND");
     c.close();

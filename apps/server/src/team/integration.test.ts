@@ -340,6 +340,7 @@ describe("teams over the wire", () => {
     const pre = app.runs.extraSystemContext(sid)!;
     expect(pre).toContain("You are Content Producer");
     expect(pre).toContain("review_submit");
+    expect(pre).toContain("review_close");
     expect(pre).toContain("stops at $3 or 20 minutes");
     void run;
     c.close();
@@ -455,6 +456,26 @@ describe("a team's memory repo when Realm's home is inside a space's folder", ()
     const chosen = join(tempDir("realm-team-chosen-"), "versed-memory");
     const team = await c.must("team.make", { spaceId, templates: ["editor"], repoPath: chosen });
     expect(team).toMatchObject({ hasRepo: true, repoPath: chosen, repoMoved: true });
+    c.close();
+  });
+
+  it("makes the repo in Realm's own folder when a space works in / or the home folder", async () => {
+    const userHome = tempDir("realm-team-userhome-");
+    const home = join(userHome, "Realm");
+    mkdirSync(home, { recursive: true });
+    const fake = new FakeAdapter({ script: SCRIPT, delayMs: 2 });
+    app = await createApp({ home, userHome, port: 0, adapters: { fake, claude: fake } });
+    const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
+    const general = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "General", icon: "folder" });
+    app.db.prepare("UPDATE spaces SET folder_path = ? WHERE id = ?").run("/", general.id);
+    const other = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "Home", icon: "folder" });
+    app.db.prepare("UPDATE spaces SET folder_path = ? WHERE id = ?").run(userHome, other.id);
+    const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "Versed", icon: "folder" });
+    const c = await client(app.port);
+    // THE MUTANT: count / and the home folder as projects — both places are refused, as the user saw.
+    const team = await c.must("team.make", { spaceId: space.id, templates: ["editor"] });
+    expect(team).toMatchObject({ hasRepo: true, repoMoved: false });
+    expect(team.repoPath.startsWith(home)).toBe(true);
     c.close();
   });
 });

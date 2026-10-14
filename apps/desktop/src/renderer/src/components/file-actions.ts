@@ -1,4 +1,5 @@
 import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import { capabilities } from "../platform";
 
 /**
  * The three things a Mac does with a file it is showing you (main/file-actions.ts): Quick Look on
@@ -8,8 +9,8 @@ import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent }
  */
 const bridge = () => window.realm?.files;
 
-export const canQuickLook = (): boolean => typeof bridge()?.quickLook === "function";
-export const canShare = (): boolean => typeof bridge()?.share === "function";
+export const canQuickLook = (): boolean => capabilities().quickLook && typeof bridge()?.quickLook === "function";
+export const canShare = (): boolean => capabilities().shareMenu && typeof bridge()?.share === "function";
 
 /** `base`: the directory a relative path is relative to — a session's, for a path its agent wrote. */
 export function quickLook(path: string, base?: string): void { void (base === undefined ? bridge()?.quickLook?.(path) : bridge()?.quickLook?.(path, base)); }

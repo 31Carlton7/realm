@@ -69,15 +69,25 @@
  *
  * ## The invariant
  *
- * A credential's plaintext leaves this module through exactly two doors — the `use` callbacks of
- * `withCredentialValue` and `withGeneratedCredentialValue` — and both are only ever opened by the
- * fill executor in Electron main, with the value going straight into CDP key events. The second door
- * is the one Realm mints a password behind, and it is the same shape as the first on purpose: the
- * value is a parameter, `use`'s result is discarded, and what resolves is metadata. `listCredentials`
- * returns `BrowserCredential`, a type with no field for a value. Nothing here returns, logs, throws,
- * or broadcasts one.
+ * A credential's plaintext leaves this module through exactly three doors — the `use` callbacks of
+ * `withCredentialValue`, `withGeneratedCredentialValue` and `withCredentialValueForPerson` — and all
+ * three are the same shape on purpose: the value is a parameter, `use`'s result is discarded, and
+ * what resolves is metadata. The first two are opened by the fill executors in Electron main, with the
+ * value going straight into CDP key events; the third by Settings' Show and Copy, with the value going
+ * into a native sheet or onto the clipboard, never into a renderer. `listCredentials` returns
+ * `BrowserCredential`, a type with no field for a value. Nothing here returns, logs, throws, or
+ * broadcasts one.
+ *
+ * ## Where a row comes from
+ *
+ * Typed in Settings (`addCredential`), minted for an approved agent fill (`withGeneratedCredentialValue`),
+ * imported from a file the user picked in Settings (`importCredentials`), kept from a form the user
+ * sent when they pressed Save on the pane's bar (`saveOffered`) — or not stored here at all: the login
+ * keychain's internet passwords (`SecretStoreDeps.keychain`) are listed from there and read from there
+ * at fill time. Every door that takes a value is reached from a person's press in Realm's own window;
+ * none is an RPC method, a bridge op or a tool.
  */
-import { randomInt } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import type { PolicyStamp } from "./policy-stamp";
 import {
   isSealed, newSecretKey, open, seal, SECRET_KEY_BYTES, type SecretDomain,
@@ -88,7 +98,10 @@ import {
   type BrowserCredential, type BrowserCredentialInput, type Passkey,
   type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus, type UnlockScope,
   hostAllowed, normalizeVaultHost, type VaultAllow, type VaultKey, type VaultKeyInput, type VaultSecrets,
+  type BrowserCredentialEdit, type KeychainPasswordsStatus, type PasswordFillAllow, type SiteCredential,
 } from "@realm/contracts";
+import { credentialsForPage } from "./password-match";
+import type { ImportedPassword } from "./password-csv";
 
 /** The slice of Electron's `safeStorage` this needs. */
 export type SafeStorageLike = {
@@ -109,6 +122,8 @@ export type CredentialAuditEntry = {
    *  is one thing that happened: a new sign-in for this origin now exists AND was typed into it.
    *  `no_store` is that fill refused for having nowhere to keep the password. */
   outcome: "filled" | "generated" | "origin_mismatch" | "no_credential" | "no_store" | "no_presence" | "error";
+  /** `person`: the fill was the person's own pick in a pane's password menu, not an agent's call. */
+  by?: "person";
   /** Who asked, when a team's role did (the team vault): which team, which role, which run. Absent for
    *  a person's own session, as every line before teams was. */
   spaceId?: string;
@@ -164,15 +179,67 @@ export type PasskeyAuditEntry = {
 
 /** One line per unlock, whatever the policy. `how` is what satisfied it: a check the person answered
  *  (`prompted`), the short Touch ID window (`window`), an open session (`session`), or nothing,
- *  because the profile is set to fill without asking (`unattended`). `refused` is a check that failed
- *  or was cancelled. */
+ *  because the profile is set to fill without asking (`unattended`). `gesture` is a person's own pick
+ *  in a pane's password menu on a system with no presence check to ask (not a Mac). `refused` is a
+ *  check that failed or was cancelled. */
 export type UnlockAuditEntry = {
   ts: number;
   kind: "unlock";
   scope: string;
   policy: UnlockPolicyKind;
-  how: "prompted" | "window" | "session" | "unattended" | "refused";
+  how: "prompted" | "window" | "session" | "unattended" | "gesture" | "refused";
 };
+
+/** One line per Show password or Copy password in Settings, whatever became of it. */
+export type RevealAuditEntry = {
+  ts: number;
+  kind: "reveal";
+  credentialId: string;
+  origin: string;
+  action: "show" | "copy";
+  outcome: "shown" | "copied" | "refused" | "no_credential";
+};
+
+/** One line per import, and per password kept from a pane's Save. Counts and an origin: never a row
+ *  of the file, and never a username. */
+export type PasswordStoreAuditEntry = {
+  ts: number;
+  kind: "import" | "save-offer" | "fill-allow";
+  outcome: "imported" | "saved" | "updated" | "set" | "cleared";
+  origin?: string;
+  added?: number;
+  updated?: number;
+};
+
+/** One internet password in the login keychain, as the helper lists it — attributes only. The
+ *  password is read with `KeychainSource.read`, one item at a time, when it is filled. */
+export type KeychainItem = {
+  server: string;
+  account: string;
+  /** `https` or `http`; nothing else is listed. */
+  protocol: "https" | "http";
+  /** 0 when the item names none, which is the scheme's default. */
+  port: number;
+  path: string;
+  label: string;
+  /** When the item last changed, ms since the epoch; 0 when the keychain does not say. */
+  modified: number;
+};
+
+/** The login keychain, through the native helper (`keychain-passwords.ts`). Null off macOS. */
+export type KeychainSource = {
+  list(): Promise<KeychainItem[]>;
+  /** One item's password, or null when there is none, macOS refused, or the person said no. macOS
+   *  raises its own prompt here unless the item already trusts Realm. */
+  read(item: KeychainItem): Promise<string | null>;
+};
+
+/** How long a person's own pick in a pane's password menu keeps the next one from asking again. Only
+ *  for those picks: an agent's fill never opens or uses it. */
+export const GESTURE_PRESENCE_WINDOW_MS = 60_000;
+
+/** How long the keychain's list is kept before it is read again. */
+export const KEYCHAIN_LIST_TTL_MS = 60_000;
 
 /** One line per attempt to change a scope's policy. `refused` is a weakening macOS did not confirm. */
 export type UnlockPolicyAuditEntry = {
@@ -228,6 +295,18 @@ export type SecretStoreDeps = {
    * no helper — means no looser policy can be kept: every scope stays on the default.
    */
   policyStamp?: PolicyStamp | null;
+  /**
+   * The login keychain's internet passwords. Absent or null: not a Mac, or no helper — Settings says
+   * so and nothing else changes.
+   */
+  keychain?: KeychainSource | null;
+  /**
+   * Whether this system has any presence check to ask (Touch ID, the login password). False off macOS,
+   * where the only proof a person is there is their own pick in a pane's menu or their press in
+   * Settings — so those, and only those, stand in for the check. An agent's fill on such a system
+   * still has no check to pass and is refused.
+   */
+  platformPresence?(): boolean;
   now(): number;
   newId(): string;
   /**
@@ -240,8 +319,22 @@ export type SecretStoreDeps = {
 };
 
 /** `profileId` is absent only on a row written before profiles had their own (file version 1) that
- *  has not been adopted yet — see `adopt`. */
+ *  has not been adopted yet — see `adopt`. `source` is only ever `imported` on disk: a keychain row is
+ *  never stored. */
 type StoredCredential = BrowserCredential & { sealed: string; profileId?: string };
+
+/** What a sealed "Always allow" for an agent's fill says, inside its seal. Checked field by field when
+ *  read; any mismatch, or another Mac, is "ask". */
+type FillAllowRecord = { profileId: string; credentialId: string; origin: string; machine: string; setAt: number };
+
+const fillAllowKey = (profileId: string, credentialId: string, origin: string): string => `${profileId}|${credentialId}|${origin}`;
+
+/** A keychain row's id: stable across launches, and derived from the item's own attributes so the
+ *  same item is the same row however often the list is read. */
+function keychainId(item: KeychainItem): string {
+  const digest = createHash("sha256").update([item.protocol, item.server, item.port, item.path, item.account].join("\n")).digest("hex");
+  return `kc_${digest.slice(0, 24)}`;
+}
 
 /** A team's API key as it sits on disk: the value sealed under the `vault-key` domain, beside the
  *  hosts it may be sent to. */
@@ -306,6 +399,13 @@ type StoreFile = {
   /** `secretId|roleId` → that grant's "use without asking", sealed under `vault-allow`. Absent from
    *  files written before the vault, which is every grant asking. */
   allow: Record<string, string>;
+  /** Profile id → the origins it never offers to save a password for ("Never for this site"). Not a
+   *  secret: a list of sites, kept in the clear like the rows' origins. */
+  neverSave: Record<string, string[]>;
+  /** `profileId|credentialId|origin` → an agent's "Always allow", sealed under `fill-allow`. */
+  fillAllow: Record<string, string>;
+  /** Whether the login keychain's passwords are offered. Off until the person turns it on. */
+  keychainEnabled: boolean;
 };
 
 /** 2: every row names its profile. 1 had none — see `adopt`. Policies did not need a new version:
@@ -333,6 +433,11 @@ export class SecretStore {
   private readonly stamps = new Map<string, number | null | "unreadable">();
   /** Rows without a profile are on disk and still waiting for `defaultProfileId` to name one. */
   private unadopted = false;
+  /** The window a person's own pick in a pane's menu opens (`GESTURE_PRESENCE_WINDOW_MS`). In memory,
+   *  and apart from `presenceUntil`, so no agent fill is ever let through by it. */
+  private gestureUntil = 0;
+  /** The keychain's last listing, and when it was read. */
+  private keychainCache: { at: number; rows: Map<string, { item: KeychainItem; credential: BrowserCredential }>; error: string | null } | null = null;
 
   constructor(private readonly d: SecretStoreDeps) {}
 
@@ -351,17 +456,21 @@ export class SecretStore {
     return this.rows().credentials.filter((c) => c.profileId === profileId).map(strip);
   }
 
+  /** One row, by id: the profile's own, or a keychain item from the last listing. */
   getCredential(profileId: string, id: string): BrowserCredential | null {
     const row = this.credentialOf(profileId, id);
-    return row ? strip(row) : null;
+    if (row) return strip(row);
+    return this.keychainRow(id)?.credential ?? null;
   }
 
   /**
    * Enroll one credential the USER typed. Reachable only from the Settings UI's IPC handler — there
-   * is no tool, no RPC method, no file importer and no chat path that lands here, which is the
-   * design's second hard requirement after the value never coming back out. If a model could call
-   * this, the anti-phishing gate would be a formality: it could enroll a password the user already
-   * uses elsewhere against the origin it is standing on, and then "fill" it.
+   * is no tool, no RPC method, no bridge op and no chat path that lands here, which is the design's
+   * second hard requirement after the value never coming back out. If a model could call this, the
+   * anti-phishing gate would be a formality: it could enroll a password the user already uses
+   * elsewhere against the origin it is standing on, and then "fill" it. The other doors that take a
+   * value — `importCredentials` and `saveOffered` — hold to the same rule: a person's press in
+   * Realm's own window is the only thing that reaches them.
    *
    * `withGeneratedCredentialValue` is the one other way a row comes into being, and it does not
    * reopen that hole: the value there is Realm's own random string rather than anything the caller
@@ -408,6 +517,7 @@ export class SecretStore {
     file.credentials = file.credentials.filter((c) => !(c.id === id && c.profileId === profileId));
     if (file.credentials.length === before) return false;
     this.pruneAllows(file);
+    for (const k of Object.keys(file.fillAllow)) if (k.startsWith(`${profileId}|${id}|`)) delete file.fillAllow[k];
     this.save();
     return true;
   }
@@ -446,6 +556,258 @@ export class SecretStore {
     return strip(row);
   }
 
+  /**
+   * Bring in the passwords of an export the person picked in Settings ▸ Passwords — the Passwords
+   * app's, or another manager's (`password-csv.ts`). Reachable from that handler alone, which opens
+   * the file through the system's own open panel; no tool, RPC method or bridge op names a file here.
+   *
+   * A row for an origin and username this profile already holds brings that row's password up to
+   * date rather than adding a second; one whose password is the same is counted and left. New rows
+   * are marked `imported`, so Settings can say where they came from. One write for the whole file.
+   */
+  importCredentials(profileId: string, rows: readonly ImportedPassword[]): { added: number; updated: number; unchanged: number } {
+    if (!this.available) {
+      throw new SecretStoreError("macOS is not offering Realm an encryption key right now (Keychain unavailable), so Realm will not import passwords. Nothing was stored.");
+    }
+    const file = this.rows();
+    let added = 0, updated = 0, unchanged = 0;
+    for (const r of rows) {
+      const origin = normalizeOrigin(r.origin);
+      if (!origin || r.password === "") continue;
+      const username = r.username.trim();
+      const same = file.credentials.find((c) => c.profileId === profileId && c.spaceId === undefined && c.origin === origin && c.username === username);
+      if (same) {
+        if (this.opens(same, r.password)) { unchanged++; continue; }
+        same.sealed = seal(this.key("credential"), "credential", r.password);
+        updated++;
+        continue;
+      }
+      file.credentials.push({
+        id: this.d.newId(), profileId, origin, username, label: r.title.trim().slice(0, 255),
+        createdAt: this.d.now(), generated: false, source: "imported",
+        sealed: seal(this.key("credential"), "credential", r.password),
+      });
+      added++;
+    }
+    if (added + updated > 0) this.save();
+    this.audit({ ts: this.d.now(), kind: "import", outcome: "imported", added, updated });
+    return { added, updated, unchanged };
+  }
+
+  /**
+   * Change one of this profile's rows from Settings: its username and label, and — when the person
+   * typed one — its password. Settings' edit sheet is the only caller. A row Realm generated stays
+   * marked generated until its password is replaced by one the person chose.
+   */
+  updateCredential(profileId: string, id: string, edit: BrowserCredentialEdit): BrowserCredential | null {
+    const row = this.credentialOf(profileId, id);
+    if (!row) return null;
+    if (edit.value !== undefined && !this.available) {
+      throw new SecretStoreError("macOS is not offering Realm an encryption key right now (Keychain unavailable), so the password was not changed.");
+    }
+    row.username = edit.username.trim();
+    row.label = edit.label.trim();
+    if (edit.value !== undefined) {
+      row.sealed = seal(this.key("credential"), "credential", edit.value);
+      row.generated = false;
+    }
+    this.save();
+    return strip(row);
+  }
+
+  /**
+   * What a pane should offer after a form went out with this username and password on `origin`:
+   * `save` for a sign-in the profile does not hold, `update` (naming the row) for one it holds with
+   * another password, and null for nothing to offer — the same password is saved already (which is
+   * also every fill Realm itself just typed), or the person said never for this site.
+   *
+   * The comparison happens HERE, behind the seal, and what leaves is the verdict: a page learns
+   * nothing from it, since the pane's bar is Realm's and not the page's.
+   */
+  saveOfferFor(profileId: string, origin: string, username: string, value: string): { kind: "save" } | { kind: "update"; id: string } | null {
+    const site = normalizeOrigin(origin);
+    if (!site || value === "" || !this.available) return null;
+    if (this.neverSaveSites(profileId).includes(site)) return null;
+    const user = username.trim();
+    const mine = this.rows().credentials.filter((c) => c.profileId === profileId && c.spaceId === undefined && c.origin === site);
+    if (mine.some((c) => this.opens(c, value))) return null;
+    const same = mine.find((c) => c.username === user);
+    return same ? { kind: "update", id: same.id } : { kind: "save" };
+  }
+
+  /**
+   * Keep a password the person sent in a form, after they pressed Save (or Update) on the pane's bar.
+   * Main holds the value between the form going out and that press; this is where it is sealed.
+   * Decided again here rather than trusted from the offer, so a row deleted in between is made anew.
+   */
+  saveOffered(profileId: string, input: { origin: string; username: string; value: string }): BrowserCredential | null {
+    const origin = normalizeOrigin(input.origin);
+    if (!origin || input.value === "" || !this.available) return null;
+    const offer = this.saveOfferFor(profileId, origin, input.username, input.value);
+    if (offer === null) return null;
+    if (offer.kind === "update") {
+      const row = this.credentialOf(profileId, offer.id)!;
+      row.sealed = seal(this.key("credential"), "credential", input.value);
+      row.generated = false;
+      this.save();
+      this.audit({ ts: this.d.now(), kind: "save-offer", outcome: "updated", origin });
+      return strip(row);
+    }
+    const row = this.enroll(profileId, { origin, username: input.username, label: "", generated: false }, input.value);
+    this.audit({ ts: this.d.now(), kind: "save-offer", outcome: "saved", origin });
+    return row;
+  }
+
+  /** The sites this profile never offers to save a password for. */
+  neverSaveSites(profileId: string): string[] {
+    return [...(this.load().neverSave[profileId] ?? [])];
+  }
+
+  /** Add or take back one "Never for this site". */
+  setNeverSave(profileId: string, origin: string, never: boolean): string[] {
+    const site = normalizeOrigin(origin);
+    const file = this.load();
+    const list = new Set(file.neverSave[profileId] ?? []);
+    if (site) { if (never) list.add(site); else list.delete(site); }
+    if (list.size > 0) file.neverSave[profileId] = [...list].sort(); else delete file.neverSave[profileId];
+    this.save();
+    return this.neverSaveSites(profileId);
+  }
+
+  /** Whether `value` is this row's password. Inside the store, so the answer is all that leaves. */
+  private opens(row: StoredCredential, value: string): boolean {
+    try { return open(this.key("credential"), "credential", row.sealed) === value; } catch { return false; }
+  }
+
+  /* ------------------------------ agents' "Always allow" ------------------------------ */
+
+  /**
+   * Keep an agent's "Always allow" for one password on one exact origin — the person's answer on the
+   * fill's own card, carried here by main's bridge handler. What it removes is the CARD: every fill it
+   * lets through still unlocks by the profile's policy, so under the default it is still a Touch ID.
+   * Sealed with the profile, the password's id, the origin and this Mac inside, so a hand-written
+   * entry, one moved to another password or site, or a copy on another Mac reads as "ask".
+   */
+  setFillAllow(profileId: string, credentialId: string, origin: string): boolean {
+    const site = normalizeOrigin(origin);
+    const machine = this.machine();
+    if (!site || !machine || !this.available || !this.getCredential(profileId, credentialId)) return false;
+    const record: FillAllowRecord = { profileId, credentialId, origin: site, machine, setAt: this.d.now() };
+    this.load().fillAllow[fillAllowKey(profileId, credentialId, site)] = seal(this.key("fill-allow"), "fill-allow", JSON.stringify(record));
+    this.save();
+    this.audit({ ts: this.d.now(), kind: "fill-allow", outcome: "set", origin: site });
+    return true;
+  }
+
+  fillAllowed(profileId: string, credentialId: string, origin: string): boolean {
+    const site = normalizeOrigin(origin);
+    if (!site) return false;
+    const sealed = this.load().fillAllow[fillAllowKey(profileId, credentialId, site)];
+    const r = sealed ? this.openFillAllow(sealed) : null;
+    return r !== null && r.profileId === profileId && r.credentialId === credentialId && r.origin === site && r.machine === this.machine();
+  }
+
+  fillAllows(profileId: string): PasswordFillAllow[] {
+    const out: PasswordFillAllow[] = [];
+    for (const sealed of Object.values(this.load().fillAllow)) {
+      const r = this.openFillAllow(sealed);
+      if (r && r.profileId === profileId && r.machine === this.machine()) out.push({ credentialId: r.credentialId, origin: r.origin, setAt: r.setAt });
+    }
+    return out.sort((a, b) => a.origin.localeCompare(b.origin));
+  }
+
+  /** Back to the card. Never confirmed: putting a gate back is always one click. */
+  clearFillAllow(profileId: string, credentialId: string, origin: string): boolean {
+    const file = this.load();
+    const k = fillAllowKey(profileId, credentialId, normalizeOrigin(origin) ?? origin);
+    if (!(k in file.fillAllow)) return false;
+    delete file.fillAllow[k];
+    this.save();
+    this.audit({ ts: this.d.now(), kind: "fill-allow", outcome: "cleared", origin });
+    return true;
+  }
+
+  private openFillAllow(sealed: string): FillAllowRecord | null {
+    if (!this.available) return null;
+    try {
+      const text = open(this.key("fill-allow"), "fill-allow", sealed);
+      if (text === null) return null;
+      const r = JSON.parse(text) as Partial<FillAllowRecord>;
+      return typeof r.profileId === "string" && typeof r.credentialId === "string" && typeof r.origin === "string"
+        && typeof r.machine === "string" && typeof r.setAt === "number" ? r as FillAllowRecord : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /* --------------------------------- the login keychain --------------------------------- */
+
+  keychainStatus(): KeychainPasswordsStatus {
+    const supported = this.d.keychain != null;
+    const enabled = supported && this.load().keychainEnabled;
+    return {
+      supported, enabled,
+      count: enabled && this.keychainCache && this.keychainCache.error === null ? this.keychainCache.rows.size : null,
+      error: enabled ? this.keychainCache?.error ?? null : null,
+    };
+  }
+
+  /** Turn the keychain's passwords on or off. Settings' switch is the only caller. Off forgets the
+   *  listing at once, so nothing offers a keychain row a moment after the person said no. */
+  async setKeychainEnabled(enabled: boolean): Promise<KeychainPasswordsStatus> {
+    const file = this.load();
+    file.keychainEnabled = enabled && this.d.keychain != null;
+    this.save();
+    this.keychainCache = null;
+    if (file.keychainEnabled) await this.refreshKeychain(true);
+    return this.keychainStatus();
+  }
+
+  /** Read the keychain's list again when the last one is older than `KEYCHAIN_LIST_TTL_MS` (or
+   *  `force`). Attributes only: listing never asks macOS for a password, so it raises no prompt. */
+  async refreshKeychain(force = false): Promise<void> {
+    const source = this.d.keychain;
+    if (!source || !this.load().keychainEnabled) { this.keychainCache = null; return; }
+    if (!force && this.keychainCache && this.d.now() - this.keychainCache.at < KEYCHAIN_LIST_TTL_MS) return;
+    const rows = new Map<string, { item: KeychainItem; credential: BrowserCredential }>();
+    let error: string | null = null;
+    try {
+      for (const item of await source.list()) {
+        const port = item.port > 0 && item.port !== (item.protocol === "https" ? 443 : 80) ? `:${item.port}` : "";
+        const origin = normalizeOrigin(`${item.protocol}://${item.server}${port}`);
+        if (!origin) continue;
+        const id = keychainId(item);
+        rows.set(id, { item, credential: { id, origin, username: item.account, label: item.label === item.server ? "" : item.label, createdAt: item.modified, generated: false, source: "keychain" } });
+      }
+    } catch {
+      error = "Realm couldn't read the login keychain's list.";
+    }
+    this.keychainCache = { at: this.d.now(), rows, error };
+  }
+
+  /** The keychain's rows from the last listing — none while it is off. */
+  fromKeychain(): BrowserCredential[] {
+    if (!this.load().keychainEnabled) return [];
+    return [...(this.keychainCache?.rows.values() ?? [])].map((r) => r.credential);
+  }
+
+  private keychainRow(id: string): { item: KeychainItem; credential: BrowserCredential } | null {
+    if (!id.startsWith("kc_") || !this.load().keychainEnabled) return null;
+    return this.keychainCache?.rows.get(id) ?? null;
+  }
+
+  /**
+   * Every password this profile may be offered on `pageOrigin`, exact origin first: its own, its
+   * team's when `spaceId` is that team's, and the keychain's. Metadata, with whether an agent has
+   * "Always allow" for each on this exact origin.
+   */
+  credentialsForSite(profileId: string, spaceId: string | null, pageOrigin: string): SiteCredential[] {
+    const origin = normalizeOrigin(pageOrigin);
+    if (!origin) return [];
+    return credentialsForPage(this.credentialsForSpace(profileId, spaceId), origin)
+      .map((c) => ({ ...c, agentAllowed: this.fillAllowed(profileId, c.id, origin) }));
+  }
+
   /* ------------------------------- the one door out ------------------------------- */
 
   /**
@@ -467,7 +829,23 @@ export class SecretStore {
     id: string,
     use: (value: string) => Promise<void>,
     scope: { spaceId?: string | null } = {},
+    how: { gesture?: boolean } = {},
   ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }> {
+    // A keychain row is read from the keychain, behind the same presence check — and then macOS's own
+    // prompt, unless the item already trusts Realm. The person answers Realm's first, so a page that
+    // could never have been filled never puts a keychain sheet in front of them.
+    const kc = this.keychainRow(id);
+    if (kc) {
+      const who = kc.credential.username ? `${kc.credential.username} on ${kc.credential.origin}` : kc.credential.origin;
+      if (!(await this.requirePresence(profileId, `fill your keychain password for ${who}`, how.gesture === true))) {
+        return { ok: false, refused: "no_presence" };
+      }
+      const value = await this.d.keychain!.read(kc.item).catch(() => null);
+      if (value === null || value === "") return { ok: false, refused: "no_credential" };
+      await use(value);
+      return { ok: true };
+    }
+
     // Another profile's sign-in is refused exactly as one that does not exist — and before the
     // prompt, so a Touch ID sheet is never raised for a fill that could not have been allowed. So is
     // a team's sign-in asked for from anywhere but that team's space: a caller that names no space
@@ -476,7 +854,7 @@ export class SecretStore {
     if (!row || (row.spaceId !== undefined && row.spaceId !== scope.spaceId)) return { ok: false, refused: "no_credential" };
 
     const who = row.username ? `${row.username} on ${row.origin}` : row.origin;
-    if (!(await this.requirePresence(profileId, `fill your saved sign-in for ${who}`))) {
+    if (!(await this.requirePresence(profileId, `fill your saved sign-in for ${who}`, how.gesture === true))) {
       return { ok: false, refused: "no_presence" };
     }
 
@@ -487,6 +865,46 @@ export class SecretStore {
     // caller something about the store's contents it has no use for.
     if (value === null) return { ok: false, refused: "no_credential" };
 
+    await use(value);
+    return { ok: true };
+  }
+
+  /**
+   * Run `use` with one password for the PERSON — Settings' Show password and Copy password — after
+   * macOS confirms them: Touch ID, or the login password where that can run. Always asked, whatever
+   * the profile's policy and whatever window is open: "Without asking" and the short window are for
+   * fills, and neither says a person wants a password on their screen.
+   *
+   * The caller puts the value in a native sheet or on the clipboard from main. Neither is a renderer,
+   * so nothing an agent can read of Realm's window ever holds it.
+   */
+  async withCredentialValueForPerson(
+    profileId: string,
+    id: string,
+    action: "show" | "copy",
+    use: (value: string) => Promise<void>,
+  ): Promise<{ ok: true } | { ok: false; refused: "no_credential" | "no_presence" }> {
+    const kc = this.keychainRow(id);
+    const row = kc ? null : this.credentialOf(profileId, id);
+    const credential = kc?.credential ?? (row ? strip(row) : null);
+    if (!credential) return { ok: false, refused: "no_credential" };
+    const entry = { ts: 0, kind: "reveal" as const, credentialId: id, origin: credential.origin, action };
+    const who = credential.username ? `${credential.username} on ${credential.origin}` : credential.origin;
+    const asked = this.d.platformPresence?.() === false
+      ? true
+      : await this.confirmOwner(`${action === "show" ? "show" : "copy"} the password for ${who}`);
+    if (!asked) {
+      this.audit({ ...entry, ts: this.d.now(), outcome: "refused" });
+      return { ok: false, refused: "no_presence" };
+    }
+    const value = kc
+      ? await this.d.keychain!.read(kc.item).catch(() => null)
+      : this.available ? open(this.key("credential"), "credential", row!.sealed) : null;
+    if (value === null || value === "") {
+      this.audit({ ...entry, ts: this.d.now(), outcome: "no_credential" });
+      return { ok: false, refused: "no_credential" };
+    }
+    this.audit({ ...entry, ts: this.d.now(), outcome: action === "show" ? "shown" : "copied" });
     await use(value);
     return { ok: true };
   }
@@ -549,12 +967,27 @@ export class SecretStore {
    * The audit line is written BEFORE this resolves, so no value leaves under a policy that left no
    * record — `unattended` least of all.
    */
-  private async requirePresence(profileId: string, reason: string): Promise<boolean> {
+  private async requirePresence(profileId: string, reason: string, gesture = false): Promise<boolean> {
     const scope = unlockScopeKey({ kind: "profile", id: profileId });
     const policy = this.readPolicy(scope);
-    const how = await this.unlock(scope, policy, reason);
+    const how = gesture ? await this.unlockForGesture(scope, policy, reason) : await this.unlock(scope, policy, reason);
     this.audit({ ts: this.d.now(), kind: "unlock", scope, policy: policy.kind, how });
     return how !== "refused";
+  }
+
+  /**
+   * The unlock for a person's own pick in a pane's password menu. The policy still decides — a
+   * session or "Without asking" lets it through as it would an agent's fill — but a person who just
+   * answered Touch ID for one pick is not asked again for the next minute
+   * (`GESTURE_PRESENCE_WINDOW_MS`), and where the system has no check to ask at all the pick itself
+   * is the person. Neither applies to an agent's fill, which never comes through here.
+   */
+  private async unlockForGesture(scope: string, policy: UnlockPolicy, reason: string): Promise<UnlockAuditEntry["how"]> {
+    if (this.d.platformPresence?.() === false) return "gesture";
+    if ((policy.kind === "touch-id" || policy.kind === "device-password") && this.d.now() < this.gestureUntil) return "window";
+    const how = await this.unlock(scope, policy, reason);
+    if (how === "prompted") this.gestureUntil = this.d.now() + GESTURE_PRESENCE_WINDOW_MS;
+    return how;
   }
 
   private async unlock(scope: string, policy: UnlockPolicy, reason: string): Promise<UnlockAuditEntry["how"]> {
@@ -741,9 +1174,13 @@ export class SecretStore {
   /** The sign-ins an agent in `spaceId` is offered: the profile's own and that team's, never another
    *  team's. `null` is a caller that cannot say its space, and gets the profile's own alone. */
   credentialsForSpace(profileId: string, spaceId: string | null): BrowserCredential[] {
-    return this.rows().credentials
-      .filter((c) => c.profileId === profileId && (c.spaceId === undefined || c.spaceId === spaceId))
-      .map(strip);
+    return [
+      ...this.rows().credentials
+        .filter((c) => c.profileId === profileId && (c.spaceId === undefined || c.spaceId === spaceId))
+        .map(strip),
+      // The keychain is the Mac user's, not a profile's: every profile is offered it once it is on.
+      ...this.fromKeychain(),
+    ];
   }
 
   /**
@@ -1179,7 +1616,11 @@ export class SecretStore {
     const hadPolicy = scope in file.unlock;
     delete file.unlock[scope];
     this.sessionUntil.delete(scope);
-    if (hadPolicy || pruned || file.keys.length !== keysBefore || file.credentials.length + file.passkeys.length !== before) this.save();
+    const hadNever = profileId in file.neverSave;
+    delete file.neverSave[profileId];
+    const allows = Object.keys(file.fillAllow).filter((k) => k.startsWith(`${profileId}|`));
+    for (const k of allows) delete file.fillAllow[k];
+    if (hadPolicy || hadNever || allows.length > 0 || pruned || file.keys.length !== keysBefore || file.credentials.length + file.passkeys.length !== before) this.save();
   }
 
   /* ---------------------------------- settings ---------------------------------- */
@@ -1196,6 +1637,7 @@ export class SecretStore {
     // A shortened window takes effect now rather than after the old one expires.
     this.presenceUntil = 0;
     this.ownerUntil = 0;
+    this.gestureUntil = 0;
     this.save();
     return file.presenceTtlMs;
   }
@@ -1205,7 +1647,7 @@ export class SecretStore {
   /** One JSONL line per fill attempt, whatever the outcome. Never throws: an unwritable log is a
    *  degraded audit trail, not a reason to fail a sign-in the user just approved with their
    *  fingerprint. */
-  audit(entry: CredentialAuditEntry | PasskeyAuditEntry | UnlockAuditEntry | UnlockPolicyAuditEntry | VaultHttpAuditEntry | VaultAllowAuditEntry | TeamPolicyAuditEntry): void {
+  audit(entry: CredentialAuditEntry | PasskeyAuditEntry | UnlockAuditEntry | UnlockPolicyAuditEntry | VaultHttpAuditEntry | VaultAllowAuditEntry | TeamPolicyAuditEntry | RevealAuditEntry | PasswordStoreAuditEntry): void {
     try { this.d.appendAudit(`${JSON.stringify(entry)}\n`); } catch { /* see above */ }
   }
 
@@ -1317,6 +1759,9 @@ export class SecretStore {
       unlock: readUnlockMap(parsed?.unlock),
       keys: Array.isArray(parsed?.keys) ? parsed.keys.filter(isStoredKey) : [],
       allow: readUnlockMap(parsed?.allow),
+      neverSave: readSiteLists(parsed?.neverSave),
+      fillAllow: readUnlockMap(parsed?.fillAllow),
+      keychainEnabled: parsed?.keychainEnabled === true,
     };
     this.file = file;
     this.keys = this.unlockKeyring(file);
@@ -1351,7 +1796,7 @@ export class SecretStore {
              added after this keyring's shape was settled, and each is folded in the same way and for the
              reason above: a missing domain is a key to mint, never a corrupt keyring to discard. */
           const added: Record<string, string> = {};
-          const fold = (name: "machine" | "eggs" | "passkey" | "unlock" | "vault-key" | "vault-allow" | "team-policy" | "remote"): Buffer => {
+          const fold = (name: "machine" | "eggs" | "passkey" | "unlock" | "vault-key" | "vault-allow" | "team-policy" | "fill-allow" | "remote"): Buffer => {
             const existing = Buffer.from(String(json[name] ?? ""), "base64");
             if (existing.length === SECRET_KEY_BYTES) return existing;
             const minted = newSecretKey();
@@ -1365,13 +1810,14 @@ export class SecretStore {
           const vaultKey = fold("vault-key");
           const vaultAllow = fold("vault-allow");
           const teamPolicy = fold("team-policy");
+          const fillAllow = fold("fill-allow");
           const remote = fold("remote");
           if (Object.keys(added).length > 0) {
             file.keyring = this.d.safeStorage.encryptString(JSON.stringify({ ...json, ...added })).toString("base64");
             this.file = file;
             this.save();
           }
-          return { oauth, credential, machine, eggs, passkey, unlock, "vault-key": vaultKey, "vault-allow": vaultAllow, "team-policy": teamPolicy, remote };
+          return { oauth, credential, machine, eggs, passkey, unlock, "vault-key": vaultKey, "vault-allow": vaultAllow, "team-policy": teamPolicy, "fill-allow": fillAllow, remote };
         }
       } catch { /* falls through to a fresh keyring */ }
       file.credentials = [];
@@ -1385,11 +1831,12 @@ export class SecretStore {
       // A team's keys and its allows were sealed under keys that are gone too, and go the same way.
       file.keys = [];
       file.allow = {};
+      file.fillAllow = {};
     }
     const keys = {
       oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey(),
       eggs: newSecretKey(), passkey: newSecretKey(), unlock: newSecretKey(),
-      "vault-key": newSecretKey(), "vault-allow": newSecretKey(), "team-policy": newSecretKey(), remote: newSecretKey(),
+      "vault-key": newSecretKey(), "vault-allow": newSecretKey(), "team-policy": newSecretKey(), "fill-allow": newSecretKey(), remote: newSecretKey(),
     };
     file.keyring = this.d.safeStorage
       .encryptString(JSON.stringify({
@@ -1402,6 +1849,7 @@ export class SecretStore {
         "vault-key": keys["vault-key"].toString("base64"),
         "vault-allow": keys["vault-allow"].toString("base64"),
         "team-policy": keys["team-policy"].toString("base64"),
+        "fill-allow": keys["fill-allow"].toString("base64"),
         remote: keys.remote.toString("base64"),
       }))
       .toString("base64");
@@ -1423,6 +1871,7 @@ function strip(c: StoredCredential): BrowserCredential {
   return {
     id: c.id, origin: c.origin, username: c.username, label: c.label, createdAt: c.createdAt, generated: c.generated === true,
     ...(c.spaceId ? { spaceId: c.spaceId } : {}),
+    ...(c.source === "imported" ? { source: "imported" as const } : {}),
   };
 }
 
@@ -1486,7 +1935,18 @@ function isStoredCredential(v: unknown): v is StoredCredential {
     && typeof c.id === "string" && typeof c.origin === "string" && typeof c.username === "string"
     && typeof c.label === "string" && typeof c.createdAt === "number"
     && (c.generated === undefined || typeof c.generated === "boolean")
+    && (c.source === undefined || c.source === "imported")
     && typeof c.sealed === "string" && isSealed(c.sealed);
+}
+
+/** `neverSave` as read off disk: profile id → origins, anything else dropped. */
+function readSiteLists(v: unknown): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [k, list] of Object.entries(v as Record<string, unknown>)) {
+    if (Array.isArray(list)) out[k] = list.filter((o): o is string => typeof o === "string");
+  }
+  return out;
 }
 
 /** The `unlock` map as read off disk: only string keys to sealed strings survive. Anything else is

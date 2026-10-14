@@ -969,8 +969,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - The lead's Agents tab is where its sub-agents are run from, not only watched: a card each, saying
   where it stands, what it runs on, in which checkout and mode, and how much of its budget of working
   time is spent. A card waiting on a request is open with the request in it, answered there through
-  the same call the transcript uses; any card opens its transcript, takes a message or is stopped. What
-  a sub-agent started of its own nests under it, never beside it.
+  the same call the transcript uses. What a sub-agent started of its own nests under it, never beside it.
+- A sub-agent is looked at in ONE place, whichever surface it was clicked on — its line in the lead's
+  transcript, the strip under the last message, the bar's chip, a card: the lead's Agents tab, on that
+  sub-agent, beside the lead and never over it, with the keyboard left in the lead's prompter. Its
+  siblings are tabs along the top with their state's mark; its head says the state in words, the
+  clock, the model and the checkout; its report is pinned under the head once it has one; its log is
+  its own transcript, streaming, with its requests answered there; and its foot is only what its owner
+  supports — Stop, Open as session and a message for a delegated child, nothing for a harness's own
+  agent. Escape goes back to all of them, and the tab remembers which one it was on.
 - A question is one card whichever agent or server asked it, and it says who is asking first —
   "Codex asks", "Linear's MCP server asks" — because the same question means something different from
   each. What a field offers comes from Realm's own sources (the model catalog, the checkout, the
@@ -1057,6 +1064,19 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   between its words and keeps its extension whole — breaking anywhere is how Codex's own tile ends
   in "…pd" over "f". A tile that wide needs a picture minted for it — the 96px mark the composer's
   chips use is a smear there — so the size is named, not assumed.
+- A file's mark is its own logo, the one a developer already reads a file tree by (Material Icon
+  Theme's, vendored in `assets/file-icons`): a `.ts` is the blue TS square, a `package.json` Node's
+  hexagon, by the name first and then the extension, and Realm's coarse glyph only where the set has
+  none (the owner, 10-13). One component draws it (`file-icon.tsx`) for the Library, the documents list
+  and the prompter, so a file is the same shape in all three. Its colour is the file's signature, not
+  a state, which is the one place a hue from the state palette may stand for something else.
+- A text file is looked at as text. QuickLook's picture of a page of source is black type on a grey
+  sheet in both faces; the viewer draws it with the documents pane's own read-only editors instead —
+  Markdown rendered, source highlighted with its line numbers — on a sheet as tall as the file. Code
+  and plain text never soft-wrap: they scroll sideways under a gutter that stays put. Prose wraps, and
+  a fence inside it scrolls on its own.
+- In the prompter a file that has no picture is named — its mark, its name, its kind and size — and
+  a picture stays the square it was, since there the picture says it is the right file.
 - A browser of files leads with what KIND of thing a file is, as tabs, because that is the first
   narrowing a person reaches for. The rarer ones — which space, who made it — live behind a filter
   that lights while it narrows and says so as a chip by the tabs, undone from there: a list that is

@@ -119,47 +119,104 @@ describe("SpacePage · General", () => {
 /** W1 split the checkout out of the session and W2 made worktrees; this list is where that split is
  *  finally visible, and the only route to removing a worktree after its session is gone (W3). */
 describe("the space's checkouts", () => {
+  const HOUR = 3_600_000;
   const envs: Environment[] = [
-    { id: "envP", spaceId: "s1", path: "/tmp/versed", branch: "main", kind: "primary", portBlockStart: 41000, createdAt: 0, updatedAt: 0 },
+    { id: "envP", spaceId: "s1", path: "/tmp/versed", branch: null, kind: "primary", portBlockStart: 41000, createdAt: 0, updatedAt: 0 },
     { id: "envW", spaceId: "s1", path: "/tmp/worktrees/s1/fix-login", branch: "realm/fix-login", kind: "worktree", portBlockStart: 41020, createdAt: 0, updatedAt: 0 },
+    { id: "envQ", spaceId: "s1", path: "/tmp/worktrees/s1/quiet", branch: "realm/quiet", kind: "worktree", portBlockStart: 41030, createdAt: Date.now() - 50 * HOUR, updatedAt: 0 },
   ];
 
-  async function openGeneral(extra: FakeData = {}) {
-    return mount({
+  async function openWorktrees(extra: FakeData = {}) {
+    const r = await mount({
       environments: { s1: envs },
-      sessions: [session("se1", "s1", { environmentId: "envW" }), session("se2", "s1", { environmentId: "envW" })],
+      sessions: [
+        session("se1", "s1", { environmentId: "envW", activityAt: Date.now() - 3 * HOUR }),
+        session("se2", "s1", { environmentId: "envW", activityAt: Date.now() - 5 * HOUR }),
+      ],
       worktreeStatus: { envW: { environmentId: "envW", path: "/tmp/worktrees/s1/fix-login", branch: "realm/fix-login", present: true, dirtyFiles: 0, unpushedCommits: 0, removable: true, blockedBy: null } },
+      gitInfo: {
+        "/tmp/versed": { branch: "develop", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 },
+        "/tmp/worktrees/s1/fix-login": { branch: "realm/fix-login", additions: 4, deletions: 1, dirty: 3, ahead: 2, behind: 1 },
+      },
       ...extra,
     });
+    act(() => r.store.getState().setSpacePageTab("s1", "worktrees"));
+    return r;
   }
+  const card = (name: string) => screen.getByText(name, { selector: ".env-name" }).closest(".env-row") as HTMLElement;
+
+  it("has a tab of its own, and General no longer carries the list", async () => {
+    const { store } = await mount({ environments: { s1: envs } });
+    expect(document.querySelector(".env-list")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Worktrees" }));
+    expect(store.getState().spacePageTab.s1).toBe("worktrees");
+    expect(screen.getByRole("heading", { level: 1, name: "Worktrees" })).toBeInTheDocument();
+    expect(document.querySelector(".env-list")).not.toBeNull();
+  });
 
   it("names each checkout, its kind, its reserved port range and who is in it", async () => {
-    await openGeneral();
-    const worktree = screen.getByText("realm/fix-login").closest(".env-row") as HTMLElement;
+    await openWorktrees();
+    const worktree = card("realm/fix-login");
     expect(within(worktree).getByText("Worktree")).toBeInTheDocument();
     expect(within(worktree).getByText("/tmp/worktrees/s1/fix-login")).toBeInTheDocument();
     // A RANGE Realm holds — never a claim about what is listening on it.
     expect(within(worktree).getByText("ports 41020–41029 reserved")).toBeInTheDocument();
     expect(within(worktree).getByText("2 sessions")).toBeInTheDocument();
-    const primary = screen.getByText("main").closest(".env-row") as HTMLElement;
+    const primary = card("Versed");
     expect(within(primary).getByText("Space folder")).toBeInTheDocument();
     expect(within(primary).getByText("no sessions")).toBeInTheDocument();
   });
 
+  it("says the branch git reports now, and the changed, ahead and behind counts that are not zero", async () => {
+    // THE MUTANTS: the row's own branch column (null for the space folder, so no branch at all), or
+    // every count drawn at zero too.
+    const { api } = await openWorktrees();
+    await waitFor(() => expect(api.calls).toContain("gitInfo:/tmp/worktrees/s1/fix-login"));
+    const primary = card("Versed");
+    await waitFor(() => expect(within(primary).getByText("develop")).toBeInTheDocument());
+    expect(primary.querySelector(".env-dirty, .env-sync")).toBeNull();
+    // A worktree is named by its branch, so the branch is not said twice.
+    const worktree = card("realm/fix-login");
+    expect(worktree.querySelector(".env-branch")).toBeNull();
+    expect(within(worktree).getByText("3 changed")).toBeInTheDocument();
+    expect(within(worktree).getByText("↑2")).toBeInTheDocument();
+    expect(within(worktree).getByText("↓1")).toBeInTheDocument();
+  });
+
+  it("says when each was last active, and lists the space folder first, then the most recent", async () => {
+    await openWorktrees();
+    // The most recent of its two sessions, not the older one.
+    expect(within(card("realm/fix-login")).getByText("Active 3h ago")).toBeInTheDocument();
+    // No session yet: when it was made.
+    expect(within(card("realm/quiet")).getByText("Made 2d ago")).toBeInTheDocument();
+    expect([...document.querySelectorAll(".env-name")].map((n) => n.textContent)).toEqual(["Versed", "realm/fix-login", "realm/quiet"]);
+  });
+
   it("offers removal only for the worktree, never for the space's own folder", async () => {
-    const { api, store } = await openGeneral();
-    const primary = screen.getByText("main").closest(".env-row") as HTMLElement;
-    expect(within(primary).queryByRole("button", { name: "Remove…" })).toBeNull();
-    const worktree = screen.getByText("realm/fix-login").closest(".env-row") as HTMLElement;
-    fireEvent.click(within(worktree).getByRole("button", { name: "Remove…" }));
+    const { api, store } = await openWorktrees();
+    expect(within(card("Versed")).queryByRole("button", { name: "Remove…" })).toBeNull();
+    fireEvent.click(within(card("realm/fix-login")).getByRole("button", { name: "Remove…" }));
     // The button opens the confirm (App renders it), having first read what removal would cost.
     await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "remove-worktree", environmentId: "envW" }));
     expect(api.calls).toContain("worktreeStatus:envW");
   });
 
+  it("makes a new worktree from the head of the list, after reading the branches it can start from", async () => {
+    const { api, store } = await openWorktrees({ branches: { s1: { branches: ["develop", "main"], current: "develop" } } });
+    fireEvent.click(screen.getByRole("button", { name: "New worktree…" }));
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-worktree", spaceId: "s1" }));
+    expect(api.calls).toContain("listBranches:s1");
+    expect(store.getState().worktreeBranches.s1).toEqual({ branches: ["develop", "main"], current: "develop" });
+  });
+
+  it("offers no new worktree where the space is a plain folder", async () => {
+    await openWorktrees({ gitInfo: {} });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "New worktree…" })).toBeNull());
+  });
+
   it("says a brand-new space has no checkout on record rather than rendering an empty list", async () => {
     // environments.list is empty until a space actually runs something — the primary row is lazy.
-    await openGeneral({ environments: {} });
+    await openWorktrees({ environments: {} });
     expect(screen.getByText(/has not run anything yet/)).toBeInTheDocument();
   });
 });

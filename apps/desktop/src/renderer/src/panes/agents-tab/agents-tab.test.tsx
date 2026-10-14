@@ -57,21 +57,24 @@ afterEach(() => cleanup());
 describe("the list of a session's sub-agents", () => {
   it("says, per sub-agent, what model it is on, what it was asked, where it stands and what it is doing", async () => {
     await mount();
-    const luna = await card(/^Write the tests\. GPT-6 Luna on Codex\. Working, 1m \d+s\.$/);
+    const luna = await card(/^Write the tests\. GPT-6 Luna on Codex\. Working, 1m \d+s\. Open it$/);
     expect(luna).toHaveTextContent("apps/desktop/src/Settings.tsx");
   });
 
   it("a finished one says how it ended and what it reported, in plain prose", async () => {
     await mount();
-    const fable = await card(/^Write the migration\. Fable 5\.1 on Claude\. Done, 3m 0s\.$/);
+    const fable = await card(/^Write the migration\. Fable 5\.1 on Claude\. Done, 3m 0s\. Open it$/);
     expect(fable).toHaveTextContent("Done Added the column. All 12 pass.");
   });
 
-  it("opens a sub-agent's transcript as a tab of its lead's side pane", async () => {
+  it("a card opens its sub-agent in the tab's viewer, and Open as session opens it beside the lead", async () => {
     const { store } = await mount();
     fireEvent.click(await card(/^Write the tests\./));
-    fireEvent.click(screen.getByRole("button", { name: "Open transcript" }));
-    // The same route as the running-agents control's preview: beside the lead, never instead of it.
+    // Mutant: open the child's session instead — the viewer is how a sub-agent is looked at.
+    expect(await screen.findByRole("region", { name: "Sub-agent: Write the tests" })).toBeInTheDocument();
+    expect(store.getState().agentsShown["se1"]).toBe("se2");
+    fireEvent.click(screen.getByRole("button", { name: "Open as session" }));
+    // The running-agents control's preview route: beside the lead, never instead of it.
     await waitFor(() => expect(findSidePane(store.getState().layout!, "i9")?.tabs).toContain("i8"));
   });
 
@@ -105,13 +108,17 @@ describe("the list of a session's sub-agents", () => {
     expect(screen.queryByRole("heading", { name: /^Sub-agents/ })).toBeNull();
   });
 
-  it("lights the row a transcript line asked for", async () => {
-    const { store, container } = await mount();
+  it("opens on the sub-agent a transcript line asked for, and back on all of them for the head's", async () => {
+    const { store } = await mount();
     await card(/^Write the migration\./);
     await store.getState().openAgentsTab("se1", { childId: "se3" });
-    await waitFor(() => expect(container.querySelector('li.subagent[data-flash]')).toHaveTextContent("Write the migration"));
-    // Taken once: a remount after a space switch must not light it again.
-    expect(store.getState().agentsAsk["se1"]).toBeUndefined();
+    expect(await screen.findByRole("region", { name: "Sub-agent: Write the migration" })).toBeInTheDocument();
+    // Absent leaves it where it was — the side pane's "+" reopening the tab does not reset it.
+    await store.getState().openAgentsTab("se1");
+    expect(screen.getByRole("region", { name: "Sub-agent: Write the migration" })).toBeInTheDocument();
+    await store.getState().openAgentsTab("se1", { childId: null });
+    await waitFor(() => expect(screen.queryByRole("region", { name: /^Sub-agent:/ })).toBeNull());
+    expect(await card(/^Write the migration\./)).toBeInTheDocument();
   });
 });
 
@@ -127,9 +134,9 @@ describe("the lead's own harness sub-agents", () => {
   it("are cards beside the delegated ones, each with its state, counted in the head", async () => {
     await mount({ transcripts: { se1: leadTranscript }, status: { se1: "idle" } });
     // Mutant: list only `children` — the agents the chip counts are nowhere in the tab it opens.
-    const engine = await card(/^Teams rule engine, inside Claude\b.*\. Working, 1m \d+s\. Show what it has done$/);
+    const engine = await card(/^Teams rule engine, inside Claude\b.*\. Working, 1m \d+s\. Open it$/);
     expect(engine.closest("li")).toHaveAttribute("data-state", "working");
-    expect(await card(/^Realmite runner game, inside Claude\b.*\. Done, 20s\. Show what it has done$/)).toBeInTheDocument();
+    expect(await card(/^Realmite runner game, inside Claude\b.*\. Done, 20s\. Open it$/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /^Sub-agents/ })).toHaveTextContent("2 working · 2 done");
   });
 
@@ -139,14 +146,16 @@ describe("the lead's own harness sub-agents", () => {
     expect(screen.queryByRole("heading", { name: "Hand work to sub-agents" })).toBeNull();
   });
 
-  it("light when a transcript row asks for one, and show what it has done beside the transcript", async () => {
-    const { store, container } = await mount({ transcripts: { se1: leadTranscript }, status: { se1: "idle" } });
-    await card(/^Teams rule engine, inside/);
-    await store.getState().openAgentsTab("se1", { childId: "a1" });
-    // Mutant: compare the ask against session ids only — a harness card is never lit.
-    await waitFor(() => expect(container.querySelector('li.subagent[data-flash]')).toHaveTextContent("Teams rule engine"));
+  it("open in the tab's viewer, from a card or from a transcript row", async () => {
+    const { store } = await mount({ transcripts: { se1: leadTranscript }, status: { se1: "idle" } });
     fireEvent.click(await card(/^Teams rule engine, inside/));
-    expect(store.getState().sessionDock["se1"]).toEqual({ kind: "subagent", toolUseId: "a1" });
+    expect(await screen.findByRole("region", { name: "Sub-agent: Teams rule engine" })).toBeInTheDocument();
+    // Mutant: resolve the ask against session ids only — a harness agent never opens.
+    await store.getState().openAgentsTab("se1", { childId: "a2" });
+    expect(await screen.findByRole("region", { name: "Sub-agent: Realmite runner game" })).toBeInTheDocument();
+    // No session behind it: nothing to message, stop alone, or open as a session — so none is drawn.
+    expect(screen.queryByRole("button", { name: "Open as session" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: /^Message/ })).toBeNull();
   });
 });
 
@@ -282,22 +291,21 @@ const asking = (over: Partial<DelegatedChild> = {}): DelegatedChild => ({ sessio
   settledAt: null, outcome: null, report: null, activity: null, ...over });
 
 describe("the orchestrator", () => {
-  it("a waiting card is open, says who asks, and Allow answers the CHILD's request", async () => {
+  it("a waiting card carries its request, says who asks, and Allow answers the CHILD's request", async () => {
     // THE MUTANT: answer with the lead's id — the request sits on the child's session, not the lead's.
     const { api } = await mount({ children: [...CHILDREN, asking()], runs: ["se2", "se4"], status: { se4: "waiting_permission" }, transcripts: { se4: ASK_EVENTS } });
-    const head = await card(/^Dark-mode toggle\./);
-    expect(head).toHaveAttribute("aria-expanded", "true");
+    await card(/^Dark-mode toggle\./);
     expect(screen.getByRole("group", { name: "Waiting in Dark-mode toggle" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     await waitFor(() => expect(api.calls).toContain("respondPermission:se4:r9:allow"));
   });
 
-  it("Escape folds the card and answers nothing", async () => {
+  it("Escape on a waiting card leaves it for the card's own button, and answers nothing", async () => {
     // THE MUTANT: let the card take Escape as Deny, as it does in the transcript.
     const { api } = await mount({ children: [asking()], runs: ["se4"], status: { se4: "waiting_permission" }, transcripts: { se4: ASK_EVENTS } });
     const head = await card(/^Dark-mode toggle\./);
     fireEvent.keyDown(screen.getByRole("button", { name: "Allow" }), { key: "Escape" });
-    await waitFor(() => expect(head).toHaveAttribute("aria-expanded", "false"));
+    await waitFor(() => expect(head).toHaveFocus());
     expect(api.calls.some((c) => c.startsWith("respondPermission:"))).toBe(false);
   });
 
@@ -314,25 +322,24 @@ describe("the orchestrator", () => {
     // THE MUTANT: offer Stop on a settled child — a button whose only effect is nothing.
     const { api } = await mount();
     fireEvent.click(await card(/^Write the tests\./));
-    fireEvent.click(screen.getByRole("button", { name: "Stop Write the tests" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop Write the tests" }));
     await waitFor(() => expect(api.calls).toContain("interrupt:se2"));
-    fireEvent.click(await card(/^Write the migration\./));
+    fireEvent.click(screen.getByRole("tab", { name: /^Write the migration/ }));
+    await screen.findByRole("region", { name: "Sub-agent: Write the migration" });
     expect(screen.queryByRole("button", { name: "Stop Write the migration" })).toBeNull();
   });
 
-  it("Message goes to the child; the placeholder warns that the lead may not see it only once the run has ended", async () => {
+  it("a message goes to the child; the field warns that the lead may not see it only once the run has ended", async () => {
     // THE MUTANTS: send to the lead; say the warning always, or never.
     const { api } = await mount();
     fireEvent.click(await card(/^Write the tests\./));
-    fireEvent.click(screen.getByRole("button", { name: "Message" }));
-    const field = screen.getByRole("textbox", { name: "Message Write the tests" });
-    expect(field.getAttribute("placeholder")).toBe("Goes to this agent only.");
+    const field = await screen.findByRole("textbox", { name: "Message Write the tests" });
+    expect(field.getAttribute("title")).toBe("Goes to this agent only.");
     fireEvent.change(field, { target: { value: "Use the existing toggle." } });
     fireEvent.keyDown(field, { key: "Enter" });
     await waitFor(() => expect(api.sent).toContainEqual(expect.objectContaining({ id: "se2", text: "Use the existing toggle." })));
-    fireEvent.click(await card(/^Write the migration\./));
-    fireEvent.click(within(document.getElementById("subagent-detail-se3")!).getByRole("button", { name: "Message" }));
-    expect(screen.getByRole("textbox", { name: "Message Write the migration" }).getAttribute("placeholder"))
+    fireEvent.click(screen.getByRole("tab", { name: /^Write the migration/ }));
+    expect((await screen.findByRole("textbox", { name: "Message Write the migration" })).getAttribute("title"))
       .toBe("Goes to this agent only. If its run was already collected, Parent will not see the reply.");
   });
 

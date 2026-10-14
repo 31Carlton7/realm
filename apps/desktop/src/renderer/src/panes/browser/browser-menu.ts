@@ -1,4 +1,5 @@
 import type { BrowserMenuState } from "@realm/contracts";
+import { capabilities } from "../../platform";
 
 /**
  * The browser pane's ⋯ menu (Plan 26 W7b), as rows for the OS to draw.
@@ -90,7 +91,7 @@ export function browserMenuItems(s: BrowserMenuInput): NativeMenuItem[] {
  */
 function downloadRows(s: BrowserMenuInput): NativeMenuItem[] {
   const blocked: NativeMenuItem[] = [...s.blocked].reverse().map((b) => ({ id: `download:save:${b.id}`, label: `Save ${b.name}` }));
-  const saved: NativeMenuItem[] = [...s.saved].reverse().map((d) => ({ id: `download:show:${d.id}`, label: `Show ${d.name} in Finder` }));
+  const saved: NativeMenuItem[] = [...s.saved].reverse().map((d) => ({ id: `download:show:${d.id}`, label: `Show ${d.name} in ${capabilities().fileManager}` }));
   if (blocked.length === 0 && saved.length === 0) return [{ label: "Nothing downloaded in this pane" }];
   return [...blocked, ...(blocked.length > 0 && saved.length > 0 ? [{ type: "separator" } as const] : []), ...saved];
 }

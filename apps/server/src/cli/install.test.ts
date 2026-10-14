@@ -55,11 +55,17 @@ describe("commandSpec", () => {
   it("runs a vendor pipeline through a plain non-login, non-interactive shell", () => {
     // -l or -i would re-run the user's rc files and could block on a prompt; the server already
     // carries the merged login PATH, so the shell exists only to interpret the pipe.
-    const spec = commandSpec(AGENT_INSTALL_ROUTES["acp:fx"], "install", null);
+    const spec = commandSpec(AGENT_INSTALL_ROUTES["acp:fx"], "install", null, "darwin");
     expect(spec?.file).toBe("/bin/bash");
     // The whole argv, not `not.toContain("-l")`: the shape a mistake actually takes here is a
     // combined flag like `-lc`, which no membership check on a whole element would ever see.
     expect(spec?.args).toEqual(["-c", "curl -fsSL https://fx.sh/setup.sh | bash"]);
+  });
+
+  it("offers no pipeline on Windows, which has no bash to run it, and keeps the argv routes", () => {
+    expect(commandSpec(AGENT_INSTALL_ROUTES["acp:fx"], "install", null, "win32")).toBe(null);
+    expect(commandSpec(AGENT_INSTALL_ROUTES["acp:fx"], "install", null, "linux")?.file).toBe("/bin/bash");
+    expect(commandSpec(AGENT_INSTALL_ROUTES["acp:openhands"], "install", null, "win32")?.file).toBe("uv");
   });
 
   it("never offers to update a script route", () => {

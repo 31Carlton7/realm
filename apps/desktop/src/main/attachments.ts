@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { nativeImage } from "electron";
-import { DIRECTORY_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath } from "@realm/contracts";
+import { DIRECTORY_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath, resolveFileTarget } from "@realm/contracts";
 
 /** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
@@ -236,9 +236,15 @@ export async function existingPath(path: unknown, base?: unknown, home = homedir
   if (typeof path !== "string" || path === "") return null;
   const named = expandHome(path, home);
   const absolute = isAbsolute(named) ? named : typeof base === "string" && isAbsolute(base) ? join(base, named) : null;
-  if (absolute === null) return null;
-  const resolved = resolve(absolute);
-  try { await stat(resolved); return resolved; } catch { return null; }
+  if (absolute !== null) {
+    const resolved = resolve(absolute);
+    try { await stat(resolved); return resolved; } catch { /* read it as an agent wrote it, below */ }
+  }
+  /* Then as an agent writes a file it made: a `file://` URL, or an editor's `out.ts:42`. Second, so a
+     file whose real name ends in `:42` is still itself; the string as written always wins. */
+  const target = resolveFileTarget(path, { cwd: typeof base === "string" && isAbsolute(base) ? base : null, home });
+  if (!target || target.path === absolute) return null;
+  try { await stat(target.path); return target.path; } catch { return null; }
 }
 
 /** Describe files chosen in the native picker. A path that cannot be stat'd is dropped rather than

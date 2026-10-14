@@ -13,6 +13,10 @@ export const BROWSER_HOST_OPS = [
    *  the request carries a `credentialId`, the answer carries `{ ok, detail }`. Everything secret
    *  happens on the far side, inside Electron main. */
   "fillCredential",
+  /** The person answered "Always allow" on a fill's card: main keeps it, sealed, for that one password
+   *  on that one exact origin. It removes the card for later fills there and nothing else — the
+   *  profile's unlock policy still applies — and it carries no value either way. */
+  "credentialAllow",
   /**
    * Hand realm-server the `oauth` domain key from main's safeStorage-anchored keyring, so
    * `readOauthState` can stay synchronous while tokens stop being plaintext in `realm.db`.

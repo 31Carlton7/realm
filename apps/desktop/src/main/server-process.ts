@@ -83,8 +83,8 @@ export function spawnDaemon(d: { home: string; logFd: number }): ChildProcess {
   const stdio: ["ignore", number, number] = ["ignore", d.logFd, d.logFd];
   const nodeBin = process.env.REALM_NODE;
   const child = nodeBin
-    ? spawn(nodeBin, [entry], { env, stdio, detached: true })
-    : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio, detached: true });
+    ? spawn(nodeBin, [entry], { env, stdio, detached: true, windowsHide: true })
+    : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio, detached: true, windowsHide: true });
   // Without this, Electron's event loop is held open by a child it no longer wants to own, and quit
   // waits on a process that is meant to outlive it.
   child.unref();
@@ -101,8 +101,8 @@ export function startServer(opts: { home?: string } = {}): { child: ChildProcess
   const nodeBin = process.env.REALM_NODE;
   const env = { ...process.env, ...phoneScreenEnv(), ...(opts.home ? { REALM_HOME: opts.home } : {}) };
   const child = nodeBin
-    ? spawn(nodeBin, [entry], { env, stdio: ["ignore", "pipe", "inherit"] })
-    : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "inherit"] });
+    ? spawn(nodeBin, [entry], { env, stdio: ["ignore", "pipe", "inherit"], windowsHide: true })
+    : spawn(process.execPath, [entry], { env: { ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "inherit"], windowsHide: true });
   const ready = new Promise<ServerInfo>((resolve, reject) => {
     const parser = new ReadyLineParser();
     const stdout = child.stdout!;

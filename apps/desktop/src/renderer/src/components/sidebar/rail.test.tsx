@@ -214,6 +214,25 @@ describe("the rail", () => {
     await waitFor(() => expect(within(rail()).queryByRole("button", { name: /^Stop recording/ })).toBeNull());
   });
 
+  it("says quietly while Laya installs itself, round its glyph once the download has a size, and opens Settings on a click", async () => {
+    const base = { mode: "shadow" as const, installed: false, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "x", threshold: null, accuracy: null } };
+    const { store } = await mount();
+    expect(within(rail()).queryByRole("button", { name: /^Installing Laya/ })).toBeNull();
+    // The install's broadcast is what brings it: Settings need never have been opened.
+    act(() => store.getState().applyLaya({ ...base, runtime: { state: "installing", step: "packages", detail: "Resolving laya 0.3.21 and PyTorch", fraction: null } }));
+    // THE MUTANT: no rail mark — a couple of gigabytes downloading with nothing on screen saying so.
+    const mark = within(rail()).getByRole("button", { name: "Installing Laya: Resolving laya 0.3.21 and PyTorch" });
+    expect(mark).not.toHaveAttribute("data-measured");
+    act(() => store.getState().applyLaya({ ...base, runtime: { state: "installing", step: "model", detail: "Downloading the checkpoint", fraction: 0.42 } }));
+    const measured = within(rail()).getByRole("button", { name: "Installing Laya: checkpoint 42% downloaded" });
+    expect(measured).toHaveAttribute("data-measured");
+    expect(measured.style.getPropertyValue("--update-progress")).toBe("42%");
+    fireEvent.click(measured);
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("settings-page"));
+    act(() => store.getState().applyLaya({ ...base, installed: true, runtime: { state: "starting" } }));
+    expect(within(rail()).queryByRole("button", { name: /^Installing Laya/ })).toBeNull();
+  });
+
   it("stays on screen when the sidebar is collapsed, and the way back is beside the traffic lights", async () => {
     const { store } = await mount({ settings: { "ui.sidebarCollapsed": true } }, true);
     expect(store.getState().sidebarCollapsed).toBe(true);

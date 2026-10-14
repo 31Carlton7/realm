@@ -160,6 +160,26 @@ export type BrowserDescribeResult = {
   loadError?: BrowserLoadError | null;
 };
 
+/**
+ * Which part of a page a snapshot lists. A snapshot lists a bounded number of elements, ranked
+ * on-screen first, then form fields, then the rest in page order; these reach whatever that budget
+ * left out — the next page of the ranking, the elements whose text matches, or one region's subtree.
+ * Shared by `browser_snapshot` and `app_snapshot`, which read through the same executor.
+ */
+export const BrowserSnapshotScopeSchema = z.object({
+  offset: z.number().int().min(0).optional(),
+  query: z.string().trim().min(1).max(200).optional(),
+  within: z.number().int().positive().optional(),
+});
+export type BrowserSnapshotScope = z.infer<typeof BrowserSnapshotScopeSchema>;
+
+/** The JSON-schema properties the two snapshot tools advertise for `BrowserSnapshotScope`. */
+export const SNAPSHOT_SCOPE_PROPERTIES = {
+  offset: { type: "number", description: "skip this many elements of the ranked list — the snapshot's note gives the offset of the next page when it is cut off" },
+  query: { type: "string", description: "list only elements whose role, name or value contains every one of these words (case-insensitive), e.g. \"save\" or \"email address\"" },
+  within: { type: "number", description: "list only elements inside the element with this ref — a region ref from the snapshot's note, or any ref" },
+} as const;
+
 export type BrowserSnapshotResult = {
   url: string; title: string; text: string; elementCount: number;
   /** The page did not load, so there is nothing of the site's to read: what the pane shows in its
@@ -262,6 +282,11 @@ export type BrowserCredential = {
    *  as every sign-in before teams was: offered in every space of the profile. A team's is offered in
    *  that space and no other. */
   spaceId?: string;
+  /** Where the row came from, when that is not Realm itself (`passwords.ts`): `imported` from a file
+   *  the user exported from the Passwords app or another manager, `keychain` an internet password
+   *  in the macOS login keychain, read from there at fill time and never copied into Realm. Absent
+   *  is a password saved in Realm — typed in Settings, saved from a form, or generated. */
+  source?: "imported" | "keychain";
 };
 
 /** Enrollment input. `value` appears HERE and in no other exported type: this schema is used only by
@@ -319,7 +344,7 @@ export type BrowserGeneratedCredential = z.infer<typeof BrowserGeneratedCredenti
  * is also the property that costs the user their usual way back into the account.
  */
 export const GENERATED_CREDENTIAL_NOTE =
-  "Realm saves it under Settings → Sign-ins and fills it from there. Nothing reads it back afterwards — not the agent, not you — so if you ever need this password outside Realm, use the site's own reset.";
+  "Realm saves it under Settings ▸ Passwords and fills it from there. The agent never reads it back. You can see or copy it there after Touch ID.";
 
 /**
  * How long a successful OS presence check (Touch ID / watch / password) licenses further fills.
@@ -405,7 +430,7 @@ export function unlockPolicyRank(p: UnlockPolicy): number {
  * answer. UI copy: any surface that takes a credential has to show it.
  */
 export const CREDENTIAL_STORAGE_NOTE =
-  "Saved sign-ins are encrypted with a key held in your macOS Keychain and stored in Realm's home directory. A value is only ever decrypted inside Realm's own main process, to type it into a page you approved — it is never sent to an agent, never written to a log or transcript, and cannot be read back, by you or by anything else, once saved. Every fill needs Touch ID unless you choose another way to unlock a profile's sign-ins under Security.";
+  "Saved passwords are encrypted with a key held in your macOS Keychain and stored in Realm's home directory. A value is only ever decrypted inside Realm's own main process: to type it into a page you chose or approved, or to show or copy it for you after Touch ID. It is never sent to an agent and never written to a log or transcript. Every fill needs Touch ID unless you choose another way to unlock a profile's passwords under Security.";
 
 /** The part of a credentialed sign-in Realm cannot do for you, said once, in one place, so no
  *  surface has to invent its own wording for it. Deliberately NOT hedged: Duo/Okta push approvals

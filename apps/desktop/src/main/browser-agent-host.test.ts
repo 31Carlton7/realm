@@ -372,6 +372,30 @@ describe("act mark wiring (W4; the cursor and the frame, Plan 25 W2)", () => {
 describe("BrowserAgentHost — fillCredential", () => {
   const cred: BrowserCredential = { id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1, generated: false };
 
+  describe("on another page of the password's site", () => {
+    const www: BrowserCredential = { ...cred, origin: "https://www.example.com" };
+    it("fills where the live page is exactly the page the card named, and the password is of its site", async () => {
+      const { host } = setup({ credentials: [www] });
+      const r = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork", pageOrigin: "https://example.com" });
+      expect(r).toMatchObject({ ok: true });
+    });
+
+    it("refuses a card that named a page of another site, before anything is asked", async () => {
+      // THE MUTANT: `pageOrigin` trusted on its own, which would let any card move a password anywhere.
+      const { host, calls } = setup({ credentials: [www], responses: { "Page.getNavigationHistory": { currentIndex: 0, entries: [{ url: "https://evil.net/" }] } } });
+      const r = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork", pageOrigin: "https://evil.net" }) as { ok: boolean; refused?: string };
+      expect(r).toMatchObject({ ok: false, refused: "origin_mismatch" });
+      expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+    });
+
+    it("refuses when the pane moved off the page the card named", async () => {
+      const { host, calls } = setup({ credentials: [www], responses: { "Page.getNavigationHistory": { currentIndex: 0, entries: [{ url: "https://login.example.com/" }] } } });
+      const r = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork", pageOrigin: "https://example.com" }) as { ok: boolean; refused?: string };
+      expect(r).toMatchObject({ ok: false, refused: "origin_mismatch" });
+      expect(calls.some((c) => c.method === "Input.dispatchKeyEvent")).toBe(false);
+    });
+  });
+
   it("fills on a matching origin and logs exactly timestamp/origin/credentialId/outcome", async () => {
     const { host, calls, audit } = setup({ credentials: [cred] });
     const result = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" });

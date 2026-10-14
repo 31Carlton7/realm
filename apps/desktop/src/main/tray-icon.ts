@@ -9,8 +9,13 @@ import { join } from "node:path";
 export const TRAY_ICON = "trayTemplate.png";
 export const TRAY_ICON_2X = "trayTemplate@2x.png";
 
+/** Linux and Windows draw a tray icon in its own colours, where a template's black would vanish on a
+ *  dark panel — so there it is the app icon (resources/icon.png), scaled down where it is loaded. */
+export const TRAY_ICON_COLOUR = "icon.png";
+
 /** Where the picture is: beside the app's own resources when packaged, in apps/desktop/resources in
- *  development (where `appPath` is apps/desktop). */
-export function trayIconPath(d: { packaged: boolean; appPath: string; resourcesPath: string }): string {
+ *  development (where `appPath` is apps/desktop) — or, off a Mac, the repository's app icon. */
+export function trayIconPath(d: { packaged: boolean; appPath: string; resourcesPath: string }, platform: string = process.platform): string {
+  if (platform !== "darwin") return d.packaged ? join(d.resourcesPath, TRAY_ICON_COLOUR) : join(d.appPath, "..", "..", "resources", TRAY_ICON_COLOUR);
   return d.packaged ? join(d.resourcesPath, TRAY_ICON) : join(d.appPath, "resources", TRAY_ICON);
 }

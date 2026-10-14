@@ -197,6 +197,14 @@ describe("schedule_list", () => {
   });
 });
 
+describe("what the agent is told", () => {
+  it("says a scheduled task runs in Full access, so it does not promise the user a restricted one", async () => {
+    const create = (await provider.tools(ctx)).find((t) => t.name === "schedule_create")!;
+    expect(create.description).toContain("always runs in Full access");
+    expect(create.description).not.toMatch(/never runs in Full access/i);
+  });
+});
+
 describe("the provider's switch", () => {
   it("offers no tools and refuses every call when the space has it off", async () => {
     enabled = false;

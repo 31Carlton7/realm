@@ -1,8 +1,8 @@
-import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ArtifactType } from "@realm/contracts";
 import { useThumbnail } from "./use-thumbnail";
 import { fileDragProps, quickLookOnSpace } from "./file-actions";
+import { FileMark, TYPE_ICON } from "./file-icon";
 
 /**
  * One file, as a card — the Library's grid and a session's file browser both lay files out with
@@ -16,13 +16,9 @@ import { fileDragProps, quickLookOnSpace } from "./file-actions";
  * children; everything above that line is this component's.
  */
 
-/** One glyph per broad type. Coarse on purpose — a file browser's icon answers "what kind of thing
- *  is this" at a glance, and thirty glyphs answer it more slowly than seven. Exported because a
- *  list ROW wears the same mark as a card: the same file must not change glyph with the layout. */
-export const TYPE_ICON: Record<ArtifactType, IconName> = {
-  document: "documents", image: "image", video: "video", audio: "musicNote",
-  data: "table", code: "code", other: "artifact",
-};
+/** Re-exported from the file mark's own module, where the logo table falls back to it, for the lists
+ *  that already import it from here. */
+export { TYPE_ICON };
 
 /**
  * Which files a card asks main for a picture of.
@@ -131,9 +127,12 @@ export function FileCard({ path, name, type, title, onOpen, children }: {
         <>
           <span className="library-tile-name">{breakableName(name)}</span>
           <span className="library-tile-art">
-            {/* off-ladder: the glyph stands in for a picture across a tile up to 260px square — Codex's
-                are 32pt there — and the card rung's 20 is a speck in a field that size. */}
-            <span className="library-tile-mark" data-type={type}><Icon name={type === "folder" ? "folder" : TYPE_ICON[type]} size={28} /></span>
+            {/* The file's own logo where the set has one (`file-icon.tsx`): the glyph stands in for a
+                picture across a tile up to 260px square — Codex's are 32pt there — and the card rung's
+                20 is a speck in a field that size. */}
+            <span className="library-tile-mark" data-type={type}>
+              <FileMark path={path} folder={type === "folder"} type={type === "folder" ? undefined : type} size={32} />
+            </span>
           </span>
           {children}
         </>
@@ -165,7 +164,7 @@ export function FileRow({ path, name, type, title, onOpen, time, children }: {
     <button ref={row} type="button" className="library-row" title={title} onClick={onOpen}
       onKeyDown={quickLookOnSpace(path)} {...fileDragProps(path)}>
       <span className="library-row-mark" data-type={type} data-thumb={thumb ? "" : undefined}>
-        {thumb ? <img src={thumb} alt="" draggable={false} /> : <Icon name={TYPE_ICON[type]} size={16} />}
+        {thumb ? <img src={thumb} alt="" draggable={false} /> : <FileMark path={path} type={type} size={20} />}
       </span>
       <span className="library-row-name">{name}</span>
       {children}

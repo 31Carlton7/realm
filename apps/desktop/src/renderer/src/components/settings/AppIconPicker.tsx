@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { capabilities } from "../../platform";
 import planes from "../../assets/app-icons/default.png?inline";
 import indigo from "../../assets/app-icons/indigo.png?inline";
 import clay from "../../assets/app-icons/clay.png?inline";
@@ -36,7 +37,8 @@ export function dataUrlBytes(url: string): Uint8Array {
 }
 
 const bridge = () => window.realm?.appIcon;
-export const canChooseAppIcon = (): boolean => typeof bridge()?.set === "function";
+/** Only where there is a Dock to put the icon on (platform.ts). */
+export const canChooseAppIcon = (): boolean => capabilities().dockIcons && typeof bridge()?.set === "function";
 
 /**
  * Settings ▸ App ▸ App icon. A tile per icon; picking one puts it on the Dock at once and keeps it for

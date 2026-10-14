@@ -188,10 +188,9 @@ describe("the Schedule a task modal", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Model" }));
     const picker = screen.getByRole("dialog", { name: "Model picker" });
     fireEvent.click(within(picker).getByRole("option", { name: "Claude Opus 5" }));
-    // Still open: the level, the bolt and the permission are set in the same visit.
+    // Still open: the level and the bolt are set in the same visit.
     fireEvent.keyDown(within(picker).getByRole("slider", { name: "Effort" }), { key: "End" });
     fireEvent.click(within(picker).getByRole("button", { name: "Fast mode" }));
-    fireEvent.click(within(within(picker).getByRole("group", { name: "Permissions" })).getByRole("button", { name: "Accept edits" }));
     // …and the chip behind it says so as it happens.
     const chip = within(dialog).getByRole("button", { name: "Model" });
     expect(chip).toHaveTextContent(/^Opus 5Max$/);
@@ -200,7 +199,7 @@ describe("the Schedule a task modal", () => {
     await waitFor(() => expect(store.getState().schedules.s2).toHaveLength(1));
     expect(store.getState().schedules.s2![0]).toMatchObject({
       title: "Release prep", goal, cron: "0 16 * * 5", newSessionPerRun: false, archiveSucceeded: true,
-      constraints: { agentKind: "claude", model: "claude-opus-5", effort: "max", fastMode: true, permissionMode: "acceptEdits" },
+      constraints: { agentKind: "claude", model: "claude-opus-5", effort: "max", fastMode: true },
     });
     // The modal is gone and the page is on the task it made, which has not run yet.
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -252,14 +251,15 @@ describe("the Schedule a task modal", () => {
     expect(store.getState().schedules.s1![0]!.constraints).toEqual({ agentKind: "codex", model: "gpt-5.6-terra" });
   });
 
-  it("offers the permissions a run can start in, never Full access, and no row where Realm cannot set one", async () => {
+  it("says every run starts in Full access, on every agent, and offers nothing else", async () => {
+    /* THE MUTANT: the old menu — Ask each time and Accept edits — offered beside runs that ignore it. */
     await mount();
     const { picker } = await openPicker();
-    const perms = within(picker).getByRole("group", { name: "Permissions" });
-    expect(within(perms).getAllByRole("button").map((b) => b.textContent)).toEqual(["Ask each time", "Accept edits"]);
-    expect(within(perms).getByRole("button", { name: "Ask each time" })).toHaveAttribute("aria-pressed", "true");
+    const perms = () => within(picker).getByRole("group", { name: "Permissions" });
+    expect(within(perms()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Full access"]);
+    expect(within(perms()).getByRole("button", { name: "Full access" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(within(picker).getByRole("option", { name: /^OpenCode/ }));
-    expect(within(picker).queryByRole("group", { name: "Permissions" })).toBeNull();
+    expect(within(perms()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Full access"]);
   });
 
   it("offers the scripted agent where this Realm runs one, as the checks that drive the app need", async () => {

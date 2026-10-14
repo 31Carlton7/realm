@@ -60,6 +60,13 @@ describe("the provider's surface", () => {
     expect(calls.gates).toEqual([]);
   });
 
+  it("forwards offset, query and within, so a long session's later controls are reachable", async () => {
+    const { call, calls } = setup();
+    await call("app_snapshot", { query: "sign-in", offset: 400 });
+    expect(calls.bridge).toEqual([{ op: "appSnapshot", params: { scope: { query: "sign-in", offset: 400 } } }]);
+    expect((await call("app_snapshot", { within: "sidebar" })).isError).toBe(true);
+  });
+
   it("does not fence its own interface as untrusted", async () => {
     // Realm's text, from Realm's state, in the user's own session. `fenceUntrusted` means a third
     // party wrote this; saying it here would teach an agent to distrust the one surface it can

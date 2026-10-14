@@ -20,8 +20,8 @@ const app = (name: string, bundleId: string, extra: Partial<InstalledApp> = {}):
 const entry = (name: string, path: string, extra: Partial<LibraryEntry> = {}): LibraryEntry =>
   ({ id: `se9:1:${path}`, sessionId: "se9", spaceId: "s1", kind: "output", path, name, ext: name.split(".").pop() ?? "", ts: 1, sessionTitle: "Weekly report", agentKind: "claude", ...extra });
 const GRANTED: FakeData["computerAccess"] = {
-  hostName: "Realm", packaged: true, helperAvailable: true,
-  rows: [{ id: "accessibility", label: "Accessibility", state: "granted", detail: "", canPrompt: false, needsSettings: false, askExplanation: null }],
+  hostName: "Realm", packaged: true, signed: true, helperAvailable: true,
+  rows: [{ id: "accessibility", label: "Accessibility", state: "granted", detail: "", canPrompt: false, needsSettings: false, askExplanation: null, stale: false, canRepair: false, repairExplanation: null, settingsPlace: "Privacy & Security ▸ Accessibility" }],
 };
 
 async function mount(agentKind: "claude" | "acp:cursor" = "claude", skills: Skill[] = LIBRARY, extra: FakeData = {}) {
@@ -201,12 +201,15 @@ describe("the @ list — files, the Library, apps and @Mac", () => {
   });
 
   it("says plainly when macOS has not let Realm drive apps: on the row, on the chip, and under the card", async () => {
-    const { container } = await mount("claude", LIBRARY, WIDE); // the fake's Accessibility is denied
+    const { container, api } = await mount("claude", LIBRARY, WIDE); // the fake's Accessibility is denied
     await type("@messag");
     await waitFor(() => expect(row("Messages").querySelector(".mention-row-desc")!.textContent).toBe("Computer use · needs Accessibility"));
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(container.querySelector(".composer-highlight .ch-element[data-ref=app]")).toHaveAttribute("data-warn");
-    expect(screen.getByText("Computer use cannot drive Messages until macOS gives Realm Accessibility — grant it in Settings ▸ Computer use.")).toBeInTheDocument();
+    expect(screen.getByText("Computer use cannot drive Messages until macOS gives Realm Accessibility.")).toBeInTheDocument();
+    // The fix is a click from where it was missed: the same Allow the Settings row carries.
+    fireEvent.click(screen.getByRole("button", { name: "Allow in System Settings" }));
+    await waitFor(() => expect(api.calls).toContain("computerAccessRequest:accessibility"));
   });
 
   it("@Mac inserts the mac skill's token and wears the Apple mark — in a Cursor session too", async () => {

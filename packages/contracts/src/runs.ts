@@ -50,6 +50,9 @@ export type RunAttemptOutcome = z.infer<typeof RunAttemptOutcomeSchema>;
  * who would answer the prompts that bypass skips is not there — so the mode is rejected at the schema
  * edge rather than quietly downgraded, and the caller finds out at `runs.create` instead of
  * discovering later that their run was not running as they asked.
+ *
+ * A scheduled task's run is the one exception, and it is not asked for here: `RunService` puts every
+ * run a schedule fires in Full access itself (`runPermissionMode`), whatever this field says.
  */
 export const RunConstraintsSchema = z.object({
   agentKind: AgentKindSchema.optional(),

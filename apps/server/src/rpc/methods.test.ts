@@ -284,13 +284,31 @@ describe("environments over rpc", () => {
     c.close();
   });
 
+  it("lists the branches a worktree can start from, starts one from a base, and removes it keeping its branch", async () => {
+    const { c, space } = await bootRepoSpace();
+    const branches = (await c.call("environments.branches", { spaceId: space.id })).result;
+    expect(branches.current).not.toBeNull();
+    expect(branches.branches).toContain(branches.current);
+    const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "kept", base: branches.current })).result;
+    expect(env.branch).toBe("realm/kept");
+    const bad = await c.call("environments.createWorktree", { spaceId: space.id, title: "nope", base: "no-such-branch" });
+    expect(bad.error.code).toBe("WORKTREE_BAD_BASE");
+
+    const ok = await c.call("environments.removeWorktree", { id: env.id, deleteBranch: false });
+    expect(ok.ok).toBe(true);
+    expect(existsSync(env.path)).toBe(false);
+    // THE MUTANT: the flag dropped on the wire — the branch would be gone.
+    expect((await c.call("environments.branches", { spaceId: space.id })).result.branches).toContain("realm/kept");
+    c.close();
+  });
+
   it("reports the hazard, refuses without a matching acknowledgement, then removes", async () => {
     const { c, space } = await bootRepoSpace();
     const env = (await c.call("environments.createWorktree", { spaceId: space.id, title: "risk" })).result;
     writeFileSync(join(env.path, "work.txt"), "hours\n");
 
     const st = (await c.call("environments.worktreeStatus", { id: env.id })).result;
-    expect(st).toMatchObject({ environmentId: env.id, branch: "realm/risk", present: true, dirtyFiles: 1, unpushedCommits: 1, removable: true, blockedBy: null });
+    expect(st).toMatchObject({ environmentId: env.id, branch: "realm/risk", present: true, dirtyFiles: 1, unpushedCommits: 0, removable: true, blockedBy: null });
 
     const refused = await c.call("environments.removeWorktree", { id: env.id });
     expect(refused.ok).toBe(false);

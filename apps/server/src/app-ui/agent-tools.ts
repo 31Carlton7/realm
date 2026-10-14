@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BrowserActionSchema, refineKeyAction, type BrowserActResult, type BrowserSnapshotResult } from "@realm/contracts";
+import { BrowserActionSchema, BrowserSnapshotScopeSchema, refineKeyAction, SNAPSHOT_SCOPE_PROPERTIES, type BrowserActResult, type BrowserSnapshotResult } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, ok, parseArgs } from "../mcp/tool-result";
@@ -78,8 +78,8 @@ const TOOLS: Tool[] = [
   {
     name: "app_snapshot",
     description:
-      "Read Realm's OWN interface — the window the user is looking at — as a list of elements, each with a [ref=N] for app_act. Use it to see what is on their screen, or to check that something you changed actually renders. It is not the way to perform an action Realm has a tool or setting for: those are direct, and a click is a guess about layout. Read-only.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      "Read Realm's OWN interface — the window the user is looking at — as a list of elements, each with a [ref=N] for app_act. Use it to see what is on their screen, or to check that something you changed actually renders. It is not the way to perform an action Realm has a tool or setting for: those are direct, and a click is a guess about layout. A long session lists what is on screen first, then form fields, then the rest; when it is cut off, the last lines say how many were left out and give the offset, query or within that reaches them — a control you cannot see in the list is not absent until a query for it comes back empty. Read-only.",
+    inputSchema: { type: "object", properties: { ...SNAPSHOT_SCOPE_PROPERTIES }, additionalProperties: false },
   },
   {
     name: "app_act",
@@ -102,8 +102,10 @@ const TOOLS: Tool[] = [
 type Handler = (d: AppUiToolsDeps, ctx: ProviderCallContext, args: unknown) => Promise<CallToolResult>;
 
 const HANDLERS: Record<string, Handler> = {
-  app_snapshot: async (d) => {
-    const snap = (await d.bridge.call("appSnapshot", {})) as BrowserSnapshotResult;
+  app_snapshot: async (d, _ctx, raw) => {
+    const scope = parseArgs(BrowserSnapshotScopeSchema, raw);
+    if ("error" in scope) return scope.error;
+    const snap = (await d.bridge.call("appSnapshot", { scope: scope.value })) as BrowserSnapshotResult;
     const head = `Realm's own interface (${snap.elementCount} element${snap.elementCount === 1 ? "" : "s"}):`;
     return ok(`${head}\n${snap.text}`);
   },

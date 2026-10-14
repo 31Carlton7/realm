@@ -252,13 +252,14 @@ const boot = async (home: string) => {
   return app;
 };
 
-/** v50's preamble, written out as RC2 wrote it — the records line included. */
+/** v50's preamble, written out as RC2 wrote it — the records line included — with the `review_close` line added since. */
 const V50_RECORDS = "- Records are Markdown files under `creators/` in the team's memory. Read them with `record_list` and `record_read`; change them with `record_update`. An account names where its sign-in is kept, never a password or key.";
 const v50Preamble = (name: string, extra: string[] = []) => [
   workerPreamble(`You are ${name}, a standing role on this space's team.\n\n${name}'s brief: keep creators/ current.`),
   "",
   "Team rules (Realm):",
   "- Deliver with `review_submit` (the realm-team tools). Never send, post, sign or pay: a person approves everything in Review, then presses each post or send themselves, one at a time, at Realm's paced slots. No tool lets you post, send or DM, and none ever will.",
+  "- A review you sent that is no longer wanted — replaced, done another way, or withdrawn — you close with `review_close`, so it stops waiting on the person.",
   V50_RECORDS,
   "- Save what you make inside this space's folder; Review only takes files from there.",
   "- This run stops at $3 or 20 minutes, whichever comes first.",

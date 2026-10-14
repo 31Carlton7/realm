@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { tempDir } from "@realm/test-utils";
 import type { LayaStatus } from "@realm/contracts";
 import type { LayaEvalReport } from "@realm/contracts";
@@ -11,6 +12,7 @@ import { LayaStepError } from "./runtime";
 import { fakeRuntime, until, type FakeRuntime } from "./test-fakes";
 import { LayaRecorder } from "./recorder";
 import { NotFoundError } from "../store/rows";
+import { SettingsStore } from "../store/settings";
 import type { SimulatorAxTree } from "@realm/contracts";
 
 /**
@@ -30,10 +32,16 @@ afterEach(async () => { for (const s of services.splice(0)) await s.close(); });
 
 type Train = (o: { name: string; signal: AbortSignal; onProgress: (p: TrainProgress) => void }) => Promise<TrainResult>;
 
-function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "assist"; timing?: Partial<LayaTiming>; activeEval?: () => LayaEvalReport | null; baseEval?: () => LayaEvalReport | null; train?: Train; checkpoint?: string; screen?: () => SimulatorAxTree } = {}) {
+/** What the auto-install waits on, as a test sets it. */
+type AutoConditions = { onboarded: boolean; busy: boolean; freeBytes: number | null };
+
+/** `mode`: the stored switch. Left out it is an explicit Off, the position most of these tests start
+ *  from; `null` is a home where nobody ever touched it. */
+function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "assist" | null; auto?: AutoConditions; timing?: Partial<LayaTiming>; activeEval?: () => LayaEvalReport | null; baseEval?: () => LayaEvalReport | null; train?: Train; checkpoint?: string; screen?: () => SimulatorAxTree } = {}) {
   const dir = tempDir("realm-laya-svc-");
   const runtime = o.runtime === undefined ? fakeRuntime({ dir }) : o.runtime;
-  const settings = new Map<string, unknown>([...(o.mode ? [[LAYA_MODE_KEY, o.mode] as const] : []), ...(o.checkpoint ? [[LAYA_CHECKPOINT_KEY, o.checkpoint] as const] : [])]);
+  const mode = o.mode === undefined ? "off" : o.mode;
+  const settings = new Map<string, unknown>([...(mode ? [[LAYA_MODE_KEY, mode] as const] : []), ...(o.checkpoint ? [[LAYA_CHECKPOINT_KEY, o.checkpoint] as const] : [])]);
   const published: LayaStatus[] = [];
   const log = new DecisionLog({ path: join(dir, "decisions.jsonl") });
   const screen = o.screen;
@@ -50,6 +58,7 @@ function setup(o: { runtime?: FakeRuntime | null; mode?: "off" | "shadow" | "ass
     baseEval: o.baseEval,
     ...(o.train ? { train: o.train } : {}),
     ...(recorder ? { recorder } : {}),
+    ...(o.auto ? { autoInstall: { onboarded: () => o.auto!.onboarded, busy: () => o.auto!.busy, freeBytes: () => o.auto!.freeBytes } } : {}),
   });
   services.push(service);
   return { service, runtime, settings, published, log, dir, recorder };
@@ -105,11 +114,18 @@ describe("before anything is installed", () => {
     expect(runtime.starts).toEqual([]);
   });
 
-  it("refuses Shadow before an install, and leaves the switch where it was", async () => {
+  it("refuses Assist before an install, and leaves the switch where it was", async () => {
     const { service, settings } = setup();
-    await expect(service.setMode("shadow")).rejects.toMatchObject({ code: "LAYA_NOT_INSTALLED" });
-    expect(settings.get(LAYA_MODE_KEY)).toBeUndefined();
+    await expect(service.setMode("assist")).rejects.toMatchObject({ code: "LAYA_NOT_INSTALLED" });
+    expect(settings.get(LAYA_MODE_KEY)).toBe("off");
     expect((await service.status()).mode).toBe("off");
+  });
+
+  it("takes Shadow before an install as the request the install answers, and starts nothing yet", async () => {
+    const { service, settings, runtime } = setup();
+    expect((await service.setMode("shadow")).mode).toBe("shadow");
+    expect(settings.get(LAYA_MODE_KEY)).toBe("shadow");
+    expect(runtime!.starts).toEqual([]);
   });
 });
 
@@ -493,7 +509,7 @@ describe("Assist", () => {
   it("refuses the switch to Assist while it is locked, with the same sentence, and keeps the mode", async () => {
     const { service, settings } = setup({ runtime: installedRuntime(), activeEval: () => report({ accuracy: 0.8 }) });
     await expect(service.setMode("assist")).rejects.toThrow("Assist needs 95%");
-    expect(settings.get(LAYA_MODE_KEY)).toBeUndefined();
+    expect(settings.get(LAYA_MODE_KEY)).toBe("off");
     expect(service.currentMode()).toBe("off");
   });
 
@@ -695,5 +711,154 @@ describe("training", () => {
     await service.train();
     await until(() => train.calls.length === 2);
     expect(train.calls[1]).toBe(`${train.calls[0]}-2`);
+  });
+});
+
+describe("on by default", () => {
+  /** The settings table as Realm 2.2 left it — its shape has not changed since v1 — holding `rows`. */
+  function settings22(rows: Record<string, string>): SettingsStore {
+    const db = new DatabaseSync(join(tempDir("realm-laya-22-"), "realm.db"));
+    db.exec("CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL)");
+    for (const [k, v] of Object.entries(rows)) db.prepare("INSERT INTO settings (key, value_json) VALUES (?, ?)").run(k, v);
+    return new SettingsStore(db as never);
+  }
+  const service22 = (store: SettingsStore, runtime: FakeRuntime | null = fakeRuntime({ dir: tempDir("realm-laya-svc-") })) => {
+    const s = new LayaService({ runtime, settings: store, log: new DecisionLog({ path: join(tempDir("realm-laya-log-"), "d.jsonl") }), publish: () => {}, timing: FAST });
+    services.push(s);
+    return s;
+  };
+
+  it("reads a 2.2 home's switch: never touched is Shadow, a stored Off stays Off, a row that is no mode is Off", () => {
+    // THE MUTANT: the default applied to every row it cannot parse — a hand-edited "on" read as a yes.
+    expect(service22(settings22({})).currentMode()).toBe("shadow");
+    expect(service22(settings22({ "laya.mode": "null" })).currentMode()).toBe("shadow");
+    // THE MUTANT: `?? LAYA_DEFAULT_MODE` over the stored value — the person's Off flipped back on.
+    expect(service22(settings22({ "laya.mode": '"off"' })).currentMode()).toBe("off");
+    expect(service22(settings22({ "laya.mode": '"shadow"' })).currentMode()).toBe("shadow");
+    expect(service22(settings22({ "laya.mode": '"assist"' })).currentMode()).toBe("assist");
+    expect(service22(settings22({ "laya.mode": '"on"' })).currentMode()).toBe("off");
+    expect(service22(settings22({ "laya.mode": "{" })).currentMode()).toBe("shadow");
+  });
+
+  it("writes nothing to read the default, so a home read twice — or a hundred times — is the same home", async () => {
+    const store = settings22({ "laya.mode": '"off"' });
+    const untouched = settings22({});
+    for (let boot = 0; boot < 3; boot++) {
+      for (const s of [service22(store), service22(untouched)]) { s.boot(); await s.status(); await s.close(); }
+    }
+    expect(store.get("laya.mode")).toBe("off");
+    expect(untouched.get("laya.mode")).toBeNull();
+  });
+
+  it("an upgraded home that installed Laya and never touched the switch runs it at boot", async () => {
+    const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true });
+    const s = service22(settings22({}), runtime);
+    s.boot();
+    await until(() => s.client() !== null);
+    expect(runtime.starts).toHaveLength(1);
+    // The base checkpoint: nothing names one trained on this Mac.
+    expect(runtime.starts[0]!.checkpoint).toBeUndefined();
+  });
+});
+
+describe("the install that starts on its own", () => {
+  const AUTO: Partial<LayaTiming> = { autoFirstMs: 10, autoRecheckMs: 10, autoSlowRecheckMs: 20, autoBackoffMs: [15, 30] };
+  const ready = (): AutoConditions => ({ onboarded: true, busy: false, freeBytes: 50 * 1024 ** 3 });
+
+  it("waits for a space, then for no agent working, then for disk — saying which — and installs once all hold", async () => {
+    const auto: AutoConditions = { onboarded: false, busy: true, freeBytes: 2 * 1024 ** 3 };
+    const { service, runtime } = setup({ mode: null, auto, timing: AUTO });
+    service.boot();
+    const why = async () => { const a = (await service.status()).auto; return a?.state === "waiting" ? a.why : null; };
+    await until(async () => /made a space/.test((await why()) ?? ""));
+    auto.onboarded = true;
+    // THE MUTANT: no busy check — two gigabytes start downloading under a running agent's turn.
+    await until(async () => /no agent is working/.test((await why()) ?? ""));
+    auto.busy = false;
+    await until(async () => (await why()) === "Installs on its own once this Mac has 10 GB free; it has 2 GB.");
+    expect(runtime!.installs).toBe(0);
+    auto.freeBytes = 40 * 1024 ** 3;
+    await until(() => runtime!.installs === 1);
+    // On by default, so the install's end is the server's start — on the base checkpoint.
+    await until(() => service.client() !== null);
+    expect(runtime!.starts[0]!.checkpoint).toBeUndefined();
+    expect((await service.status()).auto).toBeNull();
+  });
+
+  it("never starts in an app that does not wire it — a test, a script, a live check", async () => {
+    const { service, runtime } = setup({ mode: null, timing: AUTO });
+    service.boot();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(runtime!.installs).toBe(0);
+    expect((await service.status()).auto ?? null).toBeNull();
+  });
+
+  it("does nothing on a Mac that cannot run Laya, or for a switch someone turned off", async () => {
+    const intel = setup({ mode: null, auto: ready(), timing: AUTO, runtime: fakeRuntime({ dir: tempDir("realm-laya-svc-"), unavailable: "Apple silicon only." }) });
+    const off = setup({ mode: "off", auto: ready(), timing: AUTO });
+    intel.service.boot(); off.service.boot();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(intel.runtime!.installs + off.runtime!.installs).toBe(0);
+    expect(intel.runtime!.pythonLooks).toBe(0);
+  });
+
+  it("retries a failed attempt on its widening clock, then stops and leaves Install again to the person", async () => {
+    const failing = fakeRuntime({ dir: tempDir("realm-laya-svc-"), install: async () => { throw new LayaStepError("packages", "ERROR: No matching distribution found for torch", "pip said so"); } });
+    const { service } = setup({ mode: null, auto: ready(), timing: AUTO, runtime: failing });
+    service.boot();
+    await until(async () => (await service.status()).auto?.state === "retrying");
+    expect((await service.status()).auto).toMatchObject({ state: "retrying", attempt: 2 });
+    // The failure is said in the installer's own words, as a click's would be.
+    expect((await service.status()).runtime).toMatchObject({ state: "failed", during: "install", reason: "ERROR: No matching distribution found for torch" });
+    await until(async () => (await service.status()).auto?.state === "stopped");
+    // THE MUTANT: no cap on the retries — a broken network is hammered forever.
+    expect(failing.installs).toBe(3);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(failing.installs).toBe(3);
+    expect((await service.status()).auto).toEqual({ state: "stopped", attempts: 3 });
+  });
+
+  it("switching off stops it where it is — an install it started included — and nothing switches it back", async () => {
+    const dir = tempDir("realm-laya-svc-");
+    const slow = fakeRuntime({ dir, install: (_p, signal) => new Promise<void>((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new LayaStepError("packages", "Stopped because Realm is quitting.", "")), { once: true });
+    }) });
+    const { service, settings } = setup({ mode: null, auto: ready(), timing: AUTO, runtime: slow });
+    service.boot();
+    await until(async () => (await service.status()).runtime.state === "installing");
+    await service.setMode("off");
+    // THE MUTANT: Off leaving the auto-install's download running behind a switch that says Off.
+    await until(async () => (await service.status()).runtime.state === "not-installed");
+    expect((await service.status()).auto ?? null).toBeNull();
+    expect(settings.get(LAYA_MODE_KEY)).toBe("off");
+    await new Promise((r) => setTimeout(r, 80));
+    expect(slow.installs).toBe(1);
+    expect(service.currentMode()).toBe("off");
+  });
+
+  it("Off does not stop an Install the person started", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), install: () => gate });
+    const { service } = setup({ mode: null, auto: { ...ready(), busy: true }, timing: AUTO, runtime });
+    service.boot();
+    await service.install();
+    await service.setMode("off");
+    release();
+    await until(async () => (await service.status()).installed);
+    expect(runtime.installs).toBe(1);
+    expect(runtime.starts).toEqual([]);
+  });
+
+  it("downloads only the base: a checkpoint trained here is never made active by an install", async () => {
+    const dir = tempDir("realm-laya-svc-");
+    mkdirSync(join(dir, "checkpoints", "social-6"), { recursive: true });
+    writeFileSync(join(dir, "checkpoints", "social-6", "model.safetensors"), "weights");
+    const runtime = fakeRuntime({ dir });
+    const { service, settings } = setup({ mode: null, auto: ready(), timing: AUTO, runtime });
+    service.boot();
+    await until(() => service.client() !== null);
+    expect(settings.has(LAYA_CHECKPOINT_KEY)).toBe(false);
+    expect(runtime.starts[0]!.checkpoint).toBeUndefined();
   });
 });

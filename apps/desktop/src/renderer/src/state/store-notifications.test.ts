@@ -203,7 +203,7 @@ describe("store — the desktop (OS) hop", () => {
     });
     await store.getState().refreshAllSessions();
     await store.getState().activateDesktopNotification("p1");
-    expect(store.getState().agentsAsk["se1"]).toMatchObject({ childId: "se3" });
+    expect(store.getState().agentsShown["se1"]).toBe("se3");
   });
 
   it("a row with no session lands on the page that owns it — an MCP server on Connections", async () => {

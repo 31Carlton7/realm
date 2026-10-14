@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { emptyGuideProgress, recordGuideAttempt, type DocumentEntry } from "@realm/contracts";
@@ -7,13 +7,15 @@ import { DOCS_PROVIDER_NAME, createDocsAgentProvider, type DocsAgentToolsDeps } 
 import { TextExtractor } from "./text-extract";
 import { namedInRoot } from "./paths";
 
-function harness(o: { enabled?: boolean; panes?: ReturnType<DocsAgentToolsDeps["panesForSpace"]> } = {}) {
+function harness(o: { enabled?: boolean; panes?: ReturnType<DocsAgentToolsDeps["panesForSpace"]>; cwd?: string } = {}) {
   const root = tempDir("realm-docs-tools-");
   mkdirSync(join(root, "lectures"));
   writeFileSync(join(root, "lectures", "2026-09-01-pipelining.md"), "# Pipelining\n\nforwarding fixes data hazards");
   writeFileSync(join(root, "lectures", "2026-09-03-caches.md"), "# Caches\n\nthrashing");
   const opened: string[] = [];
   const openedBy: (string | undefined)[] = [];
+  const bases: (string | undefined)[] = [];
+  const revealed: string[] = [];
   let progress = emptyGuideProgress();
   const extractor = new TextExtractor(async () => "page one of the deck\npage two");
   const deps: DocsAgentToolsDeps = {
@@ -23,7 +25,16 @@ function harness(o: { enabled?: boolean; panes?: ReturnType<DocsAgentToolsDeps["
     listForSpace: async (_s, dir): Promise<DocumentEntry[]> => (dir === "lectures"
       ? [{ path: "lectures/2026-09-01-pipelining.md", name: "2026-09-01-pipelining.md", isDir: false, size: 40 }]
       : [{ path: "lectures", name: "lectures", isDir: true, size: 0 }]),
-    openPath: async (p) => { opened.push(p.path); openedBy.push(p.openedBy); return { documentsId: "d1", itemId: "i1", environmentId: "e1" }; },
+    openPath: async (p) => {
+      // The real one reads the path as named against `base`, or the space's folder; this one knows the
+      // fixture's files and answers NOT_FOUND for the rest, as the service does.
+      const at = p.path.startsWith("/") ? p.path : join(p.base ?? root, p.path);
+      if (!existsSync(at)) throw Object.assign(new Error(`no such file: ${p.path}`), { code: "NOT_FOUND" });
+      opened.push(p.path); openedBy.push(p.openedBy); bases.push(p.base);
+      return { documentsId: "d1", itemId: "i1", environmentId: p.environmentId ?? "e1", path: at.startsWith(`${root}/`) ? at.slice(root.length + 1) : at };
+    },
+    placeOf: (sessionId) => (sessionId === "sess" ? { environmentId: "e2", cwd: o.cwd ?? root } : null),
+    reveal: async (abs) => { revealed.push(abs); },
     progressForSpace: async () => progress,
     readForSpace: async (_s, path) => {
       const { rel, abs } = namedInRoot(root, path);
@@ -37,13 +48,13 @@ function harness(o: { enabled?: boolean; panes?: ReturnType<DocsAgentToolsDeps["
     const r = await provider.call(ctx, tool, args);
     return { text: r.content.map((c) => ("text" in c ? c.text : "")).join(""), isError: r.isError };
   };
-  return { root, provider, ctx, call, opened, openedBy, setProgress: (p: typeof progress) => { progress = p; } };
+  return { root, provider, ctx, call, opened, openedBy, bases, revealed, setProgress: (p: typeof progress) => { progress = p; } };
 }
 
 describe("realm-docs provider", () => {
   it("lists its tools when enabled and none when the space turned it off", async () => {
     const on = harness();
-    expect((await on.provider.tools(on.ctx)).map((t) => t.name)).toEqual(["docs_search", "docs_list", "docs_open", "docs_read", "docs_state", "docs_progress"]);
+    expect((await on.provider.tools(on.ctx)).map((t) => t.name)).toEqual(["docs_search", "docs_list", "docs_open", "docs_reveal", "docs_read", "docs_state", "docs_progress"]);
     expect(on.provider.name).toBe(DOCS_PROVIDER_NAME);
     const off = harness({ enabled: false });
     expect(await off.provider.tools(off.ctx)).toEqual([]);
@@ -73,10 +84,48 @@ describe("realm-docs provider", () => {
     const h = harness();
     const r = await h.call("docs_open", { path: "/lectures/2026-09-01-pipelining.md" });
     expect(r.isError).toBe(false);
+    // A rooted path that names nothing is the space's own, the way this tool used to read every path.
     expect(h.opened).toEqual(["lectures/2026-09-01-pipelining.md"]);
     expect(h.openedBy).toEqual(["sess"]);
     expect(r.text).toContain("Opened lectures/2026-09-01-pipelining.md");
     expect((await h.call("docs_open", {})).isError).toBe(true);
+  });
+
+  it("docs_open opens a file the agent made outside the space, from where the session stands", async () => {
+    // THE MUTANT: strip the leading slash, as the tool did — `/tmp/…/render.mp4` became a path
+    // inside the space folder that named nothing, and the agent told the user it could not show it.
+    const elsewhere = tempDir("realm-docs-made-");
+    writeFileSync(join(elsewhere, "render.mp4"), "x");
+    const h = harness({ cwd: elsewhere });
+    const r = await h.call("docs_open", { path: join(elsewhere, "render.mp4") });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain(`Opened ${join(elsewhere, "render.mp4")} in Realm's video player`);
+    // Relative to the session's working directory, in the session's own checkout.
+    const rel = await h.call("docs_open", { path: "render.mp4" });
+    expect(rel.isError).toBe(false);
+    expect(h.bases.at(-1)).toBe(elsewhere);
+  });
+
+  it("says in its description that videos open in Realm's player and files outside the space open", async () => {
+    const tools = await harness().provider.tools({ sessionId: "sess", spaceId: "s1" });
+    const open = tools.find((t) => t.name === "docs_open")!.description!;
+    expect(open).toMatch(/videos .* in Realm's own video player/);
+    expect(open).toMatch(/inside the space folder or not/);
+  });
+
+  it("docs_reveal selects a file in the Finder, read from the session's directory", async () => {
+    const elsewhere = tempDir("realm-docs-reveal-");
+    writeFileSync(join(elsewhere, "out file.png"), "x");
+    const h = harness({ cwd: elsewhere });
+    const r = await h.call("docs_reveal", { path: "out file.png" });
+    expect(r.isError).toBe(false);
+    expect(h.revealed).toEqual([join(elsewhere, "out file.png")]);
+    // A file:// URL and an editor's line are the same file.
+    await h.call("docs_reveal", { path: `file://${join(elsewhere, "out%20file.png")}` });
+    expect(h.revealed.at(-1)).toBe(join(elsewhere, "out file.png"));
+    const gone = await h.call("docs_reveal", { path: "missing.png" });
+    expect(gone.isError).toBe(true);
+    expect(gone.text).toContain("nothing is at missing.png");
   });
 
   it("docs_progress summarises per-topic history and names weak topics", async () => {
