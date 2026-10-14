@@ -5,7 +5,6 @@ import { AGENT_META, ASK_QUESTIONS_MAX, AskCardSchema, UiAskInputSchema, type Ag
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { err, parseArgs } from "../mcp/tool-result";
 import type { AskOutcome } from "../browsers/permissions";
-import { gitCapture } from "../workspace/git-exec";
 
 export const UI_PROVIDER_NAME = "realm-ui";
 
@@ -172,16 +171,6 @@ async function cardFor(d: UiAgentToolsDeps, sessionId: string, input: UiAskInput
     ...(input.message ? { message: input.message } : {}), questions, workspace: session.cwd });
   if (!card.success) throw new Error(`Realm cannot draw these questions: ${card.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   return card.data;
-}
-
-/** A checkout's branches for a branch field, most recently committed first, and the current one.
- *  Through `gitCapture`, so the hardening every git call Realm makes carries applies here too. */
-export async function listBranches(cwd: string): Promise<{ branches: string[]; current: string | null } | null> {
-  const refs = await gitCapture(cwd, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"]).catch(() => null);
-  if (!refs || refs.code !== 0) return null;
-  const head = await gitCapture(cwd, ["branch", "--show-current"]).catch(() => null);
-  const current = head && head.code === 0 ? head.stdout.trim() || null : null;
-  return { branches: refs.stdout.split("\n").map((b) => b.trim()).filter(Boolean), current };
 }
 
 /**
