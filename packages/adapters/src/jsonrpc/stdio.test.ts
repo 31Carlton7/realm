@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { spawn as nodeSpawn } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { rmSync, writeFileSync } from "node:fs";
+import { tempDir } from "@realm/test-utils";
+import { join } from "node:path";
 import { StdioJsonRpc, JsonRpcCallError } from "./stdio";
 
 /**
@@ -185,5 +189,27 @@ describe("StdioJsonRpc and the sandbox wrap", () => {
     // MUTANT: wrap the call in a try that falls back to the bare command, and this is the line that
     // notices — the child would have been spawned anyway.
     expect(spawnFn).not.toHaveBeenCalled();
+  });
+
+  it("starts an npm .cmd shim through cmd.exe on Windows", () => {
+    // MUTANT: spawn `o.command` as given — Node refuses a bare `.cmd` on Windows, and libuv never
+    // finds `codex.cmd` for a spawn of `codex` in the first place.
+    const dir = tempDir("realm-stdio-");
+    try {
+      writeFileSync(join(dir, "codex.cmd"), "");
+      const child = Object.assign(new EventEmitter(), { stdout: null, stderr: null, stdin: null, kill: vi.fn() });
+      const spawnFn = vi.fn(() => child);
+      new StdioJsonRpc({
+        command: "codex", args: ["app-server"], cwd: process.cwd(), env: { PATH: dir, PATHEXT: ".CMD", ComSpec: "cmd.exe" },
+        onNotification: () => {}, onServerRequest: () => {}, onExit: () => {},
+      }, { spawn: spawnFn as unknown as typeof nodeSpawn, platform: "win32" });
+      const [command, args, opts] = spawnFn.mock.calls[0] as unknown as [string, string[], { windowsVerbatimArguments?: boolean }];
+      expect(command).toBe("cmd.exe");
+      expect(args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+      expect(args[3]).toContain(join(dir, "codex.cmd"));
+      expect(opts.windowsVerbatimArguments).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

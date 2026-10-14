@@ -709,6 +709,16 @@ kbd { font: 11px var(--font-mono); }
 .window-trail { position: fixed; z-index: 36; top: 0; right: 12px; height: var(--frame-top); display: flex; align-items: center; }
 .window-trail button { -webkit-app-region: no-drag; }
 .panel[data-top-right] > .panel-bar { padding-right: calc(12px + 28px + 6px); }
+/* ── Linux and Windows: the system's window controls (`data-window-controls`, platform.ts) ──
+   No traffic lights at the left, so the lead starts at the trail's own 12px in. The system draws its
+   minimise, maximise and close over the head row's right end (main/window-chrome.ts), and what sits
+   at that end moves left by their width — the overlay's own measure where Chromium reports it, else
+   Windows' three 46px buttons. */
+:root[data-window-controls="overlay"] { --lights-end: 2px;
+  --controls-w: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px))); }
+:root[data-window-controls="overlay"] .window-trail { right: calc(12px + var(--controls-w)); }
+:root[data-window-controls="overlay"] .panel[data-top-right] > .panel-bar { padding-right: calc(12px + 28px + 6px + var(--controls-w)); }
+:root[data-window-controls="overlay"] .media-viewer-head { padding-right: calc(12px + var(--controls-w)); }
 .panel[data-first-leaf] > .panel-bar, .page-overlay-bar { transition: padding-left var(--dur-move) var(--ease-in-out-strong); }
 .app[data-sidebar-collapsed] .panel[data-first-leaf] > .panel-bar, .app[data-sidebar-collapsed] .page-overlay-bar {
   padding-left: calc(var(--lead-end) - var(--rail-w)); }

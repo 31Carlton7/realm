@@ -51,6 +51,9 @@ describe("identifyProgram", () => {
     expect(run("zsh", "/bin/zsh -l")).toBeNull();
     expect(run("bash", "bash")).toBeNull();
     expect(run("fish", "/opt/homebrew/bin/fish")).toBeNull();
+    // Windows' shells, by the path and extension Windows names them with.
+    expect(run("powershell.exe", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoLogo")).toBeNull();
+    expect(run("cmd.exe", "C:\\Windows\\System32\\cmd.exe")).toBeNull();
   });
 
   it("names an interpreter by its language when the code came on the command line or there is no script", () => {

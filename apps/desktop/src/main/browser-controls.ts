@@ -5,7 +5,7 @@
  * Electron-free, like `downloads.ts`: the capture, the filesystem and the dialog are seams, so what
  * these decide — the file's name and folder, and that nothing is cleared without a yes — dies in a test.
  */
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import type { BrowserScreenshotSaved } from "@realm/contracts";
 import { safeAttachmentName } from "./attachments";
 
@@ -50,7 +50,7 @@ export type ScreenshotDeps = {
 export async function saveBrowserScreenshot(d: ScreenshotDeps): Promise<BrowserScreenshotSaved> {
   // Same requirement the download path has: this writes to disk, and a relative path would resolve
   // against whatever directory Electron happens to have been started in.
-  if (!d.dir.startsWith("/")) return { ok: false, error: "This space has no folder to save a screenshot in." };
+  if (!isAbsolute(d.dir)) return { ok: false, error: "This space has no folder to save a screenshot in." };
   const png = await d.capture().catch(() => null);
   if (!png || png.length === 0) return { ok: false, error: "The page had nothing on screen to capture." };
   d.mkdirp(d.dir);

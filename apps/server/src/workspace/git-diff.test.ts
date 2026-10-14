@@ -220,6 +220,8 @@ describe("file", () => {
     const dir = makeRepo();
     try {
       await expect(svc().file(dir, "../outside.txt", false)).rejects.toThrow(/leaves the checkout/);
+      // Windows' separator escapes as surely; THE MUTANT splits on "/" alone.
+      await expect(svc().file(dir, "..\\..\\outside.txt", false)).rejects.toThrow(/leaves the checkout/);
       await expect(svc().file(dir, "/etc/hosts", false)).rejects.toThrow(/not a path inside/);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });

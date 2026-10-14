@@ -15,3 +15,4 @@ export { createCodexMapper, codexRateLimitsReading } from "./codex/map-codex";
 export { CodexAdapter, CODEX_SANDBOX_REFUSAL, pickCodexDecision, codexPolicyFor } from "./codex/codex-adapter";
 export { probeCodex } from "./codex/probe";
 export { AcpAdapter, pickAcpOption, type AcpAgentSpec } from "./acp/acp-adapter";
+export { findExecutable, killTree, spawnTarget, type SpawnTarget } from "./spawn-target";

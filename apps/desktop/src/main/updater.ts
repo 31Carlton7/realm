@@ -44,13 +44,15 @@ export function pruneInstalledDownload(d: { cacheDir: string; version: string; f
   return zip;
 }
 
-export type UpdateDisabledReason = "dev" | "unsigned" | "no-feed";
+export type UpdateDisabledReason = "dev" | "platform" | "unsigned" | "no-feed";
 export type UpdaterDecision = { enabled: true } | { enabled: false; reason: UpdateDisabledReason };
 
 /** The gate, pure. Order is deliberate: dev is absolute, unsigned beats no-feed (signing is the
  *  harder prerequisite, and an unsigned build could not install an update even off a live feed). */
-export function updaterDecision(d: { packaged: boolean; signed: boolean; feedLive: boolean }): UpdaterDecision {
+export function updaterDecision(d: { packaged: boolean; signed: boolean; feedLive: boolean; autoUpdate?: boolean }): UpdaterDecision {
   if (!d.packaged) return { enabled: false, reason: "dev" };
+  // The feed is the Mac's signed, notarized build; Linux and Windows builds are installed by hand.
+  if (d.autoUpdate === false) return { enabled: false, reason: "platform" };
   if (!d.signed) return { enabled: false, reason: "unsigned" };
   if (!d.feedLive) return { enabled: false, reason: "no-feed" };
   return { enabled: true };

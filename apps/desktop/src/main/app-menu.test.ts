@@ -80,14 +80,20 @@ describe("whose keystroke is it", () => {
   /* THE mutant this kills is the reason the routing exists: a menu accelerator firing first, so ⌘B in
      a rich field toggles the sidebar instead of making bold. */
   it("hands the app's own chords to the page, and leaves the system's to the menu", () => {
-    expect(shouldPageOwn(keyDown("KeyB", "b", { meta: true }), owned)).toBe(true);
-    expect(shouldPageOwn(keyDown("KeyW", "w", { meta: true }), owned)).toBe(true);
-    expect(shouldPageOwn(keyDown("Comma", ",", { meta: true }), owned)).toBe(true);
+    expect(shouldPageOwn(keyDown("KeyB", "b", { meta: true }), owned, "darwin")).toBe(true);
+    expect(shouldPageOwn(keyDown("KeyW", "w", { meta: true }), owned, "darwin")).toBe(true);
+    expect(shouldPageOwn(keyDown("Comma", ",", { meta: true }), owned, "darwin")).toBe(true);
     // A shifted chord is matched by its physical key, whatever character the layout reports.
-    expect(shouldPageOwn(keyDown("Backslash", "|", { meta: true, shift: true }), owned)).toBe(true);
+    expect(shouldPageOwn(keyDown("Backslash", "|", { meta: true, shift: true }), owned, "darwin")).toBe(true);
     for (const [code, key] of [["KeyC", "c"], ["KeyV", "v"], ["KeyZ", "z"], ["KeyQ", "q"], ["KeyH", "h"], ["KeyM", "m"]])
-      expect(shouldPageOwn(keyDown(code!, key!, { meta: true }), owned), key).toBe(false);
-    expect(shouldPageOwn({ ...keyDown("KeyB", "b", { meta: true }), type: "keyUp" }, owned)).toBe(false);
+      expect(shouldPageOwn(keyDown(code!, key!, { meta: true }), owned, "darwin"), key).toBe(false);
+    expect(shouldPageOwn({ ...keyDown("KeyB", "b", { meta: true }), type: "keyUp" }, owned, "darwin")).toBe(false);
+  });
+
+  it("on Linux and Windows, hands the page the same chords held with Ctrl", () => {
+    expect(shouldPageOwn(keyDown("KeyB", "b", { control: true }), owned, "win32")).toBe(true);
+    expect(shouldPageOwn(keyDown("KeyB", "b", { meta: true }), owned, "linux")).toBe(false);
+    expect(shouldPageOwn(keyDown("KeyC", "c", { control: true }), owned, "win32")).toBe(false);
   });
 
   /* The file's own precedence: the last rule for a chord wins. THE mutant is claiming any chord any
@@ -109,5 +115,9 @@ describe("accelerators", () => {
     expect(acceleratorFor("escape")).toBe("Escape");
     expect(acceleratorFor("mod+shift+enter")).toBe("Command+Shift+Return");
     expect(acceleratorFor("not a chord")).toBeUndefined();
+  });
+  it("hold mod with Control on Linux and Windows, and ctrl with Super", () => {
+    expect(acceleratorFor("mod+shift+\\", false)).toBe("Control+Shift+\\");
+    expect(acceleratorFor("ctrl+shift+tab", false)).toBe("Super+Shift+Tab");
   });
 });
