@@ -21,6 +21,54 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-3-0",
+    title: "Realm v2.3.0",
+    date: "2026-10-14",
+    version: "v2.3.0",
+    area: "Release",
+    summary:
+      "Text files that read like the documents pane, files with their own logos, a real video player, sub-agents beside the session, password autofill that agents use without seeing the password, a Worktrees tab, GitHub's MCP server connecting, Laya on by default, and Linux and Windows previews.",
+    body: [
+      { kind: "h", text: "Files, documents and video" },
+      { kind: "ul", items: [
+        "**Text files read like the documents pane.** Opening a text file from Library, an attachment or the documents list shows Markdown rendered and code highlighted with line numbers, readable in light and dark, instead of a grey picture of the page.",
+        "**Files wear their own logos.** A `.ts` file is TypeScript's blue mark, a `package.json` is npm's, across Library, the documents list, session file rows and the prompter, from the Material Icon Theme set.",
+        "**Code scrolls sideways.** Long lines in the documents pane scroll horizontally with the line numbers held in place; wide code blocks in Markdown scroll on their own.",
+        "**A redesigned prompter tray.** Attached files and folders are cards with their icon, name and size; pictures stay thumbnails.",
+        "**A real video player.** Videos play in Realm's own player wherever they open, with a scrubber that shows the time under the pointer, speed, loop, picture in picture, full screen, J/K/L and frame stepping, and it remembers where you stopped. A format Chromium can't play offers a playable copy when ffmpeg is installed.",
+        "**Files an agent makes anywhere open.** A file written to `/tmp`, your Downloads or a path relative to the session opens, previews and shows in Finder, read-only outside the space. Agents can reveal a file in Finder themselves.",
+      ] },
+      { kind: "h", text: "Agents" },
+      { kind: "ul", items: [
+        "**Sub-agents open beside the session.** Clicking a sub-agent opens a redesigned viewer in the side panel instead of a sheet over your session: its live transcript, its state, its result pinned when it finishes, and its requests answerable right there.",
+        "**Agents know everything Realm can do.** Every agent, Cursor and Gemini included, is told about every Realm tool and when to reach for it, and can ask Realm for the live list of what's switched on, connected and signed in, so it finishes more on its own.",
+        "**MCP calls show their app.** A Gmail search shows Gmail's mark, a Linear issue Linear's, and Realm's own tools show the pane they drive.",
+      ] },
+      { kind: "h", text: "Passwords" },
+      { kind: "ul", items: [
+        "**Autofill passwords in the browser.** Import your Passwords app export (or Chrome's, 1Password's, Bitwarden's), use the login keychain, or let Realm save a password after you sign in. Click an empty sign-in field for the site's passwords, and Touch ID fills them.",
+        "**Agents sign in without seeing the password.** An agent asks to fill a saved password; you approve it, or allow it for that site, and the password never reaches the model or the transcript.",
+        "**Settings ▸ Passwords** searches, shows, copies, edits and imports them.",
+      ] },
+      { kind: "h", text: "Spaces, worktrees and Review" },
+      { kind: "ul", items: [
+        "**Right-click a space** for the same menu its ⋯ opens. The prompter shows the space's own icon.",
+        "**A Worktrees tab** lists every checkout with its branch, changes, ahead and behind, and last activity. A new worktree starts from the branch you pick, and removing one says what goes and can keep its branch.",
+        "**Review can reject or close.** Reject sends your reason back to the role; Close works after you approve too, and takes back anything not sent yet.",
+      ] },
+      { kind: "h", text: "Connections" },
+      { kind: "ul", items: [
+        "**GitHub's MCP server connects.** Connect uses your GitHub CLI sign-in, a device code, or a pasted token, instead of asking for an app's client id and secret.",
+      ] },
+      { kind: "h", text: "Laya and everywhere else" },
+      { kind: "ul", items: [
+        "**Laya is on by default.** It installs itself once Realm is idle on Apple silicon with room to spare, and runs in Shadow. Turning it off keeps it off.",
+        "**An on switch stays blue under the pointer**, and the Realm mark shimmers while a page loads.",
+        "**Linux and Windows previews.** Realm's core (sessions, terminals, the browser, documents, connections) runs on Linux and Windows. These builds are unsigned and don't update themselves yet; Mac-only features are hidden there.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-2-0",
     title: "Realm v2.2.0",
     date: "2026-10-13",
