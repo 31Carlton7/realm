@@ -69,6 +69,10 @@ export function VideoPlayer({ file, variant = "inline", autoFocus = false, onExp
   const [rateMenu, setRateMenu] = useState(false);
   const rateButton = useRef<HTMLButtonElement>(null);
   const poster = usePoster(file.path);
+  const width = useWidth(root);
+  // A narrow frame (a clip at its own 320px, a grid of three in a message) keeps the transport that
+  // is used every second and folds the rest away; the keys still do all of it.
+  const size = width === null ? undefined : width < 300 ? "tiny" : width < 460 ? "narrow" : undefined;
 
   useEffect(() => { setSrc(file.path); setFailure(null); setCopy({ state: "idle" }); }, [file.path]);
 
@@ -232,7 +236,7 @@ export function VideoPlayer({ file, variant = "inline", autoFocus = false, onExp
 
   return (
     <div ref={root} className="media-video video-player" data-variant={variant} data-playing={playing || undefined}
-      data-active={active || undefined} data-full={full || undefined} role="group" aria-label={`Video ${name}`}
+      data-active={active || undefined} data-full={full || undefined} data-size={size} role="group" aria-label={`Video ${name}`}
       tabIndex={0} autoFocus={autoFocus} onKeyDown={onKeyDown} onPointerMove={wake}>
       <video
         key={`${src}#${attempt}`}
@@ -328,6 +332,19 @@ export function VideoPlayer({ file, variant = "inline", autoFocus = false, onExp
       {rateMenu && <Menu items={rateItems} anchorRef={rateButton} align="right" placement="up" onClose={() => setRateMenu(false)} label="Playback speed" />}
     </div>
   );
+}
+
+/** The element's laid-out width, kept current; null until it has been measured (and in jsdom). */
+function useWidth(ref: React.RefObject<HTMLElement | null>): number | null {
+  const [w, setW] = useState<number | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => setW(Math.round(e!.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return w;
 }
 
 /**
