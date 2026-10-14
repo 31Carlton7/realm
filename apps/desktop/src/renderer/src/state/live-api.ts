@@ -308,6 +308,8 @@ export const liveApi = (): Api => ({
   teamReview: (id) => rpc().call("team.review", { id }),
   teamReviewDecide: (id, decision) => rpc().call(decision === "approve" ? "team.reviewApprove" : decision === "done" ? "team.reviewDone" : "team.reviewDismiss", { id }),
   teamReviewRequestChanges: (id, note) => rpc().call("team.reviewRequestChanges", { id, note }),
+  teamReviewReject: (id, reason) => rpc().call("team.reviewReject", reason ? { id, reason } : { id }),
+  teamReviewClose: (id) => rpc().call("team.reviewClose", { id }),
   teamReviewEditItem: (id, itemId, body) => rpc().call("team.reviewEditItem", { id, itemId, body }),
   teamRecords: (spaceId) => rpc().call("team.records", { spaceId }),
   teamRecord: (spaceId, path) => rpc().call("team.record", { spaceId, path }),

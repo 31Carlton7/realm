@@ -20,6 +20,8 @@ export type TeamApi = {
   teamReview(id: string): Promise<TeamReviewDetail>;
   teamReviewDecide(id: string, decision: "approve" | "done" | "dismiss"): Promise<TeamReviewSummary>;
   teamReviewRequestChanges(id: string, note: string): Promise<TeamReviewSummary>;
+  teamReviewReject(id: string, reason: string | null): Promise<TeamReviewSummary>;
+  teamReviewClose(id: string): Promise<TeamReviewSummary>;
   teamReviewEditItem(id: string, itemId: string, body: string): Promise<TeamReviewSummary>;
   teamRecords(spaceId: string): Promise<TeamRecordSummary[]>;
   teamRecord(spaceId: string, path: string): Promise<TeamRecord>;
@@ -76,6 +78,10 @@ export type TeamSlice = {
   selectTeamReview(spaceId: string, id: string): void;
   decideTeamReview(id: string, decision: "approve" | "done" | "dismiss"): Promise<void>;
   requestTeamReviewChanges(id: string, note: string): Promise<void>;
+  /** No, with an optional reason the role is told; nothing of it goes out. */
+  rejectTeamReview(id: string, reason: string | null): Promise<void>;
+  /** Closed before it went out — approved and not yet sent included. */
+  closeTeamReview(id: string): Promise<void>;
   /** The person's edit of an item's text before approving: the batch's next version. */
   editTeamReviewItem(id: string, itemId: string, body: string): Promise<void>;
   /** The post sheet's one click: the press to main, then the ticket set for its slot. Throws what the
@@ -183,6 +189,14 @@ export function teamSlice<S extends Host & TeamSlice>(
     },
     async requestTeamReviewChanges(id, note) {
       const r = await api.teamReviewRequestChanges(id, note);
+      await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
+    },
+    async rejectTeamReview(id, reason) {
+      const r = await api.teamReviewReject(id, reason);
+      await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
+    },
+    async closeTeamReview(id) {
+      const r = await api.teamReviewClose(id);
       await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
     },
     async editTeamReviewItem(id, itemId, body) {

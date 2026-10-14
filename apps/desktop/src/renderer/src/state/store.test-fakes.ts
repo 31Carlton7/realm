@@ -1768,6 +1768,20 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) { s.state = "changes"; s.note = note; } }
       return r;
     },
+    teamReviewReject: async (id, reason) => {
+      calls.push(`teamReviewReject:${id}:${reason ?? ""}`);
+      const r = data.teamReviews[id]!;
+      r.state = "rejected"; r.note = reason;
+      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) { s.state = "rejected"; s.note = reason; } }
+      return r;
+    },
+    teamReviewClose: async (id) => {
+      calls.push(`teamReviewClose:${id}`);
+      const r = data.teamReviews[id]!;
+      r.state = "closed";
+      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) s.state = "closed"; }
+      return r;
+    },
     teamReviewEditItem: async (id, itemId, body) => {
       calls.push(`teamReviewEditItem:${id}:${itemId}:${body}`);
       const r = data.teamReviews[id]!;
