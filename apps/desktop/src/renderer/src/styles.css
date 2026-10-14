@@ -32,7 +32,7 @@
 .activity-call, .activity-duration, .activity-time, .agent-hint-text code, .cli-job-output,
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
-.documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
+.documents-rich-surface code, .documents-source, .env-branch, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id, .mp-about code,
 .msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .terminal-dock-title,
-.sim-detail, .upl-path, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
+.sim-detail, .upl-path, .wt-branch, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
 .subagent-where[data-branch] {
   letter-spacing: normal;
@@ -7099,6 +7099,17 @@ select { appearance: none; padding-right: 22px;
 .wt-hazard[data-risky] { color: var(--rl-danger); }
 .wt-note { margin: 0; font-size: 12px; color: var(--rl-text-faint); }
 .wt-stale, .wt-blocked { margin: 0; font-size: 12px; color: var(--rl-warning); }
+.wt-branch { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); }
+/* A choice that rides on the confirm: a box and the sentence it answers, the box on the text's first line. */
+.wt-choice { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.wt-choice > .checkbox { margin-top: 2px; flex: none; }
+.wt-sessions { display: flex; flex-direction: column; gap: 8px; }
+.wt-session-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.wt-session { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 13px; }
+.wt-session-title { flex: 1; min-width: 0; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-session-state { flex: none; font-size: 12px; color: var(--rl-text-dim); }
+/* The name a new worktree's branch will get, said as it is typed. */
+.wt-derived { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 
 /* Checkpoints (W4). Same vocabulary as the worktree sheet — hazard in danger ink, caveats in faint,
    the stale-count warning in amber — because they are the same question asked about a different
@@ -7165,6 +7176,14 @@ select { appearance: none; padding-right: 22px;
 .env-path { font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
 .page .env-path { font-size: 12px; }
 .env-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }
+/* The list's head carries the one way to make another: a worktree is made here, beside the ones there are. */
+.env-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.env-field-head > .btn { display: inline-flex; align-items: center; gap: 4px; }
+/* What git says now: the branch in mono, then only the counts that are not zero. */
+.env-git { grid-column: 1; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
+.env-branch { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.env-sync { font-variant-numeric: tabular-nums; }
+.env-when { font-variant-numeric: tabular-nums; }
 
 /* ── Space settings: MCP servers, auth and per-tool policy (W6) ───── */
 /* .mcp-row inherits .env-row's `1fr auto` grid as-is (no override needed) — but its three appended

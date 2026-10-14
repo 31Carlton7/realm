@@ -70,6 +70,7 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
   // The space's Sessions page, on the filter the opener names: "Show more" counts the live ones.
   const openSessions = (view: "active" | "archived") => { setSpaceSessionsView(space.id, view); openSpacePage(space.id, "sessions"); };
   const newSessionIn = useNewSessionIn();
+  const askNewWorktree = useApp((s) => s.askNewWorktree);
   // A plain folder has no worktrees, so its ⋯ offers no session in one (store.ts).
   const plainFolder = useApp((s) => spaceIsPlainFolder(s, space.id));
   const tint = useSpaceTint(space.color);
@@ -92,13 +93,15 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
   const reveal = window.realm?.files?.reveal;
   const items: MenuItem[] = [
     ...(plainFolder ? [] : [
-      { label: "New session in a worktree", icon: <Icon name="branch" size={16} />, onSelect: () => newSessionIn(space.id, true) },
+      // A sheet that asks the name and the branch to start from, and lands in a session there.
+      { label: "New session in a worktree…", icon: <Icon name="branch" size={16} />, onSelect: () => run(() => askNewWorktree(space.id)) },
       { kind: "separator" },
     ] satisfies MenuItem[]),
     // Offered only where the desktop bridge has it — a reveal that cannot happen is not offered.
     ...(reveal ? [{ label: "Show in Finder", icon: <Icon name="folder" size={16} />, onSelect: () => { void reveal(space.folderPath); } }] : []),
     { label: "Connections", icon: <Icon name="connections-page" size={16} />, onSelect: () => openSpacePage(space.id, "connections") },
     { label: "Memory", icon: <Icon name="context" size={16} />, onSelect: () => openSpacePage(space.id, "memory") },
+    ...(plainFolder ? [] : [{ label: "Worktrees", icon: <Icon name="branch" size={16} />, onSelect: () => openSpacePage(space.id, "worktrees") }]),
     // A team's home, or where a space becomes one.
     { label: team?.enabled ? "Team" : "Make this a team…", icon: <Icon name="team" size={16} />, onSelect: () => openSpacePage(space.id, "team") },
     { label: "Archived sessions", icon: <Icon name="archive" size={16} />, onSelect: () => openSessions("archived") },

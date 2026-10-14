@@ -1,7 +1,7 @@
 import { SPACE_COLORS, isRunTerminal, type Checkpoint, type Environment, type Run, type RunAttemptOutcome, type RunState, type Ship } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
-import { useApp, type SpacePageTab } from "../../state/store";
+import { spaceIsPlainFolder, useApp, type SpacePageTab } from "../../state/store";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
 import { McpSection } from "../../components/sidebar/McpSection";
@@ -28,37 +28,82 @@ const KIND_LABEL = { primary: "Space folder", checkout: "Linked checkout", workt
  * lives here too, because a worktree outlives the session that opened it: after that session is
  * deleted there is otherwise nothing left pointing at the directory.
  *
+ * Each card says what git says about the checkout now — the branch it is on, how many files are
+ * changed, how far it is ahead of and behind its upstream — and when anything last happened in it,
+ * so the one that can go is the one that has been quiet. The branch is asked of git, not read off
+ * the row: the space's folder is on whatever branch the person last checked out. The space folder
+ * leads, then the rest by last activity.
+ *
  * `environments.list` is empty for a brand-new space — the primary row is created lazily on first
  * use — so an empty list is a normal state and says so rather than rendering nothing.
  */
 export function EnvironmentList({ spaceId }: { spaceId: string }) {
   const environments = useApp((s) => s.environments);
   const sessions = useApp((s) => s.sessions);
+  const sessionStatus = useApp((s) => s.sessionStatus);
+  const sessionActivityAt = useApp((s) => s.sessionActivityAt);
+  const gitInfo = useApp((s) => s.gitInfo);
+  const spaceName = useApp((s) => s.spaces.find((x) => x.id === spaceId)?.name ?? "");
+  const plainFolder = useApp((s) => spaceIsPlainFolder(s, spaceId));
+  const refreshGitInfo = useApp((s) => s.refreshGitInfo);
   const openDiff = useApp((s) => s.openDiff);
   const askRemoveWorktree = useApp((s) => s.askRemoveWorktree);
+  const askNewWorktree = useApp((s) => s.askNewWorktree);
   const run = useApp((s) => s.run);
-  const list = Object.values(environments).filter((e) => e.spaceId === spaceId);
+  const mine = Object.values(environments).filter((e) => e.spaceId === spaceId);
+  const paths = mine.map((e) => e.path).join("\n");
+  // Asked once per checkout as the list appears; the server caches each answer for a few seconds.
+  useEffect(() => {
+    for (const path of paths ? paths.split("\n") : []) void run(() => refreshGitInfo(path));
+  }, [paths, refreshGitInfo, run]);
+  const now = Date.now();
+  const rows = mine.map((e) => {
+    const here = Object.values(sessions).filter((x) => x.environmentId === e.id);
+    const lastAt = Math.max(e.createdAt, ...here.map((x) => sessionActivityAt[x.id] ?? x.activityAt ?? x.updatedAt));
+    const running = here.filter((x) => sessionStatus[x.id] === "running" || sessionStatus[x.id] === "waiting_permission").length;
+    return { e, here: here.length, running, lastAt, git: gitInfo[e.path] };
+  }).sort((a, b) => (a.e.kind === "primary" ? -1 : b.e.kind === "primary" ? 1 : b.lastAt - a.lastAt));
   return (
-    <div className="field">
-      <span>Checkouts</span>
-      {list.length === 0
+    <div className="field env-field">
+      <div className="env-field-head">
+        <span>Checkouts</span>
+        {!plainFolder && (
+          <button type="button" className="btn" onClick={() => run(() => askNewWorktree(spaceId))}>
+            <Icon name="add" size={14} />New worktree…
+          </button>
+        )}
+      </div>
+      {rows.length === 0
         ? <p className="env-empty">This space has not run anything yet, so it has no checkout on record.</p>
         : (
           <ul className="env-list">
-            {list.map((e) => {
-              const here = Object.values(sessions).filter((s) => s.environmentId === e.id);
+            {rows.map(({ e, here, running, lastAt, git }) => {
+              const branch = git?.branch ?? e.branch;
               return (
-                <li key={e.id} className="env-row">
+                <li key={e.id} className="env-row" data-kind={e.kind}>
                   <div className="env-main">
                     <Icon name={e.kind === "worktree" ? "branch" : "folder"} size={14} />
-                    <span className="env-name">{e.branch ?? e.path.replace(/\/+$/, "").split("/").pop()}</span>
+                    <span className="env-name">{e.kind === "primary" ? spaceName : e.path.replace(/\/+$/, "").split("/").pop()}</span>
                     <span className="env-kind">{KIND_LABEL[e.kind]}</span>
                   </div>
+                  {branch && (
+                    // What git says now. Each count is drawn only when it is not zero; a clean checkout
+                    // on its upstream is just its branch.
+                    <div className="env-git" title={git ? undefined : "Not asked of git yet"}>
+                      <code className="env-branch">{branch}</code>
+                      {git && git.dirty > 0 && <span className="env-dirty">{git.dirty} changed</span>}
+                      {git && git.ahead > 0 && <span className="env-sync" title={`${git.ahead} ${git.ahead === 1 ? "commit" : "commits"} not on its upstream`}>↑{git.ahead}</span>}
+                      {git && git.behind > 0 && <span className="env-sync" title={`${git.behind} ${git.behind === 1 ? "commit" : "commits"} on its upstream it does not have`}>↓{git.behind}</span>}
+                    </div>
+                  )}
                   <div className="env-meta">
-                    <code className="env-path">{e.path}</code>
+                    <span className="env-when">{here === 0 ? `Made ${relativeTime(e.createdAt, now)}` : `Active ${relativeTime(lastAt, now)}`}</span>
+                    <span className="env-sessions">
+                      {here === 0 ? "no sessions" : here === 1 ? "1 session" : `${here} sessions`}{running > 0 ? ` · ${running} running` : ""}
+                    </span>
                     {/* A RANGE Realm reserved, not a claim about what is listening on it. */}
                     {e.portBlockStart !== null && <span className="env-ports">ports {e.portBlockStart}–{e.portBlockStart + 9} reserved</span>}
-                    <span className="env-sessions">{here.length === 0 ? "no sessions" : here.length === 1 ? "1 session" : `${here.length} sessions`}</span>
+                    <code className="env-path">{e.path}</code>
                   </div>
                   <div className="env-actions">
                     <button type="button" className="btn-quiet" onClick={() => run(() => openDiff(e.id))}>Changes</button>
@@ -75,8 +120,8 @@ export function EnvironmentList({ spaceId }: { spaceId: string }) {
   );
 }
 
-/** The General tab — the retired sheet's general form, verbatim: name, icon, color, profile, the
- *  checkout list, and the delete-space danger zone. */
+/** The General tab — the retired sheet's general form: name, icon, color, profile, and the
+ *  delete-space danger zone. The checkout list has a tab of its own, Worktrees. */
 function GeneralTab({ spaceId }: { spaceId: string }) {
   const space = useApp((s) => s.spaces.find((x) => x.id === spaceId));
   const profiles = useApp((s) => s.profiles);
@@ -115,7 +160,6 @@ function GeneralTab({ spaceId }: { spaceId: string }) {
           {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </label>
-      <EnvironmentList spaceId={space.id} />
       <div className="form-actions danger-zone">
         {confirmDelete ? (
           <>
@@ -542,6 +586,7 @@ const PAGE_TABS: { id: SpacePageTab; label: string; icon: IconName }[] = [
   { id: "scripts", label: "Scripts", icon: "terminal" },
   { id: "sandbox", label: "Sandbox", icon: "shield" },
   { id: "sessions", label: "Sessions", icon: "session" },
+  { id: "worktrees", label: "Worktrees", icon: "branch" },
   { id: "tasks", label: "Tasks", icon: "plan" },
   { id: "history", label: "History", icon: "clock" },
 ];
@@ -652,6 +697,7 @@ export function SpacePage({ item }: PaneProps) {
           {tab === "scripts" && <ScriptsPanel spaceId={spaceId} />}
           {tab === "sandbox" && <SandboxPanel spaceId={spaceId} />}
           {tab === "sessions" && <SessionsList spaceId={spaceId} />}
+          {tab === "worktrees" && <div className="form"><EnvironmentList spaceId={spaceId} /></div>}
           {tab === "tasks" && <TasksTab spaceId={spaceId} />}
           {tab === "history" && <HistoryTab spaceId={spaceId} />}
           </>}

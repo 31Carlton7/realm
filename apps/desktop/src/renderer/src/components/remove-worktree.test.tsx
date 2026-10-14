@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { Environment, WorktreeStatus } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../state/store";
-import { fakeApi, session } from "../state/store.test-fakes";
+import { fakeApi, item, session } from "../state/store.test-fakes";
 import { RemoveWorktreeSheet, hazardSentence } from "./RemoveWorktreeSheet";
 
 const PATH = "/tmp/worktrees/s1/fix-login";
@@ -31,15 +31,39 @@ describe("hazardSentence", () => {
     expect(hazardSentence(status({ dirtyFiles: 3, unpushedCommits: 2 }))).toBe("This will destroy 3 uncommitted files and 2 unpushed commits. There is no undo.");
     expect(hazardSentence(status())).toMatch(/Nothing here is unsaved/);
   });
+
+  it("leaves the commits out when the branch is kept, because they stay on it", () => {
+    expect(hazardSentence(status({ dirtyFiles: 1, unpushedCommits: 2 }), false)).toBe("This will destroy 1 uncommitted file. There is no undo.");
+    expect(hazardSentence(status({ unpushedCommits: 2 }), false)).toBe("Nothing is lost: the 2 commits stay on the branch.");
+  });
 });
+
+const branchBox = () => screen.getByRole("checkbox", { name: /Also delete the branch/ });
 
 describe("RemoveWorktreeSheet", () => {
   it("names what would be lost before asking", async () => {
     await open(status({ dirtyFiles: 2, unpushedCommits: 1 }));
+    fireEvent.click(branchBox());
     expect(screen.getByText("This will destroy 2 uncommitted files and 1 unpushed commit. There is no undo.")).toBeInTheDocument();
-    expect(screen.getByText("realm/fix-login")).toBeInTheDocument();
+    expect(document.querySelector(".wt-target")).toHaveTextContent("realm/fix-login");
     expect(screen.getByText(PATH)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove and lose that work" })).toBeEnabled();
+  });
+
+  it("keeps a branch with unpushed commits unless asked, and deletes one that holds nothing of its own", async () => {
+    // THE MUTANT: the branch box ticked whatever is on it — the default would delete unpushed work.
+    const { api } = await open(status({ unpushedCommits: 2 }));
+    expect(branchBox()).not.toBeChecked();
+    expect(screen.getByText("Nothing is lost: the 2 commits stay on the branch.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(api.calls).toContain("removeWorktree:env1|0,2|keep-branch"));
+  });
+
+  it("deletes the branch of a worktree that holds nothing of its own", async () => {
+    const { api } = await open(status());
+    expect(branchBox()).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(api.calls).toContain("removeWorktree:env1|0,0"));
   });
 
   /**
@@ -48,6 +72,7 @@ describe("RemoveWorktreeSheet", () => {
    */
   it("re-reads the hazard at the moment of confirming and sends those numbers", async () => {
     const { api } = await open(status({ dirtyFiles: 2, unpushedCommits: 1 }));
+    fireEvent.click(branchBox());
     const before = api.calls.filter((c) => c.startsWith("worktreeStatus:")).length;
     fireEvent.click(screen.getByRole("button", { name: "Remove and lose that work" }));
     await waitFor(() => expect(api.calls).toContain("removeWorktree:env1|2,1"));
@@ -59,6 +84,7 @@ describe("RemoveWorktreeSheet", () => {
 
   it("removes NOTHING when the tree moved while the dialog was open, and shows the new numbers", async () => {
     const { api, store } = await open(status({ dirtyFiles: 2, unpushedCommits: 1 }));
+    fireEvent.click(branchBox());
     // The agent wrote another file since the sheet opened. "Yes" now means something else.
     api.data.worktreeStatus.env1 = status({ dirtyFiles: 3, unpushedCommits: 1 });
     fireEvent.click(screen.getByRole("button", { name: "Remove and lose that work" }));
@@ -78,10 +104,53 @@ describe("RemoveWorktreeSheet", () => {
     await waitFor(() => expect(api.calls).toContain("removeWorktree:env1|0,0"));
   });
 
-  it("refuses at the button when a session still runs there", async () => {
+  describe("with sessions still in it", () => {
+    async function openWith(statusOf: Record<string, "idle" | "running">) {
+      const ids = Object.keys(statusOf);
+      const api = fakeApi({
+        environments: { s1: [env] },
+        sessions: ids.map((id) => session(id, "s1", { environmentId: "env1", title: `Session ${id}` })),
+        items: { s1: ids.map((id) => item(`i-${id}`, "s1", { kind: "session", refId: id, title: `Session ${id}` })) },
+        worktreeStatus: { env1: status({ removable: false, blockedBy: "ENVIRONMENT_IN_USE" }) },
+      });
+      const store = createAppStore(api);
+      await store.getState().boot();
+      store.setState({ sessionStatus: statusOf });
+      await store.getState().askRemoveWorktree("env1");
+      render(<StoreContext.Provider value={store}><RemoveWorktreeSheet environmentId="env1" /></StoreContext.Provider>);
+      return { api, store };
+    }
+
+    it("names them, and removes nothing until deleting them too is ticked", async () => {
+      // THE MUTANTS: a Remove that is live over sessions the server will refuse it for; one that
+      // deletes them without asking.
+      const { api, store } = await openWith({ a: "idle", b: "idle" });
+      expect(screen.getByText("Session a")).toBeInTheDocument();
+      expect(screen.getByText("Session b")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("checkbox", { name: /Delete these 2 sessions/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(api.calls).toContain("removeWorktree:env1|0,0"));
+      // The sessions went first, through the path a session is deleted by.
+      expect(api.calls.indexOf("deleteItem:i-a")).toBeLessThan(api.calls.indexOf("removeWorktree:env1|0,0"));
+      expect(api.calls).toContain("deleteItem:i-b");
+      expect(store.getState().sheet).toBeNull();
+    });
+
+    it("offers Stop on one that is running, and will not delete it while it runs", async () => {
+      const { api } = await openWith({ a: "running" });
+      expect(screen.getByRole("checkbox", { name: /Delete this session/ })).toBeDisabled();
+      expect(screen.getByText("A session here is running. Stop it first.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+      await waitFor(() => expect(api.calls).toContain("interrupt:a"));
+    });
+  });
+
+  it("refuses at the button when a session this window does not hold still works there", async () => {
     const { api } = await open(status({ removable: false, blockedBy: "ENVIRONMENT_IN_USE" }));
     expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
-    expect(screen.getByText("A session still runs here. Close it first.")).toBeInTheDocument();
+    expect(screen.getByText(/A session in another profile still works here/)).toBeInTheDocument();
     expect(api.calls.some((c) => c.startsWith("removeWorktree:"))).toBe(false);
   });
 

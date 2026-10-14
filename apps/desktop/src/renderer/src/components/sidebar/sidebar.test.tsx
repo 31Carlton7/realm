@@ -248,11 +248,17 @@ describe("a space's section", () => {
     expect(reveal).toHaveBeenCalledWith("/work/homework");
   });
 
-  it("starts a session in a fresh worktree of its space from the ⋯", async () => {
-    const { api } = await mount(home({ gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } }));
+  it("asks for a session in a fresh worktree of its space from the ⋯ — a name and a branch to start from", async () => {
+    const { api, store } = await mount(home({ gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } },
+      branches: { s2: { branches: ["main"], current: "main" } } }));
     fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
-    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "New session in a worktree" }));
-    await waitFor(() => expect(api.calls).toContain("createWorktree:s2"));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "New session in a worktree…" }));
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-worktree", spaceId: "s2" }));
+    expect(api.calls).toContain("listBranches:s2");
+    await exited();
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Worktrees" }));
+    await waitFor(() => expect(store.getState().spacePageTab.s2).toBe("worktrees"));
   });
 
   it("offers no session in a worktree from the ⋯ of a space that is a plain folder", async () => {
@@ -260,7 +266,8 @@ describe("a space's section", () => {
     await act(async () => { await store.getState().refreshGitInfo("/work/homework"); });
     fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
     const menu = await screen.findByRole("menu", { name: "Homework" });
-    expect(within(menu).queryByRole("menuitem", { name: "New session in a worktree" })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: /New session in a worktree/ })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: "Worktrees" })).toBeNull();
     expect(within(menu).getByRole("menuitem", { name: "Space settings" })).toBeInTheDocument();
   });
 
