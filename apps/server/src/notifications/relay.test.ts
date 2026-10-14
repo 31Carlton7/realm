@@ -6,7 +6,7 @@ import { openDatabase, type Db } from "../db/database";
 import { NotificationsStore } from "../store/notifications";
 import { SettingsStore } from "../store/settings";
 import { NotificationsService } from "./service";
-import { NotificationRelay, relayText, type RelayTransport } from "./relay";
+import { NotificationRelay, relayText, type PhoneTransport, type RelayedNotification, type RelayTransport } from "./relay";
 import type { RpcServer } from "../rpc/server";
 
 let db: Db; let settings: SettingsStore; let svc: NotificationsService;
@@ -102,4 +102,60 @@ describe("relayText names where the work is", () => {
       .toBe("Realm: Fix the login flow (Versed) needs your OK");
   });
 
+});
+
+describe("the phone transport (Plan 28)", () => {
+  type Phone = PhoneTransport & { sent: RelayedNotification[]; on: boolean; broken: boolean };
+  const setup = () => {
+    const phone: Phone = {
+      sent: [], on: true, broken: false,
+      wants() { return this.on; },
+      send(n) { if (this.broken) throw new Error("the gateway fell over"); this.sent.push(n); },
+    };
+    const rpc = { broadcast: () => {} } as unknown as RpcServer;
+    const service = new NotificationsService({ store: new NotificationsStore(db), settings, rpc,
+      relay: new NotificationRelay({ settings, transport: { imessage: async (to, text) => { sent.push({ via: "imessage", to, text }); }, slack: async () => {} }, phone, log: (l) => logs.push(l) }) });
+    return { phone, service };
+  };
+  const question = (requestId: string) => sessionEvent("permission_request", { requestId, toolName: "AskUserQuestion", input: {}, title: "Allow AskUserQuestion?", suggestions: [],
+    ask: { asker: { kind: "agent", name: "Claude" }, mode: "question", questions: [{ id: "db", prompt: "Which database should this use?", kind: "choice", options: [{ value: "Postgres", label: "Postgres" }] }] } });
+
+  it("hands every surfaced moment it relays to the phone transport, with the row it came from", () => {
+    const { phone, service } = setup();
+    service.handleSessionEvent(session(), ask("req-1"));
+    service.handleSessionEvent(session(), ask("req-1"));
+    service.mcpServerStatus("m1", "linear", "error");
+    const [row] = service.list({ cursor: null, limit: 10 }).notifications.filter((n) => n.category === "permission");
+    // Once — an absorbed repeat is one story — and never for a category a person need not come back for.
+    expect(phone.sent).toEqual([{ category: "permission", title: "Fix the login flow", body: "Run ls", spaceName: null,
+      id: row!.id, refId: "req-1", sessionId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }]);
+  });
+
+  it("says what the row cannot: that a request is a question, what it asks, and that a turn failed", () => {
+    const { phone, service } = setup();
+    service.handleSessionEvent(session(), question("req-q"));
+    service.handleSessionEvent(session(), sessionEvent("permission_request", { requestId: "req-bare", toolName: "AskUserQuestion", input: {}, title: "", suggestions: [] }));
+    service.handleSessionEvent(session({ status: "running" }), sessionEvent("status", { status: "error" }));
+    service.handleSessionEvent(session({ id: "01ARZ3NDEKTSV4RRFFQ69G5FAW", status: "running" }), sessionEvent("status", { status: "idle" }));
+    expect(phone.sent.map((n) => n.hint ?? null)).toEqual([
+      { kind: "question", line: "Which database should this use?" },
+      { kind: "question" },
+      { kind: "failed" },
+      null,
+    ]);
+  });
+
+  it("sends nothing to a phone transport that does not want it, and a broken one costs the others nothing", async () => {
+    const { phone, service } = setup();
+    settings.set(NOTIFICATIONS_IMESSAGE_KEY, "+15551234567");
+    phone.on = false;
+    service.handleSessionEvent(session(), ask("req-1"));
+    expect(phone.sent).toEqual([]);
+    phone.on = true;
+    phone.broken = true;
+    expect(() => service.handleSessionEvent(session(), ask("req-2"))).not.toThrow();
+    await flush();
+    expect(sent.map((s) => s.via)).toEqual(["imessage", "imessage"]);
+    expect(logs).toEqual(["[notifications] iPhone relay failed: the gateway fell over"]);
+  });
 });

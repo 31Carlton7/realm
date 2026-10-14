@@ -15,7 +15,7 @@ vi.mock("../../rpc/client", () => ({
 }));
 
 import { SettingsPage } from "./SettingsPage";
-import { SETTINGS_GROUPS, SETTINGS_INDEX, searchSettings, type SettingsTab } from "./settings-index";
+import { NO_FACTS, SETTINGS_GROUPS, SETTINGS_INDEX, searchSettings, type SettingsTab } from "./settings-index";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
 import type { AgentProbe } from "../../state/store";
@@ -44,7 +44,7 @@ describe("the rail is grouped", () => {
     const seen = SETTINGS_GROUPS.map((g) => [g.label, within(screen.getByRole("group", { name: g.label }))
       .getAllByRole("radio").map((r) => r.closest("label")!.textContent)]);
     expect(seen).toEqual([
-      ["You", ["General", "Appearance", "Keys", "Notifications"]],
+      ["You", ["General", "Appearance", "Keys", "Notifications", "Devices"]],
       ["Engines", ["Engines", "Usage"]],
       ["Browser", ["Passwords"]],
       ["Computer", ["Permissions", "Computer use", "Lab"]],
@@ -228,7 +228,7 @@ describe("the index and the pages agree", () => {
       await mount();
       fireEvent.click(screen.getByRole("radio", { name: label(tab) }));
       const content = document.querySelector(".page-content") as HTMLElement;
-      const wanted = SETTINGS_INDEX.filter((e) => e.tab === tab && !e.page && e.available?.() !== false).map((e) => e.id);
+      const wanted = SETTINGS_INDEX.filter((e) => e.tab === tab && !e.page && e.available?.(NO_FACTS) !== false).map((e) => e.id);
       await waitFor(() => {
         const present = new Set([...content.querySelectorAll("[data-setting]")].map((el) => el.getAttribute("data-setting")));
         for (const id of wanted) expect(present.has(id), `${tab}: no row carries "${id}"`).toBe(true);

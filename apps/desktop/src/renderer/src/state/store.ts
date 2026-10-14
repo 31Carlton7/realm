@@ -49,6 +49,7 @@ import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browse
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
 import type { AskAnswers } from "@realm/contracts";
+import { NOTIFICATIONS_IPHONE_KEY, type PairRequest, type PairingWindow, type RemoteStatus } from "@realm/contracts";
 import { teamSlice, type TeamApi, type TeamSlice } from "./team-slice";
 import { labSlice, type LabApi, type LabSlice } from "./lab-slice";
 
@@ -715,6 +716,18 @@ export type Api = TeamApi & LabApi & {
   listNotifications(cursor: string | null, limit?: number): Promise<{ notifications: Notification[]; nextCursor: string | null; unread: number }>;
   /** `notifications.markRead` — named ids, or the whole (global) feed. */
   markNotificationsRead(input: { ids?: string[]; all?: boolean }): Promise<{ ok: true; unread: number }>;
+  /** Realm Mobile (Plan 28): `remote.status` — the link to the relay, the paired phones and any open
+   *  pairing window. */
+  remoteStatus(): Promise<RemoteStatus>;
+  /** `remote.pair.start` — opens a pairing window (replacing any other) and returns the link its QR
+   *  code carries. */
+  startRemotePairing(): Promise<PairingWindow>;
+  /** `remote.pair.cancel` — closes the open pairing window, whoever opened it. */
+  cancelRemotePairing(): Promise<void>;
+  /** `remote.pair.answer` — the owner's answer to a phone waiting to pair. Only a yes adds it. */
+  answerRemotePairing(requestId: string, accept: boolean): Promise<void>;
+  /** `remote.phones.remove` — the relay forgets the phone and its channel closes at once. */
+  removeRemotePhone(phoneId: string): Promise<void>;
   /** `sessions.markSeen` — how far this user has read a session's transcript. */
   markSessionSeen(id: string, seq: number): Promise<void>;
   /** `review.request` (Plan 13 W3): spawn the read-only reviewer over this environment. Returns as
@@ -1394,6 +1407,18 @@ export type AppState = TeamSlice & LabSlice & {
   /** Where notifications are relayed beyond this Mac (`NOTIFICATIONS_IMESSAGE_KEY`,
    *  `NOTIFICATIONS_SLACK_WEBHOOK_KEY`). Empty strings mean nowhere, which is the default. */
   notificationRelay: { imessage: string; slackWebhook: string };
+  /** Whether those moments also go to paired phones as pushes (`NOTIFICATIONS_IPHONE_KEY`). On unless
+   *  someone switched it off: pairing a phone was the opt-in. */
+  iphoneNotifications: boolean;
+  /** Realm Mobile (Plan 28) as `remote.status` last answered and `remote.changed` keeps it: the link to
+   *  the relay, the paired phones and any open pairing window. Null until Settings first reads it. */
+  remote: RemoteStatus | null;
+  /** Why the last `remote.status` read failed, for the Devices page to say; null once one lands. */
+  remoteError: string | null;
+  /** A phone that proved it holds the code and waits on the owner's answer (`remote.pairRequest`).
+   *  Held until it is answered, or until its pairing window closes — and never let go because a sheet
+   *  showing it was put away, which would leave the phone waiting on a question nobody can see. */
+  pairRequest: PairRequest | null;
   soundVolume: number;
   /** What the probes last said, one row per agent. Mostly a whole `agents.probe`, but `probeAgent`
    *  upserts single rows into it, so a kind missing from it is not yet known to be missing — that
@@ -2888,6 +2913,26 @@ export type AppState = TeamSlice & LabSlice & {
   /** Settings→App: the iMessage handle and Slack webhook the server relays to. Written through as
    *  typed; the server reads them at send time, so there is nothing to restart. */
   setNotificationRelay(patch: Partial<{ imessage: string; slackWebhook: string }>): Promise<void>;
+  /** Settings ▸ Notifications: whether paired phones get the relayed moments as pushes. */
+  setIphoneNotifications(enabled: boolean): Promise<void>;
+  /** Read Realm Mobile's status. Never throws: a failed read is kept as `remoteError` for the Devices
+   *  page to say, and everywhere else a status nobody could read is a Mac with no phone. */
+  refreshRemote(): Promise<void>;
+  /** The `remote.changed` handler: the whole status, applied as it stands. A held pair request whose
+   *  window has closed goes with it — answered elsewhere, expired, cancelled or replaced. */
+  applyRemoteChanged(status: RemoteStatus): void;
+  /** The `remote.pairRequest` handler: hold the phone's request until someone answers it. */
+  applyPairRequest(request: PairRequest): void;
+  /** Open a pairing window and hand back its link. The held status takes the window at once, so the
+   *  page that opened it knows the window is its own before the broadcast says so. */
+  startPairing(): Promise<PairingWindow>;
+  /** Close the open pairing window. */
+  cancelPairing(): Promise<void>;
+  /** Answer the held request — only ever from a Pair or Cancel the owner clicked. Let go once the
+   *  server has the answer; a failed answer stays held, so it can be given again. */
+  answerPairRequest(requestId: string, accept: boolean): Promise<void>;
+  /** Remove a paired phone: the relay forgets it and its channel closes. */
+  removePhone(phoneId: string): Promise<void>;
   setSoundVolume(volume: number): Promise<void>;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
@@ -4436,7 +4481,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
-      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null,
+      notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
 
       activeSpace() { const id = get().activeSpaceId; return id ? get().spaces.find((s) => s.id === id) : undefined; },
       profileSpaces() { const pid = get().activeProfileId; return pid === null ? [] : get().spaces.filter((s) => s.profileId === pid); },
@@ -4525,12 +4570,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // at boot at all because the first broadcast can arrive long before anyone opens Settings.
         // A failed read keeps the default-on answer: a preference nobody could read is not a
         // preference to switch the feature off.
-        const [desktop, sound, volume, imessage, slackWebhook, midTurn] = await Promise.all([
+        const [desktop, sound, volume, imessage, slackWebhook, iphone, midTurn] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DESKTOP_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_SOUND_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_IMESSAGE_KEY).catch(() => null),
           api.getSetting(NOTIFICATIONS_SLACK_WEBHOOK_KEY).catch(() => null),
+          api.getSetting(NOTIFICATIONS_IPHONE_KEY).catch(() => null),
           api.getSetting(MID_TURN_MODE_KEY).catch(() => null),
         ]);
         // Read separately and defaulted the OTHER way: a preference nobody could read must not switch
@@ -4566,7 +4612,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ openFilesIn: isOpenFilesIn(openIn) ? openIn : null, editors: await api.listEditors().catch(() => []) });
         const str = (v: unknown) => (typeof v === "string" ? v : "");
         set({ desktopNotifications: desktop !== false, soundCues: sound !== false, soundVolume: cueVolume(volume),
-          notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) }, midTurnMode: resolveMidTurnMode(midTurn) });
+          notificationRelay: { imessage: str(imessage), slackWebhook: str(slackWebhook) }, iphoneNotifications: iphone !== false,
+          midTurnMode: resolveMidTurnMode(midTurn) });
         // The sidebar's unread pill needs the count before the page is ever opened. One row, not a
         // page — the count rides every list result. A badge, not a dependency: a failure here must
         // not take boot down with it.
@@ -5664,6 +5711,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // The lists of sub-agents are tables, not a registry, so they survived — but every child that
         // began, settled or was collected while the socket was down went unannounced.
         for (const id of Object.keys(get().subagents)) get().run(() => get().refreshSubagents(id));
+        // Realm Mobile's status, if anything here has read it: a phone added or a window closed while
+        // the socket was down went unannounced, and a held pair request may be over.
+        if (get().remote !== null || get().remoteError !== null) void get().refreshRemote();
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
       setKeybindings(rules) { set({ keybindings: rules }); },
@@ -7619,15 +7669,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().openDestinationPage("library-page");
       },
       async refreshSettingsPrefs() {
-        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn] = await Promise.all([
+        const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),
           api.getSetting(NOTIFICATIONS_SOUND_KEY), api.getSetting(NOTIFICATIONS_SOUND_VOLUME_KEY), api.getSetting(MID_TURN_MODE_KEY),
+          api.getSetting(NOTIFICATIONS_IPHONE_KEY),
         ]);
         const disabledCategories = (Array.isArray(rawDisabled) ? rawDisabled : [])
           .filter((c): c is NotificationCategory => (NOTIFICATION_CATEGORIES as readonly string[]).includes(c as string));
         const defaultPermissionMode = PERMISSION_MODES.some((m) => m.id === rawMode) ? (rawMode as string) : "default";
         set({ settingsPrefs: { disabledCategories, defaultPermissionMode }, midTurnMode: resolveMidTurnMode(rawMidTurn), desktopNotifications: rawDesktop !== false,
-          soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume) });
+          soundCues: rawSound !== false, soundVolume: cueVolume(rawVolume), iphoneNotifications: rawIphone !== false });
       },
       async refreshModelFavorites() {
         const raw = await api.getSetting(MODEL_FAVORITES_KEY);
@@ -7912,6 +7963,45 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ notificationRelay: next });
         if (patch.imessage !== undefined) await api.setSetting(NOTIFICATIONS_IMESSAGE_KEY, patch.imessage.trim());
         if (patch.slackWebhook !== undefined) await api.setSetting(NOTIFICATIONS_SLACK_WEBHOOK_KEY, patch.slackWebhook.trim());
+      },
+      async setIphoneNotifications(enabled) {
+        await api.setSetting(NOTIFICATIONS_IPHONE_KEY, enabled);
+        set({ iphoneNotifications: enabled });
+      },
+      async refreshRemote() {
+        try {
+          get().applyRemoteChanged(await api.remoteStatus());
+        } catch (e) {
+          set({ remoteError: e instanceof Error ? e.message : String(e) });
+        }
+      },
+      applyRemoteChanged(status) {
+        const held = get().pairRequest;
+        // A request belongs to its window. Once the status shows that window gone, the phone behind it
+        // has had its answer from somewhere — another window, the clock, a cancel or a new code.
+        const over = held !== null && status.pairing?.windowId !== held.windowId;
+        set({ remote: status, remoteError: null, ...(over ? { pairRequest: null } : {}) });
+      },
+      applyPairRequest(request) { set({ pairRequest: request }); },
+      async startPairing() {
+        const pairing = await api.startRemotePairing();
+        const held = get().remote;
+        if (held) get().applyRemoteChanged({ ...held, pairing });
+        return pairing;
+      },
+      async cancelPairing() {
+        await api.cancelRemotePairing();
+        const held = get().remote;
+        if (held?.pairing) get().applyRemoteChanged({ ...held, pairing: null });
+      },
+      async answerPairRequest(requestId, accept) {
+        await api.answerRemotePairing(requestId, accept);
+        if (get().pairRequest?.requestId === requestId) set({ pairRequest: null });
+      },
+      async removePhone(phoneId) {
+        await api.removeRemotePhone(phoneId);
+        const held = get().remote;
+        if (held) set({ remote: { ...held, phones: held.phones.filter((p) => p.phoneId !== phoneId) } });
       },
       async setTerminalCursorBlink(on) {
         set({ terminalCursorBlink: on });

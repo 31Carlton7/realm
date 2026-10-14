@@ -3248,6 +3248,8 @@ describe("light mode", () => {
     ["img.avatar", "paired with a light override"],
     // The picture in the media viewer, on the viewer's own ground — paired the same way.
     [".media-viewer-img", "paired with a light override"],
+    // The pairing QR code in Settings ▸ Devices: a picture on the sheet, paired the same way.
+    [".pairing-code", "paired with a light override"],
     // A page of a PDF, on the pane's own ground — its outline paired the same way…
     [".pdf-page", "paired with a light override"],
     // …and the paper itself, white in both modes: the file is the file, never inverted for dark.

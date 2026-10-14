@@ -87,6 +87,7 @@
     "tailwindcss": "^4.3.3",
     "tldts": "6.1.86",
     "unicode-emoji-json": "^0.9.0",
+    "uqr": "0.1.3",
     "vite": "^6.0.0",
     "zustand": "^5.0.0"
   },

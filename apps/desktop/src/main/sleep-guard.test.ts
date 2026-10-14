@@ -55,3 +55,55 @@ describe("keeping the Mac awake while agents work", () => {
     expect(log).toEqual([]);
   });
 });
+
+describe("keeping the Mac reachable while a session waits on a paired phone (Plan 28)", () => {
+  it("holds while a session waits on its owner, but only with a phone paired and the preference on", () => {
+    const { b, log } = blocker();
+    const g = new SleepGuard(b);
+    g.setPreference(true);
+    g.setWaiting(1);
+    // THE always-awake mutant: hold for a waiting session with no phone to answer it from. Only someone
+    // at this Mac can answer it then, and the Mac would just never sleep.
+    expect(log).toEqual([]);
+    g.setPhones(1);
+    expect(log).toEqual(["start:prevent-app-suspension"]);
+    g.setPreference(false);
+    expect(log.at(-1)).toBe("stop:1");
+  });
+
+  it("lets go once the answer comes, or the last phone is removed", () => {
+    const { b, log } = blocker();
+    const g = new SleepGuard(b);
+    g.setPreference(true);
+    g.setPhones(1);
+    g.setWaiting(2);
+    g.setWaiting(0);
+    expect(log).toEqual(["start:prevent-app-suspension", "stop:1"]);
+    g.setWaiting(1);
+    g.setPhones(0);
+    expect(log).toEqual(["start:prevent-app-suspension", "stop:1", "start:prevent-app-suspension", "stop:2"]);
+    expect(g.holding).toBe(false);
+  });
+
+  it("holds once across working and waiting together, and keeps holding while either is still true", () => {
+    const { b, log } = blocker();
+    const g = new SleepGuard(b);
+    g.setPreference(true);
+    g.setPhones(1);
+    g.setWorking(1);
+    g.setWaiting(1);
+    g.setWorking(0);
+    expect(log).toEqual(["start:prevent-app-suspension"]);
+    g.setWaiting(0);
+    expect(log.at(-1)).toBe("stop:1");
+  });
+
+  it("reads counts it cannot trust as none", () => {
+    const { b, log } = blocker();
+    const g = new SleepGuard(b);
+    g.setPreference(true);
+    g.setWaiting(3);
+    for (const junk of [Number.NaN, -1, Number.POSITIVE_INFINITY]) g.setPhones(junk);
+    expect(log).toEqual([]);
+  });
+});

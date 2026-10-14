@@ -1,6 +1,9 @@
 /** The part of Electron's `powerSaveBlocker` this needs, so a test can stand in for it. */
 export type PowerBlocker = { start(type: "prevent-app-suspension"): number; stop(id: number): void };
 
+/** A count it cannot trust — not a number, negative, endless — is none. */
+const trusted = (n: number): number => (Number.isFinite(n) && n > 0 ? n : 0);
+
 /**
  * Keeps the Mac awake while an agent is working, when the user has asked for that.
  *
@@ -10,6 +13,10 @@ export type PowerBlocker = { start(type: "prevent-app-suspension"): number; stop
  * Held at most once — a second start would leak an assertion the next stop never releases — and
  * released the moment either input drops, so a Mac never stays awake for a turn that has ended.
  *
+ * With a phone paired (Realm Mobile, Plan 28) a session waiting on its owner counts as well: the
+ * answer can come from the phone, and a Mac asleep cannot hear it. Without one, a waiting session is
+ * an answer only someone at this Mac can give, and keeping it awake for that would just be staying on.
+ *
  * `prevent-app-suspension` rather than `prevent-display-sleep`: the work needs the system awake, not
  * the screen lit, and a laptop left running an agent overnight should still put its display out.
  */
@@ -17,16 +24,22 @@ export class SleepGuard {
   private id: number | null = null;
   private wanted = false;
   private working = 0;
+  private waiting = 0;
+  private phones = 0;
 
   constructor(private readonly blocker: PowerBlocker) {}
 
   setPreference(on: boolean): void { this.wanted = on; this.apply(); }
-  setWorking(count: number): void { this.working = Number.isFinite(count) && count > 0 ? count : 0; this.apply(); }
+  setWorking(count: number): void { this.working = trusted(count); this.apply(); }
+  /** Sessions waiting on the owner: a permission, a question or a plan to approve (`needsYou`). */
+  setWaiting(count: number): void { this.waiting = trusted(count); this.apply(); }
+  /** Phones paired with this Mac, from `remote.status` and `remote.changed`. */
+  setPhones(count: number): void { this.phones = trusted(count); this.apply(); }
 
   get holding(): boolean { return this.id !== null; }
 
   private apply(): void {
-    const hold = this.wanted && this.working > 0;
+    const hold = this.wanted && (this.working > 0 || (this.phones > 0 && this.waiting > 0));
     if (hold && this.id === null) this.id = this.blocker.start("prevent-app-suspension");
     else if (!hold && this.id !== null) { this.blocker.stop(this.id); this.id = null; }
   }
