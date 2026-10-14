@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next"
 import { Inter, JetBrains_Mono } from "next/font/google"
 
+import { Passage } from "@/components/passage/Passage"
+import { PointerLight } from "@/components/PointerLight"
 import { site } from "@/lib/site"
 
 import "./globals.css"
@@ -25,6 +27,13 @@ export const metadata: Metadata = {
     description: site.description,
   },
   twitter: { card: "summary_large_image", title: site.name, description: site.description },
+  // Drawn by scripts/render-icons.mjs. The one-colour mark follows the browser's colour scheme;
+  // app/favicon.ico, added by file name, is the fallback for browsers that do not read SVG.
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180" }],
+    other: [{ rel: "mask-icon", url: "/mask-icon.svg", color: "#3b7cf0" }],
+  },
 }
 
 export const viewport: Viewport = {
@@ -35,7 +44,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        {children}
+        <Passage />
+        <PointerLight />
+      </body>
     </html>
   )
 }

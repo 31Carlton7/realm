@@ -7,7 +7,7 @@
     "dev": "next dev --port 3100",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && node scripts/check-contrast.mjs",
     "capture:product": "node scripts/capture-product.mjs",
     "capture:share": "node scripts/capture-share-images.mjs",
     "capture:encode": "node scripts/encode-product.mjs"

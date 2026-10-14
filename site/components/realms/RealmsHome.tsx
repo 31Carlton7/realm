@@ -1,0 +1,260 @@
+import { AgentMark, type AgentId } from "@/components/AgentMark"
+import { DownloadButton, QuietButton } from "@/components/Buttons"
+import { Actions, Announcement, Lede, ProductWindow } from "@/components/realms/HeroParts"
+import { GitHubIcon } from "@/components/icons"
+import { Chapter, type ChapterPicture } from "@/components/realms/Chapter"
+import { FieldPanel } from "@/components/realms/FieldPanel"
+import { Flight } from "@/components/realms/Flight"
+import { HoleStage } from "@/components/realms/HoleStage"
+import { Team } from "@/components/realms/Team"
+import { SiteFooter } from "@/components/SiteFooter"
+import { SiteHeader } from "@/components/SiteHeader"
+import { delegation, facets, facetsCoda, faq, type Claim } from "@/content/home"
+import { partImage, sceneImage } from "@/lib/pictures"
+import type { MacDownload } from "@/lib/release"
+import { site } from "@/lib/site"
+
+/** What the landing page hands the home: the current download, and the claims intersected with the
+ *  capture manifest. */
+export type HomeProps = { download: MacDownload; claims: Claim[] }
+
+const AGENTS: { id: AgentId; name: string }[] = [
+  { id: "claude", name: "Claude Code" },
+  { id: "openai", name: "Codex" },
+  { id: "cursor", name: "Cursor" },
+  { id: "gemini", name: "Gemini" },
+  { id: "opencode", name: "OpenCode" },
+  { id: "githubCopilot", name: "GitHub Copilot" },
+  { id: "goose", name: "goose" },
+  { id: "qwen", name: "Qwen Code" },
+  { id: "grok", name: "Grok" },
+]
+
+const FACTS: { title: string; body: string }[] = [
+  { title: "On your Mac", body: "Transcripts, documents and checkpoints live under ~/Realm." },
+  { title: "No account", body: "Nothing to sign up for, and nothing you make is uploaded." },
+  { title: "No API key", body: "Realm drives the agent CLIs you have, on your own plan." },
+  { title: "Signed and notarized", body: "Built for Apple silicon. The source is on GitHub." },
+]
+
+/**
+ * A claim's evidence: the part of the window it is about, photographed on its own, or its whole scene
+ * where no part was taken; nothing when neither was (design.md: a claim whose capture does not exist
+ * reads as prose).
+ */
+function evidence(claim: Claim): ChapterPicture | null {
+  const alt = claim.caption ?? claim.title
+  const part = claim.part ? partImage(claim.part) : null
+  const phone = claim.phone ? partImage(claim.phone.part) : null
+  if (part) return { image: part, alt, caption: claim.caption ?? "", phone: phone ? { image: phone, caption: claim.phone?.caption } : undefined, kind: "part" }
+  if (claim.capture) return { image: sceneImage(claim.capture), alt, caption: claim.caption ?? "", kind: "window" }
+  return null
+}
+
+/** On a phone, the realm's terminal on its own: its two halves side by side would be a quarter size. */
+function phoneRealm(): ChapterPicture["phone"] {
+  const image = partImage("realm-phone")
+  return image ? { image, caption: "The file a session's turn edited, open in vim in its terminal." } : undefined
+}
+
+/** The order the flight visits the claims in, and which side each one's screen stands on. */
+const ROUTE: { id: string; side: "left" | "right" }[] = [
+  { id: "spaces", side: "left" },
+  { id: "transcript", side: "right" },
+  { id: "agents", side: "left" },
+  { id: "delegation", side: "right" },
+  { id: "gateway", side: "left" },
+  { id: "review", side: "right" },
+  { id: "sandbox", side: "left" },
+  { id: "durable", side: "right" },
+]
+
+/**
+ * Realms: the whole page is one flight through deep space among realms built from Realm's mark, drawn
+ * live behind it.
+ *
+ *   opening    a sky of nebulae and far galaxies, the realms hanging in it at every depth, turning and
+ *              drifting, some with an agent at work in the doorway; the working sample of Realm over it
+ *   chapters   one realm per claim, hung over its screen: the doorway lights, the claim's real capture
+ *              opens out of it as a lit screen, and the doorway's light keeps running to the screen's
+ *              frame while the claim sits beside it; between them the camera flies on through the realms
+ *   teams      a team's four realms together, a Realmite at each door, the board beside them
+ *   the climb  where the work lives, and the questions, as the camera rises out of the swarm
+ *   finale     the camera lifts its eyes to the deep sky, and the page ends on a black hole under the
+ *              footer, drawing a disk of realms in (blackhole.ts)
+ *
+ * Every picture is a capture of the shipped app or the working sample, labelled as one. The flight is
+ * scrubbed by the scroll and nothing else; the sky moves slowly on its own, and the realms answer the
+ * pointer: the one it is near turns to the reader with its doorway lit, and a click (or the chapter's
+ * key) throws the doorway open.
+ */
+export async function RealmsHome({ download, claims }: HomeProps) {
+  const byId = new Map(claims.map((claim) => [claim.id, claim]))
+  const chapters = ROUTE.map((stop) => ({ ...stop, claim: byId.get(stop.id) })).filter(
+    (stop): stop is { id: string; side: "left" | "right"; claim: Claim } => Boolean(stop.claim),
+  )
+
+  return (
+    <div className="relative min-h-[100dvh]">
+      <Flight />
+      <SiteHeader width="max-w-[92rem]" floating />
+
+      <main>
+        {/* Opening: the words on the evening sky, the field under them, the sample over the field. */}
+        <section aria-labelledby="realms-title" className="relative pb-28">
+          <div className="mx-auto w-full max-w-[92rem] px-6 pt-10 sm:px-10 sm:pt-14">
+            <div data-field-anchor="copy" className="mx-auto flex max-w-[52rem] flex-col items-center text-center">
+              <Announcement />
+              <h1
+                id="realms-title"
+                className="mt-6 max-w-[24ch] text-[clamp(2.5rem,4.4vw,4rem)] leading-[0.98] font-[580] tracking-[-0.05em] text-balance text-ink"
+              >
+                {site.tagline}
+              </h1>
+              <Lede className="mt-5 max-w-[72ch]" />
+              <Actions download={download} className="mt-7" center />
+            </div>
+          </div>
+          {/* Without WebGPU, the sky behind the whole page is the field's own opening held still (Flight). */}
+          <div className="relative mt-[clamp(3.5rem,calc(100dvh-50rem),7rem)]">
+            <ProductWindow className="mx-auto w-full max-w-[76rem] px-4 sm:px-10" />
+          </div>
+        </section>
+
+        <Chapter
+          id="space"
+          side="right"
+          stacked
+          title="What a realm holds."
+          picture={{
+            image: partImage("realm") ?? sceneImage("terminal"),
+            phone: phoneRealm(),
+            kind: "window",
+            caption: "A session in the Dashboard space, and the file its turn edited open in vim beside it.",
+            alt: "Realm's window with the sidebar folded: a session in the Dashboard space whose turn edited two files, and beside it a terminal with vim open on web/lib/orgs.ts at the function the turn rewrote.",
+          }}
+        >
+          <p className="max-w-[60ch]">A realm is one space in Realm: a project, with everything its work needs kept beside it.</p>
+          <dl className="grid gap-x-10 gap-y-5 pt-2 sm:grid-cols-2 lg:grid-cols-3">
+            {facets.map((facet) => (
+              <div key={facet.title}>
+                <dt className="text-[16px] font-[560] text-ink">{facet.title}</dt>
+                <dd className="mt-0.5 text-[16px] leading-[1.55]">{facet.body}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="text-ink">
+            {facetsCoda.title} <span className="text-ink-2">{facetsCoda.body}</span>
+          </p>
+        </Chapter>
+
+        {chapters.map(({ id, side, claim }) => (
+          <Chapter
+            key={id}
+            id={id}
+            side={side}
+            title={claim.title}
+            picture={evidence(claim)}
+          >
+            <p>{claim.body}</p>
+            {id === "delegation" ? (
+              <dl className="space-y-3 pt-1">
+                {delegation.map((beat) => (
+                  <div key={beat.title}>
+                    <dt className="text-[16px] font-[560] text-ink">{beat.title}</dt>
+                    <dd className="mt-0.5 text-[16px] leading-[1.55]">{beat.body}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+            {id === "agents" ? (
+              <ul aria-label="Agents Realm runs" className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2 sm:grid-cols-3">
+                {AGENTS.map(({ id: agent, name }) => (
+                  <li key={agent} className="flex items-center gap-2.5 text-[14px] text-ink">
+                    <AgentMark id={agent} className="h-[18px] w-[18px] shrink-0 text-ink-2" />
+                    {name}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </Chapter>
+        ))}
+
+        <Team side="left" />
+
+        {/* The climb: the field falls away under where the work lives and the questions. */}
+        <section aria-labelledby="facts-title" className="relative">
+          <div className="mx-auto flex w-full max-w-[92rem] flex-col justify-center px-6 py-24 sm:px-10 lg:min-h-[110vh]">
+            <FieldPanel anchor="k:facts" wrapClassName="z-[2]" className="px-6 pt-8 sm:px-9 sm:pt-9">
+              <h2 id="facts-title" className="text-[clamp(1.6rem,2.4vw,2.1rem)] leading-[1.1] font-[580] tracking-[-0.035em] text-ink">
+                Where the work lives.
+              </h2>
+              <dl className="mt-8 grid border-t border-line sm:grid-cols-2 lg:grid-cols-4">
+                {FACTS.map((fact, i) => (
+                  <div
+                    key={fact.title}
+                    className={`py-7 sm:px-7 sm:py-9 ${i > 0 ? "max-sm:border-t" : ""} border-line sm:first:pl-0 sm:[&:nth-child(2n)]:border-l lg:[&:nth-child(n+2)]:border-l sm:[&:nth-child(n+3)]:max-lg:border-t lg:[&:nth-child(3)]:pl-7`}
+                  >
+                    <dt className="text-[16px] font-[560] tracking-[-0.01em] text-ink">{fact.title}</dt>
+                    <dd className="mt-2 text-[16px] leading-[1.55] text-ink-2">{fact.body}</dd>
+                  </div>
+                ))}
+              </dl>
+            </FieldPanel>
+          </div>
+        </section>
+
+        <section aria-labelledby="faq-title" className="relative">
+          <div className="mx-auto w-full max-w-[52rem] px-6 py-24 sm:px-10 lg:min-h-[120vh] lg:py-40">
+            <FieldPanel anchor="k:faq" wrapClassName="z-[2]" className="px-6 pt-8 pb-3 sm:px-9 sm:pt-9 sm:pb-4">
+              <h2 id="faq-title" className="text-[clamp(1.6rem,2.4vw,2.1rem)] leading-[1.1] font-[580] tracking-[-0.035em] text-ink">
+                Questions
+              </h2>
+              <div className="mt-8">
+                {faq.map((item, i) => (
+                  <details key={item.q} name="realms-faq" open={i === 0} className="group border-t border-line py-4">
+                    <summary className="flex cursor-pointer list-none items-start justify-between gap-6 text-[16px] leading-[1.45] font-[500] text-ink [&::-webkit-details-marker]:hidden">
+                      <span>{item.q}</span>
+                      <span aria-hidden className="mt-1 shrink-0 text-ink-2 transition-transform duration-200 ease-[var(--ease-out-strong)] group-open:rotate-45">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <path d="M7 1.5v11M1.5 7h11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                        </svg>
+                      </span>
+                    </summary>
+                    <p className="mt-3 max-w-[68ch] text-[16px] leading-[1.6] text-ink-2">{item.a}</p>
+                  </details>
+                ))}
+              </div>
+            </FieldPanel>
+          </div>
+        </section>
+
+        {/* The night over the field, under the call; the black hole comes up under the footer. */}
+        <section aria-labelledby="finale-title" className="relative">
+          <div className="mx-auto flex w-full max-w-[92rem] flex-col items-center px-6 pt-40 pb-16 text-center sm:px-10 lg:min-h-[115vh] lg:justify-center lg:pt-0 lg:pb-0">
+            <FieldPanel anchor="k:finale" wrapClassName="z-[2]" className="flex flex-col items-center px-8 py-10 sm:px-14 sm:py-12">
+              <h2 id="finale-title" className="max-w-[16ch] text-[clamp(2.4rem,5vw,4.25rem)] leading-[1] font-[580] tracking-[-0.05em] text-balance text-ink">
+                Give your agents a world to work in.
+              </h2>
+              <p className="mt-6 max-w-[44ch] text-[17px] leading-[1.6] text-ink-2">
+                Point it at a checkout, start a session with an agent you already have, and leave the window open all day.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
+                <DownloadButton href={download.href} size="lg" />
+                <QuietButton href={site.repo} external>
+                  <GitHubIcon className="h-4 w-4" />
+                  Read the source
+                </QuietButton>
+              </div>
+              <p className="mt-4 font-mono text-[12px] text-ink-2">
+                {download.version ? `${download.version} · ` : ""}macOS on Apple silicon · in active development
+              </p>
+            </FieldPanel>
+          </div>
+        </section>
+      </main>
+
+      <SiteFooter world={<HoleStage />} />
+    </div>
+  )
+}

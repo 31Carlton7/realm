@@ -528,8 +528,11 @@ async function createWindow(info: { port: number; home: string; token: string },
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   if (scratch) {
     win.setIgnoreMouseEvents(true);
-    win.webContents.on("did-finish-load", () => void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {}));
-    void win.webContents.executeJavaScript(scratch.bannerScript).catch(() => {});
+    const banner = scratch.bannerScript;
+    if (banner) {
+      win.webContents.on("did-finish-load", () => void win.webContents.executeJavaScript(banner).catch(() => {}));
+      void win.webContents.executeJavaScript(banner).catch(() => {});
+    }
     win.showInactive();
   }
   if (savedWindow?.fullScreen) win.setFullScreen(true);
@@ -1632,7 +1635,8 @@ ipcMain.handle("updates:install", () => { updater.install(); });
  * unsigned dev binary has Electron's); a packaged Realm.app posts as Realm.
  */
 const desktopNotifier = new DesktopNotifier({
-  supported: () => Notification.isSupported(),
+  // A capture's window is never seen, so it posts nothing that could be clicked to raise it.
+  supported: () => (liveScratch({ packaged: app.isPackaged, env: process.env })?.toasts ?? true) && Notification.isSupported(),
   // Any Realm window in front counts: the person is looking at Realm, and its own surfaces say it.
   windowFocused: () => BrowserWindow.getFocusedWindow() !== null,
   hasWindow: () => windows.size > 0,

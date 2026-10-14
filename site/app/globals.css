@@ -1,13 +1,15 @@
 @import "tailwindcss";
 
 /* Realm's product palette, mirrored from apps/desktop/src/renderer/src/theme/tokens.css.
-   `--color-page` is also compiled into lib/realm-liquid-glass.ts as its PAGE constant: the hero canvas
+   `--color-page` is also compiled into components/field/stage.ts as its PAGE constant: the live field
    paints its own background, so the two have to agree or the canvas reads as a square. */
 @theme {
   --color-page: oklch(0.209 0.004 264.477);
   --color-canvas: oklch(0.231 0.004 264.487);
   --color-surface: oklch(0.26 0.006 271.191);
   --color-raised: oklch(0.289 0.006 271.22);
+  --color-raised-2: oklch(0.318 0.007 274.747);
+  --color-inset: oklch(0.243 0.004 264.492);
 
   --color-ink: oklch(0.964 0.002 247.839);
   --color-ink-2: oklch(0.731 0.008 260.731);
@@ -18,11 +20,24 @@
 
   --color-accent: oklch(0.68 0.173 253.301);
   --color-accent-ink: oklch(0.788 0.113 248.33);
+  /* The ground of anything that carries a word on the accent. White on --color-accent itself is
+     2.9 : 1; on this fill — the same hue and chroma, 0.136 deeper, as the app's --accent-fill — it is
+     5.0, and hover and press step deeper still (5.9, 7.3). scripts/check-contrast.mjs holds it. */
+  --color-accent-fill: oklch(0.544 0.173 253.301);
+  --color-accent-fill-hover: oklch(0.504 0.173 253.301);
+  --color-accent-fill-press: oklch(0.454 0.173 253.301);
+
+  --color-green: oklch(0.705 0.154 153.814);
+  --color-orange: oklch(0.746 0.156 55.642);
+  --color-red: oklch(0.666 0.18 21.433);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
 
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  /* A critically damped spring (no overshoot), the app's `--spring-smooth` (apps/desktop tokens.css):
+     it starts from rest, gathers and settles, where a cubic ease-out leaves at full speed. */
+  --ease-spring: linear(0, 0.01 2%, 0.036 4%, 0.074 6%, 0.12 8%, 0.171 10%, 0.252 13%, 0.333 16%, 0.437 20%, 0.532 24%, 0.615 28%, 0.703 33%, 0.773 38%, 0.838 44%, 0.885 50%, 0.924 57%, 0.953 65%, 0.973 74%, 0.987 85%, 1);
 }
 
 :root {
@@ -55,111 +70,14 @@ p {
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: 2px;
 }
 
-/* Changelog entries. Written by hand instead of pulling in @tailwindcss/typography: an entry uses
-   about eight elements, and a plugin whose defaults all need overriding for a dark theme is more
-   config than CSS. Scoped to .prose, which only components/changelog/Prose.tsx emits. */
-.prose {
-  color: var(--color-ink-2);
-  font-size: 16px;
-  line-height: 1.65;
-}
-
-.prose > * + * {
-  margin-top: 1.15rem;
-}
-
-.prose h2 {
-  margin-top: 2.75rem;
-  color: var(--color-ink);
-  font-size: 1.25rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.3;
-}
-
-.prose h2 + * {
-  margin-top: 0.75rem;
-}
-
-.prose strong {
-  color: var(--color-ink);
-  font-weight: 600;
-}
-
-.prose ul {
-  padding-left: 1.15rem;
-  list-style: disc;
-}
-
-.prose li::marker {
-  color: var(--color-ink-3);
-}
-
-.prose li + li {
-  margin-top: 0.5rem;
-}
-
-/* `word-break` matters: entries name paths like apps/desktop/src/renderer that would otherwise push
-   the column wider than the viewport on a phone. */
-.prose :not(pre) > code {
-  border-radius: 5px;
-  background: var(--color-surface);
-  padding: 0.1rem 0.34rem;
-  color: var(--color-ink);
-  font-family: var(--font-mono);
-  font-size: 0.855em;
-  word-break: break-word;
-}
-
-.prose pre {
-  overflow-x: auto;
-  border-radius: 12px;
-  background: var(--color-canvas);
-  padding: 1rem 1.15rem;
-  color: var(--color-ink-2);
-  font-family: var(--font-mono);
-  font-size: 12.75px;
-  line-height: 1.7;
-}
-
-.prose blockquote {
-  border-left: 2px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
-  border-radius: 0 8px 8px 0;
-  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
-  padding: 0.85rem 1.15rem;
-  color: var(--color-ink-2);
-}
-
-/* A capture of the app, set off from the prose by air rather than by a card. The figure is as wide as
-   its picture and the caption wraps inside that, rather than running past the edge of a narrow crop;
-   `contain: inline-size` is what keeps the caption's own length out of the figure's width. The
-   outline is drawn INSIDE the picture, one device pixel of white at low opacity, which is what keeps
-   a dark capture's edge from dissolving into the page it is laid on. */
-.prose figure {
-  width: fit-content;
-  max-width: 100%;
-  margin-top: 2rem;
-  margin-bottom: 2rem;
-}
-
-.prose figure img {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  border-radius: 12px;
-  outline: 1px solid oklch(1 0 0 / 0.1);
-  outline-offset: -1px;
-}
-
-.prose figcaption {
-  contain: inline-size;
-  margin-top: 0.7rem;
-  color: var(--color-ink-3);
-  font-size: 14px;
-  line-height: 1.5;
+/* Inside a clipped surface (the hero's sample window, a bento card, a scrolling tab row) an outer
+   ring is cut off by the clip, so focus draws inside the control's own edge instead. */
+[data-field-anchor="portal"] :focus-visible,
+.spot :focus-visible,
+[role="tablist"] :focus-visible {
+  outline-offset: -2px;
 }
 
 /* The app's own corner, on the controls that carry it. `corner-shape` is a recent property; where
@@ -167,4 +85,1020 @@ p {
    rounded rect rather than a broken one — which is why every use pairs the two. */
 @utility app-corner {
   corner-shape: squircle;
+}
+
+/* ---- How a control answers the pointer -----------------------------------------------------------
+   Every button and link on the site (the owner, 10-13: "I want a better transition for hover
+   animations on buttons"). The Mac app's hover arrives at once; the site's arrives on a critically
+   damped spring, the app's `--spring-smooth`, which starts from rest and settles with no overshoot, and
+   leaves on a shorter, quieter ease, so a sweep across a row of controls never strobes. A press is a
+   fill, never a size, and lands at once. Under reduced motion the colours still change and nothing
+   travels: no light follows the pointer, no pill glides, no arrow moves, no line draws. Hover itself
+   only exists where a pointer can hover, so a tap never leaves a control lit. */
+:root {
+  --hover-in: 220ms;
+  --hover-out: 150ms;
+}
+
+/* A button's face. Its light is the pointer's: a wash under the words where the pointer is, and on the
+   rim the stretch nearest it (`--gx`, `--gy`, written by components/PointerLight). The primary's face
+   deepens a step under the wash (`--shade`, set on the button beside the gradient it deepens, where
+   scripts/check-contrast.mjs measures both), so the brightest point of the light is never paler than
+   the face at rest and the white words keep their 4.5 : 1. */
+.btn {
+  position: relative;
+  isolation: isolate;
+  transition-property: background-color, color, box-shadow;
+  transition-duration: var(--hover-out);
+  transition-timing-function: ease-out;
+}
+
+.btn::before,
+.btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  corner-shape: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--hover-out) ease-out;
+}
+
+.btn::before {
+  z-index: -1;
+  background:
+    radial-gradient(var(--wash-size, 110px) circle at var(--gx, 50%) var(--gy, 50%), var(--wash, transparent), transparent 70%),
+    var(--shade, transparent);
+}
+
+.btn::after {
+  padding: 1px;
+  background: radial-gradient(var(--rim-size, 64px) circle at var(--gx, 50%) var(--gy, 50%), var(--rim-light, transparent), transparent 75%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+@media (hover: hover) {
+  .btn:hover {
+    transition-duration: var(--hover-in);
+    transition-timing-function: var(--ease-spring);
+  }
+
+  .btn:hover::before,
+  .btn:hover::after {
+    opacity: 1;
+    transition: opacity var(--hover-in) var(--ease-spring);
+  }
+}
+
+/* The keyboard has no pointer: its focus lights the face from the middle, beside the ring. */
+.btn:focus-visible::before {
+  opacity: 1;
+}
+
+.btn:active,
+.btn:active::before {
+  transition-duration: 0ms;
+}
+
+/* The download: the accent with light from above. Under the pointer the face deepens a step and the
+   pointer's light is the doorways' pale blue, on the face and on the stretch of rim nearest it. */
+.btn-primary {
+  --wash: oklch(0.78 0.13 250 / 0.25);
+  --wash-size: 120px;
+  --rim-light: oklch(0.97 0.03 250);
+  --rim-size: 80px;
+  color: white;
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.28),
+    inset 0 0 0 1px oklch(0.78 0.12 250 / 0.5),
+    0 1px 2px oklch(0 0 0 / 0.4),
+    0 8px 24px -8px oklch(0.68 0.173 253.301 / 0.6);
+}
+
+@media (hover: hover) {
+  .btn-primary:hover {
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.3),
+      inset 0 0 0 1px oklch(0.8 0.1 250 / 0.5),
+      0 1px 2px oklch(0 0 0 / 0.4),
+      0 10px 30px -8px oklch(0.68 0.173 253.301 / 0.8);
+  }
+}
+
+.btn-primary:active::before {
+  --shade: var(--shade-press);
+  opacity: 1;
+}
+
+/* The quiet button: a raised step of the surface, the pointer's light white and faint. */
+.btn-quiet {
+  --wash: oklch(1 0 0 / 0.07);
+  --rim-light: oklch(1 0 0 / 0.5);
+  background-color: var(--color-surface);
+  color: var(--color-ink-2);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.07),
+    inset 0 0 0 1px var(--color-line);
+}
+
+@media (hover: hover) {
+  .btn-quiet:hover {
+    background-color: var(--color-raised);
+    color: var(--color-ink);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.09),
+      inset 0 0 0 1px var(--color-line-strong);
+  }
+}
+
+.btn-quiet:active {
+  background-color: var(--color-raised-2);
+}
+
+/* A control with no face until the pointer comes (the board's Shuffle and Send back): the wash alone. */
+.btn-ghost {
+  --wash: oklch(1 0 0 / 0.07);
+  --shade: oklch(1 0 0 / 0.035);
+  color: var(--color-ink-2);
+}
+
+@media (hover: hover) {
+  .btn-ghost:hover {
+    color: var(--color-ink);
+  }
+}
+
+.btn-ghost:active::before {
+  --shade: oklch(1 0 0 / 0.08);
+  opacity: 1;
+}
+
+/* A small action on the accent (the board's Approve): the accent fill's own hover and press steps,
+   with the primary's light on its rim. */
+.btn-accent {
+  --rim-light: oklch(0.95 0.05 250);
+  --rim-size: 44px;
+  --wash-size: 70px;
+  background-color: var(--color-accent-fill);
+  color: white;
+}
+
+@media (hover: hover) {
+  .btn-accent:hover {
+    background-color: var(--color-accent-fill-hover);
+  }
+}
+
+.btn-accent:active {
+  background-color: var(--color-accent-fill-press);
+}
+
+/* The header's links share one highlight that glides to whichever the pointer is over, and fades in
+   where it lands rather than flying in from the last one it left (components/FloatingHeader). */
+.nav-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--w, 0);
+  height: 100%;
+  translate: var(--x, 0) 0;
+  border-radius: 14px;
+  corner-shape: squircle;
+  background: oklch(1 0 0 / 0.07);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.06),
+    inset 0 0 0 1px oklch(1 0 0 / 0.04);
+  opacity: 0;
+  scale: 0.94;
+  pointer-events: none;
+  transition:
+    opacity var(--hover-out) ease-out,
+    scale var(--hover-out) ease-out,
+    translate 280ms var(--ease-spring),
+    width 280ms var(--ease-spring);
+}
+
+.nav-pill[data-on] {
+  opacity: 1;
+  scale: 1;
+  transition:
+    opacity var(--hover-in) var(--ease-spring),
+    scale var(--hover-in) var(--ease-spring),
+    translate 280ms var(--ease-spring),
+    width 280ms var(--ease-spring);
+}
+
+.nav-pill[data-landing] {
+  transition: opacity var(--hover-in) var(--ease-spring), scale var(--hover-in) var(--ease-spring);
+}
+
+.nav-link {
+  transition: color var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  .nav-link:hover {
+    color: var(--color-ink);
+    transition: color var(--hover-in) var(--ease-spring);
+  }
+}
+
+/* A link in running words or a list of them: the line under its words draws in from the left as the
+   pointer arrives and runs on out to the right as it leaves. On the words themselves (`.link-line`),
+   answering the link round them, or the block a link is stretched over (`.group`). */
+.link-line {
+  background: linear-gradient(currentColor, currentColor) no-repeat right 100% / 0 1px;
+  padding-bottom: 1px;
+  transition: background-size var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  a:hover .link-line,
+  a.link-line:hover,
+  button.link-line:hover,
+  .group:hover .link-line {
+    background-position: left 100%;
+    background-size: 100% 1px;
+    transition: background-size 300ms var(--ease-spring);
+  }
+}
+
+a:focus-visible .link-line,
+.group:focus-within .link-line {
+  background-position: left 100%;
+  background-size: 100% 1px;
+}
+
+/* An arrow that says where a link goes leans that way while the pointer is on it. */
+.nudge {
+  transition: translate var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  a:hover .nudge,
+  .group:hover .nudge {
+    translate: var(--nudge, 3px) 0;
+    transition: translate 280ms var(--ease-spring);
+  }
+}
+
+/* A symbol for an action that turns (the board's Shuffle) turns a little toward it. */
+.turn {
+  transition: rotate var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  .btn:hover .turn {
+    rotate: -60deg;
+    transition: rotate 320ms var(--ease-spring);
+  }
+}
+
+/* A row of a list that is a link: a fill under the pointer, in on the spring and out quietly. */
+.row-link {
+  transition: background-color var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  .row-link:hover {
+    background-color: var(--row-hover, oklch(1 0 0 / 0.05));
+    transition: background-color var(--hover-in) var(--ease-spring);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn::before,
+  .btn::after {
+    --gx: 50%;
+    --gy: 50%;
+  }
+
+  .nav-pill,
+  .nav-pill[data-on] {
+    scale: 1;
+    transition: opacity var(--hover-out) ease-out;
+  }
+
+  .link-line {
+    background-size: 100% 1px;
+    background-image: linear-gradient(transparent, transparent);
+    transition: none;
+  }
+
+  a:hover .link-line,
+  a.link-line:hover,
+  button.link-line:hover,
+  .group:hover .link-line,
+  a:focus-visible .link-line,
+  .group:focus-within .link-line {
+    background-image: linear-gradient(currentColor, currentColor);
+  }
+
+  .nudge,
+  a:hover .nudge,
+  .group:hover .nudge {
+    translate: none;
+  }
+
+  .turn,
+  .btn:hover .turn {
+    rotate: none;
+  }
+}
+
+/* The in-page Realm (components/home/mini). Its quiet ink — hints, labels, timestamps, line numbers —
+   is lifted inside the sample from the app's ink-3 (oklch 0.541, 3.1–3.5:1 on the sample's grounds)
+   to the step that clears AA on the brightest ground it is drawn on, a hovered row or the composer
+   (oklch 0.289): 5.0:1 there, 6.2:1 on the page, and still a step under ink-2, so the window keeps its
+   three tiers (design.md: quiet text is text). The caret blinks the way the app's plain caret does and
+   goes solid under reduced motion, never frozen at nothing (design.md, Motion). The flash is the one
+   moment a followed file link gets: the named line lights and settles. */
+.mini-realm {
+  --color-ink-3: oklch(0.68 0.01 264.484);
+}
+
+.mini-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.1em;
+  vertical-align: -0.2em;
+  background: var(--color-ink-2);
+  animation: mini-blink 1.06s steps(1, end) infinite;
+}
+
+@keyframes mini-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.mini-flash {
+  background: color-mix(in oklch, var(--color-accent) 35%, transparent);
+  animation: mini-flash 1.1s var(--ease-out-strong) forwards;
+}
+
+@keyframes mini-flash {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mini-caret {
+    animation: none;
+  }
+  .mini-flash {
+    display: none;
+  }
+}
+
+/* A label that hangs off the top of the thing it names, its far edge cut at 60 degrees: the angle of
+   every edge in Realm's mark, so the seam reads as a piece of the logo. 18.5px is 32px × tan 30°. */
+
+/* JetBrains Mono's ligatures draw `===` as one glyph; code on this site is read, so it shows what was typed. */
+.font-mono,
+code,
+pre {
+  font-variant-ligatures: none;
+}
+
+/* The agents strip's rules: the page's width, fading out at both ends. */
+.strip-rule {
+  left: -4rem;
+  right: -4rem;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--color-line-strong) 18%, var(--color-line-strong) 82%, transparent);
+}
+
+/* A card in a SpotlightGrid. Three layers, all bounded to the card so no light with area ever reaches
+   across text outside it (design.md, Motion): a resting light from above, the rim — a 1px ring cut
+   out of a radial at the pointer — and a faint wash of the same light inside. */
+.spot {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 22px;
+  background:
+    radial-gradient(120% 70% at 50% 0%, oklch(1 0 0 / 0.045), transparent 70%),
+    var(--color-canvas);
+  box-shadow: 0 1px 0 oklch(1 0 0 / 0.04) inset;
+}
+
+.spot::before,
+.spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.spot::before {
+  z-index: 2;
+  padding: 1px;
+  background:
+    radial-gradient(340px circle at var(--mx, -999px) var(--my, -999px), oklch(0.78 0.13 250 / 0.85), transparent 62%),
+    linear-gradient(to bottom, oklch(1 0 0 / 0.13), oklch(1 0 0 / 0.06));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+.spot::after {
+  z-index: -1;
+  opacity: 0;
+  background: radial-gradient(560px circle at var(--mx, -999px) var(--my, -999px), oklch(0.68 0.173 253.301 / 0.075), transparent 55%);
+  transition: opacity 400ms var(--ease-out-strong);
+}
+
+.spot-grid[data-lit] .spot::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spot::after {
+    transition: none;
+  }
+}
+
+/* A slab the page is cut into, its corners chamfered at the mark's 60 degrees (Clerk cuts its section
+   seams at 45; Realm's angle is its logo's). 28px across for every 48 down is tan 30°. */
+.slab {
+  --cut: 48px;
+  clip-path: polygon(
+    calc(var(--cut) * 0.577) 0,
+    calc(100% - var(--cut) * 0.577) 0,
+    100% var(--cut),
+    100% calc(100% - var(--cut)),
+    calc(100% - var(--cut) * 0.577) 100%,
+    calc(var(--cut) * 0.577) 100%,
+    0 calc(100% - var(--cut)),
+    0 var(--cut)
+  );
+}
+
+/* A proof panel arriving: a short fade and a 6px rise, the one curve every swap on the page uses. */
+.proof-in:not([hidden]) {
+  animation: proof-in 360ms var(--ease-out-strong);
+}
+
+@keyframes proof-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proof-in:not([hidden]) {
+    animation: none;
+  }
+}
+
+/* One device pixel, whatever the screen: the inset outline every picture keeps (design.md, Surfaces). */
+:root {
+  --hairline: 1px;
+}
+
+@media (min-resolution: 2dppx) {
+  :root {
+    --hairline: 0.5px;
+  }
+}
+
+/* A picture of the app (components/realms/Screen.tsx; the hero's working sample wears the same edge).
+   The picture's own edge is its frame, with nothing round it: no margin of dark to read, at rest or
+   when the flight draws it in perspective, as a slab beside the picture. Its corner is the surface's
+   own, carried as a share of its width (`--share`) and drawn in the figure's container units, so it
+   scales with the picture. */
+.screen {
+  --share: var(--share-wide);
+  position: relative;
+  width: 100%;
+  max-width: var(--max-wide);
+}
+
+/* A phone draws the narrower capture where there is one (Screen's `phone`), at its own shape. */
+@media (max-width: 639px) {
+  .screen {
+    --share: var(--share-phone, var(--share-wide));
+    max-width: var(--max-phone, var(--max-wide));
+  }
+}
+
+:root {
+  /* The ground the captures end on along their foot, the app's canvas (sampled from the files): what a
+     caption's tab is cut from, so the picture runs on into it. */
+  --picture-foot: oklch(0.226 0.004 264);
+  --rim-top: oklch(0.9 0.045 250 / 0.5);
+  --rim-foot: oklch(1 0 0 / 0.09);
+}
+
+/* The edge a picture of the app wears: a shade on the sky under it, and on the edge itself one rim of
+   the doorways' blue-white light, brightest across the top and gone to a hairline by the foot. In the
+   flight the pointer's lamp lights the stretch nearest it (`--lx`, `--ly`, `--lamp`, written by the
+   field into the figure's box). The rim is a ring a pixel wide just inside the edge, on its curve. */
+.picture-edge {
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.3),
+    0 16px 36px -14px oklch(0 0 0 / 0.55),
+    0 48px 100px -40px oklch(0 0 0 / 0.5);
+}
+
+.screen[data-kind="window"] .picture-edge {
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.3),
+    0 28px 64px -24px oklch(0 0 0 / 0.6),
+    0 80px 140px -60px oklch(0 0 0 / 0.5);
+}
+
+.picture-edge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background:
+    radial-gradient(300px circle at var(--lx, -999px) var(--ly, -999px), oklch(0.86 0.08 250 / calc(var(--lamp, 0) * 0.75)), transparent 70%),
+    linear-gradient(180deg, var(--rim-top), oklch(0.9 0.035 250 / 0.17) 32%, var(--rim-foot) 72%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+.screen-slot {
+  position: relative;
+}
+
+.screen-room {
+  display: block;
+  width: 100%;
+  aspect-ratio: var(--aspect-wide);
+}
+
+@media (max-width: 639px) {
+  .screen-room {
+    aspect-ratio: var(--aspect-phone, var(--aspect-wide));
+  }
+}
+
+.screen-figure {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  transform-origin: top left;
+}
+
+/* In the flight the field moves it, from the realm whose doorway it opens out of. */
+html[data-realms-flight="on"] .screen-figure[data-screen] {
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
+  opacity: 0;
+}
+
+.screen-frame {
+  --screen-radius: calc(var(--share) * 100cqw);
+  position: absolute;
+  inset: 0;
+  border-radius: var(--screen-radius);
+}
+
+.screen-image {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--screen-radius);
+}
+
+/* What lies on the picture's edge and nowhere else: the outline, and the light from above catching
+   its top edge. Each is a ring one hairline wide, so none of it is over the picture. */
+.screen-light {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--screen-radius);
+  pointer-events: none;
+  box-shadow: inset 0 0 0 var(--hairline) oklch(1 0 0 / 0.1);
+}
+
+.screen-light::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: var(--hairline);
+  background: linear-gradient(to bottom, oklch(1 0 0 / 0.2), oklch(1 0 0 / 0) 40%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+/* The caption: a tab hanging from the middle of the picture's foot, cut from the ground the picture
+   ends on (`--foot`, where a capture ends on another), so the words read as coming out of the picture
+   rather than as a card left under it. Where it leaves the picture each corner is a fillet whose rim
+   runs on from the picture's edge into the tab's side, so the edge is one line round both. */
+.screen-tab {
+  --f: 12px;
+  --ground: var(--foot, var(--picture-foot));
+  position: absolute;
+  /* A pixel deeper into the picture than its rim, so no sliver of the rim shows across the join at any
+     fraction of a pixel the picture's foot lands on; the fillets start a pixel down, on the rim. */
+  top: calc(100% - 2px);
+  left: 50%;
+  z-index: 3;
+  translate: -50% 0;
+  box-sizing: border-box;
+  width: max-content;
+  /* Within the straight run of the picture's foot, clear of both its corners. */
+  max-width: min(32rem, calc(100% - 2 * (var(--share) * 100cqw + var(--f)) - 1rem));
+  margin: 0;
+  padding: 8px 18px 10px;
+  background: var(--ground);
+  border: 1px solid var(--rim-foot);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--color-ink-2);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.screen-tab::before,
+.screen-tab::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  width: var(--f);
+  height: var(--f);
+  pointer-events: none;
+}
+
+.screen-tab::before {
+  right: 100%;
+  background: radial-gradient(circle at 0 100%, transparent calc(var(--f) - 1px), var(--rim-foot) calc(var(--f) - 1px), var(--rim-foot) var(--f), var(--ground) calc(var(--f) + 0.5px));
+}
+
+.screen-tab::after {
+  left: 100%;
+  background: radial-gradient(circle at 100% 100%, transparent calc(var(--f) - 1px), var(--rim-foot) calc(var(--f) - 1px), var(--rim-foot) var(--f), var(--ground) calc(var(--f) + 0.5px));
+}
+
+/* The same tab standing on a picture's top edge (the hero's label): the ground the window starts on
+   (the page's own) under the top's rim, its fillets turned over. */
+.screen-tab[data-edge="top"] {
+  --ground: var(--color-page);
+  top: auto;
+  bottom: calc(100% - 2px);
+  max-width: calc(100% - 2 * (16px + var(--f)) - 1rem);
+  padding: 8px 18px 7px;
+  background: var(--ground);
+  border: 1px solid var(--rim-top);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+}
+
+.screen-tab[data-edge="top"]::before,
+.screen-tab[data-edge="top"]::after {
+  top: auto;
+  bottom: 1px;
+}
+
+.screen-tab[data-edge="top"]::before {
+  background: radial-gradient(circle at 0 0, transparent calc(var(--f) - 1px), var(--rim-top) calc(var(--f) - 1px), var(--rim-top) var(--f), var(--ground) calc(var(--f) + 0.5px));
+}
+
+.screen-tab[data-edge="top"]::after {
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--f) - 1px), var(--rim-top) calc(var(--f) - 1px), var(--rim-top) var(--f), var(--ground) calc(var(--f) + 0.5px));
+}
+
+/* The hero's working sample: Realm's window corner (16), with the pictures' edge on it. */
+.hero-frame {
+  position: relative;
+  border-radius: 16px;
+}
+
+.hero-window {
+  z-index: 1;
+}
+
+@media (max-width: 639px) {
+  .screen-tab {
+    --f: 10px;
+    padding: 6px 14px 9px;
+    font-size: 13.5px;
+  }
+}
+
+/* Words over the field (components/realms/FieldPanel.tsx): a pane of the field itself, blurred and
+   dimmed under them, edged by a hairline lit from above, with the blur carried a short way past its
+   edge and fading out there. The composite pass dims the field inside it by its exact rect and
+   leaves it untouched outside, so there is no smudge round it (the owner, 10-12: "love the blur
+   around it, just needs to be a bit cleaner and professional looking"). */
+.field-panel-wrap {
+  position: relative;
+}
+
+.field-feather {
+  position: absolute;
+  inset: -24px;
+  border-radius: 40px;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent), linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent), linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  mask-composite: intersect;
+}
+
+.field-panel {
+  position: relative;
+  background: color-mix(in oklch, var(--color-page) 62%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(1.15);
+  backdrop-filter: blur(22px) saturate(1.15);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.07),
+    inset 0 0 0 1px oklch(1 0 0 / 0.05);
+}
+
+@media (max-width: 639px) {
+  .field-feather {
+    inset: -16px;
+  }
+}
+
+/* ---- Passages between pages (components/passage) ------------------------------------------------
+   Every navigation is a view transition in which the page leaving (`page-out`) and the page arriving
+   (`page-in`) are each one picture (PageTransition), animated by the passage marked on the root
+   (`data-passage`): by the link followed, and for the browser's own back and forward by whether the
+   page it goes to is deeper or shallower. The header is held apart and only crossfades, the one thing
+   that stays where it was while the world moves under it; the veil over both is a live canvas the
+   flight is drawn on; under them all is the deep sky's black, so no grey shows where a picture has not
+   yet covered the view. Clicks go through to the new page while it runs. A navigation with no passage
+   is a short crossfade, and so is every one under reduced motion. Where there are no view transitions
+   the browser navigates as it always has. A page's transform-origin is a point of the view in the
+   page's own box (state.ts).
+
+   The forward passages open a way at their light (`--tunnel`, the radius both pictures' masks share,
+   its soft edge `--tunnel-edge` wide) and the page beyond comes through it; the ones back close it, the
+   page being left drawn into the point it came out of as the one before fills the view again round it. */
+::view-transition {
+  pointer-events: none;
+}
+
+html:active-view-transition,
+html:active-view-transition body {
+  background: #03050b;
+}
+
+.passage-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  width: 100%;
+  height: 100%;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+::view-transition-group(passage-veil) {
+  z-index: 3;
+  animation: none;
+}
+
+::view-transition-old(passage-veil) {
+  display: none;
+}
+
+::view-transition-new(passage-veil) {
+  animation: none;
+}
+
+::view-transition-group(site-header) {
+  z-index: 2;
+  animation-duration: 280ms;
+}
+
+::view-transition-old(site-header),
+::view-transition-new(site-header) {
+  animation-duration: 280ms;
+}
+
+::view-transition-old(.page-out) {
+  animation: passage-out 200ms ease-out both;
+}
+
+::view-transition-new(.page-in) {
+  animation: passage-in 260ms ease-out 40ms both;
+}
+
+@keyframes passage-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes passage-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@property --tunnel {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+:root {
+  --tunnel-edge: 220px;
+}
+
+@keyframes tunnel {
+  from {
+    --tunnel: -220px;
+  }
+  to {
+    --tunnel: 150vmax;
+  }
+}
+
+@keyframes tunnel-close {
+  from {
+    --tunnel: 150vmax;
+  }
+  to {
+    --tunnel: -220px;
+  }
+}
+
+/* A page with a way open at a point (`--at-x`, `--at-y`): the page leaving a forward passage, and the
+   page arriving on one back, are seen everywhere but there. */
+html[data-passage="warp"]::view-transition-old(.page-out),
+html[data-passage="dive"]::view-transition-old(.page-out),
+html[data-passage="unwarp"]::view-transition-new(.page-in),
+html[data-passage="surface"]::view-transition-new(.page-in) {
+  -webkit-mask-image: radial-gradient(circle at var(--at-x, 50%) var(--at-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--at-x, 50%) var(--at-y, 50%), transparent var(--tunnel), #000 calc(var(--tunnel) + var(--tunnel-edge)));
+}
+
+/* And the page seen through that way: arriving on a forward passage, leaving on one back. */
+html[data-passage="warp"]::view-transition-new(.page-in),
+html[data-passage="dive"]::view-transition-new(.page-in),
+html[data-passage="unwarp"]::view-transition-old(.page-out),
+html[data-passage="surface"]::view-transition-old(.page-out) {
+  -webkit-mask-image: radial-gradient(circle at var(--at-x, 50%) var(--at-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+  mask-image: radial-gradient(circle at var(--at-x, 50%) var(--at-y, 50%), #000 var(--tunnel), transparent calc(var(--tunnel) + var(--tunnel-edge)));
+}
+
+html[data-passage]::view-transition-old(.page-out) {
+  --at-x: var(--passage-x);
+  --at-y: var(--passage-y);
+  transform-origin: var(--passage-x, 50%) var(--passage-y, 50%);
+}
+
+html[data-passage]::view-transition-new(.page-in) {
+  --at-x: var(--arrive-x);
+  --at-y: var(--arrive-y);
+  transform-origin: var(--arrive-x, 50%) var(--arrive-y, 50%);
+}
+
+/* The warp: a tunnel opens at the vanishing point. The landing page rushes past on every side of it
+   while the changelog is already there through it, coming up to meet the reader as the opening widens
+   to the edges of the view, and the veil's stars stream out of it. */
+html[data-passage="warp"]::view-transition-old(.page-out) {
+  animation:
+    tunnel 640ms cubic-bezier(0.55, 0, 0.3, 1) both,
+    warp-out 640ms cubic-bezier(0.5, 0, 0.75, 0.25) both;
+}
+
+html[data-passage="warp"]::view-transition-new(.page-in) {
+  animation:
+    tunnel 640ms cubic-bezier(0.55, 0, 0.3, 1) both,
+    warp-in 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes warp-out {
+  to {
+    transform: scale(1.4);
+    filter: blur(2px);
+  }
+}
+
+/* Little enough that the picture's own edges are back at the view's before the opening reaches them. */
+@keyframes warp-in {
+  from {
+    transform: scale(0.96);
+    filter: blur(4px);
+  }
+}
+
+/* The unwarp: the warp run backwards. The changelog is drawn away into the distance at its own realm,
+   the way closing round it, while the landing page comes back from behind the reader on every side and
+   settles, and the veil's stars stream back into the point it went. */
+html[data-passage="unwarp"]::view-transition-old(.page-out) {
+  animation:
+    tunnel-close 600ms cubic-bezier(0.45, 0, 0.25, 1) both,
+    unwarp-out 600ms cubic-bezier(0.3, 0, 0.6, 1) both;
+}
+
+html[data-passage="unwarp"]::view-transition-new(.page-in) {
+  animation:
+    tunnel-close 600ms cubic-bezier(0.45, 0, 0.25, 1) both,
+    unwarp-in 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes unwarp-out {
+  to {
+    transform: scale(0.72);
+    filter: blur(3px);
+  }
+}
+
+@keyframes unwarp-in {
+  from {
+    transform: scale(1.32);
+    filter: blur(3px);
+  }
+}
+
+/* The dive: the doorway the veil's light pours from opens over the whole view, the changelog falling
+   away past its edges, and the entry is there through it, still bright with the doorway's light, round
+   the same doorway in its band. */
+html[data-passage="dive"]::view-transition-old(.page-out) {
+  animation:
+    tunnel 580ms cubic-bezier(0.6, 0, 0.35, 1) 40ms both,
+    dive-out 620ms cubic-bezier(0.6, 0, 0.8, 0.3) both;
+}
+
+html[data-passage="dive"]::view-transition-new(.page-in) {
+  animation:
+    tunnel 580ms cubic-bezier(0.6, 0, 0.35, 1) 40ms both,
+    dive-in 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes dive-out {
+  to {
+    transform: scale(2.4);
+    filter: blur(2px);
+  }
+}
+
+@keyframes dive-in {
+  from {
+    transform: scale(0.97);
+    filter: brightness(1.5);
+  }
+}
+
+/* The surface: the dive run backwards. The entry closes back into its doorway, drawing away as it goes,
+   and the changelog fills in round it from the edges of the view, at the release it came out of. */
+html[data-passage="surface"]::view-transition-old(.page-out) {
+  animation:
+    tunnel-close 520ms cubic-bezier(0.3, 0, 0.2, 1) both,
+    surface-out 520ms cubic-bezier(0.6, 0, 0.9, 0.45) both;
+}
+
+html[data-passage="surface"]::view-transition-new(.page-in) {
+  animation:
+    tunnel-close 520ms cubic-bezier(0.3, 0, 0.2, 1) both,
+    surface-in 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Late, so the changelog has filled the view's edges before the entry's own are drawn in from them. */
+@keyframes surface-out {
+  to {
+    transform: scale(0.86);
+  }
+}
+
+@keyframes surface-in {
+  from {
+    transform: scale(1.06);
+    filter: brightness(1.35);
+  }
+}
+
+/* Under reduced motion every passage is the plain crossfade: no opening, no zoom, nothing travelling. */
+@media (prefers-reduced-motion: reduce) {
+  html[data-passage]::view-transition-old(.page-out) {
+    -webkit-mask-image: none;
+    mask-image: none;
+    animation: passage-out 160ms ease-out both;
+  }
+
+  html[data-passage]::view-transition-new(.page-in) {
+    -webkit-mask-image: none;
+    mask-image: none;
+    animation: passage-in 200ms ease-out both;
+  }
 }
