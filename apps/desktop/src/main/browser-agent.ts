@@ -12,6 +12,7 @@ import {
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
   type BrowserSnapshotElement, type BrowserSnapshotResult, type BrowserSnapshotScope, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult,
 } from "@realm/contracts";
+import { credentialSiteMatch } from "./password-match";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS, type CursorForm, type CursorFormName } from "./agent-cursor";
 
 export type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -695,6 +696,53 @@ export async function performFillCredential(send: CdpSend, ref: number, fill: Cr
       ? `generated a password for ${fill.origin}, saved it to Realm's sign-ins, and filled it`
       : `filled saved credential for ${fill.origin}`,
   };
+}
+
+/**
+ * The PERSON's fill from a pane's password menu (`password-autofill.ts`): the username into its field
+ * and the password into its own, both found by the menu's script in Realm's isolated world and handed
+ * here as remote objects in that world — never refs from a snapshot, and never anything the page
+ * named.
+ *
+ * The same typist and the same order as `performFillCredential`, for the same reasons, with one gate
+ * widened and one added. The origin check accepts the rest of the SITE (`credentialSiteMatch`), not
+ * only the exact origin: the person chose this password from a menu that named its site, which no
+ * agent call does. And the username, which is not a secret, is typed with no unlock — a menu pick
+ * that only fills a username asks nothing.
+ */
+export async function performAutofill(
+  send: CdpSend,
+  targets: { user: string | null; pass: string | null },
+  fill: { origin: string; username: string; reveal: CredentialFill["reveal"] },
+): Promise<BrowserActResult> {
+  let pageOrigin: string | null;
+  try { pageOrigin = await currentOrigin(send); } catch { pageOrigin = null; }
+  if (pageOrigin === null || credentialSiteMatch(fill.origin, pageOrigin) === null) {
+    return { ok: false, refused: "origin_mismatch", error: "the page is no longer on the site this password is for — nothing was filled" };
+  }
+  const select = async (objectId: string) => {
+    await send("Runtime.callFunctionOn", { objectId, functionDeclaration: "function () { this.focus(); if (this.select) this.select(); }", silent: true });
+  };
+  try {
+    if (targets.user && fill.username) {
+      await select(targets.user);
+      await typeCharacters(send, fill.username);
+    }
+    if (targets.pass) {
+      const pass = targets.pass;
+      await select(pass);
+      const outcome = await fill.reveal(async (value) => {
+        // Again after the unlock: macOS's sheet can take the keyboard from the page on its way past.
+        await select(pass);
+        await typeCharacters(send, value);
+      });
+      if (!outcome.ok) return { ok: false, refused: outcome.refused, error: REVEAL_REFUSALS[outcome.refused] ?? "the password was not available" };
+    }
+  } catch {
+    // Bare, as in `performFillCredential`: a CDP error mid-typing can carry the characters.
+    return { ok: false, error: "the password could not be typed into that field" };
+  }
+  return { ok: true, detail: `filled the password for ${fill.origin}` };
 }
 
 /** Refusal wording for the reasons the STORE decides (this module never learns more than the code). */

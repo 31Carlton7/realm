@@ -122,6 +122,8 @@ export type CredentialAuditEntry = {
    *  is one thing that happened: a new sign-in for this origin now exists AND was typed into it.
    *  `no_store` is that fill refused for having nowhere to keep the password. */
   outcome: "filled" | "generated" | "origin_mismatch" | "no_credential" | "no_store" | "no_presence" | "error";
+  /** `person`: the fill was the person's own pick in a pane's password menu, not an agent's call. */
+  by?: "person";
   /** Who asked, when a team's role did (the team vault): which team, which role, which run. Absent for
    *  a person's own session, as every line before teams was. */
   spaceId?: string;
