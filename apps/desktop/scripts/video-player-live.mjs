@@ -214,7 +214,8 @@ async function main() {
   check("the path menu offers Open for the video", !!openItem, openItem);
   const played = await until(async () => { const v = await paneVideo(c); return v && v.ready >= 1 ? v : null; }, 20000, "the pane's player");
   check("the video opened in Realm's player in the documents pane", played.w === 640 && played.h === 360 && Math.abs(played.duration - 8) < 0.5, played);
-  check("its outside tab is the absolute path", await evalIn(c, `!!document.querySelector('.documents-tab-label[title=${JSON.stringify(JSON.stringify(clip)).slice(1, -1)}]')`) || true);
+  const tabTitles = await evalIn(c, `[...document.querySelectorAll('.documents-tab-label')].map((b) => b.title)`);
+  check("its outside tab is the absolute path", tabTitles.includes(clip), tabTitles);
 
   // 2. Keyboard seek lands — the scheme answered the Range request.
   await evalIn(c, `(() => { const p = document.querySelector('.documents-video .video-player'); p.focus();
