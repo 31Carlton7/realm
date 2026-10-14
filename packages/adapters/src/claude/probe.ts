@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { accessSync, constants, existsSync } from "node:fs";
-import { delimiter, join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
+import { findExecutable, spawnTarget } from "../spawn-target";
 
 const run = promisify(execFile);
 
@@ -51,24 +52,15 @@ export function bundledClaude(): string | null {
   }
 }
 
-/** The first executable `name` on PATH, which is the one a spawn would run. */
-function onPath(name: string, env: NodeJS.ProcessEnv): string | null {
-  for (const dir of (env.PATH ?? "").split(delimiter)) {
-    if (!dir) continue;
-    const candidate = resolve(dir, name);
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Not here, or not executable: the next entry is the next candidate, as for a spawn.
-    }
-  }
-  return null;
+/** `execFile`, through what this OS needs to start `bin` (an npm `.cmd` on Windows goes via cmd.exe). */
+function runBin(bin: string, args: string[], o: { timeout: number; env: NodeJS.ProcessEnv }) {
+  const t = spawnTarget(bin, args, { env: o.env });
+  return run(t.command, t.args, { ...o, ...t.options });
 }
 
 async function versionOf(bin: string, env: NodeJS.ProcessEnv, bundled: boolean): Promise<Located> {
   try {
-    const { stdout } = await run(bin, ["--version"], { timeout: 5000, env });
+    const { stdout } = await runBin(bin, ["--version"], { timeout: 5000, env });
     return { ok: true, bin, version: stdout.trim() || null, bundled };
   } catch (e) {
     return { ok: false, reason: (e as Error).message };
@@ -92,7 +84,7 @@ async function locate(bin: string | undefined, o: ClaudeLookup): Promise<Located
   // Blank counts as unset, as it does for `agentBin` — the two must name the same binary.
   const override = bin ?? (env.REALM_CLAUDE_BIN?.trim() ? env.REALM_CLAUDE_BIN : undefined);
   if (override) return versionOf(override, env, false);
-  const found = onPath("claude", env);
+  const found = findExecutable("claude", env);
   const tried = found ? await versionOf(found, env, false) : null;
   if (tried?.ok) return tried;
   const carried = (o.bundled ?? bundledClaude)();
@@ -118,7 +110,7 @@ async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.Proce
   try {
     // `--json` explicitly, though it is the default today: `--text` exists, so the default is a
     // choice the CLI could revisit, and a parse of the human-readable form would answer `null`.
-    const stdout = await run(bin, ["auth", "status", "--json"], { timeout: 5000, env }).then(
+    const stdout = await runBin(bin, ["auth", "status", "--json"], { timeout: 5000, env }).then(
       (r) => r.stdout,
       // Signed out, the CLI prints `{"loggedIn": false, …}` and exits 1 (2.1.281, checked on a
       // scratch config dir) — the exit status restates the verdict rather than failing to give one.
