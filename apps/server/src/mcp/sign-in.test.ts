@@ -173,7 +173,22 @@ describe("Connect on a GitHub server — the CLI first", () => {
     const h = await setup({ gh: () => ({ ok: false, reason: "signed-out" }) });
     const err = await rejection(() => h.oauth.start(h.row.id));
     expect(err.message).toContain("gh auth login");
-    expect(h.ghCalls()).toBe(1); // read once, not again after discovery
+    expect(h.ghCalls()).toBe(1);
+  });
+
+  it("refuses a known provider without a discovery round-trip — the table already says it has no registration", async () => {
+    let fetched = 0;
+    const counting = ((url: string | URL, init?: RequestInit) => { fetched += 1; return fetch(url, init); }) as FetchLike;
+    const h = await setup({ gh: () => ({ ok: false, reason: "signed-out" }), fetchFn: counting });
+    await rejection(() => h.oauth.start(h.row.id));
+    expect(fetched).toBe(0);
+  });
+
+  it("a server on another host whose authorization server is GitHub's still gets the CLI", async () => {
+    // The stub's own loopback host is not in this table; its AS is matched by `authHosts` instead.
+    const h = await setup({ provider: { hosts: [], authHosts: ["127.0.0.1"] } });
+    expect((await h.oauth.start(h.row.id)).authUrl).toBeNull();
+    expect(readOauthState(h.reload().oauthJson).via).toBe("cli");
   });
 
   it("a server Realm does not know is offered a token or an app, never the CLI", async () => {

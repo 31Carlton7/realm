@@ -277,13 +277,15 @@ export class McpOauth {
     const port = this.d.gatewayPort();
     if (port === null) throw new RpcError("MCP_OAUTH_UNAVAILABLE", "the MCP gateway is not listening yet — try again in a moment");
     const prev = readOauthState(row.oauthJson);
-    // A provider with no registration whose CLI the person already signed in to: that sign-in is the
-    // connection, with no browser at all. A client of their own (`setClient`) says they chose the
-    // browser instead, so it is never second-guessed. `authUrl: null` = connected already.
-    let gh: GhToken | null = null;
-    if (!prev.client && this.provider(row)?.cli) {
-      gh = await this.readGh();
-      if (gh.ok) { this.storeBearer(serverId, gh.token, "cli"); return { authUrl: null }; }
+    // A provider the table knows issues no client: its CLI's existing sign-in, if the person has one,
+    // is the connection, with no browser at all — and if not, the refusal comes without a discovery
+    // round-trip whose answer the table already holds. A client of their own (`setClient`) says they
+    // chose the browser instead, so it is never second-guessed. `authUrl: null` = connected already.
+    const known = this.provider(row);
+    if (!prev.client && known) {
+      const gh = known.cli ? await this.readGh() : null;
+      if (gh?.ok) { this.storeBearer(serverId, gh.token, "cli"); return { authUrl: null }; }
+      throw new RpcError("MCP_OAUTH_NO_REGISTRATION", noRegistrationMessage(row.name, known, gh));
     }
     // Through the relay the redirect is the site's fixed HTTPS page and the port travels in the
     // state; the relay bounces to this loopback with code and state intact, and the callback below
@@ -306,10 +308,8 @@ export class McpOauth {
           // Matched again on the authorization server discovery found: a server on a host the table
           // does not list can still sign in through GitHub.
           const provider = this.provider(row, info.authorizationServerUrl);
-          if (provider?.cli && !gh) {
-            gh = await this.readGh();
-            if (gh.ok) { this.storeBearer(serverId, gh.token, "cli"); return { authUrl: null }; }
-          }
+          const gh = provider?.cli ? await this.readGh() : null;
+          if (gh?.ok) { this.storeBearer(serverId, gh.token, "cli"); return { authUrl: null }; }
           throw new RpcError("MCP_OAUTH_NO_REGISTRATION", noRegistrationMessage(row.name, provider, gh));
         }
         client = await registerClient(info.authorizationServerUrl, {

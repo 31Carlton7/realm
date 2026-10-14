@@ -10,8 +10,9 @@ export type GhToken = { ok: true; token: string } | { ok: false; reason: "missin
 export type GhRun = (bin: string, args: string[]) => Promise<string>;
 
 /**
- * Where `gh` lives. A Mac app launched from the Dock gets launchd's PATH, which has no Homebrew in it,
- * so the usual install locations are tried by name before PATH is.
+ * Where `gh` lives: PATH first, so a gh someone chose to put ahead of the others is the one asked, then
+ * the usual install locations by name — a Mac app launched from the Dock gets launchd's PATH, which
+ * has no Homebrew in it.
  */
 export function ghCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
   const exe = process.platform === "win32" ? "gh.exe" : "gh";
@@ -19,7 +20,7 @@ export function ghCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
     ? [join(env.ProgramFiles ?? "C:\\Program Files", "GitHub CLI", exe)]
     : ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh", join(homedir(), ".local/bin/gh"), "/home/linuxbrew/.linuxbrew/bin/gh"];
   const onPath = (env.PATH ?? "").split(delimiter).filter(Boolean).map((dir) => join(dir, exe));
-  return [...new Set([...known, ...onPath])];
+  return [...new Set([...onPath, ...known])];
 }
 
 const runGh: GhRun = (bin, args) => new Promise((resolve, reject) => {
