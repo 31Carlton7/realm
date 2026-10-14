@@ -27,6 +27,7 @@ export * from "./notifications";
 export * from "./review";
 export * from "./code-review";
 export * from "./browser-agent";
+export * from "./passwords";
 export * from "./key-chord";
 export * from "./realm-tools";
 export * from "./risk-class";
