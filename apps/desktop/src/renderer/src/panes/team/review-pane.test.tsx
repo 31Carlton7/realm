@@ -217,3 +217,67 @@ describe("the kill switch", () => {
     await waitFor(() => expect(api.calls).toContain("teamActsHold:s1:false"));
   });
 });
+
+describe("letting a batch go: Reject and Close", () => {
+  it("rejects with a reason the role is told, and the card says so where it stood", async () => {
+    // THE MUTANT: Reject sending without the person's words, or the card leaving its group under the click.
+    const { api } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Reject…" }));
+    const field = screen.getByRole("textbox", { name: /Why reject 6 slideshows for Nathan/ });
+    expect(field).toHaveAttribute("placeholder", "Why not? Content Producer is told (optional)");
+    fireEvent.change(field, { target: { value: "Off brand" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reject and tell Content Producer" }));
+    await waitFor(() => expect(api.calls).toContain("teamReviewReject:v1:Off brand"));
+    await waitFor(() => expect(document.querySelector(".rv-decide-note")).toHaveTextContent("You rejected it: “Off brand” Nothing of it goes out."));
+    expect(document.querySelector('[data-review="v1"] .rv-state')).toHaveTextContent("Rejected by you");
+    expect([...document.querySelectorAll(".rv-group")].map((g) => g.textContent)).toEqual(["Waiting for you"]);
+    // Finished with: nothing on the bar decides it again.
+    expect(screen.queryByRole("button", { name: /Approve|Close|Reject/ })).toBeNull();
+  });
+
+  it("rejects without a reason when none is given — the reason is optional, not a gate", async () => {
+    // THE MUTANT: the Reject button disabled until something is typed, like Request changes'.
+    const { api } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Reject…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(api.calls).toContain("teamReviewReject:v1:"));
+  });
+
+  it("Escape puts the strip away and leaves the batch as it was", async () => {
+    const { api } = await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Reject…" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: /Why reject/ }), { key: "Escape" });
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(api.calls.some((c) => c.startsWith("teamReviewReject"))).toBe(false);
+  });
+
+  it("closes an approved batch that has not all gone out, saying first what it takes back and what it cannot", async () => {
+    // THE MUTANT: Close offered only while the batch waits — the one moment it matters, after the yes, has no way out.
+    const { api } = await mountApproved(approvedBatch([
+      ticket(0, { state: "scheduled", pressedAt: 1 }), ticket(1),
+      ticket(2, { state: "done", actedAt: Date.now(), proofUrl: "https://fake-platform.invalid/1" }),
+    ]));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const strip = document.querySelector(".rv-ask")!;
+    expect(strip).toHaveTextContent("Close it and take back all 2 not posted yet? 1 already went out and stays out.");
+    // The strip's own buttons replace the bar's while it is up: no Don't post beside a Close.
+    expect(screen.queryByRole("button", { name: "Don't post" })).toBeNull();
+    fireEvent.click(within(strip as HTMLElement).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(api.calls).toContain("teamReviewClose:v1"));
+  });
+
+  it("keeps a week of what was rejected, closed or put away under Closed this week, each with its state", async () => {
+    // THE MUTANT: the list filtering finished batches out — a mis-click on Close leaves no trace to find.
+    const { store } = await mount({ state: "closed", decidedAt: Date.now() - 60_000, actsDone: 1, actsTotal: 1, verb: "post" });
+    const old = { ...store.getState().teams["s1"]!.reviews[1]!, id: "v3", title: "Last month's", state: "rejected" as const, decidedAt: Date.now() - 30 * 86_400_000 };
+    const gone = { ...store.getState().teams["s1"]!.reviews[1]!, state: "rejected" as const, decidedAt: Date.now() };
+    cleanup();
+    store.setState({ teams: { ...store.getState().teams, s1: { ...store.getState().teams["s1"]!, reviews: [store.getState().teams["s1"]!.reviews[0]!, gone, old] } } });
+    render(<StoreContext.Provider value={store}><ReviewPane item={store.getState().items.find((i) => i.kind === "review")!} visible /></StoreContext.Provider>);
+    await screen.findByRole("heading", { level: 1 });
+    expect([...document.querySelectorAll(".rv-group")].map((g) => g.textContent)).toEqual(["Closed this week"]);
+    expect(document.querySelector('[data-review="v1"] .rv-state')).toHaveTextContent("Closed by you · 1 already posted");
+    expect(document.querySelector('[data-review="v2"] .rv-state')).toHaveTextContent("Rejected by you");
+    expect(document.querySelector('[data-review="v3"]')).toBeNull();
+  });
+});

@@ -1624,6 +1624,10 @@ export const Methods = {
   "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
   "team.reviewDone": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   "team.reviewDismiss": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
+  /** No, with an optional reason the role that sent it is told; whatever had not gone out never will. */
+  "team.reviewReject": { params: z.object({ id: IdSchema, reason: z.string().max(5_000).optional() }), result: TeamReviewSummarySchema },
+  /** Closed before it went out — waiting, asked to change, or approved and not yet sent. */
+  "team.reviewClose": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   /** The person's edit of an item's text before the yes: the batch's next version (generic deliverables). */
   "team.reviewEditItem": { params: z.object({ id: IdSchema, itemId: IdSchema, body: z.string().min(1).max(20_000) }), result: TeamReviewSummarySchema },
   "team.records": { params: z.object({ spaceId: IdSchema, type: z.string().min(1).max(60).optional() }), result: z.array(TeamRecordSummarySchema) },

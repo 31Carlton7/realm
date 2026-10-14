@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { LAYA_ASSIST_MIN_ACCURACY, LayaModeSchema, type LayaAssistGate, type LayaEvalReport, type LayaEvaluation, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus, type LayaTraining } from "@realm/contracts";
+import { LAYA_ASSIST_MIN_ACCURACY, LayaModeSchema, type LayaAssistGate, type LayaAutoInstall, type LayaEvalReport, type LayaEvaluation, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus, type LayaTraining } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { LAYA_CHECKPOINT, LayaClient, type LayaHealth } from "./client";
 import type { DecisionLog } from "./log";
@@ -10,8 +10,15 @@ import { LayaStepError, type LayaProcess, type LayaRuntime } from "./runtime";
 import type { LayaRecorder } from "./recorder";
 import { beats, localCheckpointLabel, readEval, removeCheckpoint, type TrainProgress, type TrainResult } from "./training";
 
-/** Where the Off/Shadow switch is kept. Absent reads as off: Laya is never on until someone says so. */
+/** Where the Off/Shadow switch is kept. Absent reads as `LAYA_DEFAULT_MODE`: Laya is on unless someone
+ *  switched it off, and a stored Off is never read as anything else. */
 export const LAYA_MODE_KEY = "laya.mode";
+/** The position for a home whose switch nobody has touched — a fresh one, or one from before Laya was
+ *  on by default. Shadow: it is asked and logged, and nothing it says reaches the agent. */
+export const LAYA_DEFAULT_MODE: LayaMode = "shadow";
+/** The free space an install starts on its own with: about 3 GB of PyTorch and weights, and room left
+ *  after them. A person's Install click asks nothing of the kind. */
+export const LAYA_AUTO_INSTALL_MIN_FREE = 10 * 1024 ** 3;
 /** The checkpoint trained on this Mac that Laya runs, by its directory's name under `checkpoints/`.
  *  Absent is the download. */
 export const LAYA_CHECKPOINT_KEY = "laya.checkpoint";
@@ -32,11 +39,21 @@ export type LayaTiming = {
   requestTimeoutMs: number;
   /** The warm-up. The first question after a load took 1.2 s here, against a 63 ms p50 after it. */
   warmupTimeoutMs: number;
+  /** The install that starts on its own: how long after boot it first looks, how often it looks again
+   *  while it waits (for onboarding, for idle agents, for disk, for a Python), and the wait before each
+   *  retry of an attempt that failed. Past the last retry it stops and leaves the button. */
+  autoFirstMs: number;
+  autoRecheckMs: number;
+  /** The look again for what does not change in a minute — free space, a Python someone installs —
+   *  and which costs a run of every interpreter on the machine to ask about. */
+  autoSlowRecheckMs: number;
+  autoBackoffMs: number[];
 };
 
 export const LAYA_TIMING: LayaTiming = {
   startupMs: 180_000, pollMs: 500, healthEveryMs: 30_000, healthMisses: 3,
   backoffMs: [1_000, 2_000, 4_000, 8_000, 16_000], requestTimeoutMs: 2_000, warmupTimeoutMs: 20_000,
+  autoFirstMs: 3 * 60_000, autoRecheckMs: 60_000, autoSlowRecheckMs: 30 * 60_000, autoBackoffMs: [5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3_600_000],
 };
 
 /** How many recent round trips the p50 is taken over. */
@@ -46,9 +63,12 @@ const LATENCY_WINDOW = 100;
  * The local Laya runtime, as Settings and the shadow see it: whether it is installed, whether it is
  * running, and a client when it is ready.
  *
- * It never downloads on its own. `install` is the only path to the network, and it is reached only
- * from `laya.install`, which only the user's click sends. Boot starts the server only when the user
- * had switched Laya to Shadow and an install is already on disk.
+ * It is on by default and installs itself: a home whose switch nobody touched reads as Shadow, and a
+ * few minutes after boot — once onboarding has made a space, no agent is mid-turn and the disk has
+ * room — the install starts in the background (`auto`). A failed attempt is tried again on a widening
+ * clock and then left to the Install button; switching Laya off stops all of it, an install it had
+ * started included, and nothing ever switches it back. Only the base checkpoint is downloaded: a
+ * checkpoint trained on this Mac becomes active only through Train, never through an install.
  *
  * The process is supervised the way a daemon should be: started on a free loopback port with a
  * per-start key, polled until the checkpoint is loaded, warmed with one question the latency ignores,
@@ -60,6 +80,12 @@ export class LayaService {
   private installing: { step: LayaInstallStep; detail: string; fraction: number | null } | null = null;
   private installAbort: AbortController | null = null;
   private installFailure: { reason: string; detail: string } | null = null;
+  /** The auto-install's state, and its one timer. Attempts count failures since this boot. */
+  private auto: LayaAutoInstall | null = null;
+  private autoTimer: NodeJS.Timeout | null = null;
+  private autoAttempts = 0;
+  /** The install under way was started by `auto`, not by the person: switching off stops it. */
+  private autoInstalling = false;
   private python: { at: number; search: PythonSearch } | null = null;
   private run: { proc: LayaProcess; client: LayaClient } | null = null;
   private ready: { device: string; checkpoint: string } | null = null;
@@ -98,15 +124,28 @@ export class LayaService {
     train?: (o: { name: string; signal: AbortSignal; onProgress: (p: TrainProgress) => void }) => Promise<TrainResult>;
     /** Keeps screens while a person uses an app (`recorder.ts`); absent, recording is refused. */
     recorder?: LayaRecorder;
+    /** What the auto-install waits on. Absent — a test, a script, a harness — nothing installs itself. */
+    autoInstall?: {
+      /** A space exists: first run is behind the person. */
+      onboarded(): boolean;
+      /** An agent is mid-turn somewhere. */
+      busy(): boolean;
+      /** Bytes free on the disk the install would land on; null when it cannot be read. */
+      freeBytes(): number | null;
+    };
   }) {
-    const stored = LayaModeSchema.safeParse(d.settings.get(LAYA_MODE_KEY));
-    this.mode = stored.success ? stored.data : "off";
+    const raw = d.settings.get(LAYA_MODE_KEY);
+    const stored = LayaModeSchema.safeParse(raw);
+    // Never touched is the default. Anything else that is not a mode — a hand-edited row — is off: an
+    // unreadable choice is not taken as a yes.
+    this.mode = stored.success ? stored.data : raw === null || raw === undefined ? LAYA_DEFAULT_MODE : "off";
     this.t = { ...LAYA_TIMING, ...d.timing };
   }
 
-  /** At boot: bring the server back if the user left Laya on. Starts nothing otherwise. */
+  /** At boot: bring the server back if Laya is on, or arm the install that starts on its own. */
   boot(): void {
     if (this.mode !== "off" && this.d.runtime?.installed() && !this.d.runtime.unavailable) void this.start();
+    else this.armAuto(this.t.autoFirstMs, { state: "waiting", why: "Installs on its own a few minutes after Realm opens." });
   }
 
   /** The client, only while the checkpoint is loaded and warm. The shadow asks nothing otherwise. */
@@ -179,6 +218,7 @@ export class LayaService {
       training: this.training,
       recording: this.d.recorder?.current() ?? null,
       recorded: this.recorded(),
+      auto: this.autoInstallState(),
     };
   }
 
@@ -223,31 +263,114 @@ export class LayaService {
     // Asked fresh: a Python installed since the last look is exactly why someone clicks again.
     const search = await this.findPython(true);
     if (!search.found) throw new RpcError("LAYA_NEEDS_PYTHON", "There is no Python 3.10 to 3.14 for Apple silicon on this Mac to install Laya with.");
+    void this.runInstall(search.found, false);
+    return this.status();
+  }
+
+  /** One install, in the background. Settles true when it finished; a failure is kept for the state
+   *  row, except one that was stopped because Laya was switched off, which is no failure. */
+  private runInstall(python: NonNullable<PythonSearch["found"]>, auto: boolean): Promise<boolean> {
+    const rt = this.d.runtime!;
     this.installFailure = null;
     this.installing = { step: "environment", detail: "Starting", fraction: null };
+    this.autoInstalling = auto;
     const abort = new AbortController();
     this.installAbort = abort;
-    void rt.install(search.found, (p) => { if (this.installing) { this.installing = p; this.changed(); } }, abort.signal)
+    this.changed();
+    return rt.install(python, (p) => { if (this.installing) { this.installing = p; this.changed(); } }, abort.signal)
       .then(() => {
         this.installing = null;
         this.changed();
         if (this.mode !== "off") void this.start();
+        return true;
       }, (e: unknown) => {
         this.installing = null;
-        this.installFailure = e instanceof LayaStepError
-          ? { reason: e.reason, detail: e.detail }
-          : { reason: e instanceof Error ? e.message : String(e), detail: "" };
+        if (!(abort.signal.aborted && this.mode === "off")) {
+          this.installFailure = e instanceof LayaStepError
+            ? { reason: e.reason, detail: e.detail }
+            : { reason: e instanceof Error ? e.message : String(e), detail: "" };
+        }
         this.changed();
+        return false;
       })
-      .finally(() => { if (this.installAbort === abort) this.installAbort = null; });
-    return this.status();
+      .finally(() => {
+        if (this.installAbort === abort) this.installAbort = null;
+        this.autoInstalling = false;
+      });
+  }
+
+  /* ---------------------------------- the install that starts on its own ---------------------------------- */
+
+  /** Look again after `ms`, saying meanwhile what it waits for. Only while there is something to do. */
+  private armAuto(ms: number, state: LayaAutoInstall): void {
+    if (!this.d.autoInstall || this.closed || this.mode === "off") return;
+    const rt = this.d.runtime;
+    if (!rt || rt.unavailable || rt.installed()) return;
+    if (this.autoTimer) clearTimeout(this.autoTimer);
+    this.auto = state;
+    const t = setTimeout(() => { this.autoTimer = null; void this.autoCheck(); }, ms);
+    t.unref?.();
+    this.autoTimer = t;
+  }
+
+  private clearAuto(): void {
+    if (this.autoTimer) clearTimeout(this.autoTimer);
+    this.autoTimer = null;
+    this.auto = null;
+  }
+
+  /**
+   * The moment comes: an install starts only when every condition holds now — Laya on, not installed
+   * or installing, first run done, no agent mid-turn, room on the disk, a Python to make it with —
+   * and otherwise it looks again later and says which one it is waiting for.
+   */
+  private async autoCheck(): Promise<void> {
+    const a = this.d.autoInstall;
+    const rt = this.d.runtime;
+    if (!a || !rt || rt.unavailable || this.closed || this.mode === "off" || rt.installed()) return this.clearAuto();
+    if (this.installing) return this.armAuto(this.t.autoRecheckMs, { state: "waiting", why: "Installing." });
+    const recheck = (why: string, ms = this.t.autoRecheckMs) => { this.armAuto(ms, { state: "waiting", why }); this.changed(); };
+    if (!a.onboarded()) return recheck("Installs on its own once you have made a space.");
+    if (a.busy()) return recheck("Installs on its own once no agent is working.");
+    const free = a.freeBytes();
+    if (free !== null && free < LAYA_AUTO_INSTALL_MIN_FREE) {
+      return recheck(`Installs on its own once this Mac has ${gb(LAYA_AUTO_INSTALL_MIN_FREE)} free; it has ${gb(free)}.`, this.t.autoSlowRecheckMs);
+    }
+    const search = await this.findPython(true);
+    // Each await is a moment the person can switch Laya off in.
+    if (this.closed || this.switchedOff() || this.installing) return;
+    if (!search.found) return recheck("Installs on its own once there is a Python to make it with.", this.t.autoSlowRecheckMs);
+    this.auto = null;
+    const done = await this.runInstall(search.found, true);
+    if (done || this.closed || this.switchedOff()) return this.clearAuto();
+    this.autoAttempts++;
+    const wait = this.t.autoBackoffMs[this.autoAttempts - 1];
+    if (wait === undefined) {
+      this.clearAuto();
+      this.auto = { state: "stopped", attempts: this.autoAttempts };
+    } else {
+      this.armAuto(wait, { state: "retrying", at: this.now() + wait, attempt: this.autoAttempts + 1 });
+    }
+    this.changed();
+  }
+
+  private switchedOff(): boolean { return this.mode === "off"; }
+
+  /** What Settings says about the auto-install: nothing while there is nothing for it to do. */
+  private autoInstallState(): LayaAutoInstall | null {
+    if (!this.d.autoInstall || this.mode === "off" || this.installing) return null;
+    const rt = this.d.runtime;
+    if (!rt || rt.unavailable || rt.installed()) return null;
+    return this.auto;
   }
 
   async setMode(mode: LayaMode): Promise<LayaStatus> {
     const rt = this.d.runtime;
-    if (mode !== "off" && !(rt && !rt.unavailable && rt.installed())) {
-      throw new RpcError("LAYA_NOT_INSTALLED", "Install Laya before switching it on.");
-    }
+    const installed = Boolean(rt && !rt.unavailable && rt.installed());
+    // Shadow before an install is a request the install answers; Assist is earned by a checkpoint
+    // that has to be on disk first.
+    if (mode === "assist" && !installed) throw new RpcError("LAYA_NOT_INSTALLED", "Install Laya before switching Assist on.");
+    if (mode === "shadow" && (!rt || rt.unavailable)) throw new RpcError("LAYA_UNAVAILABLE", rt?.unavailable ?? UNAVAILABLE);
     // Assist is earned by the active checkpoint's evaluation, not chosen — the switch refuses it
     // with the same sentence Settings shows beside the locked option.
     if (mode === "assist") {
@@ -256,12 +379,20 @@ export class LayaService {
     }
     this.mode = mode;
     this.d.settings.set(LAYA_MODE_KEY, mode);
-    if (mode !== "off") {
+    if (mode !== "off" && !installed) {
+      // On again before the install: the auto-install looks now, its count starting over.
+      this.autoAttempts = 0;
+      this.armAuto(0, { state: "waiting", why: "Installs on its own in a moment." });
+    } else if (mode !== "off") {
       // Choosing Shadow again after a failure is the retry: the count starts over.
       this.startFailure = null;
       this.restarts = 0;
       if (!this.run) void this.start();
     } else {
+      // Off stops the auto-install where it is, an install it started included; a person's own
+      // Install click finishes, and simply does not start the server.
+      this.clearAuto();
+      if (this.autoInstalling) this.installAbort?.abort();
       await this.stop();
     }
     this.changed();
@@ -360,6 +491,7 @@ export class LayaService {
 
   async close(): Promise<void> {
     this.closed = true;
+    this.clearAuto();
     this.installAbort?.abort();
     this.trainAbort?.abort();
     if (this.publishTimer) clearTimeout(this.publishTimer);
@@ -539,6 +671,12 @@ export class LayaService {
 }
 
 const UNAVAILABLE = "This build of Realm does not run Laya.";
+
+/** "10 GB", "4.2 GB": a disk's free space in the words a person checks it in. */
+function gb(bytes: number): string {
+  const n = bytes / 1024 ** 3;
+  return `${n >= 10 ? Math.round(n) : Math.round(n * 10) / 10} GB`;
+}
 
 /** A report's three numbers for Settings, or null for no report. */
 export function evaluationOf(r: LayaEvalReport | null): LayaEvaluation | null {
