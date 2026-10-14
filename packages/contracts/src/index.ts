@@ -94,3 +94,4 @@ export * from "./keysym";
 export * from "./session-refs";
 export * from "./ui-ask";
 export * from "./ui-blocks";
+export * from "./platform";
