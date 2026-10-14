@@ -84,6 +84,9 @@ registerMediaScheme();
 /** What this OS can do for Realm (packages/contracts/src/platform.ts) — read here, by the server, and by
  *  the renderer through the preload, so a feature that does not exist here is gated in one place. */
 const platform = platformCapabilities(process.platform);
+// Windows shows a notification only for an app it can name, and names it by this id — the appId
+// electron-builder registers the Start menu shortcut under.
+if (process.platform === "win32") app.setAppUserModelId("co.charmtechnologies.realm");
 
 /** The server child, in the non-daemon shape: a process this one owns and SIGTERMs on quit. */
 let serverChild: import("node:child_process").ChildProcess | null = null;
@@ -184,6 +187,8 @@ function forgetProfile(profile: ProfileFacts): void {
  */
 function trayImage() {
   const image = nativeImage.createFromPath(trayIconPath({ packaged: app.isPackaged, appPath: app.getAppPath(), resourcesPath: process.resourcesPath }));
+  // Off a Mac it is the app icon in colour, at the tray's own size.
+  if (process.platform !== "darwin") return image.resize({ width: 32, height: 32 });
   // The file's name already says Template; this says it again for a picture loaded some other way.
   image.setTemplateImage(true);
   return image;
