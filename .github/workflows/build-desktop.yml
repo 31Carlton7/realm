@@ -42,6 +42,16 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # @hugeicons-pro is a paid package on Hugeicons' own registry; the token is the repo secret
+      # HUGEICONS_TOKEN. Written to the user .npmrc so it never lands in the checkout.
+      - name: Hugeicons registry
+        shell: bash
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: |
+          test -n "$HUGEICONS_TOKEN" || { echo "::error::Set the HUGEICONS_TOKEN repo secret to install @hugeicons-pro"; exit 1; }
+          printf '@hugeicons-pro:registry=https://npm.hugeicons.com/\n//npm.hugeicons.com/:_authToken=%s\n' "$HUGEICONS_TOKEN" >> ~/.npmrc
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
