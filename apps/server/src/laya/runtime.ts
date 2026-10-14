@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, join } from "node:path";
-import type { LayaInstallStep } from "@realm/contracts";
+import { platformCapabilities, type LayaInstallStep } from "@realm/contracts";
 import { findPython, type PythonChoice, type PythonSearch } from "./python";
 
 /**
@@ -118,6 +118,8 @@ export type RealLayaRuntimeOptions = {
   home: string;
   env?: NodeJS.ProcessEnv;
   arch?: string;
+  /** `process.platform` unless a test names another (contracts' platform.ts `laya`). */
+  platform?: string;
   spawnImpl?: typeof spawn;
   /** How long `stop` waits after SIGTERM before SIGKILL. Five seconds; a test shortens it. */
   stopGraceMs?: number;
@@ -147,7 +149,9 @@ export function realLayaRuntime(o: RealLayaRuntimeOptions): LayaRuntime {
   return {
     dir,
     logPath: join(dir, "decisions.jsonl"),
-    unavailable: arch === "arm64" ? null : "Laya runs on Apple silicon only: PyTorch publishes no build for Intel Macs.",
+    unavailable: !platformCapabilities(o.platform ?? process.platform).laya
+      ? "Laya runs on a Mac only: it trains and serves on Apple silicon's GPU."
+      : arch === "arm64" ? null : "Laya runs on Apple silicon only: PyTorch publishes no build for Intel Macs.",
     findPython: () => findPython({ env }),
     installed: () => (devVenv ? existsSync(join(devVenv, "bin", "laya-serve")) : existsSync(marker) && existsSync(python)),
 
