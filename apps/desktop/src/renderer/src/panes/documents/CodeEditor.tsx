@@ -259,5 +259,7 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
   return <div className="documents-code" ref={host} />;
 }
 
-/** Grammars whose files are read as prose rather than as columns. */
-const WRAPS: ReadonlySet<CodeLanguage> = new Set<CodeLanguage>(["markdown", "text"]);
+/** Grammars whose files are read as prose rather than as columns. Not `text`: what reaches the code
+ *  editor with no grammar is a log, a lockfile, a `.txt` of output — columns, which a soft wrap folds
+ *  into a ragged block a person cannot scan down (the owner asked for them to scroll sideways). */
+const WRAPS: ReadonlySet<CodeLanguage> = new Set<CodeLanguage>(["markdown"]);

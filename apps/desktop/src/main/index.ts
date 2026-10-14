@@ -21,6 +21,7 @@ import { isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
+import { readTextFile } from "./read-text";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { refuseCapture } from "./capture-guard";
@@ -1671,6 +1672,8 @@ ipcMain.handle("media:open", async (_e, path: unknown): Promise<void> => {
  * that one really can run an `.app`.
  */
 ipcMain.handle("files:stat", (_e, path: unknown) => statFile(path));
+/** A file's text, for the media viewer to draw as the documents pane would (read-text.ts). */
+ipcMain.handle("files:read-text", (_e, path: unknown) => readTextFile(path));
 /**
  * One folder of a space or a checkout, newest first (`browse.ts`) — what a session's file browser
  * lists.
