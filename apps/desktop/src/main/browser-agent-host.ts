@@ -5,9 +5,10 @@
  * (filled from CDP events from the moment of first attach), the download-block notes, and the
  * previous snapshot's fingerprint index that `*[new]` markers diff against.
  */
-import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind } from "@realm/contracts";
+import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type SiteCredential } from "@realm/contracts";
 import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
+import { credentialSiteMatch } from "./password-match";
 import { axElementAt, readAxSnapshot } from "./device-ax";
 
 /**
@@ -128,6 +129,13 @@ export type BrowserAgentHostDeps = {
       use: (value: string) => Promise<void>,
     ): Promise<{ ok: true; credential: BrowserCredential } | { ok: false; refused: "no_store" | "no_presence" }>;
     audit(entry: CredentialAuditEntry): void;
+    /** The passwords offered on one page — the profile's, its team's, and the login keychain's — exact
+     *  origin first, then the rest of the site, each saying whether an agent has "Always allow" there. */
+    credentialsForSite?(profileId: string, spaceId: string | null, origin: string): SiteCredential[];
+    /** Read the login keychain's list again when it is stale, before a listing. */
+    refreshKeychain?(): Promise<void>;
+    /** Keep the person's "Always allow" from a fill's card: this password, on this exact origin. */
+    setFillAllow?(profileId: string, credentialId: string, origin: string): boolean;
   };
   /**
    * Whose pane this is: the profile main gave the view's partition to, or null when there is no
@@ -631,7 +639,29 @@ export class BrowserAgentHost {
         // a profile with nothing saved, never as somebody's.
         const profileId = typeof params.profileId === "string" ? params.profileId : "";
         const spaceId = typeof params.spaceId === "string" && params.spaceId ? params.spaceId : null;
-        return { credentials: profileId ? this.d.secrets?.listCredentials(profileId, spaceId) ?? [] : [] };
+        if (!profileId) return { credentials: [] };
+        await this.d.secrets?.refreshKeychain?.().catch(() => {});
+        // Named a pane: the passwords for the site that pane is on, by the pane's OWN url — never the
+        // agent's say-so — and only if the pane is this profile's.
+        if (browserId) {
+          const origin = normalizeOrigin(this.d.pageState(browserId)?.url ?? "");
+          const paneProfile = this.d.profileOf?.(browserId);
+          if (!origin || (paneProfile !== undefined && paneProfile !== profileId)) return { origin, credentials: [] };
+          return { origin, credentials: this.d.secrets?.credentialsForSite?.(profileId, spaceId, origin) ?? [] };
+        }
+        return { credentials: this.d.secrets?.listCredentials(profileId, spaceId) ?? [] };
+      }
+      /**
+       * The person answered "Always allow" on a fill's card: keep it, for this password on this exact
+       * origin. The card is what is skipped from then on; the unlock policy still applies to every
+       * fill. realm-server sends this only from that answer, and main checks the password is the
+       * profile's before anything is kept.
+       */
+      case "credentialAllow": {
+        const profileId = typeof params.profileId === "string" ? params.profileId : "";
+        const origin = normalizeOrigin(String(params.origin ?? ""));
+        const id = String(params.credentialId ?? "");
+        return { ok: !!profileId && !!origin && (this.d.secrets?.setFillAllow?.(profileId, id, origin) ?? false) };
       }
       /**
        * Fill a sign-in into `ref`: one the user enrolled, named by `credentialId`, or one the store
@@ -706,6 +736,18 @@ export class BrowserAgentHost {
           }
           credentialId = credential.id;
           origin = credential.origin;
+          // The card may have named another page of the same site (an imported password saved at
+          // www.example.com, a sign-in at login.example.com). Then THAT origin is what the live page
+          // must equal, exactly — the one the person approved — and the password must belong to its
+          // site. A page origin that is not the same site is refused before anything is asked.
+          const approvedPage = params.pageOrigin === undefined ? null : normalizeOrigin(String(params.pageOrigin));
+          if (approvedPage && approvedPage !== origin) {
+            if (credentialSiteMatch(origin, approvedPage) === null) {
+              this.auditFill(credentialId, origin, "origin_mismatch", who);
+              return { ok: false, refused: "origin_mismatch", error: `that saved sign-in is for ${origin}, which is not the same site as ${approvedPage} — nothing was filled` } satisfies BrowserActResult;
+            }
+            origin = approvedPage;
+          }
           fill = { origin, kind: "saved", reveal: (type) => store.withCredentialValue(profileId, credential.id, type, { spaceId }) };
         }
         const entry = this.ensure(browserId);

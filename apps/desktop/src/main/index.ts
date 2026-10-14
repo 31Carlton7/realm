@@ -684,6 +684,9 @@ const agentHost = new BrowserAgentHost({
     withGeneratedCredentialValue: async (profileId, input, use) =>
       secrets()?.withGeneratedCredentialValue(profileId, input, use) ?? { ok: false, refused: "no_store" },
     audit: (entry) => secrets()?.audit(entry),
+    credentialsForSite: (profileId, spaceId, origin) => secrets()?.credentialsForSite(profileId, spaceId, origin) ?? [],
+    refreshKeychain: async () => { await secrets()?.refreshKeychain(); },
+    setFillAllow: (profileId, credentialId, origin) => secrets()?.setFillAllow(profileId, credentialId, origin) ?? false,
   },
   profileOf: (id) => profileOfPane(id),
   downloads: downloadGovernor,
