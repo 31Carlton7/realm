@@ -44,7 +44,7 @@
 .terminal-dock-title,
 .sim-detail, .upl-path, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
-.subagent-where[data-branch] {
+.subagent-where[data-branch], .signin-hint code, .signin-code {
   letter-spacing: normal;
 }
 
