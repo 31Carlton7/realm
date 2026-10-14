@@ -1,9 +1,10 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { GUIDES_DIR, LECTURES_DIR, progressSidecarPath, weakTopics, type DocumentEntry, type GuideProgress } from "@realm/contracts";
+import { GUIDES_DIR, LECTURES_DIR, isVideoFile, progressSidecarPath, weakTopics, type DocumentEntry, type GuideProgress } from "@realm/contracts";
 import type { ProviderCallContext, RealmToolProvider } from "../mcp/gateway";
 import { clip, err, ok } from "../mcp/tool-result";
 import type { McpService } from "../mcp/service";
 import { searchDocs, SEARCH_MAX_LIMIT } from "./docs-search";
+import { namedFile } from "./paths";
 import type { TextExtractor } from "./text-extract";
 
 export const DOCS_PROVIDER_NAME = "realm-docs";
@@ -25,8 +26,12 @@ const LINE_MAX = 2_000;
  *   - `docs_search`   — what the course folder says about something: every lecture, guide, deck
  *                       (PDF text included) that mentions the query, ranked, with snippets. This is
  *                       what lets a session in EE 457 cite lecture 4 instead of guessing.
- *   - `docs_open`     — put a file on the user's screen ("look at this guide"). Surfaces the
- *                       documents pane and opens the tab; the file itself is not touched.
+ *   - `docs_open`     — put a file on the user's screen ("look at this guide", "here is the render").
+ *                       Surfaces the documents pane and opens the tab — any file the agent can name,
+ *                       inside the space's folder or not, a video in Realm's player — and touches
+ *                       nothing on disk.
+ *   - `docs_reveal`   — select a file in the Finder, for the "where did it put it" an agent was
+ *                       answering with "I can't open Finder for you".
  *   - `docs_progress` — a guide's quiz history from its sidecar, so "make me a review guide for
  *                       what I keep getting wrong" has data behind it.
  *
@@ -35,7 +40,8 @@ const LINE_MAX = 2_000;
  * deck's text included, which no shell tool gives an agent — so a search hit can be read past its
  * snippet; and `docs_state`, which files the user has open in the Documents pane and which one they
  * are looking at, which agents were reading out of Realm's database by hand. All are read-only
- * except `docs_open`, which changes only what is on screen — none prompts for permission.
+ * except `docs_open` and `docs_reveal`, which change only what is on screen — none prompts for
+ * permission.
  */
 export type DocsAgentToolsDeps = {
   mcp: Pick<McpService, "providerEnabled">;
@@ -45,7 +51,12 @@ export type DocsAgentToolsDeps = {
   /** `DocumentService.list` over the space's primary workspace (creating the workspace if needed). */
   listForSpace(spaceId: string, dir: string): Promise<DocumentEntry[]>;
   /** `DocumentService.openPath` — the same call the store makes. */
-  openPath(p: { spaceId: string; path: string; openedBy?: string }): Promise<{ documentsId: string; itemId: string; environmentId: string }>;
+  openPath(p: { spaceId: string; environmentId?: string; path: string; base?: string; openedBy?: string }): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string }>;
+  /** Where the calling session stands: its checkout and its working directory, which a relative path
+   *  it writes is relative to. Null for a session Realm no longer has. */
+  placeOf(sessionId: string): { environmentId: string; cwd: string } | null;
+  /** Select a file in the Finder (main's `open -R` on a Mac). */
+  reveal(abs: string): Promise<void>;
   /** A guide's sidecar (empty when none). */
   progressForSpace(spaceId: string, path: string): Promise<GuideProgress>;
   /** One file of the space as text — a PDF's text layer for a PDF — by a path relative to the space's
@@ -98,7 +109,12 @@ const TOOLS: Tool[] = [
   },
   {
     name: "docs_open",
-    description: "Show a file in the user's Documents pane — a guide you just wrote, the lecture you are summarizing. Opens a tab; changes nothing on disk. Path is relative to the space folder.",
+    description: "Show a file in the user's Documents pane, beside your session — a guide you just wrote, a report, a render or a recording you made. Any file you can name opens, inside the space folder or not (/tmp, ~/Downloads, another checkout): documents in their editor, PDFs and pictures as previews, and videos (.mp4, .mov, .webm, .m4v, .mkv, .avi) in Realm's own video player, which is where videos open in Realm. Use it instead of `open` or QuickTime, and instead of telling the user you cannot show them a file. Path: absolute, ~/…, a file:// URL, or relative to your working directory. Opens a tab; changes nothing on disk.",
+    inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false },
+  },
+  {
+    name: "docs_reveal",
+    description: "Select a file or folder in the Finder, so the user sees where it is — anything you can name, inside the space folder or not. Path: absolute, ~/…, a file:// URL, or relative to your working directory. Use it instead of telling the user you cannot open the Finder. Changes nothing on disk.",
     inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false },
   },
   {
@@ -157,10 +173,30 @@ const HANDLERS: Record<string, Handler> = {
     return ok(entries.map((e) => (e.isDir ? `${e.path}/` : `${e.path} (${e.size} bytes)`)).join("\n"));
   },
   async docs_open(d, ctx, a) {
-    const path = str(a.path).replace(/^\/+/, "");
+    const path = str(a.path).trim();
     if (!path) return err("path is required");
-    const r = await d.openPath({ spaceId: ctx.spaceId, path, openedBy: ctx.sessionId });
-    return ok(`Opened ${path} in the Documents pane (workspace ${r.documentsId}).`);
+    // From where the session stands, in its own checkout: a worktree's file is that worktree's tab.
+    const place = d.placeOf(ctx.sessionId);
+    const open = (p: string) => d.openPath({ spaceId: ctx.spaceId, ...(place ? { environmentId: place.environmentId, base: place.cwd } : {}), path: p, openedBy: ctx.sessionId });
+    let r;
+    try { r = await open(path); } catch (e) {
+      // This tool once took paths "relative to the space folder", and agents wrote them `/lectures/…`:
+      // a rooted path that names nothing on disk is tried once more as the space's own.
+      if (!path.startsWith("/") || (e as { code?: unknown }).code !== "NOT_FOUND") throw e;
+      r = await open(path.replace(/^\/+/, ""));
+    }
+    const shown = isVideoFile(r.path) ? "in Realm's video player, in the Documents pane" : "in the Documents pane";
+    return ok(`Opened ${r.path} ${shown} beside your session (workspace ${r.documentsId}).`);
+  },
+  async docs_reveal(d, ctx, a) {
+    const path = str(a.path).trim();
+    if (!path) return err("path is required");
+    const base = d.placeOf(ctx.sessionId)?.cwd ?? d.rootForSpace(ctx.spaceId);
+    if (!base) return err("this space has no folder");
+    const found = await namedFile(path, base);
+    if (!found) return err(`nothing is at ${path} (read from ${base}).`);
+    await d.reveal(found.abs);
+    return ok(`${found.abs} is selected in a Finder window.`);
   },
   async docs_read(d, ctx, a) {
     const path = str(a.path);

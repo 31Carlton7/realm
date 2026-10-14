@@ -49,6 +49,7 @@ import { QemuManager } from "./machines/qemu-manager";
 import { createDocsAgentProvider } from "./documents/agent-tools";
 import { TextExtractor } from "./documents/text-extract";
 import { namedInRoot } from "./documents/paths";
+import { revealInFinder } from "./documents/reveal";
 import { LectureService } from "./school/lectures";
 import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
@@ -883,7 +884,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
-  const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id) });
+  const preview = new DocumentPreviewServer({ rootOf: (id) => documents.rootOfWorkspace(id), readsOutside: (id, abs) => documents.readsOutside(id, abs) });
   const documents: DocumentService = new DocumentService({
     db, rpc, spaces, items, environments, documents: new DocumentsStore(db), preview,
     // Late-bound like `preview`: the index is built further down, and is asked only once a pane reads.
@@ -1373,6 +1374,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } },
     listForSpace: (spaceId, dir) => documents.list(documents.open({ spaceId }).documentsId, dir),
     openPath: (p) => documents.openPath(p),
+    placeOf: (sessionId) => { const s = sessionsStore.get(sessionId); return s ? { environmentId: s.environmentId, cwd: s.cwd } : null; },
+    reveal: (abs) => revealInFinder(abs),
     progressForSpace: (spaceId, path) => documents.progressRead(documents.open({ spaceId }).documentsId, path),
     readForSpace: async (spaceId, path) => {
       const { rel, abs } = namedInRoot(documents.rootForSpace(spaceId), path);

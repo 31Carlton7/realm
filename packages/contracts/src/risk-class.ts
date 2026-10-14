@@ -79,7 +79,7 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *
  * NEVER class `read` (without `asksFirst`) a tool that changes state, sends something, moves the
  * user's screen or reveals a secret value: such a name runs with no prompt from either engine. Classed
- * otherwise on purpose: `docs_open`, `pane_show`, `session_open`, `space_switch` (each changes what is
+ * otherwise on purpose: `docs_open`, `docs_reveal`, `pane_show`, `session_open`, `space_switch` (each changes what is
  * on screen); `team_roles` (re-hashes approved reviews, and sends one back to the person when a file
  * changed under it); `vault_http` (spends a secret).
  */
@@ -146,6 +146,9 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-docs__docs_list": readAsking("it makes the space's Documents workspace the first time"),
   "realm-docs__docs_progress": readAsking("it makes the space's Documents workspace the first time"),
   "realm-docs__docs_open": internal,
+  // Selects a file in a Finder window: what is on screen changes, nothing on disk does — `docs_open`'s
+  // terms, so it goes ahead the way that one does rather than asking before every "here it is".
+  "realm-docs__docs_reveal": internal,
 
   "realm-vm__vm_list": readAsking(SHOWS_ELSEWHERE),
   "realm-vm__vm_screenshot": readAsking(SHOWS_ELSEWHERE),

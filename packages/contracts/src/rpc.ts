@@ -961,9 +961,11 @@ export const Methods = {
    * `documents.openRequested` so a mounted pane opens the tab and the store brings the item on screen.
    * The agent-facing `docs_open` tool and the store's own "open this lecture" both come through here.
    * `path` comes back as the tab now names it — relative to the workspace root, whatever shape the
-   * caller sent — so a caller that wants a LINE of it shown can say which tab the line belongs to.
+   * caller sent, or absolute for a file outside it (shown read-only) — so a caller that wants a LINE
+   * of it shown can say which tab the line belongs to. `path` is read as it was named: `~/…`, a
+   * `file://` URL, `out.md:12` (the line comes back as `line`), or relative to `base` when given.
    */
-  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema, path: z.string() }) },
+  "documents.openPath": { params: z.object({ spaceId: IdSchema, environmentId: IdSchema.optional(), path: z.string(), base: z.string().optional() }), result: z.object({ documentsId: IdSchema, itemId: IdSchema, environmentId: IdSchema, path: z.string(), line: z.number().int().nullable().optional() }) },
   /** A guide's quiz history from its sidecar; empty when there is none. */
   "documents.progressRead": { params: z.object({ documentsId: IdSchema, path: z.string() }), result: GuideProgressSchema },
   /** Fold one quiz attempt into the sidecar and return the updated history. */
