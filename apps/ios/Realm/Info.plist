@@ -48,8 +48,6 @@
 	<string>$(AppIdentifierPrefix)co.charmtechnologies.realm.ios.shared</string>
 	<key>UIAppFonts</key>
 	<array>
-		<string>InterVariable.ttf</string>
-		<string>InterVariable-Italic.ttf</string>
 		<string>JetBrainsMono-Regular.ttf</string>
 		<string>JetBrainsMono-Medium.ttf</string>
 	</array>

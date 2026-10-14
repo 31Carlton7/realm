@@ -5,7 +5,8 @@
  * Boots the BUILT server on a scratch home with the scripted agent standing in for Claude and Codex
  * (no billed turn), the relay's real Worker under `wrangler dev` on a fixed port, and the gateway.
  * Stages spaces and sessions in the states the app draws — a permission waiting, questions, a plan,
- * Markdown prose, an error with its fix, more sessions than Home lists — then prints one JSON line,
+ * Markdown prose, an error with its fix, a turn that changed files under git and made a picture, more
+ * sessions than Home lists — then prints one JSON line,
  * `{"pairLink", "sessions": {...}}`, and takes commands on stdin:
  *
  *   sleep        the Mac goes quiet: the gateway stops, and the relay tells the phone it is offline
@@ -18,18 +19,20 @@
  *
  * With --ui it drives the app itself instead: it builds the RealmLive scheme's UI tests once, then
  * runs one test per phase on the iPhone 17 Simulator — pair (the Mac holds its answer a few seconds),
- * awake, asleep, awake again, the relay down — moving the Mac between them, and leaves each test's
+ * awake, asleep, awake again, the relay down, then the largest text size and Reduce Transparency with
+ * everything back up — moving the Mac between them, and leaves each test's
  * screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any
- * phase fails. --phases test0_forgetThenPair,test1_awake runs only those.
+ * phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id> picks the
+ * Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
+ * --no-build runs what was built there last.
  *
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
  */
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
-import { bootServer, freePort, removeHome, repoRoot } from "../../server/scripts/lib/mobile-rig";
-import { RemoteGateway } from "../../server/src/remote/gateway";
+import { bootServer, freePort, removeHome, repoRoot, scratchGateway } from "../../server/scripts/lib/mobile-rig";
 import { loopbackRpc } from "../../server/src/remote/rpc-port";
 
 const arg = (name: string): string | undefined => { const i = process.argv.indexOf(`--${name}`); return i >= 0 ? process.argv[i + 1] : undefined; };
@@ -70,7 +73,7 @@ const rpc = await loopbackRpc({ port: server.port, token: server.token });
 const ui = process.argv.includes("--ui");
 // In UI runs the Mac holds its answer long enough for the phone to be seen asking for it.
 const confirmMs = Number(arg("confirm-ms") ?? (ui ? 6_000 : 0));
-const gw = new RemoteGateway({
+const gw = scratchGateway({
   home: server.home, relay: relay.url, rpc, macName: arg("mac") ?? "MacBook Pro", version: "2.0.3", dev: true,
   confirm: async () => { await new Promise((r) => setTimeout(r, confirmMs)); return true; },
 });
@@ -87,7 +90,8 @@ const settled = (id: string) => waitFor(`${id} to settle`, async () => ["idle", 
 const [profile] = await rpc.call("profiles.list", {});
 const space = (name: string, icon: string, color: string) => rpc.call("spaces.create", { profileId: profile!.id, name, icon, color });
 const realm = await space("Realm", "emoji:🌊", "#3b82f6");
-const site = await space("Site", "emoji:🧭", "#10b981");
+// Site wears one of the picker's glyphs rather than an emoji, so the glyph is drawn in its colour.
+const site = await space("Site", "browser", "#10b981");
 const laya = await space("Laya", "emoji:🦜", "#f59e0b");
 
 const session = async (spaceId: string, agentKind: "claude" | "codex", model: string, title: string) =>
@@ -134,6 +138,40 @@ sessions.error = await session(laya.id, "codex", "gpt-6-astra", "Train the socia
 await send(sessions.error, "hit the limit");
 sessions.markdown = await session(realm.id, "claude", "claude-sonnet-5", "Explain the relay");
 await send(sessions.markdown, MARKDOWN);
+// A turn that really edits two files of the space's checkout, and leaves a picture behind: the Mac
+// records the edits as the turn's changes (it needs git) and the picture as a file made. The scripted
+// turn ("fix the org access") edits the two files transcript-live.mjs seeds, so they are seeded here
+// the same way; anywhere else its edits fail, as a real edit would.
+{
+  const folder = (realm as { folderPath: string }).folderPath;
+  const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=Realm", "-c", "user.email=staging@realm.computer", "-c", "commit.gpgsign=false", ...args], { cwd: folder, stdio: "pipe" });
+  const helpers = (n: number, stem: string) => Array.from({ length: n }, (_, i) => [
+    `export function ${stem}${i}(name: string): string {`, `  return name.trim().toLowerCase().replace(/\\s+/g, "-${i}");`, "}", "",
+  ]).flat();
+  const orgs = [
+    'import { and, eq } from "drizzle-orm";', 'import { db } from "./db";', 'import { organizationMember, withInviteDefaults } from "./schema";', "",
+    ...helpers(19, "orgSlug"),
+    "/** The caller's membership in an organisation, or null. */",
+    "export async function getOrgMembership(orgId: string, userId: string) {",
+    "  const rows = await db.select().from(organizationMember)",
+    "    .where(and(eq(organizationMember.organizationId, orgId), eq(organizationMember.userId, userId)));",
+    "  return rows[0] ?? null;", "}", "", ...helpers(6, "orgLabel"),
+  ];
+  const compact = [...helpers(16, "chunkName"), "", "", "export function shouldCompact(tokens: number, limit: number) {", "  return tokens > limit * 0.85;", "}", ""];
+  mkdirSync(join(folder, "web/lib/agent/chat-runtime/compaction"), { recursive: true });
+  writeFileSync(join(folder, "web/lib/orgs.ts"), `${orgs.join("\n")}\n`);
+  writeFileSync(join(folder, "web/lib/agent/chat-runtime/compaction/auto-compact.ts"), `${compact.join("\n")}\n`);
+  git("init", "-q", "-b", "main");
+  git("add", "-A");
+  git("commit", "-qm", "Start");
+  sessions.changes = await session(realm.id, "claude", "claude-opus-5-5", "Fix the org access crash");
+  await rpc.call("sessions.send", { id: sessions.changes, text: "fix the org access crash on the connections page" });
+  // The page, as the turn left it: a picture made while the turn ran.
+  mkdirSync(join(folder, "renders"), { recursive: true });
+  execFileSync("sips", ["-s", "format", "png", join(repoRoot, "site/public/product/connections-1440.webp"), "--out", join(folder, "renders/connections-page.png")], { stdio: "pipe" });
+  await settled(sessions.changes);
+  if (!readFileSync(join(folder, "web/lib/orgs.ts"), "utf8").includes("withInviteDefaults(row)")) say("warning: the staged turn did not edit web/lib/orgs.ts");
+}
 sessions.plan = await session(realm.id, "claude", "claude-opus-5-5", "Rework the transcript mapper");
 await send(sessions.plan, "Make a plan for the mapper");
 // Needs you: questions, then a permission.
@@ -151,22 +189,39 @@ let pairing = gw.openPairing();
 console.log(JSON.stringify({ pairLink: pairing.url, relay: relay.url, home: server.home, sessions }));
 say(`staged on ${server.home}; relay ${relay.url}. Commands: sleep · wake · relay-down · relay-up · pair · send <key> <text> · quit`);
 
+/** One `xcrun simctl` call; resolves to its exit code. */
+const simctl = (args: string[]): Promise<number> => new Promise((done) => {
+  spawn("xcrun", ["simctl", ...args], { stdio: "ignore" }).on("exit", (code) => done(code ?? 1));
+});
+
 /** One xcodebuild, its output passed through; resolves to its exit code. Never spawnSync: the
  *  gateway in this process answers the phone while the test runs. */
 const xcodebuild = (args: string[], env: Record<string, string> = {}): Promise<number> => new Promise((done) => {
   const child = spawn("xcodebuild", args, { cwd: join(repoRoot, "apps/ios"), env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
-  const keep = (b: Buffer) => { for (const line of b.toString().split("\n")) if (/(Test Case|error:|failed|passed|\*\* TEST)/.test(line)) say(line.trim()); };
+  // What it said last, for a run that fails before any test does.
+  let tail: string[] = [];
+  let tested = false;
+  const keep = (b: Buffer) => {
+    for (const line of b.toString().split("\n")) {
+      if (line.trim()) tail = [...tail.slice(-24), line.trim()];
+      if (/Test Case/.test(line)) tested = true;
+      if (/(Test Case|error:|failed|passed|\*\* TEST)/.test(line)) say(line.trim().slice(0, 600));
+    }
+  };
   child.stdout!.on("data", keep);
   child.stderr!.on("data", keep);
-  child.on("exit", (code) => done(code ?? 1));
+  child.on("exit", (code) => {
+    if (code !== 0 && !tested) say(`xcodebuild ended ${code} before any test ran:\n${tail.map((l) => `  ${l.slice(0, 400)}`).join("\n")}`);
+    done(code ?? 1);
+  });
 });
 
 async function runUiTests(): Promise<boolean> {
   const udid = arg("udid") ?? "CDA45F4D-4FDD-40A9-8259-D58BE3BEF20C";
   const shots = arg("shots") ?? join(repoRoot, "apps/ios/.build/screenshots");
   mkdirSync(shots, { recursive: true });
-  const common = ["-project", "Realm.xcodeproj", "-scheme", "RealmLive", "-destination", `id=${udid}`, "-derivedDataPath", ".build/DerivedData"];
-  if (await xcodebuild(["build-for-testing", ...common]) !== 0) { say("the UI tests did not build"); return false; }
+  const common = ["-project", "Realm.xcodeproj", "-scheme", "RealmLive", "-destination", `id=${udid}`, "-derivedDataPath", arg("derived-data") ?? ".build/DerivedData"];
+  if (!process.argv.includes("--no-build") && await xcodebuild(["build-for-testing", ...common]) !== 0) { say("the UI tests did not build"); return false; }
   const results: [string, boolean][] = [];
   const only = arg("phases")?.split(",");
   const phase = async (test: string, env: Record<string, string> = {}) => {
@@ -187,6 +242,14 @@ async function runUiTests(): Promise<boolean> {
   await phase("test4_relayDown");
   relay = relayOn(port);
   await relay.ready;
+  await waitFor("the relay link", async () => gw.state === "connected", 90_000);
+  await phase("test5_largestText");
+  // Reduce Transparency has no simctl switch; the app reads it from the accessibility domain at launch.
+  const reduceTransparency = (on: boolean) =>
+    simctl(["spawn", udid, "defaults", "write", "com.apple.Accessibility", "EnhancedBackgroundContrastEnabled", "-bool", String(on)]);
+  await reduceTransparency(true);
+  await phase("test6_reduceTransparency");
+  await reduceTransparency(false);
   for (const [test, passed] of results) say(`${passed ? "passed" : "FAILED"}  ${test}`);
   say(`screenshots in ${shots}`);
   return results.every(([, passed]) => passed);

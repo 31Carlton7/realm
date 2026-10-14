@@ -17,15 +17,12 @@ struct RootView: View {
                         .navigationDestination(for: Route.self) { route in
                             switch route {
                             case .session(let id): SessionView(sessionId: id)
-                            case .settings: SettingsView()
-                            case .diagnostics: DiagnosticsView()
-                            case .licences: LicencesView()
                             }
                         }
                 }
                 // A link opened while a Mac is paired pairs over the top of it.
                 .sheet(isPresented: pairingOverTheTop) {
-                    NavigationStack { PairView() }
+                    NavigationStack { PairView(overTheTop: true) }
                 }
             }
         }
@@ -61,8 +58,8 @@ struct RootView: View {
     }
 }
 
-/// Something that happened, at the top of the screen for a few seconds: it never covers the
-/// composer, and leaves on its own.
+/// Something that happened, at the top of the screen for a few seconds on the glass the system's own
+/// notices wear: it never covers the composer, and leaves on its own.
 struct ToastView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -70,13 +67,12 @@ struct ToastView: View {
     var body: some View {
         if let toast = model.toast {
             Text(toast.text)
-                .inter(.subheadline, .label)
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(Palette.ink)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .surface(Palette.surface, radius: Radius.panel)
-                .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
                 .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))

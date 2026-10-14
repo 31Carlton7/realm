@@ -7,9 +7,6 @@ import os
 
 enum Route: Hashable {
     case session(String)
-    case settings
-    case diagnostics
-    case licences
 }
 
 enum PairingStatus: Equatable {
@@ -40,7 +37,20 @@ final class AppModel {
     let store: RealmStore
     let diagnostics = Diagnostics()
     var path: [Route] = []
+    /// Settings, in its sheet over Home.
+    var settingsShown = false
     var pairing: PairingStatus = .idle
+    /// Spaces' own pictures, by space, once fetched: `space.icon` is asked once per space a run.
+    private(set) var spacePictures: [String: UIImage] = [:]
+    /// Small copies of the pictures turns made, for their tiles, by session and path.
+    private(set) var thumbnails: [String: UIImage] = [:]
+    /// What each turn changed, by its checkpoint, once asked.
+    private(set) var turnChanges: [String: TurnChanges] = [:]
+    /// When each session's turn began, where this phone saw it begin: a turn already running when the
+    /// session opened has no start this phone can vouch for, so it shows no clock.
+    private(set) var workingSince: [String: Date] = [:]
+    /// When a row first arrived live, by its key; rows that came with the session's opening have none.
+    @ObservationIgnored private(set) var rowBirths: [String: Date] = [:]
     var toast: Toast?
     /// A pairing link for a different Mac, waiting for the person to say it replaces this one.
     var replacingPairLink: String?
@@ -71,6 +81,13 @@ final class AppModel {
     @ObservationIgnored private var visibleSessions: Set<String> = []
     @ObservationIgnored private var saveTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var retryTasks: [String: Task<Void, Never>] = [:]
+    /// Pictures and changes asked for, so a redraw does not ask again while the first is on its way.
+    @ObservationIgnored private var askedPictures: Set<String> = []
+    @ObservationIgnored private var askedChanges: Set<String> = []
+    /// The previews the Mac made of files turns made, the newest few kept so a tile and its sheet ask once.
+    @ObservationIgnored private var previews: [String: FilePreview] = [:]
+    @ObservationIgnored private var previewOrder: [String] = []
+    @ObservationIgnored private var askedThumbnails: Set<String> = []
 
     init() {
         let store = RealmStore()
@@ -86,9 +103,38 @@ final class AppModel {
     var isConnected: Bool { store.connection.isConnected }
     var linkStatus: LinkStatus { store.linkStatus() }
 
+    /// The link as the screen says it. Once connected, a drop says nothing until it has lasted 800 ms,
+    /// so a blip never moves anything; before the first connection, the attempt is the news.
+    var shownLinkStatus: LinkStatus {
+        let actual = linkStatus
+        if actual.isConnected || linkTroubled || !everConnected { return actual }
+        return LinkStatus(.connected)
+    }
+
     /// The Mac and its state, for the line under a title: "MacBook Pro · Asleep since 10:42".
     var macLine: String {
-        [store.pairedMac?.macName, linkStatus.words].compactMap { $0 }.joined(separator: " · ")
+        [store.pairedMac?.macName, shownLinkStatus.words].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// The link has been down for 800 ms, long enough to be worth saying.
+    private(set) var linkTroubled = false
+    @ObservationIgnored private var everConnected = false
+    @ObservationIgnored private var troubleTimer: Task<Void, Never>?
+
+    private func noteLink(_ state: ConnectionState) {
+        if state.isConnected {
+            everConnected = true
+            troubleTimer?.cancel()
+            troubleTimer = nil
+            linkTroubled = false
+        } else if troubleTimer == nil, !linkTroubled {
+            troubleTimer = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(800))
+                guard let self, !Task.isCancelled else { return }
+                self.linkTroubled = true
+                self.troubleTimer = nil
+            }
+        }
     }
 
     // MARK: - Launch and pairing
@@ -144,6 +190,8 @@ final class AppModel {
         }
         if let paired = store.pairedMac {
             if paired.macId == link.macId && paired.windowId == link.windowId { return }
+            // Settings makes way: what comes next is asked over Home.
+            settingsShown = false
             if paired.macId != link.macId {
                 replacingPairLink = text
                 return
@@ -178,8 +226,10 @@ final class AppModel {
                 if let cache { disk.async { try? cache.removeAll() } }
             }
             store.forgetEverything()
+            forgetFetched()
             adopt(mac)
             path = []
+            settingsShown = false
             pairing = .idle
             pairingRequested = false
             connect()
@@ -207,9 +257,11 @@ final class AppModel {
         if let cache { disk.async { try? cache.removeAll() } }
         cache = nil
         store.forgetEverything()
+        forgetFetched()
         store.pairedMac = nil
         store.connection = .idle
         path = []
+        settingsShown = false
         pairing = .idle
         Task { try? await UNUserNotificationCenter.current().setBadgeCount(0) }
     }
@@ -245,6 +297,7 @@ final class AppModel {
         if let connection { Task { await connection.stop() } }
         connection = nil
         store.connection = .stopped
+        noteLink(.stopped)
         store.markStale()
     }
 
@@ -304,6 +357,7 @@ final class AppModel {
     private func connectionChanged(_ state: ConnectionState) {
         let wasConnected = store.connection.isConnected
         store.connection = state
+        noteLink(state)
         print("[realm] connection: \(state)")
         if wasConnected && !state.isConnected { store.markStale() }
         guard case .connected(let mac) = state else { return }
@@ -331,6 +385,7 @@ final class AppModel {
 
     private func received(_ event: MobileEvent) {
         let outbox = store.outbox
+        noteArrivals(event)
         store.apply(event)
         if store.outbox != outbox { saveOutbox() }
         switch event {
@@ -338,6 +393,26 @@ final class AppModel {
             Task { await refreshHome() }
         case .sessionRows(let update) where visibleSessions.contains(update.id):
             saveTranscriptSoon(update.id)
+        default:
+            break
+        }
+    }
+
+    /// Rows that arrive live, and turns this phone saw start: a row born a moment ago is the one that
+    /// may move into place, and a turn's clock runs only from a start this phone saw.
+    private func noteArrivals(_ event: MobileEvent) {
+        switch event {
+        case .sessionRows(let update):
+            guard let before = store.transcripts[update.id] else { return }
+            let now = Date()
+            for row in update.rows where before.row(forKey: row.key) == nil { rowBirths[row.key] = now }
+        case .sessionStatus(let update):
+            let was = store.transcripts[update.id]?.status
+            if update.status == .running {
+                if was != .running { workingSince[update.id] = Date() }
+            } else {
+                workingSince[update.id] = nil
+            }
         default:
             break
         }
@@ -454,6 +529,70 @@ final class AppModel {
         }
     }
 
+    // MARK: - What a turn left
+
+    /// A turn's changed files, asked of the Mac once and kept for the run.
+    func loadChanges(_ checkpointId: String, in sessionId: String) async {
+        guard turnChanges[checkpointId] == nil, !askedChanges.contains(checkpointId), let api, isConnected else { return }
+        askedChanges.insert(checkpointId)
+        do {
+            turnChanges[checkpointId] = try await api.changes(id: sessionId, checkpointId: checkpointId)
+        } catch {
+            askedChanges.remove(checkpointId)
+        }
+    }
+
+    /// One page of a changed file's patch.
+    func diff(_ path: String, at checkpointId: String, in sessionId: String, from: Int = 0) async throws -> DiffPage {
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        return try await api.diff(id: sessionId, checkpointId: checkpointId, path: path, from: from)
+    }
+
+    /// What the phone may see of a file a turn made, asked of the Mac once while it is kept.
+    func preview(_ path: String, in sessionId: String) async throws -> FilePreview {
+        let key = Self.previewKey(path, sessionId)
+        if let kept = previews[key] { return kept }
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        let preview = try await api.file(id: sessionId, path: path)
+        previews[key] = preview
+        previewOrder.removeAll { $0 == key }
+        previewOrder.append(key)
+        while previewOrder.count > Self.previewsKept { previews[previewOrder.removeFirst()] = nil }
+        return preview
+    }
+
+    /// A picture a turn made, small enough for its tile.
+    func loadThumbnail(_ path: String, in sessionId: String, side: CGFloat) async {
+        let key = Self.previewKey(path, sessionId)
+        guard thumbnails[key] == nil, !askedThumbnails.contains(key), isConnected else { return }
+        askedThumbnails.insert(key)
+        guard let preview = try? await preview(path, in: sessionId), case .image(_, let data) = preview.preview,
+              let image = UIImage(data: data) else {
+            askedThumbnails.remove(key)
+            return
+        }
+        thumbnails[key] = await image.byPreparingThumbnail(ofSize: CGSize(width: side, height: side)) ?? image
+    }
+
+    func thumbnail(_ path: String, in sessionId: String) -> UIImage? {
+        thumbnails[Self.previewKey(path, sessionId)]
+    }
+
+    private static func previewKey(_ path: String, _ sessionId: String) -> String { "\(sessionId)\u{0}\(path)" }
+    private static let previewsKept = 12
+
+    /// A space's own picture, asked of the Mac once.
+    func loadSpacePicture(_ spaceId: String) async {
+        guard spacePictures[spaceId] == nil, !askedPictures.contains(spaceId), let api, isConnected else { return }
+        askedPictures.insert(spaceId)
+        do {
+            let picture = try await api.spaceIcon(id: spaceId)
+            if let image = UIImage(data: picture.data) { spacePictures[spaceId] = image }
+        } catch {
+            askedPictures.remove(spaceId)
+        }
+    }
+
     // MARK: - What waits to be sent
 
     func deliver(_ sessionId: String) async {
@@ -498,6 +637,20 @@ final class AppModel {
         store.closeSession(sessionId)
         saveOutbox()
         try? await api.closeSession(id: sessionId)
+    }
+
+    private func forgetFetched() {
+        everConnected = false
+        spacePictures = [:]
+        thumbnails = [:]
+        previews = [:]
+        previewOrder = []
+        askedThumbnails = []
+        turnChanges = [:]
+        workingSince = [:]
+        rowBirths = [:]
+        askedPictures = []
+        askedChanges = []
     }
 
     // MARK: - The cache
@@ -560,6 +713,7 @@ final class AppModel {
             pendingSession = session
             return
         }
+        settingsShown = false
         path = [.session(session)]
     }
 

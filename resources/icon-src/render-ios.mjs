@@ -16,9 +16,9 @@
 // - dark: Realm's icon is already a dark ground with a light mark, so the dark face is the same
 //   drawing; giving it explicitly stops iOS darkening it a second time.
 // - tinted: the mark alone in grey, on transparency. iOS reads its luminance and lays the person's
-//   tint over its own dark ground. The mark keeps its three faces and lit doorway as three greys and
-//   white; its shadow is left out, since a tinted icon is a luminance map and a shadow there reads as
-//   a smudge.
+//   tint over its own dark ground. The mark keeps its three faces as three greys (a shaded mark its lit
+//   doorway as white too); a shadow is left out, since a tinted icon is a luminance map and a shadow
+//   there reads as a smudge.
 //
 // Rendering is headless Chrome over DevTools, as render.mjs does it; the pixels come back from a
 // canvas so they can be written without an alpha channel.
@@ -30,7 +30,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
 import { ICONS, iconSvg } from "./icons.mjs";
-import { MARK, MARK_BOX, markLayer } from "./mark.mjs";
+import { MARK, MARK_BOX, markLayer, planesLayer } from "./mark.mjs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const ICONSET = join(here, "../../apps/ios/Realm/Assets.xcassets/AppIcon.appiconset");
@@ -41,7 +41,8 @@ const SIZE = 1024;
 const num = (n) => (Math.abs(n) < 5e-5 ? "0" : n.toFixed(4).replace(/\.?0+$/, ""));
 const stops = (colors) => colors.map((c, i) => `<stop offset="${colors.length === 1 ? 0 : i / (colors.length - 1)}" stop-color="${c}"/>`).join("");
 
-/** The Mac icon's grid, read off its own SVG: where the body runs, the mark's scale, its lift. */
+/** The Mac icon's grid, read off its own SVG: where the body runs, the mark's scale, and its lift —
+ *  which only a shaded mark has, since a flat mark lifted off its body is no longer flat. */
 export function macGrid(icon = ICONS.find((i) => i.id === "default")) {
   const svg = iconSvg(icon);
   const read = (re, what) => {
@@ -51,6 +52,7 @@ export function macGrid(icon = ICONS.find((i) => i.id === "default")) {
   };
   const [top, bottom] = read(/<linearGradient id="ground" x1="[\d.]+" y1="([\d.]+)" x2="[\d.]+" y2="([\d.]+)"/, "its ground");
   const [scale] = read(/<g transform="translate\([\d. -]+\) scale\(([\d.]+)\)">/, "its mark");
+  if (!icon.lift) return { body: bottom - top, scale, lift: null };
   const [blur] = read(/<filter id="lift"[^>]*><feGaussianBlur stdDeviation="([\d.]+)"\/>/, "the mark's lift");
   const [dy] = read(/transform="translate\(0 ([\d.]+)\)" filter="url\(#lift\)"/, "the mark's lift");
   return { body: bottom - top, scale, lift: { dy, blur } };
@@ -65,7 +67,7 @@ function grey(hex) {
   return `#${v.toString(16).padStart(2, "0").repeat(3)}`;
 }
 
-const greyTones = (tones) => Object.fromEntries(Object.entries(tones).map(([k, v]) => [k, v.map(grey)]));
+const greyTones = (tones) => Object.fromEntries(Object.entries(tones).map(([k, v]) => [k, Array.isArray(v) ? v.map(grey) : grey(v)]));
 
 /** One icon as the iPhone's full-bleed square. */
 export function iosIconSvg(icon, { tinted = false } = {}) {
@@ -73,19 +75,21 @@ export function iosIconSvg(icon, { tinted = false } = {}) {
   const scale = grid.scale * (SIZE / grid.body);
   const tx = SIZE / 2 - (MARK_BOX.width / 2) * scale;
   const ty = SIZE / 2 - (MARK_BOX.height / 2) * scale;
-  const mark = markLayer(tinted ? greyTones(icon.mark) : icon.mark, "mark-");
-  const [liftColor, liftOpacity] = icon.lift;
+  const mark = icon.planes
+    ? planesLayer(tinted ? greyTones(icon.planes) : icon.planes, "mark-")
+    : markLayer(tinted ? greyTones(icon.mark) : icon.mark, "mark-");
+  const [liftColor, liftOpacity] = icon.lift ?? [];
   const angle = ((icon.angle ?? 0) * Math.PI) / 180;
   const dx = (Math.sin(angle) * SIZE) / 2, dy = (Math.cos(angle) * SIZE) / 2;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
 <defs>
 <linearGradient id="ground" x1="${num(SIZE / 2 - dx)}" y1="${num(SIZE / 2 - dy)}" x2="${num(SIZE / 2 + dx)}" y2="${num(SIZE / 2 + dy)}" gradientUnits="userSpaceOnUse">${stops(icon.ground)}</linearGradient>
-<filter id="lift" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="${grid.lift.blur}"/></filter>
+${grid.lift ? `<filter id="lift" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="${grid.lift.blur}"/></filter>` : ""}
 ${mark.defs.join("\n")}
 </defs>
 ${tinted ? "" : `<rect width="${SIZE}" height="${SIZE}" fill="url(#ground)"/>`}
 <g transform="translate(${num(tx)} ${num(ty)}) scale(${num(scale)})">
-${tinted ? "" : `<path d="${MARK.silhouette}" fill="${liftColor}" fill-opacity="${liftOpacity}" transform="translate(0 ${grid.lift.dy})" filter="url(#lift)"/>`}
+${tinted || !grid.lift ? "" : `<path d="${MARK.silhouette}" fill="${liftColor}" fill-opacity="${liftOpacity}" transform="translate(0 ${grid.lift.dy})" filter="url(#lift)"/>`}
 ${mark.body.join("\n")}
 </g>
 </svg>
