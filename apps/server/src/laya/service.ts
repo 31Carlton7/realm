@@ -263,8 +263,6 @@ export class LayaService {
     // Asked fresh: a Python installed since the last look is exactly why someone clicks again.
     const search = await this.findPython(true);
     if (!search.found) throw new RpcError("LAYA_NEEDS_PYTHON", "There is no Python 3.10 to 3.14 for Apple silicon on this Mac to install Laya with.");
-    // The person's click is the attempt now: the clock waiting to retry is let go of.
-    this.clearAuto();
     void this.runInstall(search.found, false);
     return this.status();
   }
