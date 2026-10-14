@@ -9,6 +9,7 @@ import { ItemGlyph } from "./sidebar/ItemList";
 import { ItemIcon } from "./PageIcon";
 import { SpaceIcon } from "./SpaceIcon";
 import { useDissolve } from "./ScrollFades";
+import { capabilities } from "../platform";
 
 type Entry = { id: string; label: string; hint?: ReactNode; icon: ReactNode; run: () => void; section: string; disabled?: boolean;
   /** A pre-rendered label, for a row whose match positions matter (a ⌘P path). `label` stays a plain
@@ -160,6 +161,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
   const newSession = useApp((s) => s.newSession);
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const newSessionInWorktree = useApp((s) => s.newSessionInWorktree);
+  const askNewWorktree = useApp((s) => s.askNewWorktree);
   const dispatchDraft = useApp((s) => s.dispatchDraft);
   const drafts = useApp((s) => s.drafts);
   const splitNewSession = useApp((s) => s.splitNewSession);
@@ -316,7 +318,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
          each the row the side pane's "+" carries, so nothing that left the session's bar is only in a
          menu. */
       act("new-tab", "New tab", "add", () => run(() => newTab()), kbd("pane.newTab")),
-      act("new-simulator", "Open a simulator", "simulator", () => run(() => newSimulator(null, besideSession ? { sessionId: besideSession } : false))),
+      ...(capabilities().simulators ? [act("new-simulator", "Open a simulator", "simulator", () => run(() => newSimulator(null, besideSession ? { sessionId: besideSession } : false)))] : []),
       ...(besideSession ? [
         act("show-terminal", "Show terminal", "terminal", () => run(() => showSessionTerminal(besideSession)), kbdIn("terminal.toggle", { sessionFocus: true })),
         act("sub-agents", "Sub-agents", "agents", () => run(() => openAgentsTab(besideSession))),
@@ -331,7 +333,11 @@ function PaletteBody({ closing }: { closing: boolean }) {
       // No ellipsis and no sheet (W3): both this and the per-agent one-shots below go straight through
       // newSession — the only difference is whether the agent is named or inherited from last use.
       act("new-session", "New session", "session", () => run(() => newSessionInstant()), kbd("session.new")),
-      ...(plainFolder ? [] : [act("new-session-worktree", "New session in a worktree", "branch", () => run(() => newSessionInWorktree()))]),
+      ...(plainFolder ? [] : [
+        act("new-session-worktree", "New session in a worktree", "branch", () => run(() => newSessionInWorktree())),
+        // The same, with a name and the branch it starts from asked first.
+        act("new-worktree", "New worktree…", "branch", () => run(() => askNewWorktree())),
+      ]),
       // Dispatch (Plan 13 W2): the honest simple palette shape — it dispatches the FOCUSED session's
       // current draft, and with no draft to dispatch it is disabled and says what would arm it,
       // rather than pretending to a "focus the composer with a hint" flow the palette cannot honor
@@ -396,7 +402,7 @@ function PaletteBody({ closing }: { closing: boolean }) {
 
     return [...open, ...activeRest, ...others, ...actions, ...themes, ...palettes];
   }, [kbd, kbdIn, spaces, activeSpaceId, plainFolder, items, allItems, layout, focusedLeafId, sessions, sessionStatus, themePref, themeNames, mode, drafts, dispatchDraft,
-      selectSpace, revealItem, newTerminal, newBrowser, newMachine, newSimulator, newTab, showSessionTerminal, openAgentsTab, besideSession, openDocuments, newSession, newSessionInstant, newSessionInWorktree, splitNewSession, splitWhyRow, splitWhyCol, closeInPane, requestRename,
+      selectSpace, revealItem, newTerminal, newBrowser, newMachine, newSimulator, newTab, showSessionTerminal, openAgentsTab, besideSession, openDocuments, newSession, newSessionInstant, newSessionInWorktree, askNewWorktree, splitNewSession, splitWhyRow, splitWhyCol, closeInPane, requestRename,
       interruptSession, jumpToPermission, setThemePref, setThemeName, openSheet, openSpacePage, openDestinationPage, openProfilePage, openActivity, setSpacesOpen, run,
       profiles, activeProfileId, openProfileWindow, openNewProfileSheet,
       zoomedLeaf, toggleFocusPane]);

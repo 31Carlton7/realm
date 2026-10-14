@@ -50,7 +50,22 @@ describe("mergePath", () => {
   });
 });
 
+describe("mergePath on Linux and Windows", () => {
+  it("falls back to Linux's own dirs, never Homebrew's", () => {
+    expect(mergePath("/usr/bin:/bin", null, "linux")).toBe(`/usr/bin:/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:${LOCAL_BIN}`);
+  });
+  it("splits a Windows PATH on ; and keeps its drive letters whole", () => {
+    // Kills splitting on ":", which cuts "C:\\Windows" into "C" and "\\Windows".
+    expect(mergePath("C:\\Windows\\System32;C:\\Program Files\\nodejs;C:\\Windows\\System32", null, "win32"))
+      .toBe("C:\\Windows\\System32;C:\\Program Files\\nodejs");
+  });
+});
+
 describe("loginShellPath (live, /bin/sh)", () => {
+  it("asks no shell on Windows", async () => {
+    // /bin/sh exists here, so an answer would mean the platform was ignored.
+    expect(await loginShellPath("/bin/sh", 5000, "win32")).toBeNull();
+  });
   it("resolves a real PATH from a POSIX shell", async () => {
     const p = await loginShellPath("/bin/sh", 5000);
     expect(p).toBeTruthy();

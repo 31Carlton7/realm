@@ -200,8 +200,11 @@ export type Api = TeamApi & LabApi & {
   listProjects(spaceId: string): Promise<Project[]>;
   /** Every checkout the space knows about: its primary, plus any worktree Realm made (W2). */
   listEnvironments(spaceId: string): Promise<Environment[]>;
-  /** `environments.createWorktree` — makes the worktree on disk AND its row, as one operation. */
-  createWorktree(spaceId: string, title: string | null): Promise<Environment>;
+  /** `environments.createWorktree` — makes the worktree on disk AND its row, as one operation. `base`
+   *  is the branch it starts from; absent, the space folder's HEAD. */
+  createWorktree(spaceId: string, title: string | null, base?: string | null): Promise<Environment>;
+  /** `environments.branches` — what a worktree in this space can start from. Null for a plain folder. */
+  listBranches(spaceId: string): Promise<BranchList | null>;
   createSpace(input: CreateSpaceInput): Promise<Space>;
   /** `spaces.folderFor` — the folder `createSpace` would make for this name, without making it. */
   spaceFolderFor(profileId: string, name: string): Promise<string>;
@@ -604,7 +607,7 @@ export type Api = TeamApi & LabApi & {
   worktreeStatus(environmentId: string): Promise<WorktreeStatus>;
   /** `environments.removeWorktree`. The acknowledgement must equal what the server reads at the
    *  moment it runs, or it refuses — see `confirmRemoveWorktree`. */
-  removeWorktree(environmentId: string, acknowledge: WorktreeAck): Promise<void>;
+  removeWorktree(environmentId: string, acknowledge: WorktreeAck, deleteBranch?: boolean): Promise<void>;
   /** `checkpoints.list` — a session's turns, or the whole checkout's when `sessionId` is null (W4). */
   listCheckpoints(environmentId: string, sessionId: string | null): Promise<Checkpoint[]>;
   /** `checkpoints.capture` — take one now, because the user asked. */
@@ -900,6 +903,18 @@ export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
  *  ever read together — a position with no conversation to put in it is nothing. */
 export const SETTING_QUICK_CHAT = "ui.quickChat";
+/** Which sub-agent each lead's Agents tab was showing, by lead session id — so a tab restored after a
+ *  relaunch opens where it was left. Capped at `AGENTS_SHOWN_MAX` leads, the newest kept. */
+export const SETTING_AGENTS_SHOWN = "ui.agentsShown";
+const AGENTS_SHOWN_MAX = 100;
+
+/** The stored map, as far as it can be read: string ids under string keys, the newest last. */
+export function parseAgentsShown(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [lead, id] of Object.entries(raw as Record<string, unknown>)) if (typeof id === "string" && id) out[lead] = id;
+  return out;
+}
 export const EVENTS_PAGE = 1000;
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
@@ -938,9 +953,9 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
  * What a session pane's right-hand strip is showing. One union rather than two flags, because the
  * strip is one place: see `sessionDock`.
  */
-export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "subagent"; toolUseId: string } | { kind: "terminal" };
+export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "terminal" };
 
-export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history"
+export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "worktrees" | "tasks" | "history"
   /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): the Overview, the records
      and one of them, a role, the log. */
   | "team" | "records" | "roles" | "policies" | "vault" | "activity" | `role:${string}` | `record:${string}`
@@ -964,6 +979,8 @@ export type Sheet =
   /** Removing a worktree: the one destructive confirm in Plan 7, which must name what would be lost
    *  and pass an acknowledgement it re-read at the moment of confirming (W3). */
   | { kind: "remove-worktree"; environmentId: string }
+  /** A worktree with a name and the branch it starts from; Create lands in a new session there. */
+  | { kind: "new-worktree"; spaceId: string }
   /** A checkout's checkpoints, and the confirm for restoring one (W4). One sheet in two states: the
    *  list, and — once `selected` is set — the confirmation naming exactly what restoring would cost. */
   | { kind: "checkpoints"; environmentId: string; sessionId: string | null }
@@ -1541,6 +1558,8 @@ export type AppState = TeamSlice & LabSlice & {
   reviewing: Record<string, boolean>;
   /** `environments.worktreeStatus` by environment id — what the removal sheet shows. */
   worktreeStatuses: Record<string, WorktreeStatus>;
+  /** `environments.branches` by space id, read when the new-worktree sheet opens. */
+  worktreeBranches: Record<string, BranchList | null>;
   /** Set when a confirmed removal's re-read disagreed with the numbers the user was shown: the sheet
    *  says the tree moved and asks again rather than acknowledging a count nobody saw. */
   worktreeAckStale: string | null;
@@ -1583,10 +1602,13 @@ export type AppState = TeamSlice & LabSlice & {
    *  Agents tab lists and its transcript's delegation lines read. Fetched while either is on screen,
    *  and re-read on each `delegation.changed` for the lead, which is every begin, settle and collect. */
   subagents: Record<string, DelegatedChild[]>;
-  /** What a lead's Agents tab was last asked to show: a plan to start the composer from ("Implement
-   *  with…"), or a row to bring into view (a transcript line). Counted, so the same ask twice is two
-   *  asks rather than a prop that did not change. */
-  agentsAsk: Record<string, { plan?: string; childId?: string; n: number }>;
+  /** What a lead's Agents tab was last asked to start its composer from ("Implement with…").
+   *  Counted, so the same ask twice is two asks rather than a prop that did not change. */
+  agentsAsk: Record<string, { plan?: string; n: number }>;
+  /** The sub-agent each lead's Agents tab is showing in its viewer, by LEAD session id — a harness
+   *  agent's launching call id or a delegated child's session id. Absent: the tab's overview.
+   *  Persisted (`SETTING_AGENTS_SHOWN`), so a restored tab opens where it was left. */
+  agentsShown: Record<string, string>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -1600,16 +1622,15 @@ export type AppState = TeamSlice & LabSlice & {
   /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
   /**
-   * What is docked to a session pane's right-hand strip — its summary, or one harness sub-agent by
-   * its launching call's `toolUseId`. Absent means nothing is.
+   * What is docked to a session pane's strip — its summary, its files, or its terminal. Absent
+   * means nothing is. (A sub-agent is no longer one: it opens in the lead's Agents tab.)
    *
-   * ONE slot, because there is one strip. The summary and the sub-agent panel are two contents for
-   * one place, and holding their open states separately is how two panels come to be drawn over each
-   * other: each measures the same edge and each claims it.
+   * ONE slot, because there is one strip. Its contents are contents for one place, and holding their
+   * open states separately is how two panels come to be drawn over each other: each measures the
+   * same edge and each claims it.
    *
-   * In memory only, unlike `terminalPanel`. Both of these are things you look at while working and
-   * then stop looking at; restoring one across a relaunch would reopen a panel onto an agent that
-   * finished last night, which is the same empty-panel failure a pane KIND for this would have had.
+   * In memory only, unlike `terminalPanel`. These are things you look at while working and then stop
+   * looking at; restoring one across a relaunch would reopen a panel nobody is reading.
    */
   sessionDock: Record<string, SessionDock | undefined>;
   /**
@@ -1981,9 +2002,11 @@ export type AppState = TeamSlice & LabSlice & {
    * itself (terminal, documents, browser, machine, simulator) and every agent's open lands here, whatever
    * kind it is — make the item, then hand it to this. A person's open (`focus`) also brings the side
    * panes back if they were put away (`sidePanesHidden`); an agent's quiet one adds its tab and
-   * leaves them as the person left them.
+   * leaves them as the person left them. `show` is a person's open that leaves the keyboard where it
+   * was — a sub-agent clicked in the lead's transcript is read beside the prompter being typed in —
+   * unless the panel has no room beside the panes, where it takes their place and the keyboard with it.
    */
-  openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean }): Promise<boolean>;
+  openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean; show?: boolean }): Promise<boolean>;
   /** The toggle at the window's top right: put the side panel away with its tabs, or bring it back —
    *  in the main panes' place when there is no room for it beside them. With nothing open in it, it
    *  opens a new tab for the session in focus. */
@@ -2174,7 +2197,7 @@ export type AppState = TeamSlice & LabSlice & {
   /** Make a fresh `git worktree` and open a session in it (W2), rather than in the space folder.
    *  Fails loudly when the space is not a git repository — there is no worktree to fall back to,
    *  and silently landing in the space folder would be the collision the user asked to avoid. */
-  newSessionInWorktree(targetLeafId?: string | null, spaceId?: string | null): Promise<void>;
+  newSessionInWorktree(targetLeafId?: string | null, spaceId?: string | null, named?: { title: string | null; base: string | null }): Promise<void>;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
@@ -2493,8 +2516,7 @@ export type AppState = TeamSlice & LabSlice & {
   /** Dock something to this session pane's right-hand strip, replacing whatever was there. Passing
    *  what is already docked closes it, so one call serves every toggle that opens this strip. */
   toggleSessionDock(sessionId: string, dock: SessionDock): void;
-  /** Undock. Nothing is destroyed — a sub-agent goes on working and its calls go on landing in the
-   *  transcript; this closes a view of them. */
+  /** Undock. Nothing is destroyed — this closes a view. */
   closeSessionDock(sessionId: string): void;
   /** Open the quick chat, making its session if there is not one already. A second call is a no-op:
    *  there is one quick chat, and a button that stacked windows would be a way to lose one. */
@@ -2624,9 +2646,15 @@ export type AppState = TeamSlice & LabSlice & {
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
   /** Re-read a lead's sub-agents into `subagents`. */
   refreshSubagents(sessionId: string): Promise<void>;
-  /** The session's Agents tab, as a tab of its side pane the way its other tools open — with the
-   *  composer started from `plan`, or the row for `childId` brought into view, when asked. */
-  openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string }): Promise<void>;
+  /** The session's Agents tab, as a tab of its side pane the way its other tools open. `childId`
+   *  opens it on that sub-agent's viewer, null on the overview, and absent wherever it was left; a
+   *  `plan` starts the overview's composer from it. */
+  openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string | null }): Promise<void>;
+  /** Show one sub-agent in the lead's Agents tab, or with null its overview — the viewer's own
+   *  switcher. Remembered (`agentsShown`). */
+  showSubagent(leadId: string, id: string | null): void;
+  /** Read the remembered `agentsShown`, once. */
+  hydrateAgentsShown(): Promise<void>;
   /** A view an MCP server drew for one of the session's tool calls, as a tab of the session's side
    *  pane — the one it has, or a new one. Never a split: a view is the session's, not the layout's. */
   openAppView(sessionId: string, view: AppViewRef): Promise<void>;
@@ -2863,8 +2891,13 @@ export type AppState = TeamSlice & LabSlice & {
   setSoundVolume(volume: number): Promise<void>;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
-  /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
-  confirmRemoveWorktree(environmentId: string): Promise<void>;
+  /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown.
+   *  `deleteBranch: false` keeps the branch; `deleteSessions` deletes the sessions still in it first,
+   *  which removal otherwise refuses over. */
+  confirmRemoveWorktree(environmentId: string, opts?: { deleteBranch?: boolean; deleteSessions?: boolean }): Promise<void>;
+  /** Open the new-worktree sheet for a space, reading the branches it can start from first. A plain
+   *  folder has none to make, and gets the session `newSessionInWorktree` gives it instead. */
+  askNewWorktree(spaceId?: string | null): Promise<void>;
   /** Open the checkpoint sheet for a checkout, listing that session's turns (or all of them). */
   openCheckpoints(environmentId: string, sessionId?: string | null): Promise<void>;
   /** Re-list without opening anything — what the `checkpoints.changed` broadcast triggers. */
@@ -3032,6 +3065,10 @@ export type AppState = TeamSlice & LabSlice & {
  * for the sign-in sheet, and `reason` is the server's sentence naming what is possible instead.
  */
 export type McpSignInStart = { kind: "browser"; authUrl: string } | { kind: "connected" } | { kind: "choose"; reason: string };
+
+/** What `environments.branches` answers: the local branches, most recently committed first, and the
+ *  one checked out (null when HEAD is detached). */
+export type BranchList = { branches: string[]; current: string | null };
 
 /** The title "New worktree…" sends (Plan 12 W1): the draft's first few words — enough to recognise the
  *  branch by — or null, which the server names "session". Slugging is the server's job (slugifyBranch);
@@ -3376,6 +3413,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** Terminal-panel state persists as one settings blob, on its own debounce: a resize drag writes
      *  every frame, but a toggle is a single deliberate act and writes straight through. */
     let panelTimer: ReturnType<typeof setTimeout> | null = null;
+    /** `agentsShown` is read on first use rather than at boot (`hydrateAgentsShown`), and nothing is
+     *  written back before it has been: a write first would replace every other lead's mark. */
+    let agentsShownRead: Promise<void> | null = null;
+    let agentsShownLoaded = false;
+    let agentsShownTimer: ReturnType<typeof setTimeout> | null = null;
     const persistPanels = async () => {
       if (panelTimer) { clearTimeout(panelTimer); panelTimer = null; }
       await api.setSetting(SETTING_TERMINAL_PANEL, get().terminalPanel);
@@ -3969,11 +4011,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  panel is showing that session's tabs (or nothing), or that session is the one the keyboard is
      *  working for — and otherwise waits in the strip, so two agents opening pages side by side do not
      *  pull the panel back and forth under the person reading it. */
-    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean } = {}): Promise<boolean> => {
+    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean; show?: boolean } = {}): Promise<boolean> => {
       const view = viewNow();
       const panel = findPanel(view.layout);
       const showingOwner = panel?.itemId ? tabOwner(panel, panel.itemId) : undefined;
-      const front = !!opts.focus || !panel || showingOwner === owner || servedSession() === owner;
+      const front = !!opts.focus || !!opts.show || !panel || showingOwner === owner || servedSession() === owner;
       const layout = layoutOpenInSidePane(view.layout, owner, itemId, { front });
       if (!layout) return false;
       const leaf = findLeafOfItem(layout, itemId)!;
@@ -3983,7 +4025,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
         showPanelIfAside();
       } else {
+        if (opts.show) { revealPanes(); revealSidePanes(); }
         set(writeView({ ...view, layout }));
+        if (opts.show && panelPlace(get()).kind === "aside") { set({ focusedLeafId: leaf.id }); showPanelIfAside(); }
       }
       await persist();
       return true;
@@ -4385,8 +4429,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
-      worktreeStatuses: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
+      worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -6111,7 +6155,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Made to be typed in: ⌘N, a split, an empty pane's button — its prompter gets the keyboard.
         if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
       },
-      async newSessionInWorktree(targetLeafId = null, spaceId = null) {
+      async newSessionInWorktree(targetLeafId = null, spaceId = null, named) {
         const sid = spaceFor(spaceId); if (!sid) return;
         // A plain folder has no worktrees. The session asked for still opens — in the folder, the only
         // checkout such a space has — and nothing is said, because nothing went wrong.
@@ -6121,9 +6165,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         // The worktree is created FIRST and the session pinned to it. If creating it throws (git
         // refused the add) no session is made at all — `run` surfaces the reason.
-        const env = await api.createWorktree(sid, null);
+        const env = await api.createWorktree(sid, named?.title ?? null, named?.base ?? null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ ...instantPick(), environmentId: env.id, spaceId: sid }, targetLeafId);
+        // Made to be typed in, as a session from "+" is.
+        if (named) {
+          const made = Object.values(get().sessions).find((x) => x.environmentId === env.id);
+          if (made) set({ keyboardFor: { sessionId: made.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
+        }
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       /**
@@ -7115,7 +7164,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const cur = get().sessionDock[sessionId];
         // Same thing again closes it — which is what makes the opener a toggle without every opener
         // having to hold its own idea of whether it is the one currently showing.
-        if (cur && cur.kind === dock.kind && (cur.kind !== "subagent" || cur.toolUseId === (dock as { toolUseId: string }).toolUseId)) {
+        if (cur && cur.kind === dock.kind) {
           get().closeSessionDock(sessionId);
           return;
         }
@@ -7355,13 +7404,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ subagents: { ...get().subagents, [sessionId]: children } });
       },
       async openAgentsTab(sessionId, ask) {
-        if (ask) set({ agentsAsk: { ...get().agentsAsk, [sessionId]: { ...ask, n: (get().agentsAsk[sessionId]?.n ?? 0) + 1 } } });
+        if (ask?.plan !== undefined) set({ agentsAsk: { ...get().agentsAsk, [sessionId]: { plan: ask.plan, n: (get().agentsAsk[sessionId]?.n ?? 0) + 1 } } });
+        // A plan is handed to the overview's composer, so it is the overview that opens.
+        const shown = ask?.plan !== undefined ? null : ask?.childId;
+        if (shown !== undefined) { await get().hydrateAgentsShown(); get().showSubagent(sessionId, shown); }
         const sid = get().sessions[sessionId]?.spaceId ?? get().allSessions[sessionId]?.spaceId;
         if (!sid) return;
         const { itemId } = await api.agentsTab(sessionId);
+        // Opened on one sub-agent — from the lead's transcript, its bar, a card — the tab is shown and
+        // the keyboard stays in the lead's prompter, which is what the person was in. Not where the
+        // person has dragged the tab into the split: that is theirs, and is gone to as it is.
+        const layout = get().layout ?? emptyLayout();
+        const at = findLeafOfItem(layout, itemId);
+        const quiet = typeof ask?.childId === "string" && (!at || at.id === findPanel(layout)?.id);
+        if (quiet && !get().items.some((i) => i.id === itemId)) await loadSpaceItems(sid);
+        if (quiet && await get().openInSidePane(sessionId, itemId, { show: true })) return;
         // Already a tab somewhere: brought to the front where it is. Otherwise the documents button's
         // route — a tab of this session's side pane, with the keyboard, because a person asked.
-        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        if (at) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
       },
       async openAppView(sessionId, view) {
@@ -7375,6 +7435,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
+      },
+      showSubagent(leadId, id) {
+        if (!agentsShownLoaded) { void get().hydrateAgentsShown().then(() => get().showSubagent(leadId, id)); return; }
+        if ((get().agentsShown[leadId] ?? null) === id) return;
+        const { [leadId]: _was, ...rest } = get().agentsShown;
+        // Re-inserted rather than updated in place, so the map's order is the order leads were last
+        // looked at and the cap drops the one looked at longest ago.
+        const next = id === null ? rest : { ...rest, [leadId]: id };
+        const keys = Object.keys(next);
+        for (const k of keys.slice(0, Math.max(0, keys.length - AGENTS_SHOWN_MAX))) delete next[k];
+        set({ agentsShown: next });
+        if (agentsShownTimer) clearTimeout(agentsShownTimer);
+        agentsShownTimer = setTimeout(() => { agentsShownTimer = null; get().run(() => api.setSetting(SETTING_AGENTS_SHOWN, get().agentsShown)); }, PERSIST_DEBOUNCE_MS);
+      },
+      async hydrateAgentsShown() {
+        if (agentsShownRead) return agentsShownRead;
+        agentsShownRead = api.getSetting(SETTING_AGENTS_SHOWN).then((raw) => {
+          set({ agentsShown: parseAgentsShown(raw) });
+        }, () => {}).finally(() => { agentsShownLoaded = true; });
+        return agentsShownRead;
       },
       clearAgentsAsk(sessionId) {
         if (!get().agentsAsk[sessionId]) return;
@@ -7900,6 +7980,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSetting(NOTIFICATIONS_SOUND_VOLUME_KEY, v);
         set({ soundVolume: v });
       },
+      async askNewWorktree(spaceId = null) {
+        const sid = spaceFor(spaceId); if (!sid) return;
+        if (!(await checkoutIsRepo(sid))) { await get().newSessionInWorktree(null, sid); return; }
+        const branches = await api.listBranches(sid);
+        set({ worktreeBranches: { ...get().worktreeBranches, [sid]: branches },
+          sheet: { kind: "new-worktree", spaceId: sid }, paletteOpen: false, ...maybeSnapForSheet() });
+      },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);
         set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: status }, worktreeAckStale: null,
@@ -7913,7 +8000,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
        * opened has changed what "yes" means. So this re-reads, and if the numbers moved it shows the
        * new ones and removes nothing — the user says yes to a number they have actually seen.
        */
-      async confirmRemoveWorktree(environmentId) {
+      async confirmRemoveWorktree(environmentId, opts = {}) {
+        const deleteBranch = opts.deleteBranch ?? true;
         const shown = get().worktreeStatuses[environmentId];
         const fresh = await api.worktreeStatus(environmentId);
         set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: fresh } });
@@ -7921,7 +8009,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           set({ worktreeAckStale: environmentId });
           return;
         }
-        await api.removeWorktree(environmentId, { dirtyFiles: fresh.dirtyFiles, unpushedCommits: fresh.unpushedCommits });
+        if (opts.deleteSessions) {
+          // The sessions go first, through the one path a session is deleted by, because the server
+          // refuses to remove a checkout any session still names. A running one is the sheet's to
+          // stop: its turn is not this click's to end.
+          const here = Object.values(get().sessions).filter((x) => x.environmentId === environmentId);
+          const busy = here.find((x) => ["running", "waiting_permission"].includes(get().sessionStatus[x.id] ?? ""));
+          if (busy) throw new Error(`“${busy.title}” is still running in this worktree. Stop it first.`);
+          for (const x of here) {
+            const it = get().items.find((i) => i.kind === "session" && i.refId === x.id);
+            if (it) await get().deleteItem(it.id);
+          }
+        }
+        await api.removeWorktree(environmentId, { dirtyFiles: fresh.dirtyFiles, unpushedCommits: fresh.unpushedCommits }, deleteBranch);
         const { [environmentId]: _gone, ...worktreeStatuses } = get().worktreeStatuses;
         set({ worktreeStatuses, worktreeAckStale: null, sheet: null, ...restoreSnap() });
         // The environment is gone; so is anything keyed to its checkout.

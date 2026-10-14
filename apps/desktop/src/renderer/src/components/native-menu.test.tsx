@@ -29,6 +29,12 @@ describe("shortcut hints as accelerators", () => {
     expect(acceleratorFor("⌘click")).toBeUndefined();
     expect(acceleratorFor("")).toBeUndefined();
   });
+  it("reads the spelled-out hints Linux and Windows print", () => {
+    expect(acceleratorFor("Ctrl+W")).toBe("Control+W");
+    expect(acceleratorFor("Ctrl+Shift+Enter")).toBe("Control+Shift+Return");
+    expect(acceleratorFor("Win+Tab")).toBe("Super+Tab");
+    expect(acceleratorFor("Ctrl+click")).toBeUndefined();
+  });
 
   it("joins a label's separate runs of text the way a menu joins a name to its detail", () => {
     const el = document.createElement("span");

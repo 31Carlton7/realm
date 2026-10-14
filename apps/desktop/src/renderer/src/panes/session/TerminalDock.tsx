@@ -37,7 +37,7 @@ export function TerminalDock({ sessionId, title, visible, anchorRef, onClose }: 
   useDockPinned(rect, pinned, "--terminal-dock-h", "bottom");
   /* `anchorRef` is the whole pane, so it cannot be in `keepOpenIn` — every click in the transcript
      would count as inside and nothing would dismiss. The bar's toggle does not need listing either:
-     it TOGGLES, so a click there closes by its own route. Same reasoning as SubagentPanel's. */
+     it TOGGLES, so a click there closes by its own route. */
   useDockDismiss({ pinned, onClose, keepOpenIn: [ref] });
 
   return createPortal(

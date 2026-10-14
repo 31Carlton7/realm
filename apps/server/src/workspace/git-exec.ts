@@ -48,6 +48,8 @@ export const gitCapture: GitRun = (cwd, args, opts = {}) =>
     execFile("git", [...GIT_HARDENING, ...args],
       {
         cwd, timeout: opts.timeoutMs ?? GIT_EXEC_TIMEOUT_MS, encoding: "utf8", maxBuffer: opts.maxBytes ?? GIT_MAX_BYTES,
+        // Windows opens a console window for each console program a windowless process starts.
+        windowsHide: true,
         // A push to a remote that wants credentials would otherwise block on a terminal prompt no
         // one can see, until the timeout kills it. Failing immediately is an error we can explain.
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...opts.env },

@@ -33,6 +33,9 @@ const isBinaryKind = (path: string): boolean => {
 
 const baseName = (p: string) => p.split("/").pop() ?? p;
 
+/** Kinds whose source is read as prose — and so wraps — rather than as columns. */
+const PROSE_KINDS: ReadonlySet<DocumentKind> = new Set<DocumentKind>(["doc", "slides", "latex"]);
+
 /**
  * Why a file the pane was asked to open cannot be shown, in a sentence, from the read's refusal. Said
  * in the pane, where the file was asked for — an empty editor, or a grey stage, says nothing.
@@ -635,7 +638,10 @@ function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, r
               scrollKey={`doc:${documentsId}:code:${buffer.path}`} />
           </Suspense>
         ) : (
+          // Prose wraps and source does not, as in the code editor: a row of a CSV or a line of HTML
+          // folded onto three lines is no longer a row or a line, so those scroll sideways instead.
           <textarea className="documents-source" ref={sourceScroll} value={buffer.text} spellCheck={false} readOnly={readOnly}
+            wrap={PROSE_KINDS.has(kind) ? "soft" : "off"}
             aria-label={`${readOnly ? "Read" : "Edit"} ${baseName(buffer.path)}`} onChange={(e) => onChange(e.target.value)} />
         )}
       </div>

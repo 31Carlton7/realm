@@ -103,8 +103,11 @@ describe("building the runtime", () => {
   });
 
   it("is unavailable on an Intel Mac, with the reason", () => {
-    expect(realLayaRuntime({ home: tempDir("realm-laya-rt-"), arch: "x64" }).unavailable).toMatch(/Apple silicon only/);
-    expect(realLayaRuntime({ home: tempDir("realm-laya-rt-"), arch: "arm64" }).unavailable).toBeNull();
+    expect(realLayaRuntime({ home: tempDir("realm-laya-rt-"), arch: "x64", platform: "darwin" }).unavailable).toMatch(/Apple silicon only/);
+    expect(realLayaRuntime({ home: tempDir("realm-laya-rt-"), arch: "arm64", platform: "darwin" }).unavailable).toBeNull();
+    // An arm64 Linux or Windows machine has the arch and none of the Metal behind it.
+    expect(realLayaRuntime({ home: tempDir("realm-laya-rt-"), arch: "arm64", platform: "linux" }).unavailable).toMatch(/Mac only/);
+    expect(realLayaRuntime({ home: tempDir("realm-laya-rt-"), arch: "arm64", platform: "win32" }).unavailable).toMatch(/Mac only/);
   });
 });
 

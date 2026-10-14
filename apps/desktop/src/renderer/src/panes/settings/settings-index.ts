@@ -3,6 +3,7 @@ import {
   AGENT_META, CARET_COPY, KEY_COMMANDS, NOTIFICATION_CATEGORIES, SELECTABLE_AGENT_KINDS,
   TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_STYLE_COPY, TERMINALS_HISTORY_COPY, type NotificationCategory,
 } from "@realm/contracts";
+import { capabilities } from "../../platform";
 
 /** One page of Settings, as the rail lists it. */
 export type SettingsTab =
@@ -30,6 +31,25 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
   { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }, { id: "lab", label: "Lab", icon: "serverStack" }] },
   { label: "Data", tabs: [{ id: "import", label: "Import", icon: "inboxDownload" }, { id: "archived", label: "Archived", icon: "archive" }] },
 ];
+
+/**
+ * Whether this OS has what a page is about. The Computer pages are the Mac's own — Accessibility and
+ * Screen Recording, the `mac` CLI's grants, a cabled iPhone — and on Linux and Windows there is
+ * nothing on them to set, so they are not drawn rather than drawn empty.
+ */
+export function tabAvailable(tab: SettingsTab): boolean {
+  const caps = capabilities();
+  if (tab === "permissions") return caps.macCli || caps.accessibility;
+  if (tab === "computer-use") return caps.accessibility;
+  if (tab === "lab") return caps.simulators;
+  return true;
+}
+
+/** The rail as this OS draws it: `SETTINGS_GROUPS` less the pages it has nothing for, and any heading
+ *  left with none. */
+export function visibleSettingsGroups(): typeof SETTINGS_GROUPS {
+  return SETTINGS_GROUPS.map((g) => ({ ...g, tabs: g.tabs.filter((t) => tabAvailable(t.id)) })).filter((g) => g.tabs.length > 0);
+}
 
 export function settingsTabLabel(tab: SettingsTab): string {
   for (const g of SETTINGS_GROUPS) for (const t of g.tabs) if (t.id === tab) return t.label;
@@ -109,7 +129,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "pane-translucency", tab: "appearance", label: "Pane translucency", terms: "transparency transparent vibrancy material opacity window" },
   { id: "reduce-motion", tab: "appearance", label: "Reduce motion", terms: "animation movement accessibility" },
   { id: "app-icon", tab: "appearance", label: "App icon", terms: "dock logo alternate custom realm",
-    available: () => typeof window.realm?.appIcon?.set === "function" },
+    available: () => capabilities().dockIcons && typeof window.realm?.appIcon?.set === "function" },
   { id: "ui-font", tab: "appearance", section: "Text", label: "UI font", terms: "typeface family weight interface" },
   { id: "ui-font-size", tab: "appearance", section: "Text", label: "UI font size", terms: "text bigger smaller larger zoom px" },
   { id: "content-font", tab: "appearance", section: "Text", label: "Content font", terms: "prose messages markdown documents serif typeface family" },
@@ -141,7 +161,8 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "engine-checks", tab: "engines", label: "Check for new models", terms: "updates cli version catalog" },
   ...SELECTABLE_AGENT_KINDS.map((k): SettingEntry => ({ id: `engine:${k}`, tab: "engines", label: AGENT_META[k].label, terms: "agent cli install update sign login" })),
   { id: "failover", tab: "engines", label: "Failover", terms: "retry stalled turn hand over fallback limit chain" },
-  { id: "laya", tab: "engines", label: "Laya (local decisions)", terms: "local model shadow assist recordings evaluation log" },
+  { id: "laya", tab: "engines", label: "Laya (local decisions)", terms: "local model shadow assist recordings evaluation log",
+    available: () => capabilities().laya },
 
   // Usage
   { id: "usage", tab: "usage", label: "Spend, tokens and activity", terms: "cost money usage chart heaviest sessions plan limits", page: true },
@@ -196,7 +217,7 @@ export function searchSettings(query: string): SettingEntry[] {
   const starts = (pool: string[]) => typed.every((w) => pool.some((p) => p.startsWith(w)));
   const hits: { entry: SettingEntry; rank: number; at: number }[] = [];
   SETTINGS_INDEX.forEach((entry, at) => {
-    if (entry.available?.() === false) return;
+    if (entry.available?.() === false || !tabAvailable(entry.tab)) return;
     const label = words(entry.label);
     const place = [...label, ...words(settingsTabLabel(entry.tab)), ...words(entry.section ?? "")];
     const all = [...place, ...words(entry.terms ?? "")];

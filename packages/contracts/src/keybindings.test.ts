@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ALWAYS_SWALLOWED_CHORDS, CONTEXT_KEYS, KEY_COMMANDS, DEFAULT_KEYBINDINGS, KeybindingSchema,
-  chordsForCommand, commandForChord, defaultIsClaimed, displayKeyChord, evaluateWhen, formatKeyChord,
+  chordsForCommand, commandForChord, defaultIsClaimed, displayKeyChord, displayKeyChordFor, setKeyDisplayPlatform, evaluateWhen, formatKeyChord,
   REVISED_DEFAULTS, matchKeybinding, mergeDefaults, normalizeKeyChord, parseKeyChord, parseWhen, whenHolds,
   type Keybinding, type WhenExpr,
 } from "./keybindings";
@@ -79,6 +79,23 @@ describe("displayKeyChord", () => {
     expect(displayKeyChord("ctrl+shift+tab")).toBe("⌃⇧⇥");
     expect(displayKeyChord("escape")).toBe("esc");
     expect(displayKeyChord("mod+shift+enter")).toBe("⌘⇧↩");
+  });
+  it("spells chords out on Linux and Windows, with Ctrl as mod", () => {
+    expect(displayKeyChordFor("mod+shift+f", "win32")).toBe("Ctrl+Shift+F");
+    expect(displayKeyChordFor("ctrl+shift+tab", "win32")).toBe("Win+Shift+Tab");
+    expect(displayKeyChordFor("ctrl+tab", "linux")).toBe("Super+Tab");
+    expect(displayKeyChordFor("mod+shift+enter", "linux")).toBe("Ctrl+Shift+Enter");
+    expect(displayKeyChordFor("escape", "linux")).toBe("Esc");
+    expect(displayKeyChordFor("mod+alt+left", "linux")).toBe("Ctrl+Alt+←");
+  });
+  it("prints for the platform the renderer set, and for a Mac until it does", () => {
+    try {
+      setKeyDisplayPlatform("win32");
+      expect(displayKeyChord("mod+k")).toBe("Ctrl+K");
+    } finally {
+      setKeyDisplayPlatform("darwin");
+    }
+    expect(displayKeyChord("mod+k")).toBe("⌘K");
   });
   it("shows an unparseable key verbatim, so the typo is findable", () => {
     // THE MUTANT: fall back to a glyph or an empty string, and the one thing the user needs to see —

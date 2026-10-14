@@ -2958,7 +2958,7 @@ describe("dividers", () => {
     expect(card).toContain("corner-shape: squircle");
     expect(card).toContain("box-shadow: var(--shadow-overlay)");
     // And no panel may re-declare the card under its own name, which is how the three drift apart.
-    for (const sel of [".session-summary", ".subagent-dock", ".terminal-dock"])
+    for (const sel of [".session-summary", ".terminal-dock"])
       expect(bodiesFor(sel).join(" "), sel).not.toContain("background: var(--surface)");
   });
 
@@ -2989,11 +2989,9 @@ describe("dividers", () => {
     expect(wrap).toContain("min-height: 0");
     /* The depths hang off the WRAPPER and the dissolve belongs to the scroller inside it. The panel's
        head is not in the scroller, so nothing can dissolve a title — which is what a band pinned to
-       the panel did. Both occupants of the dock are checked: the sub-agent panel shares this
-       geometry, and a copy of it that reached for the panel would fail here. */
+       the panel did. */
     expect(wrap).toContain("--fade-h");
     expect(wrap).toContain("--fade-top-h");
-    expect(bodiesFor(".subagent-scroll-wrap").join(" ")).toContain("--fade-h");
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".edge-fade"))), "the bands are gone").toEqual([]);
   });
 
@@ -5003,4 +5001,16 @@ it("the strips above a browser view paint no fill of their own; they share the c
     expect(bodies.length, `no rule in styles.css targets \`${selector}\``).toBeGreaterThan(0);
     for (const body of bodies) expect(body, selector).not.toMatch(/(^|;\s*)background(-color)?\s*:/);
   }
+});
+
+describe("code scrolls sideways (the owner, 10-13)", () => {
+  it("the documents pane's column cannot grow to its longest line", () => {
+    // A bare `1fr` floors at min-content: one long line made the editor wider than the pane, and
+    // the scroller inside it had nothing left to scroll.
+    expect(bodiesFor(".documents-surface").join(" ")).toContain("grid-template-columns: minmax(0, 1fr)");
+  });
+
+  it("a fence in rendered Markdown does not wrap, over ProseMirror's own pre-wrap", () => {
+    expect(bodiesFor(".documents-rich .documents-rich-surface pre").join(" ")).toContain("white-space: pre");
+  });
 });

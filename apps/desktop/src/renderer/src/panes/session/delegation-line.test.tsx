@@ -55,7 +55,7 @@ describe("a sub-agent in its lead's transcript", () => {
     await waitFor(() => expect(api.calls).toContain(`agentsTab:${LEAD}`));
     // The row it asks for waits for the tab to take it — no tab is mounted in this test to do so.
     // Mutant: open the tab without the child — the tab would open on its list and light nothing.
-    expect(store.getState().agentsAsk[LEAD]).toMatchObject({ childId: CHILD });
+    expect(store.getState().agentsShown[LEAD]).toBe(CHILD);
   });
 
   it("an agent_run still blocking — no result yet — is found by its task", async () => {

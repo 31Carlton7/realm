@@ -1,7 +1,7 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
-import type { AddMcpServerInput, AgentProbe, Api, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
+import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
@@ -217,6 +217,8 @@ export type FakeData = {
   /** `environments.worktreeStatus` by environment id. Mutate between calls to simulate the tree
    *  changing under an open confirmation. */
   worktreeStatus?: Record<string, WorktreeStatus>;
+  /** `environments.branches` by space id; absent = a plain folder. */
+  branches?: Record<string, BranchList>;
   /** `checkpoints.list` by environment id (W4). */
   checkpoints?: Record<string, Checkpoint[]>;
   /** `ships.list` by space id (Plan 14 W1). Unordered on the way in — the fake sorts newest-first
@@ -509,6 +511,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       pr: { state: "created", url: "https://github.com/acme/widgets/pull/1", reason: null },
     },
     worktreeStatus: overrides.worktreeStatus ?? {},
+    branches: overrides.branches ?? {},
     checkpoints: overrides.checkpoints ?? {},
     ships: overrides.ships ?? {},
     // COPIED, not aliased: `mutateRun` writes rows in place (like the server's own row update), and
@@ -937,9 +940,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { restored: taken.filter((t) => t.entry.kind === "added").map((t) => t.entry), renamed: [] };
     },
     listProjects: async (sid) => { calls.push(`listProjects:${sid}`); await wait(`listProjects:${sid}`); return data.projects[sid] ?? []; },
+    listBranches: async (sid) => { calls.push(`listBranches:${sid}`); return data.branches[sid] ?? null; },
     listEnvironments: async (sid) => { calls.push(`listEnvironments:${sid}`); await wait(`listEnvironments:${sid}`); return data.environments[sid] ?? []; },
-    createWorktree: async (sid, title) => {
+    createWorktree: async (sid, title, base = null) => {
       calls.push(`createWorktree:${sid}`);
+      if (base) calls.push(`createWorktreeFrom:${base}`);
       const slug = (title ?? "session").toLowerCase().replace(/[^a-z0-9]+/g, "-");
       const env: Environment = { id: `env${++n}`, spaceId: sid, path: `/tmp/worktrees/${sid}/${slug}`, branch: `realm/${slug}`,
         kind: "worktree", portBlockStart: 41000 + 10 * (data.environments[sid] ?? []).length, createdAt: 0, updatedAt: 0 };
@@ -1030,7 +1035,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       }
       throw new Error(`no item ${input.id}`);
     },
-    deleteItem: async (id) => { calls.push(`deleteItem:${id}`); for (const k of Object.keys(data.items)) data.items[k] = data.items[k]!.filter((i) => i.id !== id); },
+    deleteItem: async (id) => {
+      calls.push(`deleteItem:${id}`);
+      // Mirrors the server: a session's item takes its session with it.
+      const gone = Object.values(data.items).flat().find((i) => i.id === id);
+      if (gone?.kind === "session") data.sessions = data.sessions.filter((x) => x.id !== gone.refId);
+      for (const k of Object.keys(data.items)) data.items[k] = data.items[k]!.filter((i) => i.id !== id);
+    },
     getSetting: async (key) => { calls.push(`getSetting:${key}`); return data.settings[key] ?? null; },
     setSetting: async (key, value) => { calls.push(`setSetting:${key}=${String(value)}`); data.settings[key] = value; },
     listComputerAllowedApps: async (spaceId) => { calls.push(`listComputerAllowedApps:${spaceId}`); return data.computerAllowedApps[spaceId] ?? []; },
@@ -1969,11 +1980,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (!st) throw new Error(`no worktree status for ${id}`);
       return st;
     },
-    removeWorktree: async (id, ack) => {
-      calls.push(`removeWorktree:${id}|${ack.dirtyFiles},${ack.unpushedCommits}`);
+    removeWorktree: async (id, ack, deleteBranch = true) => {
+      calls.push(`removeWorktree:${id}|${ack.dirtyFiles},${ack.unpushedCommits}${deleteBranch ? "" : "|keep-branch"}`);
       const st = data.worktreeStatus[id];
       // Mirrors the server: an acknowledgement that does not match what git says RIGHT NOW is refused.
-      if (st && (st.dirtyFiles !== ack.dirtyFiles || st.unpushedCommits !== ack.unpushedCommits)) throw new Error("WORKTREE_UNSAFE");
+      if (st && (st.dirtyFiles !== ack.dirtyFiles || (deleteBranch && st.unpushedCommits !== ack.unpushedCommits))) throw new Error("WORKTREE_UNSAFE");
+      // …and so is a checkout a session still names.
+      if (data.sessions.some((x) => x.environmentId === id)) throw new Error("ENVIRONMENT_IN_USE");
       delete data.worktreeStatus[id];
       for (const list of Object.values(data.environments)) {
         const i = list.findIndex((e) => e.id === id);

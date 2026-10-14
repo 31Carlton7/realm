@@ -146,7 +146,9 @@ export function registerMethods(d: Deps): void {
     };
   });
   reg("daemon.stop", () => {
-    setTimeout(() => process.kill(process.pid, "SIGTERM"), 50);
+    // On Windows a signal to oneself is TerminateProcess, which skips the handler; emitting the event
+    // runs the same shutdown.
+    setTimeout(() => (process.platform === "win32" ? process.emit("SIGTERM", "SIGTERM") : process.kill(process.pid, "SIGTERM")), 50);
     return { ok: true as const };
   });
   reg("daemon.stopAgents", async () => ({ stopped: await d.sessions.stopAll() }));
@@ -677,9 +679,10 @@ export function registerMethods(d: Deps): void {
     return env;
   });
   reg("environments.worktreeStatus", (p) => d.envService.worktreeStatus(p.id));
+  reg("environments.branches", (p) => d.envService.branches(p.spaceId, p.from));
   reg("environments.removeWorktree", async (p) => {
     const spaceId = d.envService.get(p.id).spaceId;
-    await d.envService.removeWorktree(p.id, p.acknowledge);
+    await d.envService.removeWorktree(p.id, p.acknowledge, { deleteBranch: p.deleteBranch });
     rpc.broadcast("environments.changed", { spaceId });
     return { ok: true as const };
   });

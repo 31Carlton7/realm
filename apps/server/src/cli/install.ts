@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { killTree, spawnTarget } from "@realm/adapters";
 import {
   AGENT_INSTALL_ROUTES, installCommand, newId, updateCommand, updatePlan,
   type AgentKind, type CliJobEnd, type CliJobOutput, type CliJobStart, type InstallProvenance, type InstallRoute,
@@ -29,7 +30,7 @@ const PIPELINE_SHELL = "/bin/bash";
  * where quoting or globbing could reinterpret it. Only the vendor script routes need a shell, and
  * only because the command the vendor publishes is a pipeline.
  */
-export function commandSpec(route: InstallRoute | null, action: InstallAction, latest: string | null): CommandSpec | null {
+export function commandSpec(route: InstallRoute | null, action: InstallAction, latest: string | null, platform: string = process.platform): CommandSpec | null {
   const display = action === "install" ? installCommand(route) : updateCommand(route, latest ?? "");
   if (!route || !display) return null;
   if (route.method === "npm") {
@@ -55,6 +56,8 @@ export function commandSpec(route: InstallRoute | null, action: InstallAction, l
     const [file, ...args] = route.command.split(/\s+/);
     return file ? { display, file, args } : null;
   }
+  // A vendor's `curl … | bash` is a POSIX pipeline, and Windows has no bash to hand it to.
+  if (platform === "win32") return null;
   return { display, file: PIPELINE_SHELL, args: ["-c", route.command] };
 }
 
@@ -133,10 +136,14 @@ export class CliInstaller {
     if (this.jobs.has(kind)) throw new Error(`${kind} is already installing`);
     const id = newId();
     const spawnImpl = this.d.spawnImpl ?? spawn;
-    const child = spawnImpl(spec.file, spec.args, {
-      env: { ...(this.d.env ?? process.env), NO_COLOR: "1", FORCE_COLOR: "0" },
+    const env = { ...(this.d.env ?? process.env), NO_COLOR: "1", FORCE_COLOR: "0" };
+    // `npm` and `uv` are `.cmd` files on Windows, which only cmd.exe can start (spawn-target.ts).
+    const target = spawnTarget(spec.file, spec.args, { env });
+    const child = spawnImpl(target.command, target.args, {
+      env,
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
+      ...target.options,
     });
     this.jobs.set(kind, { id, child });
 
@@ -157,7 +164,7 @@ export class CliInstaller {
     child.stdout?.on("data", (b: Buffer) => emit(b.toString()));
     child.stderr?.on("data", (b: Buffer) => emit(b.toString()));
 
-    const timer = setTimeout(() => child.kill("SIGTERM"), this.d.timeoutMs ?? RUN_TIMEOUT_MS);
+    const timer = setTimeout(() => killTree(child, "SIGTERM"), this.d.timeoutMs ?? RUN_TIMEOUT_MS);
     let settled = false;
     const finish = (end: Omit<CliJobEnd, "id" | "kind">): void => {
       if (settled) return;
@@ -178,7 +185,7 @@ export class CliInstaller {
   /** Stop everything on shutdown; a package manager outliving the app would keep writing to a global
    *  prefix with nobody watching. */
   disposeAll(): void {
-    for (const { child } of this.jobs.values()) child.kill("SIGTERM");
+    for (const { child } of this.jobs.values()) killTree(child, "SIGTERM");
     this.jobs.clear();
   }
 }
