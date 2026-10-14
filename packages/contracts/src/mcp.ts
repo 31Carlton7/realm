@@ -53,6 +53,27 @@ export type McpTool = z.infer<typeof McpToolSchema>;
 export const McpOauthStatusSchema = z.enum(["unconfigured", "connected", "reconnect_needed"]);
 export type McpOauthStatus = z.infer<typeof McpOauthStatusSchema>;
 
+/** How a server's bearer token was obtained: the browser flow, the GitHub CLI's existing sign-in, the
+ *  device flow, or a token the user pasted. Says where to go when it stops working. */
+export const McpOauthViaSchema = z.enum(["browser", "cli", "device", "token"]);
+export type McpOauthVia = z.infer<typeof McpOauthViaSchema>;
+
+/**
+ * What the sign-in sheet can offer a server that issues no client on the fly. `provider` is the
+ * vendor when Realm knows it (GitHub), matched on the server's host, never its name. `cli.state` is
+ * the CLI's own answer, read when asked. `device` is true only while Realm has an app registered for
+ * the device flow; otherwise that route is not offered at all. A token and an app of the user's own
+ * are always possible, so they need no flag.
+ */
+export const McpSignInOptionsSchema = z.object({
+  provider: z.string().nullable(),
+  cli: z.object({ name: z.string(), state: z.enum(["ready", "missing", "signed-out"]) }).nullable(),
+  device: z.boolean(),
+  /** Where to create a personal access token, and the scopes the server's tools want. */
+  token: z.object({ url: z.string(), scopes: z.string() }).nullable(),
+});
+export type McpSignInOptions = z.infer<typeof McpSignInOptionsSchema>;
+
 /** The hub's live connection state for a server row. `circuit_open` is distinct from `error`: it means
  *  three consecutive failures tripped the breaker, and calls fail fast until `mcp.retry` or a row edit. */
 export const McpServerStatusSchema = z.enum(["idle", "connected", "error", "circuit_open"]);
@@ -112,6 +133,8 @@ export const McpServerSchema = z.object({
   authKind: z.enum(["none", "secrets", "oauth"]),
   /** Derived from whether OAuth has ever completed for this row. See `McpOauthStatusSchema`. */
   oauthStatus: McpOauthStatusSchema,
+  /** How the token in use was obtained, while there is one. Absent for a server with none. */
+  oauthVia: McpOauthViaSchema.optional(),
   /** The hub's live connection state. Always `"idle"` before the hub exists (W1–W2). */
   status: McpServerStatusSchema,
   /** The last successful `tools/list`, cached — `[]` before the hub has ever connected. */

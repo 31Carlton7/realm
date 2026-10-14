@@ -17,7 +17,7 @@ import {
   PROJECT_QUERY_MAX, ProjectFilesResultSchema, ProjectGrepResultSchema,
 } from "./project-search";
 import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
-import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema } from "./mcp";
+import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema, McpSignInOptionsSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
 import { MEMORY_DOC_MAX, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
@@ -1320,8 +1320,24 @@ export const Methods = {
     result: z.object({ calls: z.array(McpCallSchema) }),
   },
   /** Begin the OAuth dance for a remote server: the server prepares PKCE state and returns the
-   *  authorization URL for the renderer to open in the system browser. */
-  "mcp.oauth.start": { params: z.object({ id: IdSchema }), result: z.object({ authUrl: z.string() }) },
+   *  authorization URL for the renderer to open in the system browser. `authUrl: null` means it is
+   *  connected already, with no browser — the GitHub CLI's existing sign-in was used. A server that
+   *  issues no client on the fly fails with `MCP_OAUTH_NO_REGISTRATION`, which is the renderer's cue
+   *  to open the sign-in sheet (`mcp.oauth.options`). */
+  "mcp.oauth.start": { params: z.object({ id: IdSchema }), result: z.object({ authUrl: z.string().nullable() }) },
+  /** The other ways to sign in to a server with no dynamic client registration — see `McpSignInOptionsSchema`. */
+  "mcp.oauth.options": { params: z.object({ id: IdSchema }), result: McpSignInOptionsSchema },
+  /** Connect with the GitHub CLI's existing sign-in (`gh auth token`). Fails with `MCP_OAUTH_CLI`
+   *  and a sentence saying what to do when gh is missing or signed out. */
+  "mcp.oauth.useCli": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** Connect with a token the user pasted, sent as `Authorization: Bearer`. Sealed with the rest of
+   *  the row's OAuth state; the agent never receives it. */
+  "mcp.oauth.setToken": { params: z.object({ id: IdSchema, token: z.string().trim().min(1) }), result: z.object({ ok: z.literal(true) }) },
+  /** Begin a device-flow sign-in: the code to type and the page to type it on. Realm polls. */
+  "mcp.oauth.deviceStart": { params: z.object({ id: IdSchema }), result: z.object({ userCode: z.string(), verificationUri: z.string(), expiresIn: z.number() }) },
+  /** Resolves once the device-flow sign-in lands; fails with `MCP_OAUTH_EXPIRED` or
+   *  `MCP_OAUTH_DENIED` when the code ran out or the person declined. */
+  "mcp.oauth.deviceWait": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Hand a remote server a client the USER registered, for vendors that issue none dynamically. The
    *  secret is sealed with the rest of the row's OAuth state. `relay` sends the callback through the
    *  site's HTTPS relay instead of the loopback, for vendors that refuse an `http://` redirect. */

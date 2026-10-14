@@ -540,6 +540,13 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("mcp.changed", {});
     return started;
   });
+  reg("mcp.oauth.options", (p) => d.oauth.options(p.id));
+  // Each of these stores a token and fires the oauth status callback (hub invalidate, status
+  // broadcast); `mcp.changed` is for the settings list, whose `authKind` flips to oauth.
+  reg("mcp.oauth.useCli", async (p) => { await d.oauth.useCli(p.id); rpc.broadcast("mcp.changed", {}); return { ok: true as const }; });
+  reg("mcp.oauth.setToken", (p) => { d.oauth.setToken(p.id, p.token); rpc.broadcast("mcp.changed", {}); return { ok: true as const }; });
+  reg("mcp.oauth.deviceStart", (p) => d.oauth.startDevice(p.id));
+  reg("mcp.oauth.deviceWait", async (p) => { await d.oauth.waitDevice(p.id); rpc.broadcast("mcp.changed", {}); return { ok: true as const }; });
   reg("mcp.oauth.setClient", (p) => {
     d.oauth.setClient(p.id, { clientId: p.clientId, clientSecret: p.clientSecret, relay: p.relay });
     rpc.broadcast("mcp.changed", {});

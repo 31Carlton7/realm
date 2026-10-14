@@ -5,6 +5,7 @@ import { PageScroll } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
 import { useApp } from "../../state/store";
 import { McpSection } from "../../components/sidebar/McpSection";
+import { McpSignInSheet } from "../../components/sidebar/McpSignInSheet";
 import type { PaneProps } from "../registry";
 
 /**
@@ -65,10 +66,15 @@ function ConnectorMarket({ spaceId }: { spaceId: string }) {
   const connectApp = useApp((s) => s.connectApp);
   const run = useApp((s) => s.run);
   const [appFor, setAppFor] = useState<Connector | null>(null);
+  const [signIn, setSignIn] = useState<{ serverId: string; reason: string } | null>(null);
+  /* A vendor with no client on the fly (GitHub) may connect with no browser at all — its CLI's
+     sign-in — or come back as `choose`, which opens the sheet of other ways in rather than an error. */
   const connect = (c: Connector, client?: { clientId: string; clientSecret?: string }) => run(async () => {
-    const { authUrl } = await connectApp(spaceId, c.id, client);
-    window.open(authUrl, SYSTEM_BROWSER_FRAME);
+    const started = await connectApp(spaceId, c.id, client);
+    if (started.kind === "browser") window.open(started.authUrl, SYSTEM_BROWSER_FRAME);
+    else if (started.kind === "choose") setSignIn({ serverId: started.serverId, reason: started.reason });
   });
+  const signInServer = signIn ? servers.find((s) => s.id === signIn.serverId) : undefined;
   /* A vendor that issues no client on the fly asks for the user's own app first — whenever the row
      holds no client yet, which includes a row left behind by a Connect that failed for exactly that
      reason. `authKind` reads "oauth" once a client is stored; Reconnect on such a row reuses it. */
@@ -104,6 +110,7 @@ function ConnectorMarket({ spaceId }: { spaceId: string }) {
       </ul>
       {appFor && <AppClientSheet connector={appFor} onClose={() => setAppFor(null)}
         onSubmit={(client) => { setAppFor(null); connect(appFor, client); }} />}
+      {signIn && signInServer && <McpSignInSheet server={signInServer} reason={signIn.reason} onClose={() => setSignIn(null)} />}
     </section>
   );
 }

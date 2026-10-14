@@ -17,7 +17,6 @@ import type { QueueActions } from "./ComposerQueue";
 import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
-import { SubagentPanel } from "./SubagentPanel";
 import { RunningAgents } from "./DelegatedRuns";
 import { TerminalDock } from "./TerminalDock";
 import { emptyTranscript } from "./transcript-model";
@@ -759,19 +758,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
           transcript does — an affordance that blurred across the prompter would be the fade band's
           old bug wearing a different colour. Decorative: the drop is announced by what it does. */}
       {fileDrop.dropping && <div className="session-drop" aria-hidden="true" />}
-      {/* The sub-agent panel, docked to this pane's right edge — the same strip the summary uses,
-          and the same one at a time (`sessionDock`). Rendered from the PANE rather than from the
-          strip's row that opened it, because a background agent's row leaves the strip the moment
-          the harness says it stopped, and a panel parented to that row would vanish out from under
-          someone reading it. */}
-      {dock?.kind === "subagent" && paneEl && (
-        <SubagentPanel sessionId={id} toolUseId={dock.toolUseId} anchorRef={paneRef}
-          onClose={() => closeSessionDock(id)} />
-      )}
       {/* The terminal, when Settings docks it to the pane's foot — see TerminalDock. Its default place
           is a tab of the side pane, which is not this pane's to draw, so a dock left open when the
-          setting moved back is not drawn either. Rendered from the pane like the sub-agent view
-          rather than wrapping it in a split, which would cut the pane in half for a shell most turns
+          setting moved back is not drawn either. Rendered from the pane rather than wrapping it in
+          a split, which would cut the pane in half for a shell most turns
           never ask for. */}
       {dock?.kind === "terminal" && terminalDocked && paneEl && (
         <TerminalDock sessionId={id} title={terminalTitle(session.cwd)} visible={visible}

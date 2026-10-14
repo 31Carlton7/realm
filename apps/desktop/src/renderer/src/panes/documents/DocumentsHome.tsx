@@ -2,7 +2,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { chordsForCommand, displayKeyChord, type DocumentKind, type LibraryEntry } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { TYPE_ICON } from "../../components/FileCard";
+import { FileMark } from "../../components/file-icon";
 import { fileDragProps, quickLookOnSpace } from "../../components/file-actions";
 import { fileMenuItems, isMenuKey, removeOnDelete } from "../../components/file-menu";
 import { Menu } from "../../components/Menu";
@@ -336,7 +336,7 @@ function HomeRow({ file, query, onOpen, attach, onRemove }: {
           },
           ...fileDragProps(abs),
         } : {})}>
-        <span className="docs-home-glyph" data-type={file.type}><Icon name={TYPE_ICON[file.type]} size={16} /></span>
+        <span className="docs-home-glyph" data-type={file.type}><FileMark path={file.name} type={file.type} size={16} /></span>
         <span className="docs-home-name">{hit ? <>{hit.before}<mark>{hit.match}</mark>{hit.after}</> : file.name}</span>
         {file.detail && <span className="docs-home-detail">{file.detail}</span>}
         {/* Drawn with or without a time, so every row keeps the column the control comes up in. */}

@@ -916,6 +916,7 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
       "mcp__realm__realm-workspace__session_read",
       "mcp__realm__realm-workspace__space_list",
       "mcp__realm__realm-workspace__settings_get",
+      "mcp__realm__realm-workspace__realm_capabilities",
       "mcp__realm__realm-agent__agent_peers",
       "mcp__realm__realm-agent__agent_status",
       "mcp__realm__realm-schedule__schedule_list",

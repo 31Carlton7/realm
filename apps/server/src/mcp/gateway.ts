@@ -90,6 +90,23 @@ export type RealmToolProvider = {
   /** What this Mac lacks when `offered` says no, in the provider's own words — "Xcode or Android
    *  Studio". Its settings row shows this where the switch would be. */
   needs?: string;
+  /**
+   * Whether this provider lists anything in this space, for one whose `tools()` answers by what the
+   * space IS rather than by its switch: a team's tools only in a team, the memory tools only where a
+   * repo is attached. Synchronous for the same reason as `offered`. Omitted means it lists wherever it
+   * is switched on — and without it, a space with no team was told about its team's roles.
+   */
+  listsIn?(spaceId: string): boolean;
+};
+
+/** One provider as `catalogFor` reports it to a session: its switch, its Mac's answer, and the tools
+ *  it lists for that session right now (none while it is off, unoffered, or has nothing here). */
+export type ProviderCatalogEntry = {
+  name: string;
+  enabled: boolean;
+  offered: boolean | null;
+  needs: string | null;
+  tools: { name: string; description: string }[];
 };
 
 /** One registered Realm session: its bearer token, the space it belongs to, and — created lazily on the
@@ -99,6 +116,8 @@ export type RealmToolProvider = {
 type SessionEntry = {
   token: string;
   spaceId: string;
+  /** What the gateway says about itself on `initialize` — see `register`. */
+  instructions?: string;
   server: Server | null;
   transport: StreamableHTTPServerTransport | null;
   /**
@@ -245,8 +264,27 @@ export class McpGateway {
   realmProvidersFor(sessionId: string, spaceId: string): string[] {
     const toolset = this.toolsetOf(sessionId);
     return [...this.providers.values()]
-      .filter((p) => providerVisible(p.name, toolset) && this.d.mcp.providerEnabled(spaceId, p.name) && (p.offered === undefined || p.offered() === true))
+      .filter((p) => providerVisible(p.name, toolset) && this.d.mcp.providerEnabled(spaceId, p.name) && (p.offered === undefined || p.offered() === true)
+        && (p.listsIn === undefined || p.listsIn(spaceId)))
       .map((p) => p.name);
+  }
+
+  /**
+   * Every provider this session could see, with the tools each lists for it right now — what
+   * `realm_capabilities` reads, so a tool a provider adds is in the catalog the moment it is listed,
+   * with nobody having to write it down. Includes the providers that list nothing here, so the
+   * catalog can say what is switched off and what this Mac lacks rather than leave them unknown.
+   */
+  async catalogFor(sessionId: string, spaceId: string): Promise<ProviderCatalogEntry[]> {
+    const toolset = this.toolsetOf(sessionId);
+    return Promise.all([...this.providers.values()].filter((p) => providerVisible(p.name, toolset)).map(async (p) => {
+      let tools: Tool[] = [];
+      try { tools = await p.tools({ sessionId, spaceId }); } catch { /* a throwing provider lists nothing, as in listTools */ }
+      return {
+        name: p.name, enabled: this.d.mcp.providerEnabled(spaceId, p.name), ...this.providerOffer(p.name),
+        tools: tools.map((t) => ({ name: t.name, description: t.description ?? "" })),
+      };
+    }));
   }
 
   /** One provider's own answer, for its settings row (`mcp.providers.list`): whether it has anything
@@ -278,8 +316,11 @@ export class McpGateway {
    * ever be started with. Calling this twice for the same sessionId (a session restart re-registering)
    * revokes the OLD token and closes whatever SDK `Server`/transport it had created — the previous
    * connection belongs to an adapter process that is gone, so nothing should still answer with it.
+   *
+   * `instructions` is what the gateway's `initialize` answer says about it, for an agent that takes no
+   * per-session context and so can be told what Realm is only by the server it connects to.
    */
-  register(sessionId: string, spaceId: string): McpServerConfig {
+  register(sessionId: string, spaceId: string, instructions?: string): McpServerConfig {
     if (this.port === null) throw new Error("McpGateway.register() called before listen()");
     const previous = this.sessions.get(sessionId);
     if (previous) {
@@ -288,7 +329,7 @@ export class McpGateway {
       void previous.transport?.close().catch(() => {});
     }
     const token = randomBytes(32).toString("base64url");
-    this.sessions.set(sessionId, { token, spaceId, server: null, transport: null, connecting: null });
+    this.sessions.set(sessionId, { token, spaceId, ...(instructions ? { instructions } : {}), server: null, transport: null, connecting: null });
     this.tokenToSession.set(token, sessionId);
     return { name: "realm", transport: "http", url: `http://127.0.0.1:${this.port}/mcp`, headers: { Authorization: `Bearer ${token}` } };
   }
@@ -459,7 +500,7 @@ export class McpGateway {
       // `logging` is declared so a call whose client sent no progress token can still be kept alive
       // with `notifications/message` — the SDK refuses to send one from a server that did not say it
       // logs.
-      const server = new Server({ name: "realm-gateway", version: "1.0.0" }, { capabilities: { tools: { listChanged: true }, logging: {} } });
+      const server = new Server({ name: "realm-gateway", version: "1.0.0" }, { capabilities: { tools: { listChanged: true }, logging: {} }, ...(entry.instructions ? { instructions: entry.instructions } : {}) });
       server.setRequestHandler(ListToolsRequestSchema, async () => this.listTools(sessionId, entry.spaceId));
       server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
         this.handleCall(sessionId, entry.spaceId, request.params.name, request.params.arguments,

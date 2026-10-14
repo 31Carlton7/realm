@@ -11,13 +11,13 @@ export { isDelegationLine, isDelegationWait } from "./tool-group";
 import { useElapsed } from "./use-elapsed";
 
 /** The session a transcript belongs to, for the lines inside it that need their lead: a delegation
- *  line links to its row in THIS session's Agents tab. Null in the read-only mounts (a fork preview,
+ *  line opens its sub-agent in THIS session's Agents tab. Null in the read-only mounts (a fork preview,
  *  a test), where the line still reads and links nowhere. */
 export const LeadSessionContext = createContext<string | null>(null);
 
 /**
  * A sub-agent, as its lead's transcript shows it: one quiet line — "Sub-agent finished · Write the
- * migration", the model it ran on, how long — and a click away from its row in the Agents tab.
+ * migration", the model it ran on, how long — and a click away from its viewer in the Agents tab.
  *
  * The call's raw input and result are deliberately not here. What a person wants from a delegation
  * is whether it finished and what it said, and both are in the Agents tab and the child's own
@@ -57,7 +57,7 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
   return (
     <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={state} data-enter={enter || undefined}>
       <button type="button" className="tool-row" disabled={!lead || !id}
-        title={lead && id ? "Show it in this session's Agents tab" : undefined}
+        title={lead && id ? "Open it beside the transcript" : undefined}
         aria-label={`${gone ? "Sub-agent" : STATE_VERB[state]}: ${task}${model ? `, on ${model}` : ""}`}
         onClick={() => { if (lead && id) run(() => openAgentsTab(lead, { childId: id })); }}>
         <span className="tool-status" aria-hidden="true">{!gone && <LineMark state={state} />}</span>
@@ -90,11 +90,11 @@ function LineMark({ state }: { state: SubagentState }) {
 /**
  * A sub-agent the session's OWN harness started — Claude's `Task`/`Agent`, often in the background —
  * as the same line a delegated one gets: "Sub-agent working · Audit the mapper", its type, how long,
- * and a click to its card in this session's Agents tab. The calls it makes hang underneath
+ * and a click to its viewer in this session's Agents tab. The calls it makes hang underneath
  * (`children`), as they did under the generic card this replaces.
  *
  * The raw input and result are not here for the reason they are not on a delegation line: the brief
- * and the report are on the sub-agent's own panel, which its card in the Agents tab opens.
+ * and the report are in the sub-agent's viewer in the Agents tab.
  */
 export function AgentLaunchLine({ block, sessionStatus, enter = false, children }: {
   block: ToolBlock; sessionStatus: SessionStatus; enter?: boolean; children?: ReactNode;
@@ -112,7 +112,7 @@ export function AgentLaunchLine({ block, sessionStatus, enter = false, children 
   return (
     <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={state} data-enter={enter || undefined}>
       <button type="button" className="tool-row" disabled={!lead}
-        title={lead ? "Show it in this session's Agents tab" : undefined}
+        title={lead ? "Open it beside the transcript" : undefined}
         aria-label={`${STATE_VERB[state]}: ${task}${type ? `, ${type}` : ""}`}
         onClick={() => { if (lead) run(() => openAgentsTab(lead, { childId: block.toolUseId })); }}>
         <span className="tool-status" aria-hidden="true"><LineMark state={state} /></span>
@@ -155,7 +155,7 @@ export function DelegationWait({ block, sessionStatus, enter = false }: { block:
   return (
     <div className="tool-card delegation-line" data-tool-use-id={block.toolUseId} data-state={waiting ? "working" : "done"} data-enter={enter || undefined}>
       <button type="button" className="tool-row" disabled={!lead} title={lead ? "Show them in this session's Agents tab" : undefined}
-        onClick={() => { if (lead) run(() => openAgentsTab(lead)); }}>
+        onClick={() => { if (lead) run(() => openAgentsTab(lead, { childId: null })); }}>
         <span className="tool-status" aria-hidden="true">
           {live ? <Spinner size={16} /> : waiting ? null : <Icon name="check" size={14} />}
         </span>

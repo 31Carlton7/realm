@@ -9,9 +9,11 @@ const RunnerGame = lazyComponent(() => import("./runner/RunnerGame").then((m) =>
 
 /**
  * Realm's flat mark, in the accent: the pane reaching for a page. It is still when nothing is being
- * tried — the error page wears it at rest — and while a load is in flight it dims and a glint crosses
- * it, clipped to its shape so the glint goes through the doorway rather than over it: the boot mark's
- * sweep, at the same tempo, so Realm waits the same way everywhere. It fades up once as it arrives.
+ * tried — the error page wears it at rest — and while a load is in flight it dims and a shimmer
+ * crosses it, clipped to its shape so the light goes through the doorway rather than over it. The
+ * shimmer is the working label's: a band that runs from the mark's quiet tone through its full accent
+ * to a core past it — lighter on the dark face, deeper on the light one, as the label's runs to full
+ * ink — at the label's tempo, so Realm waits the same way everywhere. It fades up once as it arrives.
  * Under reduced motion it is simply drawn.
  */
 export function ReachMark({ busy, size = 44 }: { busy: boolean; size?: number }) {
@@ -24,7 +26,9 @@ export function ReachMark({ busy, size = 44 }: { busy: boolean; size?: number })
         <clipPath id={`${id}-shape`}><path clipRule="evenodd" d={REALM_MARK_PATH} /></clipPath>
         <linearGradient id={`${id}-glint`} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stopColor="currentColor" stopOpacity="0" />
-          <stop offset=".5" stopColor="currentColor" />
+          <stop offset=".3" stopColor="currentColor" />
+          <stop className="reach-mark-shine" offset=".5" />
+          <stop offset=".7" stopColor="currentColor" />
           <stop offset="1" stopColor="currentColor" stopOpacity="0" />
         </linearGradient>
       </defs>

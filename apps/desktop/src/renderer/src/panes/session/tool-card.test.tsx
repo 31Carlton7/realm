@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { ToolCard, ToolCwd, ToolGroup, RESULT_CLAMP } from "./ToolCard";
-import { editStat, failureReason, mcpParts, statedExit, toolVerb } from "./tool-summary";
+import { editStat, failureReason, mcpParts, statedExit, toolIcon, toolVerb } from "./tool-summary";
 import * as summaryModule from "./tool-summary";
 import { GROUP_MIN, formatDuration, formatToolRun, groupTranscript, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "./tool-group";
 import { stampLabel, stampTitle } from "./timestamps";
@@ -609,7 +609,29 @@ describe("the row says what the act is, not what the tool is called", () => {
     expect(mcpParts("mcp__linear__save_issue")).toEqual({ server: "Linear", tool: "save_issue" });
     expect(mcpParts("mcp__claude_ai_Linear__save_issue")).toEqual({ server: "Linear", tool: "save_issue" });
     expect(mcpParts("mcp__realm__realm-browser__browser_open")).toEqual({ server: "Realm", tool: "browser_open" });
+    // Realm's gateway carries the space's own servers under their own names, and a connector Realm
+    // registered is named as its card is — neither is "Realm".
+    expect(mcpParts("mcp__realm__gmail__search_threads")).toEqual({ server: "Gmail", tool: "search_threads" });
+    expect(mcpParts("mcp__realm__realm-linear__save_issue")).toEqual({ server: "Linear", tool: "save_issue" });
     expect(mcpParts("Bash")).toBeNull();
+  });
+
+  it("an MCP call leads with its app's mark, and Realm's own with the pane it drives", () => {
+    const glyphs: [string, string][] = [
+      ["mcp__claude_ai_Gmail__search_threads", "gmail"],
+      ["mcp__claude_ai_Google_Calendar__list_events", "googleCalendar"],
+      ["mcp__realm__gmail__search_threads", "gmail"],
+      ["mcp__realm__realm-linear__save_issue", "linear"],
+      ["mcp__realm__realm-browser__browser_open", "browser"],
+      ["mcp__realm__realm-terminal__terminal_write", "terminal"],
+      ["mcp__realm__my-tools__frob", "plug"],
+    ];
+    render(<>{glyphs.map(([name], i) => <ToolCard key={name} sessionStatus="idle" block={tool(`t${i}`, name, { query: "x" })} />)}</>);
+    const drawn = [...document.querySelectorAll(".tool-status [data-glyph]")].map((g) => g.getAttribute("data-glyph"));
+    expect(drawn).toEqual(glyphs.map(([, g]) => g));
+    // Drawn as the mark, not a fallback: the brand's own svg is in the slot.
+    expect(document.querySelector(".tool-status [data-glyph='gmail'] svg[data-brand='gmail']")).not.toBeNull();
+    expect(toolIcon("mcp__claude_ai_Gmail__search_threads")).toBe("gmail");
   });
 
   it("draws the verb, the server before the object, and keeps the raw name in the title and the accessible name", () => {

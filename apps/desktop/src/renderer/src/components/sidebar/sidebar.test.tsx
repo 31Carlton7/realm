@@ -60,7 +60,7 @@ describe("a lead whose sub-agents need you", () => {
     // Their requests are on the lead's row, not rows of their own at the top.
     expect(screen.queryByRole("button", { name: /^Kid k\d/ })).toBeNull();
     fireEvent.click(row);
-    await waitFor(() => expect(store.getState().agentsAsk["a"]).toMatchObject({ childId: "k2" }));
+    await waitFor(() => expect(store.getState().agentsShown["a"]).toBe("k2"));
   });
 });
 

@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -360,6 +360,15 @@ export type FakeData = {
   /** What `mcp.tools.list` answers as `error` for a server id, if set — a connect failure is a result,
    *  never a throw (see the Api doc comment). */
   mcpToolsError?: Record<string, string | null>;
+  /** How `mcp.oauth.start` answers per server id: refused for want of a registration (the sign-in
+   *  sheet's cue), or connected with the GitHub CLI. Absent = a browser URL. */
+  mcpOauthStart?: Record<string, "no-registration" | "cli">;
+  /** What `mcp.oauth.options` answers per server id. Absent = a server Realm knows nothing about. */
+  mcpSignInOptions?: Record<string, McpSignInOptions>;
+  /** Set = `mcp.oauth.useCli` refuses with this sentence. */
+  mcpCliError?: string;
+  /** Set = `mcp.oauth.deviceWait` rejects with this code (the code expired, or was declined). */
+  mcpDeviceError?: string;
   /** The full call log `mcp.calls.list` pages over (W7). Unordered on the way in — the fake sorts and
    *  filters like the real store does, so a test can just append in whatever order it likes. */
   mcpCalls?: McpCall[];
@@ -617,6 +626,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     mcpServers: overrides.mcpServers ?? [],
     mcpToolsResult: overrides.mcpToolsResult ?? {},
     mcpToolsError: overrides.mcpToolsError ?? {},
+    mcpOauthStart: overrides.mcpOauthStart ?? {},
+    mcpSignInOptions: overrides.mcpSignInOptions ?? {},
+    mcpCliError: overrides.mcpCliError ?? "",
+    mcpDeviceError: overrides.mcpDeviceError ?? "",
     mcpCalls: overrides.mcpCalls ?? [],
     mcpProviders: overrides.mcpProviders ?? [{ name: "realm-browser", enabled: true, offered: true, needs: null }],
     mcpProvidersBySpace: overrides.mcpProvidersBySpace ?? {},
@@ -648,6 +661,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   let n = 100;
   /** `library.remove`'s holds, by removal id: what each took from `artifacts`, and where it stood. */
   const removals = new Map<string, { entry: LibraryEntry; index: number }[]>();
+  /** A server row connected the way a sign-in route would leave it. */
+  const connectFake = (id: string, via: NonNullable<McpServer["oauthVia"]>) => {
+    const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+    data.mcpServers[i] = { ...data.mcpServers[i]!, authKind: "oauth", oauthStatus: "connected", oauthVia: via };
+  };
   const findSpace = (id: string) => { const s = data.spaces.find((x) => x.id === id); if (!s) throw new Error(`no space ${id}`); return s; };
   const findRun = (id: string) => {
     const r = Object.values(data.runs).flat().find((x) => x.id === id);
@@ -2145,7 +2163,29 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, allowedTools: tools };
     },
-    startMcpOauth: async (id) => { calls.push(`startMcpOauth:${id}`); return { authUrl: `https://oauth.example/authorize?server=${id}` }; },
+    startMcpOauth: async (id) => {
+      calls.push(`startMcpOauth:${id}`);
+      if (data.mcpOauthStart[id] === "no-registration") throw new RpcError("MCP_OAUTH_NO_REGISTRATION", "GitHub issues no client to apps it has not met.");
+      if (data.mcpOauthStart[id] === "cli") { connectFake(id, "cli"); return { authUrl: null }; }
+      return { authUrl: `https://oauth.example/authorize?server=${id}` };
+    },
+    mcpSignInOptions: async (id) => {
+      calls.push(`mcpSignInOptions:${id}`);
+      return data.mcpSignInOptions[id] ?? { provider: null, cli: null, device: false, token: null };
+    },
+    connectMcpWithCli: async (id) => {
+      calls.push(`connectMcpWithCli:${id}`);
+      if (data.mcpCliError) throw new RpcError("MCP_OAUTH_CLI", data.mcpCliError);
+      connectFake(id, "cli");
+    },
+    // The token's length, never its value: a test asserting on the call log is a log too.
+    setMcpToken: async (id, token) => { calls.push(`setMcpToken:${id}:${token.length}`); connectFake(id, "token"); },
+    startMcpDevice: async (id) => { calls.push(`startMcpDevice:${id}`); return { userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresIn: 900 }; },
+    waitMcpDevice: async (id) => {
+      calls.push(`waitMcpDevice:${id}`);
+      if (data.mcpDeviceError) throw new RpcError(data.mcpDeviceError, "the code expired before it was entered — start again for a new one");
+      connectFake(id, "device");
+    },
     setMcpOauthClient: async (id, client) => { calls.push(`setMcpOauthClient:${id}:${client.clientId}:${client.relay ? "relay" : "loopback"}`); },
     disconnectMcpOauth: async (id) => {
       calls.push(`disconnectMcpOauth:${id}`);

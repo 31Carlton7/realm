@@ -20,8 +20,8 @@ const ASKED_META = { icon: "session", label: "Asked a question (agent_ask)" };
  *
  * A delegated child is a real session, but it no longer gets a pane: a fan-out of eight was eight
  * columns too narrow to read. This control is how the user sees them instead — a count in the bar,
- * and a click opens the list. A row previews that child as a tab of this session's side pane, beside
- * the browsers its agents opened, so looking at one never rearranges the workspace.
+ * and a click opens the list. A row opens that sub-agent in this session's Agents tab, a tab of its
+ * side pane beside the browsers its agents opened, so looking at one never rearranges the workspace.
  *
  * In the pane bar rather than a pane of its own, deliberately. The engine's registry lives in the
  * server's memory and dies with the process, while a pane is a layout leaf that persists — a pane
@@ -167,7 +167,15 @@ export function useOpenChild(): (childId: string) => void {
 export function ChildSessions({ ids }: { ids: readonly string[] }) {
   const sessions = useApp((s) => s.sessions);
   const sessionStatus = useApp((s) => s.sessionStatus);
-  const open = useOpenChild();
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
+  const run = useApp((s) => s.run);
+  const openChild = useOpenChild();
+  // A child is looked at in its lead's Agents tab, the one way every sub-agent opens. One whose lead
+  // is not on record has no tab to open in, and is previewed as the session it is.
+  const open = (c: Session) => {
+    const lead = c.dispatchedBy?.sessionId;
+    if (lead) run(() => openAgentsTab(lead, { childId: c.id })); else openChild(c.id);
+  };
   const list = useRef<HTMLUListElement>(null);
   useDissolve(list);
   const children = ids.map((id) => sessions[id])
@@ -181,7 +189,7 @@ export function ChildSessions({ ids }: { ids: readonly string[] }) {
         return (
           <li key={c.id}>
             <button type="button" className="delegation-item" title={meta.label}
-              aria-label={`${c.title} — ${meta.label}`} onClick={() => open(c.id)}>
+              aria-label={`${c.title} — ${meta.label}`} onClick={() => open(c)}>
               <Icon name={meta.icon} size={14} />
               <span className="delegation-title">{c.title}</span>
               <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />
@@ -279,14 +287,18 @@ function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count
 }) {
   const sessions = useApp((s) => s.sessions);
   const sessionStatus = useApp((s) => s.sessionStatus);
-  const docked = useApp((s) => s.sessionDock[sessionId]);
-  const toggleSessionDock = useApp((s) => s.toggleSessionDock);
+  const watched = useApp((s) => s.agentsShown[sessionId] ?? null);
+  const openAgentsTab = useApp((s) => s.openAgentsTab);
+  const run = useApp((s) => s.run);
   const preview = useOpenChild();
+  /* A sub-agent of this session's — its own child, or one its harness runs — opens in this session's
+     Agents tab, on its viewer. A peer it only asked a question of is not its sub-agent, and is
+     previewed as the session it is. */
+  const view = (id: string) => run(() => openAgentsTab(sessionId, { childId: id }));
   const ref = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLUListElement>(null);
   useDissolve(list);
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef: anchor, align: "right", onClose, returnFocusRef: anchor, exit: true });
-  const watched = docked?.kind === "subagent" ? docked.toolUseId : null;
   const now = since + elapsed;
   const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
     visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top right" };
@@ -307,10 +319,11 @@ function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count
           const meta = r.owned ? ORIGIN_META[child?.dispatchedBy?.kind ?? "agent_run"] : ASKED_META;
           return (
             <li key={r.sessionId}>
-              {/* A delegated child is a whole session — a transcript, a composer, permissions of its
-                  own — so the preview is that session, as a tab of this one's side pane. */}
+              {/* This session's own child opens on its viewer in the Agents tab; a peer it only asked
+                  is a whole session of someone else's, previewed as one in this session's side pane. */}
               <button type="button" className="delegation-item" title={meta.label}
-                aria-label={`Preview ${child?.title ?? "Starting"} — ${meta.label}`} onClick={() => { preview(r.sessionId); close(); }}>
+                aria-label={`${r.owned ? "Open" : "Preview"} ${child?.title ?? "Starting"} — ${meta.label}`}
+                onClick={() => { if (r.owned) view(r.sessionId); else preview(r.sessionId); close(); }}>
                 <Icon name={meta.icon} size={14} />
                 {/* The row lands before the session row does often enough to matter: `agent_run`
                     registers the run and only then sends the child its first message. */}
@@ -326,12 +339,12 @@ function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count
         })}
         {/* The harness's own sub-agents. No session behind one of these and so no status dot — but
             there IS something to watch: the calls it makes arrive in this transcript nested under its
-            launching call. The row opens them on the panel docked to this pane's right edge. */}
+            launching call, and its viewer in the Agents tab draws them. */}
         {harness.map((h) => (
           <li key={h.id}>
             <button type="button" className="delegation-item" data-selected={watched === h.id || undefined}
-              aria-label={`Watch ${h.label}`} aria-pressed={watched === h.id}
-              onClick={() => { toggleSessionDock(sessionId, { kind: "subagent", toolUseId: h.id }); close(); }}>
+              aria-label={`Watch ${h.label}`}
+              onClick={() => { view(h.id); close(); }}>
               <Icon name="bot" size={14} />
               <span className="delegation-title">{h.label}</span>
               <span className="delegation-dim">in the agent</span>

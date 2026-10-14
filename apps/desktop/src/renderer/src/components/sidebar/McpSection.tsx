@@ -1,6 +1,7 @@
 import { MCP_SECRET_STORAGE_NOTE, SYSTEM_BROWSER_FRAME, McpServerNameSchema, mcpSupportNote, type AgentKind, type McpServer, type McpServerStatus, type McpTransport } from "@realm/contracts";
 import { useEffect, useState, type FormEvent } from "react";
 import { Icon } from "@realm/ui";
+import { McpSignInSheet } from "./McpSignInSheet";
 import { useApp, type McpTestResult } from "../../state/store";
 import { Sheet } from "../Sheet";
 import { MoveScopeConfirm, ScopeGroups } from "../scoped/ScopeGroups";
@@ -517,23 +518,30 @@ function SecretsFields({ label, existingKeys, rows, setRows }: { label: string; 
  */
 function McpOauthControls({ server }: { server: McpServer }) {
   const run = useApp((s) => s.run);
-  const startMcpOauth = useApp((s) => s.startMcpOauth);
+  const beginMcpSignIn = useApp((s) => s.beginMcpSignIn);
   const disconnectMcpOauth = useApp((s) => s.disconnectMcpOauth);
+  // Open = the sheet of other ways in; `reason` set when Connect could not start a browser sign-in.
+  const [signIn, setSignIn] = useState<{ reason?: string } | null>(null);
 
   const connect = () => run(async () => {
-    const { authUrl } = await startMcpOauth(server.id);
+    const started = await beginMcpSignIn(server.id);
     // The renderer opens it; main's window-open handler routes it to the system browser
     // (apps/desktop/src/main/index.ts's setWindowOpenHandler), by name, whatever Settings says links
     // open in: a sign-in wants the cookies the person's own browser keeps.
-    window.open(authUrl, SYSTEM_BROWSER_FRAME);
+    if (started.kind === "browser") window.open(started.authUrl, SYSTEM_BROWSER_FRAME);
+    else if (started.kind === "choose") setSignIn({ reason: started.reason });
   });
+  const sheet = signIn && <McpSignInSheet server={server} reason={signIn.reason} onClose={() => setSignIn(null)} />;
 
   if (server.authKind !== "oauth") {
     return (
       <div className="field"><span>OAuth</span>
         <div className="form-actions" style={{ justifyContent: "flex-start" }}>
           <button type="button" className="btn-quiet" onClick={connect}>Connect via OAuth instead</button>
+          {/* Any remote server that takes a bearer can be given one, sealed, instead of a header. */}
+          <button type="button" className="btn-quiet" onClick={() => setSignIn({})}>Use a token instead</button>
         </div>
+        {sheet}
       </div>
     );
   }
@@ -544,13 +552,14 @@ function McpOauthControls({ server }: { server: McpServer }) {
         <div className="form-actions" style={{ justifyContent: "flex-start" }}>
           <button type="button" className="btn-quiet" onClick={connect}>Reconnect</button>
         </div>
+        {sheet}
       </div>
     );
   }
   if (server.oauthStatus === "connected") {
     return (
       <div className="field"><span>OAuth</span>
-        <p className="muted">Connected.</p>
+        <p className="muted">{CONNECTED_VIA[server.oauthVia ?? "browser"]}</p>
         <div className="form-actions" style={{ justifyContent: "flex-start" }}>
           <button type="button" className="btn-quiet" onClick={() => run(() => disconnectMcpOauth(server.id))}>Disconnect</button>
         </div>
@@ -563,9 +572,18 @@ function McpOauthControls({ server }: { server: McpServer }) {
       <div className="form-actions" style={{ justifyContent: "flex-start" }}>
         <button type="button" className="btn-quiet" onClick={connect}>Connect</button>
       </div>
+      {sheet}
     </div>
   );
 }
+
+/** Where the token in use came from — what to fix when it stops working. */
+const CONNECTED_VIA: Record<NonNullable<McpServer["oauthVia"]>, string> = {
+  browser: "Connected.",
+  cli: "Connected with the GitHub CLI's sign-in.",
+  device: "Connected with a code entered on GitHub.",
+  token: "Connected with a pasted token.",
+};
 
 /**
  * Whether Realm may finish a sign-in it started — including the click on Authorize.

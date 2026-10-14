@@ -44,7 +44,7 @@
 .terminal-dock-title,
 .sim-detail, .upl-path, .wt-branch, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
-.subagent-where[data-branch] {
+.subagent-where[data-branch], .subagent-view-where[data-branch], .signin-hint code, .signin-code {
   letter-spacing: normal;
 }
 
@@ -1120,7 +1120,7 @@ kbd { font: 11px var(--font-mono); }
    honest way to say "something else is using that strip now".
    The width is a ROOT token, not a property on the panel: the pane is the panel's sibling, not its
    ancestor, and a custom property set on the panel would never reach it. */
-.session-summary, .subagent-dock { width: var(--summary-w); }
+.session-summary { width: var(--summary-w); }
 /* One attribute for the whole strip, whichever panel is using it — `data-summary-pinned` would have
    been a lie on a pane making room for a sub-agent. */
 /* `--dock-w` is written onto the pane by `useDockPinned` for whichever panel has the strip, because
@@ -1168,13 +1168,13 @@ kbd { font: 11px var(--font-mono); }
    Files panel's own folder switch keeps under it. */
 .summary-panel-head:has(.dock-views) { padding-left: 8px; }
 .summary-panel-head .dock-views { margin-right: auto; }
-.session-summary, .subagent-dock { padding: 0 6px 8px; }
+.session-summary { padding: 0 6px 8px; }
 /* As tall as its content, and no taller than the pane it docks to.
    `--summary-pane-h` is the measured pane height, written by SessionSummary.tsx; the inset it has to
    leave at BOTH ends is the panel's own margin, so the arithmetic belongs here rather than in the
    component. The panel used to take the pane's height outright, which drew a column of empty surface
    the height of the window behind a summary of three rows. */
-.session-summary, .subagent-dock { max-height: calc(var(--dock-pane-h, 100vh) - var(--sidebar-inset) * 2); }
+.session-summary { max-height: calc(var(--dock-pane-h, 100vh) - var(--sidebar-inset) * 2); }
 /* The sections scroll; the head does not.
    `flex: 0 1 auto` on the WRAPPER, never `flex: 1`: a basis of zero would make the scroller claim
    whatever height the panel has, which is the full-height panel again by another route. At auto it
@@ -1183,7 +1183,7 @@ kbd { font: 11px var(--font-mono); }
    The wrapper carries the depths and the SCROLLER inside it carries the dissolve, which is the same
    shape as `.page-scroll` and for the same reason: the panel's head is not in the scroller, so
    nothing can dissolve a title. */
-.summary-scroll-wrap, .subagent-scroll-wrap { position: relative; display: flex; flex: 0 1 auto; min-height: 0;
+.summary-scroll-wrap { position: relative; display: flex; flex: 0 1 auto; min-height: 0;
   --fade-h: 28px; --fade-top-h: 24px; }
 .summary-scroll { flex: 1; min-width: 0; overflow-y: auto; }
 /* What the session was about — the last thing asked, and the first line of the answer. The ask is
@@ -2544,30 +2544,6 @@ button.panel-title:hover { background: var(--rl-hover); }
   box-shadow: var(--shadow-card);
 }
 
-/* ── The sub-agent panel: one harness sub-agent, watched while it works ───────────────
-   The session pane's right-hand strip, shared with the summary — same card, same inset, same cap,
-   same enter. It is a glance you take and put away, not a column you size: a split would take width
-   from the transcript for as long as it was open, where this leaves on Escape and, where the pane is
-   wide enough, pins beside the transcript instead of over it. ── */
-.subagent-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 4px 8px 8px; }
-.subagent-mark { flex: none; color: var(--rl-accent); }
-.subagent-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
-/* Ticking while it runs and a word once it does not — a clock that goes on climbing after the agent
-   left would be reporting how long ago it finished as though it were still going. */
-.subagent-elapsed { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.subagent-elapsed[data-working] { color: var(--rl-text-dim); }
-.subagent-body { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 2px 8px 8px; }
-.subagent-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px;
-  font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
-.subagent-count { margin-left: auto; font-variant-numeric: tabular-nums; }
-/* The brief and the report are PROSE — what the parent wrote and what came back — on the app's one
-   markdown treatment, capped so neither buries the working between them. */
-.subagent-prose { font-size: 13px; color: var(--rl-text-dim); }
-.subagent-prose-scroll { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; --fade-top-h: 16px; --fade-h: 24px; }
-.subagent-report[data-error] .subagent-head { color: var(--rl-danger); }
-.subagent-steps { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.subagent-empty { margin: 0; font-size: 12px; line-height: 1.5; color: var(--rl-text-faint); }
 
 /* No ground of its own. The pane's shows through — the one translucent sheet `.main` lays under every
    pane, the transcript included — so a shell reads as the same surface as the chat beside it, where
@@ -2859,13 +2835,18 @@ button.panel-title:hover { background: var(--rl-hover); }
 @keyframes rl-connecting-in { from { opacity: 0; } to { opacity: 1; } }
 /* The marks (BrowserErrorPage.tsx). Realm's flat mark is the accent's one appearance on the page; the
    padlock is danger, because a certificate Realm will not trust is a state, not a mood. The mark fades
-   up once as it arrives. While a load is in flight it dims and a glint crosses it, looping until the
-   load settles, and the mark lights back up. Only then: an error page can sit for hours, and a loop
+   up once as it arrives. While a load is in flight it dims and a shimmer crosses it, looping until the
+   load settles, and the mark lights back up. The shimmer is the working label's (`.shimmer-text`):
+   quiet tone, full tone, and a core past it at the band's middle — the accent lifted toward white on
+   the dark face and taken deeper on the light one, where adding light to a pale mark on paper would
+   draw nothing. Only then: an error page can sit for hours, and a loop
    that kept running under `opacity: 0` would spend a core on a pane nobody is looking at (the power
    audit's finding, § Quiet). */
 .reach-mark, .lock-mark { flex: none; overflow: visible; }
 .lock-mark :is(path, rect) { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.reach-mark { color: var(--rl-accent); }
+.reach-mark { color: var(--rl-accent); --reach-shine: oklch(from var(--rl-accent) .97 .04 h); }
+:root[data-mode="light"] .reach-mark { --reach-shine: oklch(from var(--rl-accent) calc(l - .16) c h); }
+.reach-mark-shine { stop-color: var(--reach-shine); }
 .lock-mark { color: var(--rl-danger); }
 .reach-mark-shape { fill: currentColor; animation: rl-reach-in var(--dur-move) var(--ease-out-strong) backwards; transition: opacity var(--dur-swap) var(--ease-fade); }
 .reach-mark-glint { opacity: 0; }
@@ -4061,10 +4042,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   border: none; border-radius: var(--r-panel); background: transparent; color: inherit; font: inherit; }
 .subagent-summary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
 /* Asked for from a transcript line: lit long enough to be found, then let go. */
-.subagent[data-flash] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 60%, transparent); }
 .subagent-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.subagent-caret { flex: none; display: inline-flex; margin-left: -2px; color: var(--ink-3); transition: transform var(--dur-hover) ease; }
-.subagent-caret[data-open] { transform: rotate(90deg); }
+.subagent-caret { flex: none; display: inline-flex; margin-left: -2px; color: var(--ink-3); }
 .subagent-mark { flex: none; }
 /* The title is the unbounded item and gives way first; the state and its time keep their width. */
 .subagent-task { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 18px; font-weight: var(--fw-label); color: var(--ink); }
@@ -4096,12 +4075,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagent-inner-where { flex: none; color: var(--ink-3); }
 .subagent-nested { padding: 0 8px 8px 20px; }
 .subagent-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 10px 28px; }
-.subagent-goal { margin: 0; max-height: 160px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; font-size: 13px; line-height: 18px; color: var(--ink-2); --fade-h: 16px; --fade-top-h: 16px; }
-.subagent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: -7px; }
-.subagent-message { display: flex; align-items: center; gap: 6px; }
-.subagent-message input { flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 9px; border: none; border-radius: var(--r-ctl); background: var(--field); color: var(--ink); font: inherit; font-size: 13px; outline: none; }
-.subagent-message input:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
-.subagent-message input::placeholder { color: var(--ink-3); }
 .subagents-since { margin-left: auto; font-weight: var(--fw-medium); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
 .subagents-build { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 8px 16px 16px; }
@@ -4150,6 +4123,67 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagents-chooser-tick { visibility: hidden; color: var(--rl-accent); }
 .subagents-chooser-row[aria-selected="true"] .subagents-chooser-tick { visibility: visible; }
 .subagents-chooser-empty { margin: 0; padding: 10px 8px; font-size: 13px; color: var(--ink-2); }
+
+/* ── One sub-agent, opened in its lead's Agents tab ───────────────────────────────────────
+   The tab's own column, not a panel over the session: a strip of the lead's sub-agents along the
+   top, then the one being looked at — its head, its report pinned once there is one, its log, and
+   what can be done about it at the foot. */
+/* The siblings, one click apart. A row of tabs that scrolls sideways and dissolves where it has more;
+   no bar under it, which would be the tallest thing in the row. The chosen one is lit by fill, as a
+   segment is, and its mark keeps the state's shape, so the strip reads without colour. */
+.subagent-switch { flex: none; display: flex; gap: 2px; min-width: 0; padding: 10px 12px 0; overflow-x: auto; scrollbar-width: none; --fade-h: 24px; --fade-top-h: 24px; }
+.subagent-switch-tab { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; max-width: 200px; height: 28px; padding: 0 10px; border: none;
+  border-radius: var(--r-ctl); background: transparent; color: var(--ink-2); font: inherit; font-size: 13px; transition: background-color var(--dur-hover) ease; }
+.subagent-switch-tab:hover { background: var(--rl-hover); color: var(--ink); transition: none; }
+.subagent-switch-tab[aria-selected="true"] { background: var(--rl-active); color: var(--ink); transition: none; }
+.subagent-switch-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
+.subagent-switch-tab > svg, .subagent-switch-mark { flex: none; display: inline-flex; color: var(--ink-3); }
+.subagent-switch-tab[data-state="failed"] .subagent-switch-mark, .subagent-switch-tab[data-state="timeout"] .subagent-switch-mark { color: var(--rl-danger); }
+.subagent-switch-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-view { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.subagent-view-head { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 12px 16px 10px; }
+.subagent-view-title { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 15px; line-height: 20px; font-weight: var(--fw-title); color: var(--ink); }
+/* The facts under the title in the order the yield wants: the state and its clock never give way,
+   the model takes what is left, and the branch — user data of any length — gives first. */
+.subagent-view-facts { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.subagent-view-facts > * + *::before { content: "·"; margin-right: 6px; color: var(--ink-3); }
+.subagent-view-state, .subagent-view-time { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.subagent-view-state > svg { color: var(--ink-3); }
+.subagent-view-state[data-state="failed"] > svg, .subagent-view-state[data-state="timeout"] > svg { color: var(--rl-danger); }
+.subagent-view-state[data-state="waiting"] { color: var(--ink); }
+.subagent-view-time { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.subagent-view-model, .subagent-view-where { display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.subagent-view-model { flex: 0 1 auto; }
+.subagent-view-where { flex: 0 1000 auto; color: var(--ink-3); }
+.subagent-view-where[data-branch] { font-family: var(--font-mono); }
+.subagent-view-model > svg, .subagent-view-where > svg { flex: none; }
+/* What it came back with, pinned under the head: a card of fill, capped so a long report leaves the
+   log room, and scrolling inside itself past that. */
+.subagent-view-result { flex: 0 1 auto; max-height: 40%; min-height: 0; display: flex; flex-direction: column; gap: 4px; margin: 0 12px 8px; padding: 10px 4px 4px 12px;
+  border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); }
+.subagent-view-result-head { flex: none; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; line-height: 16px; font-weight: var(--fw-title); color: var(--ink-2); }
+.subagent-view-result-head > svg { color: var(--ink-3); }
+.subagent-view-result[data-error] .subagent-view-result-head > svg { color: var(--rl-danger); }
+.subagent-view-result-scroll { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; --fade-h: 20px; --fade-top-h: 16px; }
+.subagent-view-prose { font-size: 13px; color: var(--ink-2); }
+/* The log: a delegated child's own transcript, set compact, or a harness agent's calls. */
+.subagent-view-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.subagent-view .transcript { padding: 8px 12px 16px; }
+.subagent-view-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 4px 16px 16px; }
+.subagent-view-section { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; font-size: 12px; font-weight: var(--fw-title); color: var(--ink-2); }
+.subagent-view-count { margin-left: auto; font-weight: var(--fw-medium); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.subagent-view-steps { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.subagent-view-empty { margin: 0; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+/* What can be done about it: Stop and Open as session, then a line to it on the prompter's curve. */
+.subagent-view-foot { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 6px 16px 16px; }
+.subagent-view-actions { display: flex; align-items: center; gap: 4px; margin-left: -7px; }
+.subagent-view-actions .btn-quiet { display: inline-flex; align-items: center; gap: 5px; }
+.subagent-view-open { margin-left: auto; margin-right: -7px; }
+.subagent-view-compose { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface); }
+.subagent-view-compose:focus-within { box-shadow: 0 0 0 1px var(--line-strong); }
+.subagent-view-compose input { flex: 1 1 auto; min-width: 0; height: 32px; padding: 0; border: none; outline: none; background: transparent; color: var(--ink); font: inherit; font-size: 14px; }
+.subagent-view-compose input::placeholder { color: var(--ink-3); }
 
 /* A sub-agent in its lead's transcript: one ledger line, the tool row's shape, with the model it runs
    on and its clock pushed to the end — "Sub-agent finished · Write the migration". */
@@ -5220,7 +5254,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   background: var(--field); box-shadow: var(--shadow-hairline); font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 .composer-queue-item .queue-file .attach-tile { --attach-tile: 20px; }
 .composer-queue-item .queue-file :is(.attach-ext, .attach-tip) { display: none; }
-.composer-queue-item .queue-file .attach-glyph { width: 12px; height: 12px; }
+.composer-queue-item .queue-file .attach-glyph, .composer-queue-item .queue-file .attach-glyph img { width: 12px; height: 12px; }
 .composer-queue-item .queue-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The row's actions, on its first line and always on screen: Edit, Send now and Remove are what a
@@ -5379,6 +5413,30 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   box-shadow: var(--shadow-btn); opacity: 0; transition: opacity var(--dur-hover) ease; }
 .attach-tile:hover .attach-remove, .attach-remove:focus-visible { opacity: 1; }
 .attach-remove:hover { background: rgb(0 0 0 / .82); }
+/* The prompter's card: a file that is not a picture, named. Its mark, its name and its kind and size,
+   on the same object fill and shadow the square's well wears — a file is picked up wherever it is
+   shown — at the square's own height, so a row of both is one row of files. The name is the row's one unbounded item, so
+   the card grows to a cap and the name is what gives way. A picture keeps the square: there the
+   picture is what says it is the right file. */
+.attach-tile[data-layout="card"] { width: auto; min-width: 0; max-width: 240px; }
+.attach-tile[data-layout="card"] .attach-open {
+  position: relative; inset: auto; display: flex; align-items: center; gap: 10px; width: 100%; height: 100%; min-width: 0;
+  padding: 0 14px 0 12px; text-align: left; font: inherit;
+  border-radius: var(--r-panel); corner-shape: squircle; background-color: var(--field); box-shadow: var(--rl-object-shadow); }
+.attach-tile[data-layout="card"] button.attach-open:hover { background-image: linear-gradient(var(--rl-hover), var(--rl-hover)); }
+/* The mark alone, no well: the card is already the object, and a tile inside a tile is the
+   coloured-square icon design.md refuses. */
+.attach-card-mark { flex: none; display: grid; place-items: center; }
+.attach-card-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.attach-card-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; line-height: 16px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.attach-card-kind { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* Remove hangs off the card's corner rather than inside it: inside, it would sit on the name. */
+.attach-tile[data-layout="card"] .attach-remove { top: -6px; right: -6px; }
+/* A file this agent will discard says so on the card's own edge, as the square's well does. */
+.attach-tile[data-layout="card"][data-disposition="ignored"] .attach-open {
+  background-color: var(--orange-tint); box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift); }
 /* The honesty row: what THIS agent does with these files, named before the message goes. */
 /* No flex `gap`: the sentence carries its own trailing space (Composer.tsx), so a gap here would
    double it. The glyph keeps its separation as a margin of its own. */
@@ -5545,6 +5603,20 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .market-docs:hover { color: var(--rl-text-dim); text-decoration: underline; text-underline-offset: 2px; }
 .market-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
 .market-card[data-state="connected"] .market-mark { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 45%, transparent); }
+/* The sign-in sheet (McpSignInSheet.tsx): a block per way in, parted by space rather than rules, and
+   the code a device sign-in shows set large in mono so it can be read across to another window. */
+.signin-routes { gap: 18px; }
+.signin-hint { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.signin-hint code { font: 12px var(--font-mono); }
+.signin-actions { justify-content: flex-start; margin-top: 2px; }
+.signin-code-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.signin-code { font-family: var(--font-mono); font-size: 24px; line-height: 30px; font-weight: var(--fw-title); letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums; color: var(--rl-text-bright); user-select: all; }
+.signin-app > summary { list-style: none; width: fit-content; padding: 2px 0; font-size: 13px; color: var(--rl-text-dim); }
+.signin-app > summary::-webkit-details-marker { display: none; }
+.signin-app > summary::before { content: "▸ "; }
+.signin-app[open] > summary::before { content: "▾ "; }
+.signin-app > .form { padding-top: 10px; }
 .ch-marker { color: var(--rl-accent); }
 .ch-punct { color: var(--rl-text-faint); }
 .ch-code { color: var(--rl-text-bright); background: var(--inset); border-radius: 3px; }
@@ -5944,6 +6016,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .ui-block,
 :root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
+:root[data-squircle] .subagent-view-compose,
 :root[data-squircle] .diff-review,
 :root[data-squircle] .cr-review,
 :root[data-squircle] .cr-ask-where,
@@ -6218,6 +6291,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    painter drew where a box-shadow would follow the square box. The tip and the remove button are
    the control's siblings, so the filter lifts the file and nothing else. */
 :root[data-squircle] .attach-open { filter: var(--rl-object-lift-filter); }
+/* The card is not painted — its fill changes under the pointer, which a worklet fill cannot follow — so
+   its shadow is its own box-shadow, and the filter would lay a second one under it. */
+:root[data-squircle] .attach-tile[data-layout="card"] .attach-open { filter: none; }
 /* A file this agent will discard keeps saying so on the painted curve: the tint and the warning ring
    move to the painter's own inputs, because `background` is spent on `paint()` and a box-shadow ring
    would trace the square border box underneath it. */
@@ -6244,8 +6320,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* The Agents tab's composer, on the prompter's curve and painted like it; its focus edge moves to
    the painter, because a box-shadow would trace the square border box `border-radius: 0` leaves. */
-:root[data-squircle] .subagents-compose { --sq-fill: var(--surface); }
-:root[data-squircle] .subagents-compose:focus-within { box-shadow: none; --sq-ring: var(--line-strong); --sq-ring-w: var(--hairline-w); }
+:root[data-squircle] :is(.subagents-compose, .subagent-view-compose) { --sq-fill: var(--surface); }
+:root[data-squircle] :is(.subagents-compose, .subagent-view-compose):focus-within { box-shadow: none; --sq-ring: var(--line-strong); --sq-ring-w: var(--hairline-w); }
 /* The palette keeps its overlay lift — it floats over the whole window, where a code block sits in
    a message. `overflow: hidden` clips a square, which costs nothing: its own head and list carry
    the surface, so there is nothing at the corners for the square clip to reveal. */
@@ -6611,10 +6687,9 @@ select { appearance: none; padding-right: 22px;
   .docs-home-scroll, .code-file-languages, .pdf-view, .pdf-strip,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
   .composer-todos .todo-list, .agents-pop .delegation-list,
-  /* the sub-agent panel: the column itself, and the two prose panels it caps */
-  .subagent-body, .subagent-prose-scroll,
-  /* a session's Agents tab: its list of sub-agents, a card's brief, and the composer's model chooser */
-  .subagents-scroll, .subagent-goal, .subagents-chooser-list,
+  /* a session's Agents tab: its list of sub-agents and the composer's model chooser — and its viewer:
+     a harness agent's log, and the pinned report */
+  .subagents-scroll, .subagents-chooser-list, .subagent-view-log, .subagent-view-result-scroll,
   /* the Google Fonts browser's result list */
   .font-results,
   /* a blank browser tab's tools, in a pane short enough to need it, and the page a failed load leaves */
@@ -7568,6 +7643,10 @@ select { appearance: none; padding-right: 22px;
   transition: translate var(--dur-press) var(--ease-out-strong);
 }
 .switch:checked { background: var(--rl-accent); box-shadow: none; }
+/* On, the hover is the accent a step lighter in dark and deeper in light, never the off track's grey:
+   `.switch:hover:not(:disabled)` outranks `:checked`, so without this a lit switch went grey under
+   the pointer and read as switching itself off. */
+.switch:checked:hover:not(:disabled) { background: oklch(from var(--rl-accent) calc(l + var(--accent-hover-step)) c h); }
 .switch:checked::after { translate: 14px 0; }
 .switch:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; }
 /* A checked switch keeps the accent at full strength when disabled, so without this a dependent
@@ -8540,6 +8619,13 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-row-mark[data-type="data"] { color: var(--orange); }
 .library-row-mark[data-type="code"] { color: var(--rl-text-bright); }
 .library-row-mark > img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+/* A file's own logo (`file-icon.tsx`): an image in its own colours, so it takes no ink from the row it
+   sits in. A mark with a drawing for light grounds swaps to it on the light face. */
+.file-mark { flex: none; display: inline-grid; place-items: center; }
+.file-mark-img { display: block; -webkit-user-drag: none; }
+.file-mark-light { display: none; }
+:root[data-mode="light"] .file-mark[data-has-light] > .file-mark-img { display: none; }
+:root[data-mode="light"] .file-mark[data-has-light] > .file-mark-light { display: block; }
 .library-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .library-row-time { font-size: 12.5px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* A file's ⋯ — its menu — under the pointer or the focus and otherwise out of the way, the grammar the
@@ -8963,7 +9049,10 @@ span.documents-name:hover { background: none; }
 .documents-error { padding: 8px 12px; font-size: 12px; color: var(--rl-danger); background: var(--red-tint); }
 
 .documents-editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.documents-surface { display: grid; grid-template-columns: 1fr; flex: 1 1 auto; min-height: 0; }
+/* `minmax(0, 1fr)`, not `1fr`: a bare fraction's floor is its content's min-content width, so a file
+   with one long line made the column as wide as that line — the editor ran off the pane's right edge,
+   and the scroller inside it, already as wide as its content, had nothing to scroll. */
+.documents-surface { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
 .documents-source {
   width: 100%; height: 100%; resize: none; border: 0; outline: none; padding: 14px 18px;
   background: transparent; color: var(--rl-text-bright); font-family: var(--font-mono);
@@ -9099,10 +9188,19 @@ span.documents-name:hover { background: none; }
 .documents-rich-surface h2 { font-size: 1.3em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
 .documents-rich-surface h3 { font-size: 1.12em; font-weight: var(--fw-title); letter-spacing: -1.5%; }
 .documents-rich-surface ul, .documents-rich-surface ol { padding-left: 1.4em; }
+/* The markers, which the base reset takes off every list: a numbered step read as an indented
+   paragraph with nothing to say it was the first of two. */
+.documents-rich-surface ul { list-style: disc; }
+.documents-rich-surface ol { list-style: decimal; }
 .documents-rich-surface li > p { margin: 0; }
 .documents-rich-surface blockquote { border-left: 2px solid var(--rl-line); padding-left: 0.9em; color: var(--rl-text-dim); }
 .documents-rich-surface code { font-family: var(--font-mono); font-size: 0.9em; background: var(--field); padding: 0.1em 0.3em; border-radius: var(--r-sm); }
+/* The surface wraps (`pre-wrap`) and a fence must not: code is columns, so a wide block scrolls sideways
+   inside itself while the prose around it keeps wrapping. */
 .documents-rich-surface pre { background: var(--rl-raised); padding: 10px 12px; border-radius: var(--r-ctl); box-shadow: var(--shadow-hairline); overflow: auto; }
+/* Through the editor's own root: ProseMirror's stylesheet sets `pre-wrap` on every `pre` at this
+   rule's weight, and loads after it. */
+.documents-rich .documents-rich-surface pre { white-space: pre; overflow-wrap: normal; }
 .documents-rich-surface pre code { background: none; padding: 0; }
 .documents-rich-surface img { max-width: 100%; border-radius: var(--r-ctl); }
 /* Tables. `fixed` layout because a table in a document pane must not widen the column it lives in —
@@ -9451,6 +9549,20 @@ span.media-viewer-from { align-self: center; }
 .media-viewer-note { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 46ch;
   text-align: center; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
 .media-viewer-glyph { color: var(--rl-text-faint); }
+/* A text file: the documents pane's own view of it — rendered Markdown, highlighted source with its
+   line numbers — on a sheet of the app's surface, under the object's edge and shadow (a file is a thing
+   picked up). As tall as the file and capped at the stage, where its own editor scrolls; source takes
+   the stage's width, prose a reading measure. Clear of the ← and → that ride the stage's edges. */
+.media-viewer-text { justify-content: center; padding: 0 48px 12px; }
+.media-viewer-doc { display: flex; flex-direction: column; width: min(100%, 1240px); min-height: 0; max-height: 100%;
+  overflow: hidden; border-radius: var(--r-float); corner-shape: squircle; background: var(--surface);
+  box-shadow: var(--rl-object-shadow); }
+.media-viewer-doc[data-view="markdown"] { width: min(100%, 820px); }
+.media-viewer-doc :is(.documents-code, .documents-rich) { display: flex; flex-direction: column; height: auto; min-height: 0; }
+.media-viewer-doc .documents-code .cm-editor { flex: 0 1 auto; height: auto; min-height: 0; }
+.media-viewer-doc .documents-code .cm-scroller { min-height: 0; }
+.media-viewer-doc .documents-rich-scroll { flex: 0 1 auto; }
+.media-viewer-doc .documents-rich-surface { padding: 24px 32px 28px; }
 
 /* A picture: fitted, never above its own size, and panned once it is bigger than the box. The canvas
    is the scroller and at least the box's size, so a picture smaller than it sits centred in it. */

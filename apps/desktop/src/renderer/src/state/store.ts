@@ -20,7 +20,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -667,8 +667,19 @@ export type Api = TeamApi & LabApi & {
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
   /** `null` = every cached tool allowed. */
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
-  /** `mcp.oauth.start` — the renderer opens the returned URL itself (`window.open`). */
-  startMcpOauth(id: string): Promise<{ authUrl: string }>;
+  /** `mcp.oauth.start` — the renderer opens the returned URL itself (`window.open`). `null` = it
+   *  connected with no browser (the GitHub CLI's sign-in). */
+  startMcpOauth(id: string): Promise<{ authUrl: string | null }>;
+  /** The routes the sign-in sheet offers a server that issues no client on the fly. */
+  mcpSignInOptions(id: string): Promise<McpSignInOptions>;
+  /** Connect with the GitHub CLI's existing sign-in; rejects with what to do when it has none. */
+  connectMcpWithCli(id: string): Promise<void>;
+  /** Connect with a pasted bearer token. */
+  setMcpToken(id: string, token: string): Promise<void>;
+  /** Begin a device-flow sign-in: the code to type and the page to type it on. */
+  startMcpDevice(id: string): Promise<{ userCode: string; verificationUri: string; expiresIn: number }>;
+  /** Resolves when that sign-in lands; rejects when it expired or was declined. */
+  waitMcpDevice(id: string): Promise<void>;
   /** A client the user registered with the vendor, for servers that issue none dynamically. */
   setMcpOauthClient(id: string, client: { clientId: string; clientSecret?: string; relay: boolean }): Promise<void>;
   disconnectMcpOauth(id: string): Promise<void>;
@@ -892,6 +903,18 @@ export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
  *  ever read together — a position with no conversation to put in it is nothing. */
 export const SETTING_QUICK_CHAT = "ui.quickChat";
+/** Which sub-agent each lead's Agents tab was showing, by lead session id — so a tab restored after a
+ *  relaunch opens where it was left. Capped at `AGENTS_SHOWN_MAX` leads, the newest kept. */
+export const SETTING_AGENTS_SHOWN = "ui.agentsShown";
+const AGENTS_SHOWN_MAX = 100;
+
+/** The stored map, as far as it can be read: string ids under string keys, the newest last. */
+export function parseAgentsShown(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [lead, id] of Object.entries(raw as Record<string, unknown>)) if (typeof id === "string" && id) out[lead] = id;
+  return out;
+}
 export const EVENTS_PAGE = 1000;
 /** Activity's page size — matches `mcp.calls.list`'s own default, so "fewer than a page came back"
  *  (the "Load more" hide condition) means the same thing on both sides of the wire. */
@@ -930,7 +953,7 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
  * What a session pane's right-hand strip is showing. One union rather than two flags, because the
  * strip is one place: see `sessionDock`.
  */
-export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "subagent"; toolUseId: string } | { kind: "terminal" };
+export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "terminal" };
 
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "worktrees" | "tasks" | "history"
   /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): the Overview, the records
@@ -1579,10 +1602,13 @@ export type AppState = TeamSlice & LabSlice & {
    *  Agents tab lists and its transcript's delegation lines read. Fetched while either is on screen,
    *  and re-read on each `delegation.changed` for the lead, which is every begin, settle and collect. */
   subagents: Record<string, DelegatedChild[]>;
-  /** What a lead's Agents tab was last asked to show: a plan to start the composer from ("Implement
-   *  with…"), or a row to bring into view (a transcript line). Counted, so the same ask twice is two
-   *  asks rather than a prop that did not change. */
-  agentsAsk: Record<string, { plan?: string; childId?: string; n: number }>;
+  /** What a lead's Agents tab was last asked to start its composer from ("Implement with…").
+   *  Counted, so the same ask twice is two asks rather than a prop that did not change. */
+  agentsAsk: Record<string, { plan?: string; n: number }>;
+  /** The sub-agent each lead's Agents tab is showing in its viewer, by LEAD session id — a harness
+   *  agent's launching call id or a delegated child's session id. Absent: the tab's overview.
+   *  Persisted (`SETTING_AGENTS_SHOWN`), so a restored tab opens where it was left. */
+  agentsShown: Record<string, string>;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -1596,16 +1622,15 @@ export type AppState = TeamSlice & LabSlice & {
   /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
   /**
-   * What is docked to a session pane's right-hand strip — its summary, or one harness sub-agent by
-   * its launching call's `toolUseId`. Absent means nothing is.
+   * What is docked to a session pane's strip — its summary, its files, or its terminal. Absent
+   * means nothing is. (A sub-agent is no longer one: it opens in the lead's Agents tab.)
    *
-   * ONE slot, because there is one strip. The summary and the sub-agent panel are two contents for
-   * one place, and holding their open states separately is how two panels come to be drawn over each
-   * other: each measures the same edge and each claims it.
+   * ONE slot, because there is one strip. Its contents are contents for one place, and holding their
+   * open states separately is how two panels come to be drawn over each other: each measures the
+   * same edge and each claims it.
    *
-   * In memory only, unlike `terminalPanel`. Both of these are things you look at while working and
-   * then stop looking at; restoring one across a relaunch would reopen a panel onto an agent that
-   * finished last night, which is the same empty-panel failure a pane KIND for this would have had.
+   * In memory only, unlike `terminalPanel`. These are things you look at while working and then stop
+   * looking at; restoring one across a relaunch would reopen a panel nobody is reading.
    */
   sessionDock: Record<string, SessionDock | undefined>;
   /**
@@ -1977,9 +2002,11 @@ export type AppState = TeamSlice & LabSlice & {
    * itself (terminal, documents, browser, machine, simulator) and every agent's open lands here, whatever
    * kind it is — make the item, then hand it to this. A person's open (`focus`) also brings the side
    * panes back if they were put away (`sidePanesHidden`); an agent's quiet one adds its tab and
-   * leaves them as the person left them.
+   * leaves them as the person left them. `show` is a person's open that leaves the keyboard where it
+   * was — a sub-agent clicked in the lead's transcript is read beside the prompter being typed in —
+   * unless the panel has no room beside the panes, where it takes their place and the keyboard with it.
    */
-  openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean }): Promise<boolean>;
+  openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean; show?: boolean }): Promise<boolean>;
   /** The toggle at the window's top right: put the side panel away with its tabs, or bring it back —
    *  in the main panes' place when there is no room for it beside them. With nothing open in it, it
    *  opens a new tab for the session in focus. */
@@ -2350,7 +2377,7 @@ export type AppState = TeamSlice & LabSlice & {
   ensureAppIcons(paths: readonly string[]): Promise<void>;
   /** Connect one of the marketplace's apps to a space: create its MCP server row (once) and start
    *  OAuth, handing back the URL to open. */
-  connectApp(spaceId: string, connectorId: string, client?: { clientId: string; clientSecret?: string }): Promise<{ authUrl: string }>;
+  connectApp(spaceId: string, connectorId: string, client?: { clientId: string; clientSecret?: string }): Promise<McpSignInStart & { serverId: string }>;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
   /** Fetch a space's user-defined slash commands into `spaceCommands` (session open). */
@@ -2489,8 +2516,7 @@ export type AppState = TeamSlice & LabSlice & {
   /** Dock something to this session pane's right-hand strip, replacing whatever was there. Passing
    *  what is already docked closes it, so one call serves every toggle that opens this strip. */
   toggleSessionDock(sessionId: string, dock: SessionDock): void;
-  /** Undock. Nothing is destroyed — a sub-agent goes on working and its calls go on landing in the
-   *  transcript; this closes a view of them. */
+  /** Undock. Nothing is destroyed — this closes a view. */
   closeSessionDock(sessionId: string): void;
   /** Open the quick chat, making its session if there is not one already. A second call is a no-op:
    *  there is one quick chat, and a button that stacked windows would be a way to lose one. */
@@ -2620,9 +2646,15 @@ export type AppState = TeamSlice & LabSlice & {
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
   /** Re-read a lead's sub-agents into `subagents`. */
   refreshSubagents(sessionId: string): Promise<void>;
-  /** The session's Agents tab, as a tab of its side pane the way its other tools open — with the
-   *  composer started from `plan`, or the row for `childId` brought into view, when asked. */
-  openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string }): Promise<void>;
+  /** The session's Agents tab, as a tab of its side pane the way its other tools open. `childId`
+   *  opens it on that sub-agent's viewer, null on the overview, and absent wherever it was left; a
+   *  `plan` starts the overview's composer from it. */
+  openAgentsTab(sessionId: string, ask?: { plan?: string; childId?: string | null }): Promise<void>;
+  /** Show one sub-agent in the lead's Agents tab, or with null its overview — the viewer's own
+   *  switcher. Remembered (`agentsShown`). */
+  showSubagent(leadId: string, id: string | null): void;
+  /** Read the remembered `agentsShown`, once. */
+  hydrateAgentsShown(): Promise<void>;
   /** A view an MCP server drew for one of the session's tool calls, as a tab of the session's side
    *  pane — the one it has, or a new one. Never a split: a view is the session's, not the layout's. */
   openAppView(sessionId: string, view: AppViewRef): Promise<void>;
@@ -2984,7 +3016,16 @@ export type AppState = TeamSlice & LabSlice & {
   /** Close a tripped circuit breaker; the next call (including the next tools refresh) tries again. */
   retryMcpServer(id: string): Promise<void>;
   /** Begin the OAuth dance; the caller (the row/form) opens the returned URL itself. */
-  startMcpOauth(id: string): Promise<{ authUrl: string }>;
+  startMcpOauth(id: string): Promise<{ authUrl: string | null }>;
+  /** `startMcpOauth` with its one expected refusal read as an answer — see `McpSignInStart`. */
+  beginMcpSignIn(id: string): Promise<McpSignInStart>;
+  /** The sign-in sheet's routes — each `Api`'s own call, see there. */
+  mcpSignInOptions(id: string): Promise<McpSignInOptions>;
+  connectMcpWithCli(id: string): Promise<void>;
+  setMcpToken(id: string, token: string): Promise<void>;
+  startMcpDevice(id: string): Promise<{ userCode: string; verificationUri: string; expiresIn: number }>;
+  waitMcpDevice(id: string): Promise<void>;
+  setMcpOauthClient(id: string, client: { clientId: string; clientSecret?: string; relay: boolean }): Promise<void>;
   disconnectMcpOauth(id: string): Promise<void>;
   /** Patch one server's live status from an `mcp.serverStatus` broadcast. Idempotent: applying the same
    *  payload twice (the event can repeat, and can arrive without a matching `mcp.changed`) leaves the
@@ -3017,6 +3058,13 @@ export type AppState = TeamSlice & LabSlice & {
   setAppPick(sessionId: string | null): void;
   setToastReserve(rect: Rect | null): void;
 };
+
+/**
+ * How a Connect began: the browser's sign-in page to open, connected already (the GitHub CLI's
+ * sign-in, no browser at all), or a server that issues no client on the fly — `choose` is the cue
+ * for the sign-in sheet, and `reason` is the server's sentence naming what is possible instead.
+ */
+export type McpSignInStart = { kind: "browser"; authUrl: string } | { kind: "connected" } | { kind: "choose"; reason: string };
 
 /** What `environments.branches` answers: the local branches, most recently committed first, and the
  *  one checked out (null when HEAD is detached). */
@@ -3365,6 +3413,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** Terminal-panel state persists as one settings blob, on its own debounce: a resize drag writes
      *  every frame, but a toggle is a single deliberate act and writes straight through. */
     let panelTimer: ReturnType<typeof setTimeout> | null = null;
+    /** `agentsShown` is read on first use rather than at boot (`hydrateAgentsShown`), and nothing is
+     *  written back before it has been: a write first would replace every other lead's mark. */
+    let agentsShownRead: Promise<void> | null = null;
+    let agentsShownLoaded = false;
+    let agentsShownTimer: ReturnType<typeof setTimeout> | null = null;
     const persistPanels = async () => {
       if (panelTimer) { clearTimeout(panelTimer); panelTimer = null; }
       await api.setSetting(SETTING_TERMINAL_PANEL, get().terminalPanel);
@@ -3958,11 +4011,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  panel is showing that session's tabs (or nothing), or that session is the one the keyboard is
      *  working for — and otherwise waits in the strip, so two agents opening pages side by side do not
      *  pull the panel back and forth under the person reading it. */
-    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean } = {}): Promise<boolean> => {
+    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean; show?: boolean } = {}): Promise<boolean> => {
       const view = viewNow();
       const panel = findPanel(view.layout);
       const showingOwner = panel?.itemId ? tabOwner(panel, panel.itemId) : undefined;
-      const front = !!opts.focus || !panel || showingOwner === owner || servedSession() === owner;
+      const front = !!opts.focus || !!opts.show || !panel || showingOwner === owner || servedSession() === owner;
       const layout = layoutOpenInSidePane(view.layout, owner, itemId, { front });
       if (!layout) return false;
       const leaf = findLeafOfItem(layout, itemId)!;
@@ -3972,7 +4025,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
         showPanelIfAside();
       } else {
+        if (opts.show) { revealPanes(); revealSidePanes(); }
         set(writeView({ ...view, layout }));
+        if (opts.show && panelPlace(get()).kind === "aside") { set({ focusedLeafId: leaf.id }); showPanelIfAside(); }
       }
       await persist();
       return true;
@@ -4375,7 +4430,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -6691,7 +6746,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // A vendor that issues no client on the fly gets the one the user registered, and the
         // callback through the site's HTTPS relay — the two are one decision (see `Connector.oauth`).
         if (client) await api.setMcpOauthClient(server.id, { ...client, relay: c.oauth === "app" });
-        return get().startMcpOauth(server.id);
+        return { ...await get().beginMcpSignIn(server.id), serverId: server.id };
       },
       addSessionRef(sessionId, ref) {
         // Pointing a session at ITSELF is the one case that is never a mistake worth honouring: the
@@ -7109,7 +7164,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const cur = get().sessionDock[sessionId];
         // Same thing again closes it — which is what makes the opener a toggle without every opener
         // having to hold its own idea of whether it is the one currently showing.
-        if (cur && cur.kind === dock.kind && (cur.kind !== "subagent" || cur.toolUseId === (dock as { toolUseId: string }).toolUseId)) {
+        if (cur && cur.kind === dock.kind) {
           get().closeSessionDock(sessionId);
           return;
         }
@@ -7349,13 +7404,24 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ subagents: { ...get().subagents, [sessionId]: children } });
       },
       async openAgentsTab(sessionId, ask) {
-        if (ask) set({ agentsAsk: { ...get().agentsAsk, [sessionId]: { ...ask, n: (get().agentsAsk[sessionId]?.n ?? 0) + 1 } } });
+        if (ask?.plan !== undefined) set({ agentsAsk: { ...get().agentsAsk, [sessionId]: { plan: ask.plan, n: (get().agentsAsk[sessionId]?.n ?? 0) + 1 } } });
+        // A plan is handed to the overview's composer, so it is the overview that opens.
+        const shown = ask?.plan !== undefined ? null : ask?.childId;
+        if (shown !== undefined) { await get().hydrateAgentsShown(); get().showSubagent(sessionId, shown); }
         const sid = get().sessions[sessionId]?.spaceId ?? get().allSessions[sessionId]?.spaceId;
         if (!sid) return;
         const { itemId } = await api.agentsTab(sessionId);
+        // Opened on one sub-agent — from the lead's transcript, its bar, a card — the tab is shown and
+        // the keyboard stays in the lead's prompter, which is what the person was in. Not where the
+        // person has dragged the tab into the split: that is theirs, and is gone to as it is.
+        const layout = get().layout ?? emptyLayout();
+        const at = findLeafOfItem(layout, itemId);
+        const quiet = typeof ask?.childId === "string" && (!at || at.id === findPanel(layout)?.id);
+        if (quiet && !get().items.some((i) => i.id === itemId)) await loadSpaceItems(sid);
+        if (quiet && await get().openInSidePane(sessionId, itemId, { show: true })) return;
         // Already a tab somewhere: brought to the front where it is. Otherwise the documents button's
         // route — a tab of this session's side pane, with the keyboard, because a person asked.
-        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        if (at) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
       },
       async openAppView(sessionId, view) {
@@ -7369,6 +7435,26 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
+      },
+      showSubagent(leadId, id) {
+        if (!agentsShownLoaded) { void get().hydrateAgentsShown().then(() => get().showSubagent(leadId, id)); return; }
+        if ((get().agentsShown[leadId] ?? null) === id) return;
+        const { [leadId]: _was, ...rest } = get().agentsShown;
+        // Re-inserted rather than updated in place, so the map's order is the order leads were last
+        // looked at and the cap drops the one looked at longest ago.
+        const next = id === null ? rest : { ...rest, [leadId]: id };
+        const keys = Object.keys(next);
+        for (const k of keys.slice(0, Math.max(0, keys.length - AGENTS_SHOWN_MAX))) delete next[k];
+        set({ agentsShown: next });
+        if (agentsShownTimer) clearTimeout(agentsShownTimer);
+        agentsShownTimer = setTimeout(() => { agentsShownTimer = null; get().run(() => api.setSetting(SETTING_AGENTS_SHOWN, get().agentsShown)); }, PERSIST_DEBOUNCE_MS);
+      },
+      async hydrateAgentsShown() {
+        if (agentsShownRead) return agentsShownRead;
+        agentsShownRead = api.getSetting(SETTING_AGENTS_SHOWN).then((raw) => {
+          set({ agentsShown: parseAgentsShown(raw) });
+        }, () => {}).finally(() => { agentsShownLoaded = true; });
+        return agentsShownRead;
       },
       clearAgentsAsk(sessionId) {
         if (!get().agentsAsk[sessionId]) return;
@@ -8173,6 +8259,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async startMcpOauth(id) {
         return api.startMcpOauth(id);
+      },
+      mcpSignInOptions: (id) => api.mcpSignInOptions(id),
+      connectMcpWithCli: (id) => api.connectMcpWithCli(id),
+      setMcpToken: (id, token) => api.setMcpToken(id, token),
+      startMcpDevice: (id) => api.startMcpDevice(id),
+      waitMcpDevice: (id) => api.waitMcpDevice(id),
+      setMcpOauthClient: (id, client) => api.setMcpOauthClient(id, client),
+      async beginMcpSignIn(id) {
+        try {
+          const { authUrl } = await api.startMcpOauth(id);
+          return authUrl === null ? { kind: "connected" } : { kind: "browser", authUrl };
+        } catch (e) {
+          if (e instanceof Error && (e as { code?: unknown }).code === "MCP_OAUTH_NO_REGISTRATION") return { kind: "choose", reason: e.message };
+          throw e;
+        }
       },
       async disconnectMcpOauth(id) {
         await api.disconnectMcpOauth(id);
