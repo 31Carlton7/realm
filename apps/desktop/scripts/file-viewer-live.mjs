@@ -384,8 +384,17 @@ async function main() {
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "dark"; return true; })()`);
 
   // ── 4. The prompter ─────────────────────────────────────────────────────────────────────────────
+  // The bubble's squares first: a text file there wears its mark rather than QuickLook's page.
+  await shot(c, "14-bubble-dark", await evalIn(c, `(() => { const b = document.querySelector('.msg-user-files').getBoundingClientRect(); return { x: b.left - 16, y: b.top - 16, width: b.width + 32, height: b.height + 32 }; })()`));
+  // A second session on Claude — stood in for by the scripted agent, and never sent anything — so the
+  // prompter shows the files as an agent that READS them would: the scripted agent's own row drops
+  // every non-image file and tints it orange, which is a different state from the one under review.
+  const { session: reader } = await api.call("sessions.create", { spaceId: space.id, agentKind: "claude", title: "Reader", permissionMode: "default" });
+  await until(() => evalIn(c, `[...document.querySelectorAll('.item-list .item-row')].some((b) => b.textContent.includes("Reader"))`), 20_000, "reader row");
+  await evalIn(c, `(() => { [...document.querySelectorAll('.item-list .item-row')].find((b) => b.textContent.includes("Reader")).click(); return true; })()`);
+  await sleep(1000);
   const attach = ["server.ts", "README.md", "hero.png", "assets", "launches.csv"].map((n) => path.join(root, n));
-  await evalIn(c, `${STORE}.getState().attachPaths(${JSON.stringify(lead)}, ${JSON.stringify(attach)})`);
+  await evalIn(c, `${STORE}.getState().attachPaths(${JSON.stringify(reader.id)}, ${JSON.stringify(attach)})`);
   await until(() => evalIn(c, `document.querySelectorAll('.app .composer .attach-tile').length === 5`), 10_000, "the prompter's attachments");
   await sleep(800);
   const tiles = await evalIn(c, `[...document.querySelectorAll('.app .composer .attach-tile')].map((t) => ({ layout: t.dataset.layout ?? 'square', folder: t.hasAttribute('data-folder'),
