@@ -2464,6 +2464,23 @@ describe("under-strip (Plan 12 W1)", () => {
     expect(tint.querySelector("svg")).not.toBeNull();
   });
 
+  it("wears the space's own icon on the workspace chip, not a folder (an emoji here)", async () => {
+    // THE MUTANT: the hard-coded folder glyph — every space's chip looked the same.
+    const { store } = await mountStrip({ spaces: [space("s1", "p1", "Versed", { icon: "emoji:🧪" }), space("s2", "p1", "Homework")] });
+    const chip = screen.getByRole("button", { name: "Workspace" });
+    expect(chip.querySelector(".chip-tint")).toHaveTextContent("🧪");
+    expect(chip.querySelector(".chip-tint svg")).toBeNull();
+    // A worktree is named by its branch, and wears the branch.
+    act(() => store.setState({ sessions: { se1: { ...store.getState().sessions.se1!, environmentId: "envB", cwd: "/tmp/wt" } } }));
+    expect(chip.querySelector(".chip-tint")).not.toHaveTextContent("🧪");
+    expect(chip.querySelector(".chip-tint svg")).not.toBeNull();
+  });
+
+  it("says the branch the space's folder is on in the workspace chip's tooltip", async () => {
+    await mountStrip();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute("title", "Workspace: Versed on main"));
+  });
+
   it("labels the workspace chip: space name for the primary, branch for a worktree", async () => {
     const { store } = await mountStrip();
     expect(screen.getByRole("button", { name: "Workspace" })).toHaveTextContent("Versed"); // primary = the space's name

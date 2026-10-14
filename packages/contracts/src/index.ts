@@ -1,6 +1,7 @@
 export const CONTRACTS_VERSION = 1;
 export * from "./ids";
 export * from "./entities";
+export * from "./branch-name";
 export * from "./layout";
 export * from "./groups";
 export * from "./view";
