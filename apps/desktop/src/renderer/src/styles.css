@@ -7281,6 +7281,12 @@ select { appearance: none; padding-right: 22px;
 .tcc-app-icon { flex: none; width: 22px; height: 22px; margin-top: 1px; }
 .tcc-row { display: flex; align-items: flex-start; }
 .creds-list .settings-row { display: flex; align-items: center; }
+/* Settings ▸ Passwords' head: the search takes the slack beside the title, the buttons keep theirs. */
+.settings-head-row > .passwords-search { flex: 0 1 200px; margin-left: auto; }
+.settings-head-row > .passwords-search input { --field-h: 30px; }
+/* An import's receipt is a sentence of counts, so it wraps rather than pushing the buttons off. */
+.share-note.passwords-import-note { white-space: normal; max-width: 260px; }
+.password-actions { display: inline-flex; align-items: center; gap: 8px; }
 /* Share with ▸'s receipt: the copy went elsewhere, so nothing in this list changes — the line beside
    the button is the only place that says it happened. Quiet, and on the button's own baseline. */
 .share-note { align-self: center; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }

@@ -2,7 +2,7 @@ import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
 import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
-  CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
+  CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
   EDITOR_NAMES, resolveEditor, type OpenFilesIn, type LinksOpenIn, type TerminalDockEdge, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
@@ -10,7 +10,7 @@ import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
   type FontId, type FontRole, type FontWeight, type Mode, type ThemeName, type ThemeOverride, LEADING_RANGE,
   CODE_SIZE_RANGE, DEFAULT_PANE_ALPHA, PANE_ALPHA_RANGE, UI_SIZE_RANGE } from "@realm/ui";
-import { UNLOCK_POLICIES, UNLOCK_SESSION_HOURS, type ThemeSeed, type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus } from "@realm/contracts";
+import { UNLOCK_POLICIES, UNLOCK_SESSION_HOURS, type BrowserCredential, type ThemeSeed, type UnlockPolicy, type UnlockPolicyKind, type UnlockPolicyStatus } from "@realm/contracts";
 import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
@@ -29,6 +29,7 @@ import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
+import { EditPasswordSheet, ImportPasswordsButton, KeychainPasswords, PasswordExceptions, PasswordRowActions, matchesPasswordSearch } from "./PasswordsSection";
 import { PageRail } from "../../components/page-nav";
 import { CATEGORY_COPY, SETTINGS_GROUPS, searchSettings, settingPlace, settingsTabLabel, type SettingEntry, type SettingsTab } from "./settings-index";
 
@@ -1857,9 +1858,11 @@ function UnlockPolicyRows({ profileId, profileName }: { profileId: string; profi
  * needs saying out loud, because it inverts what a saved password usually means — the user has never
  * seen this one and cannot, so the site's own reset is their route back rather than their memory.
  *
- * The list is metadata: origin, username, label. There is no reveal button and no edit-in-place for
- * the value, because main has no method that would answer one. Changing a password means saving a new
- * sign-in and removing the old.
+ * The list is metadata: origin, username, label. Show and Copy (Realm 2.3) ask macOS for the person
+ * first and answer in a native sheet or on the clipboard, from main — never with the value here, in a
+ * window an agent can be asked to read. Edit changes a password only when a new one is typed, the same
+ * one-way channel as Add. Import, the login keychain, the sites never offered a save and agents'
+ * "Always allow" are `PasswordsSection.tsx`.
  *
  * Everything here is the window's PROFILE's (Plan 27 Phase 2), as its browser cookies are: a sign-in
  * saved here is offered only to that profile's agents and panes. Share with ▸ copies one into another
@@ -1895,6 +1898,9 @@ function SignInsTab() {
    *  the confirmation — a sheet that stayed open over the row it just made would ask "did that
    *  work?" of someone who can see that it did. */
   const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<BrowserCredential | null>(null);
+  const shown = credentials?.filter((c) => matchesPasswordSearch(c, search)) ?? null;
 
   const canSave = origin.trim() !== "" && value !== "" && !saving && profileId !== null;
 
@@ -1944,16 +1950,21 @@ function SignInsTab() {
       )}
 
       <div className="settings-head-row" data-setting="saved-signins">
-        <h3 className="settings-head">Saved sign-ins</h3>
+        <h3 className="settings-head">Saved passwords</h3>
+        <label className="settings-input-label passwords-search">
+          <input type="search" aria-label="Search saved passwords" placeholder="Search"
+            value={search} onChange={(e) => setSearch(e.target.value)} />
+        </label>
+        {profileId && <ImportPasswordsButton profileId={profileId} onImported={() => { void run(() => refreshCredentials(profileId)); }} />}
         {/* A saved sign-in is a secret. Composing one is a sequence — an address, a username, a
             password, and the pinning rule that governs all three — so it is a sheet you start and
             finish, not four fields sitting open in the middle of the page. */}
         <button type="button" className="btn" disabled={status !== null && !status.available}
           onClick={() => setAdding(true)}>
-          <Icon name="add" size={14} /> Add a sign-in
+          <Icon name="add" size={14} /> Add a password
         </button>
       </div>
-      {credentials === null ? <p className="env-empty">Loading…</p> : (
+      {credentials === null || shown === null ? <p className="env-empty">Loading…</p> : (
         <ul className="settings-list creds-list">
           {credentials.length === 0 ? (
             /* The empty state carries the one thing a person needs before saving a secret in an app:
@@ -1961,11 +1972,13 @@ function SignInsTab() {
             <li className="settings-row creds-empty">
               <span className="creds-mark" aria-hidden="true"><Icon name="padlock" size={16} /></span>
               <div className="settings-row-main">
-                <span className="settings-row-name">No saved sign-ins yet.</span>
+                <span className="settings-row-name">No saved passwords yet.</span>
                 <span className="settings-row-desc">An agent can type one into its site without ever seeing it, or have Realm make a new one for a sign-up. You approve each fill, and unlock it as set under Security.</span>
               </div>
             </li>
-          ) : credentials.map((c) => (
+          ) : shown.length === 0 ? (
+            <li className="settings-row creds-empty"><span className="settings-row-name">Nothing saved matches “{search.trim()}”.</span></li>
+          ) : shown.map((c) => (
             <li key={c.id} className="settings-row" aria-label={`${c.origin}${c.username ? `: ${c.username}` : ""}`}>
               <span className="creds-mark" aria-hidden="true"><Icon name="padlock" size={16} /></span>
               <div className="settings-row-main">
@@ -1974,9 +1987,10 @@ function SignInsTab() {
                     the one fact that changes what this sign-in means to the person reading it. Text,
                     not a pill — the list is metadata and a pill would read as a control. */}
                 <span className="settings-row-desc">
-                  {[c.username, c.label, c.generated ? "Generated by Realm" : ""].filter(Boolean).join(" · ") || "No username or label"}
+                  {[c.username, c.label, c.generated ? "Generated by Realm" : "", c.source === "imported" ? "Imported" : ""].filter(Boolean).join(" · ") || "No username or label"}
                 </span>
               </div>
+              {profileId && <PasswordRowActions profileId={profileId} credential={c} onEdit={() => setEditing(c)} />}
               {profileId && <ShareWith fromProfileId={profileId} what={`the sign-in for ${c.origin}`} share={(to) => shareCredential(profileId, c.id, to)} />}
               <button type="button" className="btn-quiet" onClick={() => { if (profileId) run(() => removeCredential(profileId, c.id)); }}>Remove</button>
             </li>
@@ -2025,8 +2039,15 @@ function SignInsTab() {
         </p>
       )}
 
+      {profileId && <KeychainPasswords profileId={profileId} />}
+      {profileId && credentials && <PasswordExceptions profileId={profileId} credentials={credentials} />}
+      {editing && profileId && (
+        <EditPasswordSheet profileId={profileId} credential={editing} onClose={() => setEditing(null)}
+          onSaved={() => { void run(() => refreshCredentials(profileId)); }} />
+      )}
+
       {adding && (
-      <Sheet title="Add a sign-in" onClose={() => setAdding(false)} width={480}>
+      <Sheet title="Add a password" onClose={() => setAdding(false)} width={480}>
       <div className="form creds-form">
         <label className="settings-input-label">Site address
           <input type="url" inputMode="url" placeholder="https://example.com" value={origin}
@@ -2049,8 +2070,8 @@ function SignInsTab() {
             the thing a person needs BEFORE typing an address, not after committing one. And where
             the secret goes, on the one surface that takes it (CREDENTIAL_STORAGE_NOTE's duty). */}
         <p className="settings-hint">
-          Realm pins the sign-in to exactly this address. A sign-in saved for https://example.com will
-          not fill on https://login.example.com or on any lookalike — subdomains are different sites.
+          Realm offers it on this site — https://example.com, and its other addresses such as
+          https://login.example.com when you pick it from a page's menu — and never on a lookalike.
         </p>
         <p className="settings-hint">{CREDENTIAL_STORAGE_NOTE}</p>
         <div className="sheet-actions">
@@ -2059,7 +2080,7 @@ function SignInsTab() {
           <button type="button" className="btn primary" disabled={!canSave}
             onClick={() => { void save(); }}>
             {saving && <Spinner size={12} />}
-            {saving ? "Saving…" : "Save sign-in"}
+            {saving ? "Saving…" : "Save password"}
           </button>
         </div>
       </div>
@@ -2091,13 +2112,14 @@ function SignInsTab() {
           <summary>
             <div className="settings-row-main">
               <span className="settings-row-name">What Realm can't do</span>
-              <span className="settings-row-desc">Two-factor steps, showing a password back, and iCloud Keychain passkeys.</span>
+              <span className="settings-row-desc">Two-factor steps, the Passwords app, and iCloud Keychain passkeys.</span>
             </div>
             <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
           </summary>
           <div className="settings-disclosure-body">
             <p>{CREDENTIAL_2FA_NOTE}</p>
             <p>{CREDENTIAL_STORAGE_NOTE}</p>
+            <p>{PASSWORDS_IMPORT_NOTE}</p>
             <p>{PASSKEY_STORAGE_NOTE}</p>
           </div>
         </details>
