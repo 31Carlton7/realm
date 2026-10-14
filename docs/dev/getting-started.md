@@ -6,3 +6,7 @@
 Layout: `apps/desktop` (Electron+React), `apps/server` (realm-server), `packages/contracts` (zod + layout ops + session events), `packages/adapters` (agent adapters: Claude, Fake), `packages/ui` (Hugeicons + theme).
 Session data: `sessions` + `session_events` tables in `~/Realm/realm.db`; the transcript is rebuilt from events (`sessions.events`) on relaunch and a later message resumes the provider session.
 The renderer talks to realm-server only over WebSocket (`ws://127.0.0.1:<port>`); the port arrives via preload arg `--realm-port`.
+
+## GitHub sign-in for MCP
+
+GitHub's MCP server (`api.githubcopilot.com/mcp/`) issues no client to apps on the fly, so Connect signs in with the GitHub CLI's existing login (`gh auth token`), a pasted personal access token, or the device flow. The device flow needs a GitHub OAuth App of Realm's own, which does not exist yet: register one at github.com/settings/applications/new (any homepage, callback `http://127.0.0.1/oauth/callback`), tick **Enable Device Flow**, and put its client id in `GITHUB_OAUTH_CLIENT_ID` (`apps/server/src/mcp/providers.ts`). The sheet asks for the scopes `repo read:org workflow`. Until then the device-flow button is hidden; `REALM_GITHUB_CLIENT_ID=<id> pnpm dev` tries one out locally.

@@ -35,6 +35,7 @@ import { createWorkspaceProvider } from "./workspace/agent-tools";
 import { createSessionOpenTools } from "./workspace/session-open";
 import { createSpacesTools } from "./workspace/spaces";
 import { createSettingsTools } from "./workspace/settings";
+import { createCatalogTools } from "./workspace/catalog";
 import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
@@ -971,6 +972,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // The OAuth seam. `McpOauth` sanitizes its own errors — the hub cannot redact a token that only ever
     // existed inside an error thrown in here (see the seam's own doc comment in `hub.ts`).
     authHeaders: (row) => oauth.headers(row),
+    // A 401: a GitHub CLI token is read again, a pasted one flags the row for the user.
+    reauthorize: (row) => oauth.reauthorize(row),
     onStatus: (id, status) => {
       mcpStatus.set(id, status);
       // `oauthStatusOf` is the ONE place `oauthJson` → `oauthStatus` derivation lives (see its own doc
@@ -1428,6 +1431,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     }),
     createSpacesTools({ spaces, settings, broker: browserBroker, rpc }),
     createSettingsTools({ settings, broker: browserBroker, rpc }),
+    createCatalogTools({
+      catalog: (sessionId, spaceId) => mcpGateway.catalogFor(sessionId, spaceId),
+      connections: (spaceId) => mcp.list(spaceId).servers,
+      skills: (spaceId) => skills.list(spaceId),
+      items, laya: () => laya.currentMode(),
+    }),
   ]));
   /* Any goal that was running when Realm last closed is parked rather than resumed. A desktop app is
      relaunched by someone opening it, sometimes days later and usually to do something else — see

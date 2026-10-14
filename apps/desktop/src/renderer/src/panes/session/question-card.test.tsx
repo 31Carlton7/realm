@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { AskCardSchema, HIDDEN_ANSWER, sessionEvent, type AskCard, type AskQuestion } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi } from "../../state/store.test-fakes";
-import { AnsweredQuestion, QuestionCard, askCardFor, askerLine } from "./QuestionCard";
+import { AnsweredQuestion, QuestionCard, askCardFor, askerIcon, askerLine } from "./QuestionCard";
 import { Transcript } from "./Transcript";
 import { reduceAll } from "./transcript-model";
 
@@ -61,6 +61,12 @@ describe("the card names who is asking", () => {
     expect(askerLine(asker)).toBe(line);
     const { el } = mount(cardOf([db()], { asker }));
     expect(el.querySelector(".question-from")).toHaveTextContent(line);
+  });
+
+  it("a server wears its app's mark where Realm draws one, and the plug where it does not", () => {
+    expect(askerIcon({ kind: "server", name: "Linear" })).toBe("linear");
+    expect(askerIcon({ kind: "server", name: "gmail" })).toBe("gmail");
+    expect(askerIcon({ kind: "server", name: "my-tools" })).toBe("plug");
   });
 
   it("draws every label as plain text — markup an agent sends is never rendered", () => {
