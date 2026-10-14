@@ -53,6 +53,50 @@ struct AnswerDraftTests {
         #expect(Self.words.takesText, "a question with no options is answered in words")
     }
 
+    /// A Mac that sends question keys takes the desktop's answer shape: by key, options' values, and a
+    /// multi-select question's answer as a list. One that sends none still gets Phase 1's shape.
+    @Test func itAnswersInTheShapeTheMacReads() {
+        let labels = Question(question: "Which labels?", header: "", multiSelect: true,
+                              options: [QuestionOption(label: "Bug", description: nil, value: "bug"), QuestionOption(label: "Urgent", description: nil, value: "p1")],
+                              id: "labels", kind: "multi")
+        let team = Question(question: "Which team?", header: "", multiSelect: false,
+                            options: [QuestionOption(label: "Engineering", description: nil, value: "eng")], id: "team", kind: "choice")
+        var draft = Self.draft([labels, team, Self.regions])
+        draft.toggle("Urgent", in: labels)
+        draft.toggle("Bug", in: labels)
+        draft.setOther("Regression", for: labels)
+        draft.toggle("Engineering", in: team)
+        draft.toggle("eu-west-1", in: Self.regions)
+        draft.toggle("us-east-1", in: Self.regions)
+        // THE MUTANT: send labels, or join a list, and the Mac's card keeps none of these picks.
+        #expect(draft.values == ["labels": .several(["bug", "p1", "Regression"]), "team": .one("eng"), "Which regions?": .one("us-east-1, eu-west-1")])
+        // The words the card shows while it travels are the labels, by question.
+        #expect(draft.answers["Which labels?"] == "Bug, Urgent, Regression")
+    }
+
+    @MainActor
+    @Test func sendingAnAnswerCarriesItInTheMacsShape() throws {
+        let labels = Question(question: "Which labels?", header: "", multiSelect: true,
+                              options: [QuestionOption(label: "Bug", description: nil, value: "bug")], id: "labels", kind: "multi")
+        let store = OutboxTests.openStore(rows: [TranscriptRow(key: "r:r1", seq: 5, content: .request(.init(
+            requestId: "r1", tool: "mcp__linear__create", title: "Linear asks", summary: "", state: .pending, questions: [labels])))])
+        var draft = store.draft(for: try #require(store.transcript("s1").rows.first.flatMap {
+            if case .request(let request) = $0.content { request } else { nil }
+        }), in: "s1")
+        draft.toggle("Bug", in: labels)
+        let sent = try #require(store.submit(draft))
+        #expect(sent.answerValues == ["labels": .several(["bug"])])
+        #expect(sent.payload == .answer(requestId: "r1", decision: .allow, answers: ["Which labels?": "Bug"]))
+        // It survives the outbox's trip to disk, and an item saved before answers had keys still reads.
+        let again = try JSONDecoder().decode(OutgoingItem.self, from: JSONEncoder().encode(sent))
+        #expect(again.answerValues == sent.answerValues)
+        var old = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(sent)) as? [String: Any])
+        old["answerValues"] = nil
+        let saved = try JSONDecoder().decode(OutgoingItem.self, from: JSONSerialization.data(withJSONObject: old))
+        #expect(saved.answerValues == nil)
+        #expect(saved.payload == sent.payload)
+    }
+
     @Test func itIsCompleteOnlyWhenEveryQuestionHasAnAnswer() {
         var draft = Self.draft([Self.database, Self.words])
         #expect(!draft.isComplete)

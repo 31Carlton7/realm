@@ -52,6 +52,29 @@ struct Phase2ChannelTests {
         try await api.deliver(item)
         #expect(relay.methods.last == "session.answer")
         #expect(relay.params.last == ["id": "s1", "requestId": "r1", "decision": "allow", "answers": ["Which?": "SQLite"]])
+        // An answer with the Mac's keys goes by them: the options' values, a multi-select's as a list.
+        let keyed = OutgoingItem(sessionId: "s1", payload: .answer(requestId: "r2", decision: .allow, answers: ["Which labels?": "Bug, Urgent"]),
+                                 afterSeq: 0, answerValues: ["labels": .several(["bug", "p1"]), "team": .one("eng")])
+        try await api.deliver(keyed)
+        #expect(relay.params.last == ["id": "s1", "requestId": "r2", "decision": "allow", "answers": ["labels": ["bug", "p1"], "team": "eng"]])
+        await connection.stop()
+    }
+
+    @Test func theNewCallsNameWhatTheyOpen() async throws {
+        let connection = try await connected()
+        let api = MobileAPI(connection: connection)
+        _ = try? await api.changes(id: "s1", checkpointId: "cp1")
+        #expect(relay.methods.last == "session.changes")
+        #expect(relay.params.last == ["id": "s1", "checkpointId": "cp1"])
+        _ = try? await api.diff(id: "s1", checkpointId: "cp1", path: "src/a.ts", from: 2000)
+        #expect(relay.methods.last == "session.diff")
+        #expect(relay.params.last == ["id": "s1", "checkpointId": "cp1", "path": "src/a.ts", "from": 2000])
+        _ = try? await api.file(id: "s1", path: "/Users/me/shot.png")
+        #expect(relay.methods.last == "session.file")
+        #expect(relay.params.last == ["id": "s1", "path": "/Users/me/shot.png"])
+        _ = try? await api.spaceIcon(id: "sp1")
+        #expect(relay.methods.last == "space.icon")
+        #expect(relay.params.last == ["id": "sp1"])
         await connection.stop()
     }
 }

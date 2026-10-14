@@ -1,8 +1,11 @@
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
-import { REMOTE_RELAY_KEY, type EventName, type EventPayload } from "@realm/contracts";
+import { REMOTE_RELAY_KEY, sessionEvent, type EventName, type EventPayload } from "@realm/contracts";
 import { isSealed } from "@realm/contracts/src/secret-box";
 import { fromB64u, generateDeviceKeys, HandshakeState, HomeSchema, MobileCalls, MobileEvents, PROLOGUE, type Row } from "@realm/remote";
 import { startLocalRelay, type ApnsPush, type LocalRelay } from "@realm/relay/src/node";
@@ -32,7 +35,25 @@ const fake = () => new FakeAdapter({ script: [
   { on: "stream", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 15 }] },
   { on: "ask me", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "Answered", input: { questions: [{ question: "Which database?", header: "Database", multiSelect: false, options: [{ label: "Postgres" }, { label: "SQLite" }] }] } }] },
   { on: "run it", emit: [{ kind: "tool", name: "Bash", needsPermission: true, input: { command: "pnpm test" }, result: "ok" }] },
+  { on: "pick regions", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "Answered", input: { questions: [
+    { question: "Which regions?", header: "Regions", multiSelect: true, options: [{ label: "us-east" }, { label: "eu-west" }] },
+    { question: "What is the deploy token?", header: "Token", multiSelect: false, options: [], secret: true },
+  ] } }] },
+  { on: "plan it", emit: [
+    { kind: "plan", planId: "p1", steps: [{ text: "Add the column", status: "pending" }, { text: "Backfill it", status: "pending" }] },
+    { kind: "tool", name: "ExitPlanMode", needsPermission: true, input: { plan: "## Theme column\n\nAdd it, then backfill it." }, result: "Approved" },
+  ] },
+  // The edit changes the file's size: one of the same size, made in the second git last looked at it,
+  // can read as unchanged to git's stat check ("racy git"), and the turn would not count it.
+  { on: "edit", emit: [
+    { kind: "tool", name: "Edit", apply: true, input: { file_path: "a.txt", old_string: "one", new_string: "one, then two" }, result: "ok" },
+    { kind: "tool", name: "Write", apply: true, input: { file_path: "notes/new.md", content: "# New\n\nhello\n" }, result: "created" },
+  ] },
 ] });
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+}
 
 /** The first `event` the Mac's socket hears that `pick` accepts. */
 function nextEvent<E extends EventName>(rpc: RpcPort, event: E, pick: (p: EventPayload<E>) => boolean = () => true, timeoutMs = 5_000): Promise<EventPayload<E>> {
@@ -306,6 +327,105 @@ describe("Plan 28: a paired phone, in process", () => {
     const allowed = phone.waitFor("session.rows", (p) => rowsOf(p, id)?.find((row) => row.kind === "request" && row.state === "allowed"));
     await phone.call("session.answer", { id, requestId: request.kind === "request" ? request.requestId : "", decision: "allow", answers: { "Which database?": "SQLite" } });
     await allowed;
+    phone.close();
+  });
+
+  it("asks the desktop's question on the phone: several picks, words of its own, and a secret that never comes back", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id });
+    const heard: string[] = [];
+    phone.on("*", (m) => { heard.push(JSON.stringify(m)); });
+    const pending = phone.waitFor("session.rows", (p) => rowsOf(p, id)?.find((row) => row.kind === "request" && row.state === "pending"));
+    await phone.call("session.send", { id, text: "pick regions" });
+    const request = await pending;
+    if (request.kind !== "request") throw new Error("not a request");
+    expect(request.questions).toMatchObject([
+      { id: "Which regions?", multiSelect: true, allowOther: true, secret: false, options: [{ label: "us-east" }, { label: "eu-west" }] },
+      { id: "What is the deploy token?", kind: "text", secret: true },
+    ]);
+    const token = `tok_${randomBytes(6).toString("hex")}`;
+    const allowed = phone.waitFor("session.rows", (p) => rowsOf(p, id)?.find((row) => row.kind === "request" && row.state === "allowed"));
+    await phone.call("session.answer", { id, requestId: request.requestId, decision: "allow", answers: { "Which regions?": ["us-east", "ap-south"], "What is the deploy token?": token } });
+    const done = await allowed;
+    // The picks as a list, the region of its own beside them; the secret as its mark alone.
+    expect(done.kind === "request" && done.answers).toEqual({ "Which regions?": ["us-east", "ap-south"], "What is the deploy token?": "••••••" });
+    await new Promise((res) => setTimeout(res, 200));
+    expect(heard.filter((h) => h.includes(token))).toEqual([]);
+    phone.close();
+  });
+
+  it("shows the plan a session asks to have approved, with its steps", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id });
+    const pending = phone.waitFor("session.rows", (p) => rowsOf(p, id)?.find((row) => row.kind === "request" && row.state === "pending"));
+    await phone.call("session.send", { id, text: "plan it" });
+    expect(await pending).toMatchObject({ tool: "ExitPlanMode", questions: null, plan: {
+      text: "## Theme column\n\nAdd it, then backfill it.", steps: [{ text: "Add the column", status: "pending" }, { text: "Backfill it", status: "pending" }],
+    } });
+    phone.close();
+  });
+
+  it("offers the suggested next message, and takes it away once something is sent", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    r.app.sessions.publishServerEvent(id, sessionEvent("prompt_hint", { text: "Now run the tests", throughSeq: 1 }));
+    expect(MobileCalls["session.open"].result.parse(await phone.call("session.open", { id })).hint).toBe("Now run the tests");
+    const next = phone.waitFor("session.hint", (p) => MobileEvents["session.hint"].parse(p));
+    r.app.sessions.publishServerEvent(id, sessionEvent("prompt_hint", { text: "Ship it", throughSeq: 2 }));
+    expect(await next).toEqual({ id, text: "Ship it" });
+    const cleared = phone.waitFor("session.hint", (p) => { const e = MobileEvents["session.hint"].parse(p); return e.text === null ? e : undefined; });
+    await phone.call("session.send", { id, text: "hello" });
+    expect(await cleared).toEqual({ id, text: null });
+    phone.close();
+  });
+
+  it("opens a turn's changes and pages its diff, from the turn's own checkpoint and nothing else", async () => {
+    const r = await boot();
+    const [profile] = await r.mac.call("profiles.list", {});
+    const repo = await r.mac.call("spaces.create", { profileId: profile!.id, name: "Repo" });
+    git(repo.folderPath, "init", "-q", "-b", "main");
+    writeFileSync(join(repo.folderPath, "a.txt"), "one\n");
+    git(repo.folderPath, "add", ".");
+    git(repo.folderPath, "commit", "-qm", "init");
+    const { session } = await r.mac.call("sessions.create", { spaceId: repo.id, agentKind: "fake" });
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id: session.id });
+    const notice = phone.waitFor("session.rows", (p) => rowsOf(p, session.id)?.find((row) => row.kind === "notice" && row.checkpointId), 15_000);
+    await phone.call("session.send", { id: session.id, text: "edit" });
+    const row = await notice;
+    const checkpointId = row.kind === "notice" ? row.checkpointId! : "";
+    const changes = MobileCalls["session.changes"].result.parse(await phone.call("session.changes", { id: session.id, checkpointId }));
+    expect(changes.files.map((f) => [f.path, f.status, f.additions, f.deletions]).sort()).toEqual([["a.txt", "modified", 1, 1], ["notes/new.md", "added", 3, 0]]);
+    const diff = MobileCalls["session.diff"].result.parse(await phone.call("session.diff", { id: session.id, checkpointId, path: "a.txt" }));
+    expect(diff.lines).toEqual(["--- a/a.txt", "+++ b/a.txt", "@@ -1 +1 @@", "-one", "+one, then two"].map((l) => (l.startsWith("@@") ? expect.stringMatching(/^@@ -1(,1)? \+1(,1)? @@/) : l)));
+    // A file in the same repository that this turn did not change is not the phone's to read.
+    writeFileSync(join(repo.folderPath, "secret.env"), "KEY=1\n");
+    await expect(phone.call("session.diff", { id: session.id, checkpointId, path: "secret.env" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    // Nor is another session's turn this session's.
+    const other = await newSession(r);
+    await expect(phone.call("session.changes", { id: other, checkpointId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    phone.close();
+  });
+
+  it("previews a file a session made, and refuses one it did not", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const dir = tempDir("realm-made-");
+    writeFileSync(join(dir, "deck.md"), "# The deck\n\nThree slides.\n");
+    writeFileSync(join(dir, "private.md"), "not the turn's\n");
+    r.app.sessions.publishServerEvent(id, sessionEvent("files_made", { settledAt: 1, files: [{ path: join(dir, "deck.md"), size: 27 }], totalFiles: 1 }));
+    const phone = await pairPhone(r);
+    const opened = MobileCalls["session.open"].result.parse(await phone.call("session.open", { id }));
+    expect(opened.rows.find((row) => row.kind === "notice")).toMatchObject({ files: [{ path: join(dir, "deck.md"), size: 27 }] });
+    expect(await phone.call("session.file", { id, path: join(dir, "deck.md") })).toMatchObject({ name: "deck.md", preview: { kind: "text", text: "# The deck\n\nThree slides.\n" } });
+    for (const path of [join(dir, "private.md"), "/etc/hosts", join(r.home, "realm.db")]) {
+      await expect(phone.call("session.file", { id, path }), path).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
     phone.close();
   });
 

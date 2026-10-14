@@ -47,6 +47,7 @@
     "@realm/contracts": "workspace:*",
     "@realm/test-utils": "workspace:*",
     "@realm/ui": "workspace:*",
+    "@realm/view": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.1.0",

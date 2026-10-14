@@ -193,6 +193,15 @@ struct OutboxTests {
         #expect(store.outbox.items.isEmpty)
     }
 
+    @Test func anAnswerGoesInTheMacsShapeWhereItHasOneAndInWordsWhereItWasSavedWithout() async {
+        let store = Self.openStore(rows: [Self.user("hello", seq: 4), Self.request("q1", .pending), Self.request("q2", .pending, seq: 6)])
+        let transport = ScriptedTransport()
+        store.enqueueAnswer(.allow, answers: ["Which labels?": "Bug"], values: ["labels": .several(["bug"])], to: "q1", in: "s1")
+        store.enqueueAnswer(.allow, answers: ["Which database?": "SQLite"], to: "q2", in: "s1")
+        #expect(await Courier(store: store).deliver("s1", via: transport) == .done)
+        #expect(transport.delivered.map(\.answerValues) == [["labels": .several(["bug"])], nil])
+    }
+
     @Test func oneAnswerPerRequest() {
         let store = Self.openStore(rows: [Self.request("r1", .pending)])
         #expect(store.enqueueAnswer(.allow, to: "r1", in: "s1") != nil)

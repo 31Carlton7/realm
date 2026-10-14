@@ -153,7 +153,7 @@ final class FakeRelay: WebSocketFactory, @unchecked Sendable {
     var pings: Int { state.withLock { $0.pings } }
     var methods: [String] { state.withLock { $0.methods } }
     var pushTokens: [String] { state.withLock { $0.pushTokens } }
-    /// The params of the calls the fake answers without a script of its own.
+    /// The params of every call made to the fake Mac, in order.
     var params: [[String: JSONValue]] { state.withLock { $0.params } }
     var paired: [Paired] { state.withLock { $0.paired } }
     var openSockets: [FakeSocket] { state.withLock { $0.sockets.filter { !$0.isClosed } } }
@@ -328,7 +328,10 @@ final class FakeRelay: WebSocketFactory, @unchecked Sendable {
         channel.receive = receive
         state.withLock { $0.channels[id] = channel }
         guard let message, let request = try? JSONDecoder().decode(Request.self, from: message) else { return }
-        state.withLock { $0.methods.append(request.method) }
+        state.withLock { s in
+            s.methods.append(request.method)
+            s.params.append(request.params ?? [:])
+        }
         switch request.method {
         case "ping":
             sendJSON(#"{"id":\#(request.id),"ok":true,"result":{"at":1790000000123}}"#, on: socket)
@@ -347,7 +350,6 @@ final class FakeRelay: WebSocketFactory, @unchecked Sendable {
             let rowJSON = String(decoding: row, as: UTF8.self).dropLast() + #","seq":\#(seq)}"#
             sendJSON(#"{"event":"session.rows","payload":{"id":"s1","rows":[\#(rowJSON)]}}"#, on: socket)
         case "session.seen", "session.answer":
-            state.withLock { $0.params.append(request.params ?? [:]) }
             sendJSON(#"{"id":\#(request.id),"ok":true,"result":{"ok":true}}"#, on: socket)
         case "slow":
             break

@@ -1,4 +1,5 @@
-import { AskCardSchema, askCardFromAskUserQuestion, bareToolName, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
+import { bareToolName, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
+import { questionOf } from "@realm/view";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
 
@@ -199,13 +200,8 @@ export type Transcript = {
 export const blockKey = (b: Block, i: number): string =>
   b.kind === "tool" ? `tool:${b.toolUseId}` : b.kind === "plan" ? `plan:${b.planId}` : b.kind === "question" ? `question:${b.requestId}` : `${b.kind}:${i}`;
 
-/** The question a request carries, Realm's own card first — a declined one included, since the
- *  transcript still says what was declined. Claude's `AskUserQuestion` from before the card rode the
- *  event is read off its input. Never anything an agent's arguments could make look like one. */
-export function questionOf(p: { toolName: string; input: Record<string, unknown>; ask?: unknown }): AskCard | null {
-  if (p.ask !== undefined) { const card = AskCardSchema.safeParse(p.ask); return card.success ? card.data : null; }
-  return p.toolName === "AskUserQuestion" ? askCardFromAskUserQuestion(p.input, { kind: "agent", name: "Claude", agent: "claude" }) : null;
-}
+/** The question a request carries (`@realm/view`, where Realm Mobile's rows read it too). */
+export { questionOf } from "@realm/view";
 
 /** A call that asks the user: Claude's own tool, or realm-ui's under whichever prefix the harness gives it. */
 const ASKING_TOOL = /^AskUserQuestion$|realm-ui__ui_ask$/;

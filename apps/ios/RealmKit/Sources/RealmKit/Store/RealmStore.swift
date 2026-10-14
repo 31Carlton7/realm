@@ -23,6 +23,8 @@ public final class RealmStore {
 
     /// Rows that arrived for a session while its `session.open` was still on its way back.
     @ObservationIgnored private var opening: [String: [TranscriptRow]] = [:]
+    /// A suggested next message that changed while its session was opening, newer than the open's.
+    @ObservationIgnored private var openingHint: [String: String?] = [:]
     @ObservationIgnored private var watches: [RowWatch] = []
     /// The seq each session was last marked read up to, by this phone.
     @ObservationIgnored private var seenUpTo: [String: Int] = [:]
@@ -90,18 +92,22 @@ public final class RealmStore {
         transcript.session = opened.session
         transcript.status = opened.session.status
         transcript.hasMore = opened.hasMore
+        transcript.hint = opened.hint
         if let early = opening.removeValue(forKey: opened.session.id) { transcript.upsert(early) }
+        if let hint = openingHint.removeValue(forKey: opened.session.id) { transcript.hint = hint }
         transcripts[opened.session.id] = transcript
         settleOutbox(in: opened.session.id)
     }
 
     public func cancelOpening(_ sessionId: String) {
         opening[sessionId] = nil
+        openingHint[sessionId] = nil
     }
 
     public func closeSession(_ sessionId: String) {
         transcripts[sessionId] = nil
         opening[sessionId] = nil
+        openingHint[sessionId] = nil
         outbox.forgetDelivered(in: sessionId)
     }
 
@@ -121,6 +127,12 @@ public final class RealmStore {
         case .sessionStatus(let update):
             transcripts[update.id]?.status = update.status
             watches.removeAll { $0.isSettled }
+        case .sessionHint(let update):
+            if opening[update.id] != nil {
+                openingHint[update.id] = .some(update.text)
+            } else {
+                transcripts[update.id]?.hint = update.text
+            }
         case .homeChanged, .pairResult, .unknown:
             break
         }
@@ -160,12 +172,12 @@ public final class RealmStore {
 
     /// An answer to a request. One per request: a second while the first is on its way is ignored.
     @discardableResult
-    public func enqueueAnswer(_ decision: Decision, answers: [String: String]? = nil, to requestId: String, in sessionId: String,
-                              at date: Date = Date()) -> OutgoingItem? {
+    public func enqueueAnswer(_ decision: Decision, answers: [String: String]? = nil, values: [String: AnswerValue]? = nil, to requestId: String,
+                              in sessionId: String, at date: Date = Date()) -> OutgoingItem? {
         if let existing = outbox.answer(for: requestId), !existing.isFailed { return nil }
         if let failed = outbox.answer(for: requestId) { outbox.remove(failed.id) }
         let item = OutgoingItem(sessionId: sessionId, payload: .answer(requestId: requestId, decision: decision, answers: answers),
-                                createdAt: date, afterSeq: transcript(sessionId).lastSeq)
+                                createdAt: date, afterSeq: transcript(sessionId).lastSeq, answerValues: values)
         outbox.add(item)
         drafts[requestId] = nil
         return item
@@ -210,7 +222,7 @@ public final class RealmStore {
     @discardableResult
     public func submit(_ draft: AnswerDraft) -> OutgoingItem? {
         guard draft.isComplete else { return nil }
-        return enqueueAnswer(.allow, answers: draft.answers, to: draft.requestId, in: draft.sessionId)
+        return enqueueAnswer(.allow, answers: draft.answers, values: draft.values, to: draft.requestId, in: draft.sessionId)
     }
 
     /// Starts watching for a matching row in a session now; await `arrival(timeout:)` later. Starting

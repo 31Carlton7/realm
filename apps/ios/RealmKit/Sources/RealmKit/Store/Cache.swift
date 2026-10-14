@@ -17,16 +17,18 @@ public struct TranscriptSnapshot: Codable, Sendable, Equatable {
     public let status: SessionStatus?
     public let rows: [TranscriptRow]
     public let hasMore: Bool
+    public let hint: String?
 
-    public init(session: SessionRow?, status: SessionStatus?, rows: [TranscriptRow], hasMore: Bool) {
+    public init(session: SessionRow?, status: SessionStatus?, rows: [TranscriptRow], hasMore: Bool, hint: String? = nil) {
         self.session = session
         self.status = status
         self.rows = rows
         self.hasMore = hasMore
+        self.hint = hint
     }
 
     public init(_ transcript: Transcript) {
-        self.init(session: transcript.session, status: transcript.status, rows: transcript.rows, hasMore: transcript.hasMore)
+        self.init(session: transcript.session, status: transcript.status, rows: transcript.rows, hasMore: transcript.hasMore, hint: transcript.hint)
     }
 }
 

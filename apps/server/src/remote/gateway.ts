@@ -359,7 +359,10 @@ export class RemoteGateway {
     const entry = c.ctx.sessions.get(ev.sessionId);
     if (!entry || !c.send) return;
     if (entry.buffer) { entry.buffer.push(ev); return; }
+    const hint = entry.projector.hint;
     const changed = entry.projector.apply(ev);
+    // The suggested next message is no row: a new one after a turn, or none once something is sent.
+    if (entry.projector.hint !== hint) this.sendEvent(c, "session.hint", { id: ev.sessionId, text: entry.projector.hint } satisfies MobileEventPayload<"session.hint">);
     if (changed.length === 0) return;
     if (ev.seq < 0) {
       // A text delta: mark the row and let the timer send its latest text, at most ten times a second.

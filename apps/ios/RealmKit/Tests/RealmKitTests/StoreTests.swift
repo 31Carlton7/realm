@@ -41,6 +41,30 @@ struct StoreTests {
     }
 
     @MainActor
+    @Test func theSuggestedNextMessageComesWithTheSessionAndGoesWhenTheMacSaysSo() throws {
+        let store = RealmStore()
+        store.finishOpening(OpenedSession(session: Self.session("s1"), rows: [], hasMore: false, hint: "Run the tests"))
+        #expect(store.transcript("s1").hint == "Run the tests")
+        store.apply(.sessionHint(SessionHintEvent(id: "s1", text: "Ship it")))
+        #expect(store.transcript("s1").hint == "Ship it")
+        // Something was sent: the Mac takes the suggestion away, and so does the phone.
+        store.apply(.sessionHint(SessionHintEvent(id: "s1", text: nil)))
+        #expect(store.transcript("s1").hint == nil)
+        // A hint that changes while the session is opening is newer than the one the open carries.
+        store.beginOpening("s2")
+        store.apply(.sessionHint(SessionHintEvent(id: "s2", text: nil)))
+        store.finishOpening(OpenedSession(session: Self.session("s2"), rows: [], hasMore: false, hint: "An older suggestion"))
+        #expect(store.transcript("s2").hint == nil)
+        // The cache keeps it with the rows, and a snapshot from before hints reads as none.
+        store.apply(.sessionHint(SessionHintEvent(id: "s1", text: "Open the PR")))
+        let snapshot = TranscriptSnapshot(store.transcript("s1"))
+        let restored = try JSONDecoder().decode(TranscriptSnapshot.self, from: JSONEncoder().encode(snapshot))
+        #expect(Transcript(restored, savedAt: Date()).hint == "Open the PR")
+        let older = try JSONDecoder().decode(TranscriptSnapshot.self, from: Data(#"{"rows":[],"hasMore":false}"#.utf8))
+        #expect(older.hint == nil)
+    }
+
+    @MainActor
     @Test func aWatcherHearsTheMatchingRow() async throws {
         let store = RealmStore()
         store.finishOpening(OpenedSession(session: Self.session("s1"), rows: [], hasMore: false))

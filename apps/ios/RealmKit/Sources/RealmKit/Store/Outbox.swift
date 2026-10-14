@@ -30,15 +30,20 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
     public var state: State
     /// The newest row the transcript held when this was made: the message's own row comes after it.
     public let afterSeq: Int
+    /// An answer as `session.answer` sends it, by question key, several picks as a list. The payload's
+    /// `answers` are the same answers as words, by question, for the card to show while it travels.
+    /// Nil on an item saved before answers had keys: its words are sent as they are.
+    public let answerValues: [String: AnswerValue]?
 
     public init(id: UUID = UUID(), sessionId: String, payload: Payload, createdAt: Date = Date(), state: State = .waiting,
-                afterSeq: Int) {
+                afterSeq: Int, answerValues: [String: AnswerValue]? = nil) {
         self.id = id
         self.sessionId = sessionId
         self.payload = payload
         self.createdAt = createdAt
         self.state = state
         self.afterSeq = afterSeq
+        self.answerValues = answerValues
     }
 
     public var isMessage: Bool {
