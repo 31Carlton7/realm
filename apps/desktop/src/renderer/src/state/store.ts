@@ -20,7 +20,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -664,8 +664,19 @@ export type Api = TeamApi & LabApi & {
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
   /** `null` = every cached tool allowed. */
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
-  /** `mcp.oauth.start` — the renderer opens the returned URL itself (`window.open`). */
-  startMcpOauth(id: string): Promise<{ authUrl: string }>;
+  /** `mcp.oauth.start` — the renderer opens the returned URL itself (`window.open`). `null` = it
+   *  connected with no browser (the GitHub CLI's sign-in). */
+  startMcpOauth(id: string): Promise<{ authUrl: string | null }>;
+  /** The routes the sign-in sheet offers a server that issues no client on the fly. */
+  mcpSignInOptions(id: string): Promise<McpSignInOptions>;
+  /** Connect with the GitHub CLI's existing sign-in; rejects with what to do when it has none. */
+  connectMcpWithCli(id: string): Promise<void>;
+  /** Connect with a pasted bearer token. */
+  setMcpToken(id: string, token: string): Promise<void>;
+  /** Begin a device-flow sign-in: the code to type and the page to type it on. */
+  startMcpDevice(id: string): Promise<{ userCode: string; verificationUri: string; expiresIn: number }>;
+  /** Resolves when that sign-in lands; rejects when it expired or was declined. */
+  waitMcpDevice(id: string): Promise<void>;
   /** A client the user registered with the vendor, for servers that issue none dynamically. */
   setMcpOauthClient(id: string, client: { clientId: string; clientSecret?: string; relay: boolean }): Promise<void>;
   disconnectMcpOauth(id: string): Promise<void>;
@@ -2343,7 +2354,7 @@ export type AppState = TeamSlice & LabSlice & {
   ensureAppIcons(paths: readonly string[]): Promise<void>;
   /** Connect one of the marketplace's apps to a space: create its MCP server row (once) and start
    *  OAuth, handing back the URL to open. */
-  connectApp(spaceId: string, connectorId: string, client?: { clientId: string; clientSecret?: string }): Promise<{ authUrl: string }>;
+  connectApp(spaceId: string, connectorId: string, client?: { clientId: string; clientSecret?: string }): Promise<McpSignInStart & { serverId: string }>;
   /** Fetch a space's skills library into `spaceSkills` (session open, `skills.changed`). */
   refreshSkills(spaceId: string): Promise<void>;
   /** Fetch a space's user-defined slash commands into `spaceCommands` (session open). */
@@ -2972,7 +2983,16 @@ export type AppState = TeamSlice & LabSlice & {
   /** Close a tripped circuit breaker; the next call (including the next tools refresh) tries again. */
   retryMcpServer(id: string): Promise<void>;
   /** Begin the OAuth dance; the caller (the row/form) opens the returned URL itself. */
-  startMcpOauth(id: string): Promise<{ authUrl: string }>;
+  startMcpOauth(id: string): Promise<{ authUrl: string | null }>;
+  /** `startMcpOauth` with its one expected refusal read as an answer — see `McpSignInStart`. */
+  beginMcpSignIn(id: string): Promise<McpSignInStart>;
+  /** The sign-in sheet's routes — each `Api`'s own call, see there. */
+  mcpSignInOptions(id: string): Promise<McpSignInOptions>;
+  connectMcpWithCli(id: string): Promise<void>;
+  setMcpToken(id: string, token: string): Promise<void>;
+  startMcpDevice(id: string): Promise<{ userCode: string; verificationUri: string; expiresIn: number }>;
+  waitMcpDevice(id: string): Promise<void>;
+  setMcpOauthClient(id: string, client: { clientId: string; clientSecret?: string; relay: boolean }): Promise<void>;
   disconnectMcpOauth(id: string): Promise<void>;
   /** Patch one server's live status from an `mcp.serverStatus` broadcast. Idempotent: applying the same
    *  payload twice (the event can repeat, and can arrive without a matching `mcp.changed`) leaves the
@@ -3005,6 +3025,13 @@ export type AppState = TeamSlice & LabSlice & {
   setAppPick(sessionId: string | null): void;
   setToastReserve(rect: Rect | null): void;
 };
+
+/**
+ * How a Connect began: the browser's sign-in page to open, connected already (the GitHub CLI's
+ * sign-in, no browser at all), or a server that issues no client on the fly — `choose` is the cue
+ * for the sign-in sheet, and `reason` is the server's sentence naming what is possible instead.
+ */
+export type McpSignInStart = { kind: "browser"; authUrl: string } | { kind: "connected" } | { kind: "choose"; reason: string };
 
 /** The title "New worktree…" sends (Plan 12 W1): the draft's first few words — enough to recognise the
  *  branch by — or null, which the server names "session". Slugging is the server's job (slugifyBranch);
@@ -6670,7 +6697,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // A vendor that issues no client on the fly gets the one the user registered, and the
         // callback through the site's HTTPS relay — the two are one decision (see `Connector.oauth`).
         if (client) await api.setMcpOauthClient(server.id, { ...client, relay: c.oauth === "app" });
-        return get().startMcpOauth(server.id);
+        return { ...await get().beginMcpSignIn(server.id), serverId: server.id };
       },
       addSessionRef(sessionId, ref) {
         // Pointing a session at ITSELF is the one case that is never a mistake worth honouring: the
@@ -8132,6 +8159,21 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async startMcpOauth(id) {
         return api.startMcpOauth(id);
+      },
+      mcpSignInOptions: (id) => api.mcpSignInOptions(id),
+      connectMcpWithCli: (id) => api.connectMcpWithCli(id),
+      setMcpToken: (id, token) => api.setMcpToken(id, token),
+      startMcpDevice: (id) => api.startMcpDevice(id),
+      waitMcpDevice: (id) => api.waitMcpDevice(id),
+      setMcpOauthClient: (id, client) => api.setMcpOauthClient(id, client),
+      async beginMcpSignIn(id) {
+        try {
+          const { authUrl } = await api.startMcpOauth(id);
+          return authUrl === null ? { kind: "connected" } : { kind: "browser", authUrl };
+        } catch (e) {
+          if (e instanceof Error && (e as { code?: unknown }).code === "MCP_OAUTH_NO_REGISTRATION") return { kind: "choose", reason: e.message };
+          throw e;
+        }
       },
       async disconnectMcpOauth(id) {
         await api.disconnectMcpOauth(id);
