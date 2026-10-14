@@ -111,6 +111,9 @@ contextBridge.exposeInMainWorld("realm", {
     poster: (path: string): Promise<string | null> => ipcRenderer.invoke("media:poster", path),
     reveal: (path: string): Promise<void> => ipcRenderer.invoke("media:reveal", path),
     open: (path: string): Promise<void> => ipcRenderer.invoke("media:open", path),
+    /** A video the player could not decode: whether ffmpeg is here, and a playable copy's path. */
+    canTranscode: (): Promise<boolean> => ipcRenderer.invoke("media:can-transcode"),
+    transcode: (path: string): Promise<string> => ipcRenderer.invoke("media:transcode", path),
   },
   /**
    * Any file the app is already LISTING — a Library row, a session's outputs — rather than a path an
@@ -141,6 +144,9 @@ contextBridge.exposeInMainWorld("realm", {
     /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`,
      *  as an agent writes them; false when nothing is there. */
     reveal: (path: string, base?: string): Promise<boolean> => ipcRenderer.invoke("files:reveal", path, base),
+    /** The absolute path of what is there, read as an agent writes a path — `~/…`, relative to
+     *  `base`, a `file://` URL, `out.ts:42` — or null when nothing is. */
+    resolve: (path: string, base?: string): Promise<string | null> => ipcRenderer.invoke("files:resolve", path, base),
     /** Finder's own icon as a data URL, for the menu item that names it. Takes no argument on
      *  purpose — the bundle path is fixed in main. */
     finderIcon: (): Promise<string | null> => ipcRenderer.invoke("files:finder-icon"),

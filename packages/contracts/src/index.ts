@@ -9,6 +9,7 @@ export * from "./rpc";
 export * from "./presets";
 export * from "./attachments";
 export * from "./media";
+export * from "./file-targets";
 export * from "./scoping";
 export * from "./skills";
 export * from "./commands";

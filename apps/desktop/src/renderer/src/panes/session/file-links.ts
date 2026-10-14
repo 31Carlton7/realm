@@ -29,17 +29,19 @@ export type FileLinkContext = {
   onOpen: (path: string, line: number | null) => void;
 };
 
+/** A filename's letter in any script — `\w` is ASCII, and cut `café.md` at the é. */
+const CH = String.raw`\p{L}\p{N}\p{M}_@%+-`;
 /** One path segment, a leading dot allowed (`.github`, `.env`). */
-const SEG = String.raw`\.?[\w@%+-][\w.@%+-]*`;
+const SEG = String.raw`\.?[${CH}][${CH}.]*`;
 /** A path whose last segment has an extension starting with a letter — `v1.2` is a version, not a file. */
-const FILE = String.raw`(?:${SEG}\/)*[\w@%+-][\w.@%+-]*\.[A-Za-z]\w*`;
+const FILE = String.raw`(?:${SEG}\/)*[${CH}][${CH}.]*\.[A-Za-z]\w*`;
 /** A line, the ways agents write one: `:83`, `:83:5`, `#L83`, `#L83-L90`, `#L83C5`. */
 const LINE = String.raw`(?::(\d+)(?::\d+)?|#L(\d+)(?:C\d+)?(?:-L?\d+(?:C\d+)?)?)?`;
 /** The whole of an inline code, or of a link's target: an optional root, a file, a line. */
-const WHOLE_REF = new RegExp(String.raw`^((?:~|\.{1,2})?\/?${FILE})${LINE}$`);
+const WHOLE_REF = new RegExp(String.raw`^((?:~|\.{1,2})?\/?${FILE})${LINE}$`, "u");
 /** A relative path in running text, after a space or an opening bracket or quote, with Codex's
  *  ` (line 83)` absorbed when it follows. Absolute ones are already buttons by now (`markPaths`). */
-const PROSE_REF = new RegExp(String.raw`(^|[\s(\["'])(${FILE})(?::(\d+)(?::\d+)?)?(\s\(lines?\s(\d+)(?:[-–]\d+)?\))?`, "g");
+const PROSE_REF = new RegExp(String.raw`(^|[\s(\["'])(${FILE})(?::(\d+)(?::\d+)?)?(\s\(lines?\s(\d+)(?:[-–]\d+)?\))?`, "gu");
 
 /** Never scanned: a block of code is copied whole, a heading is a label, a button already acts. */
 const SKIP = "pre, h1, h2, h3, h4, h5, h6, button, a, code, .md-file";

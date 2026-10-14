@@ -73,6 +73,7 @@ import { registerWhatsNew, WhatsNewState } from "./whats-new";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
 import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, statMedia } from "./media";
+import { findFfmpeg, playableCopy } from "./media-proxy";
 
 /* `realm-media://` has to be declared privileged before `app.ready`, which is why this is a
    top-level statement rather than a line in `whenReady` — Electron ignores the registration
@@ -1654,6 +1655,15 @@ ipcMain.handle("media:open", async (_e, path: unknown): Promise<void> => {
   const servable = typeof path === "string" ? await servablePath(path) : null;
   if (servable) await shell.openPath(servable);
 });
+/** A video the player could not decode: whether this Mac can make a copy it can (media-proxy.ts),
+ *  and the copy itself — an mp4 under Realm's tmp, which the media scheme serves like any other. */
+ipcMain.handle("media:can-transcode", (): boolean => findFfmpeg() !== null);
+ipcMain.handle("media:transcode", async (_e, path: unknown): Promise<string> => {
+  const servable = typeof path === "string" ? await servablePath(path) : null;
+  if (!servable) throw new Error("Realm cannot read that video.");
+  if (!realmHome) throw new Error("Realm is still starting up; try again in a moment.");
+  return playableCopy(realmHome, servable);
+});
 
 /**
  * Any file the app LISTS, as opposed to any file an agent merely named.
@@ -1701,6 +1711,9 @@ ipcMain.handle("files:reveal", async (_e, path: unknown, base?: unknown): Promis
   if (found) shell.showItemInFolder(found);
   return found !== null;
 });
+/** A path an agent wrote, as the file it names — what the transcript's path menu opens, previews and
+ *  reveals. The same gate as Reveal: it answers where something is, and opens nothing. */
+ipcMain.handle("files:resolve", (_e, path: unknown, base?: unknown): Promise<string | null> => existingPath(path, base));
 /** Quick Look, Share and drag-out (file-actions.ts), behind the same existence gate as Reveal. */
 registerFileActions({ gate: existingPath });
 /** The Dock icon chosen in Settings ▸ App (app-icon.ts). Only macOS has a Dock to put it on. */

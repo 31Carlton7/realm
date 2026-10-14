@@ -105,6 +105,10 @@ interface Window {
       poster(path: string): Promise<string | null>;
       reveal(path: string): Promise<void>;
       open(path: string): Promise<void>;
+      /** Whether this Mac has ffmpeg to make a playable copy of a video Chromium cannot decode. */
+      canTranscode?(): Promise<boolean>;
+      /** The path of that copy, made once per version of the file (main/media-proxy.ts). */
+      transcode?(path: string): Promise<string>;
     };
     /** Any file the app is already LISTING — a Library row, a session's outputs — as opposed to a
      *  path an agent merely named. `media` above admits only what a media element can decode, so it
@@ -141,6 +145,9 @@ interface Window {
       /** Select it in the Finder. `~/…` is the home folder and a relative path is relative to `base`
        *  — the way an agent writes them. False when nothing is there to select. */
       reveal(path: string, base?: string): Promise<boolean>;
+      /** What is there, absolute, read as an agent writes a path (`~/…`, relative to `base`, a
+       *  `file://` URL, `out.ts:42`); null when nothing is. Optional: a late bridge. */
+      resolve?(path: string, base?: string): Promise<string | null>;
       /** Finder's own icon as a data URL, read off this machine. Null when it cannot be read. */
       finderIcon(): Promise<string | null>;
       /** Copy it where the user points; the saved path, or null when they cancelled. */

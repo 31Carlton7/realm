@@ -43,7 +43,7 @@ export function ViewerStage({ file, gone, version, onBackdrop }: {
     return (
       <div className="media-viewer-stage" onClick={(e) => { if (e.target === e.currentTarget) onBackdrop(); }}>
         {/* Keyed on the version: a re-encoded clip is a different file to the element, not a seek. */}
-        <div className="media-viewer-player"><MediaFrame key={`${media.path}${v}`} file={media} /></div>
+        <div className="media-viewer-player"><MediaFrame key={`${media.path}${v}`} file={media} variant="stage" /></div>
       </div>
     );
   }
