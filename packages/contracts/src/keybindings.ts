@@ -220,12 +220,30 @@ const DISPLAY_KEYS: Readonly<Record<string, string>> = {
  * An unparseable key comes back verbatim rather than as some fallback glyph: showing the user the
  * string their file actually contains is the whole of what lets them find the typo.
  */
-export function displayKeyChord(text: string): string {
+export function displayKeyChord(text: string, platform: string = displayPlatform): string {
   const chord = parseKeyChord(text);
   if (chord === null) return text;
+  if (platform !== "darwin") {
+    // Linux and Windows spell a chord out — "Ctrl+Shift+F" — and `mod` is Ctrl there (key-event.ts),
+    // which leaves `ctrl` on the Super/Windows key.
+    const key = WORD_KEYS[chord.key] ?? DISPLAY_KEYS[chord.key] ?? chord.key.toUpperCase();
+    const meta = platform === "win32" ? "Win" : "Super";
+    return [chord.mod && "Ctrl", chord.ctrl && meta, chord.alt && "Alt", chord.shift && "Shift", key].filter(Boolean).join("+");
+  }
   const key = DISPLAY_KEYS[chord.key] ?? chord.key.toUpperCase();
   return `${chord.mod ? "⌘" : ""}${chord.ctrl ? "⌃" : ""}${chord.alt ? "⌥" : ""}${chord.shift ? "⇧" : ""}${key}`;
 }
+
+/** The names Linux and Windows print for the keys a Mac draws as glyphs; the arrows keep theirs. */
+const WORD_KEYS: Readonly<Record<string, string>> = {
+  escape: "Esc", enter: "Enter", tab: "Tab", space: "Space", backspace: "Backspace", delete: "Del",
+  pageup: "PgUp", pagedown: "PgDn", home: "Home", end: "End",
+};
+
+/** The OS chords are printed for, set once by the renderer at boot from its preload; a Mac until then,
+ *  so main, the server and every test print the glyphs they always have. */
+let displayPlatform = "darwin";
+export function setKeyDisplayPlatform(platform: string): void { displayPlatform = platform; }
 
 /**
  * A parsed `when` clause.

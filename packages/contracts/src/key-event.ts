@@ -67,10 +67,14 @@ function keyFromCode(code: string): string | null {
  * Null for a bare modifier press: ⇧ on its own is not a keystroke anyone can bind, and reporting one
  * would fire a `when`-guarded lookup on every modifier the user touches.
  */
-export function chordFromEvent(e: KeyEventLike): string | null {
+export function chordFromEvent(e: KeyEventLike, platform = "darwin"): string | null {
   const key = keyNameFor(e);
   if (key === null) return null;
-  return formatKeyChord({ mod: e.metaKey, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, key });
+  // `mod` is the key every shortcut is held with: ⌘ on a Mac, Ctrl on Linux and Windows — where the
+  // Super/Windows key belongs to the desktop — as VS Code's `CtrlCmd` is. Ctrl's own bindings
+  // (⌃⇥ for the next space) move to Super there, the one modifier left over.
+  const mac = platform === "darwin";
+  return formatKeyChord({ mod: mac ? e.metaKey : e.ctrlKey, ctrl: mac ? e.ctrlKey : e.metaKey, alt: e.altKey, shift: e.shiftKey, key });
 }
 
 function keyNameFor(e: KeyEventLike): string | null {

@@ -35,8 +35,9 @@ const CURSOR_H = 18;
 const GAP = 6;
 const MARGIN = 6;
 
-/** A trailing chord in brackets: one or more modifiers, then a key — a glyph, a character, a short name. */
-const CHORD = /^(.*\S)\s+\(([⌘⌃⌥⇧]+(?:Space|Tab|esc|[^\s()]{1,3}))\)$/u;
+/** A trailing chord in brackets: one or more modifiers, then a key — a glyph, a character, a short name —
+ *  or the spelled-out form Linux and Windows print ("Ctrl+Shift+F"). */
+const CHORD = /^(.*\S)\s+\(([⌘⌃⌥⇧]+(?:Space|Tab|esc|[^\s()]{1,3})|(?:(?:Ctrl|Win|Super|Alt|Shift)\+)+[^\s()]{1,9})\)$/u;
 
 /** "Search (⌘K)" → "Search" and "⌘K". Words in brackets are words: "Stop (interrupt)" has no shortcut. */
 export function splitShortcut(title: string): { label: string; shortcut: string | null } {

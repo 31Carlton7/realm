@@ -22,6 +22,16 @@ describe("chordFromEvent", () => {
     expect(chordFromEvent(press({ code: "KeyK", key: "˚", metaKey: true, altKey: true }))).toBe("mod+alt+k");
   });
 
+  it("holds every shortcut with Ctrl on Linux and Windows, where Super belongs to the desktop", () => {
+    // THE MUTANT: read `metaKey` as mod everywhere, and on Windows ⌘K is Win+K — the system's own.
+    for (const platform of ["win32", "linux"]) {
+      expect(chordFromEvent(press({ code: "KeyK", key: "k", ctrlKey: true }), platform)).toBe("mod+k");
+      expect(chordFromEvent(press({ code: "Tab", key: "Tab", metaKey: true }), platform)).toBe("ctrl+tab");
+      expect(chordFromEvent(press({ code: "KeyK", key: "k", metaKey: true }), platform)).toBe("ctrl+k");
+    }
+    expect(chordFromEvent(press({ code: "KeyK", key: "k", ctrlKey: true }), "darwin")).toBe("ctrl+k");
+  });
+
   it("maps ⌘ onto mod and leaves ⌃ as itself", () => {
     // Realm runs on macOS, where these are two different keys. ⌃K is emacs kill-line in every AppKit
     // text field, so it is NOT a second spelling of ⌘K here.
