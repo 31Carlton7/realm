@@ -1984,9 +1984,11 @@ export type AppState = TeamSlice & LabSlice & {
    * itself (terminal, documents, browser, machine, simulator) and every agent's open lands here, whatever
    * kind it is — make the item, then hand it to this. A person's open (`focus`) also brings the side
    * panes back if they were put away (`sidePanesHidden`); an agent's quiet one adds its tab and
-   * leaves them as the person left them.
+   * leaves them as the person left them. `show` is a person's open that leaves the keyboard where it
+   * was — a sub-agent clicked in the lead's transcript is read beside the prompter being typed in —
+   * unless the panel has no room beside the panes, where it takes their place and the keyboard with it.
    */
-  openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean }): Promise<boolean>;
+  openInSidePane(sessionId: string, itemId: string, opts?: { focus?: boolean; show?: boolean }): Promise<boolean>;
   /** The toggle at the window's top right: put the side panel away with its tabs, or bring it back —
    *  in the main panes' place when there is no room for it beside them. With nothing open in it, it
    *  opens a new tab for the session in focus. */
@@ -3966,11 +3968,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  panel is showing that session's tabs (or nothing), or that session is the one the keyboard is
      *  working for — and otherwise waits in the strip, so two agents opening pages side by side do not
      *  pull the panel back and forth under the person reading it. */
-    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean } = {}): Promise<boolean> => {
+    const openInSidePaneOf = async (owner: string, itemId: string, opts: { focus?: boolean; show?: boolean } = {}): Promise<boolean> => {
       const view = viewNow();
       const panel = findPanel(view.layout);
       const showingOwner = panel?.itemId ? tabOwner(panel, panel.itemId) : undefined;
-      const front = !!opts.focus || !panel || showingOwner === owner || servedSession() === owner;
+      const front = !!opts.focus || !!opts.show || !panel || showingOwner === owner || servedSession() === owner;
       const layout = layoutOpenInSidePane(view.layout, owner, itemId, { front });
       if (!layout) return false;
       const leaf = findLeafOfItem(layout, itemId)!;
@@ -3980,7 +3982,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set(writeView(revealing({ ...view, layout }, leaf.id), { focusedLeafId: leaf.id }));
         showPanelIfAside();
       } else {
+        if (opts.show) { revealPanes(); revealSidePanes(); }
         set(writeView({ ...view, layout }));
+        if (opts.show && panelPlace(get()).kind === "aside") { set({ focusedLeafId: leaf.id }); showPanelIfAside(); }
       }
       await persist();
       return true;
@@ -7359,9 +7363,17 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sid = get().sessions[sessionId]?.spaceId ?? get().allSessions[sessionId]?.spaceId;
         if (!sid) return;
         const { itemId } = await api.agentsTab(sessionId);
+        // Opened on one sub-agent — from the lead's transcript, its bar, a card — the tab is shown and
+        // the keyboard stays in the lead's prompter, which is what the person was in. Not where the
+        // person has dragged the tab into the split: that is theirs, and is gone to as it is.
+        const layout = get().layout ?? emptyLayout();
+        const at = findLeafOfItem(layout, itemId);
+        const quiet = typeof ask?.childId === "string" && (!at || at.id === findPanel(layout)?.id);
+        if (quiet && !get().items.some((i) => i.id === itemId)) await loadSpaceItems(sid);
+        if (quiet && await get().openInSidePane(sessionId, itemId, { show: true })) return;
         // Already a tab somewhere: brought to the front where it is. Otherwise the documents button's
         // route — a tab of this session's side pane, with the keyboard, because a person asked.
-        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        if (at) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
       },
       async openAppView(sessionId, view) {
