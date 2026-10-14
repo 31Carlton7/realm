@@ -1897,7 +1897,7 @@ app.whenReady().then(async () => {
     // timeout) degrades to current PATH + /opt/homebrew/bin:/usr/local/bin — see login-shell-path.ts.
     const login = await loginShellPath();
     process.env.PATH = mergePath(process.env.PATH, login);
-    if (!login) console.warn("[env] login-shell PATH resolution failed; using fallback:", process.env.PATH);
+    if (!login && process.platform !== "win32") console.warn("[env] login-shell PATH resolution failed; using fallback:", process.env.PATH);
     const info = await startRealmServer();
     serverInfo = info;
     realmHome = info.home;
