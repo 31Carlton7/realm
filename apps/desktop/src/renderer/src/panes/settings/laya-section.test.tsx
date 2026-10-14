@@ -145,6 +145,12 @@ describe("the Laya section", () => {
     expect(within(stopped.stateRow()).getByRole("button", { name: "Install again" })).toBeInTheDocument();
   });
 
+  it("keeps Assist locked before an install even where the shipped evaluation would earn it", async () => {
+    // THE MUTANT: Assist gated on the evaluation alone — offered with no checkpoint on disk, and refused.
+    await mount(status({ state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, { mode: "shadow", assist: { available: true, reason: null, threshold: 0.8, accuracy: 0.96 } }));
+    expect(within(modeControl()).getByRole("radio", { name: "Assist" })).toBeDisabled();
+  });
+
   it("switching Off before the install sends Off — the way to say no to the download", async () => {
     const { api } = await mount(status({ state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, { mode: "shadow", auto: { state: "waiting", why: "Installs on its own a few minutes after Realm opens." } }));
     fireEvent.click(within(modeControl()).getByRole("radio", { name: "Off" }));
