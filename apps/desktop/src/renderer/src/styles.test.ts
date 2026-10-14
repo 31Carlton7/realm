@@ -2942,7 +2942,7 @@ describe("dividers", () => {
     expect(card).toContain("corner-shape: squircle");
     expect(card).toContain("box-shadow: var(--shadow-overlay)");
     // And no panel may re-declare the card under its own name, which is how the three drift apart.
-    for (const sel of [".session-summary", ".subagent-dock", ".terminal-dock"])
+    for (const sel of [".session-summary", ".terminal-dock"])
       expect(bodiesFor(sel).join(" "), sel).not.toContain("background: var(--surface)");
   });
 
@@ -2973,11 +2973,9 @@ describe("dividers", () => {
     expect(wrap).toContain("min-height: 0");
     /* The depths hang off the WRAPPER and the dissolve belongs to the scroller inside it. The panel's
        head is not in the scroller, so nothing can dissolve a title — which is what a band pinned to
-       the panel did. Both occupants of the dock are checked: the sub-agent panel shares this
-       geometry, and a copy of it that reached for the panel would fail here. */
+       the panel did. */
     expect(wrap).toContain("--fade-h");
     expect(wrap).toContain("--fade-top-h");
-    expect(bodiesFor(".subagent-scroll-wrap").join(" ")).toContain("--fade-h");
     expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes(".edge-fade"))), "the bands are gone").toEqual([]);
   });
 

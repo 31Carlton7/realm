@@ -259,7 +259,7 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** Read the log further back than the transcript holds (`transcript.earlier`): the stretch before it,
    *  or back to `throughSeq` — a prompt asked for by its seq. Absent leaves the log where it starts. */
@@ -301,6 +301,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   onQuote?: (text: string) => void;
   /** The pane sits in the focused leaf: the first pending permission card autofocuses (U-H4). */
   focused?: boolean;
+  /** False where the surface around the log owns Escape (a sub-agent's viewer, where it means
+   *  "back"): the request cards then neither answer on Escape nor offer it as a key. */
+  requestsOwnEscape?: boolean;
   /** The session's working directory — the base a message's bare filenames are joined against when
    *  it names no directory of its own. Null in tests and wherever the session is not yet known. */
   cwd?: string | null;
@@ -776,7 +779,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             and a plan get cards of their own (`PendingRequest`). */}
         {permissions.map((p, i) => (
           <PendingRequest key={p.requestId} permission={p} autoFocus={focused && i === 0}
-            enter={isEntering(permKey(p.requestId))} onDecide={(...decision) => onDecide(p.requestId, ...decision)} />
+            enter={isEntering(permKey(p.requestId))} ownsEscape={requestsOwnEscape} onDecide={(...decision) => onDecide(p.requestId, ...decision)} />
         ))}
         {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock.
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on

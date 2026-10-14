@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useState } from "react";
  * panel that docks there follows.
  *
  * There is ONE such strip per pane, and that is the whole reason this is shared rather than copied:
- * the summary and the sub-agent view are two contents for one place, and two components measuring
+ * the summary, the files and the terminal are contents for one place, and two components measuring
  * and claiming it separately would draw one over the other the moment both were open.
  */
 
