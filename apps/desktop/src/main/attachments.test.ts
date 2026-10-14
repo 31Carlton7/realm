@@ -214,6 +214,17 @@ describe("statFile", () => {
 /* What `files:reveal` answers. Its loudest caller is the transcript's path menu, so the path is
    whatever the agent wrote in prose — `~/…` as often as not, and sometimes relative to where it was
    working. */
+describe("existingPath — a path as an agent writes it", () => {
+  it("reads a file:// URL and an editor's line suffix, after the string as written", async () => {
+    const home = tempDir("realm-existing-");
+    await writeFile(join(home, "my clip.mp4"), "x");
+    // THE MUTANT: take the string as it came — `report.py:12` names no file and Reveal did nothing.
+    expect(await existingPath(`file://${join(home, "my%20clip.mp4")}`, undefined, home)).toBe(join(home, "my clip.mp4"));
+    expect(await existingPath("my clip.mp4:12", home, home)).toBe(join(home, "my clip.mp4"));
+    expect(await existingPath("missing.mp4:12", home, home)).toBeNull();
+  });
+});
+
 describe("existingPath", () => {
   it("resolves ~/ against the home folder, the form agents write most", async () => {
     await mkdir(join(home, "school", "imported"), { recursive: true });

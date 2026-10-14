@@ -238,7 +238,7 @@ export type Api = TeamApi & LabApi & {
   renameDocumentFile(documentsId: string, from: string, to: string): Promise<{ path: string }>;
   /** Plan 22 (school workflows): previews, guide progress, lectures, the Plynn handoff. */
   previewInfo(): Promise<{ port: number; token: string }>;
-  openDocumentPath(spaceId: string, path: string, environmentId?: string): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string }>;
+  openDocumentPath(spaceId: string, path: string, environmentId?: string, base?: string): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string; line?: number | null }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
   recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
   startLecture(spaceId: string, title: string): Promise<StartLectureResult>;
@@ -2566,7 +2566,7 @@ export type AppState = TeamSlice & LabSlice & {
    * pane — rather than in the focused leaf's place: a file named in a transcript is a look at it, and
    * the reader keeps the transcript they asked from.
    */
-  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null, at?: { line?: number; beside?: Beside }): Promise<void>;
+  openDocumentPath(path: string, environmentId?: string | null, spaceId?: string | null, at?: { line?: number; beside?: Beside; base?: string }): Promise<void>;
   applyDocumentOpenRequested(p: { spaceId: string; environmentId: string; documentsId: string; itemId: string; path: string; openedBy?: string }): Promise<void>;
   /** Start a lecture in `spaceId` (else the current space): the dated notes file open in the documents
    *  pane as the main view, and a session beside it to ask things during class. Nothing is sent to
@@ -7218,9 +7218,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async openDocumentPath(path, environmentId = null, spaceId = null, at = {}) {
         const sid = (environmentId ? get().environments[environmentId]?.spaceId : undefined) ?? spaceFor(spaceId);
         if (!sid) return;
-        const opened = await api.openDocumentPath(sid, path, environmentId ?? undefined);
-        // Asked before the pane is brought up, so a pane this open is about to mount finds it there.
-        if (at.line) set({ documentsAsk: { documentsId: opened.documentsId, seq: ++documentsAskSeq, path: opened.path, line: at.line } });
+        const opened = await api.openDocumentPath(sid, path, environmentId ?? undefined, at.base);
+        // Asked before the pane is brought up, so a pane this open is about to mount finds it there. A
+        // line the path itself carried (`report.py:42`) is the server's reading of it.
+        const line = at.line ?? opened.line ?? undefined;
+        if (line) set({ documentsAsk: { documentsId: opened.documentsId, seq: ++documentsAskSeq, path: opened.path, line } });
         const layout = get().layout;
         if (layout && findLeafOfItem(layout, opened.itemId)) { await get().openItem(opened.itemId); return; }
         await adoptItem(sid, opened.itemId, null, at.beside ?? false);
