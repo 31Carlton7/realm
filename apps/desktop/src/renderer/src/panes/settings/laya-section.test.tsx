@@ -53,8 +53,11 @@ describe("the Laya section", () => {
     const { api, stateRow } = await mount(status({ state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }));
     expect(stateRow()).toHaveAccessibleName("Laya: Not installed");
     expect(within(stateRow()).getByText("Downloads about 1 GB of PyTorch and 0.8 GB of model weights into /Users/u/Realm/laya, with Python 3.13.12.")).toBeInTheDocument();
-    // Shadow before an install is refused by the server; the control does not offer it.
-    expect(modeControl()).toBeDisabled();
+    // Off and Shadow are choices before an install (Shadow is the default the install answers);
+    // Assist waits for a checkpoint on disk.
+    expect(within(modeControl()).getByRole("radio", { name: "Off" })).toBeEnabled();
+    expect(within(modeControl()).getByRole("radio", { name: "Shadow" })).toBeEnabled();
+    expect(within(modeControl()).getByRole("radio", { name: "Assist" })).toBeDisabled();
     fireEvent.click(within(stateRow()).getByRole("button", { name: "Install" }));
     await waitFor(() => expect(api.calls).toContain("layaInstall"));
     // The answer is what renders next: installing, with no second Install to double-click.
@@ -123,6 +126,29 @@ describe("the Laya section", () => {
     expect(within(stateRow()).getByText(reason)).toBeInTheDocument();
     fireEvent.click(within(stateRow()).getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(api.calls).toContain("layaSetMode:shadow"));
+  });
+
+  it("says what the install that starts on its own is waiting for, when it tries again, and when it stopped", async () => {
+    // THE MUTANT: the auto-install's state dropped — a default-on Laya that sits at Not installed with no word why.
+    const python = { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" };
+    const waiting = await mount(status({ state: "not-installed", python }, { mode: "shadow", auto: { state: "waiting", why: "Installs on its own once no agent is working." } }));
+    expect(within(waiting.stateRow()).getByText("Installs on its own once no agent is working.")).toBeInTheDocument();
+    // The button stays: waiting is the clock's, and a click is the person's own.
+    expect(within(waiting.stateRow()).getByRole("button", { name: "Install" })).toBeInTheDocument();
+    cleanup();
+    const at = new Date(2026, 9, 13, 16, 10).getTime();
+    const retrying = await mount(status({ state: "failed", during: "install", reason: "ERROR: No matching distribution found for torch", detail: "" }, { mode: "shadow", auto: { state: "retrying", at, attempt: 2 } }));
+    expect(within(retrying.stateRow()).getByText(/^Trying again on its own at 4:10\s?PM\.$/)).toBeInTheDocument();
+    cleanup();
+    const stopped = await mount(status({ state: "failed", during: "install", reason: "ERROR: No matching distribution found for torch", detail: "" }, { mode: "shadow", auto: { state: "stopped", attempts: 5 } }));
+    expect(within(stopped.stateRow()).getByText("Stopped trying on its own after 5 attempts.")).toBeInTheDocument();
+    expect(within(stopped.stateRow()).getByRole("button", { name: "Install again" })).toBeInTheDocument();
+  });
+
+  it("switching Off before the install sends Off — the way to say no to the download", async () => {
+    const { api } = await mount(status({ state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, { mode: "shadow", auto: { state: "waiting", why: "Installs on its own a few minutes after Realm opens." } }));
+    fireEvent.click(within(modeControl()).getByRole("radio", { name: "Off" }));
+    await waitFor(() => expect(api.calls).toContain("layaSetMode:off"));
   });
 
   it("unavailable: the reason, and nothing to click", async () => {
