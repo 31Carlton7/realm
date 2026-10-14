@@ -244,6 +244,7 @@ export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvide
 
 const STATE_WORDS: Record<string, string> = {
   waiting: "waiting for a person", changes: "changes asked", approved: "approved, not posted", done: "done", dismissed: "dismissed",
+  rejected: "rejected by the person; nothing of it goes out, so do not send it again", closed: "closed by the person; nothing of it goes out",
 };
 
 function statusLine(r: TeamReviewSummary): string {
