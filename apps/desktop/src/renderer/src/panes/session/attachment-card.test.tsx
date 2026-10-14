@@ -53,6 +53,18 @@ describe("the prompter's attachment card", () => {
     expect(onRemove).toHaveBeenCalledTimes(1);
   });
 
+  it("a square for a text file wears its mark and asks for no picture of its page", () => {
+    const { container } = render(<AttachmentTile path="/w/notes.md" mime="text/markdown" />);
+    expect(container.querySelector(".attach-art .file-mark")!.getAttribute("data-mark")).toBe("markdown");
+    expect(thumbnail).not.toHaveBeenCalled();
+  });
+
+  it("is heard as its name and the tip's line, once", () => {
+    const { container } = render(<AttachmentTile path="/w/a.ts" mime="text/plain" name="a.ts" size={1} layout="card" detail="1 B · Claude reads it" />);
+    expect(container.querySelector(".attach-card-text")!.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".visually-hidden")!.textContent).toBe("a.ts — 1 B · Claude reads it");
+  });
+
   it("the transcript's tile is still the square", () => {
     const { container } = render(<AttachmentTile path="/w/server.ts" mime="text/plain" />);
     expect(container.querySelector(".attach-tile")!.hasAttribute("data-layout")).toBe(false);

@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { basenameOf, formatAttachmentSize, isDirectoryMime, isImageMime, isOpenablePath, isPlayablePath, isVideoMime } from "@realm/contracts";
 import { FileMark } from "../../components/file-icon";
+import { textViewFor } from "../../components/viewer/ViewerText";
 import { useThumbnail } from "../../components/use-thumbnail";
 import { useOpenViewer } from "../../components/viewer/open";
 import { squirclePath } from "../machine/squircle-path";
@@ -115,7 +116,9 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
      or of source at 32px says less than its mark, and each of those is a QuickLook child process. */
   const picture = isImageMime(mime) || isVideoMime(mime);
   const card = layout === "card" && !picture;
-  const thumb = useThumbnail(directory || card ? null : path);
+  /* Nor does a square for a text file: QuickLook's render of a page of source at this size is a dark
+     smudge, where the file's own mark says what it is. */
+  const thumb = useThumbnail(directory || card || textViewFor(path) !== null ? null : path);
   const ext = directory ? "" : extOf(path);
   const opener = useRef<HTMLButtonElement>(null);
   const openViewer = useOpenViewer();
@@ -147,12 +150,14 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
 
   const face = card ? (
     <>
-      <span className="attach-card-mark"><FileMark path={path} folder={directory} size={20} /></span>
-      <span className="attach-card-text">
+      <span className="attach-card-mark"><FileMark path={path} folder={directory} size={20} className="attach-glyph" /></span>
+      {/* Hidden from a screen reader, which hears the name and the tip's line once, below — the
+          same sentence the square gives it. */}
+      <span className="attach-card-text" aria-hidden="true">
         <span className="attach-card-name">{label}</span>
         <span className="attach-card-kind">{kindOf(path, directory, size)}</span>
       </span>
-      {detail && <span className="visually-hidden"> — {detail}</span>}
+      <span className="visually-hidden">{label}{detail ? ` — ${detail}` : ""}</span>
     </>
   ) : (
     <>
@@ -163,7 +168,10 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
           // alt="" on purpose: the file is named once, by the visually-hidden span below. An alt
           // here would have a screen reader read it twice.
           ? <img className="attach-thumb" src={thumb} alt="" draggable={false} />
-          : <Icon name={directory ? "folder" : isImageMime(mime) ? "image" : "artifact"} size={18} className="attach-glyph" />}
+          : directory
+            ? <Icon name="folder" size={18} className="attach-glyph" />
+            // The file's own mark, as the Library and the prompter's card draw it.
+            : <FileMark path={path} type={isImageMime(mime) ? "image" : undefined} size={18} className="attach-glyph" />}
         {ext && <span className="attach-ext">{ext}</span>}
       </span>
       {/* Dropping the visible name must not drop it from the accessibility tree: a tile whose only

@@ -4980,3 +4980,15 @@ it("the strips above a browser view paint no fill of their own; they share the c
     for (const body of bodies) expect(body, selector).not.toMatch(/(^|;\s*)background(-color)?\s*:/);
   }
 });
+
+describe("code scrolls sideways (the owner, 10-13)", () => {
+  it("the documents pane's column cannot grow to its longest line", () => {
+    // A bare `1fr` floors at min-content: one long line made the editor wider than the pane, and
+    // the scroller inside it had nothing left to scroll.
+    expect(bodiesFor(".documents-surface").join(" ")).toContain("grid-template-columns: minmax(0, 1fr)");
+  });
+
+  it("a fence in rendered Markdown does not wrap, over ProseMirror's own pre-wrap", () => {
+    expect(bodiesFor(".documents-rich .documents-rich-surface pre").join(" ")).toContain("white-space: pre");
+  });
+});

@@ -171,7 +171,7 @@ export function FileMark({ path, folder = false, size, type, className }: {
   // alt="" throughout: the mark sits beside the file's name everywhere it is drawn, and a screen
   // reader must not read "TypeScript" before every file.
   return (
-    <span className={cls} data-mark={id} data-has-light={light ? "" : undefined} style={{ width: size, height: size }}>
+    <span className={cls} data-mark={id} data-has-light={light ? "" : undefined}>
       <img className="file-mark-img" src={src} alt="" draggable={false} width={size} height={size} />
       {light && <img className="file-mark-img file-mark-light" src={light} alt="" draggable={false} width={size} height={size} />}
     </span>
