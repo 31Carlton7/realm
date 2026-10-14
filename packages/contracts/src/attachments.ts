@@ -41,7 +41,10 @@ const MIME_BY_EXT: Record<string, string> = {
   ts: "text/typescript", tsx: "text/typescript", js: "text/javascript", jsx: "text/javascript",
   py: "text/x-python", rs: "text/x-rust", go: "text/x-go", rb: "text/x-ruby", java: "text/x-java",
   c: "text/x-c", h: "text/x-c", cpp: "text/x-c++", sh: "text/x-shellscript", sql: "text/x-sql",
-  mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm",
+  mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", m4v: "video/x-m4v",
+  // Containers Chromium may not decode. They are still video, so the player takes them and says so
+  // when it cannot — with a playable copy when this Mac has ffmpeg — rather than the OS taking them.
+  mkv: "video/x-matroska", avi: "video/x-msvideo", ogv: "video/ogg",
   mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4",
 };
 

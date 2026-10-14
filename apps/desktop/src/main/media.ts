@@ -1,8 +1,9 @@
+import { createReadStream } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { realpath, stat } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
-import { net, protocol } from "electron";
+import { Readable } from "node:stream";
+import { protocol } from "electron";
 import {
   MEDIA_SCHEME, expandHome, isPlayablePath, mediaKindFor, mimeForPath, pathFromMediaUrl, type MediaFile,
 } from "@realm/contracts";
@@ -15,8 +16,8 @@ import { quickLookThumbnail } from "./attachments";
  * movie on disk can only be NAMED there unless something carries the bytes across. `attachment-
  * thumbnail` does that for a 96px tile by minting a data: URL, and that approach does not scale to
  * a video: base64 is a third larger than the file, it arrives in one piece, and an element handed
- * one cannot seek. `realm-media://` is the streaming answer — `net.fetch` over a `file://` URL
- * honours Range requests, so the player starts on the first frame and scrubbing works.
+ * one cannot seek. `realm-media://` is the streaming answer: it answers Range requests itself
+ * (`serveFile`), so the player starts on the first frame and scrubbing works.
  *
  * The gate is deliberately narrow and lives in ONE function (`servablePath`): the path must resolve
  * to a real file whose extension maps to an image, video or audio mime. Everything else — source,
@@ -100,6 +101,37 @@ export function registerMediaScheme(): void {
   }]);
 }
 
+/**
+ * One file as an HTTP answer, honouring a `Range` header the way a media element expects: the whole
+ * file (200) when none is asked for, the slice with its `Content-Range` (206) when one is, and 416
+ * for a range past the end.
+ *
+ * Done here rather than left to `net.fetch` on a `file://` URL, whose handling of a forwarded Range
+ * header is Electron's to change between versions: a seek is only as good as the 206 behind it, and a
+ * `.mov` whose index sits at the end of the file cannot even start without one.
+ */
+export async function serveFile(path: string, range: string | null): Promise<Response> {
+  const { size } = await stat(path);
+  const headers = { "Content-Type": mimeForPath(path), "Accept-Ranges": "bytes" };
+  const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
+  if (!m || (m[1] === "" && m[2] === "")) {
+    return new Response(size === 0 ? null : body(path, 0, size - 1), { status: 200, headers: { ...headers, "Content-Length": String(size) } });
+  }
+  // `bytes=-500` is the last 500 bytes; `bytes=500-` runs to the end.
+  const start = m[1] === "" ? Math.max(0, size - Number(m[2])) : Number(m[1]);
+  const end = m[1] === "" || m[2] === "" ? size - 1 : Math.min(Number(m[2]), size - 1);
+  if (start >= size || start > end) {
+    return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${size}` } });
+  }
+  return new Response(body(path, start, end), {
+    status: 206,
+    headers: { ...headers, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": String(end - start + 1) },
+  });
+}
+
+const body = (path: string, start: number, end: number): ReadableStream =>
+  Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream;
+
 /** Called after `app.ready`. Every refusal is a 404 rather than an error: a media element handed a
  *  path that has since moved should fall back to its poster, not raise. */
 export function handleMediaProtocol(home = homedir()): void {
@@ -107,8 +139,6 @@ export function handleMediaProtocol(home = homedir()): void {
     const candidate = pathFromMediaUrl(request.url);
     const path = candidate === null ? null : await servablePath(candidate, home);
     if (!path) return new Response(null, { status: 404 });
-    // `net.fetch` on a file: URL is what makes this a STREAM rather than a buffer — it forwards the
-    // request's Range header and answers 206 with the slice, which is the whole point of the scheme.
-    return net.fetch(pathToFileURL(path).toString(), { headers: request.headers });
+    try { return await serveFile(path, request.headers.get("range")); } catch { return new Response(null, { status: 404 }); }
   });
 }

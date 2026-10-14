@@ -1,8 +1,10 @@
 import { Icon } from "@realm/ui";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useContext, useMemo } from "react";
 import { basenameOf, formatAttachmentSize, mediaUrl, type MediaFile } from "@realm/contracts";
-import { useOpenViewer } from "../../../components/viewer/open";
-import { useMediaFiles, usePoster } from "./use-media";
+import { MediaSessionContext, useOpenViewer } from "../../../components/viewer/open";
+import { VideoPlayer, type VideoVariant } from "../../../components/video/VideoPlayer";
+import { useAppStoreMaybe } from "../../../state/store";
+import { useMediaFiles } from "./use-media";
 
 /**
  * Media, drawn where the agent talked about it.
@@ -15,120 +17,17 @@ import { useMediaFiles, usePoster } from "./use-media";
  * Every path here has already been confirmed by main (`media:stat`). Nothing in this file guesses.
  */
 
-/** Seconds as `m:ss` — the same shape a video player has always used, so it needs no label. Over an
- *  hour it grows an `h:mm:ss` field rather than counting to 90 minutes. */
-export function formatTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const total = Math.floor(seconds);
-  const s = total % 60, m = Math.floor(total / 60) % 60, h = Math.floor(total / 3600);
-  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
-  return `${h > 0 ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
-}
-
-/**
- * A video with Realm's own controls rather than the platform's.
- *
- * `controls` would put Chromium's chrome — a different type stack, a different accent, its own
- * overflow menu offering "Picture in Picture" and a download the app cannot honour — in the middle
- * of the transcript. These are the four controls that are actually wanted, and the scrubber is a
- * real `input[type=range]`, so the keyboard gets arrow-key seeking for free.
- *
- * Nothing here plays on its own. A transcript that starts making noise as the reader scrolls past is
- * the failure mode this feature has to avoid, so the first frame is a poster and playback is a
- * deliberate act.
- */
-function VideoPlayer({ file, autoFocus = false, onExpand }: { file: MediaFile; autoFocus?: boolean; onExpand?: () => void }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [time, setTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const poster = usePoster(file.path);
-
-  const toggle = useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    // The element's own state decides, not React's: a video that reached its end has paused itself
-    // and `playing` may not have caught up yet, and toggling off the stale value would do nothing.
-    if (el.paused) void el.play().catch(() => setPlaying(false));
-    else el.pause();
-  }, []);
-
-  const seek = (to: number) => {
-    const el = ref.current;
-    if (el && Number.isFinite(to)) { el.currentTime = to; setTime(to); }
-  };
-
-  return (
-    <div className="media-video" data-playing={playing || undefined}>
-      <video
-        ref={ref}
-        className="media-el"
-        src={mediaUrl(file.path)}
-        poster={poster ?? undefined}
-        preload="metadata"
-        playsInline
-        // No `controls`, no `autoPlay`, no `loop`: see the note above. `muted` is state rather than
-        // an attribute so the button and the element can never disagree.
-        muted={muted}
-        onClick={toggle}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-        onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
-        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-      />
-      {/* The big centre button exists only before the first play. Once the video is running the
-          reader clicks the frame itself — a permanent overlay button would sit on top of the one
-          thing they came to look at. */}
-      {!playing && (
-        <button type="button" className="media-play" aria-label={`Play ${basenameOf(file.path)}`} autoFocus={autoFocus} onClick={toggle}>
-          {/* off-ladder: a 52px poster button has no rung. `control` is sized for a 28px one, and
-              every rung above it is for a glyph that IS its container's subject rather than its verb. */}
-          <Icon name="play" size={22} />
-        </button>
-      )}
-      <div className="media-controls">
-        {/* §6 icon swap: the transport is one control whose glyph turns over, so both stay in the DOM
-            and cross-fade. A ternary replaces the element instead, and gets no transition at all. */}
-        <button type="button" className="media-btn" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
-          <span className="icon-swap" data-on={playing || undefined}>
-            <Icon name="play" size={12} className="swap-off" />
-            <Icon name="pause" size={12} className="swap-on" />
-          </span>
-        </button>
-        <span className="media-time">{formatTime(time)}</span>
-        <input
-          className="media-scrub" type="range" min={0} max={duration || 0} step="any" value={Math.min(time, duration || 0)}
-          aria-label="Seek" disabled={!duration}
-          onChange={(e) => seek(Number(e.currentTarget.value))}
-          // The filled part of the track is painted from this, so the bar reads as progress rather
-          // than as an empty slider that happens to have a knob on it.
-          style={{ "--media-progress": duration ? `${(time / duration) * 100}%` : "0%" } as React.CSSProperties}
-        />
-        <span className="media-time media-duration">{formatTime(duration)}</span>
-        <button type="button" className="media-btn" aria-label={muted ? "Unmute" : "Mute"} aria-pressed={muted} onClick={() => setMuted((m) => !m)}>
-          <span className="icon-swap" data-on={muted || undefined}>
-            <Icon name="volumeOn" size={12} className="swap-off" />
-            <Icon name="volumeOff" size={12} className="swap-on" />
-          </span>
-        </button>
-        {onExpand && (
-          <button type="button" className="media-btn" aria-label="Open larger" onClick={onExpand}>
-            <Icon name="focusPane" size={12} />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
+/** Kept here for the callers that already read it from this file; the player owns it. */
+export { formatTime } from "../../../components/video/video-model";
 
 /** One media file at message width: the picture, the player, or an audio row. `onExpand` is what
  *  puts it in the media viewer — a 1080×1920 vertical video is legible in a 680px column only as a
  *  thumbnail, and the full-window view is where it is actually watched. */
-export function MediaFrame({ file, autoFocus = false, onExpand }: { file: MediaFile; autoFocus?: boolean; onExpand?: () => void }) {
+export function MediaFrame({ file, autoFocus = false, onExpand, variant = "inline" }: {
+  file: MediaFile; autoFocus?: boolean; onExpand?: () => void; variant?: VideoVariant;
+}) {
   const name = basenameOf(file.path);
-  if (file.kind === "video") return <VideoPlayer file={file} autoFocus={autoFocus} onExpand={onExpand} />;
+  if (file.kind === "video") return <VideoPlayer file={file} variant={variant} autoFocus={autoFocus} onExpand={onExpand} />;
   if (file.kind === "audio") {
     // Audio is the one kind with nothing to look at, so it keeps the native transport: there is no
     // frame for custom controls to sit on, and a bare row of our own buttons would be a worse
@@ -157,6 +56,7 @@ export function MediaFrame({ file, autoFocus = false, onExpand }: { file: MediaF
  *  came for, and stacking them full-width would put two of them off-screen. */
 export function MediaStrip({ files }: { files: readonly MediaFile[] }) {
   const open = useOpenViewer();
+  const openFile = useOpenInRealm();
   if (files.length === 0) return null;
   // The strip's files are each other's siblings in the viewer: three mockups side by side are the
   // three ← and → walk, in the order the message showed them.
@@ -175,9 +75,9 @@ export function MediaStrip({ files }: { files: readonly MediaFile[] }) {
                 onClick={() => void window.realm?.media?.reveal(file.path)}>
                 <Icon name="folder" size={12} />
               </button>
-              <button type="button" className="media-action" title="Open"
+              <button type="button" className="media-action" title={file.kind === "video" ? "Open in the documents pane" : "Open"}
                 aria-label={`Open ${basenameOf(file.path)}`}
-                onClick={() => void window.realm?.media?.open(file.path)}>
+                onClick={() => openFile(file)}>
                 <Icon name="focusPane" size={12} />
               </button>
             </div>
@@ -186,6 +86,22 @@ export function MediaStrip({ files }: { files: readonly MediaFile[] }) {
       </ul>
     </>
   );
+}
+
+/**
+ * Open, for a file a message points at. A video opens in Realm's player in the documents pane beside
+ * the session, never in QuickTime: the player is the one place a video is watched here. Anything else
+ * goes to the app the Mac opens it with, as it always has.
+ */
+function useOpenInRealm(): (file: MediaFile) => void {
+  const store = useAppStoreMaybe();
+  const sessionId = useContext(MediaSessionContext);
+  return (file) => {
+    if (file.kind !== "video" || !store) { void window.realm?.media?.open(file.path); return; }
+    const st = store.getState();
+    const environmentId = sessionId ? st.sessions[sessionId]?.environmentId ?? null : null;
+    st.run(() => st.openDocumentPath(file.path, environmentId, null, sessionId ? { beside: { sessionId } } : {}));
+  };
 }
 
 /**

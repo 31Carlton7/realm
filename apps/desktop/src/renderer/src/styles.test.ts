@@ -1209,6 +1209,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // The video scrubber's fill (MediaView.tsx): the played fraction, set inline per frame so the
       // track and the knob are one box and cannot drift out of register.
       "--media-progress",
+      // The video player's volume track, painted from the value the slider holds (VideoPlayer.tsx).
+      "--video-volume",
       // A PDF page's scale (PdfView.tsx), set inline per page: pdf.js's text layer sizes every run of
       // text from it, so the selectable text stays over the drawn glyphs at any zoom.
       "--total-scale-factor",
@@ -3210,8 +3212,11 @@ describe("light mode", () => {
     // Drawn on a video frame or a photo the user supplied. The picture is the same picture in both
     // modes, so chrome over it answers to the picture.
     [".media-play", "on a video frame"], [".media-play:hover", "on a video frame"],
-    [".media-controls", "on a video frame"], [".media-btn:hover", "on a video frame"],
-    [".media-scrub", "on a video frame"], [".media-scrub::-webkit-slider-thumb", "on a video frame"],
+    [".video-controls", "on a video frame"], [".video-btn:hover", "on a video frame"], ['.video-btn[aria-pressed="true"]', "on a video frame"],
+    [".video-volume", "on a video frame"], [".video-volume::-webkit-slider-thumb", "on a video frame"],
+    [".video-scrub-track", "on a video frame"], [".video-scrub-buffered", "on a video frame"], [".video-scrub-thumb", "on a video frame"],
+    [".video-scrub-hover", "on a video frame"], [".video-player[data-full]", "the full-screen letterbox"],
+    [".video-player[data-full] .media-el", "the full-screen letterbox"],
     [".attach-tile[data-image] .attach-ext", "on the attached picture"],
     // The Library tile's caption, which comes up over the file's own picture.
     [".library-tile-caption", "on the file's own picture"],

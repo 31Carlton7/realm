@@ -59,7 +59,7 @@ export const liveApi = (): Api => ({
   createDocumentFile: (documentsId, path, kind, title) => rpc().call("documents.createFile", { documentsId, path, kind, title }),
   renameDocumentFile: (documentsId, from, to) => rpc().call("documents.renameFile", { documentsId, from, to }),
   previewInfo: () => rpc().call("documents.previewInfo", {}),
-  openDocumentPath: (spaceId, path, environmentId) => rpc().call("documents.openPath", environmentId ? { spaceId, path, environmentId } : { spaceId, path }),
+  openDocumentPath: (spaceId, path, environmentId, base) => rpc().call("documents.openPath", { spaceId, path, ...(environmentId ? { environmentId } : {}), ...(base ? { base } : {}) }),
   readGuideProgress: (documentsId, path) => rpc().call("documents.progressRead", { documentsId, path }),
   recordGuideAttempt: (documentsId, path, topic, correct, total) => rpc().call("documents.progressRecord", { documentsId, path, topic, correct, total }),
   startLecture: (spaceId, title) => rpc().call("lectures.start", { spaceId, title }),

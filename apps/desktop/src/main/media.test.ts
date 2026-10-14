@@ -8,7 +8,7 @@ import { tempDir } from "@realm/test-utils";
    test here, and pulling in the real electron module in node would fail at import. */
 vi.mock("electron", () => ({ net: {}, protocol: {}, nativeImage: { createFromPath: () => ({ isEmpty: () => true }) } }));
 
-const { servablePath, statMedia } = await import("./media");
+const { servablePath, serveFile, statMedia } = await import("./media");
 
 let home: string;
 beforeEach(async () => { home = tempDir("realm-media-test-"); });
@@ -113,5 +113,39 @@ describe("statMedia", () => {
     const clip = await put("clip.mp4");
     const answers = await statMedia([clip, "~/clip.mp4"], home);
     expect(answers.map((a) => a?.path)).toEqual([clip, clip]);
+  });
+});
+
+/* Seeking is a 206 with the slice asked for. Without it a player can only play from the start, and a
+   `.mov` whose index sits at its end cannot start at all. */
+describe("serveFile", () => {
+  const bytes = "0123456789";
+  it("answers a range with the slice, its Content-Range and 206", async () => {
+    const clip = await put("clip.mp4", bytes);
+    const r = await serveFile(clip, "bytes=2-5");
+    expect(r.status).toBe(206);
+    expect(r.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(r.headers.get("content-length")).toBe("4");
+    expect(r.headers.get("content-type")).toBe("video/mp4");
+    expect(await r.text()).toBe("2345");
+  });
+
+  it("runs an open range to the end, and a suffix range from it", async () => {
+    const clip = await put("clip.mp4", bytes);
+    expect(await (await serveFile(clip, "bytes=7-")).text()).toBe("789");
+    const tail = await serveFile(clip, "bytes=-3");
+    expect(tail.headers.get("content-range")).toBe("bytes 7-9/10");
+    expect(await tail.text()).toBe("789");
+  });
+
+  it("answers the whole file without a range, and 416 past the end", async () => {
+    const clip = await put("clip.mp4", bytes);
+    const whole = await serveFile(clip, null);
+    expect(whole.status).toBe(200);
+    expect(whole.headers.get("accept-ranges")).toBe("bytes");
+    expect(await whole.text()).toBe(bytes);
+    const past = await serveFile(clip, "bytes=20-30");
+    expect(past.status).toBe(416);
+    expect(past.headers.get("content-range")).toBe("bytes */10");
   });
 });

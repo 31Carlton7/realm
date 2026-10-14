@@ -40,6 +40,17 @@ const PREVIEW_EXT = new Set([
   ...PICTURE_EXT,
 ]);
 
+/** Movies, which open in Realm's player (`VideoPlayer`) wherever a file opens: the documents pane,
+ *  the viewer, the transcript. Every one of them is in the mime table as `video/*`, so the media
+ *  scheme serves exactly these. */
+const VIDEO_EXT = new Set(["mp4", "mov", "webm", "m4v", "mkv", "avi", "ogv"]);
+
+/** Whether a path is a movie Realm's player takes. */
+export const isVideoFile = (path: string): boolean => {
+  const name = path.split("/").pop()?.toLowerCase() ?? "";
+  return name.includes(".") && VIDEO_EXT.has(name.slice(name.lastIndexOf(".") + 1));
+};
+
 /** Whether Realm shows this file as a rendered preview rather than in an editor. Exported so the
  *  server's preview listener and the pane agree about which files take the Quick Look path. */
 export const isPreviewKind = (path: string): boolean => documentKindFor(path) === "preview";
@@ -93,6 +104,7 @@ export function documentKindFor(path: string): DocumentKind {
   if (ext === "html" || ext === "htm") return "html";
   if (ext === "pdf") return "pdf";
   if (PREVIEW_EXT.has(ext)) return "preview";
+  if (VIDEO_EXT.has(ext)) return "video";
   if (SHEET_EXT.has(ext)) return "sheet";
   if (ext === "md" || ext === "markdown") {
     return /\.(slides|deck)\.(md|markdown)$/.test(name) ? "slides" : "doc";
