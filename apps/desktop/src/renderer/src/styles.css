@@ -34,7 +34,7 @@
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
-.mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .mention-row-id, .mp-about code,
+.mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .video-btn, .video-time, .video-scrub-hover, .mention-row-id, .mp-about code,
 .msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
@@ -9338,39 +9338,73 @@ span.documents-name:hover { background: none; }
 }
 .media-play:hover { transform: scale(1.06); background: rgb(0 0 0 / .7); }
 
-/* The transport rides ON the video, revealed by hover or focus — while the video is paused it is
-   always up, because a paused frame with no visible controls looks like a picture. */
-.media-controls {
-  position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 7px;
-  padding: 8px 10px; color: #fff;
+/* ── Realm's video player (components/video/VideoPlayer.tsx) ──
+   The transport rides ON the video: up while paused — a paused frame with no controls looks like a
+   picture — and while playing only for a moment after the pointer or a key last moved, so a film is
+   not watched through its controls. Chrome over a picture answers to the picture, so its ink is white
+   on a dark scrim on both faces. */
+.video-player { outline: none; }
+.video-player:focus-visible { box-shadow: var(--shadow-hairline), 0 0 0 2px var(--rl-accent); }
+.video-controls {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 2px;
+  padding: 18px 10px 6px; color: #fff;
   background: linear-gradient(to top, rgb(0 0 0 / .72), rgb(0 0 0 / 0));
   opacity: 0; transition: opacity var(--dur-swap) var(--ease-out-strong);
 }
-.media-video:not([data-playing]) .media-controls,
-.media-video:hover .media-controls,
-.media-video:focus-within .media-controls { opacity: 1; }
-.media-btn {
-  display: grid; place-items: center; width: 22px; height: 22px; flex: none;
+.video-player:not([data-playing]) .video-controls,
+.video-player[data-active] .video-controls,
+.video-player:focus-within .video-controls { opacity: 1; }
+/* Playing with nothing moving, the pointer goes too, as every player's does. */
+.video-player[data-playing]:not([data-active]) .media-el { cursor: none; }
+.video-bar { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.video-bar-gap { flex: 1 1 auto; min-width: 0; }
+.video-btn {
+  display: grid; place-items: center; min-width: 28px; height: 28px; flex: none; padding: 0 4px;
   border: none; border-radius: var(--r-chip); corner-shape: squircle; background: none; color: inherit;
+  font: 500 12px var(--font-mono); font-variant-numeric: tabular-nums;
   transition: background-color var(--dur-hover) ease;
 }
-.media-btn:hover { background: rgb(255 255 255 / .18); }
-.media-time { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; flex: none; opacity: .85; }
-.media-duration { opacity: .65; }
-
-/* The scrubber is a real range input, so arrow keys seek for free. The filled half is painted from
-   --media-progress rather than by a second element: one box means the knob can never drift out of
-   register with the fill. */
-.media-scrub {
-  appearance: none; flex: 1 1 auto; min-width: 0; height: 3px; border-radius: var(--r-pill);
-  background: linear-gradient(to right, #fff var(--media-progress, 0%), rgb(255 255 255 / .3) var(--media-progress, 0%));
+.video-btn:hover { background: rgb(255 255 255 / .18); transition: none; }
+.video-btn[aria-pressed="true"] { background: rgb(255 255 255 / .24); }
+.video-btn:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 0; }
+.video-time { flex: none; margin-left: 4px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.video-time-total { opacity: .7; }
+.video-copy-note { flex: none; margin-left: 6px; font-size: 11px; opacity: .8; white-space: nowrap; }
+/* Volume: a short track beside the mute, its filled half painted from --video-volume. */
+.video-volume {
+  appearance: none; width: 64px; height: 3px; flex: none; border-radius: var(--r-pill);
+  background: linear-gradient(to right, #fff var(--video-volume, 100%), rgb(255 255 255 / .3) var(--video-volume, 100%));
 }
-.media-scrub::-webkit-slider-thumb {
-  appearance: none; width: 11px; height: 11px; border-radius: var(--r-pill); background: #fff; border: none;
-  transition: transform var(--dur-press) var(--ease-out-strong);
-}
-.media-scrub:hover::-webkit-slider-thumb { transform: scale(1.2); }
-.media-scrub:disabled { cursor: default; }
+.video-volume::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; border-radius: var(--r-pill); background: #fff; border: none; }
+/* The seek bar: a 16px target round a 3px track, what has loaded drawn under what has played, and
+   the time under the pointer above it before the click. The track thickens under the pointer. */
+.video-scrub { position: relative; height: 16px; display: flex; align-items: center; touch-action: none; outline: none; }
+.video-scrub[aria-disabled] { cursor: default; }
+.video-scrub-track { position: relative; flex: 1 1 auto; height: 3px; border-radius: var(--r-pill); background: rgb(255 255 255 / .25);
+  transition: height var(--dur-hover) ease; }
+.video-scrub:hover .video-scrub-track, .video-scrub:focus-visible .video-scrub-track { height: 5px; }
+.video-scrub-buffered { position: absolute; top: 0; bottom: 0; border-radius: var(--r-pill); background: rgb(255 255 255 / .35); }
+.video-scrub-played { position: absolute; top: 0; bottom: 0; left: 0; border-radius: var(--r-pill); background: var(--rl-accent); }
+.video-scrub-thumb { position: absolute; top: 50%; width: 11px; height: 11px; translate: -50% -50%; border-radius: var(--r-pill); background: #fff;
+  opacity: 0; transition: opacity var(--dur-hover) ease; }
+.video-scrub:hover .video-scrub-thumb, .video-scrub:focus-visible .video-scrub-thumb { opacity: 1; }
+.video-scrub-hover { position: absolute; bottom: 16px; translate: -50% 0; padding: 2px 6px; border-radius: var(--r-chip);
+  background: rgb(0 0 0 / .78); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+/* Full screen: the video takes the screen, letterboxed on black, and the transport keeps its place. */
+.video-player[data-full] { display: flex; align-items: center; justify-content: center; background: #000; border-radius: 0; }
+.video-player[data-full] .media-el { max-height: 100vh; max-width: 100vw; width: 100%; height: 100%; background: #000; }
+/* A video Realm cannot play: the sentence and the ways out, on the frame's own ground. */
+.video-failed { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 20px; text-align: center; }
+.video-failed-mark { color: var(--rl-text-faint); }
+.video-failed-says { margin: 0; font-size: 14px; color: var(--rl-text-bright); text-wrap: balance; }
+.video-failed-detail { margin: 0; font-size: 13px; color: var(--rl-text-dim); max-width: 52ch; text-wrap: pretty; }
+.video-failed-detail:empty { display: none; }
+.video-failed-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
+/* In the documents pane the player takes the pane, centred on its ground. */
+.documents-video { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.documents-video .video-player { width: auto; max-width: 100%; max-height: 100%; }
+.documents-video .media-el { max-height: calc(100vh - 160px); max-width: 100%; width: auto; }
+.documents-video .video-failed { width: min(560px, 100%); }
 
 .media-audio { display: flex; align-items: center; gap: 10px; padding: 9px 11px; }
 .media-audio-name { font-size: 12px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
