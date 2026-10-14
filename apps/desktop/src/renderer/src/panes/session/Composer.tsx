@@ -3,6 +3,7 @@ import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, D
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
+import { SpaceIcon } from "../../components/SpaceIcon";
 import { useFileDrop } from "../../components/use-file-drop";
 import { useItemDrop } from "../../components/use-item-drop";
 import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
@@ -63,7 +64,9 @@ function GitChip({ gitInfo, onOpenDiff }: { gitInfo: GitInfo | null; onOpenDiff:
 /** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
-function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true }: { ariaLabel: string; title?: string; label: ReactNode; icon?: string;
+function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true }: { ariaLabel: string; title?: string; label: ReactNode;
+  /** A glyph's name, or a mark drawn by the caller — the space chip wears the space's own icon. */
+  icon?: string | ReactNode;
   /** The glyph's rung: 12 beside the under-strip's 11px labels, 14 on the control row, where it sits
    *  beside the model chip's own 14px mark. */
   iconSize?: number;
@@ -76,9 +79,10 @@ function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, w
   const [open, setOpen] = useState(false);
   // A sibling of chip-label, never inside it: chip-label truncates with an ellipsis, which needs a
   // plain inline box — an icon nested in there gets no gap and sits off the text's centre line.
+  const mark = typeof icon === "string" ? <Icon name={icon} size={iconSize} /> : icon;
   const glyph = icon ? (tint
-    ? <span className="chip-brand chip-tint" style={{ color: tint }}><Icon name={icon} size={iconSize} /></span>
-    : <Icon name={icon} size={iconSize} className="chip-brand" />) : null;
+    ? <span className="chip-brand chip-tint" style={{ color: tint }}>{mark}</span>
+    : typeof icon === "string" ? <Icon name={icon} size={iconSize} className="chip-brand" /> : <span className="chip-brand">{mark}</span>) : null;
   if (items.length === 0) {
     return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}>{glyph}<span className="chip-label">{label}</span></span>;
   }
@@ -401,7 +405,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /**
    * The quick chat's prompter: the card, and only the card.
@@ -468,6 +472,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   modelInfo: Record<string, ModelInfo>;
   onToggleModelFavorite: (key: string) => void;
   hero: boolean; spaceName: string;
+  /** The space's icon (`Space.icon`), which the workspace chip wears for the space's own folder. */
+  spaceIcon?: string;
   /** The space's colour, as the face on screen can carry it, for the space chip's glyph (Plan 27). */
   spaceTint?: string;
   /**
@@ -907,7 +913,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // ── Under-strip (Plan 12 W1): machine label + workspace selector ───────
   const currentEnv = environments.find((e) => e.id === session.environmentId) ?? null;
   const envLabel = currentEnv ? environmentLabel(currentEnv, spaceName) : (session.cwd.replace(/\/+$/, "").split("/").pop() ?? session.cwd);
-  const envIcon = currentEnv?.kind === "worktree" ? "branch" : "folder";
+  // The chip names the space, so it wears the space's icon, as the sidebar draws it; a worktree is
+  // named by its branch, and wears the branch.
+  const spaceMark = spaceIcon ? <SpaceIcon icon={spaceIcon} size={12} /> : "folder";
+  const envIcon = currentEnv?.kind === "worktree" ? "branch" : spaceMark;
   // Menu only while the session has no events — ChipMenu with no items degrades to a caret-less label,
   // exactly the after-first-message rule. Same guard the agent switch reads; the server enforces it
   // regardless, so this is the honest affordance, not the enforcement. A plain folder's session with
@@ -915,7 +924,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   // one row is the checkout it is already in.
   const choosable = environments.length > 1 || onNewWorktree !== undefined || otherSpaces.length > 0;
   const envItems: MenuItem[] = !canSwitchAgent || !choosable ? [] : [
-    ...environments.map((e): MenuItem => ({ label: environmentLabel(e, spaceName), checked: e.id === session.environmentId, onSelect: () => onSelectEnvironment?.(e.id) })),
+    ...environments.map((e): MenuItem => ({ label: environmentLabel(e, spaceName), checked: e.id === session.environmentId, onSelect: () => onSelectEnvironment?.(e.id),
+      icon: e.kind === "worktree" ? <Icon name="branch" size={16} /> : spaceIcon ? <SpaceIcon icon={spaceIcon} size={16} /> : <Icon name="folder" size={16} /> })),
     ...(onNewWorktree ? [
       ...(environments.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
       { label: "New worktree…", onSelect: onNewWorktree },
@@ -1413,7 +1423,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           </span>
         )}
         <ChipMenu ariaLabel="Workspace" icon={envIcon} tint={spaceTint} label={envLabel} items={envItems}
-          title={canSwitchAgent ? `Workspace: ${envLabel}` : `Workspace: ${envLabel} — a session's checkout can only change before its first message`} />
+          title={`Workspace: ${envLabel}${gitInfo && currentEnv?.kind !== "worktree" ? ` on ${gitInfo.branch}` : ""}${canSwitchAgent ? "" : " — a session's checkout can only change before its first message"}`} />
         {/* The branch group is NOT here any more — it has the over-strip above the card (see there
             for why). What is left is standing context: the machine, the workspace, and the meter.
             None of it is user data of unbounded length now, so nothing on this row has to yield. */}

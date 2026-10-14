@@ -318,10 +318,14 @@ export const ReviewKindSchema = ReviewLabelSchema;
 export type ReviewKind = z.infer<typeof ReviewKindSchema>;
 
 /** `waiting`: for you. `changes`: you asked for changes; the role is on it. `approved`: yes, not yet
- *  posted (Phase 1: you post it by hand). `done`: posted, sent, or read. `dismissed`: put away. */
-export const REVIEW_STATES = ["waiting", "changes", "approved", "done", "dismissed"] as const;
+ *  posted (Phase 1: you post it by hand). `done`: posted, sent, or read. `dismissed`: put away — by a
+ *  role's `review_close`, or the old Dismiss. `rejected`: you said no, with a reason the role is told.
+ *  `closed`: you closed it before it went out. The last four are final: nothing reopens them. */
+export const REVIEW_STATES = ["waiting", "changes", "approved", "done", "dismissed", "rejected", "closed"] as const;
 export const ReviewStateSchema = z.enum(REVIEW_STATES);
 export type ReviewState = z.infer<typeof ReviewStateSchema>;
+/** The states a review rests in. A revision sent after one starts a new review instead. */
+export const FINAL_REVIEW_STATES: readonly ReviewState[] = ["done", "dismissed", "rejected", "closed"];
 
 /** Why a role closes its own review before anyone decides it (`review_close`). `done`: the work is
  *  finished another way, and the review is done. `superseded` (a newer review replaces it) and
@@ -448,7 +452,9 @@ export const TEAM_VERBS = ["made_team", "edited_team", "made_role", "edited_role
   // Dynamic Teams: the kinds of record a team keeps.
   "made_record_type", "edited_record_type", "archived_record_type", "adopted_record_type",
   // Generic deliverables: the person's own edit of an item before the yes.
-  "edited_item"] as const;
+  "edited_item",
+  // A role closing its own review, and the person rejecting or closing one.
+  "closed", "rejected"] as const;
 export type TeamVerb = (typeof TEAM_VERBS)[number];
 
 export const TeamActivitySchema = z.object({

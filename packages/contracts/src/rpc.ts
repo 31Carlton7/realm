@@ -222,7 +222,8 @@ export const WorktreeStatusSchema = z.object({
   present: z.boolean(),
   /** Lines of `git status --porcelain` — uncommitted edits plus untracked files. */
   dirtyFiles: z.number().int(),
-  /** Commits on the branch that no remote ref contains. */
+  /** Commits on the branch that no remote ref and no other local branch contains — what deleting
+   *  the branch loses. */
   unpushedCommits: z.number().int(),
   /** False for `primary` and `checkout`, and while any session still runs here. */
   removable: z.boolean(),
@@ -454,7 +455,15 @@ export const Methods = {
    *  `from` names the checkout to branch off (default: the space's primary). Refuses when that is
    *  not a git repository (NOT_A_REPOSITORY — a plain directory is a normal Realm space) or has no
    *  commits yet (WORKTREE_NO_COMMITS). */
-  "environments.createWorktree": { params: z.object({ spaceId: IdSchema, title: z.string().nullable().default(null), from: IdSchema.nullable().default(null) }), result: EnvironmentSchema },
+  "environments.createWorktree": { params: z.object({ spaceId: IdSchema, title: z.string().nullable().default(null), from: IdSchema.nullable().default(null),
+    /** The branch (or commit) the new branch starts from; null = `from`'s HEAD. WORKTREE_BAD_BASE
+     *  when it names no commit there. */
+    base: z.string().nullable().default(null) }), result: EnvironmentSchema },
+  /** The local branches a worktree in this space can start from (`from`'s checkout, default the
+   *  primary), most recently committed first, and the one checked out there. Null for a checkout
+   *  that is not a git repository. Read-only. */
+  "environments.branches": { params: z.object({ spaceId: IdSchema, from: IdSchema.nullable().default(null) }),
+    result: z.object({ branches: z.array(z.string()), current: z.string().nullable() }).nullable() },
   /** What `removeWorktree` would cost, and whether it is allowed at all. Read-only. */
   "environments.worktreeStatus": { params: z.object({ id: IdSchema }), result: WorktreeStatusSchema },
   /** Remove the worktree from disk and delete its branch. Refused outright for `primary`
@@ -462,7 +471,9 @@ export const Methods = {
    *  runs there (ENVIRONMENT_IN_USE). A dirty tree or unpushed commits require `acknowledge` to
    *  carry the *exact* counts git reports at that moment (WORKTREE_UNSAFE otherwise) — `--force`
    *  and `branch -D` are unreachable without it. */
-  "environments.removeWorktree": { params: z.object({ id: IdSchema, acknowledge: WorktreeAckSchema.nullable().default(null) }), result: z.object({ ok: z.literal(true) }) },
+  "environments.removeWorktree": { params: z.object({ id: IdSchema, acknowledge: WorktreeAckSchema.nullable().default(null),
+    /** False keeps the branch, and every commit on it: then only the dirty count needs acknowledging. */
+    deleteBranch: z.boolean().default(true) }), result: z.object({ ok: z.literal(true) }) },
 
   /**
    * Checkpoints for a session, or for a whole environment when `sessionId` is null (Plan 7 W4).
@@ -1615,6 +1626,10 @@ export const Methods = {
   "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
   "team.reviewDone": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   "team.reviewDismiss": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
+  /** No, with an optional reason the role that sent it is told; whatever had not gone out never will. */
+  "team.reviewReject": { params: z.object({ id: IdSchema, reason: z.string().max(5_000).optional() }), result: TeamReviewSummarySchema },
+  /** Closed before it went out — waiting, asked to change, or approved and not yet sent. */
+  "team.reviewClose": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   /** The person's edit of an item's text before the yes: the batch's next version (generic deliverables). */
   "team.reviewEditItem": { params: z.object({ id: IdSchema, itemId: IdSchema, body: z.string().min(1).max(20_000) }), result: TeamReviewSummarySchema },
   "team.records": { params: z.object({ spaceId: IdSchema, type: z.string().min(1).max(60).optional() }), result: z.array(TeamRecordSummarySchema) },

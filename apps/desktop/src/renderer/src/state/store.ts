@@ -200,8 +200,11 @@ export type Api = TeamApi & LabApi & {
   listProjects(spaceId: string): Promise<Project[]>;
   /** Every checkout the space knows about: its primary, plus any worktree Realm made (W2). */
   listEnvironments(spaceId: string): Promise<Environment[]>;
-  /** `environments.createWorktree` — makes the worktree on disk AND its row, as one operation. */
-  createWorktree(spaceId: string, title: string | null): Promise<Environment>;
+  /** `environments.createWorktree` — makes the worktree on disk AND its row, as one operation. `base`
+   *  is the branch it starts from; absent, the space folder's HEAD. */
+  createWorktree(spaceId: string, title: string | null, base?: string | null): Promise<Environment>;
+  /** `environments.branches` — what a worktree in this space can start from. Null for a plain folder. */
+  listBranches(spaceId: string): Promise<BranchList | null>;
   createSpace(input: CreateSpaceInput): Promise<Space>;
   /** `spaces.folderFor` — the folder `createSpace` would make for this name, without making it. */
   spaceFolderFor(profileId: string, name: string): Promise<string>;
@@ -604,7 +607,7 @@ export type Api = TeamApi & LabApi & {
   worktreeStatus(environmentId: string): Promise<WorktreeStatus>;
   /** `environments.removeWorktree`. The acknowledgement must equal what the server reads at the
    *  moment it runs, or it refuses — see `confirmRemoveWorktree`. */
-  removeWorktree(environmentId: string, acknowledge: WorktreeAck): Promise<void>;
+  removeWorktree(environmentId: string, acknowledge: WorktreeAck, deleteBranch?: boolean): Promise<void>;
   /** `checkpoints.list` — a session's turns, or the whole checkout's when `sessionId` is null (W4). */
   listCheckpoints(environmentId: string, sessionId: string | null): Promise<Checkpoint[]>;
   /** `checkpoints.capture` — take one now, because the user asked. */
@@ -952,7 +955,7 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
  */
 export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "terminal" };
 
-export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "tasks" | "history"
+export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "worktrees" | "tasks" | "history"
   /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): the Overview, the records
      and one of them, a role, the log. */
   | "team" | "records" | "roles" | "policies" | "vault" | "activity" | `role:${string}` | `record:${string}`
@@ -976,6 +979,8 @@ export type Sheet =
   /** Removing a worktree: the one destructive confirm in Plan 7, which must name what would be lost
    *  and pass an acknowledgement it re-read at the moment of confirming (W3). */
   | { kind: "remove-worktree"; environmentId: string }
+  /** A worktree with a name and the branch it starts from; Create lands in a new session there. */
+  | { kind: "new-worktree"; spaceId: string }
   /** A checkout's checkpoints, and the confirm for restoring one (W4). One sheet in two states: the
    *  list, and — once `selected` is set — the confirmation naming exactly what restoring would cost. */
   | { kind: "checkpoints"; environmentId: string; sessionId: string | null }
@@ -1553,6 +1558,8 @@ export type AppState = TeamSlice & LabSlice & {
   reviewing: Record<string, boolean>;
   /** `environments.worktreeStatus` by environment id — what the removal sheet shows. */
   worktreeStatuses: Record<string, WorktreeStatus>;
+  /** `environments.branches` by space id, read when the new-worktree sheet opens. */
+  worktreeBranches: Record<string, BranchList | null>;
   /** Set when a confirmed removal's re-read disagreed with the numbers the user was shown: the sheet
    *  says the tree moved and asks again rather than acknowledging a count nobody saw. */
   worktreeAckStale: string | null;
@@ -2190,7 +2197,7 @@ export type AppState = TeamSlice & LabSlice & {
   /** Make a fresh `git worktree` and open a session in it (W2), rather than in the space folder.
    *  Fails loudly when the space is not a git repository — there is no worktree to fall back to,
    *  and silently landing in the space folder would be the collision the user asked to avoid. */
-  newSessionInWorktree(targetLeafId?: string | null, spaceId?: string | null): Promise<void>;
+  newSessionInWorktree(targetLeafId?: string | null, spaceId?: string | null, named?: { title: string | null; base: string | null }): Promise<void>;
   /** Arm (or with null, disarm) inline rename for the pane holding this item. */
   requestRename(itemId: string | null): void;
   sendMessage(id: string, text: string): Promise<void>;
@@ -2884,8 +2891,13 @@ export type AppState = TeamSlice & LabSlice & {
   setSoundVolume(volume: number): Promise<void>;
   /** Open the removal confirmation for a worktree, reading its cost first. */
   askRemoveWorktree(environmentId: string): Promise<void>;
-  /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown. */
-  confirmRemoveWorktree(environmentId: string): Promise<void>;
+  /** Confirm it: re-read the cost, and remove ONLY if it still matches what the user was shown.
+   *  `deleteBranch: false` keeps the branch; `deleteSessions` deletes the sessions still in it first,
+   *  which removal otherwise refuses over. */
+  confirmRemoveWorktree(environmentId: string, opts?: { deleteBranch?: boolean; deleteSessions?: boolean }): Promise<void>;
+  /** Open the new-worktree sheet for a space, reading the branches it can start from first. A plain
+   *  folder has none to make, and gets the session `newSessionInWorktree` gives it instead. */
+  askNewWorktree(spaceId?: string | null): Promise<void>;
   /** Open the checkpoint sheet for a checkout, listing that session's turns (or all of them). */
   openCheckpoints(environmentId: string, sessionId?: string | null): Promise<void>;
   /** Re-list without opening anything — what the `checkpoints.changed` broadcast triggers. */
@@ -3053,6 +3065,10 @@ export type AppState = TeamSlice & LabSlice & {
  * for the sign-in sheet, and `reason` is the server's sentence naming what is possible instead.
  */
 export type McpSignInStart = { kind: "browser"; authUrl: string } | { kind: "connected" } | { kind: "choose"; reason: string };
+
+/** What `environments.branches` answers: the local branches, most recently committed first, and the
+ *  one checked out (null when HEAD is detached). */
+export type BranchList = { branches: string[]; current: string | null };
 
 /** The title "New worktree…" sends (Plan 12 W1): the draft's first few words — enough to recognise the
  *  branch by — or null, which the server names "session". Slugging is the server's job (slugifyBranch);
@@ -4413,7 +4429,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
-      worktreeStatuses: {}, worktreeAckStale: null,
+      worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
@@ -6139,7 +6155,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Made to be typed in: ⌘N, a split, an empty pane's button — its prompter gets the keyboard.
         if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
       },
-      async newSessionInWorktree(targetLeafId = null, spaceId = null) {
+      async newSessionInWorktree(targetLeafId = null, spaceId = null, named) {
         const sid = spaceFor(spaceId); if (!sid) return;
         // A plain folder has no worktrees. The session asked for still opens — in the folder, the only
         // checkout such a space has — and nothing is said, because nothing went wrong.
@@ -6149,9 +6165,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         // The worktree is created FIRST and the session pinned to it. If creating it throws (git
         // refused the add) no session is made at all — `run` surfaces the reason.
-        const env = await api.createWorktree(sid, null);
+        const env = await api.createWorktree(sid, named?.title ?? null, named?.base ?? null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ ...instantPick(), environmentId: env.id, spaceId: sid }, targetLeafId);
+        // Made to be typed in, as a session from "+" is.
+        if (named) {
+          const made = Object.values(get().sessions).find((x) => x.environmentId === env.id);
+          if (made) set({ keyboardFor: { sessionId: made.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
+        }
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       /**
@@ -7961,6 +7982,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSetting(NOTIFICATIONS_SOUND_VOLUME_KEY, v);
         set({ soundVolume: v });
       },
+      async askNewWorktree(spaceId = null) {
+        const sid = spaceFor(spaceId); if (!sid) return;
+        if (!(await checkoutIsRepo(sid))) { await get().newSessionInWorktree(null, sid); return; }
+        const branches = await api.listBranches(sid);
+        set({ worktreeBranches: { ...get().worktreeBranches, [sid]: branches },
+          sheet: { kind: "new-worktree", spaceId: sid }, paletteOpen: false, ...maybeSnapForSheet() });
+      },
       async askRemoveWorktree(environmentId) {
         const status = await api.worktreeStatus(environmentId);
         set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: status }, worktreeAckStale: null,
@@ -7974,7 +8002,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
        * opened has changed what "yes" means. So this re-reads, and if the numbers moved it shows the
        * new ones and removes nothing — the user says yes to a number they have actually seen.
        */
-      async confirmRemoveWorktree(environmentId) {
+      async confirmRemoveWorktree(environmentId, opts = {}) {
+        const deleteBranch = opts.deleteBranch ?? true;
         const shown = get().worktreeStatuses[environmentId];
         const fresh = await api.worktreeStatus(environmentId);
         set({ worktreeStatuses: { ...get().worktreeStatuses, [environmentId]: fresh } });
@@ -7982,7 +8011,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           set({ worktreeAckStale: environmentId });
           return;
         }
-        await api.removeWorktree(environmentId, { dirtyFiles: fresh.dirtyFiles, unpushedCommits: fresh.unpushedCommits });
+        if (opts.deleteSessions) {
+          // The sessions go first, through the one path a session is deleted by, because the server
+          // refuses to remove a checkout any session still names. A running one is the sheet's to
+          // stop: its turn is not this click's to end.
+          const here = Object.values(get().sessions).filter((x) => x.environmentId === environmentId);
+          const busy = here.find((x) => ["running", "waiting_permission"].includes(get().sessionStatus[x.id] ?? ""));
+          if (busy) throw new Error(`“${busy.title}” is still running in this worktree. Stop it first.`);
+          for (const x of here) {
+            const it = get().items.find((i) => i.kind === "session" && i.refId === x.id);
+            if (it) await get().deleteItem(it.id);
+          }
+        }
+        await api.removeWorktree(environmentId, { dirtyFiles: fresh.dirtyFiles, unpushedCommits: fresh.unpushedCommits }, deleteBranch);
         const { [environmentId]: _gone, ...worktreeStatuses } = get().worktreeStatuses;
         set({ worktreeStatuses, worktreeAckStale: null, sheet: null, ...restoreSnap() });
         // The environment is gone; so is anything keyed to its checkout.

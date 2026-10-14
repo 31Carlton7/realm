@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
+import { killTree, spawnTarget } from "../spawn-target";
 
 export type JsonRpcId = number | string;
 export type JsonRpcNotification = { method: string; params: unknown };
@@ -80,12 +81,17 @@ export class StdioJsonRpc {
   private childExited = false;
   private _stderrTail: string[] = [];
 
-  constructor(private o: StdioJsonRpcOptions, deps: { spawn?: typeof nodeSpawn } = {}) {
+  private platform: string;
+  constructor(private o: StdioJsonRpcOptions, deps: { spawn?: typeof nodeSpawn; platform?: string } = {}) {
     const spawnFn = deps.spawn ?? nodeSpawn;
+    this.platform = deps.platform ?? process.platform;
     // Deliberately NOT inside a try: `wrap` throwing means the sandbox could not be applied, and the
     // constructor must fail rather than fall through to an unconfined `spawnFn(o.command, ...)`.
     const spawned = o.wrap ? o.wrap(o.command, o.args) : { command: o.command, args: o.args };
-    this.child = spawnFn(spawned.command, spawned.args, { cwd: o.cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...o.env } });
+    const env = { ...process.env, ...o.env };
+    // On Windows an npm-installed CLI is a `.cmd`, which only cmd.exe can start (spawn-target.ts).
+    const target = spawnTarget(spawned.command, spawned.args, { env, platform: this.platform });
+    this.child = spawnFn(target.command, target.args, { cwd: o.cwd, stdio: ["pipe", "pipe", "pipe"], env, ...target.options });
     this.child.stdout?.setEncoding("utf8");
     this.child.stderr?.setEncoding("utf8");
     this.child.stdout?.on("data", (c: string) => this.onStdout(c));
@@ -150,7 +156,7 @@ export class StdioJsonRpc {
       const finish = () => { clearTimeout(killTimer); resolve(); };
       this.child.once("exit", finish);
       this.child.once("error", finish); // spawn never actually started; nothing more to wait for
-      const killTimer = setTimeout(() => this.child.kill("SIGKILL"), DISPOSE_KILL_TIMEOUT_MS);
+      const killTimer = setTimeout(() => killTree(this.child, "SIGKILL", this.platform), DISPOSE_KILL_TIMEOUT_MS);
     });
   }
 

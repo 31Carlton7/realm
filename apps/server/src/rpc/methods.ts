@@ -146,7 +146,9 @@ export function registerMethods(d: Deps): void {
     };
   });
   reg("daemon.stop", () => {
-    setTimeout(() => process.kill(process.pid, "SIGTERM"), 50);
+    // On Windows a signal to oneself is TerminateProcess, which skips the handler; emitting the event
+    // runs the same shutdown.
+    setTimeout(() => (process.platform === "win32" ? process.emit("SIGTERM", "SIGTERM") : process.kill(process.pid, "SIGTERM")), 50);
     return { ok: true as const };
   });
   reg("daemon.stopAgents", async () => ({ stopped: await d.sessions.stopAll() }));
@@ -677,9 +679,10 @@ export function registerMethods(d: Deps): void {
     return env;
   });
   reg("environments.worktreeStatus", (p) => d.envService.worktreeStatus(p.id));
+  reg("environments.branches", (p) => d.envService.branches(p.spaceId, p.from));
   reg("environments.removeWorktree", async (p) => {
     const spaceId = d.envService.get(p.id).spaceId;
-    await d.envService.removeWorktree(p.id, p.acknowledge);
+    await d.envService.removeWorktree(p.id, p.acknowledge, { deleteBranch: p.deleteBranch });
     rpc.broadcast("environments.changed", { spaceId });
     return { ok: true as const };
   });
@@ -972,6 +975,8 @@ export function registerMethods(d: Deps): void {
   reg("team.reviewRequestChanges", (p) => d.team.requestChanges(p.id, p.note));
   reg("team.reviewDone", (p) => d.team.markDone(p.id));
   reg("team.reviewDismiss", (p) => d.team.dismiss(p.id));
+  reg("team.reviewReject", (p) => d.team.reject(p.id, p.reason ?? null));
+  reg("team.reviewClose", (p) => d.team.closeReview(p.id));
   reg("team.reviewEditItem", (p) => d.team.editItem(p.id, p.itemId, p.body));
   reg("team.records", (p) => d.team.records(space(p.spaceId), p.type));
   reg("team.record", (p) => d.team.record(space(p.spaceId), p.path));

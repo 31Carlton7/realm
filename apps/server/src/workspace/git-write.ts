@@ -13,7 +13,7 @@ export type RunCommand = (cmd: string, args: string[], cwd: string, opts?: { tim
  *  reports and degrades from, not a failure of the operation. */
 export const runCommand: RunCommand = (cmd, args, cwd, opts = {}) =>
   new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd, timeout: opts.timeoutMs ?? GIT_NETWORK_TIMEOUT_MS, encoding: "utf8", maxBuffer: 1024 * 1024 },
+    execFile(cmd, args, { cwd, timeout: opts.timeoutMs ?? GIT_NETWORK_TIMEOUT_MS, encoding: "utf8", maxBuffer: 1024 * 1024, windowsHide: true },
       (err, stdout, stderr) => {
         const e = err as (Error & { code?: number | string; killed?: boolean }) | null;
         if (e?.code === "ENOENT") { resolve({ code: 127, stdout, stderr: `${cmd} is not installed` }); return; }

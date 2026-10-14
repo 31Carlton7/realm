@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { pathDelimiter } from "@realm/contracts";
 
 /**
  * A packaged app launched from Finder inherits launchd's minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`)
@@ -15,12 +16,15 @@ import { join } from "node:path";
  */
 
 /**
- * Appended only when the login shell could not be asked — the two places macOS CLIs actually live,
- * plus `~/.local/bin`, the install dir `uv tool install` and `pipx install` use for Python CLI tools.
- * A function, not a constant, so the home directory is the real one at call time.
+ * Appended only when the login shell could not be asked — the two places macOS CLIs actually live
+ * (on Linux, /usr/local/bin and Linuxbrew's), plus `~/.local/bin`, the install dir `uv tool install`
+ * and `pipx install` use for Python CLI tools. None on Windows, where a GUI app inherits the PATH the
+ * user set rather than a launcher's minimal one. A function, not a constant, so the home directory is
+ * the real one at call time.
  */
-export function fallbackExtraDirs(): string[] {
-  const dirs = ["/opt/homebrew/bin", "/usr/local/bin"];
+export function fallbackExtraDirs(platform: string = process.platform): string[] {
+  if (platform === "win32") return [];
+  const dirs = platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : ["/usr/local/bin", "/home/linuxbrew/.linuxbrew/bin"];
   let home = "";
   // homedir() throws on a host with no passwd entry for the uid; a missing ~/.local/bin is not fatal.
   try { home = homedir(); } catch { home = ""; }
@@ -53,13 +57,14 @@ export function extractPathFromEnvOutput(stdout: string, start = START, end = EN
  * Union of login PATH (first, so its ordering wins) and the current PATH (nothing the process already
  * had is ever lost). When the login shell gave no answer, the fallback dirs are appended instead.
  */
-export function mergePath(current: string | undefined, login: string | null): string {
+export function mergePath(current: string | undefined, login: string | null, platform: string = process.platform): string {
+  const sep = pathDelimiter(platform);
   const parts: string[] = [];
   const push = (p: string) => { if (p && !parts.includes(p)) parts.push(p); };
-  for (const p of (login ?? "").split(":")) push(p);
-  for (const p of (current ?? "").split(":")) push(p);
-  if (login === null) for (const p of fallbackExtraDirs()) push(p);
-  return parts.join(":");
+  for (const p of (login ?? "").split(sep)) push(p);
+  for (const p of (current ?? "").split(sep)) push(p);
+  if (login === null) for (const p of fallbackExtraDirs(platform)) push(p);
+  return parts.join(sep);
 }
 
 /**
@@ -68,7 +73,9 @@ export function mergePath(current: string | undefined, login: string | null): st
  * setups only extend PATH in `.zshrc`. `/usr/bin/env` (a binary, absolute path) prints the actual
  * environment, immune to each shell's quoting rules — `"$PATH"` notably means something else in fish.
  */
-export function loginShellPath(shell = process.env.SHELL || "/bin/zsh", timeoutMs = 5000): Promise<string | null> {
+export function loginShellPath(shell = process.env.SHELL || "/bin/zsh", timeoutMs = 5000, platform: string = process.platform): Promise<string | null> {
+  // Windows has no login shell to ask and needs none: Explorer hands a GUI app the user's own PATH.
+  if (platform === "win32") return Promise.resolve(null);
   return new Promise((resolve) => {
     execFile(
       shell,

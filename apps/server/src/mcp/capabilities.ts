@@ -97,7 +97,8 @@ const BLOCKS: Record<string, string> = {
     "the person. Facts about the people it works with are records — `record_types`, `record_list`, `record_read`, " +
     "`record_update` on `creators/<name>.md` — so read the record before acting for someone, and change it when a " +
     "fact changes. Finished work a person should approve goes to Review with `review_submit` (`review_status` says " +
-    "where it stands); nothing you make is sent or posted by you. A review that is no longer wanted you close with " +
+    "where it stands — a person may reject it, with a reason to heed, or close it, even after approving; either way " +
+    "nothing of it goes out, so do not send it again); nothing you make is sent or posted by you. A review that is no longer wanted you close with " +
     "`review_close`, so it stops waiting on the person. A role's run passes work on with `team_handoff`; " +
     "`team_mention` asks a role for something now, as a sub-agent.",
 

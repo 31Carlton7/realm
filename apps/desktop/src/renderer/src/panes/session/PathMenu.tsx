@@ -2,6 +2,7 @@ import { basenameOf, documentKindFor, parseFileTarget, resolveEditor } from "@re
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
 import { canQuickLook, canShare, quickLook, shareFile } from "../../components/file-actions";
+import { capabilities } from "../../platform";
 
 /**
  * What clicking a file path in a transcript offers.
@@ -83,7 +84,7 @@ export function PathMenu({ path, anchorRef, environmentId, cwd, sessionId = null
       onSelect: open,
     }] : []),
     ...(editor ? [{ label: `Open in ${editor.name}`, onSelect: () => run(() => openPathInEditor(editor.id, path, cwd ?? undefined)) }] : []),
-    { label: "Reveal in Finder", onSelect: () => run(async () => {
+    { label: `Reveal in ${capabilities().fileManager}`, onSelect: () => run(async () => {
       const revealed = await window.realm?.files?.reveal?.(path, cwd ?? undefined);
       if (revealed === false) throw missing();
     }) },

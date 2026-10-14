@@ -32,7 +32,7 @@
 .activity-call, .activity-duration, .activity-time, .agent-hint-text code, .cli-job-output,
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
-.documents-rich-surface code, .documents-source, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
+.documents-rich-surface code, .documents-source, .env-branch, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .video-btn, .video-time, .video-scrub-hover, .mention-row-id, .mp-about code,
 .msg-error pre, .pane-empty-path, .permission-details pre, .permission-tool code, .req-target,
@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .terminal-dock-title,
-.sim-detail, .upl-path, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
+.sim-detail, .upl-path, .wt-branch, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
 .subagent-where[data-branch], .subagent-view-where[data-branch] {
   letter-spacing: normal;
@@ -709,6 +709,16 @@ kbd { font: 11px var(--font-mono); }
 .window-trail { position: fixed; z-index: 36; top: 0; right: 12px; height: var(--frame-top); display: flex; align-items: center; }
 .window-trail button { -webkit-app-region: no-drag; }
 .panel[data-top-right] > .panel-bar { padding-right: calc(12px + 28px + 6px); }
+/* ── Linux and Windows: the system's window controls (`data-window-controls`, platform.ts) ──
+   No traffic lights at the left, so the lead starts at the trail's own 12px in. The system draws its
+   minimise, maximise and close over the head row's right end (main/window-chrome.ts), and what sits
+   at that end moves left by their width — the overlay's own measure where Chromium reports it, else
+   Windows' three 46px buttons. */
+:root[data-window-controls="overlay"] { --lights-end: 2px;
+  --controls-w: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px))); }
+:root[data-window-controls="overlay"] .window-trail { right: calc(12px + var(--controls-w)); }
+:root[data-window-controls="overlay"] .panel[data-top-right] > .panel-bar { padding-right: calc(12px + 28px + 6px + var(--controls-w)); }
+:root[data-window-controls="overlay"] .media-viewer-head { padding-right: calc(12px + var(--controls-w)); }
 .panel[data-first-leaf] > .panel-bar, .page-overlay-bar { transition: padding-left var(--dur-move) var(--ease-in-out-strong); }
 .app[data-sidebar-collapsed] .panel[data-first-leaf] > .panel-bar, .app[data-sidebar-collapsed] .page-overlay-bar {
   padding-left: calc(var(--lead-end) - var(--rail-w)); }
@@ -749,6 +759,13 @@ kbd { font: 11px var(--font-mono); }
 .rail-update[data-state="downloading"]:hover { background: none; }
 .rail-update[data-state="downloading"] .rail-update-disc::before { content: ""; position: absolute; inset: -4px; border-radius: 50%;
   background: conic-gradient(var(--rl-accent) var(--update-progress, 0%), var(--mark) 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); }
+/* Laya installing itself: the update's ring in quiet ink round a plain glyph — news, not a request. */
+.rail-laya { color: var(--rl-text-dim); }
+.rail-laya-disc { position: relative; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; }
+.rail-laya[data-measured] .rail-laya-disc::before { content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  background: conic-gradient(var(--rl-text-dim) var(--update-progress, 0%), var(--mark) 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); }
 /* A count at a rail glyph's shoulder — the bell's unread (`.rail-glyph`).
@@ -7174,6 +7191,17 @@ select { appearance: none; padding-right: 22px;
 .wt-hazard[data-risky] { color: var(--rl-danger); }
 .wt-note { margin: 0; font-size: 12px; color: var(--rl-text-faint); }
 .wt-stale, .wt-blocked { margin: 0; font-size: 12px; color: var(--rl-warning); }
+.wt-branch { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); }
+/* A choice that rides on the confirm: a box and the sentence it answers, the box on the text's first line. */
+.wt-choice { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.wt-choice > .checkbox { margin-top: 2px; flex: none; }
+.wt-sessions { display: flex; flex-direction: column; gap: 8px; }
+.wt-session-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.wt-session { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 13px; }
+.wt-session-title { flex: 1; min-width: 0; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-session-state { flex: none; font-size: 12px; color: var(--rl-text-dim); }
+/* The name a new worktree's branch will get, said as it is typed. */
+.wt-derived { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 
 /* Checkpoints (W4). Same vocabulary as the worktree sheet — hazard in danger ink, caveats in faint,
    the stale-count warning in amber — because they are the same question asked about a different
@@ -7240,6 +7268,17 @@ select { appearance: none; padding-right: 22px;
 .env-path { font-family: var(--font-mono); font-size: 11px; word-break: break-all; }
 .page .env-path { font-size: 12px; }
 .env-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 4px; }
+/* The list's head carries the one way to make another: a worktree is made here, beside the ones there are. */
+.env-field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.env-field-head > .btn { display: inline-flex; align-items: center; gap: 4px; }
+/* One card a row here: a checkout's name is a branch of unbounded length and its path longer still,
+   and half the column left both an ellipsis and a path broken over seven lines. */
+.env-field > .env-list { grid-template-columns: minmax(0, 1fr); }
+/* What git says now: the branch in mono, then only the counts that are not zero. */
+.env-git { grid-column: 1; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: 12px; color: var(--rl-text-dim); }
+.env-branch { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.env-sync { font-variant-numeric: tabular-nums; }
+.env-when { font-variant-numeric: tabular-nums; }
 
 /* ── Space settings: MCP servers, auth and per-tool policy (W6) ───── */
 /* .mcp-row inherits .env-row's `1fr auto` grid as-is (no override needed) — but its three appended
@@ -10528,6 +10567,8 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-ask-field { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none; }
 .rv-ask-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+/* Close's strip says what it will stop before it does; it reads as the bar's own sentence does. */
+.rv-ask-text { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
 
 /* The team's kill switch, at the head of its Review, and the line that says it is on. */
 .rv-hold { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; }

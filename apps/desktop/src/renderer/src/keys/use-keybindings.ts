@@ -39,7 +39,7 @@ export function useKeybindings(store: StoreApi<AppState>, rules: readonly Keybin
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return; // someone closer to the target already consumed it
-      const chord = chordFromEvent(e);
+      const chord = chordFromEvent(e, window.realm?.platform);
       if (chord === null) return;
       if (ALWAYS_SWALLOWED_CHORDS.includes(chord)) e.preventDefault();
       const command = commandForChord(live.current, chord, keyContext(store.getState(), e.target));

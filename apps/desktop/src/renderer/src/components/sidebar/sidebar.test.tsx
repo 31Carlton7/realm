@@ -248,11 +248,17 @@ describe("a space's section", () => {
     expect(reveal).toHaveBeenCalledWith("/work/homework");
   });
 
-  it("starts a session in a fresh worktree of its space from the ⋯", async () => {
-    const { api } = await mount(home({ gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } }));
+  it("asks for a session in a fresh worktree of its space from the ⋯ — a name and a branch to start from", async () => {
+    const { api, store } = await mount(home({ gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } },
+      branches: { s2: { branches: ["main"], current: "main" } } }));
     fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
-    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "New session in a worktree" }));
-    await waitFor(() => expect(api.calls).toContain("createWorktree:s2"));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "New session in a worktree…" }));
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-worktree", spaceId: "s2" }));
+    expect(api.calls).toContain("listBranches:s2");
+    await exited();
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Worktrees" }));
+    await waitFor(() => expect(store.getState().spacePageTab.s2).toBe("worktrees"));
   });
 
   it("offers no session in a worktree from the ⋯ of a space that is a plain folder", async () => {
@@ -260,8 +266,46 @@ describe("a space's section", () => {
     await act(async () => { await store.getState().refreshGitInfo("/work/homework"); });
     fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
     const menu = await screen.findByRole("menu", { name: "Homework" });
-    expect(within(menu).queryByRole("menuitem", { name: "New session in a worktree" })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: /New session in a worktree/ })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: "Worktrees" })).toBeNull();
     expect(within(menu).getByRole("menuitem", { name: "Space settings" })).toBeInTheDocument();
+  });
+
+  it("opens the ⋯'s own menu at the pointer on a right-click of its head", async () => {
+    // THE MUTANTS: no context menu on the head; a second, shorter menu; the menu still under the ⋯.
+    const { store } = await mount(home());
+    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
+    const fromDots = [...within(await screen.findByRole("menu", { name: "Homework" })).getAllByRole("menuitem")].map((b) => b.textContent);
+    fireEvent.keyDown(screen.getByRole("menu", { name: "Homework" }), { key: "Escape" });
+    await exited();
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    fireEvent.contextMenu(head("Homework"), { clientX: 120, clientY: 340 });
+    const menu = await screen.findByRole("menu", { name: "Homework" });
+    expect([...within(menu).getAllByRole("menuitem")].map((b) => b.textContent)).toEqual(fromDots);
+    expect(menu.style.left).toBe("120px");
+    expect(menu.style.top).toBe("340px");
+    // The ⋯ says its menu is open, whichever way it was opened.
+    expect(within(section("Homework")).getByRole("button", { name: "More for Homework" })).toHaveAttribute("aria-expanded", "true");
+    // Escape puts it away, as it does the ⋯'s.
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await exited();
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    // And its rows do what they do from the ⋯.
+    fireEvent.contextMenu(head("Homework"), { clientX: 120, clientY: 340 });
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Memory" }));
+    await waitFor(() => expect(store.getState().spacePageTab.s2).toBe("memory"));
+  });
+
+  it("opens under the ⋯ when the context menu comes from the keyboard", async () => {
+    await mount(home());
+    const dots = within(section("Homework")).getByRole("button", { name: "More for Homework" });
+    dots.getBoundingClientRect = () => ({ x: 200, y: 300, left: 200, top: 300, right: 220, bottom: 320, width: 20, height: 20, toJSON: () => ({}) });
+    // A keyboard context menu carries no pointer: 0,0 is not where anyone asked for it.
+    fireEvent.contextMenu(head("Homework"), { clientX: 0, clientY: 0 });
+    const menu = await screen.findByRole("menu", { name: "Homework" });
+    expect(menu.style.top).toBe("324px");
   });
 });
 

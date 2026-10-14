@@ -49,7 +49,8 @@ export function assertRepoRelative(path: string): void {
   if (path === "" || isAbsolute(path) || path.startsWith("/")) {
     throw new RpcError("INVALID_PARAMS", `${path || "(empty)"} is not a path inside the checkout`);
   }
-  if (path.split("/").some((seg) => seg === "..")) {
+  // Either separator: on Windows `..\..\x` leaves the checkout as surely as `../../x`.
+  if (path.split(/[\\/]/).some((seg) => seg === "..")) {
     throw new RpcError("INVALID_PARAMS", `${path} leaves the checkout`);
   }
 }

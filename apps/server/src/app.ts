@@ -2,7 +2,7 @@ import { agentBin } from "./cli/bins";
 import { CliService } from "./cli/service";
 import { CliInstaller } from "./cli/install";
 import { openDatabase, type Db } from "./db/database";
-import { dbPath } from "./paths";
+import { appDataDir, dbPath } from "./paths";
 import { ProfilesStore } from "./store/profiles";
 import { SpacesStore } from "./store/spaces";
 import { IconAssetsStore } from "./store/icon-assets";
@@ -39,8 +39,9 @@ import { createCatalogTools } from "./workspace/catalog";
 import { harnessFakeScript } from "./harness-fake-script";
 import { GoalsStore } from "./store/goals";
 import { MachineWsProxy } from "./machines/ws-proxy";
+import { statfsSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { MachinesStore } from "./store/machines";
 import { SimulatorsStore } from "./store/simulators";
@@ -56,7 +57,7 @@ import { PlynnService } from "./school/plynn";
 import { BrowserService } from "./browsers/service";
 import { BrowserHostBridge } from "./browsers/host-bridge";
 import { BrowserPermissionBroker } from "./browsers/permissions";
-import { createUiAgentProvider, listBranches } from "./ui/agent-tools";
+import { createUiAgentProvider } from "./ui/agent-tools";
 import { createHubElicitation } from "./mcp/elicitation";
 import { createBrowserAgentProvider } from "./browsers/agent-tools";
 import { createComputerAgentProvider } from "./computer/agent-tools";
@@ -126,7 +127,7 @@ import { MentionFiles } from "./workspace/mention-files";
 import { gitCapture } from "./workspace/git-exec";
 import { GitWriteService } from "./workspace/git-write";
 import { PortAllocator } from "./workspace/ports";
-import { WorktreeService } from "./workspace/worktrees";
+import { WorktreeService, listBranches } from "./workspace/worktrees";
 import { EnvironmentService } from "./environments/service";
 import { CheckpointsStore } from "./store/checkpoints";
 import { CheckpointGit } from "./workspace/checkpoints";
@@ -775,6 +776,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** The Mac's memory pressure and free disk as a training run reads them (`machineState`); left
    *  out, the real ones. A test hands in a Mac short of memory. */
   layaMachine?: () => Promise<import("./laya/training").MachineState>;
+  /** Laya installs itself once there is a moment for it (`LayaService`'s auto-install). Only `main.ts`
+   *  turns this on, and not in a harness: an app a test or a live check builds never downloads. */
+  layaAutoInstall?: boolean;
 }): Promise<App> {
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
@@ -1070,7 +1074,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const userHome = opts.userHome ?? homedir();
   // A space that works in `/` or the home folder itself is not a project a repo could be mixed into —
   // counted as one, it would forbid every folder on the Mac and no team could ever be made.
-  const holdsUserHome = (p: string): boolean => !relative(resolve(p), userHome).startsWith("..");
+  // On Windows a folder on another drive has no relative path to home at all — `relative` answers
+  // with an absolute one — and is not around it.
+  const holdsUserHome = (p: string): boolean => { const r = relative(resolve(p), userHome); return !r.startsWith("..") && !isAbsolute(r); };
   const memoryRepos = new MemoryRepoService({
     home: opts.home, settings, scopes: scopeSeam,
     forbiddenRoots: () => [
@@ -1081,7 +1087,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Realm's home kept inside a project folder that is also a space (a preview build's, say) would
     // forbid every repo made under it; the app's own Application Support folder is the second place.
     // Only a caller that names the machine's home gets a default there: a test never writes outside its own.
-    fallbackRoot: opts.memoryFallbackRoot ?? (opts.userHome ? join(opts.userHome, "Library", "Application Support", "Realm", "memory-repos") : undefined),
+    fallbackRoot: opts.memoryFallbackRoot ?? (opts.userHome ? join(appDataDir(opts.userHome), "Realm", "memory-repos") : undefined),
     toolsEnabled: (spaceId) => mcp.providerEnabled(spaceId, MEMORY_PROVIDER_NAME),
     committerName: userFirstName,
     // Asked only whether a GitHub remote is private, before sync is turned on; never a test's network.
@@ -1133,6 +1139,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     activeEval: harnessEvalOverride(),
     baseEval: () => (layaRuntime ? readEval(join(layaRuntime.dir, "evals", "convaiinnovations-laya.json")) : null)
       ?? (layaResources ? readEval(join(layaResources, "evals", "convaiinnovations-laya.json")) : null),
+    ...(opts.layaAutoInstall ? {
+      autoInstall: {
+        onboarded: () => spaces.listAll().length > 0,
+        busy: () => sessions.statusCounts().working > 0,
+        freeBytes: () => { try { const fs = statfsSync(opts.home); return Number(fs.bavail) * Number(fs.bsize); } catch { return null; } },
+      },
+    } : {}),
     ...(layaRuntime && layaResources
       ? { train: (o: Parameters<typeof trainCheckpoint>[1]) => trainCheckpoint({ runtime: layaRuntime, resources: layaResources, logFiles: () => layaLog.files(), recorded: () => layaRecorder.screens(), machine: opts.layaMachine ?? (() => machineState(layaRuntime.dir)) }, o) }
       : {}),

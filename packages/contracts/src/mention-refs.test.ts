@@ -10,7 +10,8 @@ const app = (label: string, bundleId: string): MentionRef => ({ kind: "app", lab
 describe("isSecretPath", () => {
   it("refuses the files that exist to hold a secret, wherever in the tree they sit", () => {
     for (const p of [".env", "apps/server/.env.local", ".env.production", ".envrc", ".npmrc", ".netrc", "deploy/server.key",
-      "certs/site.pem", "id_ed25519", "config/credentials.json", "client_secret_123.apps.json", ".ssh/config", "home/.aws/config"]) {
+      "certs/site.pem", "id_ed25519", "config/credentials.json", "client_secret_123.apps.json", ".ssh/config", "home/.aws/config",
+      "C:\\Users\\me\\.ssh\\config", "C:\\work\\app\\.env"]) {
       expect(isSecretPath(p), p).toBe(true);
     }
   });
@@ -87,6 +88,10 @@ describe("the wire", () => {
     expect(MentionRefSchema.safeParse({ kind: "library", label: "r.pdf", path: "/h/r.pdf" }).success).toBe(true);
     expect(MentionRefSchema.safeParse(app("Mail", "com.apple.mail")).success).toBe(true);
     expect(MentionRefSchema.safeParse(file("a.ts", "src/a.ts")).success).toBe(false);
+    // Windows' absolute paths are absolute too: a drive, or a share.
+    expect(MentionRefSchema.safeParse(file("a.ts", "C:\\r\\a.ts")).success).toBe(true);
+    expect(MentionRefSchema.safeParse({ kind: "library", label: "r.pdf", path: "\\\\nas\\h\\r.pdf" }).success).toBe(true);
+    expect(MentionRefSchema.safeParse(file("a.ts", "src\\a.ts")).success).toBe(false);
     expect(MentionRefSchema.safeParse({ ...app("Mail", "com.apple.mail"), bundleId: "com.apple.mail; rm -rf" }).success).toBe(false);
   });
 

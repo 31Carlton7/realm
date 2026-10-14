@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import { BRANCH_PREFIX, slugifyBranch } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { gitCapture, gitReason, type GitRun } from "./git-exec";
 
@@ -10,40 +11,13 @@ import { gitCapture, gitReason, type GitRun } from "./git-exec";
  *  worktrees of different repositories without either knowing about the other. The leaf is the
  *  branch's own slug, because it is what a shell prompt shows the user. */
 export const WORKTREES_DIRNAME = "worktrees";
-/** Every branch Realm creates is `realm/<slug>`. The prefix makes Realm's branches obvious in
- *  `git branch`, and puts them in a namespace the user's own `main`/`feat/...` can never collide
- *  with. The slug contains no `/`, so `realm/a` and `realm/a/b` can never both exist (git stores
- *  refs as files and would refuse the second). */
-export const BRANCH_PREFIX = "realm/";
-export const SLUG_MAX = 40;
+// The branch naming rule is shared with the renderer, which shows the name as it is typed.
+export { BRANCH_PREFIX, SLUG_MAX, slugifyBranch } from "@realm/contracts";
 /** How many `-2`, `-3`… suffixes to try before giving up on a base name. */
 export const NAME_ATTEMPTS = 200;
 /** A branch `create` produced for a session that had no title yet — the only shape `renameBranch`
  *  will touch. Anchored on both ends: `realm/session-notes` is a real name and must survive. */
 export const UNNAMED_BRANCH = /^realm\/session(-\d+)?$/;
-
-/**
- * A branch/directory name derived from a session title. Titles are free text: spaces, slashes,
- * emoji, `..`, control characters, a leading dot, a trailing `.lock` — every one of which git
- * refuses in a ref name (git-check-ref-format(1)) or a filesystem dislikes in a path component.
- *
- * The rule is an allowlist, not a blocklist: anything outside `[a-z0-9._-]` becomes `-`. A
- * blocklist of git's forbidden characters would be one release behind git and would still let
- * emoji, RTL overrides and path separators through.
- */
-export function slugifyBranch(title: string): string {
-  const slug = title
-    .normalize("NFKD").toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    // `..` and `@{` are illegal in refs; runs of separators are merely ugly. Collapse both.
-    .replace(/\.+/g, ".").replace(/-+/g, "-")
-    .replace(/^[-._]+|[-._]+$/g, "")
-    .slice(0, SLUG_MAX)
-    // The slice can leave a fresh trailing separator, and `.lock` is illegal at the end of any
-    // ref component however it got there.
-    .replace(/[-._]+$/, "").replace(/\.lock$/, "").replace(/[-._]+$/, "");
-  return slug || "session";
-}
 
 /** What `environments.removeWorktree` would destroy, and therefore what the user must acknowledge. */
 export type WorktreeHazard = {
@@ -53,7 +27,8 @@ export type WorktreeHazard = {
   present: boolean;
   /** Lines of `git status --porcelain`: uncommitted edits plus untracked files. */
   dirtyFiles: number;
-  /** Commits on the branch that no remote ref contains — work that deleting the branch loses. */
+  /** Commits on the branch that no remote ref and no other local branch contains — the work that
+   *  deleting the branch loses. */
   unpushedCommits: number;
 };
 
@@ -98,14 +73,16 @@ export class WorktreeService {
   }
 
   /**
-   * `git worktree add -b realm/<slug> <path> HEAD`, plus the row's worth of facts back.
+   * `git worktree add -b realm/<slug> <path> <base>`, plus the row's worth of facts back. `base` is
+   * the branch (or any commit-ish) the new branch starts from; absent, the source's HEAD.
    *
-   * Refuses rather than improvises for the three states a real space is actually in:
+   * Refuses rather than improvises for the states a real space is actually in:
    *  - not a git repository at all (a plain directory is a perfectly ordinary Realm space),
    *  - a repository with no commits yet (git: "invalid reference: HEAD"),
+   *  - a base that names no commit,
    *  - every candidate name taken.
    */
-  async create(input: { spaceId: string; sourcePath: string; title?: string | null }): Promise<{ path: string; branch: string }> {
+  async create(input: { spaceId: string; sourcePath: string; title?: string | null; base?: string | null }): Promise<{ path: string; branch: string }> {
     const src = input.sourcePath;
     if (!existsSync(src)) throw new RpcError("NOT_A_REPOSITORY", `${src} does not exist`);
     if ((await this.git(src, ["rev-parse", "--git-dir"])).code !== 0) {
@@ -117,11 +94,20 @@ export class WorktreeService {
       throw new RpcError("WORKTREE_NO_COMMITS", "this repository has no commits yet — make one before opening a worktree");
     }
 
+    const base = input.base?.trim() || "HEAD";
+    // A name that starts with "-" would reach git as an option, and one that names no commit would
+    // fail inside `worktree add` with a message about a path the user never typed.
+    if (base.startsWith("-") || (await this.git(src, ["rev-parse", "--verify", "--quiet", `${base}^{commit}`])).code !== 0) {
+      throw new RpcError("WORKTREE_BAD_BASE", `${base} is not a branch or commit in this repository`);
+    }
+
     const root = this.spaceRoot(input.spaceId);
     mkdirSync(root, { recursive: true });
     const { path, branch } = await this.pickName(src, root, slugifyBranch(input.title?.trim() || "session"));
 
-    const added = await this.git(src, ["worktree", "add", "-b", branch, path, "HEAD"]);
+    // `--no-track`: a branch started from `origin/main` would otherwise track it, and a later push of
+    // the worktree's branch would go to main.
+    const added = await this.git(src, ["worktree", "add", "--no-track", "-b", branch, path, base]);
     if (added.code !== 0) throw new RpcError("WORKTREE_ADD_FAILED", gitReason(added));
     return { path, branch };
   }
@@ -188,11 +174,19 @@ export class WorktreeService {
   }
 
   /**
+   * The branches a worktree can start from, most recently committed first, and the one checked out.
+   * Null when `path` is not a repository.
+   */
+  async branches(path: string): Promise<{ branches: string[]; current: string | null } | null> {
+    return listBranches(path, this.git);
+  }
+
+  /**
    * What removing this worktree would cost, asked of git right now.
    *
-   * `--not --remotes` is the honest definition of "unpushed": commits on the branch that no remote
-   * ref contains. It counts every commit in a repo with no remote at all, which is correct — none
-   * of that work exists anywhere else.
+   * The commits counted are the ones deleting the branch would actually lose: on the branch, and on
+   * no remote ref and no OTHER local branch. Counting against remotes alone said a fresh worktree of
+   * a repository with no remote would "destroy" every commit of its history — commits main still has.
    */
   async hazard(input: { path: string; branch: string | null; fallbackRepo: string }): Promise<WorktreeHazard> {
     const present = existsSync(input.path);
@@ -206,27 +200,37 @@ export class WorktreeService {
     const dirtyFiles = status?.code === 0 ? status.stdout.split("\n").filter((l) => l.trim() !== "").length : 0;
     let unpushedCommits = 0;
     if (input.branch) {
-      const counted = await this.git(repo, ["rev-list", "--count", input.branch, "--not", "--remotes"]);
-      if (counted.code === 0) unpushedCommits = Number(counted.stdout.trim()) || 0;
+      unpushedCommits = (await this.uniqueCommits(repo, input.branch)) ?? 0;
     }
     return { ...base, dirtyFiles, unpushedCommits };
   }
 
+  /** Commits on `branch` that no other local branch and no remote ref holds; null when git cannot say. */
+  private async uniqueCommits(repo: string, branch: string): Promise<number | null> {
+    // `--exclude` before `--branches` takes the name without `refs/heads/` (git-rev-list(1)).
+    const counted = await this.git(repo, ["rev-list", "--count", branch, "--not", `--exclude=${branch}`, "--branches", "--remotes"]);
+    return counted.code === 0 ? Number(counted.stdout.trim()) || 0 : null;
+  }
+
   /**
-   * Take the worktree off disk and delete its branch.
+   * Take the worktree off disk and, unless `deleteBranch` is false, delete its branch.
    *
    * `--force` is used only when git itself reports a dirty tree AND the caller acknowledged exactly
    * that many files; `-D` only when git reports unpushed commits AND the caller acknowledged
    * exactly that many. A clean worktree is removed with the plain, refusing forms — so a bug that
    * fabricates an acknowledgement of `{0, 0}` cannot destroy anything, and one that fabricates
-   * `{99, 99}` is rejected for not matching.
+   * `{99, 99}` is rejected for not matching. A branch that is kept loses none of its commits, so
+   * they need no acknowledgement then.
    */
-  async remove(input: { path: string; branch: string | null; fallbackRepo: string; acknowledge: WorktreeAck | null }): Promise<WorktreeHazard> {
+  async remove(input: { path: string; branch: string | null; fallbackRepo: string; acknowledge: WorktreeAck | null; deleteBranch?: boolean }): Promise<WorktreeHazard> {
     this.assertManaged(input.path);
-    const hazard = await this.hazard(input);
+    const deleteBranch = input.deleteBranch ?? true;
+    const found = await this.hazard(input);
+    // What THIS removal loses: a kept branch keeps its commits.
+    const hazard = deleteBranch ? found : { ...found, unpushedCommits: 0 };
     const risky = hazard.dirtyFiles > 0 || hazard.unpushedCommits > 0;
     const ack = input.acknowledge;
-    if (risky && !(ack && ack.dirtyFiles === hazard.dirtyFiles && ack.unpushedCommits === hazard.unpushedCommits)) {
+    if (risky && !(ack && ack.dirtyFiles === hazard.dirtyFiles && (!deleteBranch || ack.unpushedCommits === hazard.unpushedCommits))) {
       throw new RpcError("WORKTREE_UNSAFE", describeHazard(hazard));
     }
 
@@ -237,10 +241,17 @@ export class WorktreeService {
         ? ["worktree", "remove", "--force", input.path]
         : ["worktree", "remove", input.path]);
       if (removed.code !== 0) throw new RpcError("WORKTREE_REMOVE_FAILED", gitReason(removed));
-      if (input.branch) {
+      if (input.branch && deleteBranch) {
         // -d refuses an unmerged branch. That refusal is the safety net under the acknowledgement,
         // so it stays the default and -D is only reached with matching consent above.
-        const deleted = await this.git(repo, ["branch", hazard.unpushedCommits > 0 ? "-D" : "-d", input.branch]);
+        let deleted = await this.git(repo, ["branch", hazard.unpushedCommits > 0 ? "-D" : "-d", input.branch]);
+        // -d also refuses a branch whose commits are all on ANOTHER branch, just not on this HEAD — a
+        // worktree started from `feat/x` and never committed to. Counted again here, it loses nothing,
+        // and only then does it go with -D.
+        if (deleted.code !== 0 && /not fully merged/i.test(deleted.stderr) && hazard.unpushedCommits === 0
+          && (await this.uniqueCommits(repo, input.branch)) === 0) {
+          deleted = await this.git(repo, ["branch", "-D", input.branch]);
+        }
         // A branch that is already gone, or was never created, is not a failure of removal.
         if (deleted.code !== 0 && !/not found|Cannot delete/i.test(deleted.stderr)) {
           throw new RpcError("WORKTREE_REMOVE_FAILED", gitReason(deleted));
@@ -272,6 +283,16 @@ export class WorktreeService {
       await this.git(sourcePath, ["branch", "-D", branch]);
     } catch { /* the row failure is the error worth reporting */ }
   }
+}
+
+/** A checkout's local branches, most recently committed first, and the one checked out (null when
+ *  HEAD is detached). Null when `cwd` is not a repository. */
+export async function listBranches(cwd: string, git: GitRun = gitCapture): Promise<{ branches: string[]; current: string | null } | null> {
+  const refs = await git(cwd, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"]).catch(() => null);
+  if (!refs || refs.code !== 0) return null;
+  const head = await git(cwd, ["branch", "--show-current"]).catch(() => null);
+  const current = head && head.code === 0 ? head.stdout.trim() || null : null;
+  return { branches: refs.stdout.split("\n").map((b) => b.trim()).filter(Boolean), current };
 }
 
 /** The refusal message, which must name what would be lost — a bare "unsafe" teaches nothing. */

@@ -4,7 +4,7 @@ import {
   CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
   ACT_PACING, CREATOR_PRESET, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, lineDiff, reviewVerb, verbFamily, recordTemplate,
   type DeliverableFormat, type ProposedAction, type ReviewAction, type RecordType, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTitle, sessionEvent, usageDeltas, weekStart,
-  type ActTicket, type AgentKind, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
+  type ActTicket, type AgentKind, FINAL_REVIEW_STATES, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
   type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type TeamRole, type TeamSpace, type UpdateRoleInput, type WokeOn,
 } from "@realm/contracts";
@@ -30,7 +30,8 @@ const SLOTS_KEY = "team.slots";
 const IMAGE = /\.(png|jpe?g|gif|webp|heic|avif)$/i;
 const TEXT_FILE = /\.(md|markdown|csv|tsv|diff|patch|txt)$/i;
 const REVIEW_DEDUPE = /^review:([0-9A-HJKMNP-TV-Z]{26}):\d+$/;
-const STATE_CLOSED: Record<ReviewState, string> = { waiting: "waiting", changes: "waiting on changes", approved: "approved by the person", done: "done", dismissed: "put away" };
+const STATE_CLOSED: Record<ReviewState, string> = { waiting: "waiting", changes: "waiting on changes", approved: "approved by the person", done: "done", dismissed: "put away",
+  rejected: "rejected by the person", closed: "closed by the person" };
 
 export type SubmitInput = {
   /** The review's label, as the role wrote it (`kind` is its old name, still taken). Absent, the
@@ -147,7 +148,8 @@ export class TeamService {
   space(spaceId: string): TeamSpace {
     const roles = this.d.store.roles(spaceId).map((r) => this.roleView(r));
     this.refreshApprovedHashes(spaceId);
-    const reviews = this.d.store.reviews(spaceId).filter((r) => r.state !== "dismissed").map((r) => this.summary(r));
+    // Every state, the closed ones too: Review keeps a week of what was rejected or closed as history.
+    const reviews = this.d.store.reviews(spaceId).map((r) => this.summary(r));
     const repo = this.repoPath(spaceId);
     const owner = { scope: "space", id: spaceId } as const;
     return {
@@ -627,7 +629,8 @@ export class TeamService {
     const roleId = run?.roleId ?? null;
     const revising = run?.dedupeKey ? REVIEW_DEDUPE.exec(run.dedupeKey)?.[1] ?? null : null;
     const prior = revising ? this.d.store.review(revising) : null;
-    const row = prior && prior.spaceId === ctx.spaceId
+    // A review the person has finished with stays as they left it: what the run sends now is new work.
+    const row = prior && prior.spaceId === ctx.spaceId && !FINAL_REVIEW_STATES.includes(prior.state)
       ? this.d.store.revise(prior.id, { runId: run?.id ?? null, sessionId: ctx.sessionId, title }, items)
       : this.d.store.createReview({ spaceId: ctx.spaceId, roleId, runId: run?.id ?? null, sessionId: ctx.sessionId, recordPath, kind: label, title }, items);
     this.log(ctx.spaceId, roleId ? `role:${roleId}` : "realm", prior ? "revised" : "submitted", title,
@@ -915,7 +918,7 @@ export class TeamService {
     const text = note.trim();
     if (!text) throw new RpcError("TEAM_REVIEW_INVALID", "say what should change");
     const r = this.mustReview(id);
-    if (r.state === "done" || r.state === "dismissed") throw new RpcError("TEAM_REVIEW_STATE", `this review is ${r.state}`);
+    if (FINAL_REVIEW_STATES.includes(r.state)) throw new RpcError("TEAM_REVIEW_STATE", `this review is ${STATE_CLOSED[r.state]}`);
     const next = this.d.store.setReviewState(id, "changes", { note: text, decided: true })!;
     this.log(r.spaceId, "user", "asked_changes", r.title, { reviewId: id, note: text });
     this.d.acts?.cancelForReview(id, "you asked for changes");
@@ -941,6 +944,8 @@ export class TeamService {
   /** Posted by hand, sent, or read: the review is finished. */
   markDone(id: string): TeamReviewSummary {
     const r = this.mustReview(id);
+    // Done again is no change; a batch the person rejected or closed is not done by another route.
+    if (r.state !== "done" && FINAL_REVIEW_STATES.includes(r.state)) throw new RpcError("TEAM_REVIEW_STATE", `this review is ${STATE_CLOSED[r.state]}`);
     const next = this.d.store.setReviewState(id, "done", { decided: true })!;
     this.log(r.spaceId, "user", "marked_done", r.title, { reviewId: id });
     this.d.acts?.cancelForReview(id, "you marked it done by hand");
@@ -955,6 +960,57 @@ export class TeamService {
     this.d.acts?.cancelForReview(id, "you dismissed it");
     this.changed(r.spaceId);
     return this.summary(next);
+  }
+
+  /**
+   * No. The batch is finished with: whatever had not gone out is taken back, and a press already on
+   * its way is stopped where the platform still can (`ActService.cancelForReview`). A reason goes
+   * back to the run that made it — the same conversation, one more turn, as Request changes does —
+   * when the role wakes on reviews; without one there is nothing to tell, and no run is spent. The
+   * woken run's dedupe key is not `review:`, so anything it sends is a new review rather than a
+   * revision of this one.
+   */
+  reject(id: string, reason: string | null): TeamReviewSummary {
+    const r = this.mustOpenReview(id);
+    const why = reason?.trim() || null;
+    const next = this.d.store.setReviewState(id, "rejected", { decided: true, note: why })!;
+    this.log(r.spaceId, "user", "rejected", r.title, { reviewId: id, from: r.state, reason: why });
+    this.d.acts?.cancelForReview(id, "you rejected it");
+    const role = r.roleId ? this.d.store.role(r.roleId) : null;
+    if (why && role && !role.archived && role.wakeOnReview) {
+      const prior = r.runId ? this.d.runs.get(r.runId)?.run ?? null : null;
+      this.wake(role, "review", [
+        `A person rejected "${r.title}", which you sent to Review. Nothing of it will go out. They said:`,
+        "",
+        why,
+        "",
+        "Do not send it again. Keep what they said in mind for the next thing you make.",
+      ].join("\n"), { note: why, sessionId: prior?.sessionId ?? r.sessionId, dedupeKey: `reject:${id}:${r.version}` });
+    }
+    this.changed(r.spaceId);
+    return this.summary(next);
+  }
+
+  /**
+   * Closed before it went out: waiting, asked to change, or approved and not sent yet. The state
+   * moves first, in the same tick as the cancel, so a slot that comes next finds the batch no longer
+   * approved and sends nothing; an act already with the platform is stopped if it can be, and if it
+   * went out anyway its ticket says so (`ActService.execute` never reopens a closed review).
+   */
+  closeReview(id: string): TeamReviewSummary {
+    const r = this.mustOpenReview(id);
+    const next = this.d.store.setReviewState(id, "closed", { decided: true })!;
+    this.log(r.spaceId, "user", "closed", r.title, { reviewId: id, from: r.state });
+    this.d.acts?.cancelForReview(id, "you closed it");
+    this.changed(r.spaceId);
+    return this.summary(next);
+  }
+
+  /** A review the person can still decide about — not one already finished with. */
+  private mustOpenReview(id: string): ReviewRow {
+    const r = this.mustReview(id);
+    if (FINAL_REVIEW_STATES.includes(r.state)) throw new RpcError("TEAM_REVIEW_STATE", `this review is already ${STATE_CLOSED[r.state]}`);
+    return r;
   }
 
   private mustReview(id: string): ReviewRow {

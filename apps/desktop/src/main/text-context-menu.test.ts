@@ -37,6 +37,12 @@ describe("the text context menu", () => {
     expect(shape(t)).toEqual(["Look Up “an unusually long…”", "—", "copy"]);
   });
 
+  it("offers no Look Up where there is no dictionary panel (Linux, Windows)", () => {
+    const { lookUp: _none, ...offMac } = act();
+    const t = textMenuTemplate({ ...base, selectionText: "a phrase" }, offMac);
+    expect(shape(t)).toEqual(["copy"]);
+  });
+
   it("offers a link's two actions, and only for a scheme the OS should open", () => {
     const a = act();
     const t = textMenuTemplate({ ...base, linkURL: "https://realm.computer" }, a);

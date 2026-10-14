@@ -32,7 +32,8 @@ export const BUNDLE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$/;
 
 const LabelSchema = z.string().min(1).max(CHIP_LABEL_MAX);
 const AbsolutePathSchema = z.string().min(2).max(4096)
-  .refine((p) => p.startsWith("/") && !p.includes("\0"), { message: "an absolute path" });
+  // `/…` on a Mac and Linux; `C:\…` or `\\server\share` on Windows.
+  .refine((p) => (p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\")) && !p.includes("\0"), { message: "an absolute path" });
 
 export const MentionRefSchema = z.discriminatedUnion("kind", [
   /** A file in the session's own checkout, by its absolute path. */
@@ -147,7 +148,8 @@ const SECRET_DIRS = new Set([".ssh", ".aws", ".gnupg"]);
 const TEMPLATE_SUFFIX = /\.(example|sample|template|dist)$/;
 
 export function isSecretPath(path: string): boolean {
-  const parts = path.split("/").filter(Boolean);
+  // Either separator: on Windows `C:\Users\me\.ssh\id_rsa` is the same secret.
+  const parts = path.split(/[\\/]/).filter(Boolean);
   if (parts.slice(0, -1).some((p) => SECRET_DIRS.has(p))) return true;
   const name = parts[parts.length - 1] ?? "";
   if (TEMPLATE_SUFFIX.test(name)) return false;
