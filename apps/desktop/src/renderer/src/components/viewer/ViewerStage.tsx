@@ -6,6 +6,7 @@ import { useMediaFile } from "../../panes/session/media/use-media";
 import { useApp } from "../../state/store";
 import type { Mark, ViewerFile } from "../../state/viewer";
 import { MARK_SCREEN_WIDTH, pointsAttr } from "./markup";
+import { ViewerText, textViewFor } from "./ViewerText";
 import { MAX_ZOOM, MIN_ZOOM, anchoredScroll, clampZoom, scaleOf, stepZoom, zoomLabel, type Size, type Zoom } from "./zoom";
 
 /** A key the viewer may take only when nobody is typing: a field, the scrubber, a menu's list keep it. */
@@ -19,7 +20,8 @@ export function typingIn(target: EventTarget | null): boolean {
  * What the viewer shows of one file, at the size the window gives it.
  *
  * In falling order of how much it says: a picture main confirms is on disk is that picture, which
- * zooms; a video or a sound is the transcript's own player; anything else is macOS's render of it —
+ * zooms; a video or a sound is the transcript's own player; a text file is the documents pane's own
+ * view of it (`ViewerText.tsx`); anything else is macOS's render of it —
  * a PDF's first page, a document, a sheet — which zooms as a picture does; and a file macOS cannot
  * draw either is its name, said plainly, rather than an empty frame. `version` is the file's
  * modification time: an agent rewriting the file in place moves it, and the stage reads the new one.
@@ -47,7 +49,10 @@ export function ViewerStage({ file, gone, version, onBackdrop }: {
       </div>
     );
   }
-  return <DocumentPicture path={file.path} name={name} version={version} onBackdrop={onBackdrop} />;
+  const picture = <DocumentPicture path={file.path} name={name} version={version} onBackdrop={onBackdrop} />;
+  const text = textViewFor(file.path);
+  if (text) return <ViewerText path={file.path} view={text} version={version} onBackdrop={onBackdrop} fallback={picture} />;
+  return picture;
 }
 
 function StageNote({ children, onBackdrop }: { children: React.ReactNode; onBackdrop: () => void }) {

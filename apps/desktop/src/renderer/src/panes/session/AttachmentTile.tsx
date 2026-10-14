@@ -1,6 +1,8 @@
 import { Icon } from "@realm/ui";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { basenameOf, isDirectoryMime, isImageMime, isOpenablePath, isPlayablePath } from "@realm/contracts";
+import { basenameOf, formatAttachmentSize, isDirectoryMime, isImageMime, isOpenablePath, isPlayablePath, isVideoMime } from "@realm/contracts";
+import { FileMark } from "../../components/file-icon";
+import { textViewFor } from "../../components/viewer/ViewerText";
 import { useThumbnail } from "../../components/use-thumbnail";
 import { useOpenViewer } from "../../components/viewer/open";
 import { squirclePath } from "../machine/squircle-path";
@@ -12,6 +14,15 @@ const extOf = (path: string): string => {
   const dot = base.lastIndexOf(".");
   return dot > 0 ? base.slice(dot + 1).toLowerCase().slice(0, 4) : "";
 };
+
+/** The card's second line: what kind of file, and how big — "TS · 4.2 KB", "Folder". The extension
+ *  is the kind because it is what the person would call it; a file with none is just a file. */
+function kindOf(path: string, directory: boolean, size: number | undefined): string {
+  if (directory) return "Folder";
+  const base = basenameOf(path);
+  const ext = base.lastIndexOf(".") > 0 ? base.slice(base.lastIndexOf(".") + 1).toUpperCase() : "";
+  return [ext || "File", size === undefined ? null : formatAttachmentSize(size)].filter(Boolean).join(" · ");
+}
 
 /**
  * The well's superellipse, as a clip path.
@@ -50,10 +61,12 @@ function useSquircleWell(): { ref: React.RefObject<HTMLSpanElement | null>; clip
  * One attachment, as a square: the file itself when macOS can render it — the image, the first page
  * of the PDF — and a glyph with the file's extension when it cannot.
  *
- * The NAME is deliberately not on the tile. A row of chips reading "Screenshot 2026-09-02 at
+ * The NAME is deliberately not on a square. A row of chips reading "Screenshot 2026-09-02 at
  * 14.31.07.png" tells the user something they already know (they just picked the file) at the cost of
  * the one thing they cannot check at a glance: whether it is the right file. The picture answers
- * that. The name is one hover away, in the tip, where it is available but not in the way.
+ * that. The name is one hover away, in the tip, where it is available but not in the way. In the
+ * prompter a file with no picture to answer it — source, a document, a folder — is the `card`
+ * instead: there a glyph and four letters were every file looking alike, and the name is the answer.
  *
  * A thumbnail that never arrives — an unreadable file, a path that has since moved, a type QuickLook
  * has no generator for — lands on the glyph, because `attachmentThumbnail` answers null for every one
@@ -69,8 +82,15 @@ function useSquircleWell(): { ref: React.RefObject<HTMLSpanElement | null>; clip
  * behaved one way in the prompter and another way in the transcript would be a bug — and two
  * callers each holding their own copy of the behaviour is how that bug gets written.
  */
-export function AttachmentTile({ path, mime, name, detail, disposition, onRemove, siblings }: {
+export function AttachmentTile({ path, mime, name, detail, disposition, onRemove, siblings, layout = "square", size }: {
   path: string; mime: string;
+  /** `card` is the prompter's: a file it cannot show as a picture is a card naming it — its mark, its
+   *  name, and its kind and size under that — because in the prompter the question is still "is this
+   *  the right file", and for a `.ts` or a folder the name is what answers it. A picture stays the
+   *  square it was, since there the picture answers it. */
+  layout?: "square" | "card";
+  /** The file's size in bytes, for the card's second line. */
+  size?: number;
   /** The picker's own name when there is one; otherwise the path's basename. */
   name?: string;
   /** Second line of the tip: size, and this agent's fate for the file. Absent in the transcript,
@@ -92,7 +112,13 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
   const directory = isDirectoryMime(mime);
   // Nothing to preview, and nothing to badge: a folder's extension is either absent or a lie, and
   // asking main for a thumbnail of a directory is a round trip whose only answer is null.
-  const thumb = useThumbnail(directory ? null : path);
+  /* A card is drawn only for a file that is not a picture, and asks main for none: a page of a PDF
+     or of source at 32px says less than its mark, and each of those is a QuickLook child process. */
+  const picture = isImageMime(mime) || isVideoMime(mime);
+  const card = layout === "card" && !picture;
+  /* Nor does a square for a text file: QuickLook's render of a page of source at this size is a dark
+     smudge, where the file's own mark says what it is. */
+  const thumb = useThumbnail(directory || card || textViewFor(path) !== null ? null : path);
   const ext = directory ? "" : extOf(path);
   const opener = useRef<HTMLButtonElement>(null);
   const openViewer = useOpenViewer();
@@ -122,7 +148,18 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
     openViewer({ files: row.map((a) => ({ path: a.path, mime: a.mime, name: a.name })), index: row.findIndex((a) => a.path === path), opener: opener.current });
   };
 
-  const face = (
+  const face = card ? (
+    <>
+      <span className="attach-card-mark"><FileMark path={path} folder={directory} size={20} className="attach-glyph" /></span>
+      {/* Hidden from a screen reader, which hears the name and the tip's line once, below — the
+          same sentence the square gives it. */}
+      <span className="attach-card-text" aria-hidden="true">
+        <span className="attach-card-name">{label}</span>
+        <span className="attach-card-kind">{kindOf(path, directory, size)}</span>
+      </span>
+      <span className="visually-hidden">{label}{detail ? ` — ${detail}` : ""}</span>
+    </>
+  ) : (
     <>
       {/* The picture and its badge sit in their own well, which is the element that clips to the
           rounded corners. The tile around it must NOT clip — the tip hangs outside its box. */}
@@ -131,7 +168,10 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
           // alt="" on purpose: the file is named once, by the visually-hidden span below. An alt
           // here would have a screen reader read it twice.
           ? <img className="attach-thumb" src={thumb} alt="" draggable={false} />
-          : <Icon name={directory ? "folder" : isImageMime(mime) ? "image" : "artifact"} size={18} className="attach-glyph" />}
+          : directory
+            ? <Icon name="folder" size={18} className="attach-glyph" />
+            // The file's own mark, as the Library and the prompter's card draw it.
+            : <FileMark path={path} type={isImageMime(mime) ? "image" : undefined} size={18} className="attach-glyph" />}
         {ext && <span className="attach-ext">{ext}</span>}
       </span>
       {/* Dropping the visible name must not drop it from the accessibility tree: a tile whose only
@@ -142,8 +182,8 @@ export function AttachmentTile({ path, mime, name, detail, disposition, onRemove
   );
 
   return (
-    <span className="attach-tile" data-disposition={disposition} data-image={thumb ? "" : undefined}
-      data-media={file ? "" : undefined}>
+    <span className="attach-tile" data-layout={card ? "card" : undefined} data-folder={card && directory ? "" : undefined}
+      data-disposition={disposition} data-image={thumb ? "" : undefined} data-media={file ? "" : undefined}>
       {/* Open and Remove are SIBLINGS, never nested. A button inside a button is invalid, and the
           alternative — one click handler untangling its own target — is the version that eventually
           removes a file the user meant to look at. Being separate elements is the whole guarantee. */}

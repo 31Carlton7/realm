@@ -133,6 +133,9 @@ interface Window {
       /** Size and mtime, or null when nothing is there — how a preview learns to say the file is
        *  gone rather than drawing actions that would each fail in turn. */
       stat(path: string): Promise<{ path: string; size: number; mtimeMs: number } | null>;
+      /** The file's text, for the media viewer to draw as the documents pane does
+       *  (`main/read-text.ts`). Null when nothing is there. Optional: an older preload has none. */
+      readText?(path: string): Promise<{ ok: true; text: string } | { ok: false; reason: "large" | "binary" } | null>;
       /** One folder of a space or a checkout, newest first (`main/browse.ts`). Null when it cannot
        *  be read, or when the path would leave the root — the session file browser's data source,
        *  and the one list that shows a file a shell command made. */

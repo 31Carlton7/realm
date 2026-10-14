@@ -181,7 +181,7 @@ function AttachmentRow({ kind, attachments, onRemove }: { kind: AgentKind; attac
           <li key={a.path} className="composer-attach-item">
             <AttachmentTile path={a.path} mime={a.mime} name={a.name} disposition={attachmentDisposition(kind, a.mime)}
               detail={`${isDirectoryMime(a.mime) ? "Folder" : formatAttachmentSize(a.size)} · ${attachmentNote(kind, a.mime)}`}
-              onRemove={() => onRemove(a.path)} siblings={attachments} />
+              onRemove={() => onRemove(a.path)} siblings={attachments} layout="card" size={isDirectoryMime(a.mime) ? undefined : a.size} />
           </li>
         ))}
       </ul>
