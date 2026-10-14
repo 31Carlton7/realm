@@ -12,7 +12,7 @@ import { useChord } from "./use-sidebar-model";
  *
  * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Library,
  * Connections, Scheduled tasks and Code review, with Home above them as the way back — and at its
- * foot to the Stop of a recording for Laya, a newer Realm, what this one brought, and the person (their
+ * foot to the Stop of a recording for Laya, Laya's install while it runs, a newer Realm, what this one brought, and the person (their
  * page, Settings). It
  * is never collapsed: ⌘B folds the sidebar away and leaves this.
  *
@@ -34,6 +34,7 @@ export function Rail() {
       <div className="rail-foot">
         {/* The two that wear a state, then the person, at the very foot as Codex keeps them. */}
         <RailRecording />
+        <RailLaya />
         <RailUpdate />
         <RailWhatsNew />
         <RailYou />
@@ -121,6 +122,29 @@ function RailYou() {
         ]} />
       )}
     </>
+  );
+}
+
+/**
+ * Laya installing, at the foot of the rail — and nothing at all otherwise. Laya installs itself in the
+ * background, a couple of gigabytes over minutes, and this is the quiet place that says so outside
+ * Settings: a glyph in quiet ink, not the accent the update's disc wears, because nothing here wants
+ * a click. The download of the checkpoint, the one step with a size, runs round it as the update's
+ * share does. A click opens Settings ▸ Engines, where the install narrates its steps.
+ */
+function RailLaya() {
+  const r = useApp((s) => s.laya?.runtime ?? null);
+  const openSettingsPage = useApp((s) => s.openSettingsPage);
+  if (r?.state !== "installing") return null;
+  const percent = r.step === "model" && r.fraction !== null ? Math.round(r.fraction * 100) : null;
+  const what = percent === null ? `Installing Laya: ${r.detail}` : `Installing Laya: checkpoint ${percent}% downloaded`;
+  return (
+    <button type="button" className="rail-btn rail-laya" aria-label={what} title={`${what}. Click for Settings.`}
+      data-measured={percent === null ? undefined : ""}
+      style={percent === null ? undefined : ({ "--update-progress": `${percent}%` } as CSSProperties)}
+      onClick={() => openSettingsPage("engines")}>
+      <span className="rail-laya-disc"><Icon name="cpu" size={14} /></span>
+    </button>
   );
 }
 
