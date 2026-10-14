@@ -35,8 +35,9 @@ type Located =
  * Resolved the way `sdk.mjs` resolves it — from the SDK's own entry point, then the platform package
  * by name — so the answer is the file the SDK would spawn rather than one that merely looks like it.
  * In a packaged app that is under `Contents/Resources/server/node_modules`, and `import.meta.url` is
- * the server bundle's, which is what makes the lookup start there. (On Linux the SDK also tries a
- * `-musl` variant; Realm ships for the Mac only.)
+ * the server bundle's, which is what makes the lookup start there. On Windows the binary is
+ * `claude.exe`. (On Linux the SDK also tries a `-musl` variant first, which this does not: a musl
+ * Linux reports Realm's own copy missing, and the sessions still run.)
  */
 export function bundledClaude(): string | null {
   try {
@@ -45,7 +46,8 @@ export function bundledClaude(): string | null {
     // second one is a SyntaxError in the built bundle that no test here can see.
     const { createRequire } = process.getBuiltinModule("node:module") as typeof import("node:module");
     const sdk = createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk");
-    return createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`);
+    const binary = process.platform === "win32" ? "claude.exe" : "claude";
+    return createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/${binary}`);
   } catch {
     // No SDK, or no platform package for this machine — an install made with `--omit=optional`.
     return null;
