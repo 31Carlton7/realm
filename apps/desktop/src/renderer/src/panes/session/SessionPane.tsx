@@ -742,7 +742,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageConnections={() => openSpacePage(session.spaceId, "connections")}
             submitKey={submitKey}
             eggs={easterEggs}
-            hero={hero} spaceName={space?.name ?? "this space"} spaceTint={spaceTint} place={place}
+            hero={hero} spaceName={space?.name ?? "this space"} spaceIcon={space?.icon} spaceTint={spaceTint} place={place}
             promptHint={hint} usage={transcript.usage} slashCommands={slashCommands}
             packGreetings={packGreetings}
             goal={<GoalStrip goal={goal}
