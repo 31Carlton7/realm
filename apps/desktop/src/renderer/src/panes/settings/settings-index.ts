@@ -27,7 +27,7 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
     { id: "keys", label: "Keys", icon: "command" }, { id: "notifications", label: "Notifications", icon: "bell" },
   ] },
   { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }] },
-  { label: "Browser", tabs: [{ id: "signins", label: "Sign-ins", icon: "key" }] },
+  { label: "Browser", tabs: [{ id: "signins", label: "Passwords", icon: "key" }] },
   { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }, { id: "lab", label: "Lab", icon: "serverStack" }] },
   { label: "Data", tabs: [{ id: "import", label: "Import", icon: "inboxDownload" }, { id: "archived", label: "Archived", icon: "archive" }] },
 ];
@@ -172,7 +172,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
 
   // Sign-ins
   { id: "signins-profile", tab: "signins", label: "Sign-ins for this profile", terms: "profile share copy cookies isolate separate" },
-  { id: "saved-signins", tab: "signins", label: "Saved sign-ins", terms: "password credential login account generated agent sign-up" },
+  { id: "saved-signins", tab: "signins", label: "Saved passwords", terms: "password credential login account generated agent sign-up sign-in import csv export show copy edit keychain never always allow" },
   { id: "passkeys", tab: "signins", label: "Passkeys", terms: "webauthn" },
   { id: "touch-id", tab: "signins", label: "Touch ID", terms: "fingerprint presence biometric" },
   { id: "unlock-policy", tab: "signins", label: "Unlock sign-ins with", terms: "touch id password session without asking unattended lab mac mini headless policy" },

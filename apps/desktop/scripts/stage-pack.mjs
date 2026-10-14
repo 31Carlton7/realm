@@ -70,6 +70,7 @@ for (const [binary, missing] of mac ? [
   ["phonescreen", "a real iPhone's picture is the runner's screenshots, about one a second"],
   ["deviceowner", "sign-ins unlock with Touch ID only, never the login password"],
   ["policystamp", "sign-ins stay on Touch ID: a looser unlock policy cannot be kept"],
+  ["realmkeychain", "the login keychain's passwords cannot be offered"],
 ] : []) {
   const built = join(desktop, "native", "bin", binary);
   if (existsSync(built)) cpSync(built, join(stage, binary));

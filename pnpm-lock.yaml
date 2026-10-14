@@ -219,6 +219,9 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+      tldts:
+        specifier: 6.1.86
+        version: 6.1.86
       unicode-emoji-json:
         specifier: ^0.9.0
         version: 0.9.0

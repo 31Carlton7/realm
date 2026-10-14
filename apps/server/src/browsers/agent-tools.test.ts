@@ -46,7 +46,7 @@ function setup(opts: {
   rows.set("b1", { id: "b1", spaceId: "space1", url: "https://example.com/", title: "Example", favicon: "", createdAt: 1, updatedAt: 1 });
   rows.set("bX", { id: "bX", spaceId: "spaceOTHER", url: "https://other.com/", title: "Other", favicon: "", createdAt: 1, updatedAt: 1 });
 
-  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean; preapproved?: boolean }[], bridge: [] as { op: string; params: Record<string, unknown> }[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
+  const calls = { gates: [] as { toolKey: string; toolName?: string; title: string; input: Record<string, unknown>; alwaysPrompt: boolean; preapproved?: boolean; promptUnderBypass?: boolean; onAlwaysAllow?: () => void }[], bridge: [] as { op: string; params: Record<string, unknown> }[], broadcasts: [] as { event: string; payload: unknown }[], opened: [] as string[] };
   const bridgeResults: Record<string, unknown> = {
     describe: { open: true, url: "https://example.com/checkout", title: "Example", element: { role: "button", name: "Submit order", tag: "button", inputType: null } },
     snapshot: { url: "https://example.com/", title: "Example", text: '[ref=11] button "Submit order"', elementCount: 1 },
@@ -102,7 +102,10 @@ function setup(opts: {
     },
     broker: {
       gate: async (_sessionId, toolKey, title, input, toolName, gateOpts) => {
-        calls.gates.push({ toolKey, toolName, title, input, alwaysPrompt: gateOpts?.alwaysPrompt === true, ...(gateOpts?.preapproved ? { preapproved: true } : {}) });
+        calls.gates.push({
+          toolKey, toolName, title, input, alwaysPrompt: gateOpts?.alwaysPrompt === true, ...(gateOpts?.preapproved ? { preapproved: true } : {}),
+          ...(gateOpts?.promptUnderBypass ? { promptUnderBypass: true } : {}), ...(gateOpts?.onAlwaysAllow ? { onAlwaysAllow: gateOpts.onAlwaysAllow } : {}),
+        });
         return opts.gate ?? { allowed: true };
       },
     },
@@ -602,7 +605,7 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(gate.title).toContain("Work");
     expect(gate.input).toMatchObject({ origin: "https://example.com", username: "ada", label: "Work" });
     // Nothing resembling a value field is echoed onto the permission event.
-    expect(Object.keys(gate.input)).toEqual(["browserId", "ref", "origin", "username", "label"]);
+    expect(Object.keys(gate.input)).toEqual(["browserId", "ref", "origin", "username", "label", "always"]);
     expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(true);
   });
 
@@ -623,9 +626,49 @@ describe("browser_credentials / browser_fill_credential", () => {
     const { call, calls } = setup();
     const r = await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "ghost" });
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain("no saved sign-in has that id");
+    expect(text(r)).toContain("no saved password has that id");
     expect(calls.gates).toHaveLength(0);
     expect(calls.bridge.some((b) => b.op === "fillCredential")).toBe(false);
+  });
+
+  describe("on the pane's own site", () => {
+    const row = { id: "cred-1", origin: "https://www.example.com", username: "ada", label: "Work", createdAt: 1, generated: false };
+    const site = (agentAllowed = false) => ({
+      credentials: (p: Record<string, unknown>) => (p.browserId
+        ? { origin: "https://login.example.com", credentials: [{ ...row, match: "same-site", agentAllowed }] }
+        : { credentials: [row] }),
+    });
+
+    it("lists the site's passwords for a pane, saying which are another address of the site", async () => {
+      const { call, calls } = setup({ bridgeResults: site() });
+      const r = await call("browser_credentials", { browserId: "b1" });
+      expect(text(r)).toContain("Saved passwords for https://login.example.com");
+      expect(text(r)).toContain("same site, another address");
+      expect(calls.bridge.find((b) => b.op === "credentials")!.params).toMatchObject({ browserId: "b1" });
+    });
+
+    it("offers Always allow on this site, keyed to this password and this page, and asks even under bypass", async () => {
+      const { call, calls } = setup({ bridgeResults: site() });
+      await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      const gate = calls.gates[0]!;
+      expect(gate.toolKey).toBe("browser_fill_credential:cred-1@https://login.example.com");
+      expect(gate.promptUnderBypass).toBe(true);
+      expect(gate.alwaysPrompt).toBe(false);
+      expect(gate.preapproved).toBeUndefined();
+      expect(gate.input).toMatchObject({ page: "https://login.example.com" });
+      // The page the card named is the one main must find the pane on.
+      expect(calls.bridge.find((b) => b.op === "fillCredential")!.params).toMatchObject({ pageOrigin: "https://login.example.com" });
+      // "Always allow" is kept in main, for this password on this exact origin.
+      gate.onAlwaysAllow!();
+      expect(calls.bridge.find((b) => b.op === "credentialAllow")!.params).toEqual({ profileId: expect.any(String), credentialId: "cred-1", origin: "https://login.example.com" });
+    });
+
+    it("skips the card where the person already said always — and only there", async () => {
+      // THE MUTANT: an allow kept but never read, or read for every site.
+      const { call, calls } = setup({ bridgeResults: site(true) });
+      await call("browser_fill_credential", { browserId: "b1", ref: 7, credentialId: "cred-1" });
+      expect(calls.gates[0]!.preapproved).toBe(true);
+    });
   });
 
   it("only the credentialId crosses the bridge — never a value, in either direction", async () => {
@@ -765,7 +808,7 @@ describe("browser_credentials / browser_fill_credential", () => {
     expect(gate.title).toContain('the agent labels it "ada · Sign-up"');
     expect(gate.title).toContain(GENERATED_CREDENTIAL_NOTE);
     expect(gate.alwaysPrompt).toBe(true);
-    expect(Object.keys(gate.input)).toEqual(["browserId", "ref", "origin", "username", "label", "generate"]);
+    expect(Object.keys(gate.input)).toEqual(["browserId", "ref", "origin", "username", "label", "generate", "always"]);
     expect(gate.input).toMatchObject({ origin: "https://example.com", generate: true });
   });
 

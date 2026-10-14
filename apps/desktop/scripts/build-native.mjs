@@ -3,7 +3,8 @@
 // degrades without it (ScrollPhase → timer heuristics, AxHelper → no computer-use tools,
 // PhoneScreen → a real iPhone's picture is the runner's screenshots, about one a second,
 // DeviceOwner → sign-ins unlock with Touch ID only, PolicyStamp → sign-ins stay on Touch ID: a
-// looser unlock policy is only honoured beside the Keychain stamp this helper keeps).
+// looser unlock policy is only honoured beside the Keychain stamp this helper keeps, KeychainPasswords
+// → the login keychain's passwords are not offered).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -19,6 +20,7 @@ const HELPERS = [
   ["PhoneScreen.swift", "phonescreen"],
   ["DeviceOwner.swift", "deviceowner"],
   ["PolicyStamp.swift", "policystamp"],
+  ["KeychainPasswords.swift", "realmkeychain"],
 ];
 
 if (process.platform !== "darwin") process.exit(0);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
-import type { BlockedDownload, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, Browser, BrowserAnnotateResult, BrowserDownloadResult, BrowserFindResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, PasskeyNotice, PasswordPaneEvent, PasswordSaveOffer } from "@realm/contracts";
 import { BrowserPane, SUGGEST_DEBOUNCE_MS } from "./BrowserPane";
 import { Toasts } from "../../components/Toasts";
 import { setBrowserBridgesForTests, type BrowserBridges, type BrowserHostBridge, type BrowserServerBridge } from "./browser-client";
@@ -28,6 +28,7 @@ function fakeBridges(row: Partial<Browser> = {}, { ready = true }: { ready?: boo
   const cbs = new Set<(s: StateMsg) => void>();
   const blockedCbs = new Set<(m: { browserId: string; blocked: BlockedDownload }) => void>();
   const passkeyCbs = new Set<(m: PasskeyNotice) => void>();
+  const passwordCbs = new Set<(m: PasswordPaneEvent) => void>();
   const foundCbs = new Set<(m: BrowserFindResult) => void>();
   const findRequestCbs = new Set<(m: { browserId: string }) => void>();
   /** What the next ⋯ menu is built from, and which row the "user" picks when it pops. */
@@ -77,6 +78,8 @@ function fakeBridges(row: Partial<Browser> = {}, { ready = true }: { ready?: boo
     dismissDownload: async (id, blockedId) => { calls.push(`dismiss:${id}:${blockedId}`); },
     onDownloadBlocked: (cb) => { blockedCbs.add(cb); return () => blockedCbs.delete(cb); },
     onPasskey: (cb) => { passkeyCbs.add(cb); return () => passkeyCbs.delete(cb); },
+    onPassword: (cb) => { passwordCbs.add(cb); return () => passwordCbs.delete(cb); },
+    answerPasswordOffer: async (id, offerId, answer) => { calls.push(`password:${id}:${offerId}:${answer}`); return true; },
     popupMenu: async (items, at) => { menus.push({ items, at }); calls.push(`menu:${Math.round(at.x)},${Math.round(at.y)}`); return menuChoice; },
     menuState: async (id) => { calls.push(`menu-state:${id}`); return menuState; },
     goToIndex: async (id, index) => { calls.push(`go-to-index:${id}:${index}`); },
@@ -144,6 +147,7 @@ function fakeBridges(row: Partial<Browser> = {}, { ready = true }: { ready?: boo
       const full: PasskeyNotice = { browserId: "b1", rpId: "github.com", kind: "get", refused: "none", ...notice };
       for (const cb of passkeyCbs) cb(full);
     },
+    password: (m: PasswordPaneEvent) => { for (const cb of passwordCbs) cb(m); },
     emit: (s: Partial<StateMsg>) => {
       emitState(s);
     },
@@ -796,6 +800,44 @@ describe("the blocked-download bar (Plan 23 W4)", () => {
     const f = await mountPane();
     await act(async () => { f.refusePasskey(); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dismiss" })); });
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  /**
+   * The Save password bar. It names the site and the username and nothing else — main holds the
+   * password and seals it on the press — and it is out of an agent's reach (`data-no-agent`).
+   */
+  const offer = (o: Partial<PasswordSaveOffer> = {}): PasswordPaneEvent =>
+    ({ kind: "offer", offer: { browserId: "b1", offerId: "o1", origin: "https://example.com", username: "ada", kind: "save", ...o } });
+
+  it("offers to save a sent password, and answers main with the press", async () => {
+    const f = await mountPane();
+    await act(async () => { f.password(offer()); });
+    const bar = screen.getByRole("status");
+    expect(bar).toHaveTextContent("Save password for ada on example.com?");
+    expect(bar).toHaveAttribute("data-no-agent");
+    await act(async () => { fireEvent.click(within(bar).getByRole("button", { name: "Save" })); });
+    expect(f.calls).toContain("password:b1:o1:save");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("says Update for a changed password, and Never only for a new one", async () => {
+    const f = await mountPane();
+    await act(async () => { f.password(offer({ kind: "update" })); });
+    const bar = screen.getByRole("status");
+    expect(bar).toHaveTextContent("Update the saved password for ada on example.com?");
+    expect(within(bar).queryByRole("button", { name: "Never for this site" })).toBeNull();
+    await act(async () => { f.password(offer({ offerId: "o2" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Never for this site" })); });
+    expect(f.calls).toContain("password:b1:o2:never");
+  });
+
+  it("ignores another pane's offer, and takes one down when main withdraws it", async () => {
+    const f = await mountPane();
+    await act(async () => { f.password(offer({ browserId: "b2" })); });
+    expect(screen.queryByRole("status")).toBeNull();
+    await act(async () => { f.password(offer()); });
+    await act(async () => { f.password({ kind: "withdraw", browserId: "b1", offerId: "o1" }); });
     expect(screen.queryByRole("status")).toBeNull();
   });
 });

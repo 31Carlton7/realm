@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PermissionCard } from "./PermissionCard";
 import type { PendingPermission } from "./transcript-model";
@@ -33,6 +33,14 @@ describe("PermissionCard options", () => {
     // "for now", and a user answering about an application on their own Mac is owed the real scope.
     expect(labels(card({ toolName: "computer_act", title: "Click in TextEdit" }).options))
       .toEqual(["Allow", "Always allow in this space", "Deny"]);
+  });
+
+  it("says a password fill's always is for this site, and only where it is kept", () => {
+    expect(labels(card({ toolName: "browser_fill_credential", title: "Fill", input: { origin: "https://example.com", page: "https://example.com" } }).options))
+      .toEqual(["Allow", "Always allow on this site", "Deny"]);
+    cleanup();
+    expect(labels(card({ toolName: "browser_fill_credential", title: "Fill", input: { origin: "https://example.com", always: false } }).options))
+      .toEqual(["Allow", "Allow always", "Deny"]);
   });
 
   it("relabels only that option, and changes no decision", () => {

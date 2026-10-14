@@ -238,6 +238,18 @@ interface Window {
       setPresenceTtl(ms: number): Promise<number>;
       unlockPolicy(profileId: string): Promise<import("@realm/contracts").UnlockPolicyStatus | null>;
       setUnlockPolicy(profileId: string, policy: import("@realm/contracts").UnlockPolicy): Promise<{ ok: true; status: import("@realm/contracts").UnlockPolicyStatus } | { ok: false; error: string }>;
+      /** Settings ▸ Passwords (main/passwords-ipc.ts). Optional: a renderer from before them has none. */
+      update?(profileId: string, id: string, edit: import("@realm/contracts").BrowserCredentialEdit): Promise<import("@realm/contracts").BrowserCredential | null>;
+      import?(profileId: string): Promise<import("@realm/contracts").PasswordImportResult>;
+      /** Show in a native sheet, or copy — never answers with the value. */
+      reveal?(profileId: string, id: string, action: "show" | "copy"): Promise<import("@realm/contracts").PasswordRevealResult>;
+      keychainStatus?(): Promise<import("@realm/contracts").KeychainPasswordsStatus>;
+      setKeychain?(enabled: boolean): Promise<import("@realm/contracts").KeychainPasswordsStatus>;
+      keychainList?(): Promise<import("@realm/contracts").BrowserCredential[]>;
+      neverList?(profileId: string): Promise<string[]>;
+      setNever?(profileId: string, origin: string, never: boolean): Promise<string[]>;
+      fillAllows?(profileId: string): Promise<import("@realm/contracts").PasswordFillAllow[]>;
+      clearFillAllow?(profileId: string, credentialId: string, origin: string): Promise<boolean>;
     };
     /** A team's post sheet: the one click that lets an act ticket go out (main/ticket-presses.ts).
      *  Optional like every bridge: jsdom has none, and without it nothing can be posted. */
@@ -292,6 +304,9 @@ interface Window {
       onDownloadBlocked(cb: (m: { browserId: string; blocked: import("@realm/contracts").BlockedDownload }) => void): () => void;
       /** A passkey request the pane refused, so a sign-in that goes nowhere says why. */
       onPasskey(cb: (m: import("@realm/contracts").PasskeyNotice) => void): () => void;
+      /** A pane's save offer (no password in it), its withdrawal, or Manage passwords…. */
+      onPassword?(cb: (m: import("@realm/contracts").PasswordPaneEvent) => void): () => void;
+      answerPasswordOffer?(id: string, offerId: string, answer: import("@realm/contracts").PasswordSaveAnswer): Promise<boolean>;
       setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
       /** Per-frame, fire-and-forget: placeholder rect (CSS px) + devicePixelRatio + visibility. */
       setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;

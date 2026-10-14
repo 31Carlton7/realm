@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, GROUND_ALPHA_RANGE } from "@realm/ui";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AGENT_CLI_COMMANDS, CARET_COPY, CARET_KEY, CARET_SHAPES, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, NOTIFICATIONS_DESKTOP_KEY, TERMINALS_CURSOR_BLINK_COPY, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_HISTORY_COPY, TERMINALS_HISTORY_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, PAGE_REF_IDS, GENERATED_CREDENTIAL_NOTE, type BrowserCredential } from "@realm/contracts";
@@ -43,12 +43,12 @@ describe("the Settings page (Plan 12 W6)", () => {
     // The head names the page it shows, as Codex's does: "Settings" is the pane bar's word.
     expect(screen.getByRole("heading", { name: "General", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "General" })).toBeChecked();
-    for (const tab of ["Appearance", "Keys", "Notifications", "Engines", "Usage", "Sign-ins", "Permissions", "Import"]) {
+    for (const tab of ["Appearance", "Keys", "Notifications", "Engines", "Usage", "Passwords", "Permissions", "Import"]) {
       expect(screen.getByRole("radio", { name: tab }), tab).not.toBeChecked();
     }
     // THE mutant: a title fixed at the first page's name.
-    fireEvent.click(screen.getByRole("radio", { name: "Sign-ins" }));
-    expect(await screen.findByRole("heading", { name: "Sign-ins", level: 1 })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Passwords" }));
+    expect(await screen.findByRole("heading", { name: "Passwords", level: 1 })).toBeInTheDocument();
     // A search is not any page, so the head says so rather than naming the page underneath it.
     fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "theme" } });
     expect(await screen.findByRole("heading", { name: "Search", level: 1 })).toBeInTheDocument();
@@ -79,8 +79,8 @@ describe("the Settings page (Plan 12 W6)", () => {
        Settings on Engines and the menu row named for sign-ins shows the agent list. */
     const { store } = await mount();
     act(() => { store.getState().openSettingsPage("signins"); });
-    expect(screen.getByRole("radio", { name: "Sign-ins" })).toBeChecked();
-    expect(await screen.findByText("Saved sign-ins")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Passwords" })).toBeChecked();
+    expect(await screen.findByText("Saved passwords")).toBeInTheDocument();
     // …and a click on the rail is what moves it from there.
     fireEvent.click(screen.getByRole("radio", { name: "Keys" }));
     expect(store.getState().settingsPageTab).toBe("keys");
@@ -1010,7 +1010,7 @@ describe("Sign-ins tab", () => {
 
   async function signIns(overrides: FakeData = {}) {
     const r = await mount(overrides);
-    fireEvent.click(screen.getByRole("radio", { name: "Sign-ins" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Passwords" }));
     return r;
   }
 
@@ -1019,17 +1019,44 @@ describe("Sign-ins tab", () => {
    *  not anyone is adding anything. */
   async function addForm(overrides: FakeData = {}) {
     const r = await signIns(overrides);
-    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a password" }));
     return r;
   }
 
-  it("lists enrolled sign-ins by origin, username and label — with NO reveal affordance", async () => {
+  it("lists enrolled sign-ins by origin, username and label", async () => {
     await signIns({ credentials: [cred] });
     const row = await screen.findByRole("listitem", { name: "https://example.com: ada" });
     expect(within(row).getByText(/ada · Work/)).toBeInTheDocument();
-    // There is no button that could ask for a value, because main has no method that would answer.
-    expect(within(row).queryByRole("button", { name: /show|reveal|copy|edit/i })).toBeNull();
     expect(within(row).getByRole("button", { name: "Remove" })).toBeInTheDocument();
+  });
+
+  describe("Show, Copy, search (Realm 2.3)", () => {
+    const realm = window as unknown as { realm?: { credentials?: Record<string, unknown> } };
+    let saved: typeof realm.realm;
+    beforeEach(() => { saved = realm.realm; });
+    afterEach(() => { realm.realm = saved; });
+
+    it("asks main to show a password, and the window never holds one", async () => {
+      const reveals: string[] = [];
+      realm.realm = { ...(saved ?? {}), credentials: { ...(saved?.credentials ?? {}), reveal: async (_p: string, id: string, action: string) => { reveals.push(`${id}:${action}`); return { ok: true }; } } };
+      await signIns({ credentials: [cred] });
+      const row = await screen.findByRole("listitem", { name: "https://example.com: ada" });
+      const actions = within(row).getByRole("button", { name: "Actions for https://example.com" });
+      expect(actions.closest("[data-no-agent]")).not.toBeNull();
+      fireEvent.click(actions);
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Show password" }));
+      await waitFor(() => expect(reveals).toEqual(["cred-1:show"]));
+      expect(document.body.textContent).not.toContain("hunter2");
+    });
+
+    it("narrows the list to what a search matches", async () => {
+      const other: BrowserCredential = { ...cred, id: "cred-9", origin: "https://other.org", username: "bob", label: "" };
+      await signIns({ credentials: [cred, other] });
+      await screen.findByRole("listitem", { name: "https://other.org: bob" });
+      fireEvent.change(screen.getByRole("searchbox", { name: "Search saved passwords" }), { target: { value: "example" } });
+      expect(screen.queryByRole("listitem", { name: "https://other.org: bob" })).toBeNull();
+      expect(screen.getByRole("listitem", { name: "https://example.com: ada" })).toBeInTheDocument();
+    });
   });
 
   it("marks a Realm-generated row as one, and says where the user's way back in actually is", async () => {
@@ -1050,22 +1077,22 @@ describe("Sign-ins tab", () => {
 
   it("saves a sign-in through a native password field, and clears it on success", async () => {
     const { api } = await signIns();
-    await screen.findByText("No saved sign-ins yet.");
-    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
+    await screen.findByText("No saved passwords yet.");
+    fireEvent.click(screen.getByRole("button", { name: "Add a password" }));
 
     const password = screen.getByLabelText("Password");
     expect(password).toHaveAttribute("type", "password");
     fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "https://example.com" } });
     fireEvent.change(screen.getByLabelText("Username"), { target: { value: "ada" } });
     fireEvent.change(password, { target: { value: "hunter2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save sign-in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save password" }));
 
     await waitFor(() => expect(api.calls).toContain("credentialAdd:https://example.com"));
     // The sheet closes on success, so the new row IS the confirmation. Reopening it is what proves
     // the fields were CLEARED rather than merely unmounted — a form that comes back holding the
     // password you just saved is the mutant this guards.
     await waitFor(() => expect(screen.queryByLabelText("Password")).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a password" }));
     expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText("Site address") as HTMLInputElement).value).toBe("");
     // The list re-reads from main rather than being patched locally with what was typed.
@@ -1074,7 +1101,7 @@ describe("Sign-ins tab", () => {
 
   it("Save stays disabled until there is both an address and a password", async () => {
     await addForm();
-    const save = screen.getByRole("button", { name: "Save sign-in" });
+    const save = screen.getByRole("button", { name: "Save password" });
     expect(save).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "https://example.com" } });
     expect(save).toBeDisabled();
@@ -1084,12 +1111,12 @@ describe("Sign-ins tab", () => {
 
   it("a rejected save shows main's reason and KEEPS what was typed (mutant: the password cleared on failure)", async () => {
     const { api } = await signIns();
-    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a password" }));
     api.credentialAdd = async () => { throw new Error('"nope" is not an http(s) address Realm can pin a sign-in to.'); };
 
     fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "nope" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save sign-in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save password" }));
 
     await screen.findByText(/is not an http\(s\) address/);
     expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("hunter2");
@@ -1187,15 +1214,15 @@ describe("Sign-ins tab", () => {
     expect(await screen.findByText(/Two-factor steps are not automated/)).toBeInTheDocument();
     // The origin rule lives beside the address field it constrains — a person needs it BEFORE
     // typing an address, not under the button that commits one.
-    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
-    expect(screen.getByText(/subdomains are different sites/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add a password" }));
+    expect(screen.getByText(/never on a lookalike/)).toBeInTheDocument();
   });
 
   it("removing a sign-in goes through main and re-reads the list", async () => {
     const { api } = await signIns({ credentials: [cred] });
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
     await waitFor(() => expect(api.calls).toContain("credentialRemove:cred-1"));
-    await screen.findByText("No saved sign-ins yet.");
+    await screen.findByText("No saved passwords yet.");
   });
 
   /** The passkey half. What must die here: an Add button (a passkey is created by a site asking for
@@ -1249,11 +1276,11 @@ describe("Sign-ins tab", () => {
 
   it("a sign-in saved here is saved into the window's profile, and nobody else's", async () => {
     const { api } = await signIns();
-    await screen.findByText("No saved sign-ins yet.");
-    fireEvent.click(screen.getByRole("button", { name: "Add a sign-in" }));
+    await screen.findByText("No saved passwords yet.");
+    fireEvent.click(screen.getByRole("button", { name: "Add a password" }));
     fireEvent.change(screen.getByLabelText("Site address"), { target: { value: "https://example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save sign-in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save password" }));
     await waitFor(() => expect(api.data.credentials).toHaveLength(1));
     expect(api.data.credentials[0]!.profileId).toBe("p1");
   });
