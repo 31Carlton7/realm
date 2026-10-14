@@ -1,4 +1,4 @@
-import type { BlockedDownload, BrowserAnnotateResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, PasskeyNotice } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserHistoryPage, BrowserMenuState, BrowserPickedElement, PasskeyNotice, PasswordSaveAnswer, PasswordSaveOffer } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
@@ -115,6 +115,39 @@ function passkeyNoticeText(notice: PasskeyNotice): string {
     case "unavailable":
       return "This Mac has no Touch ID sensor, so Realm can't unlock a passkey. Settings ▸ Sign-ins can unlock this profile with the Mac's password instead.";
   }
+}
+
+/**
+ * The pane's Save password bar (password-autofill.ts): after the page sent a sign-in form, whether to
+ * keep the password, update the saved one, or never ask on this site. The offer names the site and
+ * the username; the password stays in main, which is the only thing that can seal it, and only on a
+ * press here. `data-no-agent` on the bar: an agent driving Realm's window does not get to answer.
+ *
+ * Main also sends the menu's "Manage passwords…" here, since this is the pane the menu opened over.
+ */
+function usePasswordOffer(browserId: string, openSettings: () => void) {
+  const [offer, setOffer] = useState<PasswordSaveOffer | null>(null);
+  useEffect(() => {
+    const off = getBrowserBridges().host.onPassword?.((m) => {
+      if (m.kind === "manage") { if (m.browserId === browserId) openSettings(); return; }
+      if (m.kind === "offer") { if (m.offer.browserId === browserId) setOffer(m.offer); return; }
+      if (m.browserId === browserId) setOffer((cur) => (cur?.offerId === m.offerId ? null : cur));
+    });
+    return off;
+  }, [browserId, openSettings]);
+  const answer = (a: PasswordSaveAnswer) => {
+    if (!offer) return;
+    setOffer(null);
+    void getBrowserBridges().host.answerPasswordOffer?.(browserId, offer.offerId, a);
+  };
+  return { offer, answer };
+}
+
+/** The bar's sentence: the username the form held and the site the pane is on, both named plainly. */
+function passwordOfferText(offer: PasswordSaveOffer): string {
+  const host = new URL(offer.origin).host;
+  const who = offer.username ? ` for ${offer.username}` : "";
+  return offer.kind === "update" ? `Update the saved password${who} on ${host}?` : `Save password${who} on ${host}?`;
 }
 
 /** The pane's passkey bar: the last refusal, until the user dismisses it or navigates. */
@@ -461,6 +494,8 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
   const toast = useToast(store);
   const downloads = useBlockedDownloads(browserId, item.spaceId, (text) => toast.say(text, "check"));
   const passkey = usePasskeyNotice(browserId);
+  const openPasswords = useCallback(() => store?.getState().openSettingsPage("signins"), [store]);
+  const password = usePasswordOffer(browserId, openPasswords);
   const picker = useElementPicker(browserId, store, toast.say);
   const annotate = useAnnotate(browserId, item.spaceId, store, toast.say);
   const find = useFindInPage(browserId, url);
@@ -914,6 +949,21 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
           )}
           <button type="button" className="icon-btn" aria-label="Dismiss"
             onClick={() => { if (downloads.top) downloads.dismiss(downloads.top.id); else downloads.clearNote(); }}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
+      {password.offer && (
+        <div className="browser-notice" role="status" data-no-agent="save password">
+          <Icon name="key" size={12} />
+          <span className="browser-notice-text">{passwordOfferText(password.offer)}</span>
+          <button type="button" className="btn-quiet" onClick={() => password.answer("save")}>
+            {password.offer.kind === "update" ? "Update" : "Save"}
+          </button>
+          {password.offer.kind === "save" && (
+            <button type="button" className="btn-quiet" onClick={() => password.answer("never")}>Never for this site</button>
+          )}
+          <button type="button" className="icon-btn" aria-label="Not now" title="Not now" onClick={() => password.answer("dismiss")}>
             <Icon name="close" size={12} />
           </button>
         </div>

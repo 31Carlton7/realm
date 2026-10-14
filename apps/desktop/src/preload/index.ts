@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
+import type { BrowserCredentialEdit, KeychainPasswordsStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
 import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, VaultAllow, VaultKey, VaultKeyInput, VaultSecrets, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
@@ -329,6 +330,22 @@ contextBridge.exposeInMainWorld("realm", {
     unlockPolicy: (profileId: string): Promise<UnlockPolicyStatus | null> => ipcRenderer.invoke("credentials:unlock-policy", profileId),
     setUnlockPolicy: (profileId: string, policy: UnlockPolicy): Promise<{ ok: true; status: UnlockPolicyStatus } | { ok: false; error: string }> =>
       ipcRenderer.invoke("credentials:set-unlock-policy", profileId, policy),
+    /** Settings ▸ Passwords (main/passwords-ipc.ts). `update` takes a value only when one was typed;
+     *  `import` opens the system's open panel in main; `reveal` shows a password in a native sheet or
+     *  copies it, after macOS confirms the person — and answers only whether that happened. */
+    update: (profileId: string, id: string, edit: BrowserCredentialEdit): Promise<BrowserCredential | null> =>
+      ipcRenderer.invoke("credentials:update", profileId, id, edit),
+    import: (profileId: string): Promise<PasswordImportResult> => ipcRenderer.invoke("credentials:import", profileId),
+    reveal: (profileId: string, id: string, action: "show" | "copy"): Promise<PasswordRevealResult> =>
+      ipcRenderer.invoke("credentials:reveal", profileId, id, action),
+    keychainStatus: (): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:keychain-status"),
+    setKeychain: (enabled: boolean): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:set-keychain", enabled),
+    keychainList: (): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:keychain-list"),
+    neverList: (profileId: string): Promise<string[]> => ipcRenderer.invoke("credentials:never-list", profileId),
+    setNever: (profileId: string, origin: string, never: boolean): Promise<string[]> => ipcRenderer.invoke("credentials:set-never", profileId, origin, never),
+    fillAllows: (profileId: string): Promise<PasswordFillAllow[]> => ipcRenderer.invoke("credentials:fill-allows", profileId),
+    clearFillAllow: (profileId: string, credentialId: string, origin: string): Promise<boolean> =>
+      ipcRenderer.invoke("credentials:clear-fill-allow", profileId, credentialId, origin),
   },
   /**
    * A team's Vault page (`main/vault-ipc.ts`). Same one-way rule as `credentials`: `addSignin` and
@@ -440,6 +457,15 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.on("realm:browser-passkey", handler);
       return () => ipcRenderer.removeListener("realm:browser-passkey", handler);
     },
+    /** A pane's passwords (main/password-autofill.ts): a save offer to show or take down, or the menu's
+     *  Manage passwords…. An offer names the site and username, never the password. */
+    onPassword: (cb: (m: PasswordPaneEvent) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, m: PasswordPaneEvent) => cb(m);
+      ipcRenderer.on("realm:browser-password", handler);
+      return () => ipcRenderer.removeListener("realm:browser-password", handler);
+    },
+    answerPasswordOffer: (id: string, offerId: string, answer: PasswordSaveAnswer): Promise<boolean> =>
+      ipcRenderer.invoke("browser:password-offer", id, offerId, answer),
     /** Plan 26 W7b — the ⋯ menu. `menuState` is read as the menu opens; the rest are its rows. */
     menuState: (id: string): Promise<BrowserMenuState> => ipcRenderer.invoke("browser:menu-state", id),
     goToIndex: (id: string, index: number): Promise<void> => ipcRenderer.invoke("browser:go-to-index", id, index),

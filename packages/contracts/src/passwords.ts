@@ -51,6 +51,13 @@ export type PasswordSaveOffer = {
   kind: "save" | "update";
 };
 
+/** What main tells a pane about its passwords: an offer to show, an offer to take down (answered in
+ *  another window, expired, or replaced), or the menu's "Manage passwords…" asking for Settings. */
+export type PasswordPaneEvent =
+  | { kind: "offer"; offer: PasswordSaveOffer }
+  | { kind: "withdraw"; browserId: string; offerId: string }
+  | { kind: "manage"; browserId: string };
+
 export const PasswordSaveAnswerSchema = z.enum(["save", "never", "dismiss"]);
 export type PasswordSaveAnswer = z.infer<typeof PasswordSaveAnswerSchema>;
 

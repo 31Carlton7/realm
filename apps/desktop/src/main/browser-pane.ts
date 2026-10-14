@@ -90,7 +90,7 @@ const faviconResolverFor = (partition: string) => {
  */
 export function electronViewFactory(
   win: BrowserWindow,
-  onView?: (id: string, wc: WebContents | null) => void,
+  onView?: (id: string, wc: WebContents | null, view?: WebContentsView) => void,
   installPasskeysFor?: PasskeyInstaller,
 ): ViewFactory {
   return (id, hooks, partition) => {
@@ -122,7 +122,7 @@ export function electronViewFactory(
     // A page gets the menu a browser gives it: the text and link commands, and Back/Forward/Reload
     // on empty page. Electron gives a view none of these on its own.
     attachTextContextMenu(wc, { page: true });
-    onView?.(id, wc);
+    onView?.(id, wc, view);
 
     // The URL the pane was ASKED for, which is what every reader of this view's state wants to hear
     // about — `about:blank` below is Realm's own bootstrap and belongs to nobody's address bar.
@@ -281,16 +281,20 @@ export type BrowserPane = {
   capture(id: string): Promise<Uint8Array | null>;
   /** The partition the view lives in — its profile's — or null when there is no view. */
   partitionOf(id: string): string | null;
+  /** Where the view's page sits in the window, in window points, and how many of those a CSS pixel is
+   *  — what places a menu under a field in the page (password-autofill.ts). */
+  viewFrame(id: string): { x: number; y: number; zoom: number } | null;
 };
 
 export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller): BrowserPane {
   const views = new Map<string, WebContents>();
+  const viewBoxes = new Map<string, WebContentsView>();
   const destroyedCbs: ((id: string) => void)[] = [];
   const send = (channel: string, payload: unknown) => { if (!win.isDestroyed()) win.webContents.send(channel, payload); };
   const host = new BrowserPaneHost({
-    createView: electronViewFactory(win, (id, wc) => {
-      if (wc) views.set(id, wc);
-      else { views.delete(id); for (const cb of destroyedCbs) cb(id); }
+    createView: electronViewFactory(win, (id, wc, view) => {
+      if (wc) { views.set(id, wc); if (view) viewBoxes.set(id, view); }
+      else { views.delete(id); viewBoxes.delete(id); for (const cb of destroyedCbs) cb(id); }
     }, installPasskeysFor),
     sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
@@ -331,6 +335,12 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     },
     onViewDestroyed: (cb) => destroyedCbs.push(cb),
     partitionOf: (id) => host.partitionOf(id),
+    viewFrame: (id) => {
+      const wc = views.get(id), view = viewBoxes.get(id);
+      if (!wc || wc.isDestroyed() || !view) return null;
+      const b = view.getBounds();
+      return { x: b.x, y: b.y, zoom: wc.getZoomFactor() };
+    },
     capture: async (id) => {
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;

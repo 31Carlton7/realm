@@ -1,5 +1,5 @@
 import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents } from "electron";
-import { BrowserCredentialInputSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
+import { BrowserCredentialInputSchema, PasswordSaveAnswerSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
@@ -60,7 +60,10 @@ import { SleepGuard } from "./sleep-guard";
 import { installedEditors, openInEditor } from "./editors";
 import { InstalledApps, applicationDirs } from "./installed-apps";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
-import { registerNativeMenus } from "./native-menu";
+import { popupNativeMenu, registerNativeMenus } from "./native-menu";
+import { PasswordAutofill } from "./password-autofill";
+import { registerPasswordsIpc } from "./passwords-ipc";
+import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
 import { attachTextContextMenu } from "./text-context-menu";
 import { windowOpenTarget } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
@@ -513,9 +516,14 @@ async function createWindow(info: { port: number; home: string; token: string },
   });
   // The views go in before the page loads: a restored browser pane asks for its view as soon as the
   // renderer boots, and a window with no pane surface yet would have nowhere to put it.
-  const pane = createBrowserPane(win, (paneId, cdp) => passkeys.install(paneId, cdp)); // destroys its views on win "closed" itself
+  // Passkeys first, then the password menu: the passkey install is what gives the view a document
+  // for `Runtime.addBinding` to answer on, and a failure of either leaves the other in place.
+  const pane = createBrowserPane(win, async (paneId, cdp) => {
+    await passkeys.install(paneId, cdp).catch(() => {});
+    await autofill.install(paneId, cdp).catch(() => {});
+  }); // destroys its views on win "closed" itself
   windowPanes.set(win.id, { win, pane });
-  pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); });
+  pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); autofill.release(id); });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else await win.loadFile(join(__dirname, "../renderer/index.html"));
   if (scratch) {
@@ -591,6 +599,66 @@ const passkeys = new PasskeyBroker({
   },
   audit: (entry) => secrets()?.audit(entry),
   now: () => Date.now(),
+});
+
+/**
+ * The password menu under a pane's sign-in fields, and the bar that offers to save a form's password
+ * (password-autofill.ts). One for every window, like the passkey broker: a pane is named by its
+ * browser id, and its passwords are its PROFILE's. The menu is the OS's, popped by main at the
+ * field's place in the window; the bar is the pane's own, told everything but the password.
+ */
+const sendPasswordEvent = (browserId: string, message: unknown) => {
+  const win = holderOf(browserId)?.win;
+  if (win && !win.isDestroyed()) win.webContents.send("realm:browser-password", message);
+};
+const autofill = new PasswordAutofill({
+  pageUrl: (paneId) => paneFor(paneId)?.pageState(paneId)?.url ?? null,
+  credentialsFor: async (paneId, origin) => {
+    const profileId = profileOfPane(paneId);
+    const store = secrets();
+    if (!profileId || !store) return [];
+    await store.refreshKeychain();
+    return store.credentialsForSite(profileId, null, origin);
+  },
+  popupMenu: (paneId, items, rect) => {
+    const holder = holderOf(paneId);
+    const frame = holder?.pane.viewFrame(paneId);
+    if (!holder || !frame || holder.win.isDestroyed()) return Promise.resolve(null);
+    // Under the field, at its left edge: the page's CSS pixels, scaled by its zoom, from the view's corner.
+    const at = { x: frame.x + rect.x * frame.zoom, y: frame.y + (rect.y + rect.h) * frame.zoom + 2 };
+    return popupNativeMenu(items, at, (template, point, onClose) => {
+      Menu.buildFromTemplate(template).popup({ window: holder.win, x: point.x, y: point.y, callback: onClose });
+    });
+  },
+  withValue: async (paneId, id, use) => {
+    const profileId = profileOfPane(paneId);
+    return (profileId ? await secrets()?.withCredentialValue(profileId, id, use, { spaceId: null }, { gesture: true }) : null) ?? { ok: false, refused: "no_credential" };
+  },
+  saveOfferFor: (paneId, origin, username, value) => {
+    const profileId = profileOfPane(paneId);
+    return profileId ? secrets()?.saveOfferFor(profileId, origin, username, value) ?? null : null;
+  },
+  saveOffered: (paneId, input) => {
+    const profileId = profileOfPane(paneId);
+    if (profileId) secrets()?.saveOffered(profileId, input);
+  },
+  neverSave: (paneId, origin) => {
+    const profileId = profileOfPane(paneId);
+    if (profileId) secrets()?.setNeverSave(profileId, origin, true);
+  },
+  offer: (offer) => sendPasswordEvent(offer.browserId, { kind: "offer", offer }),
+  withdraw: (browserId, offerId) => sendPasswordEvent(browserId, { kind: "withdraw", browserId, offerId }),
+  openSettings: (browserId) => sendPasswordEvent(browserId, { kind: "manage", browserId }),
+  audit: (entry) => secrets()?.audit(entry),
+  now: () => Date.now(),
+  newId,
+});
+/** The person's answer on a pane's Save bar — from the window that holds the pane, and its top frame. */
+ipcMain.handle("browser:password-offer", (e, browserId: unknown, offerId: unknown, answer: unknown): boolean => {
+  const holder = holderOf(String(browserId), e.sender);
+  const parsed = PasswordSaveAnswerSchema.safeParse(answer);
+  if (!holder || holder.win.webContents !== e.sender || e.senderFrame !== e.sender.mainFrame || !parsed.success) return false;
+  return autofill.answer(String(offerId), parsed.data, String(browserId));
 });
 
 /**
@@ -932,6 +1000,11 @@ function secrets(): SecretStore | null {
     // The Keychain stamp a looser unlock policy must match, so a copy of secrets.json put back after
     // the user tightened a policy reads as Touch ID (policy-stamp.ts).
     policyStamp: keychainPolicyStamp(policyStampHelper(app.getAppPath(), process.resourcesPath)),
+    // The login keychain's internet passwords (Settings ▸ Passwords turns them on). A live check gets
+    // its scratch keychain or none: never the owner's login keychain (`keychainSourceFor`).
+    keychain: keychainSourceFor({ helper: keychainHelper(app.getAppPath(), process.resourcesPath), packaged: app.isPackaged, env: process.env }),
+    // Off a Mac there is no presence check to ask; a person's own pick or press stands in for it.
+    platformPresence: () => standIn !== null || process.platform === "darwin",
     now: () => Date.now(),
     newId,
     // Sign-ins saved before they were a profile's own belong to the profile that kept the shared
@@ -1062,6 +1135,38 @@ ipcMain.handle("credentials:set-unlock-policy", async (_e, profileId: unknown, p
 
 /** A team's Vault page: its secrets, and each grant's "use without asking" (`vault-ipc.ts`). Renderer
  *  IPC only, like the unlock policy above — and main's `VaultHost` answers the server's side. */
+registerPasswordsIpc({
+  handle: (channel, fn) => ipcMain.handle(channel, (e, ...args: unknown[]) => fn(e.sender, ...args)),
+  secrets,
+  resolveProfile: (id) => profileDirectory.resolve(profileArg(id)),
+  pickExport: async (sender) => {
+    const win = BrowserWindow.fromWebContents(sender as WebContents);
+    const options = { title: "Import passwords", buttonLabel: "Import", properties: ["openFile" as const], filters: [{ name: "Password export", extensions: ["csv"] }] };
+    const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    return r.canceled ? null : r.filePaths[0] ?? null;
+  },
+  readFile: async (path) => ({ size: statSync(path).size, text: () => readFile(path, "utf8") }),
+  offerToTrash: async (sender, path) => {
+    const win = BrowserWindow.fromWebContents(sender as WebContents);
+    const options = {
+      type: "question" as const, buttons: ["Move to Trash", "Keep"], defaultId: 0, cancelId: 1,
+      message: `Move ${basename(path)} to the Trash?`,
+      detail: "Realm has imported and encrypted these passwords. The file still holds every one of them in plain text.",
+    };
+    const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+    if (r.response !== 0) return false;
+    await shell.trashItem(path);
+    return true;
+  },
+  showPassword: async (sender, title, value) => {
+    const win = BrowserWindow.fromWebContents(sender as WebContents);
+    const options = { type: "none" as const, buttons: ["Done", "Copy"], defaultId: 0, cancelId: 0, message: title, detail: value };
+    const r = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options);
+    return r.response === 1;
+  },
+  clipboard: { writeText: (t) => clipboard.writeText(t), readText: () => clipboard.readText(), clear: () => clipboard.clear() },
+  setTimer: (fn, ms) => { setTimeout(fn, ms).unref?.(); },
+});
 registerVaultIpc({
   handle: (channel, fn) => ipcMain.handle(channel, (_e, ...args: unknown[]) => fn(...args)),
   secrets,
