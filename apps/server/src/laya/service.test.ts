@@ -836,7 +836,7 @@ describe("the install that starts on its own", () => {
     expect(service.currentMode()).toBe("off");
   });
 
-  it("a person's Install takes over from the clock, and Off does not stop what they started", async () => {
+  it("Off does not stop an Install the person started", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
     const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), install: () => gate });
