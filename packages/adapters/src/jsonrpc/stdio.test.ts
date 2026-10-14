@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
+import { tempDir } from "@realm/test-utils";
 import { join } from "node:path";
 import { StdioJsonRpc, JsonRpcCallError } from "./stdio";
 
@@ -194,7 +194,7 @@ describe("StdioJsonRpc and the sandbox wrap", () => {
   it("starts an npm .cmd shim through cmd.exe on Windows", () => {
     // MUTANT: spawn `o.command` as given — Node refuses a bare `.cmd` on Windows, and libuv never
     // finds `codex.cmd` for a spawn of `codex` in the first place.
-    const dir = mkdtempSync(join(tmpdir(), "realm-stdio-"));
+    const dir = tempDir("realm-stdio-");
     try {
       writeFileSync(join(dir, "codex.cmd"), "");
       const child = Object.assign(new EventEmitter(), { stdout: null, stderr: null, stdin: null, kill: vi.fn() });
