@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import type { Space } from "@realm/contracts";
 import { spaceIsPlainFolder, useApp, useProfileSpaces } from "../../state/store";
 import { Menu, type MenuItem } from "../Menu";
@@ -73,8 +73,14 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
   // A plain folder has no worktrees, so its ⋯ offers no session in one (store.ts).
   const plainFolder = useApp((s) => spaceIsPlainFolder(s, space.id));
   const tint = useSpaceTint(space.color);
-  const [menu, setMenu] = useState(false);
+  // One menu, opened two ways: from the ⋯ (anchored under it) or by a right-click on the head (at the
+  // pointer). A context menu raised from the keyboard has no pointer to open at, so it takes the ⋯'s.
+  const [menu, setMenu] = useState<{ at: { x: number; y: number } | null } | null>(null);
   const more = useRef<HTMLButtonElement>(null);
+  const onContextMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    setMenu({ at: e.clientX === 0 && e.clientY === 0 ? null : { x: e.clientX, y: e.clientY } });
+  };
   // Built on the first unfold and kept, so folding animates too; `inert` takes a folded row out of
   // the tab order and `aria-hidden` out of what a reader hears.
   const everOpened = useRef(!collapsed);
@@ -102,7 +108,7 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
     <section className="sb-section" aria-label={space.name}>
       <div className="item sb-section-head" data-actions="2" data-drag-over={drag.over || undefined} draggable={drag.enabled}
         onDragStart={(e) => { e.dataTransfer.setData(SPACE_DRAG_TYPE, space.id); e.dataTransfer.effectAllowed = "move"; drag.start(); }}
-        onDragOver={drag.over_} onDragLeave={drag.leave} onDrop={drag.drop} onDragEnd={drag.end}>
+        onDragOver={drag.over_} onDragLeave={drag.leave} onDrop={drag.drop} onDragEnd={drag.end} onContextMenu={onContextMenu}>
         <button type="button" className="item-row" aria-expanded={!collapsed} aria-controls={everOpened.current ? listId : undefined}
           aria-label={said} title={said} onClick={() => run(() => setSpaceSectionCollapsed(space.id, !collapsed))}>
           <span className="sb-caret" data-open={!collapsed || undefined}><Icon name="chevronRight" size={12} /></span>
@@ -114,11 +120,11 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
         <span className="item-actions">
           <button type="button" className="item-act" aria-label={`New session in ${space.name}`} title="New session here"
             onClick={() => newSessionIn(space.id)}><Icon name="add" size={12} /></button>
-          <button ref={more} type="button" className="item-act" aria-label={`More for ${space.name}`} aria-haspopup="menu" aria-expanded={menu}
-            title="More" onClick={() => setMenu((o) => !o)}><Icon name="more" size={12} /></button>
+          <button ref={more} type="button" className="item-act" aria-label={`More for ${space.name}`} aria-haspopup="menu" aria-expanded={menu !== null}
+            title="More" onClick={() => setMenu((o) => (o ? null : { at: null }))}><Icon name="more" size={12} /></button>
         </span>
       </div>
-      {menu && <Menu align="right" anchorRef={more} label={space.name} onClose={() => setMenu(false)} items={items} />}
+      {menu && <Menu {...(menu.at ? { at: menu.at } : { anchorRef: more, align: "right" as const })} label={space.name} onClose={() => setMenu(null)} items={items} />}
       {everOpened.current && (
         <div className="sb-section-wrap" data-open={!collapsed || undefined}>
           <div className="sb-section-clip" inert={collapsed || undefined} aria-hidden={collapsed || undefined}>
