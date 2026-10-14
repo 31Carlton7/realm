@@ -5,13 +5,13 @@ import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
 import { callDaemon, daemonModeEnabled, ensureDaemon, probeDaemon, type HandoffResult } from "./daemon";
 import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
-import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, resolveHandoffMode, type DaemonState } from "@realm/contracts";
+import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, platformCapabilities, resolveHandoffMode, type DaemonState } from "@realm/contracts";
 import { closeDaemonLog, daemonLogPath, openDaemonLog } from "./daemon-log";
 import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
@@ -69,6 +69,7 @@ import { WindowRegistry, cascadeFrom } from "./window-registry";
 import { registerFileActions } from "./file-actions";
 import { AppIconStore, registerAppIcon } from "./app-icon";
 import { registerAppearance, savedAppearance } from "./appearance";
+import { titleBarOverlay, windowChrome } from "./window-chrome";
 import { registerWhatsNew, WhatsNewState } from "./whats-new";
 import { DEFAULT_KEYBINDINGS, KeybindingSchema, type Keybinding } from "@realm/contracts";
 import { browseFolder, type BrowseResult } from "./browse";
@@ -79,6 +80,10 @@ import { handleMediaProtocol, mediaPoster, registerMediaScheme, servablePath, st
    afterwards, and the failure mode is a scheme that silently serves nothing. The handler that
    actually reads files is installed in `whenReady`, once the server has told us where home is. */
 registerMediaScheme();
+
+/** What this OS can do for Realm (packages/contracts/src/platform.ts) — read here, by the server, and by
+ *  the renderer through the preload, so a feature that does not exist here is gated in one place. */
+const platform = platformCapabilities(process.platform);
 
 /** The server child, in the non-daemon shape: a process this one owns and SIGTERMs on quit. */
 let serverChild: import("node:child_process").ChildProcess | null = null;
@@ -465,21 +470,9 @@ async function createWindow(info: { port: number; home: string; token: string },
     ...(place.center ? { width: place.width, height: place.height, center: true }
       : { x: place.x, y: place.y, width: place.width, height: place.height }),
     minWidth: 900, minHeight: 600,
-    // y:14 centres the ~14px lights in a 40px strip, and the renderer keeps every strip they can land
-    // in at 40px for exactly that reason: .sb-head with the sidebar open, and with it collapsed the
-    // first pane's .panel-bar (or the group bar, which is raised to 40px in that one state). One
-    // placement serves both, so nothing here has to be moved at runtime when the sidebar collapses —
-    // but shortening any of those strips leaves the lights sitting off-centre in that state.
-    titleBarStyle: "hiddenInset", trafficLightPosition: { x: 12, y: 14 },
-    // Ara refresh §5: macOS gets sidebar vibrancy behind a fully transparent window paint; the
-    // renderer keeps every surface EXCEPT the sidebar opaque, so only the sidebar column shows the
-    // material (the BUI --page tone at .82 over it — "ever so slightly transparent"). Elsewhere
-    // vibrancy does not exist, so the window keeps its opaque dark ground and the translucent
-    // sidebar composites against it — visually the BUI dark --page (#17181a ≈ oklch(.209 .004
-    // 264.477)), never a half-broken effect.
-    ...(process.platform === "darwin"
-      ? { vibrancy: "sidebar" as const, backgroundColor: "#00000000" }
-      : { backgroundColor: "#17181a" }),
+    // Inset traffic lights over the sidebar's material on a Mac; the system's own controls over the
+    // head row's right end on Linux and Windows (window-chrome.ts).
+    ...windowChrome(platform, nativeTheme.shouldUseDarkColors),
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
       additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, `--realm-token=${info.token}`,
@@ -967,7 +960,7 @@ ipcMain.handle("browser:save-download", async (e, browserId: string, id: string,
   if (!pane) return { ok: false, error: "the browser pane is not open" };
   // Same absolute-path requirement the agent op has: this writes to disk, and a relative path would
   // resolve against whatever cwd Electron happens to have.
-  if (!String(dir).startsWith("/")) return { ok: false, error: "there is no folder to save downloads into" };
+  if (!isAbsolute(String(dir))) return { ok: false, error: "there is no folder to save downloads into" };
   return retryBlockedDownload(downloadGovernor, blockedDownloads, {
     browserId: String(browserId), id: String(id), dir: String(dir),
     downloadURL: (url) => pane.downloadURL(String(browserId), url),
@@ -1713,6 +1706,10 @@ registerAppIcon({ handle: (channel, fn) => ipcMain.handle(channel, fn), store: a
  *  last run before any window exists, then kept current by the renderer. */
 nativeTheme.themeSource = savedAppearance(app.getPath("userData"));
 registerAppearance({ on: (channel, fn) => ipcMain.on(channel, fn), theme: nativeTheme, dir: app.getPath("userData") });
+// Off a Mac the system's window controls are drawn over the head row, in the appearance's ink.
+if (!platform.insetTrafficLights) nativeTheme.on("updated", () => {
+  for (const w of BrowserWindow.getAllWindows()) w.setTitleBarOverlay(titleBarOverlay(nativeTheme.shouldUseDarkColors));
+});
 /** What's new (whats-new.ts). Decided here, at load, before the server exists to make a new install's
  *  database — which is half of how an install that predates the record is told from a new one. */
 registerWhatsNew({
@@ -1834,7 +1831,7 @@ function startDaemonProcess(home: string): void {
 
 async function startRealmServer(): Promise<{ port: number; home: string; token: string }> {
   const home = realmHomePath();
-  if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON })) {
+  if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON, platform: process.platform })) {
     const handle = await ensureDaemon({
       home,
       ourBundleId: bundleIdOf(statSync(serverEntry())),
@@ -1875,7 +1872,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on("second-instance", () => {
     if (relaunchIfBundleReplaced()) return;
     const win = windows.primary();
-    if (!win) return;
+    // Linux and Windows have no Dock to click (`activate` is a Mac event): launching Realm again is
+    // how a resident Realm with no window gets one back.
+    if (!win) { if (process.platform !== "darwin") void reattach(); return; }
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -1926,7 +1925,7 @@ app.whenReady().then(async () => {
     // The user chose to keep an older server working. Said once, and held, so a window opened later
     // (or reloaded) hears it too rather than silently working against the wrong build.
     if (staleDaemon) publishDaemonState({ kind: "stale", why: staleDaemon });
-    if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON })) {
+    if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON, platform: process.platform })) {
       daemonSupervisor = new DaemonSupervisor({
         logPath: daemonLogPath(info.home),
         recordedPid: () => readDaemonState(info.home)?.pid ?? null,
@@ -2161,8 +2160,24 @@ app.on("before-quit", (e) => {
     goResident();
     return;
   }
+  // Windows has no SIGTERM to give the server: a signal there is TerminateProcess, and its shutdown —
+  // state file, home lock, ptys, agents, the database — never runs. Ask it over its socket, give it
+  // a moment to finish, and quit for real after.
+  if (process.platform === "win32" && serverInfo && !askedServerToStop) {
+    e.preventDefault();
+    askedServerToStop = true;
+    const child = serverChild;
+    const exited = child ? new Promise<void>((resolve) => child.once("exit", () => resolve())) : Promise.resolve();
+    void callDaemon(serverInfo, "daemon.stop", {}, 2_000)
+      .then(() => Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 3_000))]))
+      .catch(() => {})
+      .finally(() => app.quit());
+    return;
+  }
   shutdownForQuit();
 });
+/** Set once Windows' quit has asked the server to stop itself (above). */
+let askedServerToStop = false;
 // electron-updater's quitAndInstall() (mac: Squirrel, driven through Electron's native autoUpdater)
 // closes every window and quits WITHOUT the ordinary before-quit ordering — the documented hook for
 // that path is `autoUpdater`'s before-quit-for-update. Without it an update-restart would strand the

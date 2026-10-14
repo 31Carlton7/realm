@@ -146,7 +146,9 @@ export function registerMethods(d: Deps): void {
     };
   });
   reg("daemon.stop", () => {
-    setTimeout(() => process.kill(process.pid, "SIGTERM"), 50);
+    // On Windows a signal to oneself is TerminateProcess, which skips the handler; emitting the event
+    // runs the same shutdown.
+    setTimeout(() => (process.platform === "win32" ? process.emit("SIGTERM", "SIGTERM") : process.kill(process.pid, "SIGTERM")), 50);
     return { ok: true as const };
   });
   reg("daemon.stopAgents", async () => ({ stopped: await d.sessions.stopAll() }));
