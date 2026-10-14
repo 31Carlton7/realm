@@ -67,9 +67,11 @@ try {
     // GitHub. `REALM_GH_BIN` points a live check at a fake that serves fixture pull requests.
     codeReview: { gh: process.env.REALM_GH_BIN || "gh" },
     // Laya's local runtime. Only here: every other `createApp` is a test or a script and gets none, so
-    // nothing but this process ever looks for a Python or starts one. Even here nothing downloads
-    // until the user clicks Install, and nothing runs until they switch Laya to Shadow.
+    // nothing but this process ever looks for a Python or starts one. Laya is on by default and
+    // installs itself once there is a moment for it — but not in a harness: a live check boots this
+    // entry with the fake agent, and must never download two gigabytes into its scratch home.
     laya: realLayaRuntime({ home }),
+    layaAutoInstall: process.env.REALM_ENABLE_FAKE_AGENT !== "1",
     // Real iPhones and iPads, through devicectl and Realm's test runner. Only here, for the probe's
     // reason. `REALM_RUNNER_SIMULATOR` names simulators to reach the phone's way instead — the
     // rehearsal a live check runs before anything is done to a real phone. Their picture is live video

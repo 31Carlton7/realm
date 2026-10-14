@@ -241,7 +241,7 @@ describe("closing an approved batch that has not sent yet", () => {
     expect(s.acts.ticket(first!.id).state).toBe("acting");
     s.team.closeReview(r.id);
     // The send had already left: the platform says it went.
-    s.platform.answer({ ok: true, url: "https://mail.invalid/1", screenshot: null });
+    s.platform.answer({ ok: true, url: "https://mail.invalid/1", screenshot: "proof.png" });
     await s.flush();
     expect(s.acts.ticket(first!.id)).toMatchObject({ state: "done", proofUrl: "https://mail.invalid/1" });
     // THE MUTANT: `execute` marking the batch done once every live ticket went out, whatever the
