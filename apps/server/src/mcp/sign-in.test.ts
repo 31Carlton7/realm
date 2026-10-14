@@ -11,7 +11,7 @@ import { McpHub } from "./hub";
 import { McpOauth, oauthSecretBox, readOauthState } from "./oauth";
 import { McpService, oauthStatusOf } from "./service";
 import { SettingsStore } from "../store/settings";
-import { readGhToken, type GhToken } from "./gh-cli";
+import { ghCandidates, readGhToken, type GhToken } from "./gh-cli";
 import { DeviceFlowError, pollDeviceToken, type DeviceCode } from "./device-flow";
 import { KNOWN_PROVIDERS, providerFor, type KnownProvider } from "./providers";
 import { makeStubAuthServer, type StubAuthServer } from "./fixtures/stub-auth-server";
@@ -59,6 +59,14 @@ describe("readGhToken — the GitHub CLI's existing sign-in", () => {
     });
     expect(got).toEqual({ ok: true, token: GH_TOKEN });
     expect(calls).toEqual([["/usr/local/bin/gh", ["auth", "token", "--hostname", "github.com"]]]);
+  });
+
+  it("asks a gh on PATH before the usual install locations, which still follow for a Dock launch", () => {
+    if (process.platform === "win32") return;
+    const list = ghCandidates({ PATH: "/custom/bin:/usr/bin" });
+    expect(list[0]).toBe("/custom/bin/gh");
+    expect(list).toContain("/opt/homebrew/bin/gh");
+    expect(ghCandidates({ PATH: "/usr/bin:/bin" })).toContain("/opt/homebrew/bin/gh");
   });
 
   it("is signed out when gh exits non-zero, or prints nothing", async () => {
