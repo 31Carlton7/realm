@@ -7,7 +7,7 @@ describe("REALM_READ_ONLY_TOOLS", () => {
       "realm-browser__browser_list", "realm-browser__browser_snapshot", "realm-browser__browser_read",
       "realm-browser__browser_screenshot", "realm-browser__browser_credentials",
       "realm-workspace__workspace_state", "realm-workspace__sessions_list", "realm-workspace__session_read",
-      "realm-workspace__space_list", "realm-workspace__settings_get",
+      "realm-workspace__space_list", "realm-workspace__settings_get", "realm-workspace__realm_capabilities",
       "realm-agent__agent_peers", "realm-agent__agent_status",
       "realm-schedule__schedule_list",
       "realm-docs__docs_search", "realm-docs__docs_read", "realm-docs__docs_state",

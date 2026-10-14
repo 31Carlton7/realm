@@ -166,6 +166,7 @@ const TOOLS: Tool[] = [
 export function createTeamAgentProvider(d: TeamAgentToolsDeps): RealmToolProvider {
   return {
     name: TEAM_PROVIDER_NAME,
+    listsIn: (spaceId) => d.team.isTeam(spaceId),
     async tools(ctx: ProviderCallContext): Promise<Tool[]> {
       if (!d.mcp.providerEnabled(ctx.spaceId, TEAM_PROVIDER_NAME) || !d.team.isTeam(ctx.spaceId)) return [];
       const tools = withRecordWords(TOOLS, d.types.descriptions(ctx.spaceId));
