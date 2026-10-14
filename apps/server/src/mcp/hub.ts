@@ -1,4 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -145,6 +146,12 @@ export class McpHub {
      * (`redact.ts`) so the two cannot drift apart on what "free of" means.
      */
     authHeaders: (row: McpServerRow) => Promise<Record<string, string>>;
+    /**
+     * The server answered 401 at connect (`McpOauth.reauthorize`). Resolves `true` when a DIFFERENT
+     * credential is now stored — the GitHub CLI's token was read again and had changed — and the hub
+     * then tries the connect once more with it. Same sanitization contract as `authHeaders`.
+     */
+    reauthorize?: (row: McpServerRow) => Promise<boolean>;
     /** Test-only seam: replaces real stdio/http/sse transport construction with whatever a test wants a
      *  row to connect through (an `InMemoryTransport`, typically — `stub-server.ts`'s `connectInMemory`
      *  is async, hence the `Promise` option, so a test factory can just forward it). Sharing, caching,
@@ -185,6 +192,7 @@ export class McpHub {
       entry.tools = new Map(live.map((t) => [t.name, t]));
       return live;
     } catch (err) {
+      this.dropUnauthorized(entry, err);
       this.recordFailure(id, entry);
       throw sanitize(id, err, entry.redact);
     }
@@ -211,6 +219,7 @@ export class McpHub {
       this.recordSuccess(id, entry);
       return result;
     } catch (err) {
+      this.dropUnauthorized(entry, err);
       this.recordFailure(id, entry);
       throw sanitize(id, err, entry.redact);
     } finally {
@@ -379,22 +388,43 @@ export class McpHub {
     return { client: await entry.connecting, entry };
   }
 
+  private newClient(id: string, entry: Entry): Client {
+    // Elicitation, in both of MCP's modes, when there is somewhere to send it: a form becomes the
+    // question card, a page to open becomes a card that names its host and opens on a click. And MCP
+    // Apps, always: Realm frames a server's views, so a server that registers its UI tools only for
+    // a host that says so (as the spec asks it to) registers them here.
+    const client = new Client({ name: "realm-hub", version: "1.0.0" }, { capabilities: {
+      ...(this.d.elicit ? { elicitation: { form: {}, url: {} } } : {}),
+      extensions: { [MCP_APPS_EXTENSION]: { mimeTypes: [MCP_APP_MIME] } },
+    } });
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () => this.onToolsChanged(id));
+    // A template the server changed, or a resource list that moved, is read again on the next view.
+    client.setNotificationHandler(ResourceListChangedNotificationSchema, () => entry.resources.clear());
+    client.setNotificationHandler(ResourceUpdatedNotificationSchema, (n) => { entry.resources.delete(n.params.uri); });
+    if (this.d.elicit) client.setRequestHandler(ElicitRequestSchema, (request, extra) => this.onElicit(id, request.params, extra.signal));
+    return client;
+  }
+
+  /** A live client the server has started answering 401: drop it, so the next call reconnects — and
+   *  a reconnect is where `reauthorize` gets its chance to find a fresh credential. */
+  private dropUnauthorized(entry: Entry, err: unknown): void {
+    if (!isUnauthorized(err) || !entry.client) return;
+    const c = entry.client; entry.client = null; void c.close().catch(() => {});
+  }
+
   private async connect(id: string, entry: Entry, row: McpServerRow): Promise<Client> {
     try {
-      // Elicitation, in both of MCP's modes, when there is somewhere to send it: a form becomes the
-      // question card, a page to open becomes a card that names its host and opens on a click. And MCP
-      // Apps, always: Realm frames a server's views, so a server that registers its UI tools only for
-      // a host that says so (as the spec asks it to) registers them here.
-      const client = new Client({ name: "realm-hub", version: "1.0.0" }, { capabilities: {
-        ...(this.d.elicit ? { elicitation: { form: {}, url: {} } } : {}),
-        extensions: { [MCP_APPS_EXTENSION]: { mimeTypes: [MCP_APP_MIME] } },
-      } });
-      client.setNotificationHandler(ToolListChangedNotificationSchema, () => this.onToolsChanged(id));
-      // A template the server changed, or a resource list that moved, is read again on the next view.
-      client.setNotificationHandler(ResourceListChangedNotificationSchema, () => entry.resources.clear());
-      client.setNotificationHandler(ResourceUpdatedNotificationSchema, (n) => { entry.resources.delete(n.params.uri); });
-      if (this.d.elicit) client.setRequestHandler(ElicitRequestSchema, (request, extra) => this.onElicit(id, request.params, extra.signal));
-      await client.connect(await this.buildTransport(row, entry));
+      let client = this.newClient(id, entry);
+      try {
+        await client.connect(await this.buildTransport(row, entry));
+      } catch (err) {
+        // A 401 may only mean the credential moved on (a CLI's token was refreshed): ask for it again,
+        // and try once more if what is stored now is different. Once — a second 401 is the answer.
+        if (!isUnauthorized(err) || !(await this.d.reauthorize?.(row))) throw err;
+        await client.close().catch(() => {});
+        client = this.newClient(id, entry);
+        await client.connect(await this.buildTransport(this.d.servers.get(id) ?? row, entry));
+      }
       // The handshake just resolved, but `invalidate()`/`retry()`/`close()` may have raced it — this
       // entry may no longer be the hub's live state for `id`, or the hub may be shutting down entirely.
       // Either way the client has no owner: adopting it would leak exactly the dangling child
@@ -534,6 +564,12 @@ function sanitize(id: string, err: unknown, redact: string[]): RpcError {
  *  do about it. */
 function circuitOpenError(id: string): RpcError {
   return new RpcError("MCP_CIRCUIT_OPEN", `mcp server ${id} is unavailable after repeated failures — retry from settings (mcp.retry)`);
+}
+
+/** A 401 from the server: the SDK's own `UnauthorizedError`, or a transport error carrying the status
+ *  (streamable HTTP and SSE both put it on `code` when no auth provider is attached, as here). */
+function isUnauthorized(err: unknown): boolean {
+  return err instanceof UnauthorizedError || (err instanceof Error && (err as { code?: unknown }).code === 401);
 }
 
 /** A connect that lost the race to `invalidate()`/`retry()`/`close()` — see `connect()`'s post-resolve
