@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { findSidePane, type DelegatedRun } from "@realm/contracts";
+import { findLeafOfItem, findSidePane, type DelegatedRun } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { SessionMeta, SessionPane } from "./SessionPane";
@@ -85,16 +85,29 @@ describe("the delegating session's running-agents control", () => {
     expect(store.getState().delegatedRuns["se1"]).toEqual([PEER]);
   });
 
-  it("previews a sub-agent as a tab of its parent's side pane, never over the top of it", async () => {
+  it("opens a sub-agent in its parent's Agents tab, a tab of the side pane, never over the top of it", async () => {
     const { store } = await mount({ se1: [KID] });
     await openAgents();
     const focused = store.getState().focusedLeafId;
     fireEvent.click(screen.getByRole("button", { name: /Agent: audit the mapper/ }));
     // THE MUTANTS: open in place, which evicts the parent whose work the user is following; or open
     // beside the focused pane, a column per child — the layout this control exists to replace.
-    await waitFor(() => expect(findSidePane(store.getState().layout!, "i9")?.tabs).toEqual(["i8"]));
+    await waitFor(() => expect(store.getState().agentsShown.se1).toBe("se2"));
+    const tabs = findSidePane(store.getState().layout!, "i9")?.tabs ?? [];
+    expect(tabs).toHaveLength(1);
+    expect(store.getState().items.find((i) => i.id === tabs[0])).toMatchObject({ kind: "agents", refId: "se1" });
     // The keyboard stays in the parent's prompter.
     expect(store.getState().focusedLeafId).toBe(focused);
+  });
+
+  it("previews a peer it only asked as the session it is — it is no sub-agent of this one's", async () => {
+    // THE MUTANT: open every row in the Agents tab, where a peer has no card to open on.
+    const { api, store } = await mount({ se1: [PEER] });
+    await openAgents();
+    fireEvent.click(await screen.findByRole("button", { name: /A colleague/ }));
+    await waitFor(() => expect(store.getState().layout && findLeafOfItem(store.getState().layout!, "i7")).toBeTruthy());
+    expect(api.calls).not.toContain("agentsTab:se1");
+    expect(store.getState().agentsShown.se1).toBeUndefined();
   });
 
   it("does not call a peer it merely asked a question a sub-agent", async () => {
@@ -117,7 +130,7 @@ describe("a sub-agent waiting on you", () => {
     // The peer it only asked a question of is not its to answer for.
     expect(chip).toHaveTextContent("1 working·1 needs you");
     fireEvent.click(chip);
-    await waitFor(() => expect(store.getState().agentsAsk["se1"]).toMatchObject({ childId: "se2" }));
+    await waitFor(() => expect(store.getState().agentsShown["se1"]).toBe("se2"));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
@@ -151,31 +164,18 @@ describe("sub-agents the HARNESS is running", () => {
     expect(dockText()).toEqual(["audit the mapper", "check the tests"]);
   });
 
-  it("opens the sub-agent's panel — there is no pane to jump to, but there is work to watch", async () => {
+  it("opens the sub-agent in the Agents tab's viewer — there is no pane to jump to, but there is work to watch", async () => {
     /* There is no session behind a harness sub-agent, so a jump to a pane would be a button that
        cannot work. There IS something to watch: every call it makes lands in this transcript under
-       its launching call, and the drawer is where those are read. */
+       its launching call, and the viewer in the lead's Agents tab is where those are read. */
     const { store } = await mountWith(task("t1", "audit the mapper"));
     await openAgents();
     await waitFor(() => expect(dockText()).toEqual(["audit the mapper"]));
     expect(screen.getAllByText("in the agent")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Watch audit the mapper" }));
-    expect(store.getState().sessionDock.se1).toEqual({ kind: "subagent", toolUseId: "t1" });
-    expect(await screen.findByRole("dialog", { name: "Sub-agent: audit the mapper" })).toBeInTheDocument();
-  });
-
-  it("the row is the control that closes it too — a lit row says the state and undoes it", async () => {
-    const { store } = await mountWith(task("t1", "audit the mapper"));
-    await openAgents();
-    const row = () => screen.getByRole("button", { name: "Watch audit the mapper" });
-    fireEvent.click(row());
-    // Opening the panel puts the list away: two overlays both answering Escape answer it in mount
-    // order, and the list would swallow the Escape meant for the panel.
+    await waitFor(() => expect(store.getState().agentsShown.se1).toBe("t1"));
+    // Opening it puts the list away, and nothing is laid over the session: the lead stays readable.
     await waitFor(() => expect(document.querySelector(".agents-pop")).toBeNull());
-    await openAgents();
-    expect(row()).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(row());
-    expect(store.getState().sessionDock.se1).toBeUndefined();
     expect(screen.queryByRole("dialog", { name: /Sub-agent/ })).toBeNull();
   });
 
@@ -301,14 +301,16 @@ describe("a delegation call links the sessions it started", () => {
 
   /* A browser agent's call keeps its list of the child it started. The `agent_run` family is drawn as
      each sub-agent's own line instead, linked to its row in the Agents tab (delegation-line.test.tsx). */
-  it("names the child on the call, and previews it in the lead's side pane", async () => {
+  it("names the child on the call, and opens it in the lead's Agents tab", async () => {
     const store = await mountWith(call("mcp__realm__realm-agent__browser_agent_run", trail("The mapper is fine.")));
     // THE MUTANT: compare the raw tool name. Every harness prefixes it — Claude's `mcp__realm__…`,
     // Codex's `realm.…` — so a set of bare names would never match one, and there is no way back.
     expect(links()).toEqual(["Agent: audit the mapper"]);
     fireEvent.click(screen.getByRole("button", { name: "Agent: audit the mapper — Browser agent" }));
-    // A tab beside the lead, like the control's row: the lead is the context the child is read in.
-    await waitFor(() => expect(findSidePane(store.getState().layout!, "i-lead")?.tabs).toEqual(["i-kid"]));
+    // The lead's Agents tab, on the child, like the control's row: the lead is the context it is read in.
+    await waitFor(() => expect(store.getState().agentsShown[LEAD]).toBe(KID_ID));
+    const tabs = findSidePane(store.getState().layout!, "i-lead")?.tabs ?? [];
+    expect(store.getState().items.find((i) => i.id === tabs[0])).toMatchObject({ kind: "agents", refId: LEAD });
   });
 
   it("links only a delegated session, never another id a report happens to mention", async () => {

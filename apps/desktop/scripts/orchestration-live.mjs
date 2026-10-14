@@ -339,21 +339,21 @@ async function main() {
   check("…and the wait as one line that says what it collected", lines.includes("Collected 2 reports"), lines);
   await shot(c, "7-transcript");
 
-  // ── 5. A card opens its child, beside the lead ─────────────────────────────────────────────
+  // ── 5. A card opens its child in the tab's viewer, and Open as session beside the lead ──────
   await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-card')].find((b) => b.textContent.includes('GPT-6 Luna')).querySelector('.subagent-summary').click(); return true; })()`);
-  await sleep(200);
-  await evalIn(c, `(() => { const card = [...document.querySelectorAll('.subagent-card')].find((b) => b.textContent.includes('GPT-6 Luna'));
-    [...card.querySelectorAll('.subagent-actions button')].find((b) => b.textContent === 'Open transcript').click(); return true; })()`);
+  const viewing = await until(() => evalIn(c, `document.querySelector('.subagent-view-title')?.textContent ?? null`), 5_000, "the viewer").catch(() => null);
+  check("a card opens its child in the Agents tab's viewer", viewing === "Dark-mode toggle", viewing);
+  await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-view-actions button')].find((b) => b.textContent === 'Open as session').click(); return true; })()`);
   const withChild = await until(async () => { const ps = await tabs(); return ps.some((p) => p.tabs.some((t) => t.name === "Dark-mode toggle" && t.selected)) ? ps : null; }, 10_000, "child tab").catch(() => tabs());
   note("panes with the child open", withChild);
   check("the child's transcript opens as a tab of the same side pane, named by its task", withChild.length === 2 && withChild.some((p) => p.tabs.some((t) => t.name === "Dark-mode toggle" && t.selected)), withChild);
   await sleep(600);
   await shot(c, "8-child");
 
-  // ── 6. A transcript line brings the tab forward, with its row lit ───────────────────────────
+  // ── 6. A transcript line brings the tab forward, on that sub-agent ──────────────────────────
   await evalIn(c, `(() => { [...document.querySelectorAll('.delegation-line .tool-row')].find((b) => b.textContent.includes('Theme migration')).click(); return true; })()`);
-  const lit = await until(() => evalIn(c, `document.querySelector('.subagent[data-flash] .subagent-model')?.textContent ?? null`), 5_000, "lit row").catch(() => null);
-  check("a transcript line brings the Agents tab back with its row lit", lit === "Fable 5.1", lit);
+  const lit = await until(() => evalIn(c, `document.querySelector('.subagent-view-title')?.textContent === 'Theme migration' ? document.querySelector('.subagent-view-model')?.textContent : null`), 5_000, "viewer").catch(() => null);
+  check("a transcript line brings the Agents tab back on that sub-agent", /^Fable 5\.1/.test(lit ?? ""), lit);
   await shot(c, "9-lit-row");
 
   // ── 7. Implement with… on a plan ────────────────────────────────────────────────────────────
@@ -387,7 +387,7 @@ async function main() {
 
 /** The cards of the Agents tab on screen, top to bottom, as the person reads them. */
 const orchestratorCards = (c) => evalIn(c, `[...document.querySelectorAll('.subagents-list > li.subagent')].map((li) => ({
-  state: li.dataset.state, open: li.querySelector('.subagent-summary')?.getAttribute('aria-expanded') === 'true', flash: li.hasAttribute('data-flash'),
+  state: li.dataset.state, open: !!li.querySelector(':scope > .subagent-detail'),
   title: li.querySelector('.subagent-task')?.textContent, model: li.querySelector('.subagent-model')?.textContent, where: li.querySelector('.subagent-where')?.textContent ?? null,
   mode: li.querySelector('.subagent-mode')?.textContent ?? null, budget: li.querySelector('.subagent-budget')?.textContent ?? null,
   asks: li.querySelector('.sb-need-answer')?.getAttribute('aria-label') ?? null, request: !!li.querySelector('.subagent-detail .permission-card, .subagent-detail .question-card') }))`);
@@ -445,15 +445,21 @@ async function orchestratorChecks(c, spaceId) {
   }
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "dark"; return true; })()`);
 
-  // A click on the row opens the Agents tab on the card that has waited longest, lit.
+  // A click on the row opens the Agents tab on the sub-agent that has waited longest.
+  const shownTab = () => evalIn(c, `(() => { const t = document.querySelector('.subagent-switch-tab[aria-selected="true"]'); return t ? { state: t.dataset.state ?? null, request: !!document.querySelector('.subagent-view .permission-card, .subagent-view .question-card') } : null; })()`);
+  const allTab = () => evalIn(c, `(() => { document.querySelector('.subagent-switch-tab')?.click(); return true; })()`);
   await evalIn(c, `(() => { [...document.querySelectorAll('.sb-section .item-row')].find((x) => x.querySelector('.item-title')?.textContent === ${JSON.stringify(LEAD)}).click(); return true; })()`);
-  const lit = await until(async () => (await orchestratorCards(c)).find((x) => x.flash) ?? null, 5_000, "a lit card").catch(() => null);
-  check("the row opens the Agents tab on the first waiting card", lit?.state === "waiting" && lit.open, lit);
-  await sleep(1800);
+  const lit = await until(async () => { const t = await shownTab(); return t?.state === "waiting" && t.request ? t : null; }, 5_000, "the waiting one's viewer").catch(() => shownTab());
+  check("the row opens the Agents tab on the first waiting sub-agent, its request in view", lit?.state === "waiting" && lit.request, lit);
+  await allTab();
+  await sleep(400);
   // …and the chip does the same.
   await evalIn(c, `(() => { [...document.querySelectorAll('.agents-chip')].find((x) => x.getAttribute('aria-label')?.endsWith(${JSON.stringify(`for ${LEAD}`)})).click(); return true; })()`);
-  const lit2 = await until(async () => (await orchestratorCards(c)).find((x) => x.flash) ?? null, 5_000, "a lit card from the chip").catch(() => null);
-  check("the chip opens the Agents tab on the first waiting card", lit2?.state === "waiting", lit2);
+  const lit2 = await until(async () => { const t = await shownTab(); return t?.state === "waiting" ? t : null; }, 5_000, "the viewer from the chip").catch(() => shownTab());
+  check("the chip opens the Agents tab on the first waiting sub-agent", lit2?.state === "waiting", lit2);
+  // Back to all of them: the waiting cards carry their requests, answered below.
+  await allTab();
+  await sleep(400);
 
   // Answer both in place: Allow on the permission, an option on the question — each on the child.
   const kids = (await api.call("delegation.children", { sessionId: lead })).children;
@@ -473,12 +479,13 @@ async function orchestratorChecks(c, spaceId) {
   const cleared = await until(async () => { const r = await sidebarRow(c, LEAD); return r && r.count === null ? r : null; }, 15_000, "the count clears").catch(() => sidebarRow(c, LEAD));
   check("once both are answered the lead's row carries no count", cleared?.count === null, cleared);
 
-  // Stop the one still working, from its card.
+  // Stop the one still working, from its viewer.
   await evalIn(c, `(() => { const li = [...document.querySelectorAll('.subagents-list > li.subagent')].find((x) => x.dataset.state === "working" && x.textContent.includes("Survey"));
     li.querySelector('.subagent-summary').click(); return true; })()`);
   await sleep(300);
   await shot(c, "13-orchestrator-open-card");
-  check("Stop on the working card", await evalIn(c, `(() => { const b = document.querySelector('.subagent-actions button[aria-label^="Stop Survey"]'); if (!b) return false; b.click(); return true; })()`));
+  check("Stop on the working one's viewer", await evalIn(c, `(() => { const b = document.querySelector('.subagent-view-actions button[aria-label^="Stop Survey"]'); if (!b) return false; b.click(); return true; })()`));
+  await allTab();
   await leadSaid(lead, "All four sub-agents reported back.");
   const waited = (await eventsOf(lead)).filter((e) => e.event.type === "tool_result").map((e) => e.event.payload.content).find((t) => t.includes(`## Agent ${survey}`));
   check("the lead hears the stopped one was stopped", /did NOT finish \(stopped\)/.test(waited ?? ""), waited?.slice(0, 200));
