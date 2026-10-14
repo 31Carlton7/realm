@@ -83,6 +83,9 @@ jobs:
       - name: Test (whole suite, informational)
         if: runner.os != 'macOS'
         continue-on-error: true
+        # Information only, so it may not spend the job's 60 minutes: on Windows its timeouts alone ran
+        # past them, and the job was cancelled in Package with every gating step green.
+        timeout-minutes: 40
         run: pnpm test
 
       - name: Build
