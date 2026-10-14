@@ -18,6 +18,10 @@ import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { OAUTH_RELAY_URL, relayState } from "@realm/contracts";
 import { NotFoundError, RpcError } from "../store/rows";
 import { credentialValues, redactValues } from "./redact";
+import { DeviceFlowError, pollDeviceToken, requestDeviceCode } from "./device-flow";
+import { readGhToken, type GhToken } from "./gh-cli";
+import { KNOWN_PROVIDERS, providerFor, type KnownProvider } from "./providers";
+import type { McpOauthVia, McpSignInOptions } from "@realm/contracts";
 import type { McpServerRow, McpServersStore } from "../store/mcp";
 
 /**
@@ -87,6 +91,12 @@ export type McpOauthState = {
    * already said no. Cleared only by a completed `handleCallback` or by `disconnect`.
    */
   reconnectNeeded?: boolean;
+  /**
+   * How `tokens` were obtained when it was not the browser flow: the GitHub CLI's own sign-in, the
+   * device flow, or a token the user pasted. Such tokens carry no refresh token; a 401 is what says
+   * one has stopped working, and `reauthorize` then reads the CLI again (`cli`) or flags the row.
+   */
+  via?: Exclude<McpOauthVia, "browser">;
 };
 
 /** Refresh this long BEFORE the stored expiry rather than exactly at it: an access token that expires
@@ -135,6 +145,7 @@ export function readOauthState(json: string): McpOauthState {
     state.pending = { state: pending.state, codeVerifier: pending.codeVerifier, redirectUri: pending.redirectUri, startedAt: typeof pending.startedAt === "number" ? pending.startedAt : 0 };
   }
   if (o.reconnectNeeded === true) state.reconnectNeeded = true;
+  if (o.via === "cli" || o.via === "device" || o.via === "token") state.via = o.via;
   return state;
 }
 
@@ -211,6 +222,8 @@ export const oauthSecretBox = {
 export class McpOauth {
   /** serverId → the token refresh currently in flight for that row. See `refreshOnce`. */
   private readonly refreshing = new Map<string, Promise<Record<string, string>>>();
+  /** serverId → the device-flow sign-in polling for that row. At most one; a second start replaces it. */
+  private readonly devices = new Map<string, { done: Promise<void>; abort: AbortController }>();
 
   constructor(private readonly d: {
     servers: McpServersStore;
@@ -233,7 +246,17 @@ export class McpOauth {
     /** Test seam: every SDK auth helper takes a `fetchFn`, so the whole flow can run against an
      *  in-process stub authorization server without patching global `fetch`. */
     fetchFn?: FetchLike;
+    /** Test seams for the sign-ins that need no registered client: the GitHub CLI's token, the
+     *  provider table (a test sets a device-flow client id), and the device flow's wait. */
+    ghToken?: () => Promise<GhToken>;
+    providers?: readonly KnownProvider[];
+    sleep?: (ms: number) => Promise<void>;
   }) {}
+
+  private readGh(): Promise<GhToken> { return (this.d.ghToken ?? readGhToken)(); }
+  private provider(row: McpServerRow, authorizationServerUrl?: string): KnownProvider | null {
+    return providerFor(row.url, authorizationServerUrl, this.d.providers ?? KNOWN_PROVIDERS);
+  }
 
   /**
    * Begin an interactive connection and return the URL the RENDERER opens in the system browser (this
@@ -245,7 +268,7 @@ export class McpOauth {
    * already had. `reconnectNeeded` is likewise left set until a callback actually completes — starting
    * a flow is not the same as finishing one.
    */
-  async start(serverId: string): Promise<{ authUrl: string }> {
+  async start(serverId: string): Promise<{ authUrl: string | null }> {
     const row = this.d.servers.get(serverId);
     if (!row) throw new NotFoundError("mcp server", serverId);
     if (row.transport === "stdio") {
@@ -254,6 +277,14 @@ export class McpOauth {
     const port = this.d.gatewayPort();
     if (port === null) throw new RpcError("MCP_OAUTH_UNAVAILABLE", "the MCP gateway is not listening yet — try again in a moment");
     const prev = readOauthState(row.oauthJson);
+    // A provider with no registration whose CLI the person already signed in to: that sign-in is the
+    // connection, with no browser at all. A client of their own (`setClient`) says they chose the
+    // browser instead, so it is never second-guessed. `authUrl: null` = connected already.
+    let gh: GhToken | null = null;
+    if (!prev.client && this.provider(row)?.cli) {
+      gh = await this.readGh();
+      if (gh.ok) { this.storeBearer(serverId, gh.token, "cli"); return { authUrl: null }; }
+    }
     // Through the relay the redirect is the site's fixed HTTPS page and the port travels in the
     // state; the relay bounces to this loopback with code and state intact, and the callback below
     // is none the wiser. The vendor sees one stable URL, which is what a hand-registered app needs.
@@ -272,7 +303,14 @@ export class McpOauth {
       let client = prev.client;
       if (!client) {
         if (!metadata?.registration_endpoint) {
-          throw new RpcError("MCP_OAUTH_UNSUPPORTED", `"${row.name}" does not offer dynamic client registration, and Realm has no client registered with it — paste the client id and secret of an app you registered with it`);
+          // Matched again on the authorization server discovery found: a server on a host the table
+          // does not list can still sign in through GitHub.
+          const provider = this.provider(row, info.authorizationServerUrl);
+          if (provider?.cli && !gh) {
+            gh = await this.readGh();
+            if (gh.ok) { this.storeBearer(serverId, gh.token, "cli"); return { authUrl: null }; }
+          }
+          throw new RpcError("MCP_OAUTH_NO_REGISTRATION", noRegistrationMessage(row.name, provider, gh));
         }
         client = await registerClient(info.authorizationServerUrl, {
           metadata,
@@ -477,10 +515,108 @@ export class McpOauth {
     }
   }
 
+  /** What the sign-in sheet offers for a server that issues no client on the fly. `cli.state` is read
+   *  from the CLI itself, so the sheet can say why that route is not ready before anyone presses it. */
+  async options(serverId: string): Promise<McpSignInOptions> {
+    const row = this.d.servers.get(serverId);
+    if (!row) throw new NotFoundError("mcp server", serverId);
+    const provider = this.provider(row, readOauthState(row.oauthJson).discovery?.authorizationServerUrl);
+    let cli: McpSignInOptions["cli"] = null;
+    if (provider?.cli) {
+      const gh = await this.readGh();
+      cli = { name: provider.cli.name, state: gh.ok ? "ready" : gh.reason };
+    }
+    return {
+      provider: provider?.name ?? null,
+      cli,
+      device: !!provider?.device?.clientId,
+      token: provider ? { url: provider.token.url, scopes: provider.token.scopes } : null,
+    };
+  }
+
+  /** Connect with the GitHub CLI's existing sign-in, or say why that is not possible right now. */
+  async useCli(serverId: string): Promise<void> {
+    const row = this.d.servers.get(serverId);
+    if (!row) throw new NotFoundError("mcp server", serverId);
+    const gh = await this.readGh();
+    if (!gh.ok) throw new RpcError("MCP_OAUTH_CLI", cliMessage(gh.reason));
+    this.storeBearer(serverId, gh.token, "cli");
+  }
+
+  /** A token the user pasted — a personal access token, or any bearer the server takes. */
+  setToken(serverId: string, token: string): void {
+    if (!this.d.servers.get(serverId)) throw new NotFoundError("mcp server", serverId);
+    this.storeBearer(serverId, token.trim(), "token");
+  }
+
+  /**
+   * Begin a device-flow sign-in (RFC 8628) and return the code the person types on the vendor's page.
+   * Polling runs here, in realm-server, so it survives the sheet closing; `waitDevice` is how the
+   * sheet learns how it ended.
+   */
+  async startDevice(serverId: string): Promise<{ userCode: string; verificationUri: string; expiresIn: number }> {
+    const row = this.d.servers.get(serverId);
+    if (!row) throw new NotFoundError("mcp server", serverId);
+    const ep = this.provider(row, readOauthState(row.oauthJson).discovery?.authorizationServerUrl)?.device;
+    if (!ep?.clientId) throw new RpcError("MCP_OAUTH_UNSUPPORTED", `Realm has no app registered for a device sign-in to "${row.name}"`);
+    let code;
+    try { code = await requestDeviceCode(ep, this.d.fetchFn); }
+    catch (err) { throw new RpcError("MCP_OAUTH_FAILED", `could not start signing in to "${row.name}": ${describe(err)}`); }
+    this.devices.get(serverId)?.abort.abort();
+    const abort = new AbortController();
+    const done = pollDeviceToken(ep, code, { fetchFn: this.d.fetchFn, sleep: this.d.sleep, signal: abort.signal })
+      .then(({ accessToken }) => { if (!abort.signal.aborted) this.storeBearer(serverId, accessToken, "device"); });
+    // Settled either way before anyone waits on it, so a sheet that was closed leaves no unhandled
+    // rejection behind; `waitDevice` reads the same promise.
+    done.catch(() => {}).finally(() => { if (this.devices.get(serverId)?.done === done) this.devices.delete(serverId); });
+    this.devices.set(serverId, { done, abort });
+    return { userCode: code.userCode, verificationUri: code.verificationUri, expiresIn: code.expiresIn };
+  }
+
+  /** Resolves when the device-flow sign-in for this row lands, and rejects with what stopped it. */
+  async waitDevice(serverId: string): Promise<void> {
+    const flow = this.devices.get(serverId);
+    if (!flow) throw new RpcError("MCP_OAUTH_STATE", "no sign-in is waiting for this server — start again");
+    try { await flow.done; } catch (err) {
+      throw new RpcError(err instanceof DeviceFlowError && err.reason !== "failed" ? `MCP_OAUTH_${err.reason.toUpperCase()}` : "MCP_OAUTH_FAILED", describe(err));
+    }
+  }
+
+  /**
+   * The hub's answer to a 401. A token from the GitHub CLI is read again — `gh auth refresh` or a new
+   * `gh auth login` changes it — and `true` means a different one is now stored, worth one more try.
+   * A pasted or device-flow token has nothing to re-read, so the row is flagged instead and the badge
+   * says so. A browser-flow row is left to its own refresh path.
+   *
+   * No status event on success, for the reason `onStatus`'s doc gives for a silent refresh: the hub
+   * is mid-connect, and invalidating would reap the client the new token is about to serve.
+   */
+  async reauthorize(row: McpServerRow): Promise<boolean> {
+    const state = readOauthState(this.d.servers.get(row.id)?.oauthJson ?? "");
+    if (!state.via || !state.tokens || state.reconnectNeeded) return false;
+    if (state.via === "cli") {
+      const gh = await this.readGh();
+      if (gh.ok && gh.token !== state.tokens.access_token) {
+        this.write(row.id, { ...state, tokens: { access_token: gh.token, token_type: "bearer" } });
+        return true;
+      }
+    }
+    this.markReconnectNeeded(row.id, state);
+    return false;
+  }
+
+  /** A bearer token from anywhere but the browser flow. Replaces the whole state — a registration or
+   *  a half-finished flow belonged to the connection this one supersedes. */
+  private storeBearer(serverId: string, token: string, via: NonNullable<McpOauthState["via"]>): void {
+    this.write(serverId, { tokens: { access_token: token, token_type: "bearer" }, via });
+    this.d.onStatus?.(serverId);
+  }
+
   /** Forget this server's OAuth connection entirely — registration, tokens, any pending flow. The row
    *  itself survives; `oauthStatus` returns to `unconfigured` and the next Connect starts clean. */
   disconnect(serverId: string): void {
     if (!this.d.servers.get(serverId)) throw new NotFoundError("mcp server", serverId);
+    this.devices.get(serverId)?.abort.abort();
     this.d.servers.setOauth(serverId, "");
     this.d.onStatus?.(serverId);
   }
@@ -552,6 +688,25 @@ function describe(err: unknown): string {
   if (err.message.trim()) return err.message;
   const code: unknown = (err as { errorCode?: unknown }).errorCode;
   return typeof code === "string" && code ? code : err.name;
+}
+
+/**
+ * The refusal for a server with no registration endpoint and no client of the user's, naming what
+ * CAN be done instead of only what cannot. The sheet offers each of these as a button; this sentence
+ * is what a caller without the sheet reads.
+ */
+function noRegistrationMessage(name: string, provider: KnownProvider | null, gh: GhToken | null): string {
+  if (!provider) {
+    return `"${name}" issues no client to apps it has not met, so there is no browser sign-in to start. Paste a token it accepts, or the client id and secret of an app you registered with it.`;
+  }
+  const cli = provider.cli && gh && !gh.ok ? ` ${cliMessage(gh.reason)}` : "";
+  return `${provider.name} issues no client to apps it has not met. Sign in with the ${provider.cli?.name ?? `${provider.name} CLI`}, paste a personal access token, or paste the client id and secret of an OAuth app you registered with ${provider.name}.${cli}`;
+}
+
+function cliMessage(reason: "missing" | "signed-out"): string {
+  return reason === "missing"
+    ? "The GitHub CLI (gh) is not installed. Install it, run gh auth login, then try again."
+    : "The GitHub CLI is not signed in. Run gh auth login in a terminal, then try again.";
 }
 
 const reconnectMessage = (name: string): string => `"${name}" needs reconnecting — Connect again in settings`;
