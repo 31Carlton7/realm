@@ -2,7 +2,9 @@ import { describe, expect, it, afterEach, vi } from "vitest";
 import WebSocket from "ws";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
+import { AsyncQueue, type AgentAdapter, type AgentHandle, type McpServerConfig, type StartOptions } from "@realm/adapters";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
@@ -65,15 +67,27 @@ async function boot(simulators?: boolean) {
   const home = tempDir("realm-caps-int-");
   vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
   const claude = new RecordingAdapter("claude");
+  const codex = new RecordingAdapter("codex");
   const cursor = new RecordingAdapter("acp:cursor");
+  const gemini = new RecordingAdapter("acp:gemini");
   app = await createApp({
-    home, port: 0, adapters: { claude, "acp:cursor": cursor }, claudeDir: join(home, "claude-home"),
+    home, port: 0, adapters: { claude, codex, "acp:cursor": cursor, "acp:gemini": gemini }, claudeDir: join(home, "claude-home"),
     ...(simulators === undefined ? {} : { simulatorToolchain: async () => simulators }),
   });
   const c = await client(app.port);
   const p = (await c.call("profiles.create", { name: "W" })).result;
   const space = (await c.call("spaces.create", { profileId: p.id, name: "A" })).result;
-  return { c, space, claude, cursor };
+  return { c, space, claude, codex, cursor, gemini };
+}
+
+/** What the session's `realm` gateway says about itself when its agent connects. */
+async function gatewayInstructions(start: StartOptions): Promise<string | undefined> {
+  const cfg = start.mcpServers![0] as Extract<McpServerConfig, { url: string }>;
+  const client = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+  await client.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+  const said = client.getInstructions();
+  await client.close();
+  return said;
 }
 
 /** Starts the session's adapter the way anything real does — on the first send. */
@@ -155,6 +169,26 @@ describe("the capabilities preamble reaches an ordinary session", () => {
     // THE MUTANT: compose the preamble for every kind. It would be silently dropped by the adapter,
     // and Realm's memory pane — which reports Cursor as receiving nothing — would become a lie.
     expect(cursor.starts[0]!.systemContext).toBeUndefined();
+    c.close();
+  });
+
+  it("reaches every kind of agent exactly once: Claude and Codex in their context, the ACP agents through the gateway", async () => {
+    const { c, space, claude, codex, cursor, gemini } = await boot();
+    for (const kind of ["claude", "codex", "acp:cursor", "acp:gemini"]) await startSession(c, space.id, kind);
+    await waitFor(() => [claude, codex, cursor, gemini].every((a) => a.starts.length === 1));
+    for (const a of [claude, codex]) {
+      expect(a.starts[0]!.systemContext).toContain("This session runs in Realm");
+      // Never twice: Claude Code reads a server's instructions too, and would read the preamble again.
+      expect(await gatewayInstructions(a.starts[0]!)).toBeUndefined();
+    }
+    for (const a of [cursor, gemini]) {
+      // THE MUTANT: pass no instructions to `register`. The ACP agents — which take no per-session
+      // context at all — go back to knowing nothing of Realm but a tool list.
+      const said = await gatewayInstructions(a.starts[0]!);
+      expect(said).toContain("This session runs in Realm");
+      expect(said).toContain("browser_open");
+      expect(said).toContain("## Finishing without the user");
+    }
     c.close();
   });
 });
