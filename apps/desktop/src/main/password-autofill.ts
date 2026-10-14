@@ -208,7 +208,7 @@ export function autofillMenuItems(rows: readonly SiteCredential[]): NativeMenuIt
   return [...items, { type: "separator" }, { id: MANAGE_PASSWORDS_ID, label: "Manage passwords…" }];
 }
 
-type Context = { origin: string; name: string; frameId: string | null };
+type Context = { origin: string; name: string; frameId: string | null; isDefault: boolean };
 type Pane = {
   cdp: AutofillCdp;
   mainFrameId: string | null;
@@ -268,8 +268,8 @@ export class PasswordAutofill {
     const p = params as Record<string, unknown> | null;
     switch (method) {
       case "Runtime.executionContextCreated": {
-        const c = p?.context as { id?: number; origin?: string; name?: string; auxData?: { frameId?: string } } | undefined;
-        if (typeof c?.id === "number") pane.contexts.set(c.id, { origin: c.origin ?? "", name: c.name ?? "", frameId: c.auxData?.frameId ?? null });
+        const c = p?.context as { id?: number; origin?: string; name?: string; auxData?: { frameId?: string; isDefault?: boolean } } | undefined;
+        if (typeof c?.id === "number") pane.contexts.set(c.id, { origin: c.origin ?? "", name: c.name ?? "", frameId: c.auxData?.frameId ?? null, isDefault: c.auxData?.isDefault === true });
         return;
       }
       case "Runtime.executionContextDestroyed":
@@ -296,11 +296,16 @@ export class PasswordAutofill {
   }
 
   /** The origin a report may speak for: Realm's world, in the top frame, at the origin the pane's
-   *  navigation committed — or null, and the report is ignored. */
+   *  navigation committed — or null, and the report is ignored. An isolated world reports no origin
+   *  of its own (measured, Electron 37), so it is the frame's page context that says which origin the
+   *  frame holds — the browser's word, as every context's is. */
   private originOf(paneId: string, pane: Pane, contextId: number): string | null {
     const ctx = pane.contexts.get(contextId);
     if (!ctx || ctx.name !== AUTOFILL_WORLD || ctx.frameId === null || ctx.frameId !== pane.mainFrameId) return null;
-    const origin = normalizeOrigin(ctx.origin);
+    // The newest page context of that frame: an old document's, not yet reported destroyed, is not
+    // the one on screen.
+    const frame = [...pane.contexts.values()].reverse().find((c) => c.isDefault && c.frameId === ctx.frameId);
+    const origin = normalizeOrigin(frame?.origin ?? "");
     const page = normalizeOrigin(this.d.pageUrl(paneId) ?? "");
     return origin && origin === page ? origin : null;
   }

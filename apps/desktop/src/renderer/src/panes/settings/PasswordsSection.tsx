@@ -182,14 +182,20 @@ export function KeychainPasswords({ profileId }: { profileId: string }) {
 export function PasswordExceptions({ profileId, credentials }: { profileId: string; credentials: readonly BrowserCredential[] }) {
   const [never, setNever] = useState<string[]>([]);
   const [allows, setAllows] = useState<PasswordFillAllow[]>([]);
+  const [keychain, setKeychain] = useState<BrowserCredential[]>([]);
   useEffect(() => {
     let live = true;
     void api()?.neverList?.(profileId).then((l) => { if (live) setNever(l); });
-    void api()?.fillAllows?.(profileId).then((l) => { if (live) setAllows(l); });
+    void api()?.fillAllows?.(profileId).then((l) => {
+      if (!live) return;
+      setAllows(l);
+      // An allow can name a keychain password, which is not among the profile's own rows.
+      if (l.some((a) => a.credentialId.startsWith("kc_"))) void api()?.keychainList?.().then((k) => { if (live) setKeychain(k); });
+    });
     return () => { live = false; };
   }, [profileId]);
   const name = (id: string) => {
-    const c = credentials.find((x) => x.id === id);
+    const c = credentials.find((x) => x.id === id) ?? keychain.find((x) => x.id === id);
     return c ? (c.username || c.origin) : "A saved password";
   };
   return (

@@ -58,8 +58,13 @@ function harness(over: Partial<AutofillDeps> & { rows?: SiteCredential[]; choice
     ...over,
   };
   const autofill = new PasswordAutofill(deps);
-  const context = (id: number, over2: { name?: string; origin?: string; frameId?: string } = {}) =>
-    emit("Runtime.executionContextCreated", { context: { id, origin: over2.origin ?? "https://example.com", name: over2.name ?? AUTOFILL_WORLD, auxData: { frameId: over2.frameId ?? "main" } } });
+  /** Realm's world in a frame (which, as in Electron, reports no origin of its own), beside the frame's
+   *  page context, which carries the origin the browser committed. */
+  const context = (id: number, over2: { name?: string; origin?: string; frameId?: string } = {}) => {
+    const frameId = over2.frameId ?? "main";
+    emit("Runtime.executionContextCreated", { context: { id: 1000 + id, origin: over2.origin ?? "https://example.com", name: "", auxData: { frameId, isDefault: true } } });
+    emit("Runtime.executionContextCreated", { context: { id, origin: "", name: over2.name ?? AUTOFILL_WORLD, auxData: { frameId, isDefault: false } } });
+  };
   const report = (contextId: number, payload: unknown) =>
     emit("Runtime.bindingCalled", { name: AUTOFILL_BINDING, payload: JSON.stringify(payload), executionContextId: contextId });
   const field = (over3: Record<string, unknown> = {}) => ({ t: "field", id: 1, how: "click", hasUser: true, hasPass: true, rect: { x: 10, y: 20, w: 200, h: 30 }, ...over3 });
