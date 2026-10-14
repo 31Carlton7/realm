@@ -1,4 +1,6 @@
+import { connectorById } from "@realm/contracts";
 import type { IconName } from "@realm/ui";
+import { isRealmServer, mcpServerMark } from "../../components/mcp-mark";
 import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff } from "./rich/diff";
 
 /**
@@ -43,6 +45,8 @@ export function toolSummary(name: string, input: Record<string, unknown>): strin
 }
 
 export function toolIcon(name: string): IconName {
+  const server = mcpServer(name);
+  if (server !== null) return mcpServerMark(server);
   switch (name) {
     case "Bash": case "exec_command": return "terminal";
     case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": case "apply_patch": return "artifact";
@@ -53,16 +57,27 @@ export function toolIcon(name: string): IconName {
   }
 }
 
-/** An MCP call's two halves — the server that answered and its tool — or null for a call that did not
- *  go through MCP. `mcp__linear__save_issue` is Linear's `save_issue`; Realm's own servers arrive
- *  doubly prefixed (`mcp__realm__realm-browser__browser_open`), and claude.ai's connectors as
- *  `claude_ai_Linear`, so the server is named the way a person would name it. */
-export function mcpParts(name: string): { server: string; tool: string } | null {
+/** The server an MCP call went to, by the name it has in Connections, or null for a call that did not
+ *  go through MCP. Realm's gateway is one server, `realm`, carrying every server of the space under
+ *  that server's own name (`mcp__realm__realm-browser__browser_open`, `mcp__realm__gmail__search`);
+ *  anything else is the agent's own (`mcp__linear__save_issue`, `mcp__claude_ai_Linear__save_issue`). */
+export function mcpServer(name: string): string | null {
   const parts = name.split("__");
   if (parts[0] !== "mcp" || parts.length < 3) return null;
-  const tool = parts[parts.length - 1]!;
-  const raw = parts[parts.length - 2]!;
-  if (parts[1] === "realm" || raw.startsWith("realm-")) return { server: "Realm", tool };
+  return parts.slice(parts[1] === "realm" && parts.length > 3 ? 2 : 1, -1).join("__");
+}
+
+/** An MCP call's two halves — the server that answered and its tool — or null for a call that did not
+ *  go through MCP. `mcp__linear__save_issue` is Linear's `save_issue`; Realm's own servers are
+ *  "Realm", a connector Realm registered (`realm-linear`) is named as its card is, and claude.ai's
+ *  connectors (`claude_ai_Linear`) lose the prefix, so the server is named the way a person would. */
+export function mcpParts(name: string): { server: string; tool: string } | null {
+  const raw = mcpServer(name);
+  if (raw === null) return null;
+  const tool = name.slice(name.lastIndexOf("__") + 2);
+  if (isRealmServer(raw)) return { server: "Realm", tool };
+  const connector = raw.startsWith("realm-") ? connectorById(raw.slice("realm-".length)) : undefined;
+  if (connector) return { server: connector.name, tool };
   const words = raw.replace(/^claude_ai_/, "").replace(/[_-]+/g, " ").trim();
   return { server: words ? words[0]!.toUpperCase() + words.slice(1) : raw, tool };
 }
@@ -102,23 +117,12 @@ export function toolVerb(name: string, toolKind?: string): string {
   return at < 0 ? name : name.slice(at + 2);
 }
 
-/** The few marks a vendor's MCP server can wear, keyed by how its server is named. Only vendors
- *  Realm draws a mark for; anything else takes the plug. */
-const MCP_MARKS: Record<string, string> = {
-  linear: "linear", notion: "notion", slack: "slack", github: "github", figma: "figma",
-  sentry: "sentry", vercel: "vercel", atlassian: "jira", jira: "jira",
-};
-
 /** The glyph a call's row leads with at rest — what KIND of act it was, so thirty settled rows are
  *  found by shape rather than by a column of identical ticks. A read or an edit wears its file's own
  *  mark instead (`fileIconFor`, at the card), which says more than any generic page. */
 export function toolGlyph(name: string, toolKind?: string): string {
-  const mcp = mcpParts(name);
-  if (mcp) {
-    if (mcp.server === "Realm") return "plug";
-    const key = mcp.server.toLowerCase().split(" ")[0]!;
-    return MCP_MARKS[key] ?? "plug";
-  }
+  const server = mcpServer(name);
+  if (server !== null) return mcpServerMark(server);
   switch (VERBS[name] ?? (toolKind ? ACP_VERBS[toolKind] : undefined)) {
     case "Run": return "terminal";
     case "Search": case "Find files": return "search";
