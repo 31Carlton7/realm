@@ -504,6 +504,9 @@ function handleRequest(id, method, params) {
     case "$test/modelList":
       ok(id, { calls: modelListCalls });
       return;
+    case "$test/activeTurns":
+      ok(id, { threads: [...activeTurns.keys()] });
+      return;
     case "turn/interrupt":
       ok(id, {});
       void streamInterrupt(params.threadId, params.turnId);

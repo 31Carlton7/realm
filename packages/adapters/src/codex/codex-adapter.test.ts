@@ -928,6 +928,26 @@ describe("CodexAdapter", () => {
     expect(conn.alive).toBe(false); // the refcount reaching zero has to actually kill the child
   });
 
+  it("stops a closed session's running turn on a process another session still holds", async () => {
+    // Detaching only stops Realm listening. With the process kept alive by the other session, the
+    // turn would go on running commands and editing files with nobody watching it.
+    const adapter = newAdapter();
+    const one = adapter.start(startOpts());
+    const two = adapter.start(startOpts());
+    const a = drain(one);
+    const b = drain(two);
+    await waitFor(() => {
+      expect(types(a.evs)).toContain("init");
+      expect(types(b.evs)).toContain("init");
+    });
+    await one.send({ text: "HANG", attachments: [] });
+    await waitFor(() => expect(types(a.evs)).toContain("tool_call"));
+    await one.dispose();
+    const conn = (await adapter.connection)!;
+    await waitFor(async () => expect((await conn.request<{ threads: string[] }>("$test/activeTurns")).threads).toEqual([]));
+    await two.dispose();
+  });
+
   it("ends a still-attached session quietly when the shared process is deliberately torn down", async () => {
     const { adapter, evs, done } = await booted();
     const conn = (await adapter.connection)!;
