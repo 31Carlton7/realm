@@ -39,6 +39,8 @@ import {
   // Settings' pages, each beside its glyph in the column (settings-index.ts), and the Library's toolbar.
   CpuIcon, DashboardSpeed02Icon, Cursor01Icon, CommandIcon, InboxDownloadIcon, FilterHorizontalIcon, LeftToRightListBulletIcon,
   SquareLockPasswordIcon,
+  // The Markdown editor's toolbar.
+  TextBoldIcon, TextItalicIcon,
   // The permission ladder's marks (Composer's permission control).
   SecurityCheckIcon,
   // A session's Agents tab: one box handing down to two (AgentsTab.tsx).
@@ -198,6 +200,8 @@ export const icons = {
   /* The Library's toolbar: the narrowing a filter menu does, and the view as rows beside `grid`'s
      view as tiles — the pair every file browser draws. */
   filter: FilterHorizontalIcon, list: LeftToRightListBulletIcon,
+  /* The Markdown editor's two marks for emphasis, the letters every editor's toolbar draws. */
+  bold: TextBoldIcon, italic: TextItalicIcon,
   /* How freely a session's agent may act, as the prompter's permission control draws it: a shield
      that asks (Ask each time), one that has already said yes (Accept edits), and one that warns
      (Full access) — the rung that takes the gate away is the one whose mark says so. */

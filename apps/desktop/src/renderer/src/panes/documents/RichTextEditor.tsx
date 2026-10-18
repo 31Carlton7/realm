@@ -101,8 +101,8 @@ function RichToolbar({ editor }: { editor: Ed }) {
   );
   return (
     <div className="documents-rich-toolbar">
-      {btn("Bold", "edit", editor.isActive("bold"), () => editor.chain().toggleBold().run())}
-      {btn("Italic", "idea", editor.isActive("italic"), () => editor.chain().toggleItalic().run())}
+      {btn("Bold", "bold", editor.isActive("bold"), () => editor.chain().toggleBold().run())}
+      {btn("Italic", "italic", editor.isActive("italic"), () => editor.chain().toggleItalic().run())}
       {btn("Inline code", "code", editor.isActive("code"), () => editor.chain().toggleCode().run())}
       <span className="documents-rich-sep" />
       {[1, 2, 3].map((level) => (
@@ -113,8 +113,8 @@ function RichToolbar({ editor }: { editor: Ed }) {
         </button>
       ))}
       <span className="documents-rich-sep" />
-      {btn("Bulleted list", "more", editor.isActive("bulletList"), () => editor.chain().toggleBulletList().run())}
-      {btn("Quote", "chevronRight", editor.isActive("blockquote"), () => editor.chain().toggleBlockquote().run())}
+      {btn("Bulleted list", "list", editor.isActive("bulletList"), () => editor.chain().toggleBulletList().run())}
+      {btn("Quote", "quote", editor.isActive("blockquote"), () => editor.chain().toggleBlockquote().run())}
       {btn("Code block", "terminal", editor.isActive("codeBlock"), () => editor.chain().toggleCodeBlock().run())}
     </div>
   );
