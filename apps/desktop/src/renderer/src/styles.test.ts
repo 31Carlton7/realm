@@ -1862,7 +1862,9 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(card).toContain("background: var(--surface)");
     expect(card).toContain("box-shadow: var(--shadow-card)");
     const focus = bodiesFor(".composer:focus-within").join(" ");
-    expect(focus).toContain("0 0 0 1px var(--line-strong)");
+    // A brighter hairline in place of the card's own, not a second, wider ring stacked over it.
+    expect(focus).toContain("0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card-lift)");
+    expect(bodiesFor(":root[data-squircle] .composer:focus-within").join(" ")).toContain("--sq-ring-w: var(--hairline-w)");
     expect(focus).not.toContain("--rl-accent");
   });
 
@@ -2121,7 +2123,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     const card = bodiesFor(".commit-card").join(" ");
     expect(card).toContain("background: var(--surface)");
     expect(card).toContain("box-shadow: var(--shadow-card)");
-    expect(bodiesFor(".commit-card:focus-within").join(" ")).toContain("0 0 0 1px var(--line-strong)");
+    expect(bodiesFor(".commit-card:focus-within").join(" ")).toBe(bodiesFor(".composer:focus-within").join(" "));
     // The removed form: the dock used to be a raised strip behind a hairline. Both must stay gone —
     // the list already dissolves into the card, and either one draws that seam twice.
     const dock = bodiesFor(".diff-commit").join(" ");
@@ -4920,6 +4922,26 @@ describe("softer edges", () => {
       [".todo-track", "background: var(--mark)"], ['.status-dot[data-status="idle"]', "background: var(--mark-strong)"],
       [".item-glyph rect", "fill: var(--mark-strong)"],
     ] as const) expect(bodiesFor(sel).join(" "), sel).toContain(decl);
+  });
+
+  /* The owner, 10-18: the prompter's shadow and its files', "a bit lighter and cleaner". The card stack
+     is what the prompter, its file tiles and every floating card wear, so the change is made there.
+     THE mutants: the ring put back a rung above the line (it measured +17 levels over the prompter's
+     own fill on dark), or a layer of the lift back at the weight it had — 20% black on dark, 4% on light. */
+  it("rings a card at the line's rung, and lifts it on a lighter shadow than it had, in both faces", () => {
+    const value = (block: string, name: string) => new RegExp(`--${name}: ([^;]+);`).exec(block)?.[1] ?? "";
+    const alphas = (text: string) => [...text.matchAll(/#[0-9a-f]{6}([0-9a-f]{2})\b/g)].map((m) => parseInt(m[1]!, 16));
+    const overlay = (ref: string) => alphas(value(tokens, ref.replace(/^var\(--|\)$/g, "")));
+    const ringAlpha = (block: string) => { const v = value(block, "card-ring"); return v.startsWith("var(") ? overlay(v)[0]! : alphas(v)[0]!; };
+    // The light block that states the card stack — not the first light block in the file, the palette's.
+    const lightStack = [...tokens.matchAll(/:root\[data-mode="light"\]\s*\{([^}]*)\}/g)].map((m) => m[1]!).find((b) => b.includes("--card-ring:"))!;
+    for (const [face, block, before] of [["dark", dark, 0x33], ["light", lightStack, 0x0a]] as const) {
+      expect(ringAlpha(block), face).toBeLessThanOrEqual(overlay(value(block, "line"))[0]!);
+      const lift = value(block, "shadow-card-lift");
+      expect(Math.max(...alphas(lift)), face).toBeLessThan(before);
+      // The painted cards' filter is the same layers, so the prompter is no lighter painted than flat.
+      expect(alphas(value(block, "shadow-card-lift-filter")), face).toEqual(alphas(lift));
+    }
   });
 });
 

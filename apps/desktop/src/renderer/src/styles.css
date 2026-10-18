@@ -5158,7 +5158,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 
 /* The card (Plan 9 W3 — BUI PromptBar): a surface field on shadow-card (the hairline ring is part
    of the stack), --r-float, borderless. Focus is BUI's border-brighten — the ring steps to
-   line-strong — replacing the old 30% accent glow (PromptBar's focus-within:border-line-strong). */
+   line-strong — replacing the old 30% accent glow (PromptBar's focus-within:border-line-strong).
+   It brightens and stays a hairline: the keyboard is in the prompter most of the day, and a ring that
+   doubled in width on focus was the heaviest edge in the window (the owner, 10-18). */
 /* Squircle prompter. What is written here is the FALLBACK — a circular corner at --r-squircle,
    which is its own rung because a squircle reads visually smaller than a circular corner at the
    same radius and the two scales cannot track by arithmetic — plus `corner-shape`,
@@ -5168,7 +5170,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer { width: 100%; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface);
   box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
-  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
+  box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card-lift); }
 /* ── The prompter wears its mode ─────────────────────────────────────────
    Ask and Plan both mean "the agent will not change anything on disk", which is the single most
    consequential fact about the next send. It was said by one chip in a row of chips; it is said by
@@ -6392,7 +6394,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
  */
 /* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
 :root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
-  --sq-ring: var(--line-strong); --sq-ring-w: 1px;
+  --sq-ring: var(--line-strong); --sq-ring-w: var(--hairline-w);
   box-shadow: none;
 }
 :root[data-squircle] .composer[data-dropping] {
@@ -7171,7 +7173,7 @@ select { appearance: none; padding-right: 22px;
 .diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 6px 12px 12px; }
 .commit-card { display: flex; flex-direction: column; border-radius: var(--r-squircle); corner-shape: squircle;
   background: var(--surface); box-shadow: var(--shadow-card); }
-.commit-card:focus-within { box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
+.commit-card:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card-lift); }
 .commit-message { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright);
   font: inherit; font-size: 14px; line-height: 1.5; padding: 12px 14px 4px; caret-color: var(--caret); }
 .commit-message::placeholder { color: var(--rl-text-faint); }
