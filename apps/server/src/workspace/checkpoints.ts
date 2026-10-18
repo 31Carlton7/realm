@@ -391,11 +391,15 @@ export class CheckpointGit {
   /** Steps 2–4 of the restore recipe (see `restore`'s doc comment): working tree from
    *  `worktreeTree`, untracked survivors deleted, index from `indexTree`. */
   private async applyTrees(root: string, state: CapturedState, errorCode: string): Promise<number> {
+    // Read under the ignore rules in force NOW: the step below can write back an older .gitignore, and
+    // a file it stops ignoring (a `.env` ignored since the checkpoint) was never captured to come back.
+    const visible = new Set(await this.untracked(root));
     const applied = await this.git(root, ["read-tree", "--reset", "-u", state.worktreeTree]);
     if (applied.code !== 0) throw new RpcError(errorCode, gitReason(applied));
 
     let filesRemoved = 0;
     for (const path of await this.untracked(root)) {
+      if (!visible.has(path)) continue;
       try { unlinkSync(join(root, path)); filesRemoved += 1; }
       catch { /* a directory, a race, a permission — the tree is already correct for everything else */ }
     }

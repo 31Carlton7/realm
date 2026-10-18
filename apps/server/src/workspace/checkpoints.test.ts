@@ -340,6 +340,20 @@ describe("restore", () => {
     } finally { cleanup(repo); }
   });
 
+  it("leaves a file alone that was ignored when the restore began, even if the checkpoint's .gitignore did not ignore it", async () => {
+    // The restore writes the OLD .gitignore back before it sweeps, and the capture it takes first
+    // skips ignored files — so a `.env` swept here is gone for good, Undo included.
+    const repo = makeRepo();
+    try {
+      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
+      writeFileSync(join(repo, ".gitignore"), "ignored/\n*.log\n.env\n");
+      git(repo, "commit", "-qam", "ignore .env");
+      writeFileSync(join(repo, ".env"), "SECRET=1\n");
+      await svc().restore({ cwd: repo, state });
+      expect(readFileSync(join(repo, ".env"), "utf8")).toBe("SECRET=1\n");
+    } finally { cleanup(repo); }
+  });
+
   it("rolls the branch back over commits the agent made", async () => {
     const repo = makeRepo();
     try {
