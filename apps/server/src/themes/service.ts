@@ -89,7 +89,7 @@ const INCLUDE_DEPTH = 4;
 
 export class ThemesService {
   readonly root: string;
-  constructor(private d: { home: string }) { this.root = themesRoot(d.home); }
+  constructor(d: { home: string }) { this.root = themesRoot(d.home); }
 
   /** Every theme in the folder, newest name order. A file that will not parse is SKIPPED rather than
    *  failing the list: one bad theme must not cost the user the rest of them. */

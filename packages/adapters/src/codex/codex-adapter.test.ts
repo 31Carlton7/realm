@@ -1161,7 +1161,6 @@ describe("CodexAdapter skills", () => {
 });
 
 describe("codexMcpConfig", () => {
-  const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
 
   it("writes an http server as url/http_headers — Codex's own key, not `headers` — which is the only shape that ever reaches here (the gateway's own entry)", () => {

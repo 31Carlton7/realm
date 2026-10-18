@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import { SIM_WS_OPCODE, SIMULATOR_BUTTONS, type SimulatorButton } from "@realm/contracts";
+import { SIM_WS_OPCODE, type SimulatorButton } from "@realm/contracts";
 import type { Android } from "./android";
 
 /**

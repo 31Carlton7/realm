@@ -1,4 +1,4 @@
-import { newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorCameraSource, type SimulatorDevice, type SimulatorEvent, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
+import { newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorDevice, type SimulatorEvent, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

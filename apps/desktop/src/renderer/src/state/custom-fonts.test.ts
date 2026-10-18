@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createAppStore } from "./store";
 import { fakeApi, type FakeData } from "./store.test-fakes";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";

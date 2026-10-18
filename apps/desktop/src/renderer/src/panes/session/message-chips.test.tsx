@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, act, waitFor } from "@testing-library/react";
+import { render, act, waitFor } from "@testing-library/react";
 import { sessionEvent, type MentionRef, type Skill } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, skillRow } from "../../state/store.test-fakes";

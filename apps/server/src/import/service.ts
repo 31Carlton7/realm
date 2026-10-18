@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
   IMPORTED_SPACE_NAME, SkillIdSchema, withImportedMemory,
-  type ImportMatch, type ImportMemoryCandidate, type ImportOutcome, type ImportResult, type ImportScan,
+  type ImportMemoryCandidate, type ImportOutcome, type ImportResult, type ImportScan,
   type ImportSessionCandidate, type ImportSkillCandidate, type ImportSourceReport, type Space,
 } from "@realm/contracts";
 import type { Db } from "../db/database";

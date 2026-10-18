@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Environment, type Session } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Session } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "@realm/contracts";
 import { childPermissionMode, cleanupWorktree, errorMessage, modeLabel, rank, resolveAgentKind, resolveEnvironment, resolveSkillSubset, taskName, type ChildMode, type EnvironmentDeps } from "./dispatch";

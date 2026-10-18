@@ -44,7 +44,7 @@ import { LabAccountSchema, LabDeviceKindSchema, LabDevicesSchema, LabReadinessSc
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
-import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAxTreeSchema, SimulatorCameraSourceSchema, SimulatorDeviceSchema, SimulatorEventSchema, SimulatorSchema, SimulatorStateSchema, SimulatorPlatformSchema, SimulatorUiStateSchema } from "./simulator";
+import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAxTreeSchema, SimulatorDeviceSchema, SimulatorEventSchema, SimulatorSchema, SimulatorStateSchema, SimulatorPlatformSchema, SimulatorUiStateSchema } from "./simulator";
 import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";

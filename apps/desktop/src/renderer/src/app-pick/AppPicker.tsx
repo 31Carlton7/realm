@@ -1,4 +1,4 @@
-import { appElementName, type AppPickedElement, type PickedElement } from "@realm/contracts";
+import { appElementName, type PickedElement } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";

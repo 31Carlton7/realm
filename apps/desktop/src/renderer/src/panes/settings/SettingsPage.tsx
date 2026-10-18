@@ -17,7 +17,7 @@ import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
 import { CommandCopy } from "../../components/CommandCopy";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
-import { useApp, type CliJob, type SettingsPageTab, type SubmitKey } from "../../state/store";
+import { useApp, type CliJob, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";

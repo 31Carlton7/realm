@@ -30,9 +30,6 @@ export function usePickerScroller(active: number) {
   return { list, hovered };
 }
 
-/** The characters a skill id may contain — must agree with contracts/mentions.ts, or the popover
- *  would offer a completion the send-time scan then refuses to recognise. */
-const ID_CHAR = /[A-Za-z0-9._-]/;
 /** What the QUERY after an `@` may contain: an id's characters, and a path's `/` — a file is found
  *  by `src/au` as often as by `auth`. What a pick inserts is always a whole token of its own, so a
  *  slash typed here never ends up inside one. */

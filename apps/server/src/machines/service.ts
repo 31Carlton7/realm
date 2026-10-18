@@ -14,7 +14,7 @@ import { QmpDriver } from "./qmp-driver";
 import { BridgeDriver } from "./bridge-driver";
 import { QemuManager } from "./qemu-manager";
 import { accelFor, locateQemu, type QemuCapabilities } from "./qemu-locator";
-import { portForDisplay, secretPath, type QemuArch } from "./qemu-argv";
+import { portForDisplay, secretPath } from "./qemu-argv";
 import type { ImageStore } from "./images";
 import { CATALOG } from "./catalog-data";
 import type { MachineDriver } from "./driver";

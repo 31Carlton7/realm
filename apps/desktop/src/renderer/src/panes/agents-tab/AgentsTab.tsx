@@ -1,7 +1,7 @@
 import { AGENT_META, sessionModeOf, type AgentKind, type DelegatedChild, type Session } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ScrollFades, useDissolve } from "../../components/ScrollFades";
+import { ScrollFades } from "../../components/ScrollFades";
 import { activityOf, type SessionActivity } from "../../state/session-activity";
 import { useApp, type DelegableModels } from "../../state/store";
 import type { PaneProps } from "../registry";

@@ -10,7 +10,6 @@ import type { DelegationEngine } from "../delegation/engine";
 import { clip } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
-import type { EnvironmentsStore } from "../store/environments";
 import type { ProjectsStore } from "../store/projects";
 import { NotFoundError, RpcError } from "../store/rows";
 import type { SpacesStore } from "../store/spaces";

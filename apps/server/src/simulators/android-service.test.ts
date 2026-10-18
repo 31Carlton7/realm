@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { join } from "node:path";
 import { openDatabase, type Db } from "../db/database";
