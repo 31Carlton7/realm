@@ -16,7 +16,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
   return (
     <div className="relative min-h-[100dvh]">
       <SiteHeader width="max-w-[92rem]" />
-      <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 px-6 pt-2 sm:px-10 lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:gap-x-12 lg:pt-10 xl:gap-x-16">
+      <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 px-6 pt-2 sm:px-10 lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:gap-x-12 lg:pt-10 xl:gap-x-16">
         <aside className="docs-nav-scroll min-w-0 lg:sticky lg:-mx-1 lg:px-1 lg:top-24 lg:max-h-[calc(100dvh-7rem)] lg:self-start lg:overflow-y-auto lg:pb-10">
           <DocsNav groups={nav} />
         </aside>

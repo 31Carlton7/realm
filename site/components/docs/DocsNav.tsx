@@ -56,10 +56,13 @@ function Map({ groups, current }: { groups: NavGroup[]; current: string }) {
       <ol className="relative border-l border-line">
         <Row href="/docs" label="Overview" here={current === ""} />
       </ol>
-      {groups.map((group) => (
+      {groups.map((group, index) => (
         <div key={group.title}>
-          <h2 className="mb-1 text-[13px] font-[520] text-ink">{group.title}</h2>
-          <ol className="relative border-l border-line">
+          {/* Not a heading: the map comes before the page's h1, and its groups are labels for lists. */}
+          <p id={`docs-group-${index}`} className="mb-1 text-[13px] font-[520] text-ink">
+            {group.title}
+          </p>
+          <ol aria-labelledby={`docs-group-${index}`} className="relative border-l border-line">
             {group.pages.map((doc) => (
               <Row key={doc.slug} href={`/docs/${doc.slug}`} label={doc.title} here={doc.slug === current} />
             ))}

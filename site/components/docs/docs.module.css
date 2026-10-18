@@ -301,7 +301,10 @@
   vertical-align: top;
 }
 
+/* The first column names the row; on a phone it keeps enough width that a short name like "Ask each
+   time" breaks once rather than a word to a line. */
 .table td:first-child {
+  min-width: 7rem;
   color: var(--color-ink);
 }
 
