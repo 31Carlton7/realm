@@ -220,6 +220,23 @@ describe("checkpoints over rpc", () => {
     c.close();
   });
 
+  it("measures the first turn after the agents were stopped, on an engine that says idle as it boots", async () => {
+    // The fake, like Codex and the ACP agents, reports `idle` once its process is up. Coming after the
+    // stopped engine's `ended`, that is a new process starting, not the turn it is about to run ending.
+    const { c, sp } = await boot();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    await c.call("daemon.stopAgents", {});
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "ended");
+
+    await c.call("sessions.send", { id: session.id, text: "edit" });
+    const changes = await until(async () => (await c.call("sessions.events", { id: session.id })).result
+      .find((e: Any) => e.event.type === "turn_changes"));
+    expect(changes.event.payload.totalFiles).toBe(2);
+    c.close();
+  });
+
   it("still delivers the message when the checkout is not a git repository", async () => {
     const home = tempDir("realm-cpint-");
     app = await createApp({ home, port: 0, adapters: { fake: new FakeAdapter({ script, delayMs: 5 }) } });
