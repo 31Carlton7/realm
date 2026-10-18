@@ -3323,6 +3323,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  otherwise close the just-opened item. */
     const itemsFetchSeq = new Map<string, number>();
     const nextItemsSeq = (sid: string): number => { const n = (itemsFetchSeq.get(sid) ?? 0) + 1; itemsFetchSeq.set(sid, n); return n; };
+    /** Per checkout, the newest-started diff refresh: a Stage click starts two (its own and the
+     *  `workspace.changed` broadcast's), git may answer them in either order, and only the newest
+     *  describes the tree as it is now. */
+    const diffFetchSeq = new Map<string, number>();
     /** Bumped by every profile switch, so a response for the profile being left can never land. */
     let profileEpoch = 0;
     /** Bumped by every new watch, so only the newest one polls. */
@@ -7211,17 +7215,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ gitInfo: { ...get().gitInfo, [cwd]: info } });
       },
       async refreshDiff(cwd) {
+        const seq = (diffFetchSeq.get(cwd) ?? 0) + 1;
+        diffFetchSeq.set(cwd, seq);
         set({ diffLoading: { ...get().diffLoading, [cwd]: true } });
         try {
           const summary = await api.diff(cwd);
+          if (seq !== diffFetchSeq.get(cwd)) return;
           // Patches for files that are no longer in the list are dropped here rather than left to
           // rot: a stale patch under a collapsed row is what makes a diff pane lie after a commit.
           const live = new Set((summary?.files ?? []).map((f) => f.path));
           const patches = Object.fromEntries(Object.entries(get().patches).filter(([key, p]) => !key.startsWith(`${cwd}\u0000`) || live.has(p.path)));
           set({ diffs: { ...get().diffs, [cwd]: summary }, patches });
         } finally {
-          const { [cwd]: _done, ...rest } = get().diffLoading;
-          set({ diffLoading: rest });
+          if (seq === diffFetchSeq.get(cwd)) {
+            const { [cwd]: _done, ...rest } = get().diffLoading;
+            set({ diffLoading: rest });
+          }
         }
         await get().refreshGitInfo(cwd);
       },

@@ -2630,6 +2630,27 @@ describe("diff panes", () => {
   const env: Environment = { id: "env1", spaceId: "s1", path: "/tmp/wt", branch: "realm/x", kind: "worktree", portBlockStart: 41010, createdAt: 0, updatedAt: 0 };
   const withEnv = () => fakeApi({ environments: { s1: [env] }, diffs: { "/tmp/wt": { root: "/tmp/wt", branch: "realm/x", files: [], totalFiles: 0, truncated: false } } });
 
+  it("keeps the newer of two overlapping refreshes, whichever answers last", async () => {
+    // A Stage click refreshes twice — its own, and the `workspace.changed` broadcast — and git can
+    // answer them in either order. The older answer landing last showed a staged file as unstaged.
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    const older = { root: "/tmp/wt", branch: "realm/x", files: [{ path: "a.txt", oldPath: null, status: "modified", staged: false, additions: 1, deletions: 0 }], totalFiles: 1, truncated: false };
+    const newer = { ...older, files: [{ ...older.files[0]!, staged: true }] };
+    let answerOlder!: () => void;
+    a.diff = (async () => {
+      a.diff = async () => newer as never;
+      await new Promise<void>((r) => { answerOlder = r; });
+      return older as never;
+    }) as typeof a.diff;
+    const first = store.getState().refreshDiff("/tmp/wt");
+    await store.getState().refreshDiff("/tmp/wt");
+    answerOlder();
+    await first;
+    expect(store.getState().diffs["/tmp/wt"]).toEqual(newer);
+  });
+
   it("makes one diff item per environment and goes back to it the second time", async () => {
     const a = withEnv();
     const store = createAppStore(a);
