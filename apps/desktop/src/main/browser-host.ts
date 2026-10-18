@@ -352,8 +352,8 @@ export const POPUP_LIMIT = 3;
  * Everything else is a link (`target=_blank`, a ⌘-click) and goes **in-place**, as it always has: a
  * link opened in a new tab keeps no opener (`noopener` is implied), so nothing is waiting on it.
  *
- * Deliberately not sniffed from the address: every sign-in SDK that opens a popup gives it a size, and
- * a link to an authorize URL is a redirect flow, which finishes in place.
+ * Deliberately not sniffed from the address: the sign-in SDKs that use a popup give it a size, and a
+ * link to an authorize URL is a redirect flow, which finishes in place.
  */
 export function windowOpenAction(request: WindowRequest, popupsOpen: number): "popup" | "in-place" | "refuse" {
   const wantsWindow = request.disposition === "new-window" || request.url === "about:blank" || request.url === "";

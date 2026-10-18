@@ -144,9 +144,9 @@ export function electronViewFactory(
        Every popup is this pane's and nobody else's: Chromium makes it in its opener's session (which
        is what lets the two script each other), so it signs in to the pane's profile; it gets the same
        sandbox, the allowlist on every page it goes to, these same rules for its own `window.open`, and
-       it closes with the pane. It is a child of the Realm window, so it stays above it and follows it
-       between spaces and into full screen. What it does not get is the pane's saved passwords and
-       passkeys: those are installed per pane and answer for the pane's page, never for another. */
+       it closes with the pane. It is a child of the Realm window, so it stays above it. What it does
+       not get is the pane's saved passwords and passkeys: those are installed per pane and answer for
+       the pane's page, never for another. */
     const popups = new Set<BrowserWindow>();
     const openWindow = (opener: WebContents) => (details: HandlerDetails): WindowOpenHandlerResponse => {
       const action = windowOpenAction(details, popups.size);
