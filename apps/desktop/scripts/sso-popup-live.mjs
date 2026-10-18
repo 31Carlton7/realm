@@ -399,7 +399,8 @@ async function main() {
   check("S1 a noopener popup is a child window too, in the pane's jar (not the app's) and as Realm's user agent",
     !!loneWin && loneWin.parent === realm.id && loneFacts?.opener === false && loneFacts.cookie.includes("jar=pane-a") && realmAgent(loneFacts.ua) && realmAgent(loneAsk?.ua),
     { win: loneWin, facts: loneFacts, wire: loneAsk?.ua });
-  if (lone) { await evalIn(lone, `(() => { window.close(); return true; })()`).catch(() => {}); lone.close(); }
+  // Closed on a timer: a `window.close()` inside the evaluate takes the target down before it can answer.
+  if (lone) { await evalIn(lone, `(() => { setTimeout(() => window.close(), 50); return true; })()`).catch(() => {}); lone.close(); }
   await until(async () => (await popupsOn(m, B)).length === 0, 10_000, "the noopener popup gone").catch(() => {});
 
   // Not a check: whether Electron opens a popup with no click behind it. It has no popup blocker of its

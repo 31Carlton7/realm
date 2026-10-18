@@ -1,4 +1,4 @@
-import { WebContentsView, screen, session, type BrowserWindow, type HandlerDetails, type WebContents, type WindowOpenHandlerResponse } from "electron";
+import { WebContentsView, app, screen, session, type BrowserWindow, type HandlerDetails, type WebContents, type WindowOpenHandlerResponse } from "electron";
 import { FAVICON_MAX_BYTES, type BrowserLoadError } from "@realm/contracts";
 import {
   BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, browserUserAgent, createFaviconResolver, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
@@ -181,10 +181,6 @@ export function electronViewFactory(
       popups.add(popup);
       popup.once("closed", () => popups.delete(popup));
       const popupWc = popup.webContents;
-      // The session's user agent does not reach a webContents Chromium made for a `window.open`
-      // (measured, Electron 37: it presents Electron's own, `Electron/37` token and all), so the popup
-      // is given the pane's here — before its first request, which is sent after this event.
-      popupWc.setUserAgent(browserUserAgent(popupWc.getUserAgent()));
       popupWc.setWindowOpenHandler(openWindow(popupWc));
       popupWc.on("did-create-window", adoptPopup);
       popupWc.on("will-navigate", guard);
@@ -442,11 +438,18 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
  * Deliberately reads the session's CURRENT default rather than a constant, so the string tracks
  * whatever Chromium the app ships without anyone remembering to update it — which is the failure
  * mode a hardcoded UA has, and it fails by claiming an engine version that no longer exists.
+ *
+ * The app's fallback gets it too, for a pane's popups. Neither the session's user agent nor a
+ * `setUserAgent` reaches the first page of a window Chromium made for a `window.open`: that page is
+ * requested by the opener, from a webContents with no history, and Electron never asks Chromium to
+ * override the agent there — so it went out as the fallback, `Electron/37` token and all (measured,
+ * Electron 37: on the wire and in `navigator.userAgent`), which is the token sign-in pages refuse.
  */
 const userAgentApplied = new Set<string>();
 export function applyBrowserUserAgent(partition: string): void {
   if (userAgentApplied.has(partition)) return;
   userAgentApplied.add(partition);
+  app.userAgentFallback = browserUserAgent(app.userAgentFallback);
   const ses = session.fromPartition(partition);
   ses.setUserAgent(browserUserAgent(ses.getUserAgent()));
   refuseCapture(ses);
