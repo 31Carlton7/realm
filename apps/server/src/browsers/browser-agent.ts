@@ -62,10 +62,10 @@ type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown
  *     `browser_navigate` calls at the provider level (`checkMutation()`, consulted by agent-tools) —
  *     scoped to this child only; the space-global allowlist in Electron main is untouched.
  *
- * **The safety line of the feature — permission inheritance.** The child runs the caller's
- * permission mode EXCEPT `bypassPermissions`, which is NEVER inherited: a delegated agent does not
- * get the parent's full access. A bypass parent's child runs `default`, and its permission_requests
- * surface on the child's own visible session, where the user answers them. See `childPermissionMode`.
+ * **Permission inheritance.** The child runs the caller's permission mode, Full access included, as
+ * `agent_run`'s children do (`childPermissionMode`). What Full access does not reach is the browser
+ * broker's own floor: a password field and a saved credential still ask, on the child's own visible
+ * session, whatever the mode.
  *
  * **Recursion guard, depth-1, enforced server-side twice over:** a child session's toolset excludes
  * `realm-agent` entirely (the gateway never lists or routes it), AND `run()`/the provider re-check
