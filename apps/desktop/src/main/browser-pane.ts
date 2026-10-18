@@ -170,9 +170,9 @@ export function electronViewFactory(
           focusable: win.isFocusable(),
           autoHideMenuBar: true,
           title: popupTitle(details.url, ""),
-          // `partition` is for the popup Electron makes itself — one with no opener (`noopener`, a
-          // shift-click), which it loads in a webContents of its own, in the app's default session
-          // unless told otherwise. One Chromium makes for its opener is already in the pane's.
+          // `partition` is for the window Electron makes itself — a shift-clicked link, which it loads
+          // in a webContents of its own, in the app's default session unless told otherwise (measured:
+          // none of the pane's cookies). One Chromium makes for a `window.open` is already the pane's.
           webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false },
         },
       };

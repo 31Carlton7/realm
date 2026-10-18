@@ -10,7 +10,8 @@
  *   S1  A's "Sign in with B" opens B in a real popup window — a child of the Realm window, at the
  *       500×600 viewport it asked for, in the pane's own cookie jar, with Realm's user agent on the wire
  *       and in the page, and the host in its title bar — with `window.opener` set, and the pane still
- *       on A; a popup opened with `noopener`, which Electron makes itself, is in the pane's jar too;
+ *       on A; a `noopener` popup, and a shift-clicked link — the window Electron makes itself — are
+ *       in the pane's jar too;
  *   S2  an agent's snapshot of the pane says a popup is open over it, and on which origin;
  *   S3  picking the account in B posts the token to A and closes B: A shows it, the window is gone,
  *       and the snapshot stops mentioning a popup;
@@ -223,11 +224,12 @@ async function attachTo(prefix, tag) {
   await c.send("Runtime.enable");
   return c;
 }
-async function clickIn(c, selector) {
+async function clickIn(c, selector, { shift = false } = {}) {
   const at = await evalIn(c, `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
-  await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
-  await c.send("Input.dispatchMouseEvent", { type: "mousePressed", x: at.x, y: at.y, button: "left", clickCount: 1 });
-  await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: at.x, y: at.y, button: "left", clickCount: 1 });
+  const modifiers = shift ? 8 : 0;
+  await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y, modifiers });
+  await c.send("Input.dispatchMouseEvent", { type: "mousePressed", x: at.x, y: at.y, button: "left", clickCount: 1, modifiers });
+  await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: at.x, y: at.y, button: "left", clickCount: 1, modifiers });
 }
 async function pageShot(c, tag) {
   await sleep(500);
@@ -402,6 +404,18 @@ async function main() {
   // Closed on a timer: a `window.close()` inside the evaluate takes the target down before it can answer.
   if (lone) { await evalIn(lone, `(() => { setTimeout(() => window.close(), 50); return true; })()`).catch(() => {}); lone.close(); }
   await until(async () => (await popupsOn(m, B)).length === 0, 10_000, "the noopener popup gone").catch(() => {});
+
+  // A shift-click asks for a window, and Chromium hands it to Electron to make — in a webContents of its
+  // own, from the webPreferences the pane gave it, which is the one case where the partition is ours to set.
+  await clickIn(pane, "#docs", { shift: true });
+  const shifted = await attachTo(`${B}/docs`, "the shift-clicked link's window").catch(() => null);
+  const shiftedCookie = shifted ? await until(() => evalIn(shifted, `document.readyState === "complete" ? document.cookie || "(none)" : null`), 10_000, "its cookie").catch(() => null) : null;
+  const [shiftedWin] = await popupsOn(m, `${B}/docs`);
+  check("S1 a shift-clicked link opens in a child window, in the pane's jar (not the app's)", !!shiftedWin && shiftedWin.parent === realm.id && shiftedCookie === "jar=pane-a" && (await evalIn(pane, `location.href`)) === `${A}/`,
+    { win: shiftedWin, cookie: shiftedCookie });
+  shifted?.close();
+  await inMain(m, `(() => { for (const w of require("electron").BrowserWindow.getAllWindows()) if (w.getParentWindow() && w.webContents.getURL().startsWith(${JSON.stringify(`${B}/docs`)})) w.close(); return true; })()`);
+  await until(async () => (await popupsOn(m, B)).length === 0, 10_000, "the shift-clicked window gone").catch(() => {});
 
   // Not a check: whether Electron opens a popup with no click behind it. It has no popup blocker of its
   // own, which is what POPUP_LIMIT bounds.
