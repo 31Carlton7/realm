@@ -877,7 +877,8 @@ export class CodexAdapter implements AgentAdapter {
           activeTurnId = str(obj(started.turn).id) || null;
         } catch (e) {
           events.push(sessionEvent("error", { message: message(e) }));
-          events.push(sessionEvent("status", { status: "idle" }));
+          // A steer refused mid-turn leaves that turn running, and its own `turn/completed` settles it.
+          if (!activeTurnId) events.push(sessionEvent("status", { status: "idle" }));
         }
       },
       respondPermission: respond,

@@ -842,6 +842,9 @@ describe("CodexAdapter", () => {
     // Retrying this as turn/start would silently run a SECOND concurrent turn against the same thread.
     expect(texts(evs)).toEqual([]);
     expect(of(evs, "tool_call")).toHaveLength(1);
+    // …and the turn it could not steer into is still running: an `idle` here would settle a live turn,
+    // draining the queue into it and taking Stop away while it works on.
+    expect(statuses(evs).at(-1)).toBe("running");
     await handle.dispose();
   });
 
