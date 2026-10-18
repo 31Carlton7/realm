@@ -312,7 +312,10 @@ function UsageBody({ data, metric, dimension, setDimension, onSaveBudget }: {
 function compactUsd(n: number): string {
   if (n >= 1000) return `$${(n / 1000).toFixed(n >= 10_000 ? 0 : 1).replace(/\.0$/, "")}K`;
   if (n >= 10 || n === 0) return `$${Math.round(n)}`;
-  return formatUsd(n);
+  // As many places as the step needs and no more: a small spend's steps are 0.005, 0.01, 0.015, and
+  // at cents two of them print as "$0.01".
+  const places = [2, 3, 4].find((d) => Math.abs(Number(n.toFixed(d)) - n) < 1e-9) ?? 4;
+  return `$${n.toFixed(places)}`;
 }
 
 /**
