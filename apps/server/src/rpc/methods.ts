@@ -970,6 +970,7 @@ export function registerMethods(d: Deps): void {
   reg("team.roleArchive", (p) => { d.team.archiveRole(p.id); return { archived: true }; });
   reg("team.roleRun", (p) => { refuseWhileDraining("start a role's run"); return d.team.runRole(p.id, p.message); });
   reg("team.roleRuns", (p) => d.team.roleRuns(p.id, p.limit));
+  reg("team.roleMessage", (p) => { refuseWhileDraining("message a teammate"); return d.team.messageRole(p.id, p.text); });
   reg("team.review", (p) => d.team.review(p.id));
   reg("team.reviewApprove", (p) => d.team.approve(p.id));
   reg("team.reviewRequestChanges", (p) => d.team.requestChanges(p.id, p.note));
@@ -982,7 +983,7 @@ export function registerMethods(d: Deps): void {
   reg("team.record", (p) => d.team.record(space(p.spaceId), p.path));
   reg("team.recordWrite", (p) => d.team.writeRecord(space(p.spaceId), p.path, p.markdown));
   reg("team.recordCreate", (p) => d.team.createRecord(space(p.spaceId), p.name, p.type));
-  reg("team.activity", (p) => d.team.activity(space(p.spaceId), p.limit, p.before));
+  reg("team.activity", (p) => d.team.activity(space(p.spaceId), p.limit, p.before, p.roleId));
   reg("team.roleHandoffs", (p) => handoffs().setRoleHandoffs(p));
   reg("team.roleGoal", (p) => { refuseWhileDraining("give a role a goal"); return handoffs().setGoal(p.id, p.objective); });
   reg("team.setLimits", (p) => { handoffs().setLimits(space(p.spaceId), p); return d.team.space(p.spaceId); });

@@ -1621,6 +1621,9 @@ export const Methods = {
   "team.roleArchive": { params: z.object({ id: IdSchema }), result: z.object({ archived: z.boolean() }) },
   "team.roleRun": { params: z.object({ id: IdSchema, message: z.string().max(20_000).nullable().default(null) }), result: RunSchema },
   "team.roleRuns": { params: z.object({ id: IdSchema, limit: z.number().int().min(1).max(200).default(30) }), result: z.array(RoleRunSchema) },
+  /** A person's message to a teammate: the answer to the question its run is parked on, or a new run
+   *  that continues its newest run's session, waiting behind a live one. */
+  "team.roleMessage": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: RunSchema },
   "team.review": { params: z.object({ id: IdSchema }), result: TeamReviewDetailSchema },
   "team.reviewApprove": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
@@ -1643,7 +1646,8 @@ export const Methods = {
   "team.recordTypes.create": { params: CreateRecordTypeSchema, result: TeamRecordTypeSchema },
   "team.recordTypes.update": { params: UpdateRecordTypeSchema, result: TeamRecordTypeSchema },
   "team.recordTypes.archive": { params: z.object({ id: IdSchema, archived: z.boolean().default(true) }), result: TeamRecordTypeSchema },
-  "team.activity": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(100), before: z.number().int().optional() }), result: z.array(TeamActivitySchema) },
+  /** The log, newest first; with `roleId`, only the lines by that role or about it — its chat's. */
+  "team.activity": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(100), before: z.number().int().optional(), roleId: IdSchema.optional() }), result: z.array(TeamActivitySchema) },
   // The team vault (Teams Phase 2). Grants are ids and hosts — no value is ever on this wire, and
   // there is no method that sets a grant's "use without asking": that is the Vault page's, over
   // renderer IPC to main, confirmed by macOS. `vaultAllowChanged` only asks main what is true, for

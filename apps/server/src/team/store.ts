@@ -240,10 +240,13 @@ export class TeamStore {
     return toActivity(this.db.prepare("SELECT * FROM team_activity WHERE id = ?").get(id) as RawActivity);
   }
 
-  activity(spaceId: string, limit: number, before?: number): TeamActivity[] {
-    const rows = before === undefined
-      ? this.db.prepare("SELECT * FROM team_activity WHERE space_id = ? ORDER BY ts DESC, rowid DESC LIMIT ?").all(spaceId, limit)
-      : this.db.prepare("SELECT * FROM team_activity WHERE space_id = ? AND ts < ? ORDER BY ts DESC, rowid DESC LIMIT ?").all(spaceId, before, limit);
+  /** Newest first. With `roleId`, the lines the role wrote and the ones about it (`detail.roleId`). */
+  activity(spaceId: string, limit: number, before?: number, roleId?: string): TeamActivity[] {
+    const where = ["space_id = ?"];
+    const args: (string | number)[] = [spaceId];
+    if (before !== undefined) { where.push("ts < ?"); args.push(before); }
+    if (roleId !== undefined) { where.push("(actor = ? OR json_extract(detail_json, '$.roleId') = ?)"); args.push(`role:${roleId}`, roleId); }
+    const rows = this.db.prepare(`SELECT * FROM team_activity WHERE ${where.join(" AND ")} ORDER BY ts DESC, rowid DESC LIMIT ?`).all(...args, limit);
     return (rows as RawActivity[]).map(toActivity);
   }
 
