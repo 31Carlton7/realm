@@ -233,7 +233,7 @@ flowchart TD
   admit -- "no room" --> queued["stays queued"]
   admit -- "fits" --> dispatch["RunService.dispatch<br/>session in Full access,<br/>role preamble"]
   dispatch --> session["Role session"]
-  session -- "every tool call" --> gate["PolicyGate.check<br/>at the gateway"]
+  session -- "every call to the gateway" --> gate["PolicyGate.check"]
   session -- "review_submit" --> submit["TeamService.submit<br/>items with content hashes"]
   submit --> review["ReviewPane<br/>Needs you"]
   review -- "Approve" --> act["ActService.issue<br/>one ticket per outward act"]
@@ -344,9 +344,10 @@ through the same `DelegationEngine` as `agent_run`.
 
 Saved passwords never leave Electron main. The store is a file whose keys are sealed by
 `safeStorage` (the login Keychain). An agent can ask Realm to fill one, never to read one, and the
-fill passes three gates in this order: a card naming the origin and account, an exact origin check
-against the live page over CDP, and your presence (Touch ID by default). Only then is the value
-unsealed and typed into the focused field as key events, and the outcome is written to
+fill passes three gates in this order: a card naming the origin and account (asked even in Full
+access, unless you allowed that site), an exact origin check against the live page over CDP, and your
+presence (Touch ID by default; Settings can let one confirmation cover a minute or five). Only then is
+the value unsealed and typed into the focused field as key events, and the outcome is written to
 `logs/credential-audit.log`.
 
 ```mermaid
@@ -358,11 +359,11 @@ sequenceDiagram
   participant SS as SecretStore
   participant V as Page
   X->>T: browser_fill_credential(credentialId)
-  T->>B: gate 1, the card (asked even in Full access)
+  T->>B: gate 1, the card (even in Full access, unless the site is allowed)
   T->>M: fillCredential (an id, never a value)
   M->>M: same profile, credential exists, same site
   M->>V: gate 2, Page.getNavigationHistory, origin must match exactly
-  M->>SS: gate 3, withCredentialValue asks for Touch ID
+  M->>SS: gate 3, withCredentialValue asks for your presence (Touch ID)
   SS-->>M: value, unsealed inside main only
   M->>V: typeCharacters as CDP key events
   M->>SS: audit the outcome, never the value
@@ -439,9 +440,9 @@ reading.
 A terminal is a `node-pty` login shell owned by the server, not by the window. Its output goes into
 an in-memory ring (128K characters) and out to every window as `terminal.data`, which one xterm.js
 instance per terminal writes to the screen. A window that reconnects asks for what it missed by run
-and sequence number. Because the server is a daemon that outlives the app, shells keep running while
-Realm is closed; if the server itself restarts, each terminal comes back as a fresh shell in the same
-folder with its saved history on screen.
+and sequence number. In the packaged Mac app the server outlives the window, so shells keep running
+after you quit. If the server itself restarts, each terminal comes back as a fresh shell in the same
+folder, with its last screen if you turned on terminal history (off by default).
 
 ```mermaid
 sequenceDiagram
@@ -468,6 +469,7 @@ sequenceDiagram
 **Key files**
 
 - `apps/server/src/terminals/service.ts:TerminalService`, `HISTORY_FLUSH_MS`
+- `packages/contracts/src/terminals.ts:TERMINALS_HISTORY_DEFAULT`
 - `apps/server/src/terminals/manager.ts:TerminalManager`
 - `apps/server/src/terminals/scrollback.ts:Scrollback`, `RING_CHARS`
 - `apps/server/src/terminals/screen.ts:renderScreen`
@@ -478,9 +480,9 @@ sequenceDiagram
 
 Before an agent sees your message, the server snapshots the checkout into hidden git refs in the
 repository itself, under `refs/realm/checkpoints/<environmentId>/<checkpointId>`. It copies the real
-index to a temporary one, writes one tree for the index and one for the whole working tree (untracked
-files included), and records both as a commit whose parents are `HEAD` and the index tree. Your
-branch, index and reflog are untouched. Each checkout keeps the last 50.
+index to a temporary one, writes one tree for what was staged and one for everything on disk
+(untracked files included), and commits the second with `HEAD` and a commit of the first as its
+parents. Your branch, index and reflog are untouched. Each checkout keeps the last 50.
 
 ```mermaid
 sequenceDiagram
@@ -491,7 +493,7 @@ sequenceDiagram
   S->>K: captureTurn(session, message)
   K->>Git: copy the index to GIT_INDEX_FILE
   K->>Git: write-tree (index), add -A, write-tree (worktree)
-  K->>Git: commit-tree -p HEAD -p index, update-ref refs/realm/checkpoints/...
+  K->>Git: commit-tree worktree tree -p HEAD -p index commit, update-ref refs/realm/checkpoints/...
   K-->>R: checkpoints.changed
   Note over S,R: later, Restore or Undo
   R->>K: checkpoints.preview, then checkpoints.restore(acknowledge)
@@ -614,8 +616,8 @@ sequenceDiagram
   G-->>X: result
 ```
 
-Signing in to a Connection is OAuth with dynamic client registration where the vendor allows it. The
-browser comes back to the gateway's own `/oauth/callback` on loopback, or, for vendors that refuse a
+Signing in to a Connection is OAuth with dynamic client registration where the vendor allows it
+(GitHub instead takes your `gh` login, a device code or a pasted token). The browser comes back to the gateway's own `/oauth/callback` on loopback, or, for vendors that refuse a
 loopback redirect, through `realm.computer/oauth/callback`, which only bounces to
 `http://127.0.0.1:<port>/oauth/callback`. Tokens are sealed with AES-256-GCM under a key that
 Electron main hands the server from the Keychain-backed secret store.
@@ -662,7 +664,8 @@ flowchart LR
 
 Computer use lets an agent read and click in another Mac app. It always starts from a snapshot the
 same session took, so an act names an element the agent has seen. The server checks the target is
-allowed, raises a card that is asked even in Full access, and sends the act across the host bridge.
+allowed, raises a card that is asked even in Full access (unless you have allowed that app), and
+sends the act across the host bridge.
 Electron main shows the "driving" indicator in the menu bar and passes the act as one line of JSON to
 `axhelper`, a small Swift program that walks the accessibility tree, brings the app to the front,
 refuses secure fields and anything covered by another window, and posts the click or keystrokes.
@@ -682,7 +685,7 @@ sequenceDiagram
   AX-->>X: elements with refs, back the same way
   X->>C: computer_act(snapshotId, ref, click)
   C->>C: snapshot lookup, forbidden apps, mention scope
-  C->>B: gate computer_act:bundleId (asked even in Full access)
+  C->>B: gate computer_act:bundleId (even in Full access, unless the app is allowed)
   C->>Ly: observe the step
   C->>M: computerAct
   M->>AX: one JSON line on stdin
@@ -694,9 +697,10 @@ Laya is a small open-weight decision model that Realm runs on your Mac beside th
 the agent's model. The server installs it into a Python venv under `~/Realm/laya` and runs
 `laya-serve` on loopback with a per-start key. In Shadow (the default) it only listens: browser,
 computer and simulator steps are queued to it and its answers go to a decision log. In Assist it may
-resolve a target described in words, only once its measured accuracy clears 95 % and never for a
+resolve a target described in words, only once its measured accuracy clears 95% and never for a
 step it flags as sensitive. "Record my use of this app" keeps the shape of each simulator screen for
-training; `resources/laya/train.py` trains a checkpoint from those recordings in the same venv.
+training; `resources/laya/train.py` trains a new checkpoint from those recordings, the decision log
+and its benchmark, in the same venv.
 
 **Key files**
 
