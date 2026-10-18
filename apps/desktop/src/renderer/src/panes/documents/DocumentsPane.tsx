@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@realm/ui";
 import {
-  documentExtension, documentKindFor, documentStem, freeFileName, ownerOfTab, refineDocumentKind,
+  documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, ownerOfTab, refineDocumentKind,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace,
 } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
@@ -320,7 +320,11 @@ export function DocumentsPane({ item }: PaneProps) {
       const b = prev[from];
       if (!b) return prev;
       const { [from]: _gone, ...rest } = prev;
-      return { ...rest, [path]: { ...b, path } };
+      // A document holding nothing but the title it was made with is still being named: typing over
+      // "Untitled document" names the document, so the heading it was made with follows the name.
+      const kind = documentKindFor(from);
+      const untouched = b.text.trimEnd() === documentTemplate(kind, documentStem(from)).trimEnd();
+      return { ...rest, [path]: untouched ? edited({ ...b, path }, documentTemplate(kind, stem.trim())) : { ...b, path } };
     });
     setActive((cur) => (cur === from ? path : cur));
   }), [run, renameDocumentFile, documentsId]);
