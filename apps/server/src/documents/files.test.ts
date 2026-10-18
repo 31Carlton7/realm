@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { DOCUMENT_MAX_BYTES } from "@realm/contracts";
@@ -46,6 +46,23 @@ describe("writeAtomic", () => {
     await writeAtomic(p("a.md"), "hello");
     expect(await readFile(p("a.md"), "utf8")).toBe("hello");
     expect(await readdir(dir)).toEqual(["a.md"]);
+  });
+
+  it("saves through a symlink to the file it points at, and keeps the link", async () => {
+    // `CLAUDE.md -> AGENTS.md` is the usual way one instructions file serves two agents. Renaming the
+    // temp file over the link would make CLAUDE.md a plain copy and leave AGENTS.md as it was.
+    await writeFile(p("AGENTS.md"), "a");
+    await symlink("AGENTS.md", p("CLAUDE.md"));
+    await writeAtomic(p("CLAUDE.md"), "b");
+    expect((await lstat(p("CLAUDE.md"))).isSymbolicLink()).toBe(true);
+    expect(await readFile(p("AGENTS.md"), "utf8")).toBe("b");
+  });
+
+  it("keeps the file's permissions, so a script stays executable", async () => {
+    await writeFile(p("run.sh"), "echo a\n");
+    await chmod(p("run.sh"), 0o755);
+    await writeAtomic(p("run.sh"), "echo b\n");
+    expect((await stat(p("run.sh"))).mode & 0o777).toBe(0o755);
   });
 
   it("names temp files so the watcher can recognise them", () => {

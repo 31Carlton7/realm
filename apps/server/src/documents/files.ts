@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { DOCUMENT_MAX_BYTES } from "@realm/contracts";
 import { RpcError } from "../store/rows";
@@ -158,10 +158,15 @@ export async function renameDocument(absFrom: string, absTo: string): Promise<vo
  * file's inode goes deaf the moment that inode is replaced, which is every single save.
  */
 export async function writeAtomic(abs: string, text: string): Promise<void> {
-  const tmp = join(dirname(abs), `${TMP_PREFIX}${process.pid}-${Date.now().toString(36)}-${basename(abs)}`);
+  // The rename puts a NEW file where it lands: aimed at a symlink it would leave a copy in the link's
+  // place and the file it named untouched, and the new file would not have the old one's permissions.
+  const target = await realpath(abs).catch(() => abs);
+  const mode = (await stat(target).catch(() => null))?.mode;
+  const tmp = join(dirname(target), `${TMP_PREFIX}${process.pid}-${Date.now().toString(36)}-${basename(target)}`);
   try {
     await writeFile(tmp, text, "utf8");
-    await rename(tmp, abs);
+    if (mode !== undefined) await chmod(tmp, mode & 0o7777);
+    await rename(tmp, target);
   } catch (e) {
     // Best-effort cleanup; a leftover temp file is noise, but throwing from the cleanup would mask
     // the real failure the caller needs to see.
