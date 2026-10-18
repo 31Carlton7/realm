@@ -34,7 +34,7 @@ import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, type AppState } from "./state/store";
+import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, whenBooted, type AppState } from "./state/store";
 import { sidebarHidden } from "./state/selectors";
 import { drawnShare, panelPlace } from "./state/view-room";
 import { useStore, type StoreApi } from "zustand";
@@ -691,14 +691,18 @@ export function App() {
     // onScrollPhase: a renderer running outside the Electron preload (tests, a browser) simply never
     // hears one. Main has already raised the window; the store owns landing on the row.
     const offDN = window.realm?.notify?.onActivate((id) => {
-      const st = store.getState();
-      st.run(() => st.activateDesktopNotification(id));
+      void whenBooted(store).then(() => {
+        const st = store.getState();
+        st.run(() => st.activateDesktopNotification(id));
+      });
     });
     // A session chosen from the menu-bar item while this window did not exist. Main has already
     // brought the window back; landing on the pane is the store's job, exactly as it is for a toast.
     const offOS = window.realm?.onOpenSession?.(({ sessionId, spaceId }) => {
-      const st = store.getState();
-      st.run(() => st.revealSession(sessionId, spaceId));
+      void whenBooted(store).then(() => {
+        const st = store.getState();
+        st.run(() => st.revealSession(sessionId, spaceId));
+      });
     });
     // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, or the
     // link's right-click menu): main routed it here, and the tab goes beside the session in view.

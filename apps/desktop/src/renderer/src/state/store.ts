@@ -3304,6 +3304,16 @@ function dropPatches(patches: Record<string, FileDiff>, cwd: string, paths: stri
 const scheduleFrame = (fn: () => void): number =>
   typeof requestAnimationFrame === "function" ? requestAnimationFrame(fn) : (setTimeout(fn, 16) as unknown as number);
 
+/** Resolves once the store has booted. What main asks of a window it has just opened (a tray or toast
+ *  click with no window up) arrives as soon as the page loads, while boot is still reading the home,
+ *  and a landing tried then finds no space to land in. */
+export function whenBooted(store: StoreApi<AppState>): Promise<void> {
+  if (store.getState().booted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const off = store.subscribe((s) => { if (s.booted) { off(); resolve(); } });
+  });
+}
+
 export function createAppStore(api: Api): StoreApi<AppState> {
   return createStore<AppState>((set, get, storeApi) => {
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
