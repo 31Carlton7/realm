@@ -18,7 +18,8 @@
  *   S4  a target=_blank link still navigates the pane in place and opens no window;
  *   S5  a same-tab redirect sign-in (A → B → A/callback) still finishes in the pane;
  *   S6  a page that opens an empty window and then sends it somewhere gets a window, and the pane is
- *       not blanked;
+ *       not blanked; a popup's own popup is another child window, and a link in a popup opens in the
+ *       popup, not over the page waiting on it;
  *   S7  Google's real sign-in page loads in the popup, as Realm's user agent, as far as its first
  *       step — nothing is typed;
  *   S8  closing the pane closes every popup it has open.
@@ -389,7 +390,22 @@ async function main() {
   const blankFacts = blank ? await until(() => evalIn(blank, `window.facts ?? null`), 10_000, "its facts").catch(() => null) : null;
   check("S6 an empty window.open() got a real window, which the page then sent to B, opener intact", !!blankFacts && blankFacts.opener === true && (await popupsOn(m, `${B}/auth?blank=1`)).length === 1, blankFacts);
   check("S6 …and the pane was not blanked", (await evalIn(pane, `location.href`)) === `${A}/`, await evalIn(pane, `location.href`));
-  if (blank) { await clickIn(blank, "#ada"); blank.close(); }
+  if (blank) {
+    // The popup's own requests, under the same rules: a popup of its own, and a target=_blank link.
+    await blank.send("Runtime.evaluate", { expression: `window.open("${B}/docs?nested=1", "nested", "width=400,height=300"); true`, userGesture: true });
+    const [nested] = await until(async () => { const n = await popupsOn(m, `${B}/docs?nested=1`); return n.length ? n : null; }, 10_000, "the nested popup").catch(() => []);
+    check("S6 a popup's own popup is another child window of Realm, at its own size", !!nested && nested.parent === realm.id && nested.content.join("x") === "400x300", nested);
+    await inMain(m, `(() => { for (const w of require("electron").BrowserWindow.getAllWindows()) if (w.webContents.getURL().startsWith(${JSON.stringify(`${B}/docs?nested=1`)})) w.close(); return true; })()`);
+    await evalIn(blank, `(() => { const a = Object.assign(document.createElement("a"), { id: "out", href: "${B}/docs?inpopup=1", target: "_blank", textContent: "Terms" }); document.body.append(a); return true; })()`);
+    const windowsBefore = (await windows(m)).length;
+    await clickIn(blank, "#out");
+    const moved = await until(async () => (await popupsOn(m, `${B}/docs?inpopup=1`))[0] ?? null, 10_000, "the popup on the link's page").catch(() => null);
+    await sleep(500);
+    check("S6 a target=_blank link in a popup opens in that popup — no new window, and the pane stays put",
+      !!moved && (await windows(m)).length === windowsBefore && (await evalIn(pane, `location.href`)) === `${A}/`, { moved: moved?.url, windows: (await windows(m)).length, before: windowsBefore });
+    blank.close();
+    await inMain(m, `(() => { for (const w of require("electron").BrowserWindow.getAllWindows()) if (w.getParentWindow() && w.webContents.getURL().startsWith(${JSON.stringify(B)})) w.close(); return true; })()`);
+  }
   await until(async () => (await popupsOn(m, B)).length === 0, 10_000, "the second popup gone").catch(() => {});
 
   /* ── S1 again, with no opener: a window Electron makes itself, from the pane's webPreferences ── */
