@@ -801,6 +801,17 @@ describe("agent_start / agent_wait — several agents at once", () => {
     expect(text(collected)).toContain("step 11");
   }, 40_000);
 
+  it("asking a peer does NOT evict a detached sibling's uncollected report", async () => {
+    const { spaceId, parentId } = await boot({ script: longScript(12), delayMs: 60, parentMode: "bypassPermissions" });
+    const peer = app.sessions.create({ spaceId, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "bypassPermissions" }).session;
+    await app.sessions.send(peer.id, { text: "hello", attachments: [] });
+    await waitFor(() => app.sessions.get(peer.id).status === "idle");
+    const detached = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "detached sibling" })));
+    const asked = await app.asks.ask({ sessionId: parentId, spaceId }, { sessionId: peer.id, question: "q?" });
+    expect(asked.isError).toBe(false);
+    expect(text(app.agentRuns.status({ sessionId: parentId, spaceId }))).toContain(detached);
+  }, 40_000);
+
   it("a detached child is invisible to hasRun — the parent is free to browse and to be asked", async () => {
     // Detached means "not blocked". Counting it as blocked would make agent_start strictly worse than
     // agent_run: fire one and the parent loses the browser agent and peer questions for its duration.
