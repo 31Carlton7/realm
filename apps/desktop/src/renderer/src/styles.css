@@ -302,13 +302,23 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
    row that points, or a search inside a label, would point too. */
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"]),
   textarea, [contenteditable="true"]) { cursor: text; }
-/* Chrome is not text. A double-click on a button's label, or a drag that starts on a sidebar row,
-   selects the words on it in a browser and does nothing in an AppKit window, and ⌘A sweeping the
-   whole interface blue is the same tell at full size. Content — the transcript, documents, code,
-   fields — keeps selection because nothing here names it. The images and glyphs chrome is drawn
-   with do not lift off as drag ghosts either. */
+/* Chrome is not text. A double-click on a heading, a card's title or a status line selects its words in
+   a browser and does nothing in an AppKit window, where only a text view selects; and ⌘A sweeping the
+   whole interface blue is the same tell at full size. So nothing selects until it is named as content
+   below — a header, a chip, a toast or a page of settings written tomorrow is chrome without a rule of
+   its own. The images and glyphs chrome is drawn with do not lift off as drag ghosts either. */
+body { -webkit-user-select: none; user-select: none; }
+/* Content: what a person reads or copies. Prose, either side's — a message, a report, a plan, a skill
+   (`.md`, and the user's own words); a finished question's answers; a diff, in a tool's card or a pane;
+   a tool's search hits; a document in its editor, a PDF's text, a file a teammate handed over for
+   review. Code, output and fields follow. A surface of content that is none of these says so with
+   `data-selectable` rather than as one more name here; a terminal draws its own selection. */
+.md, .msg-user, .question-answered-list, .fd-body, .matches, .diff-hunks, .diff-split, .cm-editor, .ProseMirror, .textLayer,
+.rv-frame, .rv-caption, .tp-prose, [data-selectable] { -webkit-user-select: text; user-select: text; }
+/* A control is chrome wherever it stands, content included — a code block's copy button, a callout's
+   name, a message's retry. */
 :is(button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"],
-  [role="option"], [role="switch"], label, summary, .sidebar, .panel-bar, .menu, .settings-tabs) {
+  [role="option"], [role="switch"], label, summary, .sidebar, .panel-bar, .menu, .settings-tabs, .md-code-head, .md-callout-head) {
   -webkit-user-select: none; user-select: none; }
 /* A field inside one of those (a label wrapping its input, the sidebar's rename) is still a field. */
 :is(input, textarea, [contenteditable="true"]) { -webkit-user-select: text; user-select: text; }
@@ -3170,12 +3180,12 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .toast[data-tone="warning"] { --toast-tone: var(--rl-warning); }
 .toast[data-tone="success"] { --toast-tone: var(--rl-success); }
 /* The glyph that says what kind of notice it is, the words, and the way to dismiss it. The words are
-   CONTENT — the path in an error is the part someone copies — so they select, where chrome does not. */
+   chrome, as a notice's are in any Mac app (the owner, 10-18): a toast is read and let go. */
 .toast-body { display: flex; align-items: flex-start; gap: 10px; padding: 12px 8px 12px 12px;
   transition: opacity var(--dur-swap) var(--ease-fade); }
 .toast-icon { flex: none; display: grid; place-items: center; height: 18px; color: var(--toast-tone); }
 .toast-text { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium);
-  overflow-wrap: anywhere; text-wrap: pretty; -webkit-user-select: text; user-select: text; cursor: text; }
+  overflow-wrap: anywhere; text-wrap: pretty; }
 /* Off its own line box at the top, so a 28px target does not make a one-line toast taller. */
 .toast-close { flex: none; margin: -5px 0; color: var(--rl-text-faint); }
 /* The one thing a toast can do, an Undo: a word in the link's ink at the toast's own size, on the
