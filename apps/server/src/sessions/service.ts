@@ -863,6 +863,8 @@ export class SessionService {
     // After the interrupt, not before: the turn it stopped is measured from that settle, and this
     // message's turn must not write until git has finished looking (`deliver` waits in its own place).
     await this.measuring.get(id);
+    // This turn is the peer's, so failover has nothing of the user's to replay if it fails.
+    this.d.failover?.cancel(id);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
     return { interrupted };
