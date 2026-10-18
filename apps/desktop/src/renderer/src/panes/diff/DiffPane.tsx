@@ -189,12 +189,7 @@ function Meta({ summary, ahead, behind }: { summary: DiffSummary | null; ahead: 
       {conflicts > 0 && <span className="diff-meta-conflict">{plural(conflicts, "conflict", "conflicts")} to resolve</span>}
       {ahead > 0 && <span title={`This branch has ${plural(ahead, "commit", "commits")} its remote does not have yet.`}>{plural(ahead, "commit", "commits")} to push</span>}
       {behind > 0 && <span title={`The remote has ${plural(behind, "commit", "commits")} this checkout does not have yet.`}>{plural(behind, "commit", "commits")} to pull</span>}
-      {(additions > 0 || deletions > 0) && (
-        <span className="diff-counts" title="Lines added and removed">
-          {additions > 0 && <span className="diff-add">+{additions}</span>}
-          {deletions > 0 && <span className="diff-del">−{deletions}</span>}
-        </span>
-      )}
+      <Counts additions={additions} deletions={deletions} />
     </p>
   );
 }
