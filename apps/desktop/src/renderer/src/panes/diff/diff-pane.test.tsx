@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { StrictMode } from "react";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { DiffFile, DiffSummary, Environment, FileDiff, ShipResult, TurnChanges } from "@realm/contracts";
@@ -48,16 +48,64 @@ async function mount(data: FakeData = {}, diffs: Record<string, DiffSummary | nu
 const rowFor = (path: string) => screen.getByText(path.split("/").pop()!).closest(".diff-file") as HTMLElement;
 
 describe("DiffPane", () => {
-  it("lists changed files with their counts and the branch", async () => {
+  it("leads with what changed in plain words, each file saying what happened to it, with its counts", async () => {
     await mount({}, { [CWD]: summary([file("src/a.ts", { additions: 3, deletions: 1 }), file("README.md", { status: "untracked", additions: 0 })]) });
-    expect(screen.getByText("realm/fix-login")).toBeInTheDocument();
-    expect(screen.getByText("2 files")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Changed 2 files" })).toBeInTheDocument();
     const row = rowFor("src/a.ts");
     expect(within(row).getByText("+3")).toBeInTheDocument();
     expect(within(row).getByText("−1")).toBeInTheDocument();
+    expect(within(row).getByText("Edited")).toBeInTheDocument();
     // The directory is a dimmer tier of the same label, not a second line.
     expect(within(row).getByText("src/")).toBeInTheDocument();
-    expect(within(rowFor("README.md")).getByText("?")).toBeInTheDocument();
+    // A word, not git's letter for it ("?").
+    expect(within(rowFor("README.md")).getByText("New")).toBeInTheDocument();
+  });
+
+  it("puts the branch, what is left to push and pull, and the line totals on a quiet line under the summary", async () => {
+    const files = [file("src/a.ts", { additions: 3, deletions: 1 }), file("src/b.ts", { additions: 2, deletions: 0 })];
+    await mount({ gitInfo: { [CWD]: { branch: "realm/fix-login", additions: 5, deletions: 1, dirty: 2, ahead: 2, behind: 1 } } }, { [CWD]: summary(files) });
+    const meta = document.querySelector(".diff-summary-meta") as HTMLElement;
+    await waitFor(() => expect(within(meta).getByText("2 commits to push")).toBeInTheDocument());
+    expect(within(meta).getByText("realm/fix-login")).toBeInTheDocument();
+    expect(within(meta).getByText("1 commit to pull")).toBeInTheDocument();
+    expect(within(meta).getByText("+5")).toBeInTheDocument();
+    expect(within(meta).getByText("−1")).toBeInTheDocument();
+    expect(within(meta).queryByText(/conflict/)).toBeNull();
+  });
+
+  it("names a conflict, the one fact on that line a person has to act on", async () => {
+    await mount({}, { [CWD]: summary([file("src/a.ts", { status: "conflicted" }), file("src/b.ts", { status: "conflicted" })]) });
+    expect(within(document.querySelector(".diff-summary-meta") as HTMLElement).getByText("2 conflicts to resolve")).toBeInTheDocument();
+    expect(within(rowFor("src/a.ts")).getByText("Conflict to resolve")).toBeInTheDocument();
+  });
+
+  it("groups the files by kind once there is more than one kind, and not before", async () => {
+    const { unmount } = await mount({}, { [CWD]: summary([file("src/a.ts"), file("notes.md"), file("src/b.ts")]) });
+    const groups = [...document.querySelectorAll(".diff-group")];
+    expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Documents", "Code"]);
+    expect(within(groups[1] as HTMLElement).getByText("2")).toBeInTheDocument(); // the head's count
+    expect([...groups[1]!.querySelectorAll(".diff-base")].map((b) => b.textContent)).toEqual(["a.ts", "b.ts"]);
+    unmount();
+    // One kind: the summary already says "code files", and a "Code" head would only say it again.
+    await mount({}, { [CWD]: summary([file("src/a.ts"), file("src/b.ts")]) });
+    expect(screen.getByRole("heading", { level: 2, name: "Changed 2 code files" })).toBeInTheDocument();
+    expect(document.querySelector(".diff-group")).toBeNull();
+  });
+
+  it("opens a document in Documents, and shows its lines only when asked", async () => {
+    const { api } = await mount({ patches: { [`${CWD}|notes/plan.md|false`]: patch("notes/plan.md") } }, { [CWD]: summary([file("notes/plan.md")]) });
+    fireEvent.click(screen.getByRole("button", { name: "Open notes/plan.md" }));
+    await waitFor(() => expect(api.calls).toContain(`openDocumentPath:s1:${CWD}/notes/plan.md`));
+    // Opening it read nothing of its patch; the chevron is what does.
+    expect(api.calls.some((c) => c.startsWith("fileDiff:"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Show the lines that changed in notes/plan.md" }));
+    await waitFor(() => expect(screen.getByText("new line")).toBeInTheDocument());
+  });
+
+  it("opens code by its lines, as it always has — a source file is read as its patch", async () => {
+    await mount({}, { [CWD]: summary([file("src/a.ts")]) });
+    expect(screen.queryByRole("button", { name: /^Open src\/a\.ts/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Expand src/a.ts" })).toBeInTheDocument();
   });
 
   it("dissolves the scroller itself, rather than standing a band beside it", async () => {
@@ -81,13 +129,31 @@ describe("DiffPane", () => {
     expect(within(added as HTMLElement).getByText("11")).toBeInTheDocument();
   });
 
-  it("shows a binary file's row without ever asking for its bytes", async () => {
-    const { api } = await mount({ patches: { [`${CWD}|logo.png|false`]: patch("logo.png", { binary: true, hunks: [] }) } },
-      { [CWD]: summary([file("logo.png", { binary: true, additions: 0, deletions: 0 })]) });
-    expect(within(rowFor("logo.png")).getByText("binary")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Expand logo\.png/ }));
-    await waitFor(() => expect(screen.getByText("Binary file — no preview.")).toBeInTheDocument());
-    expect(api.calls.filter((c) => c.startsWith("fileDiff:"))).toHaveLength(1);
+  it("draws a changed picture as the last commit's beside the one on disk, and never asks for its patch", async () => {
+    const before = "data:image/png;base64,QkVGT1JF";
+    const after = "data:image/png;base64,QUZURVI=";
+    window.realm = { ...window.realm, attachmentThumbnail: vi.fn(async () => after) } as typeof window.realm;
+    const { api } = await mount({ headImages: { [`${CWD}|shots/logo.png`]: before } },
+      { [CWD]: summary([file("shots/logo.png", { binary: true, additions: 0, deletions: 0 })]) });
+    const row = rowFor("shots/logo.png");
+    await waitFor(() => expect(row.querySelector(".diff-thumb[data-side='after']")).toHaveAttribute("src", after));
+    expect(row.querySelector(".diff-thumb[data-side='before']")).toHaveAttribute("src", before);
+    expect(api.calls).toContain(`headImage:${CWD}|shots/logo.png`);
+    // A picture is looked at, not read as lines: no chevron, no patch, no "binary".
+    expect(within(row).queryByRole("button", { name: /lines that changed/ })).toBeNull();
+    expect(within(row).queryByText("binary")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open shots/logo.png" })).toBeInTheDocument();
+    expect(api.calls.some((c) => c.startsWith("fileDiff:"))).toBe(false);
+  });
+
+  it("asks for no before for a new picture, and a renamed one's before under its old name", async () => {
+    const { api } = await mount({}, { [CWD]: summary([
+      file("new.png", { status: "untracked", binary: true }),
+      file("art/moved.png", { status: "renamed", oldPath: "moved.png", binary: true }),
+    ]) });
+    await waitFor(() => expect(api.calls).toContain(`headImage:${CWD}|moved.png`));
+    expect(api.calls.filter((c) => c.startsWith("headImage:"))).toEqual([`headImage:${CWD}|moved.png`]);
+    expect(within(rowFor("art/moved.png")).getByText("Renamed from moved.png")).toBeInTheDocument();
   });
 
   it("stages exactly the file whose button was pressed", async () => {
@@ -307,12 +373,12 @@ describe("one turn's changes, for an edit card's Review", () => {
   it("shows the turn's own files and patches, read-only, and goes back to the checkout on asking", async () => {
     const { api, store } = await mount({ turnPatches: { "cp1|web/lib/orgs.ts": patch("web/lib/orgs.ts") } });
     await act(async () => { await store.getState().reviewTurn("env1", { changes: turn, asked: "Fix the org access crash path\nand more" }); });
-    expect(screen.getByText("2 files changed in one turn")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Changed 2 files in one turn" })).toBeInTheDocument();
     expect(screen.getByText("Fix the org access crash path")).toBeInTheDocument();
     // Opened unasked — a turn's handful of files is what a review is for — across the turn's own trees.
     await waitFor(() => expect(screen.getByText("new line")).toBeInTheDocument());
     expect(api.calls).toContain(`turnDiff:cp1|${"a".repeat(40)}|web/lib/orgs.ts`);
-    expect(within(rowFor("assets/logo.png")).getByText("binary")).toBeInTheDocument();
+    expect(within(rowFor("assets/logo.png")).getByText("New")).toBeInTheDocument();
     // Nothing in a finished turn is staged, so nothing offers to stage it.
     expect(screen.queryByRole("button", { name: /^Stage/ })).toBeNull();
 
@@ -339,7 +405,7 @@ describe("one turn's changes, for an edit card's Review", () => {
     );
     show().unmount();
     show();
-    expect(await screen.findByText("2 files changed in one turn")).toBeInTheDocument();
+    expect(await screen.findByText("Changed 2 files in one turn")).toBeInTheDocument();
     // Closed (the panel bar's x, cmd-W, archive, delete all come here): the next way in is the checkout.
     await act(async () => { await store.getState().closeFromLayout(pane.id); });
     expect(store.getState().diffTurns.env1).toBeUndefined();

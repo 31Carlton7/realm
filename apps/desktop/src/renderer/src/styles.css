@@ -31,7 +31,7 @@
    so there is no standard ligature to win there, and buying calt would cost the app its tracking. */
 .activity-call, .activity-duration, .activity-time, .agent-hint-text code, .cli-job-output,
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
-.diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
+.diff-counts, .diff-hunk-head, .diff-line, .diff-meta-branch, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-branch, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .video-btn, .video-time, .video-scrub-hover, .mention-row-id, .mp-about code,
@@ -7023,8 +7023,21 @@ select { appearance: none; padding-right: 22px;
    and was clipped. An inline-size container so the head and the commit bar can re-flow to the PANE. */
 .diff-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--rl-panel); container-type: inline-size; }
 .diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); }
-.diff-head-count { font-size: 12px; color: var(--rl-text-dim); }
 .diff-head-spacer { flex: 1; }
+/* The head leads with what changed, in the words the prompter's pill uses, and puts how git keeps it —
+   the branch, what is still to push or pull, the lines — on a quiet line under it. */
+.diff-summary { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.diff-summary-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-summary-meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; min-width: 0;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.diff-summary-meta > * + *::before { content: "·"; margin-right: 6px; color: var(--rl-text-faint); }
+.diff-meta-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; font-family: var(--font-mono); }
+.diff-meta-conflict { color: var(--rl-warning); }
+/* A head per kind once the list holds more than one: the caption rung, the kind's mark beside it. */
+.diff-group-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: 12px 14px 4px;
+  font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.diff-group-count { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 /* A full band of bottom padding, not a fraction of one: scrolled to the end, the last row has to sit
    clear of the ramp entirely. Rows are 30px of dense text with no internal padding, so a row that
    ends inside the blur is a filename you scrolled down to read and then cannot. */
@@ -7047,6 +7060,24 @@ select { appearance: none; padding-right: 22px;
 .diff-status[data-status="deleted"] { color: var(--rl-danger); }
 .diff-status[data-status="conflicted"] { color: var(--rl-warning); }
 .diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+/* What happened to the file, in a word, toned by its state as the letter it replaced was. The path is
+   the row's unbounded item and keeps the slack; a long "Renamed from …" gives way after it. */
+.diff-what { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--rl-text-faint); }
+.diff-what[data-status="added"], .diff-what[data-status="untracked"] { color: var(--rl-success); }
+.diff-what[data-status="deleted"] { color: var(--rl-danger); }
+.diff-what[data-status="conflicted"] { color: var(--rl-warning); }
+/* A changed picture as pictures: the last commit's, an arrow, the one on disk. Whole, not cropped —
+   the comparison is the point — on the well's ground, under the outline every picture wears. */
+.diff-thumbs { flex: none; display: flex; align-items: center; gap: 4px; padding: 2px 0; }
+.diff-thumb { display: block; width: 44px; height: 44px; object-fit: contain; border-radius: var(--r-chip); background: var(--inset);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+:root[data-mode="light"] .diff-thumb { outline-color: rgba(0, 0, 0, 0.1); }
+.diff-thumb-arrow { flex: none; color: var(--rl-text-faint); }
+/* The lines of a document or a picture drawn as text, one click past opening it. */
+.diff-disclose { flex: none; width: 22px; --btn-h: 22px; }
+.diff-disclose svg { transition: transform var(--dur-pop) var(--ease-out-strong); }
+.diff-disclose[aria-expanded="true"] svg { transform: rotate(180deg); }
 .diff-dir { color: var(--rl-text-faint); }
 /* The message that asked for the turn a review is showing — what names it. The unbounded item in the
    head, so it is the one that gives way. */
@@ -7130,7 +7161,7 @@ select { appearance: none; padding-right: 22px;
 .diff-commit-bar { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px 8px; }
 .diff-staged-count { flex: 1; min-width: 0; padding-left: 6px; font-size: 12px; color: var(--rl-text-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Narrow: the branch and the file count keep the first line, the buttons take their own. The spacer
+/* Narrow: the summary keeps the first line, the buttons take their own. The spacer
    becoming a full-width break is what forces the split — left to itself the buttons would wrap one
    at a time and leave a ragged half-row. */
 @container (max-width: 560px) {

@@ -3230,6 +3230,8 @@ describe("light mode", () => {
     // The same page small, in the page strip.
     [".pdf-thumb-page", "paired with a light override"],
     [".pdf-thumb-page[data-painted]", "a page of the file is white paper on both faces"],
+    // A changed picture in the diff pane's review, on the well's ground — paired the same way.
+    [".diff-thumb", "paired with a light override"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -3244,7 +3246,7 @@ describe("light mode", () => {
   });
 
   it("every literal that is half a pair really does have its other half", () => {
-    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img", ".pdf-thumb-page"]) {
+    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img", ".pdf-thumb-page", ".diff-thumb"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
       expect(bodiesFor(`:root[data-mode="light"] ${sel}`).join(" "), sel).toContain("outline-color: rgba(0, 0, 0, 0.1)");
     }
