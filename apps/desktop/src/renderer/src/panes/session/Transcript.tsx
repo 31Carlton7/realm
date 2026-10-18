@@ -32,6 +32,7 @@ import { useMediaFiles } from "./media/use-media";
 import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
 import { ScrollTrack } from "./ScrollTrack";
 import { samePrompts, trackPrompts, type TrackPrompt } from "./scroll-track";
+import { prefersReducedMotion } from "../../reduced-motion";
 
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
 const permKey = (requestId: string) => `perm:${requestId}`;
@@ -104,8 +105,6 @@ const NO_SOURCES: readonly Source[] = [];
 const NO_PROMPTS: readonly TrackPrompt[] = [];
 const NO_SAVED: readonly number[] = [];
 const NO_WAITING: ReadonlySet<string> = new Set();
-
-const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 /** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
 function ErrorText({ text }: { text: string }) {
@@ -543,7 +542,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     restore.current = null;
     const to = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
     pin({ top: to, atEnd: el.scrollHeight - to - el.clientHeight < NEAR_END_PX });
-    el.scrollTo({ top: to, behavior: instant || reducedMotion() ? "instant" : "smooth" });
+    el.scrollTo({ top: to, behavior: instant || prefersReducedMotion() ? "instant" : "smooth" });
   };
   const jump = useCallback((top: number, instant?: boolean) => jumpRef.current(top, instant), []);
 

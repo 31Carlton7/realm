@@ -14,6 +14,7 @@ import {
 import { findInPage, findLabel, type PdfHit } from "./pdf-find";
 import { canOpenInPreview, openInPreview } from "./shown-file";
 import { PdfOpenError, openPdf, type PdfDocument, type PdfLink, type PdfTextLayer } from "./pdf-source";
+import { prefersReducedMotion } from "../../reduced-motion";
 
 /** How long a zoom has to hold still before the pages are drawn again at the new scale. Until then
  *  the bitmaps already drawn are stretched, so a pinch never waits on paint. */
@@ -22,9 +23,6 @@ const REPAINT_MS = 120;
 /** Under this, the page strip would take the pages' room: it is put away, and its toggle shows it over
  *  the pages as a side sheet instead. */
 const STRIP_MIN_PANE = 560;
-
-const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-
 
 /**
  * A PDF, drawn by Realm rather than by Chromium's viewer (pdf.js through `pdf-source.ts`).
@@ -188,7 +186,7 @@ export function PdfView({ documentsId, path, version, scrollKey, head, filePath 
     const el = scroller.current; if (!el || layout.tops.length === 0) return;
     // A page jump lands with a little of the ground above the page, as the column starts.
     const top = Math.max(0, scrollTopFor(layout, to) - (to.fraction === 0 ? PAD_Y : 0));
-    el.scrollTo({ top, behavior: smooth && !reducedMotion() ? "smooth" : "auto" });
+    el.scrollTo({ top, behavior: smooth && !prefersReducedMotion() ? "smooth" : "auto" });
   }, [layout]);
   const follow = useCallback(async (link: PdfLink) => {
     if (!doc || link.dest == null) return;
