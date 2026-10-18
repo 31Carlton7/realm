@@ -6205,7 +6205,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const refs = get().draftSessionRefs[id] ?? [];
         // The named files and apps, re-derived from the FINAL text like the elements above.
         const named = keepLiveRefs(text, get().draftRefs[id] ?? []);
-        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
+        // The prompter empties its box as this goes. A send that fails puts the draft back, chips and
+        // all, unless something new has been typed there since — the attachments above stay for the
+        // same reason.
+        const draft = (get().drafts[id] ?? "").trim() === text ? {
+          drafts: get().drafts[id] ?? "", draftMentions: get().draftMentions[id] ?? [], draftElements: get().draftElements[id] ?? [],
+          draftLinks: get().draftLinks[id] ?? [], draftRefs: get().draftRefs[id] ?? [],
+        } : null;
+        try {
+          await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
+        } catch (e) {
+          if (draft && !get().drafts[id]) {
+            set({ drafts: { ...get().drafts, [id]: draft.drafts }, draftMentions: { ...get().draftMentions, [id]: draft.draftMentions },
+              draftElements: { ...get().draftElements, [id]: draft.draftElements }, draftLinks: { ...get().draftLinks, [id]: draft.draftLinks },
+              draftRefs: { ...get().draftRefs, [id]: draft.draftRefs } });
+          }
+          throw e;
+        }
         // The quick chat's model is a throwaway choice, not the one the next session should start on.
         if (get().quickChat?.sessionId !== id) rememberSentOn(id);
         if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });

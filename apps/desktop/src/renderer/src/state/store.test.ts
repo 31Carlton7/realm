@@ -1978,6 +1978,32 @@ describe("app store", () => {
       expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/a.png"]);
     });
 
+    it("puts the typed message back in the prompter when the send fails", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      a.sendMessage = async () => { throw new Error("offline"); };
+      store.getState().setDraft("se1", "the paragraph I just wrote ");
+      // The prompter's own order: hand the text over, then clear the box behind it.
+      const sending = store.getState().sendMessage("se1", "the paragraph I just wrote");
+      store.getState().setDraft("se1", "");
+      await expect(sending).rejects.toThrow("offline");
+      expect(store.getState().drafts.se1).toBe("the paragraph I just wrote ");
+    });
+
+    it("leaves a draft typed while a failed send was in flight alone", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      let fail!: () => void;
+      a.sendMessage = () => new Promise((_, reject) => { fail = () => reject(new Error("offline")); });
+      store.getState().setDraft("se1", "first");
+      const sending = store.getState().sendMessage("se1", "first");
+      store.getState().setDraft("se1", "");
+      store.getState().setDraft("se1", "second");
+      fail();
+      await expect(sending).rejects.toThrow("offline");
+      expect(store.getState().drafts.se1).toBe("second");
+    });
+
     it("a file attached while the send was in flight survives it", async () => {
       const a = withSess();
       const store = createAppStore(a); await store.getState().boot();
