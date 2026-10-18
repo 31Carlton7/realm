@@ -3851,9 +3851,27 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       await get().refreshGitInfo(path);
       return get().gitInfo[path] != null;
     };
+    /** `workspace.diff` into `diffs`, without the `gitInfo` refresh `refreshDiff` adds — for a caller
+     *  already asking for that itself. */
+    const readDiff = async (cwd: string) => {
+      set({ diffLoading: { ...get().diffLoading, [cwd]: true } });
+      try {
+        const summary = await api.diff(cwd);
+        // Patches for files that are no longer in the list are dropped here rather than left to
+        // rot: a stale patch under a collapsed row is what makes a diff pane lie after a commit.
+        const live = new Set((summary?.files ?? []).map((f) => f.path));
+        const patches = Object.fromEntries(Object.entries(get().patches).filter(([key, p]) => !key.startsWith(`${cwd}\u0000`) || live.has(p.path)));
+        set({ diffs: { ...get().diffs, [cwd]: summary }, patches });
+      } finally {
+        const { [cwd]: _done, ...rest } = get().diffLoading;
+        set({ diffLoading: rest });
+      }
+    };
+    /** The changed-file list rides along with the summary: the prompter's "what changed" pill is drawn
+     *  from it, so it has to move whenever the branch and counts do. */
     const refreshGitFor = (sessionId: string) => {
       const cwd = get().sessions[sessionId]?.cwd;
-      if (cwd) get().run(() => get().refreshGitInfo(cwd));
+      if (cwd) get().run(() => Promise.all([get().refreshGitInfo(cwd), readDiff(cwd)]));
     };
     /** App icons asked of main and not yet answered, so a list re-rendering while they are on their
      *  way does not ask for them again. */
@@ -7185,18 +7203,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ gitInfo: { ...get().gitInfo, [cwd]: info } });
       },
       async refreshDiff(cwd) {
-        set({ diffLoading: { ...get().diffLoading, [cwd]: true } });
-        try {
-          const summary = await api.diff(cwd);
-          // Patches for files that are no longer in the list are dropped here rather than left to
-          // rot: a stale patch under a collapsed row is what makes a diff pane lie after a commit.
-          const live = new Set((summary?.files ?? []).map((f) => f.path));
-          const patches = Object.fromEntries(Object.entries(get().patches).filter(([key, p]) => !key.startsWith(`${cwd}\u0000`) || live.has(p.path)));
-          set({ diffs: { ...get().diffs, [cwd]: summary }, patches });
-        } finally {
-          const { [cwd]: _done, ...rest } = get().diffLoading;
-          set({ diffLoading: rest });
-        }
+        await readDiff(cwd);
         await get().refreshGitInfo(cwd);
       },
       async refreshAllDiffs() {
@@ -7245,10 +7252,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const sid = env.spaceId;
         // One diff per environment: a second "show changes" on the same checkout goes to the one that
         // already exists rather than accumulating identical tabs.
-        let itemId = get().items.find((i) => i.kind === "diff" && i.refId === environmentId)?.id;
+        const held = get().items.find((i) => i.kind === "diff" && i.refId === environmentId);
+        let itemId = held?.id;
+        // Named "Changes" alone: the branch is a line inside the view now, not the tab's name. One
+        // made when it was the name is renamed the next time it is opened.
+        if (held?.title.startsWith("Changes · ")) await get().updateItem({ id: held.id, title: "Changes" });
         if (!itemId) {
-          const title = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? "Changes";
-          const created = await api.createItem(sid, "diff", `Changes · ${title}`, environmentId);
+          const created = await api.createItem(sid, "diff", "Changes", environmentId);
           await loadSpaceItems(sid);
           if (!inProfile(sid)) return;
           itemId = created.id;
