@@ -44,6 +44,9 @@ function Counts({ additions, deletions }: { additions: number | null; deletions:
 
 /** Kinds whose file a person reads as itself rather than as lines: they open, rendered, in Documents. */
 const OPENS_AS_ITSELF: ReadonlySet<ChangeKind> = new Set(["document", "image", "media"]);
+/** What Documents draws as a picture of the file rather than as its text. Git calls an untracked
+ *  picture "not binary" only because it has not counted it yet, so the kind is asked instead. */
+const DRAWN_NOT_READ = new Set(["preview", "pdf", "video", "unsupported"]);
 
 /** The picture as the last commit had it, asked again whenever the list it belongs to is re-read —
  *  a commit moves HEAD, and with it what "before" means. */
@@ -94,6 +97,7 @@ function FileRow({ cwd, root, file, read, onOpen }: { cwd: string; root: string;
   const bothSides = file.staged && file.unstaged;
   const kind = changeKindOf(file.path);
   const opens = OPENS_AS_ITSELF.has(kind) && file.status !== "deleted" && documentKindFor(file.path) !== "unsupported";
+  const hasLines = !file.binary && !DRAWN_NOT_READ.has(documentKindFor(file.path));
 
   useEffect(() => {
     if (!open) return;
@@ -117,7 +121,7 @@ function FileRow({ cwd, root, file, read, onOpen }: { cwd: string; root: string;
               onClick={() => onOpen(`${root}/${file.path}`)}>{body}</button>
           : <button type="button" className="diff-expand" aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${file.path}`}
               onClick={() => setOpen((v) => !v)}>{body}</button>}
-        {opens && !file.binary && (
+        {opens && hasLines && (
           <button type="button" className="icon-btn diff-disclose" aria-expanded={open}
             aria-label={`${open ? "Hide" : "Show"} the lines that changed in ${file.path}`} title={open ? "Hide the lines that changed" : "Show the lines that changed"}
             onClick={() => setOpen((v) => !v)}>

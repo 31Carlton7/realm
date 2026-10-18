@@ -5835,15 +5835,16 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* What changed (WhatChanged.tsx): the kinds of file involved, then what happened to them. The marks
    overlap as a stack, each on a quiet disc, and the one behind is cut round the one in front by a mask
    rather than ringed in the strip's colour — so the gap reads the same on the strip, under the
-   pointer's fill and on either face. The disc's left edge sits closer to the chip's than text would:
-   a round edge reads further in than a straight one. */
-.composer-overstrip .what-changed { padding-left: 4px; }
+   pointer's fill and on either face. The overlap is less than the margin round each mark, so the cut
+   takes the disc's edge and leaves the glyph whole. The disc's left edge sits closer to the chip's than
+   text would: a round edge reads further in than a straight one. */
+.composer-overstrip .what-changed { padding-left: 3px; }
 .what-changed-kinds { display: inline-flex; flex: none; }
-.what-changed-kind { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--rl-hover); }
-.what-changed-kind + .what-changed-kind { margin-left: -4px; }
+.what-changed-kind { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--rl-hover); }
+.what-changed-kind + .what-changed-kind { margin-left: -3px; }
 .what-changed-kind:not(:last-child) {
-  -webkit-mask: radial-gradient(circle at calc(100% + 4px) 50%, transparent 9.5px, #000 10px);
-  mask: radial-gradient(circle at calc(100% + 4px) 50%, transparent 9.5px, #000 10px); }
+  -webkit-mask: radial-gradient(circle at calc(100% + 6px) 50%, transparent 10px, #000 10.5px);
+  mask: radial-gradient(circle at calc(100% + 6px) 50%, transparent 10px, #000 10.5px); }
 /* Tabs stacked into one band. The corners belong to whichever is on TOP, and every strip below it
    goes square — each drawn from the strip that arrives underneath, never by reaching up into the one
    above to make room for itself. */

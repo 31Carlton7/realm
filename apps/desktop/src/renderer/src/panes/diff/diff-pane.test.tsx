@@ -148,12 +148,21 @@ describe("DiffPane", () => {
 
   it("asks for no before for a new picture, and a renamed one's before under its old name", async () => {
     const { api } = await mount({}, { [CWD]: summary([
-      file("new.png", { status: "untracked", binary: true }),
+      file("new.png", { status: "untracked" }),
       file("art/moved.png", { status: "renamed", oldPath: "moved.png", binary: true }),
     ]) });
     await waitFor(() => expect(api.calls).toContain(`headImage:${CWD}|moved.png`));
     expect(api.calls.filter((c) => c.startsWith("headImage:"))).toEqual([`headImage:${CWD}|moved.png`]);
     expect(within(rowFor("art/moved.png")).getByText("Renamed from moved.png")).toBeInTheDocument();
+    // Git has not counted an untracked picture, so it is not "binary" yet — still nothing to read as lines.
+    expect(within(rowFor("new.png")).queryByRole("button", { name: /lines that changed/ })).toBeNull();
+  });
+
+  it("offers the lines of a picture drawn as text, and of a document that is text", async () => {
+    await mount({}, { [CWD]: summary([file("logo.svg"), file("brief.docx", { status: "untracked" }), file("notes.md")]) });
+    expect(screen.getByRole("button", { name: "Show the lines that changed in logo.svg" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show the lines that changed in notes.md" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /lines that changed in brief\.docx/ })).toBeNull();
   });
 
   it("stages exactly the file whose button was pressed", async () => {
