@@ -756,32 +756,6 @@ export const memoryRepoKey = (o: MemoryRepoOwner): string => `${o.scope}:${o.id}
  *  while its probe has not answered), and `needs` what it lacks when it cannot. */
 export type McpProvider = { name: string; enabled: boolean; offered: boolean | null; needs: string | null };
 
-/** Item titles for the destination pages (W4). Static like the space page's "Overview": the page
- *  header renders the live copy, so a snapshot in the item row has nothing to go stale against. */
-export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
-  "library-page": "Library",
-  "connections-page": "Connections",
-  "code-review-page": "Code review",
-  "settings-page": "Settings",
-  // Static like the rest: the page header renders the live profile name; the item row's title has
-  // nothing to go stale against (Plan 14 W2).
-  "profile-page": "Profile",
-  "schedules-page": "Scheduled tasks",
-  "you-page": "You",
-};
-
-/**
- * Where an activated destination page lands.
- *
- * `reuse` is the plain click: one page per space, so a second activation goes to the pane that already
- * holds it. `here` overrides that homing and moves the page into the focused pane instead.
- *
- * They only differ once the page is open somewhere else. A page that does not exist yet is created in
- * the focused pane under either placement, which is why the surfaces offering `here` gate on
- * `destinationPageElsewhere` rather than advertising a choice that has one outcome.
- */
-export type DestinationPlacement = "reuse" | "here";
-
 /** Feed page size (W5). Modest: the page is a glance at what waited, not an archive browser —
  *  "Load more" pages further on the server's cursor. */
 export const NOTIFICATIONS_PAGE = 50;

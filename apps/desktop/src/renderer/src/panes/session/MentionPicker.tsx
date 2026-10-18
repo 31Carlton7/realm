@@ -1,4 +1,3 @@
-import type { Skill } from "@realm/contracts";
 import { Icon, Realmite, parseRealmiteSpec } from "@realm/ui";
 import { Fragment, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -53,15 +52,6 @@ export function mentionQueryAt(text: string, caret: number): { start: number; en
   let end = caret;
   while (end < text.length && QUERY_CHAR.test(text[end]!)) end++;
   return { start, end, query: text.slice(i, caret) };
-}
-
-/** Case-insensitive substring filter over id and display name — the same "filtered as you type"
- *  contract as the model picker's search, and nothing more: matching here only narrows the MENU;
- *  what resolves at send stays exact-match only. */
-export function filterMentionSkills(skills: readonly Skill[], query: string): Skill[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [...skills];
-  return skills.filter((s) => s.id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
 }
 
 /** A row's DOM id — what the textarea's `aria-activedescendant` names. Whitespace is not allowed in

@@ -14,7 +14,7 @@
  *     name: under `pnpm dev` that app is Electron, not Realm, and the grants do not transfer.
  *  2. **A denial is sticky and silent.** Once denied, re-running never re-prompts. A "Grant" button
  *     on a denied row would be a button that cannot work, so denied rows offer System Settings
- *     instead — `canPrompt` is false there, and `grantPlan` skips them.
+ *     instead — `canPrompt` is false there, so "Grant all" skips them.
  *  3. **`mac doctor` never prompts and always exits 0.** It is the only honest status source, and
  *     its per-capability `fix` string is quoted verbatim rather than paraphrased.
  *
@@ -242,25 +242,6 @@ export function macAccessRows(entries: MacDoctorEntry[] | null, opts: { hostName
     });
   }
   return rows;
-}
-
-/**
- * The ids "Grant all" actually attempts, in row order — everything with a prompt still worth
- * raising. Granted rows are skipped (nothing to ask), denied rows are skipped (asking cannot work),
- * and Full Disk Access is skipped because no prompt for it exists. The page reports what it skipped
- * rather than letting a short run read as full coverage.
- */
-export function grantPlan(rows: MacAccessRow[]): string[] {
-  return rows.filter((r) => r.canPrompt).map((r) => r.id);
-}
-
-/** Rows the user still has to finish by hand in System Settings, after every prompt has been raised. */
-export function settingsOnlyRows(rows: MacAccessRow[]): MacAccessRow[] {
-  return rows.filter((r) => r.needsSettings && !r.canPrompt);
-}
-
-export function grantedCount(rows: MacAccessRow[]): number {
-  return rows.filter((r) => r.state === "granted").length;
 }
 
 /** Which app macOS attributes these grants to, and whether that is the app the user thinks it is. */

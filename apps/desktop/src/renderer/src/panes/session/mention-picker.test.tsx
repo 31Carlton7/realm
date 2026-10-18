@@ -5,7 +5,7 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, skillRow, type FakeData } from "../../state/store.test-fakes";
 import { SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
-import { filterMentionSkills, mentionQueryAt } from "./MentionPicker";
+import { mentionQueryAt } from "./MentionPicker";
 
 /** Library: two mentionable skills, one disabled, one invalid — the last two must NEVER be offered. */
 const LIBRARY = [
@@ -292,14 +292,5 @@ describe("mentionQueryAt", () => {
   });
   it("lets a path's slash into the query, so `@src/au` searches files", () => {
     expect(mentionQueryAt("see @src/au", 11)).toEqual({ start: 4, end: 11, query: "src/au" });
-  });
-});
-
-describe("filterMentionSkills", () => {
-  const skills = [skillRow("mac"), skillRow("mac-cli", { name: "Mac CLI" })];
-  it("matches by id or display name, case-insensitively; empty query keeps everything", () => {
-    expect(filterMentionSkills(skills, "").map((s) => s.id)).toEqual(["mac", "mac-cli"]);
-    expect(filterMentionSkills(skills, "CLI").map((s) => s.id)).toEqual(["mac-cli"]);
-    expect(filterMentionSkills(skills, "zzz")).toEqual([]);
   });
 });

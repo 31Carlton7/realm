@@ -481,9 +481,4 @@ export function serializeMarkdown(doc: ProseNode): string {
   return text === "" ? "\n" : text.replace(/\n*$/, "\n");
 }
 
-/** Convenience for tests and for measuring what a first edit would rewrite. */
-export function canonicalize(text: string): string {
-  return serializeMarkdown(parseMarkdown(text));
-}
-
 export type { MarkdownSerializerState };

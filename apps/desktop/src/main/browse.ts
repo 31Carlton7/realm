@@ -1,5 +1,5 @@
 import { readdir, stat } from "node:fs/promises";
-import { basename, join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 
 /**
  * One folder, read off the disk, newest first — what the session's file browser lists.
@@ -93,6 +93,3 @@ export async function browseFolder(root: string, dir = "", limit = BROWSE_LIMIT)
   entries.sort((a, b) => b.mtimeMs - a.mtimeMs || a.name.localeCompare(b.name));
   return { dir: relative(base, abs).split(sep).join("/"), entries: entries.slice(0, limit), truncated: entries.length > limit };
 }
-
-/** The folder's own name, for a breadcrumb. `""` at the root answers with the root's basename. */
-export const folderLabel = (root: string, dir: string): string => (dir === "" ? basename(resolve(root)) : basename(dir));

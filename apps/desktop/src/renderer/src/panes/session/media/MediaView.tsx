@@ -17,9 +17,6 @@ import { useMediaFiles } from "./use-media";
  * Every path here has already been confirmed by main (`media:stat`). Nothing in this file guesses.
  */
 
-/** Kept here for the callers that already read it from this file; the player owns it. */
-export { formatTime } from "../../../components/video/video-model";
-
 /** One media file at message width: the picture, the player, or an audio row. `onExpand` is what
  *  puts it in the media viewer — a 1080×1920 vertical video is legible in a 680px column only as a
  *  thumbnail, and the full-window view is where it is actually watched. */

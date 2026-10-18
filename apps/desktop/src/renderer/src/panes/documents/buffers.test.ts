@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canSave, created, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected } from "./buffers";
+import { canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected } from "./buffers";
 
 const H = (s: string) => `hash-${s}`;
 const base = () => opened("a.md", "v1", H("v1"));
@@ -13,12 +13,6 @@ describe("editing", () => {
   it("re-bases on a successful save", () => {
     const b = saved(edited(base(), "v2"), H("v2"));
     expect(b).toMatchObject({ text: "v2", baseHash: H("v2"), dirty: false, conflict: null });
-  });
-
-  it("a new document starts dirty with no base", () => {
-    const b = created("new.md", "# New\n");
-    expect(b).toMatchObject({ baseHash: null, dirty: true });
-    expect(canSave(b)).toBe(true);
   });
 });
 

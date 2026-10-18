@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Item, Session, SessionStatus } from "@realm/contracts";
 import { item, profile, session, space } from "../../state/store.test-fakes";
 import { listedSessions, nestChildren, rowsBySpace, sectionView, type SidebarState } from "../../components/sidebar/model";
-import { bucketLabel } from "../../components/sidebar/chat-feed";
+import { bucketOf } from "../../components/sidebar/chat-feed";
 import { agentTitle, spaceSessionPage, type PageRow, type PageSessionRow } from "./session-list";
 
 /** Bucket edges are a claim about the person's day, so they are checked in a zone that has one
@@ -126,16 +126,16 @@ describe("grouping", () => {
   it("cuts buckets at local midnight, across a spring-forward day", () => {
     // Mutant: (now − ts) / 86 400 000 — the 23-hour day makes seven calendar days read as six.
     const now = new Date(2026, 2, 14, 0, 10).getTime();
-    expect(bucketLabel(new Date(2026, 2, 13, 23, 50).getTime(), now)).toBe("Yesterday");
-    expect(bucketLabel(new Date(2026, 2, 8, 0, 30).getTime(), now)).toBe("This week");
-    expect(bucketLabel(new Date(2026, 2, 7, 23, 30).getTime(), now)).toBe("March");
-    expect(bucketLabel(new Date(2026, 2, 14, 0, 1).getTime(), now)).toBe("Today");
+    expect(bucketOf(new Date(2026, 2, 13, 23, 50).getTime(), now).label).toBe("Yesterday");
+    expect(bucketOf(new Date(2026, 2, 8, 0, 30).getTime(), now).label).toBe("This week");
+    expect(bucketOf(new Date(2026, 2, 7, 23, 30).getTime(), now).label).toBe("March");
+    expect(bucketOf(new Date(2026, 2, 14, 0, 1).getTime(), now).label).toBe("Today");
   });
 
   it("names a month of another year with its year, and this year's without", () => {
     // Mutant: the year printed on the current year, or never.
-    expect(bucketLabel(new Date(2026, 8, 3).getTime(), NOW())).toBe("September");
-    expect(bucketLabel(new Date(2025, 7, 3).getTime(), NOW())).toBe("August 2025");
+    expect(bucketOf(new Date(2026, 8, 3).getTime(), NOW()).label).toBe("September");
+    expect(bucketOf(new Date(2025, 7, 3).getTime(), NOW()).label).toBe("August 2025");
   });
 
   it("orders newest bucket first", () => {

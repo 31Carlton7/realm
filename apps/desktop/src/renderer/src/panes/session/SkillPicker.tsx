@@ -10,9 +10,8 @@ import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 /**
  * Rank a skill against a query. Higher is better; `null` is "does not match at all".
  *
- * Substring, not fuzzy, for the same reason `filterMentionSkills` is: the picker's job is to NARROW a
- * list the user is reading, and a fuzzy match that surfaces `deslop` for "design" makes the list less
- * trustworthy, not more findable. What it adds over a flat `includes` is ORDER — a query that is the
+ * Substring, not fuzzy: the picker's job is to NARROW a list the user is reading, and a fuzzy match
+ * that surfaces `deslop` for "design" makes the list less trustworthy, not more findable. What it adds over a flat `includes` is ORDER — a query that is the
  * start of a skill's id should not sit below one that appears mid-sentence in another's description.
  */
 export function rankSkill(skill: Skill, q: string): number | null {
