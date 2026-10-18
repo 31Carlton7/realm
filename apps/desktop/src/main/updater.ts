@@ -204,8 +204,11 @@ export class RealmUpdater {
     /* electron-updater reports a failed download as an `error` event — with autoDownload there is no
        promise of ours to reject. A check's own failure is caught in `check` above, so this only
        answers for a download, and leaves the version known: the rail's button can start it again. */
-    u.on("error", () => {
+    u.on("error", (e) => {
       if (this.state.kind === "downloading") this.set({ kind: "available", version: this.state.version });
+      // After the download, an error is the install's: Squirrel's hand-off failed. Staying at
+      // `downloaded` would leave Restart doing nothing, and a check refusing to start over.
+      else if (this.state.kind === "downloaded") this.set({ kind: "error", message: e.message });
     });
     this.updater = u;
     return u;
