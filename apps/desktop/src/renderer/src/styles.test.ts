@@ -250,6 +250,21 @@ describe("§6 motion table", () => {
     expect(title).toMatch(/text-overflow:\s*ellipsis/);
   });
 
+  /* THE mutant is the card left to shrink (`flex: 0 1 auto`): shrink is shared in proportion to size,
+     so beside a long log the report came out a strip two lines high — 126px of a 822px viewer, showing
+     91px of a 314px report (calmer-surfaces-live.mjs). The rest is what reading it takes. */
+  it("gives a sub-agent's report its own height, never the log's leftovers, and reads it at the body size", () => {
+    const card = bodiesFor(".subagent-view-result").join(" ");
+    expect(card).toMatch(/flex:\s*none/);
+    expect(Number(/max-height:\s*(\d+)%/.exec(card)?.[1])).toBeGreaterThanOrEqual(50);
+    // Real padding on every side the words meet; the right one is the scroller's, for its bar.
+    const [top, right, bottom, left] = /padding:\s*(\d+)px (\d+)px (\d+)px (\d+)px/.exec(card)!.slice(1).map(Number) as [number, number, number, number];
+    const scrollerPad = Number(/padding-right:\s*(\d+)px/.exec(bodiesFor(".subagent-view-result-scroll").join(" "))?.[1]);
+    expect(Math.min(top, bottom, left, right + scrollerPad)).toBeGreaterThanOrEqual(12);
+    expect(bodiesFor(".subagent-view-result-head").join(" ")).toMatch(/font-size:\s*13px.*color:\s*var\(--ink\)/);
+    expect(bodiesFor(".subagent-view-result .subagent-view-prose").join(" ")).toMatch(/font-size:\s*14px;\s*color:\s*var\(--ink\)/);
+  });
+
   it("hangs the team note's New role pill outside the note's text edge", () => {
     // Mutant: the old `padding-left: 0` that `.page .btn-quiet` outranked — the words sat 10px in.
     expect(bodiesFor(".tp-card-note .tp-card-new").join(" ")).toMatch(/margin-left:\s*-10px/);
