@@ -580,6 +580,21 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
+  it("refuses a write through a link to a file outside that does not exist yet", async () => {
+    // `realpath` refuses a dangling link, and the walk up to its parent made the link look like a new
+    // file inside the directory — while the write itself follows the link out.
+    const dir = await realpath(tempDir("realm-acp-"));
+    const work = join(dir, "work");
+    await mkdir(work);
+    const outside = join(dir, "planted.plist");
+    await symlink(outside, join(work, "notes.txt"));
+    const { handle, evs } = await booted({ cwd: work });
+    await turn(handle, evs, `WRITEFILE ${join(work, "notes.txt")} planted`);
+    expect(texts(evs)[0]).toContain("write failed:");
+    expect(existsSync(outside)).toBe(false);
+    await handle.dispose();
+  });
+
   it("refuses a sibling directory whose name merely starts with the working directory's", async () => {
     // /…/work-evil is not inside /…/work, however much a naive prefix test would like it to be.
     const dir = await realpath(tempDir("realm-acp-"));
