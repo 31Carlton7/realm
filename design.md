@@ -235,10 +235,14 @@ Rules:
   with the column's last pixels instead of standing beside nothing. Moved to another ground, a shade
   keeps its depth in levels, not its alpha — the dark rail is lighter than the panes, so the same
   depth takes less black there — measured on solid grounds, where a capture is what the screen shows.
-- A group of settings is a card in Codex's grammar: a step ABOVE the ground it stands on, under a rim
-  the rung lighter than both sides, its rows divided by hairlines inset from both ends (Codex,
-  measured: page 41, card 47, rim 57; its file tiles go further, 16 levels up, because a tile is an
-  object you pick up and a card is a group you read). It is not a well. The rows were `--rl-frame`,
+- A group of settings is a card in Codex's grammar: a step ABOVE the ground it stands on, its rows
+  divided by hairlines inset from both ends (Codex, measured: page 41, card 47; its file tiles go
+  further, 16 levels up, because a tile is an object you pick up and a card is a group you read). It
+  is not a well. The step is the card's boundary, and its rim only softens that edge: Codex rings its
+  card a rung lighter than both sides (rim 57), and Realm's rim did the same until it measured brighter
+  over the card than the card stood over the ground — an outline round every card, which the owner
+  called a border fighting the card (10-18). A rim adds less than the fill does; a divider between a
+  card's rows, and the edge of a field written on one, is a line and keeps the line's weight. The rows were `--rl-frame`,
   a shade BELOW the page, and a group of controls that reads as a hole in the page reads as nothing
   in particular. The fill is an overlay rather than a colour, because the ground under a page is the
   pane's translucent canvas and the card has to lift whatever that came to. The rim runs round the
@@ -572,8 +576,12 @@ acronym that is uppercase anyway (a file extension on a tile).
   the keyboard cannot reach it either — so a press lands on a real control or on an element with a role.
 - A window-drag region takes every press that is not opted out of it, and a LABEL is a control: the
   sidebar's old Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
-- Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,
-  and their glyphs do not lift off as drag ghosts. Content and fields keep selection.
+- Chrome is not text. Nothing in the window selects on a drag or a double-click until it is named as
+  content — a message's prose and the user's own words, code and a tool's output, a diff, a document in
+  its editor, a field. A header, a card's title, a status line, a toast or a page of settings is chrome
+  without a rule of its own (the owner, 10-18), and a new surface of content says so with
+  `data-selectable` rather than as one more name in the stylesheet. Chrome's glyphs do not lift off as
+  drag ghosts.
 - A window that is not key greys its accent — selection, default button, checked boxes, lit
   switches — and keeps its LUMINANCE, so a label's contrast is unchanged under any theme. Build the
   grey where luminance is a channel (XYZ's Y), not from OKLCH's L, which is not luminance for a
@@ -974,7 +982,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   transcript, the strip under the last message, the bar's chip, a card: the lead's Agents tab, on that
   sub-agent, beside the lead and never over it, with the keyboard left in the lead's prompter. Its
   siblings are tabs along the top with their state's mark; its head says the state in words, the
-  clock, the model and the checkout; its report is pinned under the head once it has one; its log is
+  clock, the model and the checkout; its report is pinned under the head once it has one, as tall as it
+  is up to most of the viewer and never squeezed by the log under it; its log is
   its own transcript, streaming, with its requests answered there; and its foot is only what its owner
   supports — Stop, Open as session and a message for a delegated child, nothing for a harness's own
   agent. Escape goes back to all of them, and the tab remembers which one it was on.
