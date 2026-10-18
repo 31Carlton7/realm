@@ -989,6 +989,17 @@ describe("AcpAdapter", () => {
     expect(statuses(evs).at(-1)).toBe("ended");
   });
 
+  it("closes a tool call still open when the turn ends, so its card stops spinning", async () => {
+    // A stopped turn sends no final update for the call it cut off, as Codex's `turn/completed` does not.
+    const { handle, evs } = await booted();
+    await handle.send({ text: "OPENTOOL", attachments: [] });
+    await waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await handle.interrupt();
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    expect(of(evs, "tool_result")[0]?.payload).toMatchObject({ toolUseId: of(evs, "tool_call")[0]!.payload.toolUseId, isError: true });
+    await handle.dispose();
+  });
+
   it("closes an open tool call and reports an error when the child dies unexpectedly", async () => {
     const { handle, evs, done } = await booted();
     await handle.send({ text: "DIE", attachments: [] });

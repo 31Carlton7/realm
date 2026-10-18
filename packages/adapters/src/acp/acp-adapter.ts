@@ -623,13 +623,18 @@ export class AcpAdapter implements AgentAdapter {
           (res) => {
             if (disposed) return;
             for (const e of mapper.flush()) events.push(e);
-            const failure = stopReasonError(str(obj(res).stopReason));
+            // A call the turn ended in the middle of (a stop, a refusal, a token limit) gets no update of
+            // its own, and its card would spin until the session closed.
+            const stopReason = str(obj(res).stopReason);
+            for (const e of mapper.closeOpenCalls(stopReason === "cancelled" ? "interrupted" : `turn ended without a result (${stopReason})`)) events.push(e);
+            const failure = stopReasonError(stopReason);
             if (failure) events.push(sessionEvent("error", { message: failure }));
             events.push(sessionEvent("status", { status: "idle" }));
           },
           (e) => {
             if (disposed) return; // the exit handler already reported why the turn died
             for (const e of mapper.flush()) events.push(e);
+            for (const c of mapper.closeOpenCalls(message(e))) events.push(c);
             events.push(sessionEvent("error", { message: message(e) }));
             events.push(sessionEvent("status", { status: "idle" }));
           },
