@@ -2901,6 +2901,31 @@ describe("dividers", () => {
     expect(bodiesFor(".settings-row + .settings-row::before").join(" ")).toContain("inset: 0 16px auto 16px");
   });
 
+  /* The owner, 10-18: "the border contrasts the card bg too much". On dark the rim measured +12 levels
+     over a card that stood +9 over its ground — an outline brighter than the card. THE mutants: the rim
+     put back on the line (as loud as before), and a divider between a card's rows left on the rim,
+     where it would all but vanish now that the rim is soft. */
+  it("edges a card more softly than its fill lifts it, and keeps the line's weight for what divides it", () => {
+    const root = (selector: string) => RULES.filter((r) => r.selectors.includes(selector)).map((r) => r.body).join(" ");
+    const declared = (body: string, name: string) => new RegExp(`--${name}: ([^;]+);`).exec(body)?.[1] ?? "";
+    const alphaOf = (v: string) => {
+      const hex = /^#[0-9a-f]{6}([0-9a-f]{2})$/.exec(v) ?? /#[0-9a-f]{6}([0-9a-f]{2})/.exec(declared(tokensCss, v.replace(/^var\(--|\)$/g, "")));
+      return parseInt(hex![1]!, 16);
+    };
+    const dark = root(":root"), light = root(':root[data-mode="light"]');
+    // Dark: an overlay a rung under the card's own, so the rim adds less than the fill does.
+    expect(alphaOf(declared(dark, "rl-card-rim"))).toBeLessThan(alphaOf(declared(dark, "rl-card")));
+    // Light: the card is white, so the rim is what draws it — kept, but under the line's weight.
+    expect(declared(light, "rl-card-rim"), "light states its own rim").not.toBe("");
+    const lightLine = declared(tokensCss.slice(tokensCss.indexOf("--line: var(--overlay-darken")), "line");
+    expect(alphaOf(declared(light, "rl-card-rim"))).toBeLessThan(alphaOf(lightLine));
+    for (const sel of [".settings-row + .settings-row::before", ".memory-fact + .memory-fact", ".sched-card-facts", ".tp-props > div:nth-child(n+3)::before", ".cr-field", ".sched-modal-name"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("var(--rl-line)");
+      expect(body, sel).not.toContain("--rl-card-rim");
+    }
+  });
+
   it("the diff list draws a seam only under an OPEN file", () => {
     // The exception that proves the rule, and the reason the check above says "unconditional": an
     // expanded file's patch panel really would run into the next filename, so a seam there is doing
