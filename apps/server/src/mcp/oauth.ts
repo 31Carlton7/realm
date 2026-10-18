@@ -626,10 +626,6 @@ export class McpOauth {
     this.d.onStatus?.(serverId);
   }
 
-  /** Persist, tolerating a row deleted underneath an in-flight flow. `setOauth` throws `NotFoundError`
-   *  for a missing row, and a refresh racing a `mcp.remove` must surface the OAuth problem the caller
-   *  was actually asking about (or, for `handleCallback`, a clean failure page) rather than a confusing
-   *  "not found" from a write nobody asked for. */
   /**
    * A client the USER registered with the authorization server, for vendors that issue none on the
    * fly. Replaces any dynamic registration and any tokens — they belonged to the old client — and
@@ -644,6 +640,10 @@ export class McpOauth {
     this.d.onStatus?.(serverId);
   }
 
+  /** Persist, tolerating a row deleted underneath an in-flight flow. `setOauth` throws `NotFoundError`
+   *  for a missing row, and a refresh racing a `mcp.remove` must surface the OAuth problem the caller
+   *  was actually asking about (or, for `handleCallback`, a clean failure page) rather than a confusing
+   *  "not found" from a write nobody asked for. */
   private write(serverId: string, state: McpOauthState): void {
     try { this.d.servers.setOauth(serverId, oauthSecretBox.seal(JSON.stringify(state))); } catch { /* row deleted mid-flow; nothing to persist to */ }
   }

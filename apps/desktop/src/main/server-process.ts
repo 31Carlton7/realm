@@ -39,7 +39,7 @@ export class ReadyLineParser {
 /**
  * Where `realm-server`'s bundle lives. Dev: `apps/server/dist/main.js`, built by `pnpm dev` /
  * `pnpm build` (appPath is `apps/desktop`). Packaged: `Resources/server/dist/main.js`, staged by
- * `apps/desktop/scripts/stage-server.mjs` into electron-builder's `extraResources` — real files on
+ * `apps/desktop/scripts/stage-pack.mjs` into electron-builder's `extraResources` — real files on
  * disk, never inside the asar, because the bundle's externals (`node-pty`'s native prebuilds,
  * the agent SDKs) resolve from a sibling `node_modules` and cannot load from an archive.
  * Pure so both branches are unit-testable; `startServer` feeds it the live Electron values.

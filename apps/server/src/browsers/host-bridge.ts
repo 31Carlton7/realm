@@ -126,20 +126,6 @@ const OP_TIMEOUT_MS = 60_000;
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
 
 /**
- * The server half of the main↔server browser bridge (Plan 11 W3).
- *
- * The `WebContentsView`s and their `webContents.debugger` live in Electron main; the agent tools live
- * here in realm-server (on the MCP gateway). This class is the seam between them: Electron main
- * connects to the RPC socket like any client, calls `browserHost.register`, and from then on every
- * tool's CDP work travels out as a targeted `browserHost.op` event and comes back as a
- * `browserHost.result` call. One host at a time — a second register supersedes the first (an Electron
- * main that restarted), failing whatever the old one still owed.
- *
- * It carries the computer-use ops too (`COMPUTER_HOST_OPS`), which have nothing to do with browser
- * panes but travel the same one main↔server socket to the same one registered executor. The name is
- * the browser's because that is what first needed a bridge; the machinery was never browser-specific.
- */
-/**
  * How much of Realm is actually here.
  *
  * Once the server outlives the app there are three states, not two, and every degradation decision
@@ -157,6 +143,20 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; time
  */
 export type HostLevel = "window" | "no-window" | "headless";
 
+/**
+ * The server half of the main↔server browser bridge (Plan 11 W3).
+ *
+ * The `WebContentsView`s and their `webContents.debugger` live in Electron main; the agent tools live
+ * here in realm-server (on the MCP gateway). This class is the seam between them: Electron main
+ * connects to the RPC socket like any client, calls `browserHost.register`, and from then on every
+ * tool's CDP work travels out as a targeted `browserHost.op` event and comes back as a
+ * `browserHost.result` call. One host at a time — a second register supersedes the first (an Electron
+ * main that restarted), failing whatever the old one still owed.
+ *
+ * It carries the computer-use ops too (`COMPUTER_HOST_OPS`), which have nothing to do with browser
+ * panes but travel the same one main↔server socket to the same one registered executor. The name is
+ * the browser's because that is what first needed a bridge; the machinery was never browser-specific.
+ */
 export class BrowserHostBridge {
   private host: WebSocket | null = null;
   private hasWindow = false;

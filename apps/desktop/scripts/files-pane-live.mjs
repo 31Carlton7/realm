@@ -6,7 +6,7 @@
  * its scripted turn writes a note and a script and edits the README, and a message attaches a
  * picture — the Library's index records all four, and this script puts the files those tool calls
  * name on disk, with the content they carry. The Library's other rows are seeded into the index for
- * two other sessions, as the recipe in live-check-via-cdp-recipe.md does. Checks, in the window:
+ * two other sessions. Checks, in the window:
  *
  *   1. The session bar's Documents button opens the pane as a tab of the side pane, on a centred
  *      "No files yet" with New document and Code file… — no strip, no void.

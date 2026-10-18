@@ -301,9 +301,10 @@ function unsettledTurn(blocks: readonly Block[]): { startedAt: number; lastTs: n
 const derivedRun = (u: { startedAt: number; failed: boolean }, ts: number): Block =>
   ({ kind: "run", ms: Math.max(0, ts - u.startedAt), startedAt: u.startedAt, ts, derived: true, ...(u.failed ? { failed: true } : {}) });
 
-/** Pure reducer: normalized session events → what the transcript renders. Deltas accumulate into the open
- *  streaming assistant block; the final `assistant_text` replaces it. */
 /**
+ * Pure reducer: normalized session events → what the transcript renders. Deltas accumulate into the
+ * open streaming assistant block; the final `assistant_text` replaces it.
+ *
  * `markUnseen` inserts the "new since you were here" rule immediately BEFORE this event's block.
  *
  * An argument rather than a synthetic event because it is not one: nothing happened at that point in

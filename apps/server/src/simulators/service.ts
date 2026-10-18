@@ -167,10 +167,10 @@ export class SimulatorService {
 
   states(spaceId: string): SimulatorState[] { return this.list(spaceId).map((s) => this.stateOf(s.id)); }
 
-  /** This Mac's installed simulators. Asked fresh every time the picker opens: a device list is a
-   *  fact about the machine right now, and Xcode adds runtimes while Realm is running. */
-  /** Every device this Mac can show, from both toolchains. Neither side's absence is an error: a Mac
-   *  with no Android SDK simply contributes no Android rows, which is what the picker should show. */
+  /** Every device this Mac can show, from both toolchains. Asked fresh every time the picker opens: a
+   *  device list is a fact about the machine right now, and Xcode adds runtimes while Realm is running.
+   *  Neither side's absence is an error: a Mac with no Android SDK simply contributes no Android rows,
+   *  which is what the picker should show. */
   async devices(): Promise<SimulatorDevice[]> {
     const [ios, droid, real] = await Promise.all([
       this.cli.devices().catch(() => [] as SimulatorDevice[]),
@@ -181,8 +181,8 @@ export class SimulatorService {
     return [...ios.filter((x) => !this.d.physical?.rehearses(x.udid)), ...droid, ...real];
   }
 
-  /** Whether `simctl` answers at all — the honest difference between "no simulators" and "no Xcode". */
-  /** Whether ANY toolchain answers. The pane's "nothing installed" state is about both. */
+  /** Whether ANY toolchain answers — the honest difference between "no devices" and "no toolchain".
+   *  The pane's "nothing installed" state is about both. */
   async available(): Promise<boolean> {
     return toolchainAvailable(this.cli, this.droid);
   }
@@ -258,9 +258,10 @@ export class SimulatorService {
    * row inside it is pixels as far as the page is concerned — so an element picker over the device
    * resolves to "the simulator" and nothing finer. The tree is how the device says what is on it,
    * and the frames it carries are what makes an element tappable by label rather than by guess.
+   *
+   * `patient`, for a phone: wait for a slow app's answer rather than give up at a step's timeout —
+   * what a recording wants; a simulator's read is quick either way.
    */
-  /** The device's live tree. `patient`, for a phone: wait for a slow app's answer rather than give up at
-   *  a step's timeout — what a recording wants; a simulator's read is quick either way. */
   async ax(simulatorId: string, o: { patient?: boolean } = {}): Promise<SimulatorAxTree> {
     const row = this.get(simulatorId);
     if (row.physical) {
@@ -606,14 +607,6 @@ export class SimulatorService {
   /* --------------------------- internals --------------------------- */
 
   /**
-   * Boot the device, get a stream, wait for it to have a size.
-   *
-   * `simctl boot` on an already-booted device is a no-op that returns immediately, so there is one
-   * path rather than a probe and two. Likewise `find` before `start`: a device somebody already
-   * served — from a terminal, or through the ios-simulator skill — is one this pane can simply show,
-   * and starting a second daemon for it would be the wrong answer to "it is already running".
-   */
-  /**
    * The Android walk. Same three beats as the iOS one — boot, serve, wait for a size — against three
    * different tools.
    *
@@ -693,6 +686,14 @@ export class SimulatorService {
     }
   }
 
+  /**
+   * Boot the device, get a stream, wait for it to have a size.
+   *
+   * `simctl boot` on an already-booted device is a no-op that returns immediately, so there is one
+   * path rather than a probe and two. Likewise `find` before `start`: a device somebody already
+   * served — from a terminal, or through the ios-simulator skill — is one this pane can simply show,
+   * and starting a second daemon for it would be the wrong answer to "it is already running".
+   */
   private async walk(simulatorId: string, udid: string, token: number): Promise<void> {
     const current = () => this.token.get(simulatorId) === token;
     const fail = (error: string, detail: string) => { if (current()) this.set({ ...OFF(simulatorId, udid), status: "failed", error, detail: detail || null }); };

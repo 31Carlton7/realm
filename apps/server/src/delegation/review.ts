@@ -50,7 +50,7 @@ type SettingsLike = { get(key: string): unknown; set(key: string, value: unknown
  * check refuses it, and `run()` re-checks — so a reviewer can neither review nor delegate further,
  * and no delegated child of ANY kind can call `agent_review`.
  *
- * **The ban, stated where the result lands (see `settleAndPublish`):** nothing in this module — or
+ * **The ban, stated where the result lands (see `publish`):** nothing in this module — or
  * downstream of its result — may trigger `workspace.ship` or any commit. The module never imports
  * git-write, and `structure.test.ts` pins that fact.
  */

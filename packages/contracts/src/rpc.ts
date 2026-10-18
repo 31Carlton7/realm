@@ -414,11 +414,12 @@ export const Methods = {
   "spaces.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: HexColorSchema.optional(), profileId: IdSchema.optional(), sortOrder: z.number().int().optional(), activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
   "spaces.reorder": { params: z.object({ ids: z.array(IdSchema) }), result: z.object({ ok: z.literal(true) }) },
   "spaces.setLayout": { params: z.object({ id: IdSchema, layout: LayoutSchema }), result: SpaceSchema },
-  /** The whole group set in one write — group membership, names, the active pointer and each group's
-   *  zoom all move together, and splitting them into per-field methods would let a reload land between
-   *  two halves of one gesture. Supersedes `spaces.setLayout`, which stays for the layout-only path. */
   /**
    * The whole group set, and which item had the keyboard, in ONE write.
+   *
+   * Group membership, names, the active pointer and each group's zoom all move together, and splitting
+   * them into per-field methods would let a reload land between two halves of one gesture. Supersedes
+   * `spaces.setLayout`, which stays for the layout-only path.
    *
    * Together rather than in two calls on purpose: focus is a fact ABOUT a layout, and two round trips
    * can be interleaved by another window's write, leaving a stored focus that points into a layout it
@@ -1863,8 +1864,6 @@ export const Methods = {
   /** The session's Agents tab, as an item of its space: the one it has, or a new one. Its `refId` is
    *  the session's id — the tab is a view of that session and of nothing else. */
   "delegation.tab": { params: z.object({ sessionId: IdSchema }), result: z.object({ itemId: IdSchema }) },
-  /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
-   *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   /**
    * Everything the Settings -> Usage tab draws, for one time range, in ONE call.
    *
@@ -2002,13 +2001,13 @@ export const Methods = {
    */
   "agents.probeOne": { params: z.object({ kind: AgentKindSchema }), result: AgentProbeRowSchema.nullable() },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
-  /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
-  /** Every session Realm holds, or every session in ONE profile. Scoped by the server's space→profile
-   *  join when `profileId` is given — the same rule `search.query` states, for the same reason: a
-   *  client-side filter is not trusted to keep one profile's work out of another's surfaces. */
   /** Where each of a space's sessions left off: its newest reply's first line, or null where it has
    *  not replied — for the space's Sessions page to say without opening any. */
   "sessions.digest": { params: z.object({ spaceId: IdSchema }), result: z.array(z.object({ sessionId: IdSchema, lastReply: z.string().nullable() })) },
+  /** Every session Realm holds, or every session in ONE profile — the client's sessionId→spaceId map
+   *  for cross-space badges. Scoped by the server's space→profile join when `profileId` is given — the
+   *  same rule `search.query` states, for the same reason: a client-side filter is not trusted to keep
+   *  one profile's work out of another's surfaces. */
   "sessions.listAll": { params: z.object({ profileId: IdSchema.nullable().default(null) }), result: z.array(SessionSchema) },
   /**
    * Record how far this user has read a session's transcript.
@@ -2291,10 +2290,6 @@ export const Events = {
    *  bring the child session INTO the layout — the whole point of a delegated agent being a real
    *  session is that the user watches its full trace. */
   "session.agentOpened": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema }),
-  /** An agent's `session_open` made a session for the user, and it goes on screen BESIDE that agent's
-   *  pane — to the right or below (`edge`), as the user's own split would put it. Not
-   *  `session.agentOpened`: that one is a delegated child, which gets no pane. Quiet, like every
-   *  agent's open: the keyboard stays where the user left it. */
   /** An agent's `settings_set` changed one of the settings agents may change (`AGENT_SETTINGS`): every
    *  window takes the new value as if its own Settings had set it. Only those keys — a window that
    *  re-read any setting on this would let a stored value it never offered take effect. */
@@ -2303,6 +2298,10 @@ export const Events = {
    *  move it — unless the user is typing, when it stays put. The first window answers it; one opened
    *  for a single profile leaves it alone. The server learns the outcome from `ui.activeSpaceId`. */
   "space.switchRequested": z.object({ spaceId: IdSchema, requestedBy: IdSchema }),
+  /** An agent's `session_open` made a session for the user, and it goes on screen BESIDE that agent's
+   *  pane — to the right or below (`edge`), as the user's own split would put it. Not
+   *  `session.agentOpened`: that one is a delegated child, which gets no pane. Quiet, like every
+   *  agent's open: the keyboard stays where the user left it. */
   "session.openRequested": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema, openedBy: IdSchema, edge: z.enum(["right", "bottom"]) }),
   /** A delegated child's run settled — the other half of `session.agentOpened`, carrying the same ids
    *  plus how it ended, and sent exactly once per run by the tool that opened the child

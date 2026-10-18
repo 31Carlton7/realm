@@ -312,12 +312,12 @@ export type FakeData = {
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
   tccRows?: TccRow[];
-  /** Saved sign-ins. Each is profile p1's unless it names another `profileId` — sign-ins are a
-   *  profile's own, and the fake answers each profile with its rows alone, as main does. */
   /** The profile this fake window was opened for (`window.realm.profileId`); absent = the first window. */
   boundProfileId?: string | null;
   /** Profiles another (fake) window is showing — what `focusProfileWindow` answers yes for. */
   profilesInOtherWindows?: string[];
+  /** Saved sign-ins. Each is profile p1's unless it names another `profileId` — sign-ins are a
+   *  profile's own, and the fake answers each profile with its rows alone, as main does. */
   credentials?: (BrowserCredential & { profileId?: string })[];
   credentialStatus?: CredentialStatus;
   /** Each profile's unlock policy, by profile id; a profile absent here is on Touch ID. `refuseUnlock`

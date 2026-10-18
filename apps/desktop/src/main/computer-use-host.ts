@@ -162,18 +162,6 @@ export function actionToHelperParams(snapshotId: string, action: ComputerAction)
   }
 }
 
-/**
- * Render an app's elements as the listing the agent reads — the accessibility-tree counterpart of
- * `browser-agent.ts`'s `formatLine`, and deliberately the same shape so an agent that has driven a
- * page already knows how to read one:
- *
- *     [12] AXButton "Save" (940,612 68×22) {press}
- *     [13] AXTextField "Title" = "untitled" (120,84 300×24) {focused}
- *
- * The index is what `computer_act` takes. Flags carry only what changes what the agent should do:
- * whether it can be pressed, whether it is disabled, where focus is, and — loudest — whether it is a
- * password field, which is refused in every mode and should not be attempted.
- */
 /** How far the helper walks for a `query`: a search reads past one page, but a whole big app is
  *  minutes of AX calls (a full Mail window took ~2), so it is bounded and says so when it stops. */
 const COMPUTER_QUERY_WALK = 2_000;
@@ -224,6 +212,18 @@ export function pageOfElements(all: ComputerElement[], scope: ComputerSnapshotSc
   return { elements, notes };
 }
 
+/**
+ * Render an app's elements as the listing the agent reads — the accessibility-tree counterpart of
+ * `browser-agent.ts`'s `formatLine`, and deliberately the same shape so an agent that has driven a
+ * page already knows how to read one:
+ *
+ *     [12] AXButton "Save" (940,612 68×22) {press}
+ *     [13] AXTextField "Title" = "untitled" (120,84 300×24) {focused}
+ *
+ * The index is what `computer_act` takes. Flags carry only what changes what the agent should do:
+ * whether it can be pressed, whether it is disabled, where focus is, and — loudest — whether it is a
+ * password field, which is refused in every mode and should not be attempted.
+ */
 export function renderElements(elements: ComputerElement[]): string {
   return elements.map(formatElementLine).join("\n");
 }

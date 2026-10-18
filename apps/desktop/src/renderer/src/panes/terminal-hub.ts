@@ -503,13 +503,6 @@ export class TerminalHub {
     this.setProgram(terminalId, null);
   }
 
-  /** Re-reads the code face from `--font-mono` and pushes it into every live terminal.
-   *
-   *  Without this the preference would only reach terminals opened AFTER it changed — xterm reads
-   *  its font once, at construction, exactly as it reads its background. A setting that takes effect
-   *  on the next terminal is a setting the user tries, sees nothing from, and moves on from. Each
-   *  one is re-fit afterwards because the cell size is measured off the face: changing it without
-   *  re-measuring leaves the grid the wrong shape and the pty resized to a lie. */
   /** The cursor-blink preference, pushed into every live terminal and remembered for the next one.
    *
    *  Live, for `refreshFont`'s reason: a setting that only reaches terminals opened afterwards is a
@@ -558,6 +551,13 @@ export class TerminalHub {
     this.refreshColors();
   }
 
+  /** Re-reads the code face from `--font-mono` and pushes it into every live terminal.
+   *
+   *  Without this the preference would only reach terminals opened AFTER it changed — xterm reads
+   *  its font once, at construction, exactly as it reads its background. A setting that takes effect
+   *  on the next terminal is a setting the user tries, sees nothing from, and moves on from. Each
+   *  one is re-fit afterwards because the cell size is measured off the face: changing it without
+   *  re-measuring leaves the grid the wrong shape and the pty resized to a lie. */
   refreshFont() {
     const font = terminalFont(this.doc);
     const size = terminalFontSize(this.doc);

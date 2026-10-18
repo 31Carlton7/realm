@@ -427,6 +427,12 @@ function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | 
   };
 }
 
+/** How the stored token was obtained, for the row's "Connected with …" line — absent with no token. */
+function oauthViaOf(row: McpServerRow): { oauthVia?: McpOauthVia } {
+  const state = readOauthState(row.oauthJson);
+  return state.tokens ? { oauthVia: state.via ?? "browser" } : {};
+}
+
 /**
  * `oauthJson` → the three-state enum a client sees. The ONE derivation site.
  *
@@ -443,12 +449,6 @@ function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | 
  * `mcp.serverStatus` independently of `list()`/`toContract`, since a status flip can happen between
  * `mcp.list` calls — derive `oauthStatus` the SAME way instead of keeping a second copy.
  */
-/** How the stored token was obtained, for the row's "Connected with …" line — absent with no token. */
-function oauthViaOf(row: McpServerRow): { oauthVia?: McpOauthVia } {
-  const state = readOauthState(row.oauthJson);
-  return state.tokens ? { oauthVia: state.via ?? "browser" } : {};
-}
-
 export function oauthStatusOf(row: McpServerRow): McpOauthStatus {
   const state = readOauthState(row.oauthJson);
   if (state.reconnectNeeded) return "reconnect_needed";

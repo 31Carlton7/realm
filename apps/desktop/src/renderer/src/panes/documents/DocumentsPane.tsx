@@ -522,8 +522,9 @@ function DocumentNameInput({ stem, onCommit, onCancel }: { stem: string; onCommi
 }
 
 /** Which kinds have a view other than their source, and what that view is. A PDF is the odd one: it
- *  has no text to show, so it is preview-only and gets no toggle. */
-/** `preview` is the GUIDE preview (an html file rendered as itself); `render` is a Quick Look
+ *  has no text to show, so it is preview-only and gets no toggle.
+ *
+ *  `preview` is the GUIDE preview (an html file rendered as itself); `render` is a Quick Look
  *  picture of a file Realm has no editor for. Two different surfaces with one English word between
  *  them, so the names are kept apart here rather than in each reader's head. */
 function structuredViewFor(kind: DocumentKind): "rich" | "grid" | "preview" | "pdf" | "render" | null {

@@ -56,16 +56,6 @@ export async function probeCodex(
   }
 }
 
-/**
- * Extracts the picker rows from one `model/list` response page (shape verified live against
- * codex-cli 0.146.0: `{ data: Model[], nextCursor: string | null }`, Model carrying `id`,
- * `displayName`, `hidden`, ...).
- *
- * Defensive on purpose — the shape is a preview build's and may drift. A malformed page yields the
- * rows that ARE well-formed, never a throw and never a row with an invented or blank id. `hidden`
- * models are skipped because that is what the flag means ("hidden from the default picker list");
- * only an explicit `hidden: true` hides — an absent flag is not treated as hiding.
- */
 /** One catalog row, plus the two facts Realm reads off it. */
 export type CodexModel = {
   id: string; label: string;
@@ -93,6 +83,16 @@ function fastTier(tiers: unknown): { description?: unknown } | null {
   return (Array.isArray(tiers) ? tiers.find((t) => (t as { id?: unknown } | null)?.id === CODEX_FAST_TIER) : null) ?? null;
 }
 
+/**
+ * Extracts the picker rows from one `model/list` response page (shape verified live against
+ * codex-cli 0.146.0: `{ data: Model[], nextCursor: string | null }`, Model carrying `id`,
+ * `displayName`, `hidden`, ...).
+ *
+ * Defensive on purpose — the shape is a preview build's and may drift. A malformed page yields the
+ * rows that ARE well-formed, never a throw and never a row with an invented or blank id. `hidden`
+ * models are skipped because that is what the flag means ("hidden from the default picker list");
+ * only an explicit `hidden: true` hides — an absent flag is not treated as hiding.
+ */
 export function parseCodexModelPage(page: unknown): { models: CodexModel[]; nextCursor: string | null } {
   const data = (page as { data?: unknown } | null)?.data;
   const rows = Array.isArray(data) ? data : [];

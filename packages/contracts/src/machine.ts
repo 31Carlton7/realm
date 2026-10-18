@@ -104,7 +104,7 @@ export type Machine = z.infer<typeof MachineSchema>;
 /**
  * The live half, broadcast on `machine.status` and held in the renderer's store.
  *
- * `wsPort` rides the event rather than being fetched afterwards: a renderer that had to call
+ * `wsUrl` rides the event rather than being fetched afterwards: a renderer that had to call
  * `machines.get` on every status change would open its socket a round trip late, and the one thing
  * a viewer must not do is show a stale frame while a new connection is already available.
  *

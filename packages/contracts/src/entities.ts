@@ -211,14 +211,12 @@ export type DocumentEntry = z.infer<typeof DocumentEntrySchema>;
  * The four editors' file types, decided by extension (Plan 17). `unsupported` is a real member, not an
  * error case: the picker still lists such a file and the pane shows a clear "not editable here" state
  * rather than opening an empty text buffer over a binary.
- */
-/**
+ *
  * `html` and `pdf` (Plan 22) are PREVIEW kinds, not editors: an `.html` file is an interactive study
  * guide rendered in a sandboxed frame (with a Source view behind it), a `.pdf` is a problem set or a
  * slide deck shown read-only beside the session working on it. Neither goes through the Markdown or
  * sheet models.
- */
-/**
+ *
  * `code` is the plain-text lane: a source file opened to be EDITED rather than rendered. It is its
  * own member and not a flavour of `doc` because the two disagree about every decision downstream —
  * `doc` is rich text through tiptap, where a stray newline is a paragraph and the bytes on disk are

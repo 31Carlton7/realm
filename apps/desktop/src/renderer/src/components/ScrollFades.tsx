@@ -114,6 +114,9 @@ export function useFadedScroller() {
   return { ref, fades: <ScrollFades scroller={ref} /> };
 }
 
+/** The bar under a page's column, where a page that ends in a DECISION puts it (`PageFoot`). */
+const PageFootSlot = createContext<HTMLElement | null>(null);
+
 /**
  * The page pattern's reading column, with its dissolve.
  *
@@ -130,9 +133,6 @@ export function useFadedScroller() {
  * sticky at all"). Inside the column it already starts where the content does, past the rail, so it
  * needs no indent of its own to line up with it.
  */
-/** The bar under a page's column, where a page that ends in a DECISION puts it (`PageFoot`). */
-const PageFootSlot = createContext<HTMLElement | null>(null);
-
 export function PageScroll({ children, wide = false, className, foot = false }: { children: ReactNode;
   /** Opt out of the reading measure, for a column of work that wants the width — the Library's grid
    *  of files, the Tasks lens — rather than one of prose. */

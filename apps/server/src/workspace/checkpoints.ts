@@ -413,7 +413,7 @@ export class CheckpointGit {
   }
 
   /** Every checkpoint ref this environment owns, as git has them. The reconciliation source for
-   *  `deleteEnvironment`: a row that was lost still leaves a ref, and a ref nothing points at is the
+   *  `CheckpointService.forgetEnvironment`: a row that was lost still leaves a ref, and a ref nothing points at is the
    *  disk leak retention exists to prevent. */
   async listRefs(cwd: string, environmentId: string): Promise<string[]> {
     if (!ID.test(environmentId)) throw new RpcError("INVALID_PARAMS", "checkpoint refs are named by ULID only");

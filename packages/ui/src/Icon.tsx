@@ -24,7 +24,7 @@ import {
   // The session's summary panel (SessionSummary.tsx).
   InformationCircleIcon,
   ComputerIcon,
-  // The sidebar's head row: the gateway call log (SidebarActivity.tsx).
+  // The sidebar's switch to its activity reading (SidebarLens.tsx), and a session summary's Usage.
   Pulse01Icon,
   // A machine pane's ⋯ menu: the chord it sends to the guest, and the clipboard it pushes across.
   KeyboardIcon, ClipboardIcon,

@@ -219,12 +219,6 @@ function useLanding(page: RefObject<HTMLDivElement | null>, landing: string | nu
   }, [page, landing, setLanding]);
 }
 
-/** A command offered for copying — the install card's affordance, re-rendered. The command travels
- *  to the clipboard verbatim: no trailing newline anywhere near a terminal (typed-never-run).
- *
- *  `action`, when given, is the button that RUNS this exact string. It sits beside the command rather
- *  than replacing it, because the promise the CLI manager makes is that the command is readable
- *  before it is run — a button whose command is hidden behind it would be a different promise. */
 /**
  * The output pane is scrolled to the tail on every chunk: a package manager's interesting line is
  * almost always its last, and a user watching an install is watching the end of it.
@@ -656,14 +650,6 @@ function CodePreview({ vars }: { vars: Record<string, string> }) {
   );
 }
 
-/** One face's palette picker. A card is painted in the palette it names, in the face this row is
- *  for, off the same derivation the app applies — so what is on the card is what the window becomes.
- *  Only palettes with that face are offered: a palette that cannot dress a lit window has no honest
- *  card to show in the light row.
- *
- *  The cards and their disclosure, without a row around them: the live face is a row of the
- *  Appearance group and the other face is a disclosure inside one, and a `.settings-row` nested in a
- *  `.settings-row` would paint a second surface on top of the first. */
 /**
  * Importing a VS Code colour theme, and what is already imported.
  *
@@ -843,7 +829,16 @@ function FontLibrary() {
 /** The palette the konami sequence pays out, and the only one the grid ever withholds. */
 const LOCKED_PALETTE: ThemeName = "phosphor";
 
-/** `live` marks the face the window is wearing: its colours and its import are the ones a search
+/** One face's palette picker. A card is painted in the palette it names, in the face this row is
+ *  for, off the same derivation the app applies — so what is on the card is what the window becomes.
+ *  Only palettes with that face are offered: a palette that cannot dress a lit window has no honest
+ *  card to show in the light row.
+ *
+ *  The cards and their disclosure, without a row around them: the live face is a row of the
+ *  Appearance group and the other face is a disclosure inside one, and a `.settings-row` nested in a
+ *  `.settings-row` would paint a second surface on top of the first.
+ *
+ *  `live` marks the face the window is wearing: its colours and its import are the ones a search
  *  lands on, since the other face's sit inside a disclosure of their own. */
 function PaletteChoices({ face, selected, onSelect, live }:
   { face: Mode; selected: ThemeName; onSelect: (name: ThemeName) => void; live?: boolean }) {

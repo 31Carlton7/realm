@@ -317,6 +317,12 @@ export class MachineService {
 
   /* --------------------------- lifecycle --------------------------- */
 
+  /** Guest shapes back from the caller's own store, at boot. Separate from `restoreAll` because the
+   *  shapes come from `settings` and this class does not own that table. */
+  hydrateGuests(entries: Iterable<[string, GuestSpec]>): void {
+    for (const [id, spec] of entries) this.guests.set(id, spec);
+  }
+
   /**
    * Startup. Starts NOTHING, and clears every recorded port.
    *
@@ -325,12 +331,6 @@ export class MachineService {
    * back. Connecting is also a real act against somebody else's Mac: it can wake it and it shows in
    * their screen-sharing indicator, so it is not something to do because the app was reopened.
    */
-  /** Guest shapes back from the caller's own store, at boot. Separate from `restoreAll` because the
-   *  shapes come from `settings` and this class does not own that table. */
-  hydrateGuests(entries: Iterable<[string, GuestSpec]>): void {
-    for (const [id, spec] of entries) this.guests.set(id, spec);
-  }
-
   restoreAll(): void {
     this.d.machines.clearAllWsPorts();
     this.state.clear();
@@ -387,12 +387,6 @@ export class MachineService {
 
   /* --------------------------- the proxy's view of a machine --------------------------- */
 
-  /**
-   * Address + password, resolved at CONNECT time rather than held by the proxy.
-   *
-   * Late-bound deliberately: a machine whose address or password was edited between one pane and the
-   * next must not reconnect to the old one, and a cached target is exactly how that happens.
-   */
   /**
    * What QEMU this Mac has, and what Realm can therefore offer.
    *
@@ -526,6 +520,12 @@ export class MachineService {
     return null;
   }
 
+  /**
+   * Address + password, resolved at CONNECT time rather than held by the proxy.
+   *
+   * Late-bound deliberately: a machine whose address or password was edited between one pane and the
+   * next must not reconnect to the old one, and a cached target is exactly how that happens.
+   */
   targetFor(machineId: string): MachineTarget | null {
     const row = this.d.machines.get(machineId);
     if (!row || !row.endpoint) return null;

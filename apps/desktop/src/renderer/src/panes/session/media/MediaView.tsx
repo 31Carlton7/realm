@@ -101,19 +101,6 @@ function useOpenInRealm(): (file: MediaFile) => void {
   };
 }
 
-/**
- * The shimmering canvas an image or a video occupies while it is being made
- * (aicss.dev/components/image-generation).
- *
- * It is a PLACEHOLDER at the size of the thing coming, not a spinner: a spinner says "something is
- * happening", a canvas of the right shape says "your picture is being drawn, and it will land
- * here". That is the entire difference the component exists for, and it is why the aspect ratio and
- * the label are props rather than constants.
- *
- * Shown by the tool call's REAL state — it is on screen exactly as long as the call has no result —
- * never by a timer. A generation that fails leaves a failed tool card, not a canvas shimmering
- * forever.
- */
 /** The longest side a canvas may take. Big enough to read as a placeholder for a picture, small
  *  enough that a run of them does not push the conversation off the screen. */
 const GEN_MAX_PX = 320;
@@ -146,6 +133,19 @@ export function genResolution(aspect: string): string | null {
   return w && h && /^\d{3,5}$/.test(w) && /^\d{3,5}$/.test(h) ? `${w} × ${h}` : null;
 }
 
+/**
+ * The shimmering canvas an image or a video occupies while it is being made
+ * (aicss.dev/components/image-generation).
+ *
+ * It is a PLACEHOLDER at the size of the thing coming, not a spinner: a spinner says "something is
+ * happening", a canvas of the right shape says "your picture is being drawn, and it will land
+ * here". That is the entire difference the component exists for, and it is why the aspect ratio and
+ * the label are props rather than constants.
+ *
+ * Shown by the tool call's REAL state — it is on screen exactly as long as the call has no result —
+ * never by a timer. A generation that fails leaves a failed tool card, not a canvas shimmering
+ * forever.
+ */
 export function GeneratingCanvas({ label, detail, aspect = "1 / 1" }: {
   label: string;
   /** The prompt, or the command's own description — what is being made, in the agent's words. */

@@ -5,8 +5,8 @@ import { EGG_KDF, EggPackSchema, type EggPack, type SealedEggPack } from "@realm
  * Sealing and opening a friend pack. The whole of the crypto, in one place, both directions.
  *
  * Both directions on purpose: a seal whose open lives somewhere else is a seal nobody tests against
- * its own output. `seal-egg-pack.mjs` — the authoring script Carlton runs — calls `sealPack`, and
- * the app only ever calls `openPack`; the round-trip test exercises the pair.
+ * its own output. `tools/seal-egg-packs.mjs` — the authoring script Carlton runs — calls `sealPack`,
+ * and the app only ever calls `openPack`; the round-trip test exercises the pair.
  *
  * `scrypt` rather than PBKDF2, and the reason is the passphrases: they are short words a friend can
  * be told once. PBKDF2 is cheap to parallelise on a GPU, which for a four-character word is the

@@ -756,10 +756,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
    *  passes `generateSessionTitle`. */
   titleGenerator?: (text: string) => Promise<string>;
-  /** Writes the model's account of a session when a turn settles. A real, billed LLM call per settled
-   *  turn — omitted here on purpose so tests and live-check scripts never make one; the real server
-   *  process (`main.ts`) passes `generateSessionSummary`. Without it the panes show the derived line,
-   *  which is exactly what they showed before this existed. */
   /** One call answering BOTH of a settle's model-written fields — the summary and the prompter's
    *  hint. Omitted on any build that must not make a billed call: without it the panes show the
    *  derived line and the prompter keeps its deterministic ladder. */

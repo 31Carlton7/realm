@@ -84,8 +84,8 @@ interface Window {
     pickFolders(): Promise<PickedFile[]>;
     /** The path of a VS Code colour theme the user chose, or null if they cancelled. */
     pickThemeFile(): Promise<string | null>;
-    /** Downscaled data: URL for an image attachment; null for anything not a readable image. */
-    /** `tile` (the default) is a 96px mark beside a name; `card` is the Library's preview. */
+    /** Downscaled data: URL for an image attachment; null for anything not a readable image. `tile`
+     *  (the default) is a 96px mark beside a name; `card` is the Library's preview. */
     attachmentThumbnail(path: string, size?: "tile" | "card"): Promise<string | null>;
     /** Hand an attachment to the app the user reads that type in — the files Realm cannot draw.
      *  Optional for the same reason `media` is: without the bridge the tile stays a picture. */
@@ -113,14 +113,9 @@ interface Window {
       /** The path of that copy, made once per version of the file (main/media-proxy.ts). */
       transcode?(path: string): Promise<string>;
     };
-    /** Any file the app is already LISTING — a Library row, a session's outputs — as opposed to a
-     *  path an agent merely named. `media` above admits only what a media element can decode, so it
-     *  is right to refuse a `.ts`; these are gated on existence instead. Optional for the same
-     *  reason: every call site degrades to "cannot", and jsdom has no bridge at all. */
     /** Realm's theme preference, so the window's native material, menus and panels match it
      *  (main/appearance.ts). Optional: a renderer with no bridge has no native appearance to set. */
     setAppearance?(pref: "system" | "light" | "dark"): void;
-    /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
     /** What's new (main/whats-new.ts). Optional like every late bridge: jsdom has none. */
     whatsNew?: {
       notes(): Promise<WhatsNew>;
@@ -128,10 +123,15 @@ interface Window {
       claim(): Promise<boolean>;
       seen(): Promise<void>;
     };
+    /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
     appIcon?: {
       get(): Promise<string>;
       set(id: string, png: Uint8Array): Promise<boolean>;
     };
+    /** Any file the app is already LISTING — a Library row, a session's outputs — as opposed to a
+     *  path an agent merely named. `media` above admits only what a media element can decode, so it
+     *  is right to refuse a `.ts`; these are gated on existence instead. Optional for the same
+     *  reason: every call site degrades to "cannot", and jsdom has no bridge at all. */
     files?: {
       /** Size and mtime, or null when nothing is there — how a preview learns to say the file is
        *  gone rather than drawing actions that would each fail in turn. */
@@ -181,15 +181,15 @@ interface Window {
       probe(): Promise<TccRow[]>;
       openSettings(pane: string): Promise<void>;
     };
-    /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` runs `mac doctor`,
-     *  which never prompts; `grant` deliberately DOES — it runs the one read-only command that
-     *  raises that capability's macOS dialog, so it stays pending while the dialog is up. */
     /** Settings ▸ Lab (main/lab-host.ts). */
     lab?: {
       loginItem(): Promise<{ openAtLogin: boolean | null; canSet: boolean }>;
       setLoginItem(on: boolean): Promise<{ openAtLogin: boolean | null; canSet: boolean }>;
       openSettings(pane: string): Promise<void>;
     };
+    /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` runs `mac doctor`,
+     *  which never prompts; `grant` deliberately DOES — it runs the one read-only command that
+     *  raises that capability's macOS dialog, so it stays pending while the dialog is up. */
     macAccess: {
       status(): Promise<MacAccessStatus>;
       grant(id: string): Promise<MacAccessStatus>;
@@ -226,8 +226,8 @@ interface Window {
       badge(count: number): Promise<void>;
       onActivate(cb: (id: string) => void): () => void;
     };
-    /** Settings → Sign-ins. One-way by construction: `add` takes a value, nothing gives one back. */
-    /** Every door names the PROFILE whose sign-ins it is: they are a profile's own (Plan 27 Phase 2). */
+    /** Settings → Sign-ins. One-way by construction: `add` takes a value, nothing gives one back.
+     *  Every door names the PROFILE whose sign-ins it is: they are a profile's own (Plan 27 Phase 2). */
     credentials: {
       list(profileId: string): Promise<import("@realm/contracts").BrowserCredential[]>;
       status(): Promise<{ available: boolean; canPromptTouchID: boolean; canPromptDeviceOwner: boolean; presenceTtlMs: number }>;

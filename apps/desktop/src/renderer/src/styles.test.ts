@@ -4363,7 +4363,7 @@ describe("the decorative wash", () => {
   });
 
   it("keeps texture off a --canvas ground, where the contrast budget is zero", () => {
-    // theme/grain.test.ts measures it: the derivation puts --ink-3 at exactly its 2.4 floor on
+    // theme/grain-contrast.test.ts measures it: the derivation puts --ink-3 at exactly its 2.4 floor on
     // --canvas for six light faces, so a luminance excursion there has nothing to spend. `.page` is
     // --canvas, and takes the luminance-neutral colour field alone.
     const textured = RULES.filter((r) => r.body.includes("var(--grain-tex)")).flatMap((r) => r.selectors);
@@ -4389,8 +4389,8 @@ describe("the decorative wash", () => {
 
   it("randomises hue and place, never the lightness the contrast proof rests on", () => {
     // --grain-wash-l/-c are pinned per mode in tokens.css because they are what keeps the field off
-    // the luminance axis. If either became an inline value, grain.test.ts would still pass and the
-    // guarantee would be gone.
+    // the luminance axis. If either became an inline value, grain-contrast.test.ts would still pass
+    // and the guarantee would be gone.
     for (const name of ["--grain-wash-l", "--grain-wash-c", "--grain-wash-a", "--grain-lift", "--grain-tex"]) {
       expect(tokensCss, name).toContain(`${name}:`);
       expect(css, name).not.toMatch(new RegExp(`${name}\\s*:`));
