@@ -1292,6 +1292,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Children named before they were named by their task wear "Agent: <first line>"; renamed once,
   // here, wherever that string is still exactly what both rows say.
   agentRuns.retitleLegacyChildren();
+  agentRuns.settleCutOffChildren();
   browserAgents.retitleLegacyChildren();
   // The reviewer recipe (W3): same engine, read-only cap, review-origin children. `otherDelegation`
   // fans across BOTH sibling registries — no delegated child of any kind may mint a reviewer.

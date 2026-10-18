@@ -812,6 +812,17 @@ describe("agent_start / agent_wait — several agents at once", () => {
     expect(text(app.agentRuns.status({ sessionId: parentId, spaceId }))).toContain(detached);
   }, 40_000);
 
+  it("a child cut off by a restart reads as stopped after it, not as done", async () => {
+    // Runs live in the engine's memory, so a restart ended this one without writing how — and a child
+    // with no outcome that had said anything reads as finished on the lead's Agents tab.
+    const { home, spaceId, parentId } = await boot({ script: longScript(60), delayMs: 60 });
+    const child = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "a long one" })));
+    await waitFor(() => app.sessions.events(child, 0, 500).some((e) => e.event.type === "assistant_text"));
+    await app.close();
+    app = await createApp({ home, port: 0, adapters: { fake: new CaptureFake({ script: [] }) } });
+    expect(app.agentRuns.record(child)).toMatchObject({ outcome: "stopped" });
+  }, 20_000);
+
   it("a detached child is invisible to hasRun — the parent is free to browse and to be asked", async () => {
     // Detached means "not blocked". Counting it as blocked would make agent_start strictly worse than
     // agent_run: fire one and the parent loses the browser agent and peer questions for its duration.
