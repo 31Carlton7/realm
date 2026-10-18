@@ -30,19 +30,21 @@ function repoFile(rel: string): string {
 }
 const css = readFileSync(repoFile("apps/desktop/src/renderer/src/styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const RULES = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ selector: m[1]!.replace(/\s+/g, " ").trim(), body: m[2]!.replace(/\s+/g, " ").trim() }));
-const ruleWhere = (starts: string, value: "none" | "text") => {
-  const rule = RULES.find((r) => r.selector.startsWith(starts) && r.body.includes(`user-select: ${value}`));
-  if (!rule) throw new Error(`no \`${starts}\` rule sets user-select: ${value}`);
+const ruleWhere = (names: (selector: string) => boolean, value: "none" | "text", what: string) => {
+  const rule = RULES.find((r) => names(r.selector) && r.body.includes(`user-select: ${value}`));
+  if (!rule) throw new Error(`no rule for ${what} sets user-select: ${value}`);
   return rule.selector;
 };
+const startsWith = (head: string) => (selector: string) => selector.startsWith(head);
 
-const SHELL = ruleWhere("body", "none");
-const CONTENT = ruleWhere(".md,", "text");
-const CONTROLS = ruleWhere(':is(button, [role="button"]', "none");
-const FIELDS = ruleWhere(":is(input", "text");
+const SHELL = ruleWhere((s) => s === "body", "none", "the window");
+// Found by the opt-in it offers, so a name dropped from its list fails below on the markup it named.
+const CONTENT = ruleWhere((s) => s.split(", ").includes("[data-selectable]"), "text", "content");
+const CONTROLS = ruleWhere(startsWith(':is(button, [role="button"]'), "none", "controls");
+const FIELDS = ruleWhere(startsWith(":is(input"), "text", "fields");
 /* Code, except inside a control. nwsapi cannot parse a combinator inside `:not()`, so the rule's two
    halves are read apart and the exception is asked of the ancestors instead. */
-const [, CODE, CODE_EXCEPT] = /^(:is\([^)]*\)):not\((:is\([^)]*\)) \*\)$/.exec(ruleWhere(":is(code, pre)", "text")) ?? [];
+const [, CODE, CODE_EXCEPT] = /^(:is\([^)]*\)):not\((:is\([^)]*\)) \*\)$/.exec(ruleWhere(startsWith(":is(code, pre)"), "text", "code")) ?? [];
 const isCode = (n: Element) => n.matches(CODE!) && !n.parentElement?.closest(CODE_EXCEPT!);
 
 /** user-select's used value for `el`, from the five rules above. */
