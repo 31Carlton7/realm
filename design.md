@@ -238,15 +238,16 @@ Rules:
 - A group of settings is a card in Codex's grammar: a step ABOVE the ground it stands on, its rows
   divided by hairlines inset from both ends (Codex, measured: page 41, card 47; its file tiles go
   further, 16 levels up, because a tile is an object you pick up and a card is a group you read). It
-  is not a well. The step is the card's boundary, and its rim only softens that edge: Codex rings its
-  card a rung lighter than both sides (rim 57), and Realm's rim did the same until it measured brighter
-  over the card than the card stood over the ground — an outline round every card, which the owner
-  called a border fighting the card (10-18). A rim adds less than the fill does; a divider between a
-  card's rows, and the edge of a field written on one, is a line and keeps the line's weight. The rows were `--rl-frame`,
-  a shade BELOW the page, and a group of controls that reads as a hole in the page reads as nothing
-  in particular. The fill is an overlay rather than a colour, because the ground under a page is the
-  pane's translucent canvas and the card has to lift whatever that came to. The rim runs round the
-  run of rows, not round each one: a row under another hands its top edge to the divider.
+  is not a well. The rows were `--rl-frame`, a shade BELOW the page, and a group of controls that
+  reads as a hole in the page reads as nothing in particular. The fill is an overlay rather than a
+  colour, because the ground under a page is the pane's translucent canvas and the card has to lift
+  whatever that came to. The rim runs round the run of rows, not round each one: a row under another
+  hands its top edge to the divider.
+- The step is a card's boundary, and its rim only softens that edge. Codex rings its card a rung
+  lighter than both sides (rim 57), and Realm's rim did the same until it measured brighter over the
+  card than the card stood over the ground — an outline round every card, which the owner called a
+  border fighting the card (10-18). A rim adds less than the fill does; a divider between a card's
+  rows, and the edge of a field written on one, is a line and keeps the line's weight.
 - A hairline with NO change of surface beside it needs its own weight, and its own token. The
   ordinary line is sized for the ordinary case, where a surface step carries most of the boundary
   and the line only sharpens it. Where both sides are the same ground the line is the whole
