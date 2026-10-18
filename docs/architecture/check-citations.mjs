@@ -60,6 +60,8 @@ for (const name of readdirSync(here).filter((f) => f.endsWith(".md")).sort()) {
           lastFile = null;
           continue;
         }
+        if (!mobile && /(^|\/)(dist|out)\//.test(path)) { lastFile = null; continue; } // a build output, not in git
+        if (!mobile && existsSync(join(root, path)) && statSync(join(root, path)).isDirectory()) { lastFile = null; continue; }
         const text = read(path, mobile);
         if (text === null) { problems.push(`${where}  missing file ${path}${mobile ? ` (on ${MOBILE_REF})` : ""}`); lastFile = null; continue; }
         lastFile = { path, text };
