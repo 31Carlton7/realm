@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, streamWindowId } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
-import { GATEWAY_TOOL_TIMEOUT_MS, type StartOptions } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS, RestartRequiredError, type StartOptions } from "../types";
 import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
@@ -42,6 +42,10 @@ type FakeOpts = {
   contextUsage?: { totalTokens: number; maxTokens: number; rawMaxTokens: number };
   /** record the options `getContextUsage` was called with — `detail` is the expensive knob. */
   contextUsageCalls?: unknown[];
+  /** record every mode `setPermissionMode` is asked for */
+  modeSwitches?: string[];
+  /** refuse `setPermissionMode` with this message, the way the CLI answers a mode it will not take */
+  refuseModeWith?: string;
 };
 function fakeQuery(opts: FakeOpts, calls: string[] = []) {
   return ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: Record<string, unknown> }) => {
@@ -82,7 +86,11 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
       if (opts.hang) { for await (const _ of { [Symbol.asyncIterator]: () => it }) { /* drain until input closes */ } }
     })();
     return Object.assign(gen, {
-      interrupt: async () => { calls.push("interrupt"); }, setPermissionMode: async () => {}, setModel: async () => {},
+      interrupt: async () => { calls.push("interrupt"); }, setModel: async () => {},
+      setPermissionMode: async (mode: string) => {
+        opts.modeSwitches?.push(mode);
+        if (opts.refuseModeWith) throw new Error(opts.refuseModeWith);
+      },
       supportedModels: async () => {
         if (!opts.models) throw new Error("control request declined");
         return opts.models;
@@ -162,6 +170,113 @@ describe("Ask — read-only, enforced by the adapter", () => {
     await h.setOptions({ permissionMode: "ask" });
     const c = collectUntil(h.events, () => false);
     await h.send({ text: "hi", attachments: [] }); await h.dispose(); const got = await c;
+    expect(types(got)).not.toContain("permission_request");
+  });
+});
+
+/**
+ * Full access picked on a session that is already running. The CLI's own words when it refuses —
+ * copied from 2.1.281, the build the SDK carries — are what these fakes answer with, because the
+ * adapter tells the refusals apart by them.
+ */
+describe("Full access mid-session", () => {
+  const NOT_LAUNCHED = "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions";
+  const DISABLED = "Cannot set permission mode to bypassPermissions because it is disabled by settings or configuration";
+  const optionsFor = async (opts: Partial<StartOptions>) => {
+    const captureOptions: Record<string, unknown>[] = [];
+    const h = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never }).start({ cwd: "/tmp", mcpServers: [], ...opts });
+    await h.send({ text: "hi", attachments: [] });
+    await h.dispose();
+    return captureOptions[0]!;
+  };
+  /** `getuid` is optional on `process` (Windows has none), so the spy goes through a type that has it. */
+  const asRoot = async (body: () => Promise<void>) => {
+    const uid = vi.spyOn(process as { getuid(): number }, "getuid").mockReturnValue(0);
+    try { await body(); } finally { uid.mockRestore(); }
+  };
+
+  it("launches and resumes every session able to switch, and still in the mode it asked for", async () => {
+    // The named mutant: dropping `allowDangerouslySkipPermissions`, after which the CLI takes Full
+    // access only in a session that STARTED in it — the error the owner hit. The mode beside it is
+    // unchanged, because the flag makes the switch possible and does nothing else.
+    for (const [mode, sdk] of [["default", "default"], ["acceptEdits", "acceptEdits"], ["plan", "plan"], ["ask", "default"], [undefined, "default"]] as const) {
+      for (const resume of [null, "sess-1"]) {
+        expect(await optionsFor({ permissionMode: mode, resume }), `${mode} resume=${resume}`).toMatchObject({ allowDangerouslySkipPermissions: true, permissionMode: sdk });
+      }
+    }
+  });
+
+  it("leaves the flag off as root, where the CLI would refuse to start at all — unless the root is a sandbox's", async () => {
+    await asRoot(async () => {
+      expect((await optionsFor({ permissionMode: "default" })).allowDangerouslySkipPermissions).toBe(false);
+      expect((await optionsFor({ permissionMode: "default", env: { IS_SANDBOX: "1" } })).allowDangerouslySkipPermissions).toBe(true);
+    });
+  });
+
+  it("switches a running session, and Realm's own gate moves with it", async () => {
+    const modeSwitches: string[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Edit", modeSwitches }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "ask" });
+    await h.setOptions({ permissionMode: "bypassPermissions" });
+    expect(modeSwitches).toEqual(["bypassPermissions"]);
+    // Out of Ask: an edit is a call the CLI decides again, not one Realm refuses before it runs.
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    expect(types(got)).toContain("permission_request");
+  });
+
+  it("asks for a fresh start when the CLI takes Full access only from launch", async () => {
+    // The named mutant: no fallback, so the CLI's sentence reaches the person as the error.
+    const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, refuseModeWith: NOT_LAUNCHED }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+    await expect(h.setOptions({ permissionMode: "bypassPermissions" })).rejects.toBeInstanceOf(RestartRequiredError);
+    await h.dispose();
+  });
+
+  it("says in Realm's words when Claude Code refuses Full access outright, and keeps the mode the CLI still runs", async () => {
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Edit", refuseModeWith: DISABLED }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "ask" });
+    const refused = await h.setOptions({ permissionMode: "bypassPermissions" }).then(() => null, (e: Error) => e);
+    expect(refused).not.toBeInstanceOf(RestartRequiredError);
+    expect(refused?.message).toBe("Full access is turned off in Claude Code's settings (permissions.disableBypassPermissionsMode). The session keeps its current mode.");
+    // The mutant: Realm's record left on Full access. The CLI never moved off `default`, so an edit
+    // would raise a card where Ask refuses it before it runs.
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle",
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "deny"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    expect(types(got)).not.toContain("permission_request");
+  });
+
+  it("as root, does not send for a restart that could only fail to boot", async () => {
+    // Launched without the flag, the CLI answers NOT_LAUNCHED — but launching it in Full access as
+    // root is the boot it refuses, so a restart would end the session rather than switch it.
+    await asRoot(async () => {
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, refuseModeWith: NOT_LAUNCHED }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+      const refused = await h.setOptions({ permissionMode: "bypassPermissions" }).then(() => null, (e: Error) => e);
+      expect(refused).not.toBeInstanceOf(RestartRequiredError);
+      expect(refused?.message).toBe("Claude Code doesn't allow Full access while Realm runs as root. The session keeps its current mode.");
+      await h.dispose();
+    });
+  });
+
+  it("passes any other mode's failure through untouched", async () => {
+    const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, refuseModeWith: "Query closed" }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+    await expect(h.setOptions({ permissionMode: "acceptEdits" })).rejects.toThrow(/^Query closed$/);
+    await h.dispose();
+  });
+
+  it("holds Ask even when the CLI's own switch fails, rather than putting the old mode back", async () => {
+    // Ask is enforced here and nowhere else, so a failed switch INTO it fails closed. The mutant:
+    // restoring the record for every mode, which would reopen the gate the person just shut.
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Edit", refuseModeWith: "Query closed" }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "default" });
+    await expect(h.setOptions({ permissionMode: "ask" })).rejects.toThrow(/^Query closed$/);
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle",
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "deny"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
     expect(types(got)).not.toContain("permission_request");
   });
 });
