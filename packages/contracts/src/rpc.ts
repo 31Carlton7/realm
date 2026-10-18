@@ -27,7 +27,7 @@ import {
   GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
   PR_PATCHES_PER_CALL, ReviewInstructionsSchema, ReviewerPickSchema, SubmitReviewSchema, SubmittedReviewSchema,
 } from "./code-review";
-import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
+import { AddTeammateSchema, DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema, SubagentIdSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
@@ -1855,7 +1855,15 @@ export const Methods = {
   /** Every session this one delegated to — its sub-agents, settled ones included, in the order they
    *  were started. A read of tables, not of the engine: it answers for runs the registry has already
    *  let go, and after a relaunch. */
-  "delegation.children": { params: z.object({ sessionId: IdSchema }), result: z.object({ children: z.array(DelegatedChildSchema) }) },
+  "delegation.children": { params: z.object({ sessionId: IdSchema }), result: z.object({ children: z.array(DelegatedChildSchema),
+    /** The ones the person took off the prompter's row of agents (`delegation.dismiss`). */
+    dismissed: z.array(SubagentIdSchema).default([]) }) },
+  /** Add a teammate from the prompter's "+": started as this session's sub-agent through `agent_start`'s
+   *  own path, and the session's agent told about it on its next message. */
+  "delegation.addTeammate": { params: AddTeammateSchema, result: z.object({ childId: IdSchema }) },
+  /** Take one of a session's sub-agents off its prompter's row. It keeps running if it was, and stays in
+   *  the Agents tab; the row is the only thing that forgets it. */
+  "delegation.dismiss": { params: z.object({ sessionId: IdSchema, id: SubagentIdSchema }), result: z.object({ dismissed: z.array(SubagentIdSchema) }) },
   /** What the Agents tab's composer offers: the models a sub-agent can be put on, and what this
    *  session itself runs — the one choice that needs no name at all. */
   "delegation.models": { params: z.object({ sessionId: IdSchema }), result: z.object({

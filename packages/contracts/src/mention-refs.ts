@@ -48,6 +48,11 @@ export const MentionRefSchema = z.discriminatedUnion("kind", [
    *  either is dropped first. */
   z.object({ kind: z.literal("role"), label: LabelSchema, roleId: z.string().min(1).max(40),
     childId: z.string().min(1).max(40).optional(), refused: z.string().min(1).max(400).optional() }),
+  /** One of this session's own sub-agents, by its session id: a teammate the person added, or one the
+   *  session's agent started. Sending passes the message to it as well; the server writes `delivered`
+   *  or `refused` (why it could not) — whatever a client sent in either is dropped first. */
+  z.object({ kind: z.literal("agent"), label: LabelSchema, sessionId: z.string().min(1).max(40),
+    delivered: z.literal(true).optional(), refused: z.string().min(1).max(400).optional() }),
 ]);
 export type MentionRef = z.infer<typeof MentionRefSchema>;
 /** A ref before the draft has given it a label — each kind's own fields, minus the one the store picks. */
@@ -205,6 +210,13 @@ export function mentionRefContext(refs: readonly MentionRef[], opts: {
       ? `Realm started ${r.label} as your sub-agent on this message (handle ${r.childId}); it works from its own brief`
       : `not started: ${r.refused ?? "Realm could not start it"}`}`).join("\n")}\n`;
     if (roles.some((r) => r.childId)) out += "Do not start them again. Collect their reports with agent_wait (agent_status lists them), then answer the user.\n";
+  }
+  const agents = refs.filter((r): r is Extract<MentionRef, { kind: "agent" }> => r.kind === "agent");
+  if (agents.length > 0) {
+    out += `\n\nYour sub-agents the user addressed, one per chip above:\n${agents.map((r) => `  ${elementChipToken(r.label)} — ${r.delivered
+      ? `Realm passed this message to ${r.label} (handle ${r.sessionId}); it reads it once its current turn ends`
+      : `not passed on: ${r.refused ?? "Realm could not reach it"}`}`).join("\n")}\n`;
+    if (agents.some((r) => r.delivered)) out += "What the user asked of them is theirs to answer, in their own sessions: do not redo it. agent_status lists your sub-agents.\n";
   }
   return out;
 }

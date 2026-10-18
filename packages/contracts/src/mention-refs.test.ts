@@ -76,6 +76,18 @@ describe("what the agent is told", () => {
     expect(mentionRefContext(refs, {})).not.toContain("`mac messages`");
   });
 
+  it("tells the lead which of its sub-agents a message was passed to, by handle, and which it was not", () => {
+    const ctx = mentionRefContext([
+      { kind: "agent", label: "Write the tests", sessionId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", delivered: true },
+      { kind: "agent", label: "Old one", sessionId: "01ARZ3NDEKTSV4RRFFQ69G5FAW", refused: "it is not one of this session's sub-agents" },
+    ]);
+    expect(ctx).toContain("@[Write the tests] — Realm passed this message to Write the tests (handle 01ARZ3NDEKTSV4RRFFQ69G5FAV)");
+    expect(ctx).toContain("@[Old one] — not passed on: it is not one of this session's sub-agents");
+    expect(ctx).toMatch(/do not redo it/);
+    // Nothing was passed on, so there is nothing to leave alone.
+    expect(mentionRefContext([{ kind: "agent", label: "X", sessionId: "s", refused: "gone" }])).not.toMatch(/do not redo it/);
+  });
+
   it("hands @mac over by its instructions when it could not be invoked natively", () => {
     expect(macSkillContext("/h/skills/mac/SKILL.md")).toMatch(/Read its instructions at \/h\/skills\/mac\/SKILL\.md first/);
     expect(macSkillContext("/h/skills/mac/SKILL.md")).not.toContain("@"); // the wire carries no @name, not even Realm's
@@ -93,6 +105,10 @@ describe("the wire", () => {
     expect(MentionRefSchema.safeParse({ kind: "library", label: "r.pdf", path: "\\\\nas\\h\\r.pdf" }).success).toBe(true);
     expect(MentionRefSchema.safeParse(file("a.ts", "src\\a.ts")).success).toBe(false);
     expect(MentionRefSchema.safeParse({ ...app("Mail", "com.apple.mail"), bundleId: "com.apple.mail; rm -rf" }).success).toBe(false);
+    // A sub-agent is named by its session id; `delivered` is only ever the server's `true`.
+    expect(MentionRefSchema.safeParse({ kind: "agent", label: "Tests", sessionId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }).success).toBe(true);
+    expect(MentionRefSchema.safeParse({ kind: "agent", label: "Tests", sessionId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", delivered: false }).success).toBe(false);
+    expect(MentionRefSchema.safeParse({ kind: "agent", label: "Tests", sessionId: "" }).success).toBe(false);
   });
 
   it("bounds how many a message may carry, and keeps them on the transcript's user_message", () => {
