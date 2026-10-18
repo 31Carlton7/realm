@@ -3325,7 +3325,13 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .palette-hint kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-hint { font-size: 11px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.palette-hint { font-size: 11px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums;
+  min-width: 0; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Another space's item: the space's name is the part that gives way, so a long one never takes the
+   row from the item's own title, which is what the search was for. The age keeps its width. */
+.palette-hint-where { display: flex; gap: .3em; min-width: 0; }
+.palette-hint-space { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.palette-hint-where > :last-child { flex: none; }
 /* Deep-search snippets (Plan 16 W2): one clipped line; matches brighten, they do not highlight —
    a row is a glance, and a yellow smear would out-shout the label. */
 .palette-snippet { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
