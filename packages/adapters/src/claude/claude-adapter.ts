@@ -698,8 +698,9 @@ export class ClaudeAdapter implements AgentAdapter {
         // ERROR result carrying its own diagnostic (`[ede_diagnostic] result_type=user …`), which is
         // true of the API call and useless to the person who pressed the button: they know why it
         // stopped. The flag is what lets the result branch tell "you cancelled this" apart from
-        // "this failed", which nothing in the message itself can.
-        interrupted = true;
+        // "this failed", which nothing in the message itself can. Only while a turn runs: an idle CLI
+        // produces no result to clear it, and the next turn would settle as stopped.
+        if (running) interrupted = true;
         denyAllPending();
         try { await q?.interrupt(); } catch { /* process may already be gone; result/ended will report */ }
       },
