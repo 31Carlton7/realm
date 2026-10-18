@@ -8173,6 +8173,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           set({ checkpointAckStale: true });
           return;
         }
+        // The session the server rewinds is the checkpoint's own, whatever the sheet was opened for.
+        const checkpointSession = [...Object.values(get().checkpoints), ...Object.values(get().envCheckpoints)].flat().find((c) => c.id === id)?.sessionId ?? null;
         const result = await api.restoreCheckpoint(id, { filesChanged: fresh.filesChanged, commitsRolledBack: fresh.commitsRolledBack });
         set({ checkpointPreview: null, checkpointAckStale: false, restoreResult: result });
         // The tree was rewritten and a `pre-restore` checkpoint now exists: both views are stale.
@@ -8185,11 +8187,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
            forward from `lastSeq` — and after a truncation that mark is ahead of the server, so an
            incremental fetch returns nothing and the undone turns stay on screen looking like the
            restore did not work. Clearing it first makes the reopen re-derive from seq 0. */
-        if (result.conversationRewound && sessionId) {
-          const { [sessionId]: _dropped, ...rest } = get().transcripts;
-          const { [sessionId]: _mark, ...marks } = get().newSinceSeq;
+        const rewound = checkpointSession ?? sessionId;
+        if (result.conversationRewound && rewound) {
+          const { [rewound]: _dropped, ...rest } = get().transcripts;
+          const { [rewound]: _mark, ...marks } = get().newSinceSeq;
           set({ transcripts: rest, newSinceSeq: marks });
-          await get().openSession(sessionId);
+          await get().openSession(rewound);
         }
       },
       async refreshMcpServers(spaceId) {

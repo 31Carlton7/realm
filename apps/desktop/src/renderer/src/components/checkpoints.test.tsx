@@ -255,6 +255,17 @@ describe("a rewound restore repairs the transcript this window is holding", () =
     expect(api.calls).not.toContain("sessionEvents:se1:99");
   });
 
+  it("repairs the checkpoint's own session when the sheet was opened for the whole checkout", async () => {
+    // The Diff pane's History and the space page open the sheet with no session; the server rewinds
+    // the session that took the checkpoint either way.
+    const { store, api } = await open({ ...withSession(true), sessionId: null,
+      checkpoints: [checkpoint("cp1", "env1", { label: "Add the login form", sessionId: "se1" })] });
+    holdTranscript(store);
+    await store.getState().askRestoreCheckpoint("cp1");
+    await store.getState().confirmRestoreCheckpoint("cp1");
+    expect(api.calls).toContain("sessionEventsBefore:se1:end");
+  });
+
   it("leaves the transcript alone when only the files were restored", async () => {
     const { store, api } = await open(withSession(false));
     holdTranscript(store);
