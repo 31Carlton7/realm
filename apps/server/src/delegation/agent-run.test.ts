@@ -785,6 +785,22 @@ describe("agent_start / agent_wait — several agents at once", () => {
     expect(text(collected)).toContain("step 11");
   }, 40_000);
 
+  it("a browser agent finishing does NOT evict a detached sibling's uncollected report", async () => {
+    // The same mutant as above, reached from `browser_agent_run`, which a parent with detached runs is
+    // free to call (next test): its `finally` ending every run the parent has.
+    const { spaceId, parentId } = await boot({ delayMs: 60, script: [
+      ...longScript(12), { on: "You are a delegated browser agent", emit: [{ kind: "text", text: "browsed" }] },
+    ] });
+    const detached = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "detached sibling" })));
+    const browser = await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "browse" });
+    expect(browser.isError).toBe(false);
+
+    expect(text(app.agentRuns.status({ sessionId: parentId, spaceId }))).toContain(detached);
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [detached], timeoutMs: 30_000 });
+    expect(collected.isError).toBe(false);
+    expect(text(collected)).toContain("step 11");
+  }, 40_000);
+
   it("a detached child is invisible to hasRun — the parent is free to browse and to be asked", async () => {
     // Detached means "not blocked". Counting it as blocked would make agent_start strictly worse than
     // agent_run: fire one and the parent loses the browser agent and peer questions for its duration.

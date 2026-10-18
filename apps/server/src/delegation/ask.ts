@@ -206,7 +206,7 @@ export class AskService {
       }
     } finally {
       this.pending.delete(requestId);
-      this.d.engine.end(ctx.sessionId);
+      this.d.engine.end(ctx.sessionId, run);
     }
   }
 

@@ -228,7 +228,7 @@ export class ReviewService {
         this.d.rpc.broadcast("session.agentSettled", { spaceId: env.spaceId, sessionId: childId, itemId: created.itemId, outcome: s.outcome });
         return s;
       } finally {
-        this.d.engine.end(runKey);
+        this.d.engine.end(runKey, run);
         if (this.active.get(environmentId) === childId) this.active.delete(environmentId);
       }
     })();

@@ -294,7 +294,7 @@ export class BrowserAgentService {
           return err(`Browser agent session was deleted before it finished.`);
       }
     } finally {
-      this.d.engine.end(ctx.sessionId);
+      this.d.engine.end(ctx.sessionId, run);
     }
   }
 }
