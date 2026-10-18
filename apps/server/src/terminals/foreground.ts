@@ -89,10 +89,6 @@ export class ForegroundWatcher {
     t.settle = (this.d.setTimeout ?? setTimeout)(() => { t.settle = null; void this.look(terminalId); }, FOREGROUND_SETTLE_MS);
   }
 
-  program(terminalId: string): TerminalProgram | null {
-    return this.tracked.get(terminalId)?.program ?? null;
-  }
-
   /** Every terminal running something other than its shell. */
   programs(): Record<string, TerminalProgram> {
     const out: Record<string, TerminalProgram> = {};

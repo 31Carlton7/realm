@@ -69,13 +69,6 @@ export class NotificationRelay {
     return { imessage: str(NOTIFICATIONS_IMESSAGE_KEY), slack: str(NOTIFICATIONS_SLACK_WEBHOOK_KEY) };
   }
 
-  /** Whether `send` would do anything for this category — the service's cheap pre-check. */
-  relays(category: NotificationCategory): boolean {
-    if (!RELAYED_CATEGORIES.includes(category)) return false;
-    const t = this.targets();
-    return t.imessage !== "" || t.slack !== "";
-  }
-
   send(n: { category: NotificationCategory; title: string; body: string | null; spaceName?: string | null }): void {
     if (!RELAYED_CATEGORIES.includes(n.category)) return;
     const t = this.targets();

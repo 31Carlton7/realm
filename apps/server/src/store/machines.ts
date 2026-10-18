@@ -106,11 +106,6 @@ export class MachinesStore {
     this.db.prepare("UPDATE machines SET ws_port = ? WHERE id = ?").run(port, id);
   }
 
-  wsPort(id: string): number | null {
-    const r = this.db.prepare("SELECT ws_port FROM machines WHERE id = ?").get(id) as { ws_port: number | null } | undefined;
-    return r?.ws_port ?? null;
-  }
-
   /**
    * Every recorded port, forgotten.
    *

@@ -569,22 +569,6 @@ export class TerminalHub {
     }
   }
 
-  disposeAll() {
-    for (const id of [...this.entries.keys()]) this.dispose(id);
-    this.buffers.clear();
-    this.hasDataIds.clear();
-    this.firstDataListeners.clear();
-    this.cursors.clear();
-    this.catchingUp.clear();
-    this.replayed.clear();
-    this.notRunning.clear();
-    this.stateListeners.clear();
-    this.programs.clear();
-    this.programListeners.clear();
-    this.programsRead = false;
-    this.offPrograms?.(); this.offPrograms = null;
-    this.unsubscribe?.(); this.unsubscribe = null;
-  }
 }
 
 let singleton: TerminalHub | null = null;

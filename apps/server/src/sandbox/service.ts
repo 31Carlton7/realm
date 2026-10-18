@@ -123,11 +123,6 @@ export class ExecutionSandboxService {
     });
   }
 
-  /** One sentence about this space's sandbox, for a session's detail well and for Settings. */
-  describe(spaceId: string): string {
-    return describeExecutionSandbox(this.policyFor(spaceId));
-  }
-
   /**
    * Everything Settings needs about one space, in a single call.
    *
