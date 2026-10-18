@@ -2123,6 +2123,10 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.error(e);
     dialog.showErrorBox("Realm failed to start", e instanceof Error ? e.message : String(e));
+    // Out, rather than into the menu bar: with no server behind it a resident Realm could open nothing,
+    // and only the tray's quit would ever end it.
+    quittingForReal = true;
+    detachOnQuit = true;
     app.quit();
   }
 });
@@ -2252,6 +2256,10 @@ ipcMain.on("window:set-profile", (e, profileId: unknown) => {
 /** True once a gesture that really means "stop everything" has been taken. Read by `before-quit` and
  *  `window-all-closed`, both of which otherwise divert into resident mode. */
 let quittingForReal = false;
+/** Set when Realm exits and leaves the daemon as it is: an update restart (`decideQuit`'s
+ *  "update-restart" — the relaunched app's handoff deals with the daemon it finds) and a launch that
+ *  failed to start. */
+let detachOnQuit = false;
 
 /** The tray's *Quit Realm & stop agents* — the one path that stops the daemon, and the only place in
  *  the app where quitting and stopping the work are the same act. */
@@ -2283,6 +2291,9 @@ function shutdownForQuit() {
  * *Quit Realm & stop agents* — lets a quit through to `shutdownForQuit`.
  */
 app.on("before-quit", (e) => {
+  // `quitAndInstall` calls `app.quit()` once its windows are closed, so an update restart arrives here
+  // too, after `before-quit-for-update` — and must not go on to stop the daemon.
+  if (detachOnQuit) { detachFromDaemon(); return; }
   if (decideQuit({ trigger: "quit", working: 0 }).kind === "go-resident" && !quittingForReal) {
     e.preventDefault();
     for (const w of BrowserWindow.getAllWindows()) w.close();
@@ -2315,4 +2326,4 @@ let askedServerToStop = false;
 // An update restart deliberately does NOT stop the daemon — the opposite of what this hook used to
 // do. Squirrel swaps the bundle and relaunches us, and the launcher's handoff deals with the daemon
 // it finds; killing it here would stop every agent for an update the user may not have noticed.
-electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; detachFromDaemon(); });
+electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; detachOnQuit = true; detachFromDaemon(); });
