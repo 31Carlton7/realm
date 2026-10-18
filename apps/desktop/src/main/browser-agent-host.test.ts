@@ -27,6 +27,8 @@ function setup(opts: {
   loading?: () => boolean;
   /** The page did not load — main's own record of it, as `BrowserPane.pageState` carries it. */
   loadError?: BrowserLoadError;
+  /** The popup windows the page has open, as `BrowserPane.pageState` carries them. */
+  popups?: string[];
   now?: () => number;
   screenshotTimeoutMs?: number;
   /** Run while the page is being captured — something the page does mid-snapshot. */
@@ -67,6 +69,7 @@ function setup(opts: {
     pageState: (id) => (liveViews.has(id) ? {
       url: "https://example.com/x", title: "Example", ...(opts.loading ? { loading: opts.loading() } : {}),
       ...(opts.loadError ? { error: opts.loadError } : {}),
+      ...(opts.popups ? { popups: opts.popups } : {}),
     } : null),
     ...(opts.now ? { now: opts.now } : {}),
     ...(opts.screenshotTimeoutMs !== undefined ? { screenshotTimeoutMs: opts.screenshotTimeoutMs } : {}),
@@ -876,6 +879,23 @@ describe("file-chooser interception", () => {
     const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
     expect(snap.text).toContain("a file chooser is open on this page");
     expect(snap.text).toContain("no macOS panel is on screen");
+  });
+
+  it("a popup the page opened is named in the snapshot, by origin, as the person's to finish", async () => {
+    // A popup is its own window, so the page's tree cannot show it, and the page waits on it. The
+    // mutant that drops the note leaves an agent snapshotting a page that will not move.
+    const { host } = setup({ popups: ["https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=page-written", "about:blank"] });
+    const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+    expect(snap.text).toContain("popup window open over it, on https://accounts.google.com and a blank page");
+    expect(snap.text).toContain("for the person to do");
+    expect(snap.text).not.toContain("page-written"); // the path is the page's to write; the note is Realm's
+  });
+
+  it("a snapshot with no popup open says nothing about one", async () => {
+    // The mutant that writes the note whenever the list exists, empty or not.
+    const { host } = setup({ popups: [] });
+    const snap = (await host.handleOp("snapshot", { browserId: "b1" })) as { text: string };
+    expect(snap.text).not.toContain("popup");
   });
 
   it("a snapshot with nothing pending says nothing about choosers", async () => {

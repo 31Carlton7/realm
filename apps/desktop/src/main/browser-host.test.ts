@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  BrowserPaneHost, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl,
-  isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, zoomPercent,
+  BrowserPaneHost, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl,
+  isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, popupBounds, popupTitle, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, windowOpenAction, zoomPercent,
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type ViewHooks,
 } from "./browser-host";
@@ -76,6 +76,92 @@ describe("originAllowed", () => {
   });
 });
 
+describe("windowOpenAction", () => {
+  /* The owner's bug: "Sign in with Google" opened the provider's page IN the pane, replacing the page
+     waiting for its answer, so the account pick posted to no opener and stopped on a blank screen. */
+  it("a window.open with features is a popup — the sign-in shape every SDK uses", () => {
+    // Chromium reports `window.open(url, "auth", "width=500,height=600")` as a new window. The mutant
+    // that drops that clause sends every sign-in back into the pane.
+    expect(windowOpenAction({ url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x", disposition: "new-window" }, 0)).toBe("popup");
+  });
+
+  it("a link to a new tab stays in place, as it always has — a target=_blank link keeps no opener", () => {
+    // The mutant that makes everything a window turns every target=_blank link into a popup.
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "foreground-tab" }, 0)).toBe("in-place");
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "background-tab" }, 0)).toBe("in-place"); // ⌘-click
+    expect(windowOpenAction({ url: "https://example.com/docs", disposition: "other" }, 0)).toBe("in-place");
+  });
+
+  it("an empty window is a popup whatever its disposition: the page means to script it, and the pane must not go blank", () => {
+    // `window.open()` arrives as a foreground tab on about:blank. In place, it navigated the pane to a
+    // blank page — the mutant that drops the clause brings that back.
+    expect(windowOpenAction({ url: "about:blank", disposition: "foreground-tab" }, 0)).toBe("popup");
+    expect(windowOpenAction({ url: "", disposition: "foreground-tab" }, 0)).toBe("popup");
+  });
+
+  it("refuses a popup past the limit — Electron has no popup blocker — and still lets links through", () => {
+    const signIn = { url: "https://accounts.google.com/", disposition: "new-window" };
+    expect(windowOpenAction(signIn, POPUP_LIMIT - 1)).toBe("popup");
+    expect(windowOpenAction(signIn, POPUP_LIMIT)).toBe("refuse"); // the `<=` mutant opens one more
+    expect(windowOpenAction({ url: "about:blank", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("refuse");
+    expect(windowOpenAction({ url: "https://example.com/", disposition: "foreground-tab" }, POPUP_LIMIT)).toBe("in-place");
+  });
+});
+
+describe("popupBounds", () => {
+  /** A Realm window on a laptop display, below the menu bar. */
+  const realm = { x: 100, y: 60, width: 1400, height: 900 };
+  const workArea = { x: 0, y: 25, width: 1728, height: 1092 };
+
+  it("opens at the size the page asked for, centred over the Realm window", () => {
+    // The mutant that ignores the features opens Google's 500×600 picker at 800×600.
+    expect(popupBounds("width=500,height=600", realm, workArea)).toEqual({ x: 550, y: 210, width: 500, height: 600 });
+  });
+
+  it("goes where the page put it, when it said", () => {
+    // Sites centre their popup on their own window with left/top; the mutant that drops them re-centres.
+    expect(popupBounds("width=500,height=600,left=300,top=120", realm, workArea)).toEqual({ x: 300, y: 120, width: 500, height: 600 });
+    expect(popupBounds("width=500,height=600,screenX=310,screenY=130", realm, workArea)).toEqual({ x: 310, y: 130, width: 500, height: 600 });
+  });
+
+  it("reads features the way pages write them: spaced, any case, innerWidth for width", () => {
+    expect(popupBounds("popup, innerWidth = 450, HEIGHT=550", realm, workArea)).toMatchObject({ width: 450, height: 550 });
+  });
+
+  it("a page that names no size gets Electron's default, centred", () => {
+    expect(popupBounds("", realm, workArea)).toEqual({ x: 400, y: 210, width: 800, height: 600 });
+    expect(popupBounds("width=wide", realm, workArea)).toMatchObject({ width: 800 });
+  });
+
+  it("stays on the Realm window's display, whole, and no smaller than Chromium allows", () => {
+    // The mutant without the clamp opens it off screen, or larger than the screen it is on.
+    expect(popupBounds("width=500,height=600,left=-900,top=5000", realm, workArea)).toEqual({ x: 0, y: 517, width: 500, height: 600 });
+    expect(popupBounds("width=5000,height=5000", realm, workArea)).toEqual({ x: 0, y: 25, width: 1728, height: 1092 });
+    expect(popupBounds("width=10,height=0", realm, workArea)).toMatchObject({ width: 100, height: 100 });
+  });
+});
+
+describe("popupTitle", () => {
+  it("puts the site first, then what the page calls itself", () => {
+    expect(popupTitle("https://accounts.google.com/v3/signin/identifier?x=1", "Sign in - Google Accounts")).toBe("accounts.google.com — Sign in - Google Accounts");
+  });
+
+  it("a page cannot push its host out of the title bar by naming another", () => {
+    // The mutant that puts the page's title first lets a lookalike read as the real sign-in.
+    expect(popupTitle("https://evil.example/login", "accounts.google.com")).toBe("evil.example — accounts.google.com");
+  });
+
+  it("drops a title that is only the page's own address, and keeps the port", () => {
+    expect(popupTitle("http://127.0.0.1:18803/auth", "127.0.0.1:18803/auth")).toBe("127.0.0.1:18803");
+    expect(popupTitle("https://example.com/", "")).toBe("example.com");
+  });
+
+  it("a blank page has no site to name", () => {
+    expect(popupTitle("about:blank", "")).toBe("");
+    expect(popupTitle("about:blank", "Loading…")).toBe("Loading…");
+  });
+});
+
 describe("toViewBounds", () => {
   it("scales by the zoom factor (dpr / scaleFactor) and insets to the grid", () => {
     // App zoomed to 150% on a 2x display: dpr = 3, scale = 2. The box is x 150 → 451.5, y 75 → 223.5.
@@ -97,7 +183,7 @@ const P = "persist:browser";
 function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
     entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1, favicon: null as string | null,
-    error: null as BrowserLoadError | null, ready: false };
+    error: null as BrowserLoadError | null, ready: false, popups: [] as string[] };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
@@ -116,6 +202,7 @@ function fakeView() {
     getZoomFactor: () => nav.zoom,
     setZoomFactor: (f) => { calls.push(`zoom:${f}`); nav.zoom = f; },
     print: () => calls.push("print"),
+    popups: () => nav.popups,
     destroy: () => calls.push("destroy"),
   };
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
@@ -243,6 +330,15 @@ describe("BrowserPaneHost", () => {
     expect(views.get("b1")!.calls).toContain("load:https://example.com/popup");
     hooks.openInPlace("https://evil.com/popup");
     expect(views.get("b1")!.calls).not.toContain("load:https://evil.com/popup");
+  });
+
+  it("says which popups a view's page has open, and none for a view it does not have", () => {
+    // What an agent's snapshot is told (browser-agent-host.ts). The mutant answering [] hides them.
+    const { host, views } = makeHost();
+    host.create("b1", "example.com", null, P);
+    views.get("b1")!.nav.popups = ["https://accounts.google.com/o/oauth2/v2/auth"];
+    expect(host.popupsOf("b1")).toEqual(["https://accounts.google.com/o/oauth2/v2/auth"]);
+    expect(host.popupsOf("nope")).toEqual([]);
   });
 
   it("setBounds converts css px → DIP with the renderer's dpr and applies visibility", () => {

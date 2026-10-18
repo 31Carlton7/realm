@@ -89,8 +89,9 @@ export type BrowserAgentHostDeps = {
   /** BrowserPaneHost.navigate — the SAME normalization + allowlist every other navigation obeys. */
   navigate(browserId: string, url: string): string | null;
   /** Trustworthy page identity (webContents.getURL/getTitle — never page-authored text), whether
-   *  the page is still loading (`isLoading()`, the pane's own spinner), and why it did not load. */
-  pageState(browserId: string): { url: string; title: string; loading?: boolean; error?: BrowserLoadError | null } | null;
+   *  the page is still loading (`isLoading()`, the pane's own spinner), why it did not load, and the
+   *  addresses of the popup windows it has open (a sign-in, mostly). */
+  pageState(browserId: string): { url: string; title: string; loading?: boolean; error?: BrowserLoadError | null; popups?: string[] } | null;
   /** The clock a page's network quiet is measured on. A test seam; `Date.now` otherwise. */
   now?: () => number;
   /** How long a screenshot waits for the page to paint. A test seam; `SCREENSHOT_TIMEOUT_MS` otherwise. */
@@ -531,6 +532,13 @@ export class BrowserAgentHost {
         // where an agent that acted and moved on will actually look.
         if (entry.chooser.pending) {
           wire.text = `${wire.text}\n(a file chooser is open on this page and waiting — Realm intercepted it, so no macOS panel is on screen. browser_upload attaches files to it; browser_dismiss_dialog cancels it.)`;
+        }
+        // A popup is a window of its own, so nothing in this page's tree says it is there — and a page
+        // that opened one is usually doing nothing until it answers. Origins only: a path is the page's
+        // to write, and this note is Realm's.
+        const popups = (this.d.pageState(browserId)?.popups ?? []).map((url) => normalizeOrigin(url) ?? "a blank page");
+        if (popups.length > 0) {
+          wire.text = `${wire.text}\n(this page has a popup window open over it, on ${popups.join(" and ")} — a sign-in, usually. Browser tools reach this page, not the popup, so what happens in it is for the person to do; when it is done it closes itself and this page carries on.)`;
         }
         return wire;
       }
