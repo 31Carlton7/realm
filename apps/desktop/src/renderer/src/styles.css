@@ -5891,14 +5891,18 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    branch. Set a step apart from the branch, which is a fact of another kind. */
 .active-agents { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .composer-overstrip > * + .active-agents { margin-left: 8px; }
-.active-agents .active-agent { max-width: 140px; }
+.active-agents .active-agent { max-width: 200px; }
+@container (max-width: 520px) { .active-agents .active-agent { max-width: 140px; } }
+@container (max-width: 460px) { .active-agents .active-agent { max-width: 96px; } }
 .active-agent-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 12px; color: var(--rl-text-faint); }
+/* The sidebar's dot, without its ping (`.item-status::after`): the strip under the transcript already
+   pings for these same agents, and two rings moving for one fact is the sidebar's reason not to. */
+.active-agent-mark .status-dot::after { content: none; }
 .active-agent[data-state="failed"] .active-agent-mark, .active-agent[data-state="timeout"] .active-agent-mark,
 .active-agent-mark[data-state="failed"], .active-agent-mark[data-state="timeout"] { color: var(--rl-danger); }
 /* Needs you is the one state the person has to act on, so its name is a rung brighter. */
 .composer-overstrip .active-agent[data-state="waiting"] { color: var(--rl-text-dim); }
 .active-agents-more { font-variant-numeric: tabular-nums; }
-@container (max-width: 460px) { .active-agents .active-agent { max-width: 96px; } }
 
 /* ── "+ → Add teammate…" ──
    A popover off the "+", in the code review sheet's anatomy at the prompter's scale: a title, the
