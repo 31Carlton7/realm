@@ -5,6 +5,7 @@ import type { DiffFile, DiffSummary, Environment, FileDiff, ShipResult, TurnChan
 import { StoreContext, createAppStore, patchKey } from "../../state/store";
 import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
 import { DiffPane } from "./DiffPane";
+import { resetThumbnailCache } from "../../components/use-thumbnail";
 
 const CWD = "/tmp/worktrees/s1/fix-login";
 const env = (extra: Partial<Environment> = {}): Environment =>
@@ -144,6 +145,21 @@ describe("DiffPane", () => {
     expect(within(row).queryByText("binary")).toBeNull();
     expect(screen.getByRole("button", { name: "Open shots/logo.png" })).toBeInTheDocument();
     expect(api.calls.some((c) => c.startsWith("fileDiff:"))).toBe(false);
+  });
+
+  it("draws a picture the agent redrew as it is now, not as an earlier look at the same path left it", async () => {
+    resetThumbnailCache();
+    let drawn = "data:image/png;base64,T0xE"; // what the file looked like the first time it was shown
+    window.realm = { ...window.realm, attachmentThumbnail: vi.fn(async () => drawn) } as typeof window.realm;
+    const { api, store } = await mount({}, { [CWD]: summary([file("hero.png", { binary: true })]) });
+    const after = () => rowFor("hero.png").querySelector(".diff-thumb[data-side='after']");
+    await waitFor(() => expect(after()).toHaveAttribute("src", "data:image/png;base64,T0xE"));
+    drawn = "data:image/png;base64,TkVX";
+    // The list is read again — a turn ended — and the same path is a different picture now. A fresh
+    // object, as every read over the wire is.
+    api.data.diffs[CWD] = summary([file("hero.png", { binary: true })]);
+    await act(async () => { await store.getState().refreshDiff(CWD); });
+    await waitFor(() => expect(after()).toHaveAttribute("src", "data:image/png;base64,TkVX"));
   });
 
   it("asks for no before for a new picture, and a renamed one's before under its old name", async () => {
