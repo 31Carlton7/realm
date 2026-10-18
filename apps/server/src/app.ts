@@ -84,6 +84,7 @@ import { DelegationEngine } from "./delegation/engine";
 import { announceDelegation } from "./delegation/announce";
 import { AgentRunService } from "./delegation/agent-run";
 import { DelegatedChildren } from "./delegation/children";
+import { Teammates } from "./delegation/teammates";
 import { ReviewService } from "./delegation/review";
 import { CodeReviewService } from "./code-review/service";
 import { GhClient, ghRunner } from "./code-review/gh";
@@ -180,7 +181,7 @@ import { ToolClassesStore } from "./team/policies/tool-classes";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; db: Db; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; teammates: Teammates; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -1009,6 +1010,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let agentRuns: AgentRunService | null = null;
   let reviews: ReviewService | null = null;
   let asks: AskService | null = null;
+  let teammates: Teammates | null = null;
   let codeReview: CodeReviewService | null = null;
   // Declared here and built after `modelCatalog` (which it prices with), then read back through the
   // session-event hook below — the same forward-reference `runs` takes, for the same reason.
@@ -1246,6 +1248,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       },
       isRoleRun: (sessionId) => roleRunOf(sessionId) !== null,
     },
+    teammates: { joinedNote: (id) => teammates?.joinedNote(id) ?? "" },
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
@@ -1266,7 +1269,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); },
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); },
       extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id),
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
@@ -1293,6 +1296,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // here, wherever that string is still exactly what both rows say.
   agentRuns.retitleLegacyChildren();
   browserAgents.retitleLegacyChildren();
+  // A teammate the person adds is `agent_start` with the person asking (`delegation/teammates.ts`).
+  teammates = new Teammates({ agentRuns, sessions, events: sessionEvents, goals, settings,
+    announce: (leadId) => announceDelegation(rpc, delegationEngine, leadId) });
   // The reviewer recipe (W3): same engine, read-only cap, review-origin children. `otherDelegation`
   // fans across BOTH sibling registries — no delegated child of any kind may mint a reviewer.
   const agentRunsFinal = agentRuns, browserAgentsFinal = browserAgents;
@@ -1682,7 +1688,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
-    children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns,
+    children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles,
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
@@ -1809,7 +1815,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   };
 
   return {
-    port, db, terminals, sessions, browserAgents, agentRuns, reviews, asks, runs, schedules, team, lab, acts: acts!, codeReview, gateway: mcpGateway,
+    port, db, terminals, sessions, browserAgents, agentRuns, teammates, reviews, asks, runs, schedules, team, lab, acts: acts!, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }
