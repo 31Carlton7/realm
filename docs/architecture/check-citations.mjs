@@ -6,7 +6,8 @@
 // (`apps/server/src/rpc/server.ts:RpcServer.broadcast`). On a bullet line, a bare identifier after a
 // citation (`, \`deliver\``) is read as another symbol in that same file. A path must exist and every
 // dotted part of a symbol must appear in the file as a whole word. Under a heading that names the
-// mobile app, paths are read from the `feat/mobile` branch, where that code lives.
+// mobile app, paths are read from the `feat/mobile` branch, where that code lives. The files each box
+// of the poster names are checked the same way.
 
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -75,6 +76,18 @@ for (const name of readdirSync(here).filter((f) => f.endsWith(".md")).sort()) {
       }
     }
   });
+}
+
+// The poster's boxes carry their files as data; every one must exist too (in the tree, or on the
+// mobile branch for the iPhone's boxes).
+const poster = readFileSync(join(here, "realm-architecture.html"), "utf8");
+const data = poster.slice(poster.indexOf("const W ="), poster.indexOf("/* what a click on a box says"));
+for (const node of new Function(`${data}; return NODES;`)()) {
+  for (const path of node.f ?? []) {
+    checked++;
+    const here_ = existsSync(join(root, path));
+    if (!here_ && !(path.endsWith("/") ? branchHasDir(path) : fromBranch(path) !== null)) problems.push(`realm-architecture.html  box "${node.t}" names missing ${path}`);
+  }
 }
 
 for (const p of problems) console.error(p);

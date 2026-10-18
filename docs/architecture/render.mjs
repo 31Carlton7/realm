@@ -13,7 +13,7 @@
 import { app, BrowserWindow } from "electron";
 import { readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
@@ -42,7 +42,7 @@ function mermaidBlocks() {
 function offscreenWindow(width, height) {
   return new BrowserWindow({
     show: false, width, height, useContentSize: true, paintWhenInitiallyHidden: true,
-    webPreferences: { offscreen: true, sandbox: true, contextIsolation: true },
+    webPreferences: { offscreen: true, contextIsolation: true },
   });
 }
 
@@ -79,21 +79,26 @@ async function checkBlocks(blocks) {
       writeFileSync(join(blocksDir, `${block.file.replace(/\.md$/, "")}-${block.line}.png`), image.toPNG());
     }
   }
-  win.destroy();
+  // Not destroyed: a window made after one is destroyed fails to load a file in this Electron.
   return failures;
 }
 
 async function exportPoster() {
+  // The poster's world is 4000 × 2230; drawn 1:1, its 12px labels stay 12px in the PNG.
   const width = 4000;
-  const height = 2500;
+  const height = 2230;
   const win = offscreenWindow(width, height);
-  await win.loadURL(`${pathToFileURL(join(here, "realm-architecture.html")).href}?export`);
-  await win.webContents.executeJavaScript("document.fonts.ready.then(() => 0)");
+  win.webContents.on("console-message", (e) => { if (e.level === "warning" || e.level === "error") console.error(`poster: ${e.message}`); });
+  await win.loadFile(join(here, "realm-architecture.html"), { query: { export: "1" } });
+  await win.webContents.executeJavaScript("new Promise((r) => { const t = setInterval(() => { if (window.__drawn) { clearInterval(t); r(0); } }, 50); })");
+  const overflow = await win.webContents.executeJavaScript("window.__overflow");
+  for (const line of overflow) console.error(`poster: text wider than its box, ${line}`);
   await new Promise((r) => setTimeout(r, 400));
+  // Captured at the display's density, so text stays sharp when the PNG is zoomed.
   const image = await win.webContents.capturePage();
   writeFileSync(join(here, "realm-architecture.png"), image.toPNG());
   console.log(`poster  realm-architecture.png  ${image.getSize().width}x${image.getSize().height}`);
-  win.destroy();
+  return overflow.length;
 }
 
 app.disableHardwareAcceleration();
@@ -108,7 +113,7 @@ app.whenReady().then(async () => {
     console.log(`${blocks.length - failures.length}/${blocks.length} mermaid blocks drew`);
     for (const f of failures) console.error(`FAIL ${f}\n`);
     if (failures.length) code = 1;
-    if (drawPoster) await exportPoster();
+    if (drawPoster && (await exportPoster()) > 0) code = 1;
   } catch (e) {
     console.error(e);
     code = 1;
