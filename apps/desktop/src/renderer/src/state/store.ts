@@ -597,6 +597,8 @@ export type Api = TeamApi & LabApi & {
   diff(cwd: string): Promise<DiffSummary | null>;
   /** `workspace.fileDiff` — one file's patch, one side of the index. */
   fileDiff(cwd: string, path: string, staged: boolean): Promise<FileDiff>;
+  /** `workspace.headImage` — a picture as the last commit has it, as a data URL; null when there is none. */
+  headImage(cwd: string, path: string): Promise<string | null>;
   stagePaths(cwd: string, paths: string[]): Promise<void>;
   unstagePaths(cwd: string, paths: string[]): Promise<void>;
   /** `workspace.ship` — commit, push and open a PR as one call. */
@@ -2565,6 +2567,9 @@ export type AppState = TeamSlice & LabSlice & {
   refreshAllDiffs(): Promise<void>;
   /** Fetch one file's patch, if it is not already held. */
   loadPatch(cwd: string, path: string, staged: boolean): Promise<void>;
+  /** A changed picture as the last commit had it — the review's "before". Asked for, not held: the
+   *  row that draws it asks again whenever the checkout is re-read. */
+  headImage(cwd: string, path: string): Promise<string | null>;
   stagePaths(cwd: string, paths: string[]): Promise<void>;
   unstagePaths(cwd: string, paths: string[]): Promise<void>;
   setCommitMessage(cwd: string, text: string): void;
@@ -7209,6 +7214,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshAllDiffs() {
         await Promise.all(Object.keys(get().diffs).map((cwd) => get().refreshDiff(cwd)));
       },
+      headImage(cwd, path) { return api.headImage(cwd, path); },
       async loadPatch(cwd, path, staged) {
         const key = patchKey(cwd, path, staged);
         if (get().patches[key]) return;
