@@ -668,6 +668,16 @@ describe("app store", () => {
       expect(api.destroyedBrowserViews).toEqual(["b9"]);
     });
 
+    it("a browser closed somewhere else has its view destroyed here too", async () => {
+      // An agent or another window closing it never went through this window's close path, which was
+      // the only thing that shut the page down.
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await openBrowser(store);
+      store.getState().applyBrowserClosed("b9");
+      expect(api.destroyedBrowserViews).toEqual(["b9"]);
+    });
+
     it("the driving signal survives the switch too — the dot is there on the way back", async () => {
       const store = createAppStore(api);
       await store.getState().boot();

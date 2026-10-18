@@ -2198,6 +2198,9 @@ export const Events = {
   "profiles.changed": z.object({}),
   "spaces.changed":   z.object({}),
   "items.changed":    z.object({ spaceId: IdSchema }),
+  /** A browser was closed — by a window, an agent, any caller of `browsers.close`. Its row and item are
+   *  gone, and the window holding its view shuts the page down: only a window's own close path did. */
+  "browsers.closed":  z.object({ browserId: IdSchema }),
   /** A worktree was created or removed in this space (W2) — clients re-list environments. */
   "environments.changed": z.object({ spaceId: IdSchema }),
   /** A checkpoint was taken, restored or pruned in this environment (W4). Broadcast on every turn, so

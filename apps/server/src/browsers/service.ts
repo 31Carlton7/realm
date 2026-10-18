@@ -133,5 +133,6 @@ export class BrowserService {
       this.d.items.delete(item.id);
       this.d.rpc.broadcast("items.changed", { spaceId: item.spaceId });
     }
+    this.d.rpc.broadcast("browsers.closed", { browserId });
   }
 }

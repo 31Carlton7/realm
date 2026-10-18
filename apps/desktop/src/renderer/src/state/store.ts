@@ -2638,6 +2638,9 @@ export type AppState = TeamSlice & LabSlice & {
   /** The `review.changed` handler: apply the payload directly (no refetch race) and clear the
    *  in-flight flag. */
   applyReviewChanged(payload: { environmentId: string; review: ReviewResult | null }): void;
+  /** The `browsers.closed` handler: a browser closed anywhere — an agent, another window — has its page
+   *  shut down here too, not only when this window's own pane closed it. */
+  applyBrowserClosed(browserId: string): void;
   /** Fetch what this session is waiting on (session pane mount). Covers the runs that began before
    *  this window connected — every later change arrives as `delegation.changed`. */
   refreshDelegatedRuns(sessionId: string): Promise<void>;
@@ -7426,6 +7429,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { [environmentId]: _done, ...reviewing } = get().reviewing;
         set({ reviews: { ...get().reviews, [environmentId]: review }, reviewing });
       },
+      applyBrowserClosed(browserId) { api.destroyBrowserView(browserId); },
       async refreshDelegatedRuns(sessionId) {
         get().applyDelegationChanged({ sessionId, running: await api.listDelegatedRuns(sessionId) });
       },
