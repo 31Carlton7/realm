@@ -1,0 +1,317 @@
+/* A docs page set for reading: the changelog's reading column (components/changelog/prose.module.css)
+   with what a manual needs beside it — second-level heads, numbered steps, tables, keys and callouts.
+   Scoped to this module, so the docs own their type and nothing leaks into the rest of the site. */
+
+.prose {
+  color: var(--color-ink-2);
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.prose > * + * {
+  margin-top: 1.15em;
+}
+
+.prose strong {
+  color: var(--color-ink);
+  font-weight: 560;
+}
+
+/* A section head: a link to itself, with the # it answers to hanging in the margin while the pointer
+   or the keyboard is on it. */
+.prose h2,
+.prose h3 {
+  position: relative;
+  color: var(--color-ink);
+  text-wrap: balance;
+}
+
+.prose h2 {
+  margin-top: 3.25rem;
+  scroll-margin-top: 6.5rem;
+  font-size: 1.375rem;
+  font-weight: 560;
+  letter-spacing: -0.022em;
+  line-height: 1.3;
+}
+
+.prose h3 {
+  margin-top: 2.25rem;
+  scroll-margin-top: 6.5rem;
+  font-size: 1.125rem;
+  font-weight: 560;
+  letter-spacing: -0.014em;
+  line-height: 1.35;
+}
+
+.prose > :is(h2, h3):first-child {
+  margin-top: 0;
+}
+
+.prose :is(h2, h3) + * {
+  margin-top: 0.75rem;
+}
+
+.prose :is(h2, h3) a {
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.prose :is(h2, h3) a::before {
+  content: "#";
+  position: absolute;
+  left: -1.1em;
+  color: var(--color-ink-3);
+  font-weight: 450;
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+
+.prose :is(h2, h3) a:hover::before,
+.prose :is(h2, h3) a:focus-visible::before {
+  opacity: 1;
+}
+
+.prose ul {
+  padding-left: 1.2em;
+  list-style: disc;
+}
+
+.prose li {
+  padding-left: 0.2em;
+}
+
+.prose li::marker {
+  color: var(--color-ink-3);
+}
+
+.prose li + li {
+  margin-top: 0.55em;
+}
+
+/* Steps: a numbered list whose numbers are drawn in a ring beside each step, so a procedure reads as
+   one at a glance and each step's number lines up with its first line. */
+.steps {
+  counter-reset: step;
+  list-style: none;
+}
+
+.prose .steps {
+  padding-left: 0;
+}
+
+.steps > li {
+  position: relative;
+  counter-increment: step;
+  padding-left: 2.6rem;
+}
+
+.steps > li + li {
+  margin-top: 0.85em;
+}
+
+.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  top: 0.12em;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-line);
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* `word-break` matters: pages name paths like ~/Realm/worktrees/<space> that would otherwise push the
+   column wider than a phone. */
+.prose :not(pre) > code {
+  border-radius: 6px;
+  background: var(--color-surface);
+  padding: 0.1em 0.36em;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  word-break: break-word;
+}
+
+.link {
+  color: var(--color-accent-ink);
+  text-decoration: none;
+  border-radius: 4px;
+  background: linear-gradient(currentColor, currentColor) no-repeat left 100% / 0 1px;
+  transition: background-size var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  .link:hover {
+    background-size: 100% 1px;
+    transition: background-size 300ms var(--ease-spring);
+  }
+}
+
+.link:focus-visible {
+  background-size: 100% 1px;
+}
+
+/* Code is a panel the eye rests in, so it wears the app's own corner and no ring (design.md, Shape);
+   its label and Copy are the panel's chrome, not a section ruled off above it. */
+.code {
+  position: relative;
+  border-radius: 24px;
+  corner-shape: squircle;
+  background: var(--color-surface);
+}
+
+.codeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.5rem;
+  padding: 0.6rem 0.75rem 0 1.5rem;
+  color: var(--color-ink-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.code pre {
+  overflow-x: auto;
+  padding: 1.15rem 1.5rem;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.codeHead + pre {
+  padding-top: 0.35rem;
+}
+
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2rem;
+  border-radius: 10px;
+  padding: 0 0.7rem;
+  color: var(--color-ink-2);
+  font-size: 13px;
+  transition: background-color var(--hover-out) ease-out, color var(--hover-out) ease-out;
+}
+
+@media (hover: hover) {
+  .copy:hover {
+    background-color: oklch(1 0 0 / 0.06);
+    color: var(--color-ink);
+    transition: background-color var(--hover-in) var(--ease-spring), color var(--hover-in) var(--ease-spring);
+  }
+}
+
+/* A code block with no label still offers Copy, at its corner. */
+.code > .copy {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.6rem;
+}
+
+/* A callout: a word on the page set apart on a surface, under the name it goes by. The tone is said in
+   the name as well as the colour, so it never rests on colour alone. */
+.callout {
+  border-radius: 12px;
+  background: var(--color-canvas);
+  box-shadow: inset 0 0 0 1px var(--color-line);
+  padding: 0.95rem 1.2rem 1.05rem;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.callout > span {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--color-accent-ink);
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.callout[data-tone="careful"] > span {
+  color: var(--color-orange);
+}
+
+/* Keys. A chord is one <kbd> of keycaps, each a raised step of the surface with a darker lip under
+   it, so ⌘⇧P reads as three keys to press rather than a glyph soup. */
+.chord {
+  display: inline-flex;
+  gap: 0.2em;
+  vertical-align: 0.06em;
+  white-space: nowrap;
+}
+
+.key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.55em;
+  height: 1.5em;
+  border-radius: 6px;
+  background: var(--color-raised);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.08),
+    inset 0 0 0 1px var(--color-line),
+    0 1px 0 oklch(0 0 0 / 0.45);
+  padding: 0 0.38em;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 0.8em;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Tables run the column's width and scroll sideways on a phone rather than squeezing their words. */
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.table th {
+  padding: 0 1rem 0.55rem 0;
+  border-bottom: 1px solid var(--color-line-strong);
+  color: var(--color-ink-2);
+  font-size: 13px;
+  font-weight: 520;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 0.6rem 1rem 0.6rem 0;
+  border-bottom: 1px solid var(--color-line);
+  vertical-align: top;
+}
+
+.table td:first-child {
+  color: var(--color-ink);
+}
+
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+/* A capture takes more air than a paragraph: it is something to look at, not the next line, and its
+   caption hangs below it on a tab that needs the room. */
+.prose > :global(.screen) {
+  margin-top: 2.5rem;
+  margin-bottom: 5.5rem;
+}
