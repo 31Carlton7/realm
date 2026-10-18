@@ -624,6 +624,14 @@ describe("permission keyboard (U-H4)", () => {
     await waitFor(() => expect(decided).toEqual(["r1:allow", "r1:allow_always", "r1:deny"]));
   });
 
+  it("⇧Enter allows always from the row that has focus — the card opens with Allow focused, and the chord is drawn beside Allow always", async () => {
+    const { decided } = await mountFocused(true);
+    const focused = screen.getByRole("button", { name: "Allow" });
+    expect(focused).toHaveFocus();
+    fireEvent.keyDown(focused, { key: "Enter", shiftKey: true });
+    await waitFor(() => expect(decided).toEqual(["r1:allow_always"]));
+  });
+
   it("options are a numbered list (§5): a number chip and its shortcut on every row, hints in the footer", async () => {
     const { card } = await mountFocused(true);
     const rows = within(card).getAllByRole("button").filter((b) => b.classList.contains("permission-option"));
