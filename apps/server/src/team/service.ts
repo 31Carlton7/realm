@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
-  CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
+  CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, nextFireOf, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
   ACT_PACING, CREATOR_PRESET, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, lineDiff, reviewVerb, verbFamily, recordTemplate,
   type DeliverableFormat, type ProposedAction, type ReviewAction, type RecordType, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTitle, sessionEvent, usageDeltas, weekStart,
   type ActTicket, type AgentKind, FINAL_REVIEW_STATES, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
@@ -208,6 +208,7 @@ export class TeamService {
     const twice = names.find((n, i) => names.indexOf(n) !== i);
     if (twice) throw new RpcError("TEAM_ROLE_NAME", `two of the roles are called ${[...picked, ...custom].find((r) => r.name.toLowerCase() === twice)!.name} — give one another name`);
     for (const r of custom) if (this.d.store.roleByName(spaceId, r.name)) throw new RpcError("TEAM_ROLE_NAME", `this team already has a role called ${r.name}`);
+    for (const r of custom) refuseUnfireable(r.cron);
     const cap = o.weekBudgetUsd ?? this.teamBudget(spaceId);
     this.checkShares(spaceId, cap, { add: [...picked.map((t) => t.weekBudgetUsd), ...custom.map((r) => r.weekBudgetUsd ?? null)] });
     if (!this.repoPath(spaceId)) await this.d.repos.create({ scope: "space", id: spaceId }, o.repoPath);
@@ -306,6 +307,7 @@ export class TeamService {
     if (!this.d.spaceExists(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     if (this.d.store.roleByName(p.spaceId, p.name)) throw new RpcError("TEAM_ROLE_NAME", `this team already has a role called ${p.name}`);
     this.checkShares(p.spaceId, this.teamBudget(p.spaceId), { add: [p.weekBudgetUsd ?? null] });
+    refuseUnfireable(p.cron);
     const row = this.d.store.createRole({
       spaceId: p.spaceId, name: p.name, brief: p.brief, realmite: p.realmite, template: p.template ?? null,
       agentKind: p.agentKind ?? this.d.defaultKind ?? "claude", model: p.model ?? null, effort: p.effort ?? null,
@@ -1269,3 +1271,9 @@ const firstLine = (s: string | null): string | null => {
   const l = s?.trim().split("\n").find((x) => x.trim())?.trim() ?? "";
   return l ? clip(l.replace(/^#+\s*/, ""), 200) : null;
 };
+
+/** A role's schedule is checked before anything of the role is written: the row goes in first, and a
+ *  schedule refused after it left a role with no clock whose name a retry was then told was taken. */
+function refuseUnfireable(cron: string | null | undefined): void {
+  if (cron && nextFireOf(cron, Date.now()) === null) throw new RpcError("SCHEDULE_CRON", `\`${cron}\` is not a schedule that will ever run — check the expression`);
+}

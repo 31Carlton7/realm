@@ -397,6 +397,18 @@ describe("choosing who is on the team", () => {
     c.close();
   });
 
+  it("refuses a teammate whose schedule will never run before making any of it, so a retry works", async () => {
+    // The role row went in first and the schedule was refused after it: an error, a role with no
+    // clock, and a retry told the name was taken.
+    const { c, spaceId } = await boot();
+    const role = { spaceId, name: "Night owl", brief: "Watch.", realmite: { seed: "n" } };
+    expect((await c.call("team.roleCreate", { ...role, cron: "every monday" })).error.code).toBe("SCHEDULE_CRON");
+    expect((await c.call("team.make", { spaceId, templates: [], roles: [{ ...role, spaceId: undefined, cron: "every monday" }] })).error.code).toBe("SCHEDULE_CRON");
+    expect((await c.must("team.space", { spaceId })).roles.map((r: Any) => r.name)).not.toContain("Night owl");
+    expect((await c.must("team.roleCreate", { ...role, cron: "0 9 * * 1" })).name).toBe("Night owl");
+    c.close();
+  });
+
   it("refuses two new teammates with one name before making either", async () => {
     const { c, spaceId } = await boot();
     const r = await c.call("team.make", { spaceId, templates: ["editor"], roles: [{ name: "editor", brief: "x", realmite: { seed: "e" } }] });
