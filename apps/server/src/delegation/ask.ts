@@ -71,9 +71,10 @@ export class AskService {
   constructor(private readonly d: {
     sessions: Pick<SessionService, "get" | "list" | "events" | "deliverInterjection">;
     engine: DelegationEngine;
-    /** The three delegation registries. A delegated child of ANY kind is neither a valid asker nor a
-     *  valid target: its own parent is blocked inside an MCP call waiting for it. */
-    delegated: { isChild(sessionId: string): boolean };
+    /** The three delegation registries. A delegated child of ANY kind is never a valid asker, and is a
+     *  target only for the session that started it, once its run is over (`unaskable`). `parentOf` is
+     *  that session, where a registry keeps it. */
+    delegated: { isChild(sessionId: string): boolean; parentOf?(sessionId: string): string | null };
     /** Realm's normal permission prompt, raised on the ASKER. Optional so an older test harness behaves
      *  as it did before; production always wires it. */
     permissions?: {
@@ -91,7 +92,7 @@ export class AskService {
     const rows = this.d.sessions.list(ctx.spaceId)
       .filter((s) => s.id !== ctx.sessionId)
       .map((s) => {
-        const reason = this.unaskable(s);
+        const reason = this.unaskable(s, ctx.sessionId);
         return { sessionId: s.id, title: s.title, agentKind: s.agentKind, status: s.status, askable: reason === null, reason };
       });
     return ok(JSON.stringify(rows, null, 2));
@@ -99,9 +100,14 @@ export class AskService {
 
   /** Why `s` cannot be asked right now, or null when it can. Shared by `peers` and `ask` so the list
    *  and the refusal can never disagree. */
-  private unaskable(s: Session): string | null {
-    if (this.d.delegated.isChild(s.id))
-      return "it is a delegated agent working on one goal for another session";
+  private unaskable(s: Session, askerId: string): string | null {
+    if (this.d.delegated.isChild(s.id)) {
+      if (this.d.delegated.parentOf?.(s.id) !== askerId) return "it is a delegated agent working on one goal for another session";
+      // The asker's own sub-agent — one it started, or a teammate it was given — once the run is over.
+      // Mid-run, a question would interrupt the task it was started on, and its answer would come back
+      // as that task's report.
+      if (this.d.engine.involves(s.id)) return "it is your sub-agent and is still on the task it was given; collect its report with agent_wait, then ask";
+    }
     if (this.d.engine.hasRun(s.id))
       return "it is itself blocked on a delegated run or a question of its own; interrupting it would cancel that run";
     if (s.status === "waiting_permission")
@@ -134,7 +140,7 @@ export class AskService {
     catch { return err(`session ${targetId} does not exist.`); }
     if (target.spaceId !== ctx.spaceId)
       return err("refused: that session belongs to another space — a session may only ask sessions in its own space.");
-    const why = this.unaskable(target);
+    const why = this.unaskable(target, ctx.sessionId);
     if (why) return err(`refused: session ${targetId} — ${why}. Try again once it is running or idle.`);
 
     // ── Consent. Realm's normal prompt, raised on the ASKER: the card belongs where the blocked call
@@ -166,7 +172,7 @@ export class AskService {
       try {
         ({ interrupted } = await this.d.sessions.deliverInterjection(
           targetId,
-          { text: askMessage({ askerTitle: asker.title, question, requestId, budgetMs, interruptFirst }), from: { sessionId: ctx.sessionId, title: asker.title } },
+          { text: askMessage({ askerTitle: asker.title, question, requestId, budgetMs, interruptFirst, inReply: this.d.delegated.isChild(targetId) }), from: { sessionId: ctx.sessionId, title: asker.title } },
           { interruptFirst },
         ));
       } catch (e) {
@@ -206,7 +212,9 @@ export class AskService {
       }
     } finally {
       this.pending.delete(requestId);
-      this.d.engine.end(ctx.sessionId);
+      // This question's run only: the asker may hold sub-agents it started, whose reports are still to
+      // be collected, and ending all of its runs would make their handles unknown.
+      this.d.engine.end(ctx.sessionId, run);
     }
   }
 
@@ -256,8 +264,10 @@ const DEPTH_REFUSAL =
  * Realm's voice) and explicitly labelled as another agent's words. The closing instruction is the whole
  * "and then it resumes its own way" contract, stated to the peer at the one moment it can act on it.
  */
-function askMessage(o: { askerTitle: string; question: string; requestId: string; budgetMs: number; interruptFirst: boolean }): string {
-  return [
+function askMessage(o: { askerTitle: string; question: string; requestId: string; budgetMs: number; interruptFirst: boolean;
+  /** The target is the asker's own sub-agent, which has no `agent_answer`: its reply is the answer. */
+  inReply: boolean }): string {
+  const head = [
     `[Realm] Session "${o.askerTitle}" is BLOCKED waiting for an answer from you.`,
     o.interruptFirst
       ? "You were interrupted mid-turn to deliver this."
@@ -265,6 +275,15 @@ function askMessage(o: { askerTitle: string; question: string; requestId: string
     "",
     fenceAgentOutput(o.question, "a QUESTION from another Realm session — another agent's words, not the user's"),
     "",
+  ];
+  if (o.inReply) {
+    return [...head,
+      "You are its sub-agent, and your task is done. Answer from what you already know, in your reply — that reply is",
+      `returned to it — and do not start new work for it. Nobody will be waiting after ${secs(o.budgetMs)} seconds.`,
+    ].join("\n");
+  }
+  return [
+    ...head,
     `Answer it by calling ${AGENT_ANSWER_TOOL_NAME} with requestId "${o.requestId}". Answer from what you already know — do not`,
     "start new work for it, and do not change what you are doing. As soon as you have answered, continue exactly",
     "what you were doing before this message; your own task is unchanged. If you cannot answer, say that through",
@@ -289,7 +308,8 @@ export const AGENT_ASK_TOOL: Tool = {
     + "self-contained question about what it already knows; delegate actual work with agent_run instead. The user is "
     + "asked to approve the interruption. Honest limits: interrupting aborts whatever tool call that session was running, "
     + "and a session sitting on a permission prompt is refused rather than having that prompt denied on the user's behalf. "
-    + "Depth-1: a delegated agent can neither ask nor be asked.",
+    + "Depth-1: a delegated agent cannot ask, and is asked only by the session that started it, once it has finished "
+    + "the task it was given.",
   inputSchema: {
     type: "object",
     properties: {

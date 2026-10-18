@@ -20,6 +20,8 @@ import { waitFor } from "../test-utils";
  *   - the lead never told / told twice / on the log  → "the lead's agent is told on its next message"
  *   - a dismissal that does not reach the list      → "dismissing takes it off the lead's list"
  *   - a message to a teammate steered mid-turn      → "a message naming a teammate is passed to it"
+ *   - agent_ask still refusing every child / any session asking another's child / asking mid-run
+ *                                                   → "the lead can ask its own teammate"
  */
 
 let app: App;
@@ -47,6 +49,7 @@ async function boot(opts: { leadMode?: string; script?: FakeScript; delayMs?: nu
     home, port: 0, adapters: { fake, claude: fake },
     browserAgent: { fallbackKind: "fake", timeouts: { baseMs: 5000, perActMs: 0, pollMs: 20 } },
     agentRun: { timeouts: { baseMs: 5000, perTurnMs: 0, pollMs: 20 } },
+    ask: { timeouts: { budgetMs: 5000, pollMs: 20 } },
   });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
@@ -232,6 +235,33 @@ describe("a message naming a teammate", () => {
     await waitFor(() => b.fake.wire.some((w) => w.text.startsWith("Plan the release")));
     expect(b.fake.wire.find((w) => w.text.startsWith("Plan the release"))!.text).toContain("@[Other] — not passed on: it is not one of this session's sub-agents");
     expect(app.sessions.events(stranger.session.id, 0, 500).some((e) => e.event.type === "user_message")).toBe(false);
+    b.close();
+  });
+});
+
+describe("agent_ask on a teammate", () => {
+  it("the lead can ask its own teammate once the task is done — not while it works, and nobody else can", async () => {
+    const script: FakeScript = [
+      { on: "You are a delegated agent.", emit: Array.from({ length: 20 }, (_, i) => ({ kind: "text" as const, text: `step ${i}` })) },
+      { on: "[Realm]", emit: [{ kind: "text", text: "The parser is in src/parse.ts." }] },
+    ];
+    // Full access, so the consent card agent_ask raises on the asker answers itself.
+    const b = await boot({ leadMode: "bypassPermissions", script, delayMs: 30 });
+    const { childId } = await b.call<{ childId: string }>("delegation.addTeammate", { sessionId: b.leadId, agentKind: "fake" });
+    await waitFor(() => app.sessions.get(childId).status === "running");
+    const lead = { sessionId: b.leadId, spaceId: b.spaceId };
+    const busy = await app.asks.ask(lead, { sessionId: childId, question: "Where is the parser?" });
+    expect(busy.isError).toBe(true);
+    expect(text(busy)).toContain("still on the task it was given");
+    await waitFor(settled(childId), { timeout: 10_000 });
+    const stranger = app.sessions.create({ spaceId: b.spaceId, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "bypassPermissions" }).session;
+    const theirs = await app.asks.ask({ sessionId: stranger.id, spaceId: b.spaceId }, { sessionId: childId, question: "Where is the parser?" });
+    expect(text(theirs)).toContain("working on one goal for another session");
+    const answered = await app.asks.ask(lead, { sessionId: childId, question: "Where is the parser?" });
+    expect(answered.isError).toBe(false);
+    expect(text(answered)).toContain("The parser is in src/parse.ts.");
+    // Its run was over before the question, so the report the lead collects is still the task's.
+    expect(text(await app.agentRuns.wait(lead, { handles: [childId] }))).toContain("step 19");
     b.close();
   });
 });

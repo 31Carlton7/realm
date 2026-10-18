@@ -1348,7 +1348,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const reviewsFinal = reviews;
   asks = new AskService({
     sessions, engine: delegationEngine,
-    delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id) },
+    delegated: { isChild: (id) => browserAgentsFinal.isChild(id) || agentRunsFinal.isChild(id) || reviewsFinal.isChild(id),
+      parentOf: (id) => agentRunsFinal.record(id)?.parentSessionId ?? null },
     permissions: browserBroker,
     timeouts: opts.ask?.timeouts,
   });
