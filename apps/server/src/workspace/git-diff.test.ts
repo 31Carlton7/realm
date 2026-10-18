@@ -248,13 +248,15 @@ describe("headImage", () => {
   // Bytes UTF-8 cannot carry: a reader that decoded the blob as text would hand back U+FFFD for 0xff.
   const before = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe, 0x01]);
 
-  it("hands back the picture as the last commit holds it, byte for byte, not as it is on disk", async () => {
+  it("hands back the picture as the last commit holds it, byte for byte — not as it is on disk or staged", async () => {
     const dir = makeRepo();
     try {
       mkdirSync(join(dir, "shots"));
       writeFileSync(join(dir, "shots", "hero.png"), before);
       git(dir, "add", "-A"); git(dir, "commit", "-qm", "picture");
       writeFileSync(join(dir, "shots", "hero.png"), Buffer.from([1, 2, 3]));
+      // Staged too, so the index holds the new picture: "before" is the commit's, not the index's.
+      git(dir, "add", "shots/hero.png");
       expect(await svc().headImage(dir, "shots/hero.png")).toBe(`data:image/png;base64,${before.toString("base64")}`);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
