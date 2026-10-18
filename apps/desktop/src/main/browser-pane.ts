@@ -170,7 +170,10 @@ export function electronViewFactory(
           focusable: win.isFocusable(),
           autoHideMenuBar: true,
           title: popupTitle(details.url, ""),
-          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+          // `partition` is for the popup Electron makes itself — one with no opener (`noopener`, a
+          // shift-click), which it loads in a webContents of its own, in the app's default session
+          // unless told otherwise. One Chromium makes for its opener is already in the pane's.
+          webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false },
         },
       };
     };
@@ -178,6 +181,10 @@ export function electronViewFactory(
       popups.add(popup);
       popup.once("closed", () => popups.delete(popup));
       const popupWc = popup.webContents;
+      // The session's user agent does not reach a webContents Chromium made for a `window.open`
+      // (measured, Electron 37: it presents Electron's own, `Electron/37` token and all), so the popup
+      // is given the pane's here — before its first request, which is sent after this event.
+      popupWc.setUserAgent(browserUserAgent(popupWc.getUserAgent()));
       popupWc.setWindowOpenHandler(openWindow(popupWc));
       popupWc.on("did-create-window", adoptPopup);
       popupWc.on("will-navigate", guard);
