@@ -1250,7 +1250,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
     notifications: {
-      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); usage?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); handoffs?.handleSessionEvent(session, ev); },
+      handleSessionEvent: (session, ev) => {
+        notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); handoffs?.handleSessionEvent(session, ev);
+        // The usage hook reads the month's spend back from the saved events, and this runs BEFORE the
+        // event is saved — in the same call, so a microtask later it is there.
+        if (ev.type === "usage") queueMicrotask(() => usage?.handleSessionEvent(session, ev));
+      },
       probeResults: (results) => notifications.probeResults(results),
     },
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
