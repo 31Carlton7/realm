@@ -45,8 +45,9 @@ const CROPS = {
   "permission-card": { scene: "delegation", rect: [930.33, 175.33, 481.34, 307.34], radius: 12 },
   // The command palette, on its own rim.
   palette: { scene: "palette", rect: [440, 108, 560, 498], radius: 16 },
-  // Library ▸ Files: the kind tabs and the grid.
-  "library-files": { scene: "library", rect: [345, 52, 1085, 780], radius: 12 },
+  // Library ▸ Files: the kind tabs and two whole rows of the grid, three tiles across, so the tiles are
+  // drawn near their own size rather than a whole page of them at half of it.
+  "library-files": { scene: "library", rect: [345, 52, 653, 562], radius: 12 },
   // The side panel's Documents tab, with nothing open: this session's files, then the Library's.
   "documents-home": { scene: "documents", rect: [887, 41, 553, 511], radius: 12 },
   // A terminal in the side panel, running vim, under its tab, cut after a whole line.

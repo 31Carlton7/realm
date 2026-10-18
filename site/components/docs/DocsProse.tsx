@@ -72,7 +72,9 @@ export function DocsProse({ blocks }: { blocks: Block[] }) {
           case "table":
             return (
               <div key={key} className={styles.tableWrap}>
-                <table className={styles.table}>
+                {/* A table of shortcuts keeps its keys in one column at one place on the page, so the
+                    page's several tables of them line up rather than each sizing to its own words. */}
+                <table className={styles.table} data-shape={block.head.at(-1) === "Keys" ? "keys" : undefined}>
                   <thead>
                     <tr>
                       {block.head.map((cell, index) => (

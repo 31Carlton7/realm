@@ -309,6 +309,14 @@
   border-bottom: 0;
 }
 
+.table[data-shape="keys"] {
+  table-layout: fixed;
+}
+
+.table[data-shape="keys"] th:first-child {
+  width: 58%;
+}
+
 /* A capture takes more air than a paragraph: it is something to look at, not the next line, and its
    caption hangs below it on a tab that needs the room. */
 .prose > :global(.screen) {

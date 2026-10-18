@@ -64,8 +64,8 @@ export default page({
     h2("The Library"),
     figure(
       { crop: "library-files" },
-      "Library ▸ Files. Tabs for All, Images, Documents, Code and Data, with filter, view, search and Add controls. Under Today, a grid of square tiles: code files and Markdown files showing the session that made them, two pictures shown edge to edge, a PDF, a CSV and files marked Added.",
-      "The Library's files, newest first, each labelled with the session it came from.",
+      "Library ▸ Files, with tabs for All, Images, Documents, Code and Data. Under Today, square tiles: migrations.ts, AppSettings.tsx and blocks.md, each labelled with the session that made it; a picture shown edge to edge; and release-brief.pdf and launch-notes.md, marked Added.",
+      "The Library's newest files, each labelled with where it came from.",
     ),
     p(
       "**Library** on the rail holds everything your agents made and everything you gave them, across every space in the profile. It has four sections:",
