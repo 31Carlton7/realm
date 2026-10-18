@@ -26,7 +26,9 @@ export type Block =
   | { kind: "code"; text: string; label?: string }
   | { kind: "callout"; tone: "note" | "tip" | "careful"; text: string }
   | { kind: "table"; head: string[]; rows: string[][] }
-  | { kind: "figure"; shot: Shot; alt: string; caption: string }
+  /** A part with a phone-width twin (`<part>-phone` in parts.json) shows that twin on a phone, under
+   *  `phoneCaption` where it shows less than the wide one does. */
+  | { kind: "figure"; shot: Shot; alt: string; caption: string; phoneCaption?: string }
 
 export type DocPage = {
   /** URL segment under /docs. Stable once published: these are linked to. */
@@ -52,4 +54,4 @@ export const note = (text: string): Block => ({ kind: "callout", tone: "note", t
 export const tip = (text: string): Block => ({ kind: "callout", tone: "tip", text })
 export const careful = (text: string): Block => ({ kind: "callout", tone: "careful", text })
 export const table = (head: string[], ...rows: string[][]): Block => ({ kind: "table", head, rows })
-export const figure = (shot: Shot, alt: string, caption: string): Block => ({ kind: "figure", shot, alt, caption })
+export const figure = (shot: Shot, alt: string, caption: string, phoneCaption?: string): Block => ({ kind: "figure", shot, alt, caption, phoneCaption })

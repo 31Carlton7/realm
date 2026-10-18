@@ -14,6 +14,7 @@ export default page({
       { part: "delegation" },
       "A session's Agents tab. Under Sub-agents, 1 needs you, 1 done: Dark-mode toggle on GPT-6 Luna through Codex is waiting on a permission card, Allow Bash?, with Allow, Allow always and Deny. Theme migration on Fable 5.1 through Claude is Done. Each card names its checkout, its mode and how much of its time budget it used. Below, Build with offers Claude Opus 5.5, Claude Fable 5.1 and GPT-6 Luna.",
       "One sub-agent waiting on a permission, one done, and Build with under them.",
+      "One sub-agent waiting on a permission, and one done.",
     ),
 
     h2("Asking for sub-agents"),

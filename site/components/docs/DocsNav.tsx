@@ -52,13 +52,13 @@ export function DocsNav({ groups }: { groups: NavGroup[] }) {
 
 function Map({ groups, current }: { groups: NavGroup[]; current: string }) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <ol className="relative border-l border-line">
         <Row href="/docs" label="Overview" here={current === ""} />
       </ol>
       {groups.map((group) => (
         <div key={group.title}>
-          <h2 className="mb-1.5 text-[13px] font-[520] text-ink">{group.title}</h2>
+          <h2 className="mb-1 text-[13px] font-[520] text-ink">{group.title}</h2>
           <ol className="relative border-l border-line">
             {group.pages.map((doc) => (
               <Row key={doc.slug} href={`/docs/${doc.slug}`} label={doc.title} here={doc.slug === current} />
@@ -77,7 +77,7 @@ function Row({ href, label, here }: { href: string; label: string; here: boolean
       <Link
         href={href as Route}
         aria-current={here ? "page" : undefined}
-        className={`flex min-h-11 items-center py-1.5 pl-4 text-[15px] leading-[1.35] transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring lg:min-h-9 lg:text-[14px] ${here ? "text-ink" : "text-ink-2"}`}
+        className={`flex min-h-11 items-center py-1 pl-4 text-[15px] leading-[1.35] transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring lg:min-h-8 lg:text-[14px] ${here ? "text-ink" : "text-ink-2"}`}
       >
         <span className="min-w-0 text-pretty">{label}</span>
       </Link>

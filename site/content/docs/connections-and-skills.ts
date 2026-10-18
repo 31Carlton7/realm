@@ -17,6 +17,7 @@ export default page({
       { part: "connections" },
       "The Connections page, Connect an app: cards for Linear, Notion, Slack, GitHub, Jira & Confluence, Figma and Sentry, each saying what it grants, with a Connect button and a link to the vendor's docs.",
       "The apps a space can connect in one click.",
+      "Three of the apps a space can connect, each with what it lets an agent do.",
     ),
     p(
       "**Connections** on the rail, or a space's **Connections** tab, starts with **Connect an app**: a card for each app whose own remote MCP server Realm can sign you in to. Press **Connect** and sign in on the app's own page. From then on it's an ordinary server in the list below.",

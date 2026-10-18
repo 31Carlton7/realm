@@ -458,6 +458,52 @@ a:focus-visible .link-line,
 /* A label that hangs off the top of the thing it names, its far edge cut at 60 degrees: the angle of
    every edge in Realm's mark, so the seam reads as a piece of the logo. 18.5px is 32px × tan 30°. */
 
+/* The docs' map (app/docs/layout.tsx), where it is taller than the view and scrolls in its own column:
+   it dissolves at whichever end has more to show, and a map that fits wears no fade at all, because
+   the scroll timeline is inactive on a box with nothing to scroll (design.md, Surfaces and depth). */
+@property --map-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --map-fade-foot {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@media (min-width: 1024px) {
+  .docs-nav-scroll {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--map-fade-top), #000 calc(100% - var(--map-fade-foot)), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 var(--map-fade-top), #000 calc(100% - var(--map-fade-foot)), transparent);
+  }
+
+  @supports (animation-timeline: scroll()) {
+    .docs-nav-scroll {
+      animation: map-fade linear both;
+      animation-timeline: scroll(self);
+    }
+  }
+}
+
+@keyframes map-fade {
+  0% {
+    --map-fade-top: 0px;
+    --map-fade-foot: 40px;
+  }
+  8% {
+    --map-fade-top: 32px;
+  }
+  92% {
+    --map-fade-foot: 40px;
+  }
+  100% {
+    --map-fade-top: 32px;
+    --map-fade-foot: 0px;
+  }
+}
+
 /* JetBrains Mono's ligatures draw `===` as one glyph; code on this site is read, so it shows what was typed. */
 .font-mono,
 code,

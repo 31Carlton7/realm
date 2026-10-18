@@ -1,3 +1,4 @@
+import Link from "next/link"
 import type { ReactNode } from "react"
 
 import { GitHubIcon, GlobeIcon, LinkedInIcon, XIcon } from "@/components/icons"
@@ -48,6 +49,11 @@ export async function SiteFooter({ world }: { world?: ReactNode }) {
                   <a href={href} className={linkClass}>
                     <span className="link-line">Download for Mac</span>
                   </a>
+                </li>
+                <li>
+                  <Link href="/docs" className={linkClass}>
+                    <span className="link-line">Docs</span>
+                  </Link>
                 </li>
                 <li>
                   <ChangelogLink className={linkClass}>

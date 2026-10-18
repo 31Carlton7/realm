@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useLayoutEffect, useRef, type FocusEvent, type PointerEvent } from "react"
 
@@ -22,7 +23,8 @@ const CONDENSE = 140
  * scroll position by one rAF-throttled reader; under reduced motion it is either state, never between.
  *
  * On the landing page the capsule's lower edge also carries the flight's progress, as a hairline of
- * the accent's light drawn from left to right. The changelog's link says when it is the page shown.
+ * the accent's light drawn from left to right. The docs' and the changelog's links say when theirs is
+ * the page shown.
  *
  * The bar's links share one highlight (globals.css, `.nav-pill`) that glides to the link under the
  * pointer, or the one the keyboard is on; where it was hidden, it lands under that link and fades in.
@@ -36,6 +38,7 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
   const pillRef = useRef<HTMLSpanElement>(null)
   const path = usePathname()
   const onChangelog = path?.startsWith("/changelog") ?? false
+  const onDocs = path?.startsWith("/docs") ?? false
 
   // Measured before the bar is first painted: a view transition captures a page arriving before its
   // passive effects run, and the bar would cross the view at its unmeasured width.
@@ -137,7 +140,9 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
             ref={brandRef}
             className="relative flex shrink-0 items-center rounded-[8px] text-ink transition-opacity duration-150 ease-out hover:opacity-75 hover:duration-220 hover:ease-spring"
           >
-            <Wordmark />
+            {/* On a phone narrower than 400px the bar cannot hold the name, two links and the download
+                at the column's width, so the name gives way to the mark alone; it stays the link's name. */}
+            <Wordmark nameClassName="max-[399px]:sr-only" />
           </HomeLink>
           <div className="min-w-0 flex-1" />
           <div ref={actionsRef} className="relative flex shrink-0 items-center gap-1">
@@ -150,9 +155,16 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
               className="relative flex items-center gap-1"
             >
               <span ref={pillRef} aria-hidden className="nav-pill" />
+              <Link
+                href="/docs"
+                aria-current={onDocs ? "page" : undefined}
+                className={`nav-link app-corner relative inline-flex min-h-11 items-center rounded-[14px] px-3 text-[14px] sm:px-3.5 ${onDocs ? "bg-white/[0.06] text-ink" : "text-ink-2"}`}
+              >
+                Docs
+              </Link>
               <ChangelogLink
                 aria-current={onChangelog ? "page" : undefined}
-                className={`nav-link app-corner relative inline-flex min-h-11 items-center rounded-[14px] px-3.5 text-[14px] ${onChangelog ? "bg-white/[0.06] text-ink" : "text-ink-2"}`}
+                className={`nav-link app-corner relative inline-flex min-h-11 items-center rounded-[14px] px-3 text-[14px] sm:px-3.5 ${onChangelog ? "bg-white/[0.06] text-ink" : "text-ink-2"}`}
               >
                 Changelog
               </ChangelogLink>

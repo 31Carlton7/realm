@@ -4,7 +4,7 @@ export default page({
   slug: "computer-use",
   title: "Computer use and Laya",
   summary:
-    "Let an agent use the other apps on your Mac, one app and one space at a time, and run Laya, a small local model that watches each step it takes.",
+    "Let an agent use the other apps on your Mac, one app and one space at a time, and run Laya, a model on your Mac that is asked about each step an agent takes there.",
   body: [
     h2("Computer use"),
     p(

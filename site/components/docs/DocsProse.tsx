@@ -95,7 +95,7 @@ export function DocsProse({ blocks }: { blocks: Block[] }) {
               </div>
             )
           case "figure":
-            return <DocFigure key={key} shot={block.shot} alt={block.alt} caption={inline(block.caption)} />
+            return <DocFigure key={key} shot={block.shot} alt={block.alt} caption={inline(block.caption)} phoneCaption={block.phoneCaption ? inline(block.phoneCaption) : undefined} />
         }
       })}
     </div>
@@ -105,17 +105,18 @@ export function DocsProse({ blocks }: { blocks: Block[] }) {
 const SIZES = "(min-width: 1024px) 704px, 100vw"
 
 /** A capture, shown as the rest of the site shows one (components/realms/Screen): a whole window, a
- *  part of one photographed on its own, or a crop. A crop is drawn no larger than it is in the app. */
-function DocFigure({ shot, alt, caption }: { shot: Shot; alt: string; caption: React.ReactNode }) {
+ *  part of one photographed on its own, or a crop, drawn near the size it has in the app. */
+function DocFigure({ shot, alt, caption, phoneCaption }: { shot: Shot; alt: string; caption: React.ReactNode; phoneCaption?: React.ReactNode }) {
   if ("detail" in shot) return <Figure image={shot.detail} alt={alt} caption={caption} />
   if ("crop" in shot) {
     const crop = (crops as Record<string, { width: number; height: number; radius: number }>)[shot.crop]
     if (!crop) return null
-    return <Screen image={{ src: `/docs/${shot.crop}.webp`, ...crop }} alt={alt} caption={caption} zoom={1} sizes={SIZES} />
+    return <Screen image={{ src: `/docs/${shot.crop}.webp`, ...crop }} alt={alt} caption={caption} sizes={SIZES} />
   }
   if ("part" in shot) {
     const image = partImage(shot.part)
-    return image ? <Screen image={image} alt={alt} caption={caption} zoom={1} sizes={SIZES} /> : null
+    const phone = partImage(`${shot.part}-phone`)
+    return image ? <Screen image={image} alt={alt} caption={caption} phone={phone ? { image: phone, caption: phoneCaption } : undefined} sizes={SIZES} /> : null
   }
   return <Screen kind="window" image={sceneImage(shot.scene)} alt={alt} caption={caption} zoom={1} sizes={SIZES} />
 }

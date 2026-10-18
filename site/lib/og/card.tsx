@@ -3,12 +3,14 @@ import { join } from "node:path"
 
 import { ImageResponse } from "next/og"
 
+import { DOCS_SUMMARY } from "@/content/docs"
 import { entryBySlug, formatDate, isWithdrawn, releases, type Entry } from "@/lib/changelog"
+import { docBySlug, docs, groupOf, plainText } from "@/lib/docs"
 import metrics from "@/lib/og/fonts/metrics.json"
 import { CARD, WORDS, skyFile, skyFor, type SkyName } from "@/lib/og/layout"
 
 /**
- * The changelog's share cards, drawn by next/og at build: the words set over a sky photographed from
+ * The changelog's and the docs' share cards, drawn by next/og at build: the words set over a sky photographed from
  * the live field (lib/og/layout.ts, public/og), in the site's own faces (lib/og/fonts, derived by
  * scripts/og-fonts.py) and its own inks. The layout is the site card's (app/share): the wordmark at
  * the head of the words' box, and at its foot the entry as the changelog sets it, the date over the
@@ -252,3 +254,18 @@ export const indexAlt = () => {
   const first = releases.at(-1)
   return `Realm's changelog: the word Changelog and "${releases.length} releases since ${first ? formatDate(first.date) : ""}" on the left, beside a row of Realm's realms, cubes lying on their sides with their doorways lit, going away into a blue nebula.`
 }
+
+/** A docs page's card: its group over its title and summary, at the docs' realm. */
+export async function docsCard(slug: string): Promise<ImageResponse | null> {
+  const doc = docBySlug(slug)
+  if (!doc) return null
+  return draw({ sky: skyFor(slug, false), label: "Docs", meta: groupOf(slug)?.title ?? "Docs", title: doc.title, size: titleSize(keepWords(doc.title)), summary: plainText(doc.summary) })
+}
+
+/** The docs home's card. */
+export function docsIndexCard() {
+  return draw({ sky: "a", meta: `${docs.length} pages · Realm 2.3`, title: "Docs", size: 120, summary: DOCS_SUMMARY })
+}
+
+export const DOCS_ALT =
+  "A card from Realm's docs: on the left, Realm's name, the page's group, its title and its summary; on the right, one of Realm's realms, a cube lying on its side with its doorway lit, hanging in a blue nebula with more realms going away behind it."

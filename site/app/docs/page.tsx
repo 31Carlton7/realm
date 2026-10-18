@@ -6,7 +6,7 @@ import { ArrowIcon } from "@/components/icons"
 import { Screen } from "@/components/realms/Screen"
 import { DOCS_SUMMARY } from "@/content/docs"
 import { docs, groups, plainText } from "@/lib/docs"
-import { sceneImage } from "@/lib/pictures"
+import { partImage, sceneImage } from "@/lib/pictures"
 
 export const metadata: Metadata = {
   title: "Docs",
@@ -31,19 +31,21 @@ const REGIONS = [
  */
 export default function DocsHome() {
   const first = docs[0]
+  // A phone gets a capture laid out at a phone's width, never the window drawn at a third of its size.
+  const turn = partImage("turn-phone")
   return (
     <div className="max-w-[60rem]">
       <header>
         <h1 className="text-[clamp(2.5rem,4.4vw,3.5rem)] leading-[1] font-[580] tracking-[-0.045em] text-ink">Docs</h1>
         <p className="mt-5 max-w-[40rem] text-[18px] leading-[1.6] text-pretty text-ink-2">{DOCS_SUMMARY}</p>
         {first ? (
-          <Link
-            href={`/docs/${first.slug}` as Route}
-            className="group mt-6 inline-flex min-h-11 items-center gap-2 text-[16px] font-[520] text-accent-ink"
-          >
-            <span className="link-line">New to Realm? {first.title}</span>
-            <ArrowIcon className="nudge h-3.5 w-3.5" />
-          </Link>
+          <p className="mt-6 text-[16px] text-ink-2">
+            New to Realm?{" "}
+            <Link href={`/docs/${first.slug}` as Route} className="group inline-flex min-h-11 items-center gap-2 font-[520] text-accent-ink">
+              <span className="link-line">{first.title}</span>
+              <ArrowIcon className="nudge h-3.5 w-3.5" />
+            </Link>
+          </p>
         ) : null}
       </header>
 
@@ -56,6 +58,7 @@ export default function DocsHome() {
           image={sceneImage("workspace")}
           alt="Realm's window. On the left, the rail of icons and the sidebar, with two sessions under Needs you and the Realm, Dashboard, Site and School spaces below. In the middle, a session whose answer explains a fix and lists the two files it edited, above the prompter. On the right, the side panel's Documents tab with orgs.ts open at line 83."
           caption="A session that fixed a crash, beside the file its answer named."
+          phone={turn ? { image: turn, caption: "A session's turn: the work in one row, the answer, and the two files it edited." } : undefined}
           zoom={1}
           priority
           sizes="(min-width: 1024px) 960px, 100vw"
