@@ -1,4 +1,4 @@
-import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel } from "@realm/contracts";
+import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel, type AddTeammate } from "@realm/contracts";
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape, type UnlockPolicy, type UnlockPolicyStatus } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
@@ -728,8 +728,13 @@ export type Api = TeamApi & LabApi & {
    *  in memory, so this is the only way a pane mounted mid-run learns about it; from then on
    *  `delegation.changed` carries every change. */
   listDelegatedRuns(sessionId: string): Promise<DelegatedRun[]>;
-  /** `delegation.children` — every session this one delegated to, settled ones included. */
-  listDelegatedChildren(sessionId: string): Promise<DelegatedChild[]>;
+  /** `delegation.children` — every session this one delegated to, settled ones included, and the
+   *  sub-agents the person took off its prompter's row. */
+  listDelegatedChildren(sessionId: string): Promise<{ children: DelegatedChild[]; dismissed: string[] }>;
+  /** `delegation.addTeammate` — an agent added from the prompter's "+", as the session's sub-agent. */
+  addTeammate(input: AddTeammate): Promise<{ childId: string }>;
+  /** `delegation.dismiss` — take one of a session's sub-agents off its prompter's row. */
+  dismissSubagent(sessionId: string, id: string): Promise<{ dismissed: string[] }>;
   /** `delegation.models` — what a sub-agent can be put on, and what this session runs itself. */
   delegableModels(sessionId: string): Promise<DelegableModels>;
   /** `delegation.tab` — the session's Agents tab, made the first time it is asked for. */
@@ -1602,6 +1607,9 @@ export type AppState = TeamSlice & LabSlice & {
    *  Agents tab lists and its transcript's delegation lines read. Fetched while either is on screen,
    *  and re-read on each `delegation.changed` for the lead, which is every begin, settle and collect. */
   subagents: Record<string, DelegatedChild[]>;
+  /** The sub-agents taken off each lead's prompter row (`delegation.dismiss`), by LEAD session id:
+   *  child session ids, and launching call ids for the harness's own. Read with `subagents`. */
+  dismissedSubagents: Record<string, string[]>;
   /** What a lead's Agents tab was last asked to start its composer from ("Implement with…").
    *  Counted, so the same ask twice is two asks rather than a prop that did not change. */
   agentsAsk: Record<string, { plan?: string; n: number }>;
@@ -2646,6 +2654,12 @@ export type AppState = TeamSlice & LabSlice & {
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
   /** Re-read a lead's sub-agents into `subagents`. */
   refreshSubagents(sessionId: string): Promise<void>;
+  /** Add a teammate to a session from its prompter's "+". The new sub-agent arrives in `subagents`
+   *  by the `delegation.changed` its start announces. */
+  addTeammate(input: AddTeammate): Promise<void>;
+  /** Take a sub-agent off its lead's prompter row, here at once and in every window by the
+   *  `delegation.changed` the server sends. */
+  dismissSubagent(leadId: string, id: string): Promise<void>;
   /** The session's Agents tab, as a tab of its side pane the way its other tools open. `childId`
    *  opens it on that sub-agent's viewer, null on the overview, and absent wherever it was left; a
    *  `plan` starts the overview's composer from it. */
@@ -4430,7 +4444,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -6714,7 +6728,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const current = get().draftRefs[sessionId] ?? [];
         // The same thing named twice is one entry under one label — the second token is the same chip.
         const same = current.find((r) => r.kind === ref.kind && (r.kind === "app" ? r.bundleId === (ref as { bundleId?: string }).bundleId
-          : r.kind === "role" ? r.roleId === (ref as { roleId?: string }).roleId : r.path === (ref as { path?: string }).path));
+          : r.kind === "role" ? r.roleId === (ref as { roleId?: string }).roleId
+          : r.kind === "agent" ? r.sessionId === (ref as { sessionId?: string }).sessionId : r.path === (ref as { path?: string }).path));
         if (same) return same.label;
         const taken = [...current, ...(get().draftLinks[sessionId] ?? []), ...(get().draftElements[sessionId] ?? [])].map((c) => c.label);
         const label = mentionRefLabel(candidates, taken);
@@ -7402,8 +7417,16 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (get().subagents[sessionId] || get().transcripts[sessionId]) void get().run(() => get().refreshSubagents(sessionId));
       },
       async refreshSubagents(sessionId) {
-        const children = await api.listDelegatedChildren(sessionId);
-        set({ subagents: { ...get().subagents, [sessionId]: children } });
+        const { children, dismissed } = await api.listDelegatedChildren(sessionId);
+        set({ subagents: { ...get().subagents, [sessionId]: children }, dismissedSubagents: { ...get().dismissedSubagents, [sessionId]: dismissed } });
+      },
+      async addTeammate(input) {
+        await api.addTeammate(input);
+      },
+      async dismissSubagent(leadId, id) {
+        set({ dismissedSubagents: { ...get().dismissedSubagents, [leadId]: [...(get().dismissedSubagents[leadId] ?? []), id] } });
+        const { dismissed } = await api.dismissSubagent(leadId, id);
+        set({ dismissedSubagents: { ...get().dismissedSubagents, [leadId]: dismissed } });
       },
       async openAgentsTab(sessionId, ask) {
         if (ask?.plan !== undefined) set({ agentsAsk: { ...get().agentsAsk, [sessionId]: { plan: ask.plan, n: (get().agentsAsk[sessionId]?.n ?? 0) + 1 } } });

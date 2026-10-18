@@ -2613,7 +2613,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
     expect(within(menu).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Add", "Mode", "Connectors"]);
     const names = (group: string) => [...within(menu).getByRole("group", { name: group }).querySelectorAll('[role^="menuitem"]')]
       .map((b) => b.querySelector(".menu-label")!.textContent);
-    expect(names("Add")).toEqual(["Files…", "Folder…", "Select in Realm", "Skills", "Goal…"]);
+    expect(names("Add")).toEqual(["Files…", "Folder…", "Select in Realm", "Skills", "Goal…", "Add teammate…"]);
     expect(names("Mode")).toEqual(["Build", "Plan", "Ask"]);
     expect(names("Connectors")).toEqual(["Manage connections…"]);
     // The shortcut rides the name; the line is the row's DESCRIPTION, so a row is still found by
@@ -2657,7 +2657,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
     const menu = screen.getByRole("menu", { name: "Add" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: /^Files…/ }));
     // From the last row of Add straight into Mode — the heads are not stops.
-    for (let i = 0; i < 5; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    for (let i = 0; i < 6; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitemcheckbox", { name: "Build" }));
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "Manage connections…" }));

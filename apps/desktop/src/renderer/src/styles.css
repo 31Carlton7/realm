@@ -5884,6 +5884,34 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-goal + .composer-overstrip,
 .composer-todos + .composer-overstrip { border-radius: 0; }
 
+/* ── Who is working: the session's agents, on the over-strip ──
+   The strip's own ghost chips (22px, 11px, faint), so the row reads as part of the strip rather than
+   a toolbar laid on it. Each is its state's mark — the sidebar's dot and ring while it works or needs
+   you, the transcript's glyph once it has ended — and its name, cut short so a few fit beside the
+   branch. Set a step apart from the branch, which is a fact of another kind. */
+.active-agents { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.composer-overstrip > * + .active-agents { margin-left: 8px; }
+.active-agents .active-agent { max-width: 140px; }
+.active-agent-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 12px; color: var(--rl-text-faint); }
+.active-agent[data-state="failed"] .active-agent-mark, .active-agent[data-state="timeout"] .active-agent-mark,
+.active-agent-mark[data-state="failed"], .active-agent-mark[data-state="timeout"] { color: var(--rl-danger); }
+/* Needs you is the one state the person has to act on, so its name is a rung brighter. */
+.composer-overstrip .active-agent[data-state="waiting"] { color: var(--rl-text-dim); }
+.active-agents-more { font-variant-numeric: tabular-nums; }
+@container (max-width: 460px) { .active-agents .active-agent { max-width: 96px; } }
+
+/* ── "+ → Add teammate…" ──
+   A popover off the "+", in the code review sheet's anatomy at the prompter's scale: a title, the
+   model picker's own chip, one line for the brief, where it works, and the action. */
+.teammate-pop { z-index: 100; width: 360px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-float); box-shadow: var(--shadow-overlay);
+  animation: rl-menu-in var(--dur-pop) var(--spring-smooth); }
+.teammate-pop[data-closing] { animation: rl-menu-out var(--dur-press) var(--ease-out-strong) forwards; pointer-events: none; }
+.teammate-pop-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.teammate-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--rl-text-dim); }
+.teammate-pop-note { margin: -4px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.teammate-pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
 /* ── Under-strip (§4 + Plan 12 W1): machine label + workspace selector, one size quieter than the
    control row (11px on faint vs 12px on dim), on a frame fill sliding out from beneath the card
    (z-index 1 on .composer keeps the card on top). Drawn unconditionally — where a session runs is

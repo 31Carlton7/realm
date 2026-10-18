@@ -105,7 +105,9 @@ describe("the quick chat", () => {
     const w = within(await openChat());
     fireEvent.click(w.getByRole("button", { name: "Add" }));
     const menu = await screen.findByRole("menu", { name: "Add" });
-    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([expect.stringContaining("Files…")]);
+    // A teammate is not a fact about where the session runs: it is someone to ask for help, and a
+    // quick question is as good a place to want one as any.
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([expect.stringContaining("Files…"), expect.stringContaining("Add teammate…")]);
   });
 
   it("has no browser, documents, terminal or summary — one close and nothing else", async () => {

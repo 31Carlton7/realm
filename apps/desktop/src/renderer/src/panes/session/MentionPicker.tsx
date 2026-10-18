@@ -80,6 +80,7 @@ function RowMark({ row, appIcons }: { row: MentionRow; appIcons: Readonly<Record
     return <span className="mention-row-mark" data-app="">{src ? <img src={src} alt="" width={16} height={16} draggable={false} /> : src === null ? <Icon name="pointer" size={14} /> : null}</span>;
   }
   if (row.kind === "role") return <span className="mention-row-mark"><Realmite spec={parseRealmiteSpec(row.role.realmite, row.role.id)} size={16} state={realmiteState(row.role)} /></span>;
+  if (row.kind === "agent") return <span className="mention-row-mark"><Icon name="bot" size={16} /></span>;
   const name = row.kind === "mac" ? "apple" : row.kind === "skill" ? "sparkles" : fileMark(row.path);
   return <span className="mention-row-mark"><Icon name={name} size={row.kind === "mac" ? 14 : 16} /></span>;
 }

@@ -15,6 +15,9 @@ import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } fro
 import { effortOptions, fastModeAvailability, fastModeTip, modelRows, type EffortControl, type FastMode } from "./model-catalog";
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker } from "./ModelPicker";
+import { ActiveAgents, useRowAgents } from "./ActiveAgents";
+import { AddTeammate } from "./AddTeammate";
+import { CHILD_ORIGINS } from "../session-labels";
 import { heroGreeting } from "./greeting";
 import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
@@ -295,7 +298,7 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * Plugins section: Realm has no plugin system, and parity with Codex's menu is not a reason to
  * invent one.
  */
-function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkills, onGoal, connectors, onOpened, onManageConnections, modeRows, btnRef, compact = false }: {
+function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkills, onGoal, onAddTeammate, connectors, onOpened, onManageConnections, modeRows, btnRef, compact = false }: {
   onAttachPick: () => void; onAddFolder: () => void;
   /** Point at a part of Realm and add it to this message, and the chord that does it too — the
    *  person's own, so a rebinding in Settings ▸ Keys is the hint here. Absent, there is no row. */
@@ -311,6 +314,9 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   /** Arm the box with `/goal `, or null when this prompter has no goal command to arm — the gate is
    *  the command list itself, so this row can never offer something the `/` picker does not. */
   onGoal: (() => void) | null;
+  /** Open the teammate picker, or null for a session that cannot take one — a sub-agent, which may
+   *  not start agents of its own. */
+  onAddTeammate: (() => void) | null;
   /** The space's servers, or null when the cache has never been fetched (rendered as loading). */
   connectors: McpServer[] | null;
   /** Fired on open — the store re-reads its cache (a row read, never a probe). */
@@ -339,6 +345,7 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
        nothing to pick from — which is the same gesture `/goal` already is, reached by someone who
        does not know the command exists. */
     ...(onGoal ? [{ label: "Goal…", icon: <Icon name="target" size={16} />, detail: "Keep working toward an objective", onSelect: onGoal } as MenuItem] : []),
+    ...(onAddTeammate ? [{ label: "Add teammate…", icon: <Icon name="team" size={16} />, detail: "Another agent, to help this one", onSelect: onAddTeammate } as MenuItem] : []),
   ];
   if (!compact) items.push(
     { kind: "header", label: "Mode" },
@@ -762,6 +769,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const [mentionActive, setMentionActive] = useState(0);
   // The "+ → Skills" picker. Anchored on the plus itself, so it opens over the button the user pressed.
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [teammateOpen, setTeammateOpen] = useState(false);
+  const rowAgents = useRowAgents(session.id);
   const plusRef = useRef<HTMLButtonElement>(null);
   /** Token start Esc was pressed on: that token stays closed until it is left or retyped. */
   const [mentionDismissed, setMentionDismissed] = useState<number | null>(null);
@@ -779,7 +788,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const mentionMatches = useMemo((): MentionRow[] => {
     if (!mentionToken) return [];
     const options = mentionOptions({ mac: macSkill, skills: mentionSkills, files: answers.files, cwd: mentions?.cwd ?? session.cwd,
-      library: answers.library, apps: mentions?.apps ?? [], roles: mentions?.roles ?? [] });
+      library: answers.library, apps: mentions?.apps ?? [], roles: mentions?.roles ?? [], agents: mentions?.agents ?? [] });
     return mentionRows(options, mentionToken.query, { accessibility: mentions?.accessibility ?? null });
   }, [mentionToken, macSkill, mentionSkills, answers, mentions, session.cwd]);
   /* The icons the list and the draft's chips are about to draw, fetched once each. Keyed on the
@@ -834,6 +843,14 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
     const pos = mentionToken.start + insert.length;
     pendingSel.current = { start: pos, end: pos };
     setMentionActive(0);
+  };
+  /** A sub-agent's name put at the front of the draft, from its chip's menu: the `@` list's pick,
+   *  for the person who reached for the agent rather than the keyboard. */
+  const addressAgent = (agent: { id: string; title: string }) => {
+    if (!mentions) return;
+    const insert = `${elementChipToken(mentions.addRef({ kind: "agent", sessionId: agent.id }, [agent.title]))} `;
+    onDraftChange(insert + draft);
+    pendingSel.current = { start: insert.length, end: insert.length };
   };
   const mentionCur = Math.min(mentionActive, mentionMatches.length - 1);
 
@@ -1190,9 +1207,10 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           Between the to-do strip and the card, so the two tabs stack into one frame band rather
           than fighting over the same edge (the join is `.composer-todos + .composer-overstrip` in
           styles.css) and the plan keeps its own top corners. */}
-      {gitInfo && !compact && (
+      {!compact && (gitInfo || rowAgents.length > 0) && (
         <div className="composer-overstrip">
           <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
+          <ActiveAgents sessionId={session.id} agents={rowAgents} onMessage={mentions ? addressAgent : undefined} />
         </div>
       )}
       {/* The whole card is the drop target — aiming at a 44px textarea with a file in hand is a chore.
@@ -1256,7 +1274,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
               const ref = s.kind === "element" && !link ? refOf(s.text) : null;
               const appIcon = ref?.kind === "app" ? mentions?.appIcons[ref.path] : null;
               const icon = link ? LINK_SERVICE_META[link.service].icon
-                : ref ? (ref.kind === "app" ? "pointer" : ref.kind === "role" ? "team" : fileMark(ref.path))
+                : ref ? (ref.kind === "app" ? "pointer" : ref.kind === "role" ? "team" : ref.kind === "agent" ? "bot" : fileMark(ref.path))
                 : s.kind === "element" ? "target"
                 : s.kind === "mention" || s.kind === "mention-stale" ? (s.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles") : null;
               const bracketed = s.kind === "element"; // `@[…]`, where a mention is a bare `@`
@@ -1329,6 +1347,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             onPick={pickMention} onHover={setMentionActive}
             onClose={() => setMentionDismissed(mentionToken.start)} />
         )}
+        {teammateOpen && <AddTeammate session={session} anchorRef={plusRef} canWorktree={gitInfo !== null} onClose={() => setTeammateOpen(false)} />}
         {skillPickerOpen && (
           <SkillPicker skills={allSkills} anchorRef={plusRef}
             onToggle={(sk, enabled) => onToggleSkill?.(sk.id, enabled)}
@@ -1345,6 +1364,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
             <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
               onSkills={() => setSkillPickerOpen(true)} canSkills={allSkills.length > 0}
               onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
+              onAddTeammate={session.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind) ? null : () => setTeammateOpen(true)}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
               onManageConnections={() => onManageConnections?.()}
               modeRows={modeRows} btnRef={plusRef} compact={compact} />
