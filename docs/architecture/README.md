@@ -1,14 +1,14 @@
 # How Realm is built
 
-Realm is two programs that run on your Mac, plus the agents they start. The app you see is an
-Electron app. Everything that has to outlive a window (sessions, terminals, schedules, the database)
-lives in a second process, `realm-server`, which keeps running after you close the app. They talk
-over one local WebSocket. The agents are separate processes again, and they reach Realm's tools
+Realm is two processes on your Mac, plus the agents they start. The app you see is an Electron app.
+Everything that has to outlive a window (sessions, terminals, schedules, the database) lives in a
+second process, `realm-server`, which in the packaged Mac app keeps running after you quit. The two
+talk over one local WebSocket. The agents are separate processes again, and they reach Realm's tools
 through one local MCP endpoint.
 
 This page is the map. [features.md](features.md) follows each feature through it.
 
-[![The whole system as one poster: Realm.app on the left, the realm-server daemon in the middle, the agent processes and tools it starts on the right, what it keeps on disk below, and the services off the Mac along the bottom.](realm-architecture.png)](realm-architecture.png)
+[![The whole system as one poster: Realm.app on the left, the realm-server daemon in the middle, the processes it starts to its right, the services off the Mac in the last column, and what lives on disk along the bottom.](realm-architecture.png)](realm-architecture.png)
 
 *Open [`realm-architecture.html`](realm-architecture.html) in a browser for the version you can pan
 and zoom; click a box for the files it stands for. It is one file and fetches nothing.*
@@ -94,8 +94,8 @@ flowchart TB
   relay <-. "Noise, end to end" .-> server
 ```
 
-Read it left to right. The renderer is React in a sandboxed page; it reaches Electron main only
-through the preload bridge, and it reaches the server directly over the RPC socket. Main starts the
+Read it top to bottom. The renderer is React with no Node in it (context isolation is on); it reaches
+Electron main only through the preload bridge, and it reaches the server directly over the RPC socket. Main starts the
 server, owns everything native (browser views, the Keychain, Touch ID, the Swift helpers) and is
 itself a client of the same socket, so the server can ask it to drive a page or another app. The
 server owns all state and starts the agents. The agents talk to their own providers; Realm never sits
@@ -124,7 +124,7 @@ The server listens on loopback only, on five ports the OS picks at boot: the RPC
 `REALM_PORT` if you set it), the MCP gateway, the document preview server, the server that frames the
 views an MCP app ships (`apps/server/src/apps/server.ts:AppViewServer`), and a VNC relay for machine
 panes (`apps/server/src/app.ts:createApp`). In a packaged Mac build the server is a daemon: ⌘Q leaves it
-running with your sessions and terminals, and only Quit Realm & stop agents in the menu bar ends it.
+running with your sessions and terminals, and only the tray's Quit Realm & stop agents ends it.
 In development it is a child of the app.
 
 ### What is on disk
@@ -184,7 +184,7 @@ Outside the workspace:
 | Folder | What it is |
 |---|---|
 | `site/` | realm.computer, a Next.js app with its own lockfile, deployed to Vercel (see `site/README.md`) |
-| `skills/` | the skills that ship with the app, copied into `~/Realm/skills` on first boot |
+| `skills/` | the skills that ship with the app, each copied into `~/Realm/skills` once |
 | `resources/` | the icon's source drawing, the iPhone test runner (`ios-device-runner`) and Laya's training script and benchmark |
 | `scripts/` | release, local install and daemon tools (`pnpm release`, `pnpm app:update`, `pnpm daemon:status`) |
 | `apps/desktop/scripts/` | build, packaging and notarizing, plus the `*-live.mjs` checks that drive the built app |
@@ -281,7 +281,8 @@ Electron, Chromium, Node and SQLite versions were read from the Electron binary 
 The map is only worth anything while it matches the code. Two scripts keep it honest:
 
 - `node docs/architecture/check-citations.mjs` fails on any cited file or symbol that no longer
-  exists, including the ones on `feat/mobile`.
+  exists, in these pages and in the poster's boxes. The mobile section's paths are read from
+  `origin/feat/mobile`, so fetch that branch first.
 - `apps/desktop/node_modules/.bin/electron docs/architecture/render.mjs` draws every Mermaid block
   with the Mermaid the app ships, fails on one that does not parse, and redraws the poster's PNG.
   Add `--blocks <folder>` to get each drawing as a PNG to look at.

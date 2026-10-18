@@ -18,6 +18,14 @@ macOS · Apple silicon · in active development
 
 Local-first agent control plane for macOS — profiles → spaces, every space in one sidebar, split panes for sessions beside one side panel for terminals / browsers / devices / documents, a context pool, and an MCP gateway. See `docs/superpowers/specs/2026-08-17-realm-v1-design.md`.
 
+## Architecture
+
+[docs/architecture](docs/architecture/README.md) is the map of how Realm is built: every process
+and the lines between them, every package and who depends on whom, and the stack layer by layer with
+its versions. [features.md](docs/architecture/features.md) follows each feature through it, one
+drawing each, and [realm-architecture.html](docs/architecture/realm-architecture.html) is the whole
+system as a poster you can pan and zoom.
+
 ## Dev
 - Node ≥ 22.13, pnpm 10, macOS.
 - Hugeicons Pro token in `.npmrc` (see `.npmrc.example`).

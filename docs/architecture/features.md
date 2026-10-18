@@ -11,7 +11,7 @@ once:
   WebSocket on `127.0.0.1`, authenticated by the subprotocol `realm.<token>`
   (`apps/server/src/rpc/server.ts:RpcServer`). Calls go one way; the server pushes events to every
   client with `RpcServer.broadcast`.
-- **The gateway.** Every agent gets exactly one MCP server, `realm`, at
+- **The gateway.** Realm hands every agent exactly one MCP server, `realm`, at
   `http://127.0.0.1:<port>/mcp` with a bearer token minted for that session
   (`apps/server/src/mcp/gateway.ts:McpGateway.register`). Realm's own tools and every Connection
   the space has switched on are behind it.
@@ -44,8 +44,10 @@ channel carries every feature below that touches a native view.
 
 ## A turn, from the prompter to the transcript
 
-You press Return in the prompter and the store sends `sessions.send` over the RPC socket. The server
-decides whether the message waits (queue), interrupts the running turn (steer) or starts a turn now.
+You press Return in the prompter and the store sends `sessions.send` over the RPC socket. If a turn is
+already running, the message either waits for it to settle (queue, the default) or is steered in:
+Codex takes it into the running turn, and every other agent is interrupted first. Otherwise it starts
+a turn now.
 A turn starts by taking a checkpoint of the checkout, then making sure the agent process is live:
 that is where the adapter is picked, the gateway token is minted and the skills and memory are
 handed over. From then on the adapter turns whatever its agent prints into Realm's own event union.
@@ -66,7 +68,7 @@ sequenceDiagram
   C->>St: sendMessage(id, text)
   St->>S: sessions.send over the RPC socket
   alt a turn is running
-    S->>S: enqueue (queue mode) or steer (interrupt, then deliver)
+    S->>S: enqueue (queue), or steer (Codex mid-turn, others interrupt then deliver)
   else idle
     S->>K: captureTurn, a git checkpoint before the agent sees the message
     S->>A: ensureLive, adapter.start with the gateway, skills and memory
@@ -98,6 +100,7 @@ once and upgraded by a model call in the background.
 - `apps/desktop/src/renderer/src/state/store.ts:sendMessage`, `applySessionEvent`, `flushSessionDeltas`
 - `apps/desktop/src/renderer/src/panes/session/transcript-model.ts:reduceTranscript`
 - `apps/server/src/sessions/service.ts:SessionService.send`, `enqueue`, `deliver`, `ensureLive`, `onEvent`, `drainQueue`
+- `packages/contracts/src/presets.ts:AGENT_MIDTURN_DELIVERY`, `resolveMidTurnMode`
 - `packages/contracts/src/session-events.ts:SessionEventSchema`, `PERSISTED_EVENT_TYPES`
 - `packages/adapters/src/types.ts:AgentAdapter`, `AgentHandle`
 - `packages/adapters/src/claude/claude-adapter.ts:ClaudeAdapter`, `packages/adapters/src/codex/codex-adapter.ts:CodexAdapter`, `packages/adapters/src/acp/acp-adapter.ts:AcpAdapter`
@@ -281,7 +284,8 @@ upcoming schedule; a missed minute is picked up by the next tick inside the six-
 
 **Key files**
 
-- `apps/server/src/schedules/service.ts:ScheduleService`, `SCHEDULE_TICK_MS`, `SCHEDULE_CATCHUP_MS`
+- `apps/server/src/schedules/service.ts:ScheduleService`
+- `packages/contracts/src/schedules.ts:SCHEDULE_TICK_MS`, `SCHEDULE_CATCHUP_MS`
 - `apps/server/src/store/schedules.ts:SchedulesStore`
 - `apps/server/src/schedules/agent-tools.ts:createSchedule`
 - `apps/server/src/runs/service.ts:RunService`, `recoverOnBoot`
