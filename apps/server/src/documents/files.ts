@@ -141,6 +141,12 @@ export async function writeDocument(abs: string, text: string, baseHash: string 
  */
 export async function renameDocument(absFrom: string, absTo: string): Promise<void> {
   if (absFrom === absTo) return;
+  // A new capitalisation of the same name finds the file being renamed on a case-insensitive disk (the
+  // Mac's default). It is not in its own way.
+  if (absFrom.toLowerCase() === absTo.toLowerCase()) {
+    const [from, to] = await Promise.all([stat(absFrom), stat(absTo).catch(() => null)]);
+    if (to && to.ino === from.ino && to.dev === from.dev) { await rename(absFrom, absTo); return; }
+  }
   if (await readIfExists(absTo)) throw new RpcError("EXISTS", `${absTo} already exists`);
   try {
     await stat(absTo);

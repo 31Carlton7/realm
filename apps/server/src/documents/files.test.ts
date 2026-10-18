@@ -3,7 +3,7 @@ import { chmod, lstat, readFile, readdir, rm, stat, symlink, writeFile } from "n
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { DOCUMENT_MAX_BYTES } from "@realm/contracts";
-import { TEXT_SNIFF_BYTES, hashText, isTempArtifact, readDocument, readIfExists, textRefusal, writeAtomic, writeDocument } from "./files";
+import { TEXT_SNIFF_BYTES, hashText, isTempArtifact, readDocument, readIfExists, renameDocument, textRefusal, writeAtomic, writeDocument } from "./files";
 
 let dir: string;
 const p = (name: string) => join(dir, name);
@@ -68,6 +68,22 @@ describe("writeAtomic", () => {
   it("names temp files so the watcher can recognise them", () => {
     expect(isTempArtifact("/x/.realm-tmp-123-a.md")).toBe(true);
     expect(isTempArtifact("/x/a.md")).toBe(false);
+  });
+});
+
+describe("renameDocument", () => {
+  it("changes only the capitalisation of a name", async () => {
+    // On the Mac's case-insensitive disk `notes.md` already "exists": it is this same file.
+    await writeFile(p("Notes.md"), "n");
+    await renameDocument(p("Notes.md"), p("notes.md"));
+    expect(await readdir(dir)).toEqual(["notes.md"]);
+  });
+
+  it("still refuses to land on a different file", async () => {
+    await writeFile(p("a.md"), "a");
+    await writeFile(p("b.md"), "b");
+    await expect(renameDocument(p("a.md"), p("b.md"))).rejects.toThrow(/already exists/);
+    expect(await readFile(p("b.md"), "utf8")).toBe("b");
   });
 });
 
