@@ -435,6 +435,9 @@ export class McpHub {
       }
       entry.client = client;
       entry.connecting = null;
+      // A server that exits (a crash, a stdio server quitting when idle) leaves a client that can only
+      // answer "Not connected": let go of it, so the next call connects again.
+      client.onclose = () => { if (entry.client === client) entry.client = null; };
       this.recordSuccess(id, entry);
       return client;
     } catch (err) {
