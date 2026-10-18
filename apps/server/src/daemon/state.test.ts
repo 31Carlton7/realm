@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { tempDir } from "@realm/test-utils";
-import { acquireLock, clearState, lockFile, newBootId, newToken, readState, releaseLock, stateFile, writeState, type DaemonState } from "./state";
+import { acquireLock, clearState, lockFile, newToken, readState, releaseLock, stateFile, writeState, type DaemonState } from "./state";
 
 const state = (over: Partial<DaemonState> = {}): DaemonState => ({
-  version: 1, pid: 4242, bootId: newBootId(), port: 8790, token: newToken(), home: "/tmp/realm",
+  version: 1, pid: 4242, bootId: randomUUID(), port: 8790, token: newToken(), home: "/tmp/realm",
   protocol: 1, bundleId: "abc123", entry: "/Applications/Realm.app/Contents/Resources/server/dist/main.js",
   startedAt: 1_757_000_000_000, state: "running", ...over,
 });

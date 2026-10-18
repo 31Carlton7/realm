@@ -111,9 +111,6 @@ export type RestoreHazard = {
   headReason: string | null;
 };
 
-/** The caller's consent, naming exactly the numbers it was shown. */
-export type RestoreAck = { filesChanged: number; commitsRolledBack: number };
-
 export type RestoreOutcome = {
   headMoved: boolean;
   /** Why HEAD stayed where it was, when it did. */

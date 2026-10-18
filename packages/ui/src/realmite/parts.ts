@@ -1,4 +1,4 @@
-import { contrast, css, oklchToHex, type Oklch } from "@realm/contracts";
+import { css, oklchToHex, type Oklch } from "@realm/contracts";
 
 /** The parts a Realmite is made of, by stable id. A spec stores ids, never geometry or colour, so a
  *  part can be redrawn later without a migration, and a stored spec keeps meaning what it meant. The
@@ -131,6 +131,3 @@ export function colours(id: PaletteId, face: Face): Colours {
     leaf: hex({ l: body.l - 0.12, c: 0.1, h: 125 }),
   };
 }
-
-/** The contrast the face's ink makes against the body it is drawn on. */
-export const faceContrast = (id: PaletteId, face: Face): number => contrast(inkOklch(id), bodyOklch(id, face));
