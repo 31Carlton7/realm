@@ -158,9 +158,13 @@ const SEARCH_MINUTES = 4 * 366 * 24 * 60;
  * the whole hour rather than sixty minutes one at a time.
  */
 export function nextCronFire(cron: Cron, after: number): number | null {
-  const d = new Date(after);
-  d.setSeconds(0, 0);
-  d.setMinutes(d.getMinutes() + 1); // strictly after
+  // Strictly after, and rounded in absolute time: in the hour that repeats when the clocks go back, a
+  // local setter reads the wall clock as its FIRST pass, an hour before `after`. A start in the second
+  // pass moves on to the first minute that reads as itself, so each wall-clock minute fires once, on
+  // its first pass — as the walk below already does when it starts before the repeat.
+  let start = Math.floor(after / 60_000) * 60_000 + 60_000;
+  for (let i = 0; i < 60 && wallClockInstant(start) !== start; i++) start += 60_000;
+  const d = new Date(start);
   for (let steps = 0; steps < SEARCH_MINUTES; ) {
     if (!cron.month.has(d.getMonth() + 1)) {
       // Jump to the first minute of the next month rather than walking a whole one.
@@ -178,6 +182,13 @@ export function nextCronFire(cron: Cron, after: number): number | null {
     steps += 1;
   }
   return null;
+}
+
+/** The instant the local wall-clock minute at `ts` names — `ts` itself, except in the second pass of
+ *  the hour that repeats, where the same reading names the first. */
+function wallClockInstant(ts: number): number {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()).getTime();
 }
 
 /* ────────────────────────────── once ────────────────────────────── */

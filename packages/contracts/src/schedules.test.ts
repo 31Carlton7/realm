@@ -118,6 +118,19 @@ describe("nextCronFire", () => {
     expect([d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()]).toEqual([2, 8, 9, 0]);
   });
 
+  it("never answers a moment before the one it was asked after, in the hour the clocks repeat", () => {
+    // US DST back, 2026-11-01: 01:00–01:59 happens twice, and `at` names the first pass. A local
+    // `setSeconds` read from inside the second pass lands an hour back, in the first.
+    const second = at(2026, 11, 1, 1, 20) + 3_600_000;
+    for (const expr of ["30 1 * * *", "*/15 * * * *", "* * * * *"]) {
+      expect(nextFireOf(expr, second)!, expr).toBeGreaterThan(second);
+    }
+  });
+
+  it("fires a time in the repeated hour once, not once per pass", () => {
+    expect(show(nextFireOf("30 1 * * *", at(2026, 11, 1, 1, 30)))).toBe(show(at(2026, 11, 2, 1, 30)));
+  });
+
   it("every fire it reports actually matches", () => {
     // The two functions are separate implementations of the same predicate; this is what keeps the
     // fast-skip in `nextCronFire` honest against the plain check in `matchesCron`.
