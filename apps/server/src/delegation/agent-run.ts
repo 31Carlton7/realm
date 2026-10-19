@@ -478,7 +478,7 @@ export class AgentRunService {
       });
     } catch (e) {
       await cleanupWorktree(createdWorktree, this.d.environments);
-      return err(`could not create the delegated session: ${message(e)}`);
+      return err(`could not create the delegated session: ${errorMessage(e)}`);
     }
     const childId = created.session.id;
     const t = this.d.timeouts ?? DEFAULT_TIMEOUTS;
@@ -521,7 +521,7 @@ export class AgentRunService {
       await this.d.sessions.send(childId, { text: childMessage(goal), attachments: [] });
     } catch (e) {
       this.d.engine.end(ctx.sessionId, run);
-      return err(`could not send the goal to the delegated session: ${message(e)}`);
+      return err(`could not send the goal to the delegated session: ${errorMessage(e)}`);
     }
     return { spawned: true, run, childId, title: created.session.title, budgetMs, mode: modeSentence(granted, parent.permissionMode, constraints?.permissionMode, agentKind), on: `${AGENT_META[agentKind].label} · ${modelLabel}` };
   }
@@ -856,8 +856,6 @@ export const AGENT_STATUS_TOOL: Tool = {
     `List this session's delegated agents: which are still running, and which have finished with a report waiting to be collected by ${AGENT_WAIT_TOOL_NAME}. Read-only — it never blocks and never starts or stops anything.`,
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };
-
-const message = errorMessage;
 
 /** "2:10" — a duration the way a clock shows it. */
 function clock(ms: number): string {
