@@ -199,8 +199,6 @@ const SCRIPT = [
   { on: "write up retention", emit: [...ANALYST.map(call), { kind: "usage", costUsd: 0.37 }, { kind: "text", text: "The answer, the patch, the press kit and the week's report are in Review." }] },
   // Woken by "Request changes": it says so and stays on it, so the batch rests in "changes".
   { on: "asked for changes", emit: [{ kind: "text", text: "On it — adding the cohort sizes." }] },
-  { on: "replace the old hook test", emit: [{ kind: "call", tool: "realm-team__review_close", argsFromMessage: true,
-    input: { outcome: "superseded", reason: "The hooks in “3 slideshows for Nathan” replace these." } }, { kind: "text", text: "Closed the old hook test." }] },
 ];
 
 /* ── the fixture files ──────────────────────────────────────────────────────────────────────────── */
@@ -353,8 +351,12 @@ async function main() {
   const by = (title) => reviews.find((r) => r.title === title);
   check("thirteen reviews arrived, all waiting", reviews.length === 13 && reviews.every((r) => r.state === "waiting"), reviews.map((r) => `${r.title}:${r.state}`));
 
-  // The role replaces its own first try.
-  await runRole(producer, `Please replace the old hook test {"id":"${by("Hook test, round 1").id}"}`);
+  // The role replaces its own first try: written as `review_close` leaves it (the scripted agent can
+  // only learn the id from the message, and a role's run wraps the message in its own words).
+  const hook = by("Hook test, round 1");
+  const reason = "The hooks in “3 slideshows for Nathan” replace these.";
+  execFileSync("sqlite3", [path.join(home, "realm.db"), `UPDATE team_reviews SET state = 'dismissed', note = '${reason}', decided_at = ${Date.now()}, updated_at = ${Date.now()} WHERE id = '${hook.id}';
+    INSERT INTO team_activity (id, space_id, ts, actor, run_id, session_id, verb, object, detail_json) VALUES ('${hook.id.slice(0, 25)}Z', '${space.id}', ${Date.now()}, 'role:${producer.id}', NULL, NULL, 'closed', 'Hook test, round 1', '${JSON.stringify({ reviewId: hook.id, outcome: "superseded", reason })}');`]);
   // Asked for changes: the analyst wakes, says so, and the batch rests with it.
   await api.call("team.reviewRequestChanges", { id: by("Retention report, week 41").id, note: "Add the cohort sizes next to each row." });
   await until(async () => (await runsOf(analyst.id)).every(settled), 20_000, "analyst on it");
@@ -379,6 +381,8 @@ async function main() {
   const [nextWeek] = await ticketsOf("Two slideshows for next week");
   const slot = new Date(); slot.setDate(slot.getDate() + 1); slot.setHours(10, 0, 0, 0);
   execFileSync("sqlite3", [db, `UPDATE team_act_tickets SET state = 'scheduled', pressed_at = ${Date.now()}, slot_at = ${slot.getTime()} WHERE id = '${nextWeek.id}';`]);
+  // Rows written behind the server's back: a change to the team's week makes every window read the team again.
+  await api.call("team.setBudget", { spaceId: space.id, weekBudgetUsd: 60 });
   reviews = (await api.call("team.space", { spaceId: space.id })).reviews;
   const states = Object.fromEntries(reviews.map((r) => [r.title, r.state]));
   check("every state is seeded", states["Hook test, round 1"] === "dismissed" && states["Retention report, week 41"] === "changes" && states["Weekly check-in with Nathan"] === "rejected"
@@ -400,6 +404,7 @@ async function main() {
       await shot(c, `${tag}-${mode}`);
     }
     await sendBack(c, by("Reply to Dana at Acme").id, mode);
+    if (!BEFORE) await decide(c, by(mode === "dark" ? "Does a 7-day streak predict retention?" : "v2.4 release notes patch").id, mode);
     await narrow(c, by("3 slideshows for Nathan").id, mode);
   }
   c.close();
@@ -421,10 +426,26 @@ async function sendBack(c, id, mode) {
   await evalIn(c, `(() => { const f = document.activeElement; f?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()`);
 }
 
+/** Approve a draft that goes nowhere: its row folds out of Waiting for you into Recent, the receipt
+ *  comes up at the window's foot, and the next draft waiting is put in front. */
+async function decide(c, id, mode) {
+  await read(c, id);
+  await sleep(500);
+  const title = await evalIn(c, `__live.text('.rv-title')`);
+  await evalIn(c, `__live.click(__live.button('^Approve'))`);
+  await sleep(90);
+  await shot(c, `31-deciding-${mode}`, 0);
+  await until(() => evalIn(c, `[...document.querySelectorAll('.toast')].some((t) => /Approved/.test(t.textContent))`), 5_000, "receipt");
+  const after = await evalIn(c, `({ title: __live.text('.rv-title'), recent: [...document.querySelectorAll('.rv-group[data-group="recent"] [data-review]')].map((r) => r.dataset.review) })`);
+  check(`${mode}: the approved draft moved to Recent and the next one is in front`, after.recent.includes(id) && after.title !== title, after);
+  await shot(c, `32-decided-${mode}`);
+}
+
 /** The pane at a side panel's width. */
 async function narrow(c, id, mode) {
   await size(c, 860);
   await sleep(400);
+  if (!BEFORE) await evalIn(c, `(() => { const back = __live.button('All reviews'); if (back) back.click(); return true; })()`);
   await shot(c, `40-narrow-list-${mode}`);
   await evalIn(c, `__live.click(__live.q('[data-review="${id}"]'))`);
   await shot(c, `41-narrow-reader-${mode}`, 1400);
