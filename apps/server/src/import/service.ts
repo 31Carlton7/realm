@@ -91,7 +91,7 @@ export class ImportService {
 
   // ---------------------------------------------------------------- scan
 
-  scan(): ImportScan {
+  async scan(): Promise<ImportScan> {
     const now = this.now();
     const world = this.world();
     // Every provider session id already in the database, read ONCE: the dedup question is asked of
@@ -106,6 +106,9 @@ export class ImportService {
     const sessions: ImportSessionCandidate[] = [];
     const unreadable = { claude: 0, codex: 0, cursor: 0 };
     for (const f of found) {
+      // A turn of the event loop between transcripts: ~/.claude alone can be gigabytes, and read in one
+      // go it held every other request to the server for as long as the scan took.
+      await new Promise((r) => setImmediate(r));
       // Cursor keeps its cwd in a sibling `meta.json`, so a scratch session can be recognised without
       // opening its SQLite store at all. Worth the special case: 1048 of those directories exist on
       // this machine and all but 21 are empty shells.

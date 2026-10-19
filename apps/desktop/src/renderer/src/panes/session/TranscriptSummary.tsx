@@ -30,8 +30,8 @@ const bare = (name: string): string => { const at = name.lastIndexOf("__"); retu
 const EDIT_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "write_file", "edit_file", "create_file"]);
 /** Tools that run a command. */
 const SHELL_TOOLS = new Set(["Bash", "exec_command", "shell", "run_command", "run_terminal_cmd", "terminal", "execute", "bash"]);
-/** Tools that only look. */
-const READ_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "read_file", "list_directory", "search", "grep", "glob", "view", "cat", "find"]);
+/** Tools that read a file. A search or a listing reads none, and the ledger above counts it apart. */
+const READ_TOOLS = new Set(["Read", "read_file", "view", "cat"]);
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const firstLine = (text: string, max: number): string => {

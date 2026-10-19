@@ -287,7 +287,9 @@ function PaletteBody({ closing }: { closing: boolean }) {
     // on screen, which the view may now hold from any of them.
     const others = spaces.filter((sp) => sp.id !== activeSpaceId).flatMap((sp) =>
       allItems.filter((it) => it.spaceId === sp.id && !openIds.includes(it.id)).sort(byRecency)
-        .map((it) => itemEntry(it, sp.name, <span>{sp.name} · {relTime(it.updatedAt)}</span>)));
+        .map((it) => itemEntry(it, sp.name, (
+          <span className="palette-hint-where"><span className="palette-hint-space">{sp.name}</span>{" "}<span>· {relTime(it.updatedAt)}</span></span>
+        ))));
 
     const anyWaiting = Object.values(sessionStatus).includes("waiting_permission");
     const act = (id: string, label: string, icon: string, run_: () => void, hint?: ReactNode): Entry =>

@@ -240,6 +240,29 @@ describe("DocumentsPane — making a document", () => {
     expect(field).toHaveFocus();
   });
 
+  it("a new document named over its placeholder takes the name as its title too", async () => {
+    // It is made holding "# Untitled document". Typing a name over the field renamed the file and
+    // left the heading saying Untitled document, the first thing on the page.
+    const { api } = renderPane({});
+    await addMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Document" }));
+    const field = await screen.findByLabelText("Document name");
+    fireEvent.change(field, { target: { value: "Q3 review" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(api.data.documentFiles.docs1?.["Q3 review.md"]).toBe("# Q3 review\n\n"), { timeout: 3000 });
+  });
+
+  it("a document someone has written in keeps its heading when renamed", async () => {
+    const { api } = renderPane({ "Untitled document.md": "# Untitled document\n\nMy words.\n" }, ["Untitled document.md"], "Untitled document.md");
+    fireEvent.click(await screen.findByTitle(/click to rename/));
+    const field = screen.getByLabelText("Document name");
+    fireEvent.change(field, { target: { value: "Q3 review" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(api.calls).toContain("renameDocumentFile:docs1:Untitled document.md:Q3 review.md"));
+    await new Promise((r) => setTimeout(r, 900));
+    expect(api.data.documentFiles.docs1?.["Q3 review.md"]).toBe("# Untitled document\n\nMy words.\n");
+  });
+
   it("renames the file on disk, keeping the extension the user never typed", async () => {
     const { api } = renderPane({ "a.md": "# A" }, ["a.md"], "a.md");
     fireEvent.click(await screen.findByTitle(/click to rename/));

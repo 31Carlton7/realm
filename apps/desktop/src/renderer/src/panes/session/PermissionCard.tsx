@@ -80,6 +80,9 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
       // preventDefault, so the browser's own Enter→click never double-fires); Enter on the details
       // <summary> is left entirely to native toggle semantics and decides nothing.
       const control = e.target instanceof HTMLElement ? e.target.closest("button, summary") : null;
+      // ⇧⏎ is Allow always's chord from anywhere on the card, as ⌘⌫ is Deny's. Allow has focus from
+      // the moment the card appears, so a chord that deferred to the focused control never fired.
+      if (e.shiftKey && !(control instanceof HTMLElement && control.tagName === "SUMMARY")) { e.preventDefault(); onDecide("allow_always"); return; }
       if (control instanceof HTMLButtonElement) { e.preventDefault(); control.click(); return; }
       if (control) return;
       e.preventDefault(); onDecide(e.shiftKey ? "allow_always" : OPTIONS[selected]!.decision);

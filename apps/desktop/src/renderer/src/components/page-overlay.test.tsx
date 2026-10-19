@@ -4,6 +4,7 @@ import { PAGE_REF_IDS, type DestinationPageKind, type Item } from "@realm/contra
 /* The pane components register themselves by side effect (`panes/index.ts`); the overlay renders
    through the same registry, so a test that never imports them gets the placeholder. */
 import "../panes";
+import { Main } from "../App";
 import { PageOverlay } from "./PageOverlay";
 import { Rail } from "./sidebar/Rail";
 import { StoreContext, createAppStore } from "../state/store";
@@ -160,5 +161,22 @@ describe("how a page arrives", () => {
     expect(page()).not.toHaveAttribute("data-cut");
     act(() => store.getState().openDestinationPage("connections-page"));
     expect(page(), "Connections after the Library: the page was already up").not.toHaveAttribute("data-cut");
+  });
+});
+
+describe("the workspace under a page", () => {
+  it("takes no keyboard while a page covers it, and answers again once the page is put away", async () => {
+    // Tab from the Scheduled page walked into the session hidden under it — its Retry, its tool
+    // cards — where Return acts on a session nobody can see. THE mutant: the pane host left live.
+    const api = fakeApi();
+    const store = createAppStore(api);
+    await store.getState().boot();
+    render(<StoreContext.Provider value={store}><Main /><PageOverlay /></StoreContext.Provider>);
+    const host = () => document.querySelector(".panehost")!;
+    expect(host()).not.toHaveAttribute("inert");
+    act(() => store.getState().openDestinationPage("schedules-page"));
+    expect(host()).toHaveAttribute("inert");
+    act(() => store.getState().closePageOverlay());
+    expect(host()).not.toHaveAttribute("inert");
   });
 });

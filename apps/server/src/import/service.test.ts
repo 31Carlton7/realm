@@ -106,7 +106,7 @@ describe("ImportService.scan", () => {
   let h: Harness;
   beforeEach(() => { h = harness(); });
 
-  it("finds transcripts from all three sources and matches them to spaces", () => {
+  it("finds transcripts from all three sources and matches them to spaces", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 2));
     write(join(h.roots.codex, "sessions", "2027", "01", "01", "rollout-x.jsonl"), jsonl([
       { timestamp: "2027-01-01T00:00:00.000Z", type: "session_meta", payload: { session_id: "x1", cwd: "/Users/me/elsewhere", originator: "Codex Desktop" } },
@@ -115,7 +115,7 @@ describe("ImportService.scan", () => {
     writeCursorStore(join(h.roots.cursor, "acp-sessions", "u1"), "Cursor chat",
       [{ role: "user", content: [{ type: "text", text: "hello" }] }], h.realmProjectRoot);
 
-    const scan = h.imports.scan();
+    const scan = await h.imports.scan();
     expect(scan.sessions).toHaveLength(3);
     expect(scan.sources.map((s) => s.source)).toEqual(["claude", "codex", "cursor"]);
 
@@ -133,30 +133,43 @@ describe("ImportService.scan", () => {
     expect(h.spaces.list(h.workProfileId).map((s) => s.name)).toEqual(["Realm"]);
   });
 
-  it("writes nothing at all — a scan is a read", () => {
+  it("leaves the server free to answer between transcripts while it reads them", async () => {
+    // A scan of ~/.claude read 5 GB in one synchronous call: opening Settings › Import held every
+    // other request — every session, the sidebar — for 26 seconds. THE mutant: the yield removed.
+    for (const id of ["c1", "c2", "c3"]) write(join(h.roots.claude, "projects", "-a", `${id}.jsonl`), claudeTranscript(id, h.realmProjectRoot, 1));
+    let finished = false;
+    let answeredDuring = false;
+    setImmediate(() => { answeredDuring = !finished; });
+    const scan = await h.imports.scan();
+    finished = true;
+    expect(scan.sessions).toHaveLength(3);
+    expect(answeredDuring).toBe(true);
+  });
+
+  it("writes nothing at all — a scan is a read", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 1));
     write(join(h.roots.claude, "skills", "helper", "SKILL.md"), "---\nname: helper\ndescription: helps\n---\nbody");
     const before = { spaces: h.spaces.listAll().length, sessions: h.sessions.listAll().length };
-    h.imports.scan();
+    await h.imports.scan();
     expect(h.spaces.listAll()).toHaveLength(before.spaces);
     expect(h.sessions.listAll()).toHaveLength(before.sessions);
     expect(existsSync(join(h.home, "skills", "helper"))).toBe(false);
   });
 
-  it("flags scratch, Realm-originated and already-imported rows instead of hiding them", () => {
+  it("flags scratch, Realm-originated and already-imported rows instead of hiding them", async () => {
     write(join(h.roots.claude, "projects", "-tmp", "c1.jsonl"), claudeTranscript("c1", join(tmpdir(), "realm-live-x"), 1));
     write(join(h.roots.codex, "sessions", "r.jsonl"), jsonl([
       { timestamp: "2027-01-01T00:00:00.000Z", type: "session_meta", payload: { session_id: "x1", cwd: "/Users/me/x", originator: "realm" } },
       { timestamp: "2027-01-01T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "hi" } },
     ]));
-    const scan = h.imports.scan();
+    const scan = await h.imports.scan();
     expect(scan.sessions.find((s) => s.source === "claude")!.scratch).toBe(true);
     expect(scan.sessions.find((s) => s.source === "codex")!.fromRealm).toBe(true);
     // Both are still LISTED: the client defaults them off and can say what it hid.
     expect(scan.sessions).toHaveLength(2);
   });
 
-  it("offers only the FULLEST copy of a thread the CLI rewrote on every resume", () => {
+  it("offers only the FULLEST copy of a thread the CLI rewrote on every resume", async () => {
     // Codex writes a new rollout file each time a thread is resumed, replaying the whole
     // conversation so far under the same session_id. On the developer's machine 158 files were one
     // Stora thread. Importing them all would make 158 near-identical sessions; importing whichever
@@ -171,7 +184,7 @@ describe("ImportService.scan", () => {
     replay("b.jsonl", 9, "2027-01-02");  // written later, and shorter
     replay("c.jsonl", 4, "2027-01-03");
 
-    const scan = h.imports.scan();
+    const scan = await h.imports.scan();
     const kept = scan.sessions.filter((s) => !s.duplicate);
     expect(kept).toHaveLength(1);
     expect(kept[0]!.messages).toBe(13);
@@ -182,39 +195,39 @@ describe("ImportService.scan", () => {
     expect(codex.note).toContain("3 files hold 1 conversations");
   });
 
-  it("picks the same winner on every scan, so a preview cannot re-target itself before apply", () => {
+  it("picks the same winner on every scan, so a preview cannot re-target itself before apply", async () => {
     for (const [file, day] of [["a.jsonl", "2027-01-01"], ["b.jsonl", "2027-01-02"]] as const) {
       write(join(h.roots.codex, "sessions", file), jsonl([
         { timestamp: `${day}T00:00:00.000Z`, type: "session_meta", payload: { session_id: "thread-1", cwd: "/Users/me/x" } },
         { timestamp: `${day}T00:00:01.000Z`, type: "event_msg", payload: { type: "user_message", message: "same length" } },
       ]));
     }
-    const first = h.imports.scan().sessions.filter((s) => !s.duplicate).map((s) => s.key);
-    const second = h.imports.scan().sessions.filter((s) => !s.duplicate).map((s) => s.key);
+    const first = (await h.imports.scan()).sessions.filter((s) => !s.duplicate).map((s) => s.key);
+    const second = (await h.imports.scan()).sessions.filter((s) => !s.duplicate).map((s) => s.key);
     expect(first).toEqual(second);
     expect(first).toHaveLength(1);
   });
 
-  it("does not confuse two genuinely different conversations", () => {
+  it("does not confuse two genuinely different conversations", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 2));
     write(join(h.roots.claude, "projects", "-a", "c2.jsonl"), claudeTranscript("c2", h.realmProjectRoot, 1));
-    expect(h.imports.scan().sessions.filter((s) => s.duplicate)).toHaveLength(0);
+    expect((await h.imports.scan()).sessions.filter((s) => s.duplicate)).toHaveLength(0);
   });
 
-  it("counts transcripts it could not read rather than pretending they were not there", () => {
+  it("counts transcripts it could not read rather than pretending they were not there", async () => {
     write(join(h.roots.claude, "projects", "-a", "broken.jsonl"), "{ not json\n{ also not");
-    const scan = h.imports.scan();
+    const scan = await h.imports.scan();
     expect(scan.sessions).toHaveLength(0);
     expect(scan.sources.find((s) => s.source === "claude")!.unreadable).toBe(1);
   });
 
-  it("offers one row per skill id, listing every agent folder it was found in", () => {
+  it("offers one row per skill id, listing every agent folder it was found in", async () => {
     write(join(h.roots.claude, "skills", "shared", "SKILL.md"), "---\nname: shared\ndescription: from claude\n---\n");
     write(join(h.roots.extraSkillDirs[0]!, "shared", "SKILL.md"), "---\nname: shared\ndescription: from agents\n---\n");
     write(join(h.roots.codex, "skills", "solo", "SKILL.md"), "---\nname: solo\ndescription: only codex\n---\n");
     // Malformed frontmatter is not offered: importing a broken skill just moves the problem.
     write(join(h.roots.claude, "skills", "broken", "SKILL.md"), "no frontmatter here");
-    const skills = h.imports.scan().skills;
+    const skills = (await h.imports.scan()).skills;
     expect(skills.map((s) => s.key)).toEqual(["shared", "solo"]);
     expect(skills[0]!.origins).toEqual(["claude", "agents"]);
   });
@@ -226,9 +239,9 @@ describe("ImportService.apply — sessions", () => {
 
   const applySessions = (sel: ImportSelection["sessions"]) => h.imports.apply({ sessions: sel, memories: [], skills: [] });
 
-  it("creates a session with its transcript, its item, and its real timestamps", () => {
+  it("creates a session with its transcript, its item, and its real timestamps", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 2));
-    const key = h.imports.scan().sessions[0]!.key;
+    const key = (await h.imports.scan()).sessions[0]!.key;
     const result = applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
 
     expect(result.sessions[0]).toMatchObject({ state: "imported" });
@@ -242,9 +255,9 @@ describe("ImportService.apply — sessions", () => {
     expect(h.items.list(h.realmSpaceId).some((i) => i.refId === session.id)).toBe(true);
   });
 
-  it("carries the provider id when the cwd still exists, so the session can be resumed", () => {
+  it("carries the provider id when the cwd still exists, so the session can be resumed", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 1));
-    const key = h.imports.scan().sessions[0]!.key;
+    const key = (await h.imports.scan()).sessions[0]!.key;
     const r = applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
     expect(h.sessions.listAll()[0]!.providerSessionId).toBe("c1");
     expect(r.sessions[0]!.detail).toContain("resumable");
@@ -252,9 +265,9 @@ describe("ImportService.apply — sessions", () => {
     expect(h.sessions.listAll()[0]!.cwd).toBe(h.realmProjectRoot);
   });
 
-  it("imports as history with no provider link when the recorded cwd is gone", () => {
+  it("imports as history with no provider link when the recorded cwd is gone", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", "/Users/me/deleted-long-ago", 1));
-    const key = h.imports.scan().sessions[0]!.key;
+    const key = (await h.imports.scan()).sessions[0]!.key;
     const r = applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
     // Resuming into a missing directory fails inside the CLI with nothing Realm could say about it,
     // so the link is left off rather than advertised and then broken.
@@ -263,44 +276,44 @@ describe("ImportService.apply — sessions", () => {
     expect(h.sessions.listAll()[0]!.cwd).toBe(h.spaces.get(h.realmSpaceId)!.folderPath);
   });
 
-  it("never imports the same conversation twice, within one apply or across two", () => {
+  it("never imports the same conversation twice, within one apply or across two", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 1));
-    const key = h.imports.scan().sessions[0]!.key;
+    const key = (await h.imports.scan()).sessions[0]!.key;
     const first = applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }, { key, spaceId: h.realmSpaceId, profileId: null }]);
     expect(first.sessions.map((s) => s.state)).toEqual(["imported", "skipped"]);
     expect(h.sessions.listAll()).toHaveLength(1);
 
-    expect(h.imports.scan().sessions[0]!.imported).toBe(true);
+    expect((await h.imports.scan()).sessions[0]!.imported).toBe(true);
     const second = applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
     expect(second.sessions[0]).toMatchObject({ state: "skipped", detail: "already imported" });
     expect(h.sessions.listAll()).toHaveLength(1);
   });
 
-  it("never re-imports an ARCHIVE, which carries no provider id to dedup on", () => {
+  it("never re-imports an ARCHIVE, which carries no provider id to dedup on", async () => {
     // The bug this exists for: a transcript whose cwd is gone imports with providerSessionId null
     // (it must not advertise a resume it cannot perform), so the provider-id dedup has nothing to
     // match on and it re-imported on every single run — 31 duplicate sessions on the second pass
     // against real data.
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", "/Users/me/deleted-long-ago", 1));
-    const key = h.imports.scan().sessions[0]!.key;
+    const key = (await h.imports.scan()).sessions[0]!.key;
     applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
     expect(h.sessions.listAll()[0]!.providerSessionId).toBeNull();
 
-    expect(h.imports.scan().sessions[0]!.imported).toBe(true);
+    expect((await h.imports.scan()).sessions[0]!.imported).toBe(true);
     const again = applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
     expect(again.sessions[0]).toMatchObject({ state: "skipped", detail: "already imported" });
     expect(h.sessions.listAll()).toHaveLength(1);
   });
 
-  it("remembers imported sources across a fresh service, not just within one process", () => {
+  it("remembers imported sources across a fresh service, not just within one process", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", "/Users/me/gone", 1));
-    const key = h.imports.scan().sessions[0]!.key;
+    const key = (await h.imports.scan()).sessions[0]!.key;
     applySessions([{ key, spaceId: h.realmSpaceId, profileId: null }]);
     // A new service over the same home — what a server restart looks like.
-    expect(h.freshService().scan().sessions[0]!.imported).toBe(true);
+    expect((await h.freshService().scan()).sessions[0]!.imported).toBe(true);
   });
 
-  it("titles a session from the first turn a PERSON wrote, not the harness preamble before it", () => {
+  it("titles a session from the first turn a PERSON wrote, not the harness preamble before it", async () => {
     // Conductor opens with a `<system_instruction>` envelope on the user channel; 30 imported
     // sessions were called `<system_instruction>` in the sidebar before this.
     write(join(h.roots.codex, "sessions", "r.jsonl"), jsonl([
@@ -308,7 +321,7 @@ describe("ImportService.apply — sessions", () => {
       { timestamp: "2027-01-01T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "<system_instruction>\nYou are working inside Conductor." } },
       { timestamp: "2027-01-01T00:00:02.000Z", type: "event_msg", payload: { type: "user_message", message: "Fix the failing build" } },
     ]));
-    const candidate = h.imports.scan().sessions[0]!;
+    const candidate = (await h.imports.scan()).sessions[0]!;
     expect(candidate.title).toBe("Fix the failing build");
     // The preamble is still IN the transcript — it really was part of what the agent was given.
     applySessions([{ key: candidate.key, spaceId: h.realmSpaceId, profileId: null }]);
@@ -316,7 +329,7 @@ describe("ImportService.apply — sessions", () => {
     expect(h.events.listAfter(session.id, 0, 100).filter((e) => e.event.type === "user_message")).toHaveLength(2);
   });
 
-  it("names a session generically when every turn is an envelope, rather than titling it with XML", () => {
+  it("names a session generically when every turn is an envelope, rather than titling it with XML", async () => {
     // A `/login` transcript is nothing but `<local-command-caveat>` and `<command-name>` wrappers.
     // There is no human sentence in it, and a row of XML in the sidebar is not a better answer than
     // saying so.
@@ -325,15 +338,15 @@ describe("ImportService.apply — sessions", () => {
       { timestamp: "2027-01-01T00:00:01.000Z", type: "event_msg", payload: { type: "user_message", message: "<local-command-caveat>Caveat: the messages below…</local-command-caveat>" } },
       { timestamp: "2027-01-01T00:00:02.000Z", type: "event_msg", payload: { type: "user_message", message: "<command-name>/login</command-name>" } },
     ]));
-    const candidate = h.imports.scan().sessions[0]!;
+    const candidate = (await h.imports.scan()).sessions[0]!;
     applySessions([{ key: candidate.key, spaceId: h.realmSpaceId, profileId: null }]);
     expect(h.sessions.listAll()[0]!.title).toBe("Imported session");
   });
 
-  it("creates one catch-all space per profile and reuses it", () => {
+  it("creates one catch-all space per profile and reuses it", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", "/Users/me/nowhere-a", 1));
     write(join(h.roots.claude, "projects", "-b", "c2.jsonl"), claudeTranscript("c2", "/Users/me/nowhere-b", 1));
-    const keys = h.imports.scan().sessions.map((s) => s.key);
+    const keys = (await h.imports.scan()).sessions.map((s) => s.key);
     const r = applySessions(keys.map((key) => ({ key, spaceId: null, profileId: h.workProfileId })));
 
     expect(r.spacesCreated).toHaveLength(1);
@@ -343,15 +356,15 @@ describe("ImportService.apply — sessions", () => {
 
     // A later run finds the existing one rather than making "Imported 2".
     write(join(h.roots.claude, "projects", "-c", "c3.jsonl"), claudeTranscript("c3", "/Users/me/nowhere-c", 1));
-    const third = h.imports.scan().sessions.find((s) => s.providerSessionId === "c3")!;
+    const third = (await h.imports.scan()).sessions.find((s) => s.providerSessionId === "c3")!;
     const again = applySessions([{ key: third.key, spaceId: null, profileId: h.workProfileId }]);
     expect(again.spacesCreated).toHaveLength(0);
     expect(h.spaces.list(h.workProfileId).filter((s) => s.name === IMPORTED_SPACE_NAME)).toHaveLength(1);
   });
 
-  it("honours the client's target verbatim — the matcher does not get to overrule it", () => {
+  it("honours the client's target verbatim — the matcher does not get to overrule it", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 1));
-    const candidate = h.imports.scan().sessions[0]!;
+    const candidate = (await h.imports.scan()).sessions[0]!;
     expect(candidate.match.spaceId).toBe(h.realmSpaceId);
     const other = h.spaces.create({ profileId: h.workProfileId, name: "Elsewhere", icon: "folder" });
     applySessions([{ key: candidate.key, spaceId: other.id, profileId: null }]);
@@ -364,17 +377,17 @@ describe("ImportService.apply — sessions", () => {
     expect(h.sessions.listAll()).toHaveLength(0);
   });
 
-  it("reports a candidate with no target instead of guessing one", () => {
+  it("reports a candidate with no target instead of guessing one", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 1));
-    const key = h.imports.scan().sessions[0]!.key;
+    const key = (await h.imports.scan()).sessions[0]!.key;
     const r = applySessions([{ key, spaceId: null, profileId: null }]);
     expect(r.sessions[0]!.state).toBe("failed");
     expect(h.sessions.listAll()).toHaveLength(0);
   });
 
-  it("one bad row does not cost the others their import", () => {
+  it("one bad row does not cost the others their import", async () => {
     write(join(h.roots.claude, "projects", "-a", "c1.jsonl"), claudeTranscript("c1", h.realmProjectRoot, 1));
-    const key = h.imports.scan().sessions[0]!.key;
+    const key = (await h.imports.scan()).sessions[0]!.key;
     const r = applySessions([
       { key: "/nope", spaceId: h.realmSpaceId, profileId: null },
       { key, spaceId: h.realmSpaceId, profileId: null },
@@ -393,10 +406,10 @@ describe("ImportService.apply — memory", () => {
     write(join(h.roots.claude, "projects", slug, "memory", "MEMORY.md"), index);
   };
 
-  it("copies the fact files under Realm's home and puts the index in the space doc", () => {
+  it("copies the fact files under Realm's home and puts the index in the space doc", async () => {
     writeMemory("-proj", { "a-fact.md": "---\nname: a-fact\n---\nthe fact body" },
       "# Memory Index\n\n- [A fact](a-fact.md) — the hook");
-    const candidate = h.imports.scan().memories[0]!;
+    const candidate = (await h.imports.scan()).memories[0]!;
     expect(candidate.files).toBe(1);
 
     const r = h.imports.apply({ sessions: [], memories: [{ key: candidate.key, spaceId: h.realmSpaceId, profileId: null }], skills: [] });
@@ -413,10 +426,10 @@ describe("ImportService.apply — memory", () => {
     expect(doc).not.toContain("](a-fact.md)");
   });
 
-  it("does not overwrite the user's own writing, and re-import replaces rather than duplicates", () => {
+  it("does not overwrite the user's own writing, and re-import replaces rather than duplicates", async () => {
     writeMemory("-proj", { "a-fact.md": "body" }, "- [A fact](a-fact.md)");
     h.memory.set(h.realmSpaceId, "My own standing instructions.");
-    const key = h.imports.scan().memories[0]!.key;
+    const key = (await h.imports.scan()).memories[0]!.key;
 
     h.imports.apply({ sessions: [], memories: [{ key, spaceId: h.realmSpaceId, profileId: null }], skills: [] });
     expect(h.memory.readDoc(h.realmSpaceId)).toContain("My own standing instructions.");
@@ -427,10 +440,10 @@ describe("ImportService.apply — memory", () => {
     expect(doc).toContain("My own standing instructions.");
   });
 
-  it("keeps two projects imported into one space apart, and lists both", () => {
+  it("keeps two projects imported into one space apart, and lists both", async () => {
     writeMemory("-one", { "x.md": "x body" }, "- [X](x.md)");
     writeMemory("-two", { "y.md": "y body" }, "- [Y](y.md)");
-    const keys = h.imports.scan().memories.map((m) => m.key);
+    const keys = (await h.imports.scan()).memories.map((m) => m.key);
     h.imports.apply({ sessions: [], memories: keys.map((key) => ({ key, spaceId: h.realmSpaceId, profileId: null })), skills: [] });
     const doc = h.memory.readDoc(h.realmSpaceId);
     expect(doc).toContain("### one");
@@ -439,11 +452,11 @@ describe("ImportService.apply — memory", () => {
     expect(existsSync(join(h.home, "memory", "imported", h.realmSpaceId, "two", "y.md"))).toBe(true);
   });
 
-  it("imports a memory folder far larger than the doc cap without truncating it", () => {
+  it("imports a memory folder far larger than the doc cap without truncating it", async () => {
     // The case that decided the design: 100k is the whole doc budget, and this folder is bigger.
     const big = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`f${i}.md`, "z".repeat(5_000)]));
     writeMemory("-huge", big, Object.keys(big).map((f) => `- [${f}](${f})`).join("\n"));
-    const key = h.imports.scan().memories[0]!.key;
+    const key = (await h.imports.scan()).memories[0]!.key;
     h.imports.apply({ sessions: [], memories: [{ key, spaceId: h.realmSpaceId, profileId: null }], skills: [] });
     for (const f of Object.keys(big)) {
       expect(readFileSync(join(h.home, "memory", "imported", h.realmSpaceId, "huge", f), "utf8")).toHaveLength(5_000);

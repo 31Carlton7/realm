@@ -416,6 +416,7 @@ export function Main() {
   const setViewRoom = useApp((s) => s.setViewRoom);
   const resizePanel = useApp((s) => s.resizePanel);
   const splitRefusal = useApp((s) => s.splitRefusal);
+  const covered = useApp((s) => s.pageOverlay !== null);
   // Where the panel stands, from the room the host last measured (state/view-room.ts).
   const place = useMemo(() => panelPlace({ layout, view, viewRoom, sidePanesHidden }), [layout, view, viewRoom, sidePanesHidden]);
   const focusPaneFull = useApp((s) => s.focusPaneFull);
@@ -434,7 +435,7 @@ export function Main() {
     <>
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
         zoomedLeafId={zoomedLeafId} sidePanesHidden={sidePanesHidden}
-        panelPlace={place} panelShare={drawnShare({ layout, view })}
+        panelPlace={place} panelShare={drawnShare({ layout, view })} covered={covered}
         onRoom={setViewRoom} onResizePanel={resizePanel}
         // Read with the room it was measured in, which is why `viewRoom` is subscribed above.
         splitRefusal={(leafId, dir) => (viewRoom ? splitRefusal(dir, leafId) : null)}
