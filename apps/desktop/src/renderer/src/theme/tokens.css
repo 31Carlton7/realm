@@ -568,6 +568,18 @@ a {
    * the boundary, and a step brighter read as an outline round the prompter and every card that
    * wears this stack (the owner, 10-18: "lighter and cleaner"). */
   --card-ring: var(--overlay-lighten-200);
+  /* A CARD has no edge drawn round it at all (the owner, 10-19: "I don't like having borders"). It is
+   * the surface step, the light on its top edge and a soft lift, and nothing else:
+   * - the sheen is light falling on the top edge — full along the top, gone by the time each corner
+   *   turns down, so it can never close into an outline. The light face's card is white, where a light
+   *   edge is nothing, so it has none.
+   * - the lift has no ring layer: a close soft shadow that gives the card its edge on a ground the
+   *   same tone as the card, and a wide faint one that stands it off the page.
+   * `--card-depth` is the two for a card drawn with `border-radius`; a painted card hands the sheen
+   * to the painter and keeps the lift (styles.css, "One card"). */
+  --card-sheen: oklch(1 0 0 / 0.035);
+  --card-lift: 0 1px 2px #00000029, 0 4px 14px -4px #00000038;
+  --card-depth: inset 0 1px 0 var(--card-sheen), var(--card-lift);
   /* A floating WINDOW's own edge, resting and under the pointer — the quick chat today.
    * Its own pair rather than the card ring: a card sits on a pane and takes most of its boundary
    * from the surface step, where a window floats over whatever happens to be behind it and the line
@@ -621,6 +633,14 @@ a {
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-200), 0 1px 2px #03071214;
   --btn-ring: var(--overlay-darken-200);
   --card-ring: #0307120a; /* the same tint at the line's rung, for the dark face's reason */
+  /* A white card on a near-white ground: the close layer is what draws its edge, so it is heavier
+     than the dark face's in proportion, and it has to reach the top edge too — hence no offset. */
+  --card-sheen: transparent;
+  --card-lift: 0 0 2px #0307121a, 0 2px 8px -2px #03071214;
+  /* The same lift as a filter, for a card made of several boxes (a run of settings rows), which casts
+     it from the run as one shape. A drop-shadow's blur is a standard deviation where a box-shadow's
+     is twice one, hence the halved blurs; it has no spread, hence the far layer's lighter alpha. */
+  --card-lift-filter: drop-shadow(0 0 1px #0307121a) drop-shadow(0 2px 3px #0307120d);
   /* Heavier steps than the dark face, not the mirrored ones: black on a near-white ground loses more
      of itself than white on a near-black one, so the same rungs would land as no border and no
      hover. Same correction the pane divider needed. */
