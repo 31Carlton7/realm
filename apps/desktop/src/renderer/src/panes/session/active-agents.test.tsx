@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { sessionEvent, type DelegatedChild, type GitInfo, type Session, type SessionEvent } from "@realm/contracts";
+import { sessionEvent, type DelegatedChild, type DiffSummary, type GitInfo, type Session, type SessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { reduceAll } from "./transcript-model";
@@ -34,11 +34,15 @@ const DONE_TOO = kid("se6", "Rename the flag", {}, { settledAt: NOW - 3_000, out
 const PROBE: AgentProbe[] = [{ kind: "codex", available: true, version: "x", loggedIn: true, reason: null, models: [{ id: "gpt-6-luna", label: "GPT-6 Luna" }] }];
 const gi = (branch: string): GitInfo => ({ branch, additions: 0, deletions: 0, dirty: 0 } as GitInfo);
 
-async function mount(over: { lead?: Session; children?: DelegatedChild[]; events?: SessionEvent[]; git?: GitInfo | null; dismissed?: string[] } = {}) {
+/** A checkout with one file changed — what puts the what-changed pill on the strip. */
+const ONE_CHANGE: DiffSummary = { root: "/tmp", branch: "feat/x", totalFiles: 1, truncated: false,
+  files: [{ path: "src/app.ts", oldPath: null, status: "modified", staged: false, unstaged: true, binary: false, additions: 1, deletions: 0 }] };
+
+async function mount(over: { lead?: Session; children?: DelegatedChild[]; events?: SessionEvent[]; git?: GitInfo | null; diff?: DiffSummary | null; dismissed?: string[] } = {}) {
   const lead = over.lead ?? LEAD;
   const children = over.children ?? [];
   const api = fakeApi({ sessions: [lead, ...children.map((c) => c.session)], delegatedChildren: { se1: children },
-    gitInfo: { "/tmp": over.git ?? null }, agentProbe: PROBE,
+    gitInfo: { "/tmp": over.git ?? null }, diffs: { "/tmp": over.diff ?? null }, agentProbe: PROBE,
     dismissedSubagents: { se1: over.dismissed ?? [] },
     delegatedRuns: { se1: children.filter((c) => c.outcome === null).map((c) => ({ sessionId: c.session.id, startedAt: c.startedAt, detached: true, owned: true })) } });
   const store = createAppStore(api); await store.getState().boot();
@@ -46,7 +50,7 @@ async function mount(over: { lead?: Session; children?: DelegatedChild[]; events
   store.setState({
     sessionStatus: Object.fromEntries([lead, ...children.map((c) => c.session)].map((s) => [s.id, s.status])),
     transcripts: { se1: { lastSeq: events.length, t: reduceAll(events) } },
-    gitInfo: { "/tmp": over.git === undefined ? null : over.git },
+    gitInfo: { "/tmp": over.git === undefined ? null : over.git }, diffs: { "/tmp": over.diff ?? null },
     agentProbe: PROBE,
   });
   const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: lead.id, title: "Parent" })} visible /></StoreContext.Provider>);
@@ -111,20 +115,20 @@ describe("the row of who is working", () => {
     await waitFor(() => expect(store.getState().agentsShown.se1).toBe("se2"));
   });
 
-  it("is quiet when there are none — no strip at all without a checkout — and draws one for agents alone", async () => {
-    await mount({ git: null });
+  it("is quiet when there are none — no strip with nothing changed — and draws one for agents alone", async () => {
+    await mount({ git: gi("feat/x") });
     expect(document.querySelector(".composer-overstrip")).toBeNull();
     cleanup();
-    await mount({ git: null, children: [WORKING] });
+    await mount({ git: gi("feat/x"), children: [WORKING] });
     expect(chips(await row())).toHaveLength(1);
-    expect(document.querySelector(".composer-overstrip .composer-git")).toBeNull();
+    expect(document.querySelector(".composer-overstrip .what-changed")).toBeNull();
   });
 
-  it("sits after the branch on the same strip when there is one", async () => {
-    await mount({ git: gi("feat/x"), children: [WORKING] });
+  it("sits after what changed on the same strip when something has", async () => {
+    await mount({ git: gi("feat/x"), diff: ONE_CHANGE, children: [WORKING] });
     await row();
     const strip = document.querySelector(".composer-overstrip")!;
-    expect([...strip.children].map((c) => c.className)).toEqual(["composer-git", "active-agents"]);
+    expect([...strip.children].map((c) => c.classList[c.classList.length - 1])).toEqual(["what-changed", "active-agents"]);
   });
 
   it(`folds past ${ROW_MAX} into +N, never folding away the one that needs you`, async () => {

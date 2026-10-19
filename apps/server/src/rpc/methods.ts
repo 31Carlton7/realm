@@ -172,6 +172,7 @@ export function registerMethods(d: Deps): void {
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
   reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
   reg("workspace.fileDiff", (p) => d.gitDiff.file(p.cwd, p.path, p.staged));
+  reg("workspace.headImage", (p) => d.gitDiff.headImage(p.cwd, p.path));
   reg("project.grep", (p) => d.projectSearch.grep(p.cwd, p.query, { limit: p.limit }));
   reg("project.files", (p) => d.projectSearch.files(p.cwd, p.query, p.limit));
   // The session's own checkout, resolved here from the row — never a directory the caller names.

@@ -65,6 +65,21 @@ export const gitCapture: GitRun = (cwd, args, opts = {}) =>
       });
   });
 
+/** How a service reads a blob — injectable for the same reason `GitRun` is. */
+export type GitBytes = (cwd: string, args: string[], maxBytes: number) => Promise<Buffer | null>;
+
+/**
+ * Run one git command whose stdout is BYTES — a stored picture — rather than text, which `gitCapture`
+ * would decode as UTF-8 and so corrupt. Null on any failure and on output past `maxBytes`: a caller
+ * with a size limit has nothing to show either way.
+ */
+export const gitBytes: GitBytes = (cwd, args, maxBytes) =>
+  new Promise((resolve) => {
+    execFile("git", [...GIT_HARDENING, ...args],
+      { cwd, timeout: GIT_EXEC_TIMEOUT_MS, encoding: "buffer", maxBuffer: maxBytes, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+      (err, stdout) => resolve(err ? null : stdout));
+  });
+
 /** First non-empty line of git's stderr, for an error message a person can act on. */
 export function gitReason(r: GitResult): string {
   return r.stderr.split("\n").map((l) => l.replace(/^fatal:\s*/, "").trim()).find((l) => l !== "") ?? `git exited ${r.code}`;

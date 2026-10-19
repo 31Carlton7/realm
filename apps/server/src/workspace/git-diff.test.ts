@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { DIFF_MAX_FILES, FILE_DIFF_MAX_LINES, GitDiffService, parseNumstat, parseStatus, parsePatch, statusOf } from "./git-diff";
+import { DIFF_MAX_FILES, FILE_DIFF_MAX_LINES, GitDiffService, HEAD_IMAGE_MAX_BYTES, parseNumstat, parseStatus, parsePatch, statusOf } from "./git-diff";
 
 /**
  * Real repositories throughout. Porcelain's `-z` framing, rename detection, `--numstat`'s empty path
@@ -239,6 +239,67 @@ describe("file", () => {
       writeFileSync(join(dir, "x.secret"), "after\n");
       const d = await svc().file(dir, "x.secret", false);
       expect(d.hunks.flatMap((h) => h.lines).some((l) => l.kind === "add")).toBe(true);
+      expect(existsSync(canary)).toBe(false);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe("headImage", () => {
+  // Bytes UTF-8 cannot carry: a reader that decoded the blob as text would hand back U+FFFD for 0xff.
+  const before = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe, 0x01]);
+
+  it("hands back the picture as the last commit holds it, byte for byte — not as it is on disk or staged", async () => {
+    const dir = makeRepo();
+    try {
+      mkdirSync(join(dir, "shots"));
+      writeFileSync(join(dir, "shots", "hero.png"), before);
+      git(dir, "add", "-A"); git(dir, "commit", "-qm", "picture");
+      writeFileSync(join(dir, "shots", "hero.png"), Buffer.from([1, 2, 3]));
+      // Staged too, so the index holds the new picture: "before" is the commit's, not the index's.
+      git(dir, "add", "shots/hero.png");
+      expect(await svc().headImage(dir, "shots/hero.png")).toBe(`data:image/png;base64,${before.toString("base64")}`);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("has nothing for a picture the last commit never had, or a file that is not a picture", async () => {
+    const dir = makeRepo();
+    try {
+      writeFileSync(join(dir, "new.png"), before);
+      expect(await svc().headImage(dir, "new.png")).toBeNull();
+      expect(await svc().headImage(dir, "a.txt")).toBeNull();
+      // A picture the renderer cannot draw is no "before" either.
+      writeFileSync(join(dir, "photo.heic"), before);
+      git(dir, "add", "-A"); git(dir, "commit", "-qm", "heic");
+      expect(await svc().headImage(dir, "photo.heic")).toBeNull();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("has nothing for a picture past the size it will hand over", async () => {
+    const dir = makeRepo();
+    try {
+      writeFileSync(join(dir, "big.png"), Buffer.alloc(HEAD_IMAGE_MAX_BYTES + 1, 7));
+      git(dir, "add", "-A"); git(dir, "commit", "-qm", "big");
+      expect(await svc().headImage(dir, "big.png")).toBeNull();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("refuses a path that leaves the checkout", async () => {
+    const dir = makeRepo();
+    try {
+      await expect(svc().headImage(dir, "../outside.png")).rejects.toThrow(/leaves the checkout/);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("never runs a filter the checkout's attributes name while reading the picture", async () => {
+    const dir = makeRepo();
+    const canary = join(dir, "PWNED");
+    try {
+      writeFileSync(join(dir, ".gitattributes"), "*.png filter=evil diff=evil\n");
+      git(dir, "config", "filter.evil.smudge", `sh -c 'touch ${canary}; cat'`);
+      git(dir, "config", "diff.evil.textconv", `sh -c 'touch ${canary}; cat'`);
+      writeFileSync(join(dir, "x.png"), before);
+      git(dir, "add", "-A"); git(dir, "commit", "-qm", "attrs");
+      expect(await svc().headImage(dir, "x.png")).toBe(`data:image/png;base64,${before.toString("base64")}`);
       expect(existsSync(canary)).toBe(false);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });

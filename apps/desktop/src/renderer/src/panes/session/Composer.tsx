@@ -1,5 +1,5 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, currentAlert, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, currentAlert, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type DiffSummary, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -24,6 +24,7 @@ import { AttachmentTile } from "./AttachmentTile";
 import { ComposerQueue, type QueueActions } from "./ComposerQueue";
 import { whenLabel } from "../schedules/SchedulesPage";
 import { TodoStrip } from "./TodoStrip";
+import { WhatChanged, hasChanges } from "./WhatChanged";
 import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
 import type { Todo } from "./rich/tool-view";
@@ -41,28 +42,6 @@ const NO_ICONS: Readonly<Record<string, string | null>> = {};
 /** "Messages", "Messages and Mail", "Messages, Mail and Notes". */
 const listNames = (names: readonly string[]): string =>
   names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-
-/** Branch + diff chips (W3): still the one way IN to the diff pane. The cwd and environment chips
- *  that used to lead this group are retired outright (prompter rework): the folder and the checkout
- *  are named by the sidebar and the diff pane, and neither earned a permanent seat on the row. The
- *  diff and dirty counts hide themselves at zero — an all-clean repo shows just the branch. */
-function GitChip({ gitInfo, onOpenDiff }: { gitInfo: GitInfo | null; onOpenDiff: () => void }) {
-  if (!gitInfo) return null;
-  return (
-    // One button, not three — the whole group means "show me these changes".
-    <button type="button" className="composer-git" onClick={onOpenDiff}
-      title={gitInfo.dirty > 0 ? `Show ${gitInfo.dirty} changed ${gitInfo.dirty === 1 ? "file" : "files"} on ${gitInfo.branch}` : `Show changes on ${gitInfo.branch}`}>
-      <span className="ghost-chip git-branch"><Icon name="branch" size={12} className="chip-brand" /><span className="chip-label">{gitInfo.branch}</span></span>
-      {(gitInfo.additions > 0 || gitInfo.deletions > 0) && (
-        <span className="ghost-chip git-diff">
-          <span className="diff-add">+{gitInfo.additions}</span>
-          <span className="diff-del">−{gitInfo.deletions}</span>
-        </span>
-      )}
-      {gitInfo.dirty > 0 && <span className="ghost-chip git-dirty">{gitInfo.dirty} changed</span>}
-    </button>
-  );
-}
 
 /** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
@@ -412,8 +391,10 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
+  /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
+  changes?: DiffSummary | null;
   /**
    * The quick chat's prompter: the card, and only the card.
    *
@@ -772,8 +753,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [teammateOpen, setTeammateOpen] = useState(false);
   const rowAgents = useRowAgents(session.id);
-  // The over-strip: the checkout's facts, which a compact prompter does not carry, or who is working.
-  const showOverstrip = (!compact && gitInfo !== null) || rowAgents.length > 0;
+  // The over-strip: what the checkout changed, which a compact prompter does not carry, or who is working.
+  const showOverstrip = (!compact && hasChanges(changes)) || rowAgents.length > 0;
   const plusRef = useRef<HTMLButtonElement>(null);
   /** Token start Esc was pressed on: that token stays closed until it is left or retyped. */
   const [mentionDismissed, setMentionDismissed] = useState<number | null>(null);
@@ -1200,19 +1181,18 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           why there is a turn at all. */}
       {!compact && goal}
       {!compact && <TodoStrip todos={todos} />}
-      {/* Over-strip: the branch and what the checkout has changed, on a tab of their own above the
-          card. It was a chip among the workspace chips under the prompter, and a diff is not that
-          kind of fact — the row below reports where the session runs and never changes, while this
-          moves every time the agent writes a file. Reading it meant finding it in a line of quiet
-          labels. Centred, because it is one object on its own strip rather than an item in a row
-          with a yielding order, and drawn only when there is a checkout to describe: an empty tab
-          is a claim on space with nothing to put in it.
+      {/* Over-strip: what the checkout has changed, on a tab of its own above the card, and who is
+          working in the session after it. A diff was a chip among the workspace chips under the
+          prompter, and it is not that kind of fact — the row below reports where the session runs
+          and never changes, while this moves every time the agent writes a file. Centred, and drawn
+          only when something changed or some agent is on the row: an empty tab is a claim on space
+          with nothing to put in it.
           Between the to-do strip and the card, so the two tabs stack into one frame band rather
           than fighting over the same edge (the join is `.composer-todos + .composer-overstrip` in
           styles.css) and the plan keeps its own top corners. */}
       {showOverstrip && (
         <div className="composer-overstrip">
-          <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
+          {!compact && <WhatChanged changes={changes} onOpen={onOpenDiff} />}
           <ActiveAgents sessionId={session.id} agents={rowAgents} onMessage={mentions ? addressAgent : undefined} />
         </div>
       )}

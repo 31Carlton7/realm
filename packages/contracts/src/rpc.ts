@@ -1505,6 +1505,10 @@ export const Methods = {
   /** One file's patch, on one side of the index. `path` is relative to the checkout ROOT (the `root`
    *  `workspace.diff` reported), and is refused if it is absolute or contains `..`. */
   "workspace.fileDiff": { params: z.object({ cwd: z.string(), path: z.string(), staged: z.boolean().default(false) }), result: FileDiffSchema },
+  /** A picture as the last commit has it, as a data URL: the "before" beside a changed image in the
+   *  diff pane. `path` is checkout-relative under `workspace.fileDiff`'s rules. Null when the path is
+   *  not a picture, is not in HEAD, or is too large to hand over. */
+  "workspace.headImage": { params: z.object({ cwd: z.string(), path: z.string() }), result: z.string().nullable() },
 
   /**
    * Search a CHECKOUT, where `search.query` searches Realm's own records: ⌘⇧F over the text of the

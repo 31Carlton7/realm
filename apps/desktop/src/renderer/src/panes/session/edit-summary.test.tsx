@@ -28,13 +28,14 @@ function mount(opts: { checkpoints?: Checkpoint[]; transcript?: TranscriptModel 
   render(<Transcript sessionStatus="idle" onDecide={() => {}} cwd="/w/app" transcript={opts.transcript ?? model()}
     checkout={{ root: "/w/app", onOpen }}
     turnEditing={{ sessionId: "s1", checkpoints: opts.checkpoints ?? [checkpoint], onReview, onUndo }} />);
-  return { onOpen, onReview, onUndo, card: screen.getByRole("region", { name: "Edited 3 files" }) };
+  return { onOpen, onReview, onUndo, card: screen.getByRole("region", { name: "Changed 3 code files" }) };
 }
 
 describe("the card a turn that changed files ends with", () => {
   it("says what changed in total and per file, the directory apart from the name", () => {
     const { card } = mount();
-    expect(within(card).getByText("Edited 3 files")).toBeTruthy();
+    // The words the pill over the prompter and the Changes view use, not Codex's "Edited 3 files".
+    expect(within(card).getByText("Changed 3 code files")).toBeTruthy();
     const head = card.querySelector(".edit-summary-head .edit-counts")!;
     expect(head.textContent).toBe("+20−12");
     const rows = [...card.querySelectorAll(".edit-file")];
@@ -90,10 +91,22 @@ describe("the card a turn that changed files ends with", () => {
       result: { content: "ok", isError: false }, ts: 150 }, blocks[2]!];
     render(<Transcript sessionStatus="idle" onDecide={() => {}} cwd="/w/app" transcript={model({ blocks: edited, changes: undefined })}
       checkout={{ root: "/w/app", onOpen: () => {} }} turnEditing={{ sessionId: "s1", checkpoints: [], onReview: () => {}, onUndo: () => {} }} />);
-    const plain = screen.getByRole("region", { name: "Edited 1 file" });
+    const plain = screen.getByRole("region", { name: "Changed 1 code file" });
     expect(within(plain).getByText("No checkpoint").getAttribute("title")).toMatch(/cannot put these files back/);
     // And no Review: nothing measured an "after" to diff the turn against.
     expect(within(plain).queryByRole("button", { name: "Review" })).toBeNull();
+  });
+
+  it("names what a turn made by its kind, and a verb when every file had the same done to it", () => {
+    const made: TurnChanges = { ...changes, totalFiles: 2, files: [
+      { path: "shots/hero.png", oldPath: null, status: "added", additions: null, deletions: null },
+      { path: "shots/logo.png", oldPath: null, status: "added", additions: null, deletions: null },
+    ] };
+    render(<Transcript sessionStatus="idle" onDecide={() => {}} cwd="/w/app" transcript={model({ changes: { 200: made } })}
+      checkout={{ root: "/w/app", onOpen: () => {} }} turnEditing={{ sessionId: "s1", checkpoints: [checkpoint], onReview: () => {}, onUndo: () => {} }} />);
+    const card = screen.getByRole("region", { name: "Added 2 images" });
+    // Review stays, whatever the card calls the work.
+    expect(within(card).getByRole("button", { name: "Review" })).toBeTruthy();
   });
 
   it("is not drawn for a turn only its tool calls describe when they changed nothing, nor in a read-only mount", () => {

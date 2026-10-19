@@ -31,7 +31,7 @@
    so there is no standard ligature to win there, and buying calt would cost the app its tracking. */
 .activity-call, .activity-duration, .activity-time, .agent-hint-text code, .cli-job-output,
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
-.diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
+.diff-counts, .diff-hunk-head, .diff-line, .diff-meta-branch, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-branch, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .video-btn, .video-time, .video-scrub-hover, .mention-row-id, .mp-about code,
@@ -5669,28 +5669,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-opts { display: flex; align-items: center; gap: 4px; flex: none; flex-wrap: nowrap; }
 .composer-opts > * { flex: none; }
 .perm-short { display: none; }
-/* The branch group (§3): still one button, still the way into the diff pane.
-   `--branch-reserved` is everything of FIXED width the row has to fit before the branch name gets
-   any: the card's margins and padding, the "+" and mode chips, the model chip and the send button,
-   plus whichever of the two number chips is still on the row (the narrow steps below restate it as
-   they drop them). Whatever is left over is the name's. Measured with
-   apps/desktop/scripts/composer-bar-live.mjs, which sweeps the row across pane widths and fails on
-   any chip the group has clipped. It is deliberately the figure for the COLLAPSED row: sized for the
-   wider un-collapsed one, panes between the two would fold the permission chip away to buy the
-   branch pixels it did not need. */
-.composer-git { --branch-reserved: 456px; display: inline-flex; align-items: center; gap: 2px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
-.composer-git:hover .ghost-chip { --fill: var(--rl-hover); color: var(--rl-text-bright); }
-/* A branch name is the one thing on this row whose width is user data, and the flat 160px cap it had
-   was wrong at both ends: it truncated a 30-character branch in a 1000px pane with 500px going
-   spare, and in anything under ~565px the chip was amputated outright by the group's clip — a button
-   sliced down the middle, which reads as a rendering fault rather than as a name that did not fit.
-   Capped against the pane instead, the name grows and shrinks with the room it actually has. The
-   chip stays `flex: none` with everything else on the row, so the collapse measurement above still
-   sees a real overflow rather than one this chip quietly absorbed. */
-.composer-git .git-branch { max-width: clamp(0px, calc(100cqw - var(--branch-reserved)), 240px); }
-.composer-git .git-diff { gap: 6px; font-variant-numeric: tabular-nums; }
-.composer-git .diff-add { color: var(--rl-success); }
-.composer-git .diff-del { color: var(--rl-danger); }
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
    them now (W3) — a picker until the session's first event, a plain label after. */
 .ghost-chip { display: inline-flex; align-items: center; gap: 4px; --btn-h: 28px; height: var(--btn-h); padding: 0 8px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
@@ -5731,20 +5709,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    red chip through an orange button would read as two different warnings about one decision. */
 .bypass-confirm { color: var(--rl-danger); background: var(--red-tint); }
 .bypass-confirm:hover { background: color-mix(in srgb, var(--red) 24%, transparent); }
-/* Narrow panes, in the order the row can afford to lose things. Every threshold is the pane width at
-   which the branch would otherwise be squeezed under its floor, read off a measured sweep rather than
-   guessed, and every one is the SESSION PANE's own width — a session in a three-way split is narrow
-   on a wide screen, which no window query would notice.
-   "N changed" goes first: the +/− pair beside it answers the same question and the file count is in
-   the button's own tip, so it is the only thing here that is purely a second telling. The pair
-   follows. Last the name itself gives way to the mark it already carries — a branch nobody can read
-   is a worse chip than a glyph that still opens the diff, and the name stays legible to a screen
-   reader (`.visually-hidden`'s own declarations) and one hover away for everyone else. */
-@container (max-width: 520px) { .composer-git { --branch-reserved: 376px; } .composer-git .git-dirty { display: none; } }
-@container (max-width: 460px) { .composer-git { --branch-reserved: 310px; } .composer-git .git-diff { display: none; } }
-@container (max-width: 360px) {
-  .composer-git .git-branch .chip-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-}
 /* The right group is what gives, and inside it only the model chip: the send button never shrinks. */
 .composer-actions { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
 .composer-actions > .model-chip { flex: 0 1 auto; }
@@ -5849,7 +5813,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .delegation-item[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
 .delegation-item[data-selected] > svg:first-child { color: var(--rl-accent); }
 
-/* ── Over-strip: the branch group, on a tab of its own above the card ─────────────────
+/* ── Over-strip: what the checkout has changed, on a tab of its own above the card ─────
    The to-do strip's geometry exactly — same frame fill, same 10px side inset, the same 10px of
    overlap sliding it behind the card, the same radii — because it is the same kind of object: a
    narrower tab attached to the prompter's top edge. 6px of strip shows above the chip and 16 − 10
@@ -5860,23 +5824,27 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    has a yielding order to arbitrate (machine, workspace, meter) and reads left to right; this holds
    one object, so there is nothing to order and it sits on the card's centre line.
 
-   Nothing in it is selectable, for the under-strip's reason: dragging across it to reach the diff
-   would leave the strip highlighted behind the pane that just opened, and the one string a reader
-   might want to copy — the branch name — is on the button's own tooltip. */
+   Nothing in it is selectable, for the under-strip's reason: dragging across it to reach the review
+   would leave the strip highlighted behind the pane that just opened. */
 .composer-overstrip { display: flex; align-items: center; justify-content: center; gap: 2px; min-width: 0;
   margin: 0 10px -10px; padding: 6px 10px 16px; background: var(--rl-frame);
   user-select: none; -webkit-user-select: none;
   border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
 .composer-overstrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-overstrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
-/* Alone on the strip, so `--branch-reserved` is only what sits BESIDE the name — the two number
-   chips, the gaps, and the strip's own inset — and the rest of the pane is the branch's, up to the
-   240px cap the chip carries. Restated at the two narrow steps because this selector outranks the
-   bare `.composer-git` ones that drop those chips: a reserve that still counts a chip the pane has
-   already hidden is a name cut short for room nobody is using. */
-.composer-overstrip .composer-git { --branch-reserved: 200px; }
-@container (max-width: 520px) { .composer-overstrip .composer-git { --branch-reserved: 120px; } }
-@container (max-width: 460px) { .composer-overstrip .composer-git { --branch-reserved: 48px; } }
+/* What changed (WhatChanged.tsx): the kinds of file involved, then what happened to them. The marks
+   overlap as a stack, each on a quiet disc, and the one behind is cut round the one in front by a mask
+   rather than ringed in the strip's colour — so the gap reads the same on the strip, under the
+   pointer's fill and on either face. The overlap is less than the margin round each mark, so the cut
+   takes the disc's edge and leaves the glyph whole. The disc's left edge sits closer to the chip's than
+   text would: a round edge reads further in than a straight one. */
+.composer-overstrip .what-changed { padding-left: 3px; }
+.what-changed-kinds { display: inline-flex; flex: none; }
+.what-changed-kind { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--rl-hover); }
+.what-changed-kind + .what-changed-kind { margin-left: -3px; }
+.what-changed-kind:not(:last-child) {
+  -webkit-mask: radial-gradient(circle at calc(100% + 6px) 50%, transparent 10px, #000 10.5px);
+  mask: radial-gradient(circle at calc(100% + 6px) 50%, transparent 10px, #000 10.5px); }
 /* Tabs stacked into one band. The corners belong to whichever is on TOP, and every strip below it
    goes square — each drawn from the strip that arrives underneath, never by reaching up into the one
    above to make room for itself. */
@@ -7088,8 +7056,21 @@ select { appearance: none; padding-right: 22px;
    and was clipped. An inline-size container so the head and the commit bar can re-flow to the PANE. */
 .diff-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--rl-panel); container-type: inline-size; }
 .diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); }
-.diff-head-count { font-size: 12px; color: var(--rl-text-dim); }
 .diff-head-spacer { flex: 1; }
+/* The head leads with what changed, in the words the prompter's pill uses, and puts how git keeps it —
+   the branch, what is still to push or pull, the lines — on a quiet line under it. */
+.diff-summary { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.diff-summary-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-summary-meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; min-width: 0;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.diff-summary-meta > * + *::before { content: "·"; margin-right: 6px; color: var(--rl-text-faint); }
+.diff-meta-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; font-family: var(--font-mono); }
+.diff-meta-conflict { color: var(--rl-warning); }
+/* A head per kind once the list holds more than one: the caption rung, the kind's mark beside it. */
+.diff-group-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: 12px 14px 4px;
+  font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.diff-group-count { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 /* A full band of bottom padding, not a fraction of one: scrolled to the end, the last row has to sit
    clear of the ramp entirely. Rows are 30px of dense text with no internal padding, so a row that
    ends inside the blur is a filename you scrolled down to read and then cannot. */
@@ -7112,6 +7093,24 @@ select { appearance: none; padding-right: 22px;
 .diff-status[data-status="deleted"] { color: var(--rl-danger); }
 .diff-status[data-status="conflicted"] { color: var(--rl-warning); }
 .diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+/* What happened to the file, in a word, toned by its state as the letter it replaced was. The path is
+   the row's unbounded item and keeps the slack; a long "Renamed from …" gives way after it. */
+.diff-what { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--rl-text-faint); }
+.diff-what[data-status="added"], .diff-what[data-status="untracked"] { color: var(--rl-success); }
+.diff-what[data-status="deleted"] { color: var(--rl-danger); }
+.diff-what[data-status="conflicted"] { color: var(--rl-warning); }
+/* A changed picture as pictures: the last commit's, an arrow, the one on disk. Whole, not cropped —
+   the comparison is the point — on the well's ground, under the outline every picture wears. */
+.diff-thumbs { flex: none; display: flex; align-items: center; gap: 4px; padding: 2px 0; }
+.diff-thumb { display: block; width: 44px; height: 44px; object-fit: contain; border-radius: var(--r-chip); background: var(--inset);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+:root[data-mode="light"] .diff-thumb { outline-color: rgba(0, 0, 0, 0.1); }
+.diff-thumb-arrow { flex: none; color: var(--rl-text-faint); }
+/* The lines of a document or a picture drawn as text, one click past opening it. */
+.diff-disclose { flex: none; width: 22px; --btn-h: 22px; }
+.diff-disclose svg { transition: transform var(--dur-pop) var(--ease-out-strong); }
+.diff-disclose[aria-expanded="true"] svg { transform: rotate(180deg); }
 .diff-dir { color: var(--rl-text-faint); }
 /* The message that asked for the turn a review is showing — what names it. The unbounded item in the
    head, so it is the one that gives way. */
@@ -7195,7 +7194,7 @@ select { appearance: none; padding-right: 22px;
 .diff-commit-bar { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px 8px; }
 .diff-staged-count { flex: 1; min-width: 0; padding-left: 6px; font-size: 12px; color: var(--rl-text-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Narrow: the branch and the file count keep the first line, the buttons take their own. The spacer
+/* Narrow: the summary keeps the first line, the buttons take their own. The spacer
    becoming a full-width break is what forces the split — left to itself the buttons would wrap one
    at a time and leave a ragged half-row. */
 @container (max-width: 560px) {

@@ -377,6 +377,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     return read;
   }, [id, loadEarlierEvents, loadEventsThrough, run]);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
+  const changes = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.diffs[cwd] ?? null : null; });
   // What is docked to this pane's right edge, if anything — one strip, one occupant.
   const dock = useApp((s) => s.sessionDock[id]);
   const closeSessionDock = useApp((s) => s.closeSessionDock);
@@ -696,7 +697,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
             onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId, session.id))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
-        : <DraftedComposer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
+        : <DraftedComposer session={session} status={status} gitInfo={gitInfo} changes={changes} todos={todos} quote={quote}
             onOpenDiff={() => run(() => openDiff(session.environmentId))}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}

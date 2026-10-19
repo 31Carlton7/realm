@@ -1,7 +1,7 @@
 import { isAbsolute } from "node:path";
-import type { DiffFile, DiffFileStatus, DiffHunk, DiffLine, DiffSummary, FileDiff } from "@realm/contracts";
+import { mimeForPath, type DiffFile, type DiffFileStatus, type DiffHunk, type DiffLine, type DiffSummary, type FileDiff } from "@realm/contracts";
 import { RpcError } from "../store/rows";
-import { GIT_DIFF_FLAGS, gitCapture, type GitRun } from "./git-exec";
+import { GIT_DIFF_FLAGS, gitBytes, gitCapture, type GitBytes, type GitRun } from "./git-exec";
 
 /**
  * Truncation policy, stated once (Plan 7 W3).
@@ -29,6 +29,11 @@ import { GIT_DIFF_FLAGS, gitCapture, type GitRun } from "./git-exec";
 export const DIFF_MAX_FILES = 1000;
 export const FILE_DIFF_MAX_BYTES = 512 * 1024;
 export const FILE_DIFF_MAX_LINES = 4000;
+/** The largest picture `headImage` hands over. A data URL is the whole file again plus a third, and it
+ *  is drawn as a thumbnail; a picture past this is shown as it is now, with no "before" beside it. */
+export const HEAD_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+/** Pictures an `<img>` in the renderer can draw. HEIC and TIFF are images Chromium cannot decode. */
+const DRAWABLE = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "image/bmp", "image/avif", "image/x-icon"]);
 
 /** Split NUL-terminated output into fields, dropping the empty tail after the final NUL. */
 function nulFields(out: string): string[] {
@@ -84,7 +89,8 @@ type Counts = { additions: number; deletions: number; binary: boolean };
  */
 export class GitDiffService {
   private git: GitRun;
-  constructor(opts: { git?: GitRun } = {}) { this.git = opts.git ?? gitCapture; }
+  private bytes: GitBytes;
+  constructor(opts: { git?: GitRun; bytes?: GitBytes } = {}) { this.git = opts.git ?? gitCapture; this.bytes = opts.bytes ?? gitBytes; }
 
   /** The checkout root, so every path in and out of this service means the same thing regardless of
    *  which subdirectory the session's cwd happens to be. Null when cwd is not a repository at all. */
@@ -152,6 +158,22 @@ export class GitDiffService {
     // non-zero exit as fatal when git actually said something.
     if (r.code > 1 && r.stderr.trim() !== "") throw new RpcError("GIT_DIFF_FAILED", r.stderr.split("\n")[0] ?? "git diff failed");
     return parsePatch(path, staged, r.stdout, r.truncated === true);
+  }
+
+  /**
+   * A picture as the last commit has it, as a data URL — the "before" the pane draws beside a changed
+   * image. Null for a path that is not a picture the renderer can draw, is not in HEAD, or is larger
+   * than `HEAD_IMAGE_MAX_BYTES`. `cat-file blob` prints the stored bytes and runs no filter, so
+   * reading it stays reading, as `GIT_DIFF_FLAGS` keeps a diff.
+   */
+  async headImage(cwd: string, path: string): Promise<string | null> {
+    assertRepoRelative(path);
+    const mime = mimeForPath(path);
+    if (!DRAWABLE.has(mime)) return null;
+    const root = await this.repoRoot(cwd);
+    if (!root) return null;
+    const blob = await this.bytes(root, ["cat-file", "blob", `HEAD:${path}`], HEAD_IMAGE_MAX_BYTES);
+    return blob && blob.byteLength > 0 ? `data:${mime};base64,${blob.toString("base64")}` : null;
   }
 
   /** `git status` for one path: cheaper and more exact than re-listing the tree to find out whether

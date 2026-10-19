@@ -244,7 +244,7 @@ describe("the scroll track", () => {
     await fiveTurns({ changes: { [changed.settledAt]: changed } });
     expect(ticks().map((t) => t.hasAttribute("data-edited"))).toEqual([false, true, false, false, false]);
     act(() => ticks()[1]!.focus());
-    expect(card().querySelector(".track-card-foot")!.textContent).toBe(`${stampLabel(T0 + 60_000, Date.now())} · Edited 2 files`);
+    expect(card().querySelector(".track-card-foot")!.textContent).toBe(`${stampLabel(T0 + 60_000, Date.now())} · Changed 2 files`);
   });
 
   it("moves between prompts on ↑ and ↓ once it has the keyboard, going to each, and to the ends on Home and End", async () => {
